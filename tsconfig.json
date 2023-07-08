@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@/hyper-app/*": ["packages/hyper-app/src/*"],
+      "@/hyper-ui/*": ["packages/hyper-ui/src/*"],
+      "@/hyper-web/*": ["packages/hyper-web/src/*"]
+    }
+  }
+}
