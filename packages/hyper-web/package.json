@@ -1,5 +1,5 @@
 {
-  "name": "hyper-web",
+  "name": "@hyper-hq/hyper-web",
   "version": "0.1.0",
   "private": true,
   "scripts": {

@@ -1,7 +1,8 @@
 {
-  "name": "hyper-ui",
+  "name": "@hyper-hq/hyper-ui",
   "version": "1.0.0",
   "description": "",
+  "private": true,
   "type": "module",
   "main": "index.js",
   "scripts": {

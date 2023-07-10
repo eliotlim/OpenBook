@@ -1,5 +1,5 @@
 {
-  "name": "hyper",
+  "name": "@hyper-hq/hyper",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "tauri-app-dev": "npm --workspace hyper-app run tauri dev"
+    "tauri-app-dev": "npm --workspace @hyper-hq/hyper-app run tauri dev"
   },
   "author": "Eliot Lim",
   "license": "MIT",
