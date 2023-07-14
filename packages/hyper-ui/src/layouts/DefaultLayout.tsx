@@ -1,4 +1,4 @@
-import NavBar from "@/components/NavBar";
+import {NavBar} from "@/components";
 import {Box} from "@mui/joy";
 import {ReactNode} from "react";
 

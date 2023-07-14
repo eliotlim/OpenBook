@@ -4,9 +4,9 @@ import Divider from "@mui/joy/Divider";
 import Stack from "@mui/joy/Stack";
 import Typography from "@mui/joy/Typography";
 
-import ModeToggle from "./ModeToggle";
+import {ModeToggle} from "./ModeToggle";
 
-export default function NavBar() {
+export function NavBar() {
   return (
     <>
       <Stack
