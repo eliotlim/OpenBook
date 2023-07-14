@@ -4,13 +4,19 @@
   "description": "",
   "private": true,
   "type": "module",
-  "main": "index.js",
+  "main": "dist/index.js",
   "scripts": {
+    "build": "tsc && resolve-tspaths",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
   "license": "MIT",
   "dependencies": {
     "@mui/joy": "^5.0.0-alpha.86"
+  },
+  "peerDependencies": {
+    "react": "^18.2.0",
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0"
   }
 }

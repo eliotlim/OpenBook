@@ -1,7 +1,7 @@
 import {useState} from "react";
 import {invoke} from "@tauri-apps/api/tauri";
 import "./App.css";
-import {DefaultLayout} from "@hyper-hq/hyper-ui/src/layouts/DefaultLayout";
+import {DefaultLayout} from "@hyper-hq/hyper-ui/dist/layouts/DefaultLayout";
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");

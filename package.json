@@ -4,15 +4,18 @@
   "description": "",
   "main": "index.js",
   "workspaces": [
-    "packages/hyper-app"
+    "packages/hyper-app",
+    "packages/hyper-ui"
   ],
   "scripts": {
+    "build": "npm --workspace @hyper-hq/hyper-ui run build",
     "test": "echo \"Error: no test specified\" && exit 1",
     "tauri-app-dev": "npm --workspace @hyper-hq/hyper-app run tauri dev"
   },
   "author": "Eliot Lim",
   "license": "MIT",
   "dependencies": {
+    "resolve-tspaths": "^0.8.14",
     "typescript": "^5.1.6"
   }
 }
