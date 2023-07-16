@@ -6,10 +6,9 @@ export interface DefaultLayoutProps {
   children: ReactNode;
 }
 
-export function DefaultLayout(props: DefaultLayoutProps) {
+export default function DefaultLayout(props: DefaultLayoutProps) {
   return (
     <>
-
       <NavBar/>
       <Box
         sx={{
