@@ -1,8 +1,8 @@
-import {useState} from "react";
+import React, {useState} from "react";
 import {invoke} from "@tauri-apps/api/tauri";
 import "./App.css";
 import {DefaultLayout} from "@hyper-hq/hyper-ui";
-import Container from "@mui/joy/Container";
+import {CssVarsProvider, CssBaseline, Container} from "@mui/joy";
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
@@ -14,26 +14,30 @@ function App() {
   }
 
   return (
-    <DefaultLayout>
-      <Container>
-        <form
-          className="row"
-          onSubmit={(e) => {
-            e.preventDefault();
-            greet();
-          }}
-        >
-          <input
-            id="greet-input"
-            onChange={(e) => setName(e.currentTarget.value)}
-            placeholder="Enter a name..."
-          />
-          <button type="submit">Greet</button>
-        </form>
+    <CssVarsProvider defaultMode="system">
+      <CssBaseline/>
+      <DefaultLayout>
+        <h1>Hello world</h1>
+        <Container>
+          <form
+            className="row"
+            onSubmit={(e) => {
+              e.preventDefault();
+              greet();
+            }}
+          >
+            <input
+              id="greet-input"
+              onChange={(e) => setName(e.currentTarget.value)}
+              placeholder="Enter a name..."
+            />
+            <button type="submit">Greet</button>
+          </form>
 
-        <p>{greetMsg}</p>
-      </Container>
-    </DefaultLayout>
+          <p>{greetMsg}</p>
+        </Container>
+      </DefaultLayout>
+    </CssVarsProvider>
   );
 }
 
