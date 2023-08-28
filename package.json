@@ -9,7 +9,7 @@
     "packages/hyper-web"
   ],
   "scripts": {
-    "build": "npm --workspace @hyper-hq/hyper-ui run rollup",
+    "build": "npm --workspace @hyper-hq/hyper-ui run build",
     "test": "echo \"Error: no test specified\" && exit 1",
     "tauri-app-dev": "npm --workspace @hyper-hq/hyper-app run tauri dev",
     "next-dev": "npm --workspace @hyper-hq/hyper-web run dev"

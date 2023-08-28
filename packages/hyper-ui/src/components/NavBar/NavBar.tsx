@@ -5,6 +5,7 @@ import Stack from "@mui/joy/Stack";
 import Typography from "@mui/joy/Typography";
 
 import {ModeToggle} from "../ModeToggle";
+import React from "react";
 
 export default function NavBar() {
   return (

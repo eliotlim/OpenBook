@@ -1,5 +1,5 @@
 import Head from 'next/head'
-import {DefaultLayout} from '@hyper-hq/hyper-ui/dist/esm'
+import {DefaultLayout} from '@hyper-hq/hyper-ui'
 import {Container} from "@mui/joy";
 import {useState} from "react";
 

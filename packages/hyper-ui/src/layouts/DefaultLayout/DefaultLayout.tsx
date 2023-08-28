@@ -1,6 +1,6 @@
 import {NavBar} from "@/components";
 import {Box} from "@mui/joy";
-import {ReactNode} from "react";
+import React, {ReactNode} from "react";
 
 export interface DefaultLayoutProps {
   children: ReactNode;
