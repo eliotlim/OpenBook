@@ -1,6 +1,5 @@
 import { useColorScheme } from '@mui/joy/styles';
 import Button from '@mui/joy/Button';
-import React from "react";
 
 export default function ModeToggle() {
   const { mode, setMode } = useColorScheme();

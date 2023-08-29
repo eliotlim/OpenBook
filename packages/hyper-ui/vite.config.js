@@ -11,14 +11,25 @@ export default defineConfig ({
       fileName: "index",
     },
     rollupOptions: {
-      external: ["react"],
+      external: [
+        'react',
+        "react/jsx-runtime",
+        'react-dom',
+        '@mui/styled-engine',
+      ],
+      output: {
+        globals: {
+          'react': 'react',
+          'react-dom': 'ReactDOM',
+          'react/jsx-runtime': 'react/jsx-runtime',
+          '@mui/styled-engine': '@mui/styled-engine',
+        },
+      }
     },
   },
   resolve: {
     alias: [
       { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
-      { find: '@/components', replacement: fileURLToPath(new URL('./src/components', import.meta.url)) },
-      { find: '@/layouts', replacement: fileURLToPath(new URL('./src/layouts', import.meta.url)) },
     ],
   },
 });
