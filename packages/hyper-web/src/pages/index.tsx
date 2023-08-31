@@ -1,7 +1,7 @@
 import Head from 'next/head'
 import {DefaultLayout} from '@hyper-hq/hyper-ui'
-import {Container} from "@mui/joy";
 import {useState} from "react";
+import {Container} from "@radix-ui/themes";
 
 export default function Home() {
   const [greetMsg, setGreetMsg] = useState("");

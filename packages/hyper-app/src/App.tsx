@@ -2,7 +2,7 @@ import React, {useState} from "react";
 import {invoke} from "@tauri-apps/api/tauri";
 import "./App.css";
 import {DefaultLayout} from "@hyper-hq/hyper-ui";
-import {CssVarsProvider, CssBaseline, Container} from "@mui/joy";
+import {Container, Theme} from "@radix-ui/themes";
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
@@ -14,8 +14,7 @@ function App() {
   }
 
   return (
-    <CssVarsProvider defaultMode="system">
-      <CssBaseline/>
+    <Theme>
       <DefaultLayout>
         <h1>Hello world</h1>
         <Container>
@@ -37,7 +36,7 @@ function App() {
           <p>{greetMsg}</p>
         </Container>
       </DefaultLayout>
-    </CssVarsProvider>
+    </Theme>
   );
 }
 

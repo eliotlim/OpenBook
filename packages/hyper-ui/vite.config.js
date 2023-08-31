@@ -15,14 +15,14 @@ export default defineConfig ({
         'react',
         "react/jsx-runtime",
         'react-dom',
-        '@mui/styled-engine',
+        '@radix-ui/themes',
       ],
       output: {
         globals: {
           'react': 'react',
           'react-dom': 'ReactDOM',
           'react/jsx-runtime': 'react/jsx-runtime',
-          '@mui/styled-engine': '@mui/styled-engine',
+          '@radix-ui/themes': '@radix-ui/themes',
         },
       }
     },

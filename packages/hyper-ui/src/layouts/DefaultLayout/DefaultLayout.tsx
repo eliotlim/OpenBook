@@ -1,5 +1,5 @@
 import {NavBar} from "@/components";
-import {Box} from "@mui/joy";
+import {Box} from "@radix-ui/themes";
 
 export interface DefaultLayoutProps {
   children: React.ReactNode;
@@ -10,7 +10,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
     <>
       <NavBar/>
       <Box
-        sx={{
+        style={{
           display: "flex",
           width: "100vw",
           height: "100vh",

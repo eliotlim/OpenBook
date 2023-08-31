@@ -1,15 +1,14 @@
-import { useColorScheme } from '@mui/joy/styles';
-import Button from '@mui/joy/Button';
+import {Button} from '@radix-ui/themes';
 
 export default function ModeToggle() {
-  const { mode, setMode } = useColorScheme();
+  // const { mode, setMode } = useColorScheme();
   return (
     <Button
-      variant="outlined"
-      color="neutral"
-      onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
+      variant="soft"
+      color="tomato"
+      // onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
     >
-      {mode === 'dark' ? '🌘' : '☀️'}
+      {/*{mode === 'dark' ? '🌘' : '☀️'}*/}
     </Button>
   );
 }
