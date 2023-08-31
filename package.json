@@ -10,9 +10,11 @@
   ],
   "scripts": {
     "build": "npm --workspace @hyper-hq/hyper-ui run build",
+    "dev": "concurrently --kill-others \"npm:watch-hyper-app\" \"npm:watch-hyper-web\" \"npm:watch-hyper-ui\"",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "tauri-app-dev": "npm --workspace @hyper-hq/hyper-app run tauri dev",
-    "next-dev": "npm --workspace @hyper-hq/hyper-web run dev"
+    "watch-hyper-app": "npm --workspace @hyper-hq/hyper-app run tauri dev",
+    "watch-hyper-ui": "npm --workspace @hyper-hq/hyper-ui run dev",
+    "watch-hyper-web": "npm --workspace @hyper-hq/hyper-web run dev"
   },
   "author": "Eliot Lim",
   "license": "MIT",
@@ -25,6 +27,7 @@
     "@rollup/plugin-commonjs": "^25.0.2",
     "@rollup/plugin-node-resolve": "^15.1.0",
     "@rollup/plugin-typescript": "^11.1.2",
+    "concurrently": "^8.2.1",
     "rollup": "^3.26.2",
     "rollup-plugin-dts": "^5.3.0",
     "tslib": "^2.6.0"

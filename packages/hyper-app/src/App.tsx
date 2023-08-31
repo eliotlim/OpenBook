@@ -1,8 +1,7 @@
 import React, {useState} from "react";
 import {invoke} from "@tauri-apps/api/tauri";
-import "./App.css";
 import {DefaultLayout} from "@hyper-hq/hyper-ui";
-import {Container, Theme} from "@radix-ui/themes";
+import {Button, Container, Heading, Section, Text, TextField, Theme} from "@radix-ui/themes";
 
 function App() {
   const [greetMsg, setGreetMsg] = useState("");
@@ -16,8 +15,8 @@ function App() {
   return (
     <Theme>
       <DefaultLayout>
-        <h1>Hello world</h1>
         <Container>
+          <Heading>Hello world</Heading>
           <form
             className="row"
             onSubmit={(e) => {
@@ -25,15 +24,18 @@ function App() {
               greet();
             }}
           >
-            <input
-              id="greet-input"
-              onChange={(e) => setName(e.currentTarget.value)}
-              placeholder="Enter a name..."
-            />
-            <button type="submit">Greet</button>
+            <Section>
+              <TextField.Root>
+                <TextField.Input
+                  id="greet-input"
+                  onChange={(e) => setName(e.currentTarget.value)}
+                  placeholder="Enter a name..."
+                />
+              </TextField.Root>
+              <Button type="submit">Greet</Button>
+              <Text>{greetMsg}</Text>
+            </Section>
           </form>
-
-          <p>{greetMsg}</p>
         </Container>
       </DefaultLayout>
     </Theme>
