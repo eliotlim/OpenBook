@@ -13,7 +13,7 @@ function App() {
   }
 
   return (
-    <Theme>
+    <Theme className="light">
       <DefaultLayout>
         <Container>
           <Heading>Hello world</Heading>
