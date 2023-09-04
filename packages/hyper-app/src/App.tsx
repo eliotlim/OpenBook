@@ -1,6 +1,5 @@
 import React, {useState} from "react";
 import {invoke} from "@tauri-apps/api/tauri";
-import "./App.css";
 import {DefaultLayout} from "@hyper-hq/hyper-ui";
 import {CssVarsProvider, CssBaseline, Container} from "@mui/joy";
 

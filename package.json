@@ -10,10 +10,11 @@
   ],
   "scripts": {
     "build": "npm --workspace @hyper-hq/hyper-ui run build",
-    "dev": "concurrently --kill-others \"npm:watch-hyper-app\" \"npm:watch-hyper-web\" \"npm:watch-hyper-ui\"",
+    "dev": "concurrently --kill-others \"npm:watch-hyper-app\" \"npm:watch-hyper-web\" \"npm:watch-hyper-ui\" \"npm:watch-hyper-ui-types\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "watch-hyper-app": "npm --workspace @hyper-hq/hyper-app run tauri dev",
     "watch-hyper-ui": "npm --workspace @hyper-hq/hyper-ui run dev",
+    "watch-hyper-ui-types": "npm --workspace @hyper-hq/hyper-ui run dev-types",
     "watch-hyper-web": "npm --workspace @hyper-hq/hyper-web run dev"
   },
   "author": "Eliot Lim",
