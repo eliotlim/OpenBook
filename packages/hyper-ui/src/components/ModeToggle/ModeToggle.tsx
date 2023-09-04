@@ -1,5 +1,4 @@
-import { useColorScheme } from '@mui/joy/styles';
-import Button from '@mui/joy/Button';
+import { useColorScheme, Button } from '@mui/joy';
 
 export default function ModeToggle() {
   const { mode, setMode } = useColorScheme();

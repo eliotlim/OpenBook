@@ -1,8 +1,10 @@
-import Button from "@mui/joy/Button";
-import Container from "@mui/joy/Container";
-import Divider from "@mui/joy/Divider";
-import Stack from "@mui/joy/Stack";
-import Typography from "@mui/joy/Typography";
+import {
+  Button,
+  Container,
+  Divider,
+  Stack,
+  Typography,
+} from "@mui/joy";
 
 import {ModeToggle} from "../ModeToggle";
 
