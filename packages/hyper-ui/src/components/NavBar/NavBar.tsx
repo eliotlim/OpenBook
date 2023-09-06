@@ -9,10 +9,10 @@ import {
 } from "@mui/joy";
 
 import {ModeToggle} from "../ModeToggle";
-import React from "react";
+import {useSideNav} from "@/providers";
 
 export default function NavBar() {
-  const [menuOpen, setMenuOpen] = React.useState(false);
+  const {sideNav, setSideNav} = useSideNav();
   return (
     <>
       <Stack
@@ -35,9 +35,9 @@ export default function NavBar() {
           <Button
             variant="plain"
             size="sm"
-            onClick={() => setMenuOpen(!menuOpen)}
+            onClick={() => setSideNav({...sideNav, open: !sideNav.open})}
           >
-            {menuOpen ?
+            {sideNav.open ?
               <MenuOpen/> :
               <MenuOutlined/>
             }
