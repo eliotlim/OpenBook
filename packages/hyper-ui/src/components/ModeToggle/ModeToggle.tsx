@@ -5,6 +5,7 @@ export default function ModeToggle() {
   return (
     <Button
       variant="outlined"
+      size="sm"
       color="neutral"
       onClick={() => setMode(mode === 'dark' ? 'light' : 'dark')}
     >
