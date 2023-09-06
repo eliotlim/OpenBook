@@ -1,4 +1,4 @@
-import {NavBar} from "@/components";
+import {NavBar, SideNav} from "@/components";
 import {Box} from "@mui/joy";
 
 export interface DefaultLayoutProps {
@@ -9,6 +9,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
   return (
     <>
       <NavBar/>
+      <SideNav/>
       <Box
         sx={{
           display: "flex",
