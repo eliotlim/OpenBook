@@ -1,5 +1,5 @@
 import Head from 'next/head'
-import {DefaultLayout} from '@hyper-hq/hyper-ui'
+import {DefaultLayout, PageDocument} from '@hyper-hq/hyper-ui'
 import {Container} from "@mui/joy";
 import {useState} from "react";
 
@@ -21,22 +21,7 @@ export default function Home() {
       </Head>
       <DefaultLayout>
         <Container>
-          <form
-            className="row"
-            onSubmit={(e) => {
-              e.preventDefault();
-              greet();
-            }}
-          >
-            <input
-              id="greet-input"
-              onChange={(e) => setName(e.currentTarget.value)}
-              placeholder="Enter a name..."
-            />
-            <button type="submit">Greet</button>
-          </form>
-
-          <p>{greetMsg}</p>
+          <PageDocument/>
         </Container>
       </DefaultLayout>
     </>

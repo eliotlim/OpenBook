@@ -1,6 +1,6 @@
 import React, {useState} from "react";
 import {invoke} from "@tauri-apps/api/tauri";
-import {DefaultLayout, SideNavProvider} from "@hyper-hq/hyper-ui";
+import {DefaultLayout, PageDocument, SideNavProvider} from "@hyper-hq/hyper-ui";
 import {Container, CssBaseline, CssVarsProvider} from "@mui/joy";
 
 function App() {
@@ -16,27 +16,8 @@ function App() {
     <CssVarsProvider defaultMode="system">
       <CssBaseline/>
       <SideNavProvider>
-
         <DefaultLayout>
-          <h1>Hello world</h1>
-          <Container>
-            <form
-              className="row"
-              onSubmit={(e) => {
-                e.preventDefault();
-                greet();
-              }}
-            >
-              <input
-                id="greet-input"
-                onChange={(e) => setName(e.currentTarget.value)}
-                placeholder="Enter a name..."
-              />
-              <button type="submit">Greet</button>
-            </form>
-
-            <p>{greetMsg}</p>
-          </Container>
+          <PageDocument/>
         </DefaultLayout>
       </SideNavProvider>
     </CssVarsProvider>

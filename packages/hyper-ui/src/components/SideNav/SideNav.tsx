@@ -9,12 +9,21 @@ export default function SideNav() {
       <Drawer
         title="Hello World"
         open={sideNav.open}
+        slotProps={{
+          backdrop: {
+            sx: {
+              opacity: 0,
+              backdropFilter: 'none',
+            },
+          },
+        }}
         onClose={() => {
           setSideNav({
             ...sideNav,
             open: false
           });
         }}
+        docked={sideNav.docked}
       >
         <Typography>
           Hello World

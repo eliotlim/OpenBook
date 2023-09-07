@@ -15,6 +15,7 @@ export interface DrawerProps extends Omit<ModalProps, "children"> {
   title: string;
   size?: number | string;
   position?: "left" | "right" | "top" | "bottom";
+  docked?: boolean;
 }
 
 export default function Drawer({
@@ -30,10 +31,11 @@ export default function Drawer({
       keepMounted
       sx={[
         {
+          paddingTop: props.docked ? 5 : 0,
           transitionProperty: "visibility",
           transitionDelay: props.open ? "0s" : "300ms",
           [`& .${modalClasses.backdrop}`]: {
-            opacity: props.open ? 1 : 0,
+            opacity: props.open ? (props.docked ? 0 : 1) : 0,
             transition: "opacity 0.3s ease"
           }
         },

@@ -14,6 +14,7 @@ export default defineConfig ({
       external: [
         'clsx',
         'csstype',
+        'novel',
         'prop-types',
         'react',
         "react/jsx-runtime",
@@ -35,6 +36,7 @@ export default defineConfig ({
         globals: {
           'clsx': 'clsx',
           'csstype': 'csstype',
+          'novel': 'novel',
           'prop-types': 'prop-types',
           'react': 'react',
           'react-dom': 'ReactDOM',

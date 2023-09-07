@@ -2,6 +2,7 @@ import React, {createContext, useContext, useState, PropsWithChildren} from "rea
 
 export interface SideNavProps {
   open: boolean;
+  docked?: boolean;
 }
 
 export interface SideNavContext {
@@ -10,7 +11,8 @@ export interface SideNavContext {
 }
 
 export const SideNavDefault = {
-  open: false
+  open: false,
+  docked: true,
 };
 
 export const SideNavContext = createContext<SideNavContext>({
