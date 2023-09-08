@@ -14,6 +14,7 @@ export default defineConfig ({
       external: [
         'clsx',
         'csstype',
+        'emoji-picker-react',
         'novel',
         'prop-types',
         'react',
@@ -36,6 +37,7 @@ export default defineConfig ({
         globals: {
           'clsx': 'clsx',
           'csstype': 'csstype',
+          'emoji-picker-react': 'emoji-picker-react',
           'novel': 'novel',
           'prop-types': 'prop-types',
           'react': 'react',
