@@ -1,13 +1,20 @@
 import {Drawer} from "@/components/Drawer";
 import {useSideNav} from "@/providers";
-import {Typography} from "@mui/joy";
+import {Dropdown, ListItemDecorator, Menu, MenuButton, MenuItem, Stack, useColorScheme} from "@mui/joy";
+import {
+  ArrowDropDown,
+  Brightness1,
+  Brightness7,
+  BrightnessAuto
+} from "@mui/icons-material";
 
 export default function SideNav() {
+  const {mode, setMode} = useColorScheme();
   const {sideNav, setSideNav} = useSideNav();
   return (
     <>
       <Drawer
-        title="Hello World"
+        title={"Workspaces"}
         open={sideNav.open}
         slotProps={{
           backdrop: {
@@ -25,9 +32,43 @@ export default function SideNav() {
         }}
         docked={sideNav.docked}
       >
-        <Typography>
-          Hello World
-        </Typography>
+        <Stack>
+          <Dropdown>
+            <MenuButton
+              size="sm"
+              variant="plain"
+              startDecorator={mode === "light" ? <Brightness7/>: mode === "dark" ? <Brightness1/> : <BrightnessAuto/> }
+              endDecorator={<ArrowDropDown/>}
+            >
+              {(mode ?? ' ').substring(0, 1).toUpperCase()}{(mode ?? ' ').substring(1)} Mode
+            </MenuButton>
+            <Menu
+              size="sm"
+              style={{
+                zIndex: 2000,
+              }}
+            >
+              <MenuItem onClick={() => setMode('light')}>
+                <ListItemDecorator>
+                  <Brightness7/>
+                </ListItemDecorator>
+                Light Mode
+              </MenuItem>
+              <MenuItem onClick={() => setMode('dark')}>
+                <ListItemDecorator>
+                  <Brightness1/>
+                </ListItemDecorator>
+                Dark Mode
+              </MenuItem>
+              <MenuItem onClick={() => setMode('system')}>
+                <ListItemDecorator>
+                  <BrightnessAuto/>
+                </ListItemDecorator>
+                System Mode
+              </MenuItem>
+            </Menu>
+          </Dropdown>
+        </Stack>
       </Drawer>
     </>
   )

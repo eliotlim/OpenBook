@@ -1,14 +1,13 @@
 import {
   MenuOpen,
-  MenuOutlined
+  MenuOutlined, MoreVert, Settings
 } from "@mui/icons-material";
 import {
   Divider,
   Button,
-  Stack,
+  Stack, Dropdown, MenuButton, Menu, MenuItem, ListItemDecorator,
 } from "@mui/joy";
 
-import {ModeToggle} from "../ModeToggle";
 import {useSideNav} from "@/providers";
 
 export default function NavBar() {
@@ -32,17 +31,40 @@ export default function NavBar() {
           justifyContent="space-between"
           paddingX={0.5}
         >
-          <Button
-            variant="plain"
-            size="sm"
-            onClick={() => setSideNav({...sideNav, open: !sideNav.open})}
+          <Stack
+            direction="row"
           >
-            {sideNav.open ?
-              <MenuOpen/> :
-              <MenuOutlined/>
-            }
-          </Button>
-          <ModeToggle/>
+            <Button
+              variant="plain"
+              size="sm"
+              onClick={() => setSideNav({...sideNav, open: !sideNav.open})}
+            >
+              {sideNav.open ?
+                <MenuOpen/> :
+                <MenuOutlined/>
+              }
+            </Button>
+          </Stack>
+          <Stack
+            direction="row"
+          >
+            <Dropdown>
+              <MenuButton
+                size="sm"
+                variant="plain"
+              >
+                <MoreVert/>
+              </MenuButton>
+              <Menu>
+                <MenuItem>
+                  <ListItemDecorator>
+                    <Settings/>
+                  </ListItemDecorator>
+                  Settings
+                </MenuItem>
+              </Menu>
+            </Dropdown>
+          </Stack>
         </Stack>
         <Divider/>
       </Stack>

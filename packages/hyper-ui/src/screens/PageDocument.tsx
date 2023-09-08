@@ -1,9 +1,10 @@
 import {Editor} from 'novel';
-import EmojiPicker from 'emoji-picker-react';
-import {Container, Dropdown, Menu, MenuButton, Stack, Typography} from "@mui/joy";
+import EmojiPicker, {Theme} from 'emoji-picker-react';
+import {Container, Dropdown, Menu, MenuButton, Stack, Typography, useColorScheme} from "@mui/joy";
 import React from "react";
 
 const PageDocument = () => {
+  const { colorScheme } = useColorScheme();
   const [emoji, setEmoji] = React.useState("📝");
   return (
     <Stack
@@ -29,6 +30,7 @@ const PageDocument = () => {
                   onEmojiClick={(e) => {
                     setEmoji(e.emoji);
                   }}
+                  theme={colorScheme === 'light' ? Theme.LIGHT : Theme.DARK}
                 />
               </Menu>
             </Dropdown>
@@ -38,7 +40,9 @@ const PageDocument = () => {
           </Stack>
         </Container>
       </Stack>
-      <Editor/>
+      <Editor
+        className=""
+      />
     </Stack>
   );
 }
