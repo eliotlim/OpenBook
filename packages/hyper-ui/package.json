@@ -28,6 +28,7 @@
     "vite": "^4.4.9"
   },
   "peerDependencies": {
+    "emoji-picker-react": "^4.5.0",
     "react": "^17.0.0 || ^18.0.0",
     "react-dom": "^17.0.0 || ^18.0.0",
     "@emotion/react": "^11.11.1",
