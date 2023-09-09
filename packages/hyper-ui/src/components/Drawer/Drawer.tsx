@@ -1,12 +1,8 @@
 import React from "react";
 import {
-  Box,
   Modal,
   ModalProps,
   modalClasses,
-  Divider,
-  ModalClose,
-  Typography,
   Sheet,
 } from "@mui/joy";
 
@@ -45,8 +41,8 @@ export default function Drawer({
     >
       <Sheet
         sx={{
-          px: 2,
-          py: 1.5,
+          px: 0.5,
+          py: 0.5,
           boxSizing: "border-box",
           position: "fixed",
           overflow: "auto",
@@ -72,13 +68,6 @@ export default function Drawer({
           transition: "transform 0.3s ease"
         }}
       >
-        <Box sx={{ display: "flex", alignItems: "center" }}>
-          <Typography fontSize="lg" fontWeight="lg" sx={{ flex: 1 }}>
-            {title}
-          </Typography>
-          <ModalClose sx={{ position: "initial" }} />
-        </Box>
-        <Divider sx={{ mt: 1, mb: 1.5 }} />
         {children}
       </Sheet>
     </Modal>
