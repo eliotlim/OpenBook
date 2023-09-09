@@ -1,6 +1,14 @@
 import {Drawer} from "@/components/Drawer";
 import {useSideNav} from "@/providers";
-import {Divider, Dropdown, ListItemDecorator, Menu, MenuButton, MenuItem, Stack, useColorScheme} from "@mui/joy";
+import {
+  Dropdown,
+  ListItemDecorator,
+  Menu,
+  MenuButton,
+  MenuItem,
+  Stack,
+  useColorScheme
+} from "@mui/joy";
 import {
   ArrowDropDown,
   Brightness1,
@@ -34,7 +42,8 @@ export default function SideNav() {
       >
         <Stack
           gap={0.5}
-          alignItems="space-between"
+          height="100%"
+          justifyContent="space-between"
         >
           <Stack
             direction="column"
@@ -73,9 +82,11 @@ export default function SideNav() {
               </Menu>
             </Dropdown>
           </Stack>
-          <Divider/>
           <Stack
             direction="column"
+            style={{
+              height: '5rem',
+            }}
           >
             <Dropdown>
               <MenuButton
@@ -84,7 +95,7 @@ export default function SideNav() {
                 startDecorator={mode === "light" ? <Brightness7/>: mode === "dark" ? <Brightness1/> : <BrightnessAuto/> }
                 endDecorator={<ArrowDropDown/>}
               >
-                {(mode ?? ' ').substring(0, 1).toUpperCase()}{(mode ?? ' ').substring(1)} Mode
+                {`${(mode ?? ' ').substring(0, 1).toUpperCase()}${(mode ?? ' ').substring(1)} Mode`}
               </MenuButton>
               <Menu
                 size="sm"
