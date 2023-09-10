@@ -1,16 +1,27 @@
 import {
+  KeyboardArrowRight,
   MenuOpen,
-  MenuOutlined, MoreVert, Settings
+  MenuOutlined,
+  MoreVert,
+  Settings
 } from "@mui/icons-material";
 import {
-  Divider,
+  Breadcrumbs,
   Button,
-  Stack, Dropdown, MenuButton, Menu, MenuItem, ListItemDecorator,
+  Divider,
+  Dropdown,
+  ListItemDecorator,
+  Menu,
+  MenuButton,
+  MenuItem,
+  Stack,
+  useColorScheme,
 } from "@mui/joy";
 
 import {useSideNav} from "@/providers";
 
 export default function NavBar() {
+  const {colorScheme} = useColorScheme();
   const {sideNav, setSideNav} = useSideNav();
   return (
     <>
@@ -23,6 +34,7 @@ export default function NavBar() {
         width="100%"
         zIndex={1000}
         sx={{
+          backgroundColor: colorScheme === 'light' ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)',
           backdropFilter: 'blur(10px)',
         }}
       >
@@ -44,6 +56,30 @@ export default function NavBar() {
                 <MenuOutlined/>
               }
             </Button>
+            <Breadcrumbs
+              size="sm"
+              separator={<KeyboardArrowRight/>}
+              style={{
+                padding: 0,
+              }}
+            >
+              {[
+                {emoji: '💼', title: 'Workspace 1'},
+                {emoji: '🏠', title: 'Home'},
+                {emoji: '📄', title: 'Untitled Page'},
+              ].map((pageDetails) => (
+                  <Button
+                    key={pageDetails.title}
+                    size="sm"
+                    color={pageDetails.title === 'Untitled Page' ? 'primary' : 'neutral'}
+                    variant="plain"
+                    startDecorator={<span>{pageDetails.emoji}</span>}
+                  >
+                    {pageDetails.title}
+                  </Button>
+                )
+              )}
+            </Breadcrumbs>
           </Stack>
           <Stack
             direction="row"
