@@ -13,7 +13,8 @@ import {
   ArrowDropDown,
   Brightness1,
   Brightness7,
-  BrightnessAuto, Workspaces
+  BrightnessAuto,
+  Workspaces,
 } from "@mui/icons-material";
 
 export default function SideNav() {
@@ -52,6 +53,8 @@ export default function SideNav() {
               <MenuButton
                 size="lg"
                 variant="plain"
+                startDecorator={<Workspaces/>}
+                endDecorator={<ArrowDropDown/>}
               >
                 Workspaces
               </MenuButton>

@@ -28,10 +28,12 @@ export default defineConfig ({
         '@mui/core-downloads-tracker',
         '@mui/icons-material',
         '@mui/joy',
+        '@mui/material',
         '@mui/styled-engine',
         '@mui/system',
         '@mui/types',
         '@mui/utils',
+        '@mui/x-tree-view',
       ],
       output: {
         globals: {
@@ -51,10 +53,12 @@ export default defineConfig ({
           '@mui/core-downloads-tracker': '@mui/core-downloads-tracker',
           '@mui/icons-material': '@mui/icons-material',
           '@mui/joy': '@mui/joy',
+          '@mui/material': '@mui/material',
           '@mui/styled-engine': '@mui/styled-engine',
           '@mui/system': '@mui/system',
           '@mui/types': '@mui/types',
           '@mui/utils': '@mui/utils',
+          '@mui/x-tree-view': '@mui/x-tree-view',
         },
       }
     },
