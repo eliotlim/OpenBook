@@ -1,13 +1,14 @@
 import {
+  Favorite,
+  KeyboardArrowLeft,
   KeyboardArrowRight,
   MenuOpen,
   MenuOutlined,
   MoreVert,
-  Settings
-} from "@mui/icons-material";
+  Settings} from "@mui/icons-material";
 import {
   Breadcrumbs,
-  Button,
+  Button, ButtonGroup,
   Divider,
   Dropdown,
   ListItemDecorator,
@@ -47,6 +48,7 @@ export default function NavBar() {
             direction="row"
           >
             <Button
+              color="neutral"
               variant="plain"
               size="sm"
               onClick={() => setSideNav({...sideNav, open: !sideNav.open})}
@@ -56,9 +58,24 @@ export default function NavBar() {
                 <MenuOutlined/>
               }
             </Button>
+            <ButtonGroup
+              size="sm"
+              variant="plain"
+            >
+              <Button
+                sx={{padding: '0.5rem'}}
+              >
+                <KeyboardArrowLeft/>
+              </Button>
+              <Button
+                sx={{padding: '0.5rem'}}
+              >
+                <KeyboardArrowRight/>
+              </Button>
+            </ButtonGroup>
             <Breadcrumbs
               size="sm"
-              separator={<KeyboardArrowRight/>}
+              separator={'/'}
               style={{
                 padding: 0,
               }}
@@ -71,6 +88,7 @@ export default function NavBar() {
                   <Button
                     key={pageDetails.title}
                     size="sm"
+                    sx={{padding: '0.5rem'}}
                     color={pageDetails.title === 'Untitled Page' ? 'primary' : 'neutral'}
                     variant="plain"
                     startDecorator={<span>{pageDetails.emoji}</span>}
@@ -91,7 +109,16 @@ export default function NavBar() {
               >
                 <MoreVert/>
               </MenuButton>
-              <Menu>
+              <Menu
+                size="sm"
+              >
+                <MenuItem>
+                  <ListItemDecorator>
+                    <Favorite/>
+                  </ListItemDecorator>
+                  Favorite
+                </MenuItem>
+                <Divider/>
                 <MenuItem>
                   <ListItemDecorator>
                     <Settings/>
