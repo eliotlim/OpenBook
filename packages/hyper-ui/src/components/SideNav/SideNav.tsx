@@ -1,12 +1,15 @@
 import {Drawer} from "@/components/Drawer";
 import {useSideNav} from "@/providers";
 import {
+  Avatar,
   Dropdown,
+  ListItemContent,
   ListItemDecorator,
   Menu,
   MenuButton,
   MenuItem,
   Stack,
+  Typography,
   useColorScheme
 } from "@mui/joy";
 import {
@@ -66,21 +69,42 @@ export default function SideNav() {
               >
                 <MenuItem>
                   <ListItemDecorator>
-                    <Workspaces/>
+                    <Avatar>
+                      <Workspaces/>
+                    </Avatar>
                   </ListItemDecorator>
-                  Workspace 1
+                  <ListItemContent>
+                    <Typography level="title-sm">Workspace 1</Typography>
+                    <Typography level="body-xs" noWrap>
+                      https://workspace-1.hyper.app
+                    </Typography>
+                  </ListItemContent>
                 </MenuItem>
                 <MenuItem>
                   <ListItemDecorator>
-                    <Workspaces/>
+                    <Avatar>
+                      <Workspaces/>
+                    </Avatar>
                   </ListItemDecorator>
-                  Workspace 2
+                  <ListItemContent>
+                    <Typography level="title-sm">Workspace 2</Typography>
+                    <Typography level="body-xs" noWrap>
+                      https://workspace-2.hyper.app
+                    </Typography>
+                  </ListItemContent>
                 </MenuItem>
                 <MenuItem>
                   <ListItemDecorator>
-                    <Workspaces/>
+                    <Avatar>
+                      <Workspaces/>
+                    </Avatar>
                   </ListItemDecorator>
-                  Workspace 3
+                  <ListItemContent>
+                    <Typography level="title-sm">Workspace 3</Typography>
+                    <Typography level="body-xs" noWrap>
+                      file:///~/Documents/Hyper
+                    </Typography>
+                  </ListItemContent>
                 </MenuItem>
               </Menu>
             </Dropdown>
