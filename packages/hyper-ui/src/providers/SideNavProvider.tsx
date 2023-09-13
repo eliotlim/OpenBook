@@ -1,4 +1,4 @@
-import React, {createContext, useContext, useState, PropsWithChildren} from "react";
+import React, {createContext, useContext, useState, PropsWithChildren} from 'react';
 
 export interface SideNavProps {
   open: boolean;
@@ -26,5 +26,5 @@ export const SideNavProvider: React.FC<PropsWithChildren<unknown>> = ({children}
   const [sideNav, setSideNav] = useState<SideNavProps>(SideNavDefault);
   return <SideNavContext.Provider value={{sideNav, setSideNav}}>
     {children}
-  </SideNavContext.Provider>
-}
+  </SideNavContext.Provider>;
+};

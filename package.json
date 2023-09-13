@@ -11,6 +11,8 @@
   "scripts": {
     "build": "npm --workspace @hyper-hq/hyper-ui run build",
     "dev": "concurrently --kill-others \"npm:watch-hyper-app\" \"npm:watch-hyper-web\" \"npm:watch-hyper-ui\" \"npm:watch-hyper-ui-types\"",
+    "lint": "npm --workspaces run lint",
+    "lint-fix": "npm --workspaces run lint-fix",
     "test": "echo \"Error: no test specified\" && exit 1",
     "watch-hyper-app": "npm --workspace @hyper-hq/hyper-app run tauri dev",
     "watch-hyper-ui": "npm --workspace @hyper-hq/hyper-ui run dev",
@@ -29,6 +31,7 @@
     "@rollup/plugin-node-resolve": "^15.1.0",
     "@rollup/plugin-typescript": "^11.1.2",
     "@tauri-apps/cli": "^1.4.0",
+    "@typescript-eslint/eslint-plugin": "^6.7.0",
     "concurrently": "^8.2.1",
     "rollup": "^3.26.2",
     "rollup-plugin-dts": "^5.3.0",

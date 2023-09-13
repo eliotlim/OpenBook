@@ -1,4 +1,4 @@
-import React, {createContext, useContext, useState, PropsWithChildren} from "react";
+import React, {createContext, useContext, useState, PropsWithChildren} from 'react';
 
 export interface PlatformLibrary {
 
@@ -12,5 +12,5 @@ export const PlatformLibraryProvider: React.FC<PropsWithChildren<unknown>> = ({c
   const [platformLibrary, setPlatformLibrary] = useState<PlatformLibrary | null>(null);
   return <PlatformLibraryContext.Provider value={{platformLibrary, setPlatformLibrary}}>
     {children}
-  </PlatformLibraryContext.Provider>
-}
+  </PlatformLibraryContext.Provider>;
+};

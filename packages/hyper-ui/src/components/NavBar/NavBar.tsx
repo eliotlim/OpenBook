@@ -5,7 +5,7 @@ import {
   MenuOpen,
   MenuOutlined,
   MoreVert,
-  Settings} from "@mui/icons-material";
+  Settings} from '@mui/icons-material';
 import {
   Breadcrumbs,
   Button, ButtonGroup,
@@ -17,9 +17,9 @@ import {
   MenuItem,
   Stack,
   useColorScheme,
-} from "@mui/joy";
+} from '@mui/joy';
 
-import {useSideNav} from "@/providers";
+import {useSideNav} from '@/providers';
 
 export default function NavBar() {
   const {colorScheme} = useColorScheme();
@@ -85,17 +85,17 @@ export default function NavBar() {
                 {emoji: '🏠', title: 'Home'},
                 {emoji: '📄', title: 'Untitled Page'},
               ].map((pageDetails) => (
-                  <Button
-                    key={pageDetails.title}
-                    size="sm"
-                    sx={{padding: '0.5rem'}}
-                    color={pageDetails.title === 'Untitled Page' ? 'primary' : 'neutral'}
-                    variant="plain"
-                    startDecorator={<span>{pageDetails.emoji}</span>}
-                  >
-                    {pageDetails.title}
-                  </Button>
-                )
+                <Button
+                  key={pageDetails.title}
+                  size="sm"
+                  sx={{padding: '0.5rem'}}
+                  color={pageDetails.title === 'Untitled Page' ? 'primary' : 'neutral'}
+                  variant="plain"
+                  startDecorator={<span>{pageDetails.emoji}</span>}
+                >
+                  {pageDetails.title}
+                </Button>
+              )
               )}
             </Breadcrumbs>
           </Stack>
@@ -132,5 +132,5 @@ export default function NavBar() {
         <Divider/>
       </Stack>
     </>
-  )
+  );
 }

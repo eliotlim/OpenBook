@@ -1,11 +1,11 @@
 import {Editor} from 'novel';
 import EmojiPicker, {Theme} from 'emoji-picker-react';
-import {Container, Dropdown, Menu, MenuButton, Stack, Typography, useColorScheme} from "@mui/joy";
-import React from "react";
+import {Container, Dropdown, Menu, MenuButton, Stack, Typography, useColorScheme} from '@mui/joy';
+import React from 'react';
 
 const PageDocument = () => {
   const { colorScheme } = useColorScheme();
-  const [emoji, setEmoji] = React.useState("📝");
+  const [emoji, setEmoji] = React.useState('📝');
   return (
     <Stack
       gap={3}
@@ -45,6 +45,6 @@ const PageDocument = () => {
       />
     </Stack>
   );
-}
+};
 
 export default PageDocument;

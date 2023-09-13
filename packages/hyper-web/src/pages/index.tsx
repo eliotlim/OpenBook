@@ -1,16 +1,9 @@
-import Head from 'next/head'
-import {DefaultLayout, PageDocument} from '@hyper-hq/hyper-ui'
-import {Container} from "@mui/joy";
-import {useState} from "react";
+import Head from 'next/head';
+import {DefaultLayout, PageDocument} from '@hyper-hq/hyper-ui';
+import {Container} from '@mui/joy';
 
 export default function Home() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    setGreetMsg(`greet ${name}`);
-  }
   return (
     <>
       <Head>
@@ -25,5 +18,5 @@ export default function Home() {
         </Container>
       </DefaultLayout>
     </>
-  )
+  );
 }

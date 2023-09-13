@@ -1,8 +1,8 @@
-import {NavBar, SideNav} from "@/components";
+import {NavBar, SideNav} from '@/components';
 import {
   Box,
   Stack
-} from "@mui/joy";
+} from '@mui/joy';
 
 export interface DefaultLayoutProps {
   children: React.ReactNode;
@@ -19,5 +19,5 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
         </Box>
       </Stack>
     </>
-  )
+  );
 }

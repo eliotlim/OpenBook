@@ -1,5 +1,5 @@
-import {Drawer} from "@/components/Drawer";
-import {useSideNav} from "@/providers";
+import {Drawer} from '@/components/Drawer';
+import {useSideNav} from '@/providers';
 import {
   Avatar,
   Dropdown,
@@ -11,14 +11,14 @@ import {
   Stack,
   Typography,
   useColorScheme
-} from "@mui/joy";
+} from '@mui/joy';
 import {
   ArrowDropDown,
   Brightness1,
   Brightness7,
   BrightnessAuto,
   Workspaces,
-} from "@mui/icons-material";
+} from '@mui/icons-material';
 
 export default function SideNav() {
   const {mode, setMode} = useColorScheme();
@@ -26,7 +26,7 @@ export default function SideNav() {
   return (
     <>
       <Drawer
-        title={"Workspaces"}
+        title={'Workspaces'}
         open={sideNav.open}
         slotProps={{
           backdrop: {
@@ -119,7 +119,7 @@ export default function SideNav() {
               <MenuButton
                 size="sm"
                 variant="plain"
-                startDecorator={mode === "light" ? <Brightness7/>: mode === "dark" ? <Brightness1/> : <BrightnessAuto/> }
+                startDecorator={mode === 'light' ? <Brightness7/>: mode === 'dark' ? <Brightness1/> : <BrightnessAuto/> }
                 endDecorator={<ArrowDropDown/>}
               >
                 {`${(mode ?? ' ').substring(0, 1).toUpperCase()}${(mode ?? ' ').substring(1)} Mode`}
@@ -154,5 +154,5 @@ export default function SideNav() {
         </Stack>
       </Drawer>
     </>
-  )
+  );
 }
