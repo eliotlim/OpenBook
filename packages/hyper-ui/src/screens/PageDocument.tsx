@@ -25,7 +25,9 @@ const PageDocument = () => {
               <MenuButton>
                 <Typography level="h1">{emoji}</Typography>
               </MenuButton>
-              <Menu>
+              <Menu
+                variant="plain"
+              >
                 <EmojiPicker
                   onEmojiClick={(e) => {
                     setEmoji(e.emoji);
