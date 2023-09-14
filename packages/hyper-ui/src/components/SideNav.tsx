@@ -1,4 +1,4 @@
-import {Drawer} from '@/components/Drawer';
+import {Drawer} from '@/components';
 import {useSideNav} from '@/providers';
 import {
   Avatar,
