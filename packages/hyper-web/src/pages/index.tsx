@@ -1,6 +1,5 @@
 import Head from 'next/head';
 import {DefaultLayout, PageDocument} from '@hyper-hq/hyper-ui';
-import {Container} from '@mui/joy';
 
 export default function Home() {
 
@@ -13,9 +12,7 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico"/>
       </Head>
       <DefaultLayout>
-        <Container>
-          <PageDocument/>
-        </Container>
+        <PageDocument/>
       </DefaultLayout>
     </>
   );
