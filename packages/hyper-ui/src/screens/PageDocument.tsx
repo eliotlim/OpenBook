@@ -1,32 +1,32 @@
 import {Editor} from 'novel';
 import EmojiPicker, {Theme} from 'emoji-picker-react';
-import {Container, Dropdown, Menu, MenuButton, Stack, Typography, useColorScheme} from '@mui/joy';
 import React from 'react';
+import {Menu} from "@headlessui/react";
 
 const PageDocument = () => {
-  const { colorScheme } = useColorScheme();
+  const colorScheme = 'light';
   const [emoji, setEmoji] = React.useState('📝');
   return (
-    <Stack
-      gap={3}
+    <div
+      className=""
     >
-      <Stack
-        sx={{
+      <div
+        style={{
           paddingTop: 15,
         }}
+        className="flex"
       >
-        <Container>
-          <Stack
-            direction="row"
-            alignItems="center"
-            gap={2}
+        <div
+          className="flex"
+        >
+          <div
+            className="relative inline-block text-left"
           >
-            <Dropdown>
-              <MenuButton>
-                <Typography level="h1">{emoji}</Typography>
-              </MenuButton>
-              <Menu
-                variant="plain"
+            <Menu>
+              <Menu.Button>
+                <h1 className="text-4xl">{emoji}</h1>
+              </Menu.Button>
+              <Menu.Items
               >
                 <EmojiPicker
                   onEmojiClick={(e) => {
@@ -34,18 +34,20 @@ const PageDocument = () => {
                   }}
                   theme={colorScheme === 'light' ? Theme.LIGHT : Theme.DARK}
                 />
-              </Menu>
-            </Dropdown>
-            <Typography level="h1">
+              </Menu.Items>
+            </Menu>
+            <h1
+              className="text-4xl"
+            >
               Untitled Page
-            </Typography>
-          </Stack>
-        </Container>
-      </Stack>
+            </h1>
+          </div>
+        </div>
+      </div>
       <Editor
         className=""
       />
-    </Stack>
+    </div>
   );
 };
 

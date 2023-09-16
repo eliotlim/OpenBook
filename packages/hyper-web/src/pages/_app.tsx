@@ -1,4 +1,5 @@
 import '@/styles/globals.css';
+import '@hyper-hq/hyper-ui/dist/style.css';
 import type { AppProps } from 'next/app';
 import {CssVarsProvider, CssBaseline} from '@mui/joy';
 import {ErrorBoundary} from 'next/dist/client/components/error-boundary';

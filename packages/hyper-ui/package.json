@@ -28,6 +28,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@heroicons/react": "^2.0.18",
     "novel": "^0.1.20"
   },
   "devDependencies": {
