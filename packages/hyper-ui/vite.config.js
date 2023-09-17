@@ -3,6 +3,19 @@ import { resolve } from "path";
 import { fileURLToPath, URL } from "url";
 import { defineConfig } from "vite";
 
+const externalModules = [
+  'emoji-picker-react',
+  'novel',
+  'react',
+  "react/jsx-runtime",
+  'react-dom',
+  'react-is',
+  '@babel/runtime',
+  '@headlessui/react',
+  '@heroicons/react',
+  '@heroicons/react/24/outline',
+];
+
 export default defineConfig ({
   build: {
     lib: {
@@ -11,61 +24,12 @@ export default defineConfig ({
       fileName: "index",
     },
     rollupOptions: {
-      external: [
-        'clsx',
-        'csstype',
-        'emoji-picker-react',
-        'novel',
-        'prop-types',
-        'react',
-        "react/jsx-runtime",
-        'react-dom',
-        'react-is',
-        '@babel/runtime',
-        '@emotion/react',
-        '@emotion/styled',
-        '@headlessui/react',
-        '@heroicons/react',
-        '@heroicons/react/24/outline',
-        '@mui/base',
-        '@mui/core-downloads-tracker',
-        '@mui/icons-material',
-        '@mui/joy',
-        '@mui/material',
-        '@mui/styled-engine',
-        '@mui/system',
-        '@mui/types',
-        '@mui/utils',
-        '@mui/x-tree-view',
-      ],
+      external: externalModules,
       output: {
-        globals: {
-          'clsx': 'clsx',
-          'csstype': 'csstype',
-          'emoji-picker-react': 'emoji-picker-react',
-          'novel': 'novel',
-          'prop-types': 'prop-types',
-          'react': 'react',
-          'react-dom': 'ReactDOM',
-          'react-is': 'react-is',
-          'react/jsx-runtime': 'react/jsx-runtime',
-          '@babel/runtime': '@babel/runtime',
-          '@emotion/react': '@emotion/react',
-          '@emotion/styled': '@emotion/styled',
-          '@headlessui/react': '@headlessui/react',
-          '@heroicons/react': '@heroicons/react',
-          '@heroicons/react/24/outline': '@heroicons/react/24/outline',
-          '@mui/base': '@mui/base',
-          '@mui/core-downloads-tracker': '@mui/core-downloads-tracker',
-          '@mui/icons-material': '@mui/icons-material',
-          '@mui/joy': '@mui/joy',
-          '@mui/material': '@mui/material',
-          '@mui/styled-engine': '@mui/styled-engine',
-          '@mui/system': '@mui/system',
-          '@mui/types': '@mui/types',
-          '@mui/utils': '@mui/utils',
-          '@mui/x-tree-view': '@mui/x-tree-view',
-        },
+        globals: externalModules.reduce((acc, cur) => {
+          acc[cur] = cur;
+          return acc;
+        }, {}),
       }
     },
   },

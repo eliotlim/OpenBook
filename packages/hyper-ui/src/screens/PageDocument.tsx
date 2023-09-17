@@ -1,7 +1,7 @@
 import {Editor} from 'novel';
 import EmojiPicker, {Theme} from 'emoji-picker-react';
 import React from 'react';
-import {Menu} from "@headlessui/react";
+import {Menu} from '@headlessui/react';
 
 const PageDocument = () => {
   const colorScheme = 'light';

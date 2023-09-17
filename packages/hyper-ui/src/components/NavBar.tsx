@@ -22,12 +22,12 @@ export default function NavBar() {
                 onClick={() => setSideNav({...sideNav, open: !sideNav.open})}
               >
                 {sideNav.open ?
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" className="w-6 h-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" />
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-6 h-6">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5" />
                   </svg>
                   :
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" className="w-6 h-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-6 h-6">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
                   </svg>
                 }
               </button>
@@ -36,17 +36,17 @@ export default function NavBar() {
                 <button
                   className="hover:dark:bg-gray-700 hover:bg-gray-300 dark:bg-gray-900 text-white rounded-md px-3 py-2"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                       stroke="currentColor" className="w-6 h-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
+                    stroke="currentColor" className="w-6 h-6">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
                   </svg>
                 </button>
                 <button
                   className="hover:dark:bg-gray-700 hover:bg-gray-300 dark:bg-gray-900 text-white rounded-md px-3 py-2"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                       stroke="currentColor" className="w-6 h-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
+                    stroke="currentColor" className="w-6 h-6">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
                   </svg>
                 </button>
               </div>
@@ -57,20 +57,20 @@ export default function NavBar() {
                     {emoji: '🏠', title: 'Home'},
                     {emoji: '📄', title: 'Untitled Page'},
                   ].map((pageDetails) => (
-                      <li className="inline-flex items-center">
-                        <div className="flex items-center">
-                          <a href="#"
-                             className="ml-1 text-sm font-medium text-gray-700 hover:text-blue-600 md:ml-2 dark:text-gray-400 dark:hover:text-white">
-                            {pageDetails.emoji} {pageDetails.title}
-                          </a>
-                        </div>
-                      </li>
-                    )
+                    <li className="inline-flex items-center" key={`breadcrumb-${pageDetails.title}`}>
+                      <div className="flex items-center">
+                        <a href="#"
+                          className="ml-1 text-sm font-medium text-gray-700 hover:text-blue-600 md:ml-2 dark:text-gray-400 dark:hover:text-white">
+                          {pageDetails.emoji} {pageDetails.title}
+                        </a>
+                      </div>
+                    </li>
+                  )
                   ).flatMap((element, index) => [
                     index > 0 && (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                           stroke="currentColor" className="w-6 h-6">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
+                        stroke="currentColor" className="w-6 h-6">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
                       </svg>
                     ),
                     element,
@@ -83,10 +83,10 @@ export default function NavBar() {
                 <Menu.Button
                   className="inline-flex w-full justify-center gap-x-1.5 rounded-md bg-white px-3 py-2 text-gray-900 bg-gray-100 hover:bg-gray-50 dark: hover:bg-gray-200 dark:text-gray-100 dark:bg-gray-800 dark:hover:bg-gray-800"
                   id="menu-button" aria-expanded="true" aria-haspopup="true">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
-                       stroke="currentColor" className="w-6 h-6">
-                    <path stroke-linecap="round" stroke-linejoin="round"
-                          d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"/>
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
+                    stroke="currentColor" className="w-6 h-6">
+                    <path strokeLinecap="round" strokeLinejoin="round"
+                      d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"/>
                   </svg>
                 </Menu.Button>
                 <Menu.Items
@@ -95,11 +95,11 @@ export default function NavBar() {
                   <div className="py-1" role="none">
                     <Menu.Item>
                       <a href="#" className="text-gray-700 dark:text-gray-100 block px-4 py-2 text-sm" role="menuitem" tabIndex={-1}
-                         id="menu-item-favourite">Favourite</a>
+                        id="menu-item-favourite">Favourite</a>
                     </Menu.Item>
                     <Menu.Item>
                       <a href="#" className="text-gray-700 dark:text-gray-100 block px-4 py-2 text-sm" role="menuitem" tabIndex={-1}
-                         id="menu-item-settings">Settings</a>
+                        id="menu-item-settings">Settings</a>
                     </Menu.Item>
                   </div>
                 </Menu.Items>

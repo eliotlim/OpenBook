@@ -1,5 +1,8 @@
 import Head from 'next/head';
-import {DefaultLayout, PageDocument} from '@hyper-hq/hyper-ui';
+import {
+  DefaultLayout,
+  PageDocument
+} from '@hyper-hq/hyper-ui';
 
 export default function Home() {
 
