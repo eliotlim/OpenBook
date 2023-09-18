@@ -14,6 +14,14 @@ const externalModules = [
   '@headlessui/react',
   '@heroicons/react',
   '@heroicons/react/24/outline',
+  "@radix-ui/react-icons",
+  "@radix-ui/react-dropdown-menu",
+  "@radix-ui/react-navigation-menu",
+  "class-variance-authority",
+  "clsx",
+  "novel",
+  "tailwind-merge",
+  "tailwindcss-animate",
 ];
 
 export default defineConfig ({

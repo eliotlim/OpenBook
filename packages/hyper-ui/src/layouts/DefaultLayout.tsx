@@ -8,7 +8,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
   return (
     <>
       <NavBar/>
-      <div className="">
+      <div >
         <SideNav/>
         {props.children}
       </div>

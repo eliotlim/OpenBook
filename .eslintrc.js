@@ -1,4 +1,8 @@
 module.exports = {
+  "ignorePatterns": [
+    "packages/hyper-ui/src/components/ui/**/*.tsx",
+    "packages/hyper-ui/dist/**/*",
+  ],
   "env": {
     "browser": true,
     "es2021": true,
@@ -49,6 +53,5 @@ module.exports = {
       "always"
     ],
     "react/react-in-jsx-scope": "off",
-
   }
 }
