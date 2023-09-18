@@ -44,10 +44,9 @@ export function ThemeProvider({
   React.useEffect(() => {
     const root = window.document.documentElement;
     root.classList.remove('light', 'dark');
-    console.log(mode);
     if (mode === 'system') {
-      const systemTheme = mediaMode;
-      root.classList.add(systemTheme);
+      setMediaMode(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      root.classList.add(mediaMode);
     } else {
       root.classList.add(mode);
     }
