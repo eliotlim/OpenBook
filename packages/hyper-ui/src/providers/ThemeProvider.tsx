@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type ColorScheme = 'light' | 'dark' | 'system';
+export type ColorScheme = 'light' | 'dark';
 export type ColorMode = ColorScheme | 'system';
 
 export type ThemeProviderProps = {
@@ -29,15 +29,16 @@ export function ThemeProvider({
   storageKey = 'theme',
   ...props
 }: ThemeProviderProps) {
-  const [mode, setMode] = React.useState<ColorScheme>(() => {
+  const [mode, setMode] = React.useState<ColorMode>(() => {
     return ((typeof window !== 'undefined' && localStorage.getItem(storageKey)) || defaultColorMode) as ColorScheme;
   });
-  const [mediaMode, setMediaMode] = React.useState<ColorScheme>('light');
+  const [setColorScheme, setSetColorScheme] = React.useState<ColorScheme>('light');
 
   if (typeof window !== 'undefined') {
     window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-      console.log('changed');
-      e.matches ? setMediaMode('dark') : setMediaMode('light');
+      if (mode === 'system') {
+        e.matches ? setSetColorScheme('dark') : setSetColorScheme('light');
+      }
     });
   }
 
@@ -45,17 +46,17 @@ export function ThemeProvider({
     const root = window.document.documentElement;
     root.classList.remove('light', 'dark');
     if (mode === 'system') {
-      setMediaMode(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      root.classList.add(mediaMode);
+      setSetColorScheme(window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      root.classList.add(setColorScheme);
     } else {
       root.classList.add(mode);
     }
-  }, [mode, mediaMode]);
+  }, [mode, setColorScheme]);
 
   const value: ThemeProviderState = {
     mode: mode,
-    colorScheme: mode === 'system' ? mediaMode : mode,
-    setMode: (theme: ColorScheme) => {
+    colorScheme: mode === 'system' ? setColorScheme : mode,
+    setMode: (theme: ColorMode) => {
       localStorage.setItem(storageKey, theme);
       setMode(theme);
     },

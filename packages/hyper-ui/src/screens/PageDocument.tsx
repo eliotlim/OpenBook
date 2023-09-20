@@ -2,13 +2,15 @@ import {Editor} from 'novel';
 import EmojiPicker, {Theme} from 'emoji-picker-react';
 import React from 'react';
 import {Menu} from '@headlessui/react';
+import {useTheme} from "@/providers";
 
 const PageDocument = () => {
-  const colorScheme = 'light';
+  const {colorScheme} = useTheme();
+
   const [emoji, setEmoji] = React.useState('📝');
   return (
     <div
-      className=""
+      className="bg-white dark:bg-gray-900 dark:text-gray-300 py-10"
     >
       <div
         style={{
@@ -45,7 +47,7 @@ const PageDocument = () => {
         </div>
       </div>
       <Editor
-        className=""
+        className={`relative min-h-[500px] max-w-screen-lg border-stone-200 sm:mb-[calc(20vh)] sm:rounded-lg sm:border sm:shadow-lg w-full h-full bg-white dark:bg-gray-900 dark:border-gray-800 dark:shadow-lg dark:text-gray-300`}
       />
     </div>
   );
