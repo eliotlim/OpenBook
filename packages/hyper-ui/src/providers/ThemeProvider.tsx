@@ -34,13 +34,21 @@ export function ThemeProvider({
   });
   const [setColorScheme, setSetColorScheme] = React.useState<ColorScheme>('light');
 
-  if (typeof window !== 'undefined') {
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+  React.useEffect(() => {
+    const onChangeModeListener = (e: MediaQueryListEvent) => {
       if (mode === 'system') {
         e.matches ? setSetColorScheme('dark') : setSetColorScheme('light');
       }
-    });
-  }
+    }
+    if (typeof window !== 'undefined') {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onChangeModeListener);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', onChangeModeListener);
+      }
+    }
+  }, []);
 
   React.useEffect(() => {
     const root = window.document.documentElement;
