@@ -20,6 +20,7 @@
   "scripts": {
     "build": "vite build && tsc",
     "dev": "vite build --watch",
+    "dev-css": "npx tailwindcss -i ./src/index.css -o ./dist/style.css --watch",
     "dev-types": "tsc --watch",
     "lint": "eslint --ext .ts,.tsx .",
     "lint-fix": "eslint --ext .ts,.tsx . --fix",

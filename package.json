@@ -16,6 +16,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "watch-hyper-app": "npm --workspace @hyper-hq/hyper-app run tauri dev",
     "watch-hyper-ui": "npm --workspace @hyper-hq/hyper-ui run dev",
+    "watch-hyper-ui-css": "npm --workspace @hyper-hq/hyper-ui run dev-css",
     "watch-hyper-ui-types": "npm --workspace @hyper-hq/hyper-ui run dev-types",
     "watch-hyper-web": "npm --workspace @hyper-hq/hyper-web run dev"
   },
