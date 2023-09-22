@@ -17,7 +17,7 @@ export default function NavBar() {
         className="w-full top-0 sticky z-10"
       >
         <nav
-          className="sticky top-0 bg-gray-100 dark:bg-gray-900 opacity-90 filter backdrop-blur-lg dark:backdrop-blur-lg"
+          className="sticky top-0 bg-background filter backdrop-blur-lg"
         >
           <div
             className="flex items-center justify-between px-4 py-1"
@@ -26,7 +26,7 @@ export default function NavBar() {
               className="flex items-center gap-x-2"
             >
               <Button
-                className="bg-gray-100 dark:bg-gray-800 hover:dark:bg-gray-700 hover:bg-gray-300 dark:bg-gray-900 text-white rounded-md px-3 py-2"
+                className="bg-background text-foreground rounded-lg px-1 py-1"
                 onClick={() => setSideNav({...sideNav, open: !sideNav.open})}
               >
                 {sideNav.open ?
@@ -46,7 +46,7 @@ export default function NavBar() {
               <div
               >
                 <Button
-                  className="hover:dark:bg-gray-700 hover:bg-gray-300 dark:bg-gray-900 text-white rounded-md px-3 py-2"
+                  className="bg-background text-foreground rounded-md px-1 py-1"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
                     stroke="currentColor" className="w-6 h-6">
@@ -54,7 +54,7 @@ export default function NavBar() {
                   </svg>
                 </Button>
                 <Button
-                  className="hover:dark:bg-gray-700 hover:bg-gray-300 dark:bg-gray-900 text-white rounded-md px-3 py-2"
+                  className="bg-background text-foreground rounded-md px-1 py-1"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
                     stroke="currentColor" className="w-6 h-6">
@@ -93,7 +93,9 @@ export default function NavBar() {
             <div className="relative inline-block text-left">
               <DropdownMenu>
                 <DropdownMenuTrigger>
-                  <Button variant="outline">
+                  <Button
+                    className="bg-background text-foreground rounded-md px-1 py-1"
+                  >
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
                       stroke="currentColor" className="w-6 h-6">
                       <path strokeLinecap="round" strokeLinejoin="round"
