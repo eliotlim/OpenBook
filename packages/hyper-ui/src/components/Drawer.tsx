@@ -13,7 +13,7 @@ export default function Drawer({
 
   return (
     <div
-      className={'fixed top-12 left-0 z-20 w-64 h-full transition-transform duration-500 transform -translate-x-full bg-gray-100 dark:bg-gray-900 shadow-lg' + (props.open ? ' translate-x-0' : '')}
+      className={'fixed top-12 left-0 z-20 w-64 h-full transition-transform duration-500 transform -translate-x-full bg-background text-foreground shadow-lg' + (props.open ? ' translate-x-0' : '')}
     >
       {children}
     </div>

@@ -10,7 +10,7 @@
   ],
   "scripts": {
     "build": "npm --workspace @hyper-hq/hyper-ui run build",
-    "dev": "concurrently --kill-others \"npm:watch-hyper-app\" \"npm:watch-hyper-web\" \"npm:watch-hyper-ui\" \"npm:watch-hyper-ui-types\"",
+    "dev": "concurrently --kill-others \"npm:watch-hyper-app\" \"npm:watch-hyper-web\" \"npm:watch-hyper-ui\" \"npm:watch-hyper-ui-css\" \"npm:watch-hyper-ui-types\"",
     "lint": "npm --workspaces run lint",
     "lint-fix": "npm --workspaces run lint-fix",
     "test": "echo \"Error: no test specified\" && exit 1",

@@ -19,16 +19,14 @@ export default function SideNav() {
         docked={sideNav.docked}
       >
         <div
-          className="flex flex-col "
+          className="flex flex-col bg-background text-foreground h-full"
         >
           <div
-            className="flex flex-col gap-y-2"
+            className="flex flex-col gap-y-2 justify-start"
           >
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
-                  variant="outline"
-                  className="p-2 rounded bg-gray-200 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-600"
                 >
                   Workspaces
                 </Button>
@@ -43,9 +41,9 @@ export default function SideNav() {
                     </svg>
                   </div>
                   <div className="ml-2 text-sm">
-                    <label htmlFor="helper-checkbox-1" className="font-medium text-gray-900 dark:text-gray-300">
+                    <label htmlFor="helper-checkbox-1" className="font-medium">
                       <div>Workspace 1</div>
-                      <p id="helper-checkbox-text-1" className="text-xs font-normal text-gray-500 dark:text-gray-300">https://workspace1.hyper.app</p>
+                      <p id="helper-checkbox-text-1" className="text-xs font-normal">https://workspace1.hyper.app</p>
                     </label>
                   </div>
                 </DropdownMenuItem>
