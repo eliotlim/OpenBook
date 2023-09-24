@@ -8,6 +8,13 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  DotsVerticalIcon,
+  DoubleArrowLeftIcon,
+  HamburgerMenuIcon, SlashIcon
+} from "@radix-ui/react-icons";
 
 export default function NavBar() {
   const {sideNav, setSideNav} = useSideNav();
@@ -26,40 +33,25 @@ export default function NavBar() {
               className="flex items-center gap-x-2"
             >
               <Button
-                className="bg-background text-foreground rounded-lg px-1 py-1"
+                variant="outline"
+                className="px-2 py-1"
                 onClick={() => setSideNav({...sideNav, open: !sideNav.open})}
               >
-                {sideNav.open ?
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
-                    stroke="currentColor" className="w-6 h-6">
-                    <path strokeLinecap="round" strokeLinejoin="round"
-                      d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5"/>
-                  </svg>
-                  :
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
-                    stroke="currentColor" className="w-6 h-6">
-                    <path strokeLinecap="round" strokeLinejoin="round"
-                      d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
-                  </svg>
-                }
+                {sideNav.open ? <DoubleArrowLeftIcon className="h-4 w-4"/> :<HamburgerMenuIcon className="h-4 w-4"/>}
               </Button>
               <div
               >
                 <Button
-                  className="bg-background text-foreground rounded-md px-1 py-1"
+                  variant="outline"
+                  className="px-2 py-1"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
-                    stroke="currentColor" className="w-6 h-6">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5"/>
-                  </svg>
+                  <ChevronLeftIcon className="h-4 w-4"/>
                 </Button>
                 <Button
-                  className="bg-background text-foreground rounded-md px-1 py-1"
+                  variant="outline"
+                  className="px-2 py-1"
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
-                    stroke="currentColor" className="w-6 h-6">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-                  </svg>
+                  <ChevronRightIcon className="h-4 w-4"/>
                 </Button>
               </div>
               <nav className="flex" aria-label="Breadcrumb">
@@ -80,10 +72,7 @@ export default function NavBar() {
                   )
                   ).flatMap((element, index) => [
                     index > 0 && (
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
-                        stroke="currentColor" className="w-6 h-6">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
-                      </svg>
+                      <SlashIcon className=""/>
                     ),
                     element,
                   ])}
@@ -94,13 +83,10 @@ export default function NavBar() {
               <DropdownMenu>
                 <DropdownMenuTrigger>
                   <Button
-                    className="bg-background text-foreground rounded-md px-1 py-1"
+                    variant="outline"
+                    className="px-2 py-1"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5"
-                      stroke="currentColor" className="w-6 h-6">
-                      <path strokeLinecap="round" strokeLinejoin="round"
-                        d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z"/>
-                    </svg>
+                    <DotsVerticalIcon className="h-4 w-4"/>
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent>
