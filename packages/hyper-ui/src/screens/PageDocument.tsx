@@ -1,53 +1,64 @@
 import {Editor} from 'novel';
 import EmojiPicker, {Theme} from 'emoji-picker-react';
 import React from 'react';
-import {Menu} from '@headlessui/react';
 import {useTheme} from "@/providers";
+import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover";
+import {Button} from "@/components/ui/button";
 
-const PageDocument = () => {
+const PageCover = () => {
+  return (
+    <div
+      className="bg-background text-foreground h-[10vh] w-full"
+    >
+    </div>
+  );
+}
+
+const PageHeader = () => {
   const {colorScheme} = useTheme();
-
   const [emoji, setEmoji] = React.useState('📝');
   return (
     <div
-      className="bg-white dark:bg-gray-900 dark:text-gray-300 py-10"
+      className="flex items-center justify-start gap-4 px-4 py-2"
     >
-      <div
-        style={{
-          paddingTop: 15,
-        }}
-        className="flex"
-      >
-        <div
-          className="flex"
-        >
-          <div
-            className="relative inline-block text-left"
+      <Popover>
+        <PopoverTrigger>
+          <Button
+            variant="outline"
+            className="px-2 py-6"
           >
-            <Menu>
-              <Menu.Button>
-                <h1 className="text-4xl">{emoji}</h1>
-              </Menu.Button>
-              <Menu.Items
-              >
-                <EmojiPicker
-                  onEmojiClick={(e) => {
-                    setEmoji(e.emoji);
-                  }}
-                  theme={colorScheme === 'light' ? Theme.LIGHT : Theme.DARK}
-                />
-              </Menu.Items>
-            </Menu>
-            <h1
-              className="text-4xl"
-            >
-              Untitled Page
-            </h1>
-          </div>
-        </div>
-      </div>
+            <h1 className="text-4xl">{emoji}</h1>
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="p-0 m-0 border-0"
+        >
+          <EmojiPicker
+            onEmojiClick={(e) => {
+              setEmoji(e.emoji);
+            }}
+            theme={colorScheme === 'light' ? Theme.LIGHT : Theme.DARK}
+          />
+        </PopoverContent>
+      </Popover>
+      <h1
+        className="text-4xl"
+      >
+        Untitled Page
+      </h1>
+    </div>
+  );
+}
+
+const PageDocument = () => {
+  return (
+    <div
+      className="container mx-auto"
+    >
+      <PageCover/>
+      <PageHeader/>
       <Editor
-        className={`relative min-h-[500px] max-w-screen-lg border-stone-200 sm:mb-[calc(20vh)] sm:rounded-lg sm:border sm:shadow-lg w-full h-full bg-white dark:bg-gray-900 dark:border-gray-800 dark:shadow-lg dark:text-gray-300`}
+        className={`bg-background text-foreground`}
       />
     </div>
   );

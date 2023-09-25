@@ -15,6 +15,7 @@ const externalModules = [
   '@heroicons/react',
   '@heroicons/react/24/outline',
   "@radix-ui/react-icons",
+  "@radix-ui/react-popover",
   "@radix-ui/react-slot",
   "@radix-ui/react-dropdown-menu",
   "@radix-ui/react-navigation-menu",
