@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import {GlobeIcon} from "@radix-ui/react-icons";
+import {Badge} from "@/components/ui/badge";
 
 export default function SideNav() {
   const {mode, setMode} = useTheme();
@@ -28,7 +29,7 @@ export default function SideNav() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
-                  variant="outline"
+                  variant="ghost"
                 >
                   Workspaces
                 </Button>
@@ -42,7 +43,7 @@ export default function SideNav() {
                   </div>
                   <div className="ml-2 text-sm">
                     <label htmlFor="helper-checkbox-1" className="font-medium">
-                      <div>Workspace 1</div>
+                      <div>Workspace 1 <Badge variant="outline" className="px-1">Cloud</Badge></div>
                       <p id="helper-checkbox-text-1" className="text-xs font-normal">https://workspace1.hyper.app</p>
                     </label>
                   </div>
@@ -55,7 +56,7 @@ export default function SideNav() {
           >
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline">{`${mode} Mode`}</Button>
+                <Button variant="ghost">{`${mode} Mode`}</Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56">
                 <DropdownMenuLabel>Color Scheme</DropdownMenuLabel>

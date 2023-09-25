@@ -24,7 +24,7 @@ export default function NavBar() {
         className="w-full top-0 sticky z-10"
       >
         <nav
-          className="sticky top-0 bg-background filter backdrop-blur-lg"
+          className="sticky top-0 bg-background filter backdrop-blur-lg shadow-md"
         >
           <div
             className="flex items-center justify-between px-4 py-1"
@@ -33,8 +33,8 @@ export default function NavBar() {
               className="flex items-center gap-x-2"
             >
               <Button
-                variant="outline"
-                className="px-2 py-1"
+                variant="ghost"
+                className="px-3 py-1"
                 onClick={() => setSideNav({...sideNav, open: !sideNav.open})}
               >
                 {sideNav.open ? <DoubleArrowLeftIcon className="h-4 w-4"/> :<HamburgerMenuIcon className="h-4 w-4"/>}
@@ -42,14 +42,14 @@ export default function NavBar() {
               <div
               >
                 <Button
-                  variant="outline"
-                  className="px-2 py-1"
+                  variant="ghost"
+                  className="px-2 py-1 rounded-tr-none rounded-br-none"
                 >
                   <ChevronLeftIcon className="h-4 w-4"/>
                 </Button>
                 <Button
-                  variant="outline"
-                  className="px-2 py-1"
+                  variant="ghost"
+                  className="px-2 rounded-tl-none rounded-bl-none"
                 >
                   <ChevronRightIcon className="h-4 w-4"/>
                 </Button>
@@ -83,8 +83,8 @@ export default function NavBar() {
               <DropdownMenu>
                 <DropdownMenuTrigger>
                   <Button
-                    variant="outline"
-                    className="px-2 py-1"
+                    variant="ghost"
+                    className="px-3 py-1"
                   >
                     <DotsVerticalIcon className="h-4 w-4"/>
                   </Button>
