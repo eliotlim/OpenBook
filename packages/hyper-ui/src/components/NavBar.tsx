@@ -15,7 +15,7 @@ import {
   DoubleArrowLeftIcon,
   HamburgerMenuIcon,
   SlashIcon
-} from "@radix-ui/react-icons";
+} from '@radix-ui/react-icons';
 
 export default function NavBar() {
   const {sideNav, setSideNav} = useSideNav();
@@ -56,15 +56,15 @@ export default function NavBar() {
                 {emoji: '🏠', title: 'Home'},
                 {emoji: '📄', title: 'Untitled Page'},
               ].map((pageDetails) => (
-                  <li className="inline-flex items-center" key={`breadcrumb-${pageDetails.title}`}>
-                    <div className="flex items-center">
-                      <a href="#"
-                         className="ml-1 text-sm font-medium text-gray-700 hover:text-blue-600 md:ml-2 dark:text-gray-400 dark:hover:text-white">
-                        {pageDetails.emoji} {pageDetails.title}
-                      </a>
-                    </div>
-                  </li>
-                )
+                <li className="inline-flex items-center" key={`breadcrumb-${pageDetails.title}`}>
+                  <div className="flex items-center">
+                    <a href="#"
+                      className="ml-1 text-sm font-medium text-gray-700 hover:text-blue-600 md:ml-2 dark:text-gray-400 dark:hover:text-white">
+                      {pageDetails.emoji} {pageDetails.title}
+                    </a>
+                  </div>
+                </li>
+              )
               ).flatMap((element, index) => [
                 index > 0 && (
                   <SlashIcon className=""/>

@@ -8,8 +8,8 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
-import {GlobeIcon} from "@radix-ui/react-icons";
-import {Badge} from "@/components/ui/badge";
+import {GlobeIcon} from '@radix-ui/react-icons';
+import {Badge} from '@/components/ui/badge';
 
 export default function SideNav() {
   const {mode, setMode} = useTheme();

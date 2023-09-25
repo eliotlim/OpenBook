@@ -39,7 +39,7 @@ export function ThemeProvider({
       if (mode === 'system') {
         e.matches ? setSetColorScheme('dark') : setSetColorScheme('light');
       }
-    }
+    };
     if (typeof window !== 'undefined') {
       window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', onChangeModeListener);
     }
@@ -47,7 +47,7 @@ export function ThemeProvider({
       if (typeof window !== 'undefined') {
         window.matchMedia('(prefers-color-scheme: dark)').removeEventListener('change', onChangeModeListener);
       }
-    }
+    };
   }, []);
 
   React.useEffect(() => {

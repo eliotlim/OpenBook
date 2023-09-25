@@ -1,9 +1,9 @@
 import {Editor} from 'novel';
 import EmojiPicker, {Theme} from 'emoji-picker-react';
 import React from 'react';
-import {useTheme} from "@/providers";
-import {Popover, PopoverContent, PopoverTrigger} from "@/components/ui/popover";
-import {Button} from "@/components/ui/button";
+import {useTheme} from '@/providers';
+import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {Button} from '@/components/ui/button';
 
 const PageCover = () => {
   return (
@@ -12,7 +12,7 @@ const PageCover = () => {
     >
     </div>
   );
-}
+};
 
 const PageHeader = () => {
   const {colorScheme} = useTheme();
@@ -48,7 +48,7 @@ const PageHeader = () => {
       </h1>
     </div>
   );
-}
+};
 
 const PageDocument = () => {
   return (
@@ -58,7 +58,7 @@ const PageDocument = () => {
       <PageCover/>
       <PageHeader/>
       <Editor
-        className={`bg-background text-foreground`}
+        className={'bg-background text-foreground'}
       />
     </div>
   );
