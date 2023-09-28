@@ -2,14 +2,18 @@ import {Drawer} from '@/components';
 import {ColorMode, useSideNav, useTheme} from '@/providers';
 import {
   DropdownMenu,
-  DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
-import {GlobeIcon} from '@radix-ui/react-icons';
+import {ChevronDownIcon, GlobeIcon, ShadowIcon, ShadowNoneIcon} from '@radix-ui/react-icons';
 import {Badge} from '@/components/ui/badge';
+import {SunIcon} from "@heroicons/react/24/outline";
 
 export default function SideNav() {
   const {mode, setMode} = useTheme();
@@ -36,7 +40,7 @@ export default function SideNav() {
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56">
                 <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
-                <DropdownMenuSeparator />
+                <DropdownMenuSeparator/>
                 <DropdownMenuItem>
                   <div className="flex items-center h-5">
                     <GlobeIcon className="h-8 w-8"/>
@@ -52,15 +56,27 @@ export default function SideNav() {
             </DropdownMenu>
           </div>
           <div
-            className="justify-end"
+            className="flex flex-col align-self-end"
           >
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost">{`${mode} Mode`}</Button>
+                <Button variant="ghost">
+                  {(() => {
+                    switch (mode) {
+                      case "light":
+                        return <><SunIcon className="w-4 h-4 mr-2"/> Light Mode</>;
+                      case "dark":
+                        return <><ShadowIcon className="w-4 h-4 mr-2"/> Dark Mode</>;
+                      case "system":
+                        return <><ShadowNoneIcon className="w-4 h-4 mr-2"/> System Mode</>;
+                    }
+                  })()}
+                  <ChevronDownIcon className="w-4 h-4 ml-2"/>
+                </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56">
                 <DropdownMenuLabel>Color Scheme</DropdownMenuLabel>
-                <DropdownMenuSeparator />
+                <DropdownMenuSeparator/>
                 <DropdownMenuRadioGroup value={mode} onValueChange={e => setMode(e as ColorMode)}>
                   <DropdownMenuRadioItem value="light">Light Mode</DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="dark">Dark Mode</DropdownMenuRadioItem>
