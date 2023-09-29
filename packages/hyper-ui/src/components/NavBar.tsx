@@ -76,7 +76,7 @@ export default function NavBar() {
         </div>
         <div className="relative inline-block text-left">
           <DropdownMenu>
-            <DropdownMenuTrigger>
+            <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 className="px-3 py-1"
