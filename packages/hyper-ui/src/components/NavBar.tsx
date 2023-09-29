@@ -22,7 +22,7 @@ export default function NavBar() {
   return (
     <>
       <nav
-        className="top-0 sticky w-full z-10 filter backdrop-blur-lg border-b dark:border-gray-700 shadow-md dark:shadow-lg dark:shadow-black flex items-center justify-between px-0.5 py-0.5"
+        className="top-0 sticky w-full z-[51] filter backdrop-blur-lg border-b dark:border-gray-700 shadow-md dark:shadow-lg dark:shadow-black flex items-center justify-between px-0.5 py-0.5"
       >
         <div
           className="flex items-center gap-x-2"
