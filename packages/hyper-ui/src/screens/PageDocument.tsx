@@ -31,7 +31,7 @@ const PageHeader = () => {
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="p-0 m-0 border-0"
+          className="p-0 m-0 border-0 z-40"
         >
           <EmojiPicker
             onEmojiClick={(e) => {
