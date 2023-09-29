@@ -30,9 +30,9 @@ export default function NavBar() {
           <Button
             variant="ghost"
             className="px-3 py-1"
-            onClick={() => setSideNav({...sideNav, open: !sideNav.open})}
+            onClick={() => setSideNav({...sideNav, docked: !sideNav.docked, open: !sideNav.docked})}
           >
-            {sideNav.open ? <DoubleArrowLeftIcon className="h-4 w-4"/> : <HamburgerMenuIcon className="h-4 w-4"/>}
+            {sideNav.docked ? <DoubleArrowLeftIcon className="h-4 w-4"/> : <HamburgerMenuIcon className="h-4 w-4"/>}
           </Button>
           <div
           >
