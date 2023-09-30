@@ -11,9 +11,25 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
-import {ChevronDownIcon, GlobeIcon, ShadowIcon, ShadowNoneIcon} from '@radix-ui/react-icons';
+import {
+  GearIcon,
+  GlobeIcon,
+  ShadowIcon,
+  ShadowNoneIcon
+} from '@radix-ui/react-icons';
 import {Badge} from '@/components/ui/badge';
 import {SunIcon} from "@heroicons/react/24/outline";
+import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription, DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger
+} from "@/components/ui/dialog";
+import {Label} from "@/components/ui/label";
+import {Input} from "@/components/ui/input";
 
 export default function SideNav() {
   const {mode, setMode} = useTheme();
@@ -56,24 +72,75 @@ export default function SideNav() {
             </DropdownMenu>
           </div>
           <div
-            className="flex flex-col align-self-end"
+            className="flex flex-row align-self-end"
           >
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            <Dialog>
+              <DialogTrigger asChild>
                 <Button variant="ghost">
-                  {(() => {
-                    switch (mode) {
-                      case "light":
-                        return <><SunIcon className="w-4 h-4 mr-2"/> Light Mode</>;
-                      case "dark":
-                        return <><ShadowIcon className="w-4 h-4 mr-2"/> Dark Mode</>;
-                      case "system":
-                        return <><ShadowNoneIcon className="w-4 h-4 mr-2"/> System Mode</>;
-                    }
-                  })()}
-                  <ChevronDownIcon className="w-4 h-4 ml-2"/>
+                  <GearIcon className="w-4 h-4 mr-2"/>
+                  Settings
                 </Button>
-              </DropdownMenuTrigger>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Settings</DialogTitle>
+                  <DialogDescription>
+                    Make changes to your profile here. Click save when you're done.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="name" className="text-right">
+                      Name
+                    </Label>
+                    <Input id="name" value="Pedro Duarte" className="col-span-3"/>
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="username" className="text-right">
+                      Username
+                    </Label>
+                    <Input id="username" value="@peduarte" className="col-span-3"/>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button type="submit">Save changes</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <DropdownMenu>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost">
+
+                        {(() => {
+                          switch (mode) {
+                            case "light":
+                              return <><SunIcon className="w-4 h-4"/></>;
+                            case "dark":
+                              return <><ShadowIcon className="w-4 h-4"/></>;
+                            case "system":
+                              return <><ShadowNoneIcon className="w-4 h-4"/></>;
+                          }
+                        })()}
+                      </Button>
+                    </DropdownMenuTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {(() => {
+                      switch (mode) {
+                        case "light":
+                          return <>Light Mode</>;
+                        case "dark":
+                          return <>Dark Mode</>;
+                        case "system":
+                          return <>System Mode</>;
+                      }
+                    })()}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <DropdownMenuContent className="w-56">
                 <DropdownMenuLabel>Color Scheme</DropdownMenuLabel>
                 <DropdownMenuSeparator/>
