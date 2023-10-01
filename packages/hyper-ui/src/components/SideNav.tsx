@@ -19,8 +19,8 @@ import {
   ShadowNoneIcon
 } from '@radix-ui/react-icons';
 import {Badge} from '@/components/ui/badge';
-import {SunIcon} from "@heroicons/react/24/outline";
-import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from "@/components/ui/tooltip";
+import {SunIcon} from '@heroicons/react/24/outline';
+import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -28,9 +28,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger
-} from "@/components/ui/dialog";
-import {Label} from "@/components/ui/label";
-import {Input} from "@/components/ui/input";
+} from '@/components/ui/dialog';
+import {Label} from '@/components/ui/label';
+import {Input} from '@/components/ui/input';
 
 export default function SideNav() {
   const {mode, setMode} = useTheme();
@@ -42,7 +42,7 @@ export default function SideNav() {
         docked={sideNav.docked}
       >
         <div
-          className="flex flex-col h-full"
+          className="flex flex-col h-full justify-between"
         >
           <div
             className="flex flex-col gap-y-2 justify-start"
@@ -78,7 +78,7 @@ export default function SideNav() {
           >
             <Dialog>
               <DialogTrigger asChild>
-                <Button variant="ghost">
+                <Button variant="ghost" className="flex-grow">
                   <GearIcon className="w-4 h-4 mr-2"/>
                   Settings
                 </Button>
@@ -87,7 +87,7 @@ export default function SideNav() {
                 <DialogHeader>
                   <DialogTitle>Settings</DialogTitle>
                   <DialogDescription>
-                    Make changes to your profile here. Click save when you're done.
+                    Make changes to your profile here.
                   </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
@@ -118,12 +118,12 @@ export default function SideNav() {
 
                         {(() => {
                           switch (mode) {
-                            case "light":
-                              return <><SunIcon className="w-4 h-4"/></>;
-                            case "dark":
-                              return <><ShadowIcon className="w-4 h-4"/></>;
-                            case "system":
-                              return <><ShadowNoneIcon className="w-4 h-4"/></>;
+                          case 'light':
+                            return <><SunIcon className="w-4 h-4"/></>;
+                          case 'dark':
+                            return <><ShadowIcon className="w-4 h-4"/></>;
+                          case 'system':
+                            return <><ShadowNoneIcon className="w-4 h-4"/></>;
                           }
                         })()}
                       </Button>
@@ -132,12 +132,12 @@ export default function SideNav() {
                   <TooltipContent>
                     {(() => {
                       switch (mode) {
-                        case "light":
-                          return <>Light Mode</>;
-                        case "dark":
-                          return <>Dark Mode</>;
-                        case "system":
-                          return <>System Mode</>;
+                      case 'light':
+                        return <>Light Mode</>;
+                      case 'dark':
+                        return <>Dark Mode</>;
+                      case 'system':
+                        return <>System Mode</>;
                       }
                     })()}
                   </TooltipContent>

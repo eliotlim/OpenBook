@@ -16,7 +16,7 @@ export default function Drawer({
     'left-0 z-50 w-64 transition-transform duration-500 transform -translate-x-full',
     'bg-background text-foreground',
     'border-r dark:border-gray-700 shadow-lg dark:shadow-lg dark:shadow-black',
-    props.docked ? 'fixed top-[10] h-[calc(100%-2.5rem)]' : 'fixed rounded-tr-lg rounded-br-lg border-t border-b top-16 h-[calc(100%-8rem)]',
+    props.docked ? 'fixed top-[10] h-[calc(100%-2.75rem)]' : 'fixed rounded-tr-lg rounded-br-lg border-t border-b top-16 h-[calc(100%-8rem)]',
     props.open ? ' translate-x-0' : ''
   ];
 
