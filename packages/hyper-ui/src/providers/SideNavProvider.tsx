@@ -27,10 +27,9 @@ export const SideNavProvider: React.FC<PropsWithChildren<unknown>> = ({children}
 
   const sidenavMenuListener = React.useCallback((e: MouseEvent) => {
     if (!sideNav.docked) {
-      if (e.clientX > 320) {
+      if (e.clientX > 320 || e.clientX <= 1) {
         setSideNav({...sideNav, open: false});
-      }
-      if (e.clientX < 16) {
+      } else if (e.clientX < 16) {
         setSideNav({...sideNav, open: true});
       }
     }

@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import {
+  ChevronDownIcon,
   GearIcon,
   GlobeIcon,
   ShadowIcon,
@@ -52,6 +53,7 @@ export default function SideNav() {
                   variant="ghost"
                 >
                   Workspaces
+                  <ChevronDownIcon className="w-4 h-4"/>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56">
