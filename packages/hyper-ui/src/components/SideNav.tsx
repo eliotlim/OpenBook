@@ -19,7 +19,7 @@ import {
   ShadowNoneIcon
 } from '@radix-ui/react-icons';
 import {Badge} from '@/components/ui/badge';
-import {SunIcon} from '@heroicons/react/24/outline';
+import {ChevronUpIcon, SunIcon} from '@heroicons/react/24/outline';
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip';
 import {
   Dialog,
@@ -136,8 +136,7 @@ export default function SideNav() {
                 <Tooltip>
                   <TooltipTrigger>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost">
-
+                      <Button variant="ghost" className="px-2">
                         {(() => {
                           switch (mode) {
                           case 'light':
@@ -148,6 +147,7 @@ export default function SideNav() {
                             return <><ShadowNoneIcon className="w-4 h-4"/></>;
                           }
                         })()}
+                        <ChevronUpIcon className="w-4 h-4 ml-2"/>
                       </Button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
