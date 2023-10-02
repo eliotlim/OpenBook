@@ -18,6 +18,7 @@ const externalModules = [
   "@radix-ui/react-icons",
   "@radix-ui/react-label",
   "@radix-ui/react-popover",
+  "@radix-ui/react-scroll-area",
   "@radix-ui/react-slot",
   "@radix-ui/react-tooltip",
   "@radix-ui/react-dropdown-menu",

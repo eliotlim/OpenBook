@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/dialog';
 import {Label} from '@/components/ui/label';
 import {Input} from '@/components/ui/input';
+import {ScrollArea} from "@/components/ui/scroll-area";
 
 export default function SideNav() {
   const {mode, setMode} = useTheme();
@@ -72,6 +73,27 @@ export default function SideNav() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <ScrollArea className="h-60">
+              {[
+                {
+                  emoji: '🏠',
+                  title: 'Home',
+                },
+                ...(new Array(20).fill(0).map((_, i) => ({
+                  emoji: '📄',
+                  title: `Untitled Page ${i + 1}`,
+                }))),
+              ].map((pageDetails) => (
+                <Button
+                  variant="ghost"
+                  key={`breadcrumb-${pageDetails.title}`}
+                  className="flex items-center gap-2 px-2 py-1"
+                >
+                  <span className="text-2xl">{pageDetails.emoji}</span>
+                  <span>{pageDetails.title}</span>
+                </Button>
+              ))}
+            </ScrollArea>
           </div>
           <div
             className="flex flex-row align-self-end"
