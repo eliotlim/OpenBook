@@ -12,14 +12,16 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import {
-  ChevronDownIcon,
   GearIcon,
   GlobeIcon,
   ShadowIcon,
   ShadowNoneIcon
 } from '@radix-ui/react-icons';
 import {Badge} from '@/components/ui/badge';
-import {ChevronUpIcon, SunIcon} from '@heroicons/react/24/outline';
+import {
+  ChevronUpDownIcon,
+  SunIcon
+} from '@heroicons/react/24/outline';
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip';
 import {
   Dialog,
@@ -31,7 +33,7 @@ import {
 } from '@/components/ui/dialog';
 import {Label} from '@/components/ui/label';
 import {Input} from '@/components/ui/input';
-import {ScrollArea} from "@/components/ui/scroll-area";
+import {ScrollArea} from '@/components/ui/scroll-area';
 
 export default function SideNav() {
   const {mode, setMode} = useTheme();
@@ -54,7 +56,7 @@ export default function SideNav() {
                   variant="ghost"
                 >
                   Workspaces
-                  <ChevronDownIcon className="w-4 h-4"/>
+                  <ChevronUpDownIcon className="w-4 h-4"/>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-56">
@@ -147,7 +149,7 @@ export default function SideNav() {
                             return <><ShadowNoneIcon className="w-4 h-4"/></>;
                           }
                         })()}
-                        <ChevronUpIcon className="w-4 h-4 ml-2"/>
+                        <ChevronUpDownIcon className="w-4 h-4 ml-2"/>
                       </Button>
                     </DropdownMenuTrigger>
                   </TooltipTrigger>
