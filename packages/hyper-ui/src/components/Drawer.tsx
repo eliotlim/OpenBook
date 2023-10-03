@@ -18,7 +18,7 @@ export default function Drawer({
     'p-1',
     'flex flex-col',
     'border-r dark:border-gray-700 shadow-lg dark:shadow-lg dark:shadow-black',
-    props.docked ? 'order-first top-[10] h-[calc(100%-2.75rem)]' : 'fixed rounded-tr-lg rounded-br-lg border-t border-b top-16 h-[calc(100%-8rem)]',
+    props.docked ? 'order-first' : 'fixed rounded-tr-lg rounded-br-lg border-t border-b top-16 h-[calc(100%-8rem)]',
     props.open ? ' translate-x-0' : ''
   ];
 
