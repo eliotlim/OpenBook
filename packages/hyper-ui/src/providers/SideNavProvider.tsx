@@ -1,4 +1,4 @@
-import React, {createContext, useContext, useState, PropsWithChildren} from 'react';
+import React, {createContext, PropsWithChildren, useContext, useState} from 'react';
 
 export interface SideNavProps {
   open: boolean;
@@ -23,7 +23,13 @@ export const SideNavContext = createContext<SideNavContext>({
 export const useSideNav = () => useContext(SideNavContext);
 
 export const SideNavProvider: React.FC<PropsWithChildren<unknown>> = ({children}) => {
-  const [sideNav, setSideNav] = useState<SideNavProps>(SideNavDefault);
+  const storageKey = 'sideNav';
+  const [sideNav, setSideNav] = useState<SideNavProps>(() => {
+    if (typeof window === 'undefined' || localStorage.getItem(storageKey) === null) {
+      return SideNavDefault;
+    }
+    return JSON.parse(localStorage.getItem(storageKey) ?? '{}') as SideNavProps;
+  });
 
   const sidenavMenuListener = React.useCallback((e: MouseEvent) => {
     if (!sideNav.docked) {
@@ -46,7 +52,15 @@ export const SideNavProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     };
   }, [sidenavMenuListener]);
 
-  return <SideNavContext.Provider value={{sideNav, setSideNav}}>
+  const state = {
+    sideNav,
+    setSideNav: (sideNav: SideNavProps) => {
+      localStorage.setItem(storageKey, JSON.stringify({docked: sideNav.docked, open: sideNav.open}));
+      setSideNav(sideNav);
+    }
+  }
+
+  return <SideNavContext.Provider value={state}>
     {children}
   </SideNavContext.Provider>;
 };
