@@ -45,7 +45,7 @@ export default function SideNav() {
         docked={sideNav.docked}
       >
         <div
-          className="flex flex-col h-full justify-between"
+          className="flex flex-col flex-grow justify-between"
         >
           <div
             className="flex flex-col gap-y-2 justify-start"
@@ -75,13 +75,13 @@ export default function SideNav() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <ScrollArea className="h-60">
+            <ScrollArea className="h-60 flex flex-grow">
               {[
                 {
                   emoji: '🏠',
                   title: 'Home',
                 },
-                ...(new Array(20).fill(0).map((_, i) => ({
+                ...(new Array(40).fill(0).map((_, i) => ({
                   emoji: '📄',
                   title: `Untitled Page ${i + 1}`,
                 }))),
