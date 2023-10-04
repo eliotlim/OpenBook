@@ -75,7 +75,7 @@ export default function SideNav() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <ScrollArea className="h-60 flex flex-grow">
+            <ScrollArea className={sideNav.docked ? "h-[calc(100vh-10rem)]" : "h-[calc(100vh-14rem)]"}>
               {[
                 {
                   emoji: '🏠',
