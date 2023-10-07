@@ -12,7 +12,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
         <NavBar/>
         <div className="flex flex-row items-stretch overflow-hidden">
           <SideNav/>
-          <ScrollArea className="flex">
+          <ScrollArea className="flex w-full">
             {props.children}
           </ScrollArea>
         </div>
