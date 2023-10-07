@@ -1,4 +1,7 @@
-import {Drawer} from '@/components';
+import {
+  Drawer,
+  SettingsDialogContent
+} from '@/components';
 import {ColorMode, useSideNav, useTheme} from '@/providers';
 import {
   DropdownMenu,
@@ -26,13 +29,8 @@ import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/compon
 import {
   Dialog,
   DialogContent,
-  DialogDescription, DialogFooter,
-  DialogHeader,
-  DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog';
-import {Label} from '@/components/ui/label';
-import {Input} from '@/components/ui/input';
 import {ScrollArea} from '@/components/ui/scroll-area';
 
 export default function SideNav() {
@@ -59,7 +57,7 @@ export default function SideNav() {
                   <ChevronUpDownIcon className="w-4 h-4"/>
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-56">
+              <DropdownMenuContent className="w-72 bg-sheet-2 text-sheet-2-foreground">
                 <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
                 <DropdownMenuSeparator/>
                 <DropdownMenuItem>
@@ -107,30 +105,8 @@ export default function SideNav() {
                   Settings
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
-                  <DialogTitle>Settings</DialogTitle>
-                  <DialogDescription>
-                    Make changes to your profile here.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="name" className="text-right">
-                      Name
-                    </Label>
-                    <Input id="name" value="Pedro Duarte" className="col-span-3"/>
-                  </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="username" className="text-right">
-                      Username
-                    </Label>
-                    <Input id="username" value="@peduarte" className="col-span-3"/>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button type="submit">Save changes</Button>
-                </DialogFooter>
+              <DialogContent className="sm:max-w-[800px]">
+                <SettingsDialogContent/>
               </DialogContent>
             </Dialog>
             <DropdownMenu>
@@ -141,12 +117,12 @@ export default function SideNav() {
                       <Button variant="ghost" className="px-2">
                         {(() => {
                           switch (mode) {
-                          case 'light':
-                            return <><SunIcon className="w-4 h-4"/></>;
-                          case 'dark':
-                            return <><ShadowIcon className="w-4 h-4"/></>;
-                          case 'system':
-                            return <><ShadowNoneIcon className="w-4 h-4"/></>;
+                            case 'light':
+                              return <><SunIcon className="w-4 h-4"/></>;
+                            case 'dark':
+                              return <><ShadowIcon className="w-4 h-4"/></>;
+                            case 'system':
+                              return <><ShadowNoneIcon className="w-4 h-4"/></>;
                           }
                         })()}
                         <ChevronUpDownIcon className="w-4 h-4 ml-2"/>
@@ -156,12 +132,12 @@ export default function SideNav() {
                   <TooltipContent>
                     {(() => {
                       switch (mode) {
-                      case 'light':
-                        return <>Light Mode</>;
-                      case 'dark':
-                        return <>Dark Mode</>;
-                      case 'system':
-                        return <>System Mode</>;
+                        case 'light':
+                          return <>Light Mode</>;
+                        case 'dark':
+                          return <>Dark Mode</>;
+                        case 'system':
+                          return <>System Mode</>;
                       }
                     })()}
                   </TooltipContent>

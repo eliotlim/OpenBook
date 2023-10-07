@@ -14,7 +14,6 @@ export default function Drawer({
   // class names
   const classes = [
     'left-0 z-50 w-64 transition-transform duration-500 transform -translate-x-full',
-    'bg-popover text-foreground',
     'p-1',
     'flex flex-col',
     'border-r dark:border-gray-700 shadow-lg dark:shadow-lg dark:shadow-black',
@@ -24,7 +23,7 @@ export default function Drawer({
 
   return (
     <div
-      className={classes.join(' ')}
+      className={"bg-sheet-1 text-sheet-1" + classes.join(' ')}
     >
       {children}
     </div>
