@@ -105,7 +105,7 @@ export default function SideNav() {
                   Settings
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[800px]">
+              <DialogContent className="sm:max-w-[800px] p-0">
                 <SettingsDialogContent/>
               </DialogContent>
             </Dialog>

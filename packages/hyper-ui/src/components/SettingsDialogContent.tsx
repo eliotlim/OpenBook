@@ -2,33 +2,51 @@ import {DialogDescription, DialogFooter, DialogHeader, DialogTitle} from "@/comp
 import {Label} from "@/components/ui/label";
 import {Input} from "@/components/ui/input";
 import {Button} from "@/components/ui/button";
+import {GearIcon} from "@radix-ui/react-icons";
+import {PaintBrushIcon} from "@heroicons/react/24/outline";
 
 export default function SettingsDialogContent() {
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>Settings</DialogTitle>
-        <DialogDescription>
-          Make changes to your profile here.
-        </DialogDescription>
-      </DialogHeader>
-      <div className="grid gap-4 py-4">
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label htmlFor="name" className="text-right">
-            Name
-          </Label>
-          <Input id="name" value="Pedro Duarte" className="col-span-3"/>
+      <div className="flex flex-row gap-2 m-0">
+        <div className="flex flex-col bg-sheet-1 text-sheet-1-foreground pl-4 pt-8 pb-8 pr-4 rounded-l-lg gap-1">
+          <h4 className="text-sm font-semibold pb-2">Settings</h4>
+          <Button variant="ghost" className="flex flex-row justify-start gap-2">
+            <GearIcon className="w-4 h-4"/>
+            General
+          </Button>
+          <Button variant="ghost" className="flex flex-row justify-start gap-2">
+            <PaintBrushIcon className="w-4 h-4"/>
+            Appearance
+          </Button>
         </div>
-        <div className="grid grid-cols-4 items-center gap-4">
-          <Label htmlFor="username" className="text-right">
-            Username
-          </Label>
-          <Input id="username" value="@peduarte" className="col-span-3"/>
+        <div className="flex flex-col pl-4 pt-8 pb-8 pr-8">
+          <DialogHeader>
+            <DialogTitle>Settings</DialogTitle>
+            <DialogDescription>
+              Make changes to your profile here.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="name" className="text-right">
+                Name
+              </Label>
+              <Input id="name" value="Pedro Duarte" className="col-span-3"/>
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="username" className="text-right">
+                Username
+              </Label>
+              <Input id="username" value="@peduarte" className="col-span-3"/>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="submit">Save changes</Button>
+          </DialogFooter>
+
         </div>
       </div>
-      <DialogFooter>
-        <Button type="submit">Save changes</Button>
-      </DialogFooter>
     </>
   );
 }
