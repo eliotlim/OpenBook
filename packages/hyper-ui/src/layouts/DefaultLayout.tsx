@@ -8,10 +8,10 @@ export interface DefaultLayoutProps {
 export default function DefaultLayout(props: DefaultLayoutProps) {
   return (
     <>
-      <div className="flex flex-col h-screen w-screen">
-        <NavBar/>
-        <div className="flex flex-row items-stretch overflow-hidden">
-          <SideNav/>
+      <div className="flex flex-row items-stretch overflow-hidden">
+        <SideNav/>
+        <div className="flex flex-col h-screen w-full">
+          <NavBar/>
           <ScrollArea className="flex w-full">
             {props.children}
           </ScrollArea>
