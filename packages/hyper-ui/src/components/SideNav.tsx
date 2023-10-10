@@ -22,13 +22,13 @@ import {
 } from '@radix-ui/react-icons';
 import {Badge} from '@/components/ui/badge';
 import {
-  ChevronUpDownIcon,
+  ChevronUpDownIcon, InformationCircleIcon,
   SunIcon
 } from '@heroicons/react/24/outline';
 import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip';
 import {
   Dialog,
-  DialogContent,
+  DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
   DialogTrigger
 } from '@/components/ui/dialog';
 import {ScrollArea} from '@/components/ui/scroll-area';
@@ -73,6 +73,17 @@ export default function SideNav() {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="ghost" className="flex flex-grow justify-start">
+                  <GearIcon className="w-4 h-4 mr-2"/>
+                  Settings
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[800px] p-0">
+                <SettingsDialogContent/>
+              </DialogContent>
+            </Dialog>
             <ScrollArea className={sideNav.docked ? "h-[calc(100vh-10rem)]" : "h-[calc(100vh-14rem)]"}>
               {[
                 {
@@ -100,13 +111,25 @@ export default function SideNav() {
           >
             <Dialog>
               <DialogTrigger asChild>
-                <Button variant="ghost" className="flex-grow">
-                  <GearIcon className="w-4 h-4 mr-2"/>
-                  Settings
+                <Button variant="ghost" className="flex flex-grow gap-2">
+                  <InformationCircleIcon className="h-4 w-4"/>
+                  About
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-[800px] p-0">
-                <SettingsDialogContent/>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>About Hyper</DialogTitle>
+                  <DialogDescription>
+                    Hyper is a new way to make a space your own on the web.
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogDescription>
+                  Doggo Ipsum woofers long bois, borkdrive puggo. Puggo wrinkler puggo, borkf long bois. Puggo long bois.
+                </DialogDescription>
+                <DialogFooter>
+                  <Button variant="ghost">Learn more</Button>
+                  <Button variant="ghost">Get support</Button>
+                </DialogFooter>
               </DialogContent>
             </Dialog>
             <DropdownMenu>
