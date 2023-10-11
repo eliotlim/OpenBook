@@ -1,5 +1,6 @@
 import {NavBar, SideNav} from '@/components';
 import {ScrollArea} from "@/components/ui/scroll-area";
+import {CommandMenu} from "@/components/CommandMenu";
 
 export interface DefaultLayoutProps {
   children: React.ReactNode;
@@ -9,6 +10,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
   return (
     <>
       <div className="flex flex-row items-stretch overflow-hidden">
+        <CommandMenu/>
         <SideNav/>
         <div className="flex flex-col h-screen w-full">
           <NavBar/>
