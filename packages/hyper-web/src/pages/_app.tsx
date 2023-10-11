@@ -1,5 +1,5 @@
 import '@/styles/globals.css';
-import '@hyper-hq/hyper-ui/dist/index.css';
+import '@hyper-hq/hyper-ui/style.css';
 import type { AppProps } from 'next/app';
 import {ErrorBoundary} from 'next/dist/client/components/error-boundary';
 import {

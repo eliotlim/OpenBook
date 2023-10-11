@@ -6,7 +6,7 @@ import {
   ThemeProvider
 } from '@hyper-hq/hyper-ui';
 
-import '@hyper-hq/hyper-ui/dist/index.css';
+import '@hyper-hq/hyper-ui/style.css';
 
 function App() {
 
