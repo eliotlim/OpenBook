@@ -1,6 +1,6 @@
 import {NavBar, SideNav} from '@/components';
-import {ScrollArea} from "@/components/ui/scroll-area";
-import {CommandMenu} from "@/components/CommandMenu";
+import {ScrollArea} from '@/components/ui/scroll-area';
+import {CommandMenu} from '@/components/CommandMenu';
 
 export interface DefaultLayoutProps {
   children: React.ReactNode;

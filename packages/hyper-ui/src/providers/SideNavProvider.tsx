@@ -58,7 +58,7 @@ export const SideNavProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       localStorage.setItem(storageKey, JSON.stringify({docked: sideNav.docked, open: sideNav.open}));
       setSideNav(sideNav);
     }
-  }
+  };
 
   return <SideNavContext.Provider value={state}>
     {children}

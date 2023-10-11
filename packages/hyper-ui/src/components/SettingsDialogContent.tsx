@@ -1,9 +1,9 @@
-import {DialogDescription, DialogFooter, DialogHeader, DialogTitle} from "@/components/ui/dialog";
-import {Label} from "@/components/ui/label";
-import {Input} from "@/components/ui/input";
-import {Button} from "@/components/ui/button";
-import {GearIcon} from "@radix-ui/react-icons";
-import {PaintBrushIcon} from "@heroicons/react/24/outline";
+import {DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
+import {Label} from '@/components/ui/label';
+import {Input} from '@/components/ui/input';
+import {Button} from '@/components/ui/button';
+import {GearIcon} from '@radix-ui/react-icons';
+import {PaintBrushIcon} from '@heroicons/react/24/outline';
 
 export default function SettingsDialogContent() {
   return (

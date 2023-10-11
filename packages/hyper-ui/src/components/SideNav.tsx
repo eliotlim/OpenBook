@@ -84,7 +84,7 @@ export default function SideNav() {
                 <SettingsDialogContent/>
               </DialogContent>
             </Dialog>
-            <ScrollArea className={sideNav.docked ? "h-[calc(100vh-10rem)]" : "h-[calc(100vh-14rem)]"}>
+            <ScrollArea className={sideNav.docked ? 'h-[calc(100vh-10rem)]' : 'h-[calc(100vh-14rem)]'}>
               {[
                 {
                   emoji: '🏠',
@@ -140,12 +140,12 @@ export default function SideNav() {
                       <Button variant="ghost" className="px-2">
                         {(() => {
                           switch (mode) {
-                            case 'light':
-                              return <><SunIcon className="w-4 h-4"/></>;
-                            case 'dark':
-                              return <><ShadowIcon className="w-4 h-4"/></>;
-                            case 'system':
-                              return <><ShadowNoneIcon className="w-4 h-4"/></>;
+                          case 'light':
+                            return <><SunIcon className="w-4 h-4"/></>;
+                          case 'dark':
+                            return <><ShadowIcon className="w-4 h-4"/></>;
+                          case 'system':
+                            return <><ShadowNoneIcon className="w-4 h-4"/></>;
                           }
                         })()}
                         <ChevronUpDownIcon className="w-4 h-4 ml-2"/>
@@ -155,12 +155,12 @@ export default function SideNav() {
                   <TooltipContent>
                     {(() => {
                       switch (mode) {
-                        case 'light':
-                          return <>Light Mode</>;
-                        case 'dark':
-                          return <>Dark Mode</>;
-                        case 'system':
-                          return <>System Mode</>;
+                      case 'light':
+                        return <>Light Mode</>;
+                      case 'dark':
+                        return <>Dark Mode</>;
+                      case 'system':
+                        return <>System Mode</>;
                       }
                     })()}
                   </TooltipContent>

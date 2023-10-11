@@ -23,7 +23,7 @@ export default function Drawer({
 
   return (
     <div
-      className={"bg-gradient-to-bl from-sheet-1 to-sheet-2 text-sheet-1-foreground" + classes.join(' ')}
+      className={'bg-gradient-to-bl from-sheet-1 to-sheet-2 text-sheet-1-foreground' + classes.join(' ')}
     >
       {children}
     </div>
