@@ -2,8 +2,8 @@ import {DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/comp
 import {Label} from '@/components/ui/label';
 import {Input} from '@/components/ui/input';
 import {Button} from '@/components/ui/button';
-import {GearIcon} from '@radix-ui/react-icons';
-import {PaintBrushIcon} from '@heroicons/react/24/outline';
+import {PersonIcon} from '@radix-ui/react-icons';
+import {PaintBrushIcon, WrenchIcon} from '@heroicons/react/24/outline';
 
 export default function SettingsDialogContent() {
   return (
@@ -12,17 +12,21 @@ export default function SettingsDialogContent() {
         <div className="flex flex-col bg-sheet-1 text-sheet-1-foreground pl-4 pt-8 pb-8 pr-4 rounded-l-lg gap-1">
           <h4 className="text-sm font-semibold pb-2">Settings</h4>
           <Button variant="ghost" className="flex flex-row justify-start gap-2">
-            <GearIcon className="w-4 h-4"/>
+            <WrenchIcon className="w-4 h-4"/>
             General
           </Button>
           <Button variant="ghost" className="flex flex-row justify-start gap-2">
             <PaintBrushIcon className="w-4 h-4"/>
             Appearance
           </Button>
+          <Button variant="ghost" className="flex flex-row justify-start gap-2">
+            <PersonIcon className="w-4 h-4"/>
+            Profile
+          </Button>
         </div>
         <div className="flex flex-col pl-4 pt-8 pb-8 pr-8">
           <DialogHeader>
-            <DialogTitle>Settings</DialogTitle>
+            <DialogTitle>Profile</DialogTitle>
             <DialogDescription>
               Make changes to your profile here.
             </DialogDescription>
