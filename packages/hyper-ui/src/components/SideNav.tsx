@@ -52,15 +52,13 @@ export default function SideNav() {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
-                  className="h-12"
+                  className="flex h-12 w-60 px-2 justify-start"
                 >
-                  <div className="flex flex-row justify-start items-center">
-                    <div className="flex items-center h-5">
-                      <GlobeIcon className="h-8 w-8"/>
-                    </div>
-                    <div className="ml-2 justify-start text-sm w-full">
-                      <div className="flex justify-start gap-2">Workspace 1 <Badge variant="outline" className="px-1">Cloud</Badge></div>
-                      <p id="helper-checkbox-text-1" className="text-xs font-normal">https://workspace1.hyper.app</p>
+                  <div className="flex flex-1 flex-row items-center">
+                    <GlobeIcon className="h-8 w-8 mr-2"/>
+                    <div className="flex flex-1 flex-col">
+                      <div className="flex gap-2">Workspace 1<Badge variant="outline" className="px-1">Local</Badge></div>
+                      <p className="flex text-xs font-normal text-ellipsis">~/hyper/Workspace 1</p>
                     </div>
                   </div>
                   <ChevronUpDownIcon className="w-4 h-4"/>
