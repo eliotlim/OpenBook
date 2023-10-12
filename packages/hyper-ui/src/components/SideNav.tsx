@@ -52,8 +52,17 @@ export default function SideNav() {
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
+                  className="h-12"
                 >
-                  Workspaces
+                  <div className="flex flex-row justify-start items-center">
+                    <div className="flex items-center h-5">
+                      <GlobeIcon className="h-8 w-8"/>
+                    </div>
+                    <div className="ml-2 justify-start text-sm w-full">
+                      <div className="flex justify-start gap-2">Workspace 1 <Badge variant="outline" className="px-1">Cloud</Badge></div>
+                      <p id="helper-checkbox-text-1" className="text-xs font-normal">https://workspace1.hyper.app</p>
+                    </div>
+                  </div>
                   <ChevronUpDownIcon className="w-4 h-4"/>
                 </Button>
               </DropdownMenuTrigger>
@@ -61,14 +70,16 @@ export default function SideNav() {
                 <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
                 <DropdownMenuSeparator/>
                 <DropdownMenuItem>
-                  <div className="flex items-center h-5">
-                    <GlobeIcon className="h-8 w-8"/>
-                  </div>
-                  <div className="ml-2 text-sm">
-                    <label htmlFor="helper-checkbox-1" className="font-medium">
-                      <div>Workspace 1 <Badge variant="outline" className="px-1">Cloud</Badge></div>
-                      <p id="helper-checkbox-text-1" className="text-xs font-normal">https://workspace1.hyper.app</p>
-                    </label>
+                  <div className="flex flex-row items-center">
+                    <div className="flex items-center h-5">
+                      <GlobeIcon className="h-8 w-8"/>
+                    </div>
+                    <div className="ml-2 text-sm">
+                      <label htmlFor="helper-checkbox-1" className="font-medium">
+                        <div className="flex justify-start gap-2">Workspace 1 <Badge variant="outline" className="px-1">Cloud</Badge></div>
+                        <p id="helper-checkbox-text-1" className="text-xs font-normal">https://workspace1.hyper.app</p>
+                      </label>
+                    </div>
                   </div>
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -135,7 +146,7 @@ export default function SideNav() {
             <DropdownMenu>
               <TooltipProvider>
                 <Tooltip>
-                  <TooltipTrigger>
+                  <TooltipTrigger asChild>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" className="px-2">
                         {(() => {
