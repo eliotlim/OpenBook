@@ -93,7 +93,7 @@ export default function SideNav() {
                 <SettingsDialogContent/>
               </DialogContent>
             </Dialog>
-            <ScrollArea className={sideNav.docked ? 'h-[calc(100vh-10rem)]' : 'h-[calc(100vh-14rem)]'}>
+            <ScrollArea className={sideNav.docked ? 'h-[calc(100vh-10rem)]' : 'h-[calc(100vh-20rem)]'}>
               {[
                 {
                   emoji: '🏠',
