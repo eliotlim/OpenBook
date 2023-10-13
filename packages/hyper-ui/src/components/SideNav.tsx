@@ -32,6 +32,7 @@ import {
   DialogTrigger
 } from '@/components/ui/dialog';
 import {ScrollArea} from '@/components/ui/scroll-area';
+import WorkspaceInfo from "@/components/WorkspaceInfo";
 
 export default function SideNav() {
   const {mode, setMode} = useTheme();
@@ -54,13 +55,7 @@ export default function SideNav() {
                   variant="ghost"
                   className="flex h-12 w-60 px-2 justify-start"
                 >
-                  <div className="flex flex-1 flex-row items-center">
-                    <GlobeIcon className="h-8 w-8 mr-2"/>
-                    <div className="flex flex-1 flex-col">
-                      <div className="flex gap-2">Workspace 1<Badge variant="outline" className="px-1">Local</Badge></div>
-                      <p className="flex text-xs font-normal text-ellipsis">~/hyper/Workspace 1</p>
-                    </div>
-                  </div>
+                  <WorkspaceInfo name={'Workspace 1'} url={'file:///~/hyper/Workspace 1'}/>
                   <ChevronUpDownIcon className="w-4 h-4"/>
                 </Button>
               </DropdownMenuTrigger>
@@ -68,17 +63,10 @@ export default function SideNav() {
                 <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
                 <DropdownMenuSeparator/>
                 <DropdownMenuItem>
-                  <div className="flex flex-row items-center">
-                    <div className="flex items-center h-5">
-                      <GlobeIcon className="h-8 w-8"/>
-                    </div>
-                    <div className="ml-2 text-sm">
-                      <label htmlFor="helper-checkbox-1" className="font-medium">
-                        <div className="flex justify-start gap-2">Workspace 1 <Badge variant="outline" className="px-1">Cloud</Badge></div>
-                        <p id="helper-checkbox-text-1" className="text-xs font-normal">https://workspace1.hyper.app</p>
-                      </label>
-                    </div>
-                  </div>
+                  <WorkspaceInfo name={'Workspace 1'} url={'file:///~/hyper/Workspace 1'}/>
+                </DropdownMenuItem>
+                <DropdownMenuItem>
+                  <WorkspaceInfo name={'Workspace 2'} url={'https://workspace2.hyper.sh'}/>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
