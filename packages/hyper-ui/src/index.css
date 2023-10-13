@@ -3,6 +3,15 @@
 @tailwind utilities;
 
 @layer base {
+  *, ::before, ::after {
+    --border: 12 6.5% 15.1%;
+    box-sizing: border-box;
+    border-style: solid;
+    border-color: hsl(var(--border));
+  }
+}
+
+@layer base {
   :root {
     --background: 0 0% 100%;
     --foreground: 20 14.3% 4.1%;
