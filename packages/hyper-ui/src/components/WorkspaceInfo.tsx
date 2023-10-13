@@ -8,26 +8,26 @@ export interface WorkspaceInfoProps {
 
 export default function WorkspaceInfo( props: WorkspaceInfoProps) {
   const url = new URL(props.url);
-  const badge = ((() => {
+  const badge = (() => {
     switch (url.protocol) {
-      case 'file:':
-        return <Badge className="px-1" variant="outline">Local</Badge>;
-      case 'https:':
-        return <Badge className="px-1" variant="default">Shared</Badge>;
-      default:
-        return <Badge className="px-1" variant="secondary">Unknown</Badge>;
+    case 'file:':
+      return <Badge className="px-1" variant="outline">Local</Badge>;
+    case 'https:':
+      return <Badge className="px-1" variant="default">Shared</Badge>;
+    default:
+      return <Badge className="px-1" variant="secondary">Unknown</Badge>;
     }
-  })());
+  })();
   const location = ((() => {
     switch (url.protocol) {
-      case 'file:':
-        return decodeURI(url.pathname);
-      case 'https:':
-        return url.hostname;
-      default:
-        return 'Unknown';
+    case 'file:':
+      return decodeURI(url.pathname);
+    case 'https:':
+      return url.hostname;
+    default:
+      return 'Unknown';
     }
-  })())
+  })());
   return (
     <div className="flex flex-1 flex-row items-center">
       <GlobeIcon className="h-8 w-8 mr-2"/>

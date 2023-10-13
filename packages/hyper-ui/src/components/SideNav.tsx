@@ -16,11 +16,9 @@ import {
 import {Button} from '@/components/ui/button';
 import {
   GearIcon,
-  GlobeIcon,
   ShadowIcon,
   ShadowNoneIcon
 } from '@radix-ui/react-icons';
-import {Badge} from '@/components/ui/badge';
 import {
   ChevronUpDownIcon, InformationCircleIcon,
   SunIcon
@@ -32,7 +30,7 @@ import {
   DialogTrigger
 } from '@/components/ui/dialog';
 import {ScrollArea} from '@/components/ui/scroll-area';
-import WorkspaceInfo from "@/components/WorkspaceInfo";
+import WorkspaceInfo from '@/components/WorkspaceInfo';
 
 export default function SideNav() {
   const {mode, setMode} = useTheme();
