@@ -4,12 +4,12 @@ import {
   DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
-import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from "@/components/ui/tooltip";
-import {Button} from "@/components/ui/button";
-import {ChevronUpDownIcon, SunIcon} from "@heroicons/react/24/outline";
-import {ShadowIcon, ShadowNoneIcon} from "@radix-ui/react-icons";
-import {ColorMode, useTheme} from "@/providers";
+} from '@/components/ui/dropdown-menu';
+import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip';
+import {Button} from '@/components/ui/button';
+import {ChevronUpDownIcon, SunIcon} from '@heroicons/react/24/outline';
+import {ShadowIcon, ShadowNoneIcon} from '@radix-ui/react-icons';
+import {ColorMode, useTheme} from '@/providers';
 
 export default function ColorSchemeMenu () {
   const {mode, setMode} = useTheme();
@@ -23,12 +23,12 @@ export default function ColorSchemeMenu () {
               <Button variant="ghost" className="px-2">
                 {(() => {
                   switch (mode) {
-                    case 'light':
-                      return <><SunIcon className="w-4 h-4"/></>;
-                    case 'dark':
-                      return <><ShadowIcon className="w-4 h-4"/></>;
-                    case 'system':
-                      return <><ShadowNoneIcon className="w-4 h-4"/></>;
+                  case 'light':
+                    return <><SunIcon className="w-4 h-4"/></>;
+                  case 'dark':
+                    return <><ShadowIcon className="w-4 h-4"/></>;
+                  case 'system':
+                    return <><ShadowNoneIcon className="w-4 h-4"/></>;
                   }
                 })()}
                 <ChevronUpDownIcon className="w-4 h-4 ml-2"/>
@@ -38,12 +38,12 @@ export default function ColorSchemeMenu () {
           <TooltipContent>
             {(() => {
               switch (mode) {
-                case 'light':
-                  return <>Light Mode</>;
-                case 'dark':
-                  return <>Dark Mode</>;
-                case 'system':
-                  return <>System Mode</>;
+              case 'light':
+                return <>Light Mode</>;
+              case 'dark':
+                return <>Dark Mode</>;
+              case 'system':
+                return <>System Mode</>;
               }
             })()}
           </TooltipContent>
@@ -59,5 +59,5 @@ export default function ColorSchemeMenu () {
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
+  );
 }

@@ -1,7 +1,7 @@
-import {Dialog, DialogContent, DialogTrigger} from "@/components/ui/dialog";
-import {Button} from "@/components/ui/button";
-import {GearIcon} from "@radix-ui/react-icons";
-import {SettingsDialogContent} from "@/components/index";
+import {Dialog, DialogContent, DialogTrigger} from '@/components/ui/dialog';
+import {Button} from '@/components/ui/button';
+import {GearIcon} from '@radix-ui/react-icons';
+import {SettingsDialogContent} from '@/components/index';
 
 export default function SettingsDialog() {
   return (

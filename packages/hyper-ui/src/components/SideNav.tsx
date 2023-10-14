@@ -1,11 +1,11 @@
 import {Drawer} from '@/components';
 import {useSideNav} from '@/providers';
 import {ScrollArea} from '@/components/ui/scroll-area';
-import ColorSchemeMenu from "@/components/ColorSchemeMenu";
-import AboutDialog from "@/components/AboutDialog";
-import WorkspaceSelectMenu from "@/components/WorkspaceSelectMenu";
-import SettingsDialog from "@/components/SettingsDialog";
-import WorkspaceNavigationTree from "@/components/WorkspaceNavigationTree";
+import ColorSchemeMenu from '@/components/ColorSchemeMenu';
+import AboutDialog from '@/components/AboutDialog';
+import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
+import SettingsDialog from '@/components/SettingsDialog';
+import WorkspaceNavigationTree from '@/components/WorkspaceNavigationTree';
 
 export default function SideNav() {
   const {sideNav} = useSideNav();

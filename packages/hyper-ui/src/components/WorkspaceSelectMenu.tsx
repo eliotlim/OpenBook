@@ -4,10 +4,10 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
-import {Button} from "@/components/ui/button";
-import WorkspaceInfo from "@/components/WorkspaceInfo";
-import {ChevronUpDownIcon} from "@heroicons/react/24/outline";
+} from '@/components/ui/dropdown-menu';
+import {Button} from '@/components/ui/button';
+import WorkspaceInfo from '@/components/WorkspaceInfo';
+import {ChevronUpDownIcon} from '@heroicons/react/24/outline';
 
 export default function WorkspaceSelectMenu (){
   return (
