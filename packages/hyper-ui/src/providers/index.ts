@@ -1,3 +1,3 @@
 export * from './PlatformLibraryProvider';
-export * from './SideNavProvider';
+export * from './HudProvider';
 export * from './ThemeProvider';

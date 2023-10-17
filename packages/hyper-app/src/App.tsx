@@ -2,7 +2,7 @@ import React from 'react';
 import {
   DefaultLayout,
   PageDocument,
-  SideNavProvider,
+  HudProvider,
   ThemeProvider
 } from '@hyper-hq/hyper-ui';
 
@@ -12,11 +12,11 @@ function App() {
 
   return (
     <ThemeProvider>
-      <SideNavProvider>
+      <HudProvider>
         <DefaultLayout>
           <PageDocument/>
         </DefaultLayout>
-      </SideNavProvider>
+      </HudProvider>
     </ThemeProvider>
   );
 }

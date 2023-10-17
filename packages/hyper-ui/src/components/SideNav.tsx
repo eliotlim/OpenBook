@@ -1,5 +1,5 @@
 import {Drawer} from '@/components';
-import {useSideNav} from '@/providers';
+import {useHud} from '@/providers';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import ColorSchemeMenu from '@/components/ColorSchemeMenu';
 import AboutDialog from '@/components/AboutDialog';
@@ -8,12 +8,12 @@ import SettingsDialog from '@/components/SettingsDialog';
 import WorkspaceNavigationTree from '@/components/WorkspaceNavigationTree';
 
 export default function SideNav() {
-  const {sideNav} = useSideNav();
+  const {hud} = useHud();
   return (
     <>
       <Drawer
-        open={sideNav.open}
-        docked={sideNav.docked}
+        open={hud.sideNav.open}
+        docked={hud.sideNav.docked}
       >
         <div
           className="flex flex-col flex-grow justify-between"
@@ -23,7 +23,7 @@ export default function SideNav() {
           >
             <WorkspaceSelectMenu/>
             <SettingsDialog/>
-            <ScrollArea className={sideNav.docked ? 'h-[calc(100vh-10rem)]' : 'h-[calc(100vh-20rem)]'}>
+            <ScrollArea className={hud.sideNav.docked ? 'h-[calc(100vh-10rem)]' : 'h-[calc(100vh-20rem)]'}>
               <WorkspaceNavigationTree/>
             </ScrollArea>
           </div>
