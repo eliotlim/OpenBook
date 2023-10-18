@@ -2,11 +2,19 @@ import {Dialog, DialogContent, DialogTrigger} from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
 import {GearIcon} from '@radix-ui/react-icons';
 import {SettingsDialogContent} from '@/components/index';
+import {useHud} from "@/providers";
+import React from 'react';
 
 export default function SettingsDialog() {
-  return (
+  const {hud, setHud} = useHud();
 
-    <Dialog>
+  const open = hud.settings.open;
+  const setOpen = React.useCallback((open: boolean) => {
+    setHud({...hud, settings: {...hud.settings, open}});
+  }, []);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="ghost" className="flex flex-grow justify-start">
           <GearIcon className="w-4 h-4 mr-2"/>
