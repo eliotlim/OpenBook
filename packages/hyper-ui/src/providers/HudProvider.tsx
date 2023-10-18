@@ -1,4 +1,5 @@
 import React, {createContext, PropsWithChildren, useContext, useState} from 'react';
+import {loadHudStorage, saveHudStorage} from "@/lib/hud";
 
 export interface HudProps {
   sideNav: {
@@ -27,13 +28,7 @@ export const HudContext = createContext<HudContext>({
 export const useHud = () => useContext(HudContext);
 
 export const HudProvider: React.FC<PropsWithChildren<unknown>> = ({children}) => {
-  const storageKey = 'hud';
-  const [hud, setHud] = useState<HudProps>(() => {
-    if (typeof window === 'undefined' || localStorage.getItem(storageKey) === null) {
-      return HudDefault;
-    }
-    return JSON.parse(localStorage.getItem(storageKey) ?? '{}') as HudProps;
-  });
+  const [hud, setHud] = useState<HudProps>(loadHudStorage);
 
   const hudSidenavHoverListener = React.useCallback((e: MouseEvent) => {
     if (!hud.sideNav.docked) {
@@ -59,7 +54,7 @@ export const HudProvider: React.FC<PropsWithChildren<unknown>> = ({children}) =>
   const state = {
     hud: hud,
     setHud: (hud: HudProps) => {
-      localStorage.setItem(storageKey, JSON.stringify(hud));
+      saveHudStorage(hud);
       setHud(hud);
     }
   };
