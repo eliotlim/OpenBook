@@ -1,24 +1,10 @@
 import React, {createContext, PropsWithChildren, useContext, useState} from 'react';
-import {loadHudStorage, saveHudStorage} from "@/lib/hud";
-
-export interface HudProps {
-  sideNav: {
-    open: boolean;
-    docked: boolean;
-  };
-}
+import {HudDefault, HudProps, loadHudStorage, saveHudStorage} from "@/lib/hud";
 
 export interface HudContext {
   hud: HudProps;
   setHud: React.Dispatch<HudProps>;
 }
-
-export const HudDefault = {
-  sideNav: {
-    open: false,
-    docked: false,
-  },
-};
 
 export const HudContext = createContext<HudContext>({
   hud: HudDefault,
@@ -30,7 +16,19 @@ export const useHud = () => useContext(HudContext);
 export const HudProvider: React.FC<PropsWithChildren<unknown>> = ({children}) => {
   const [hud, setHud] = useState<HudProps>(loadHudStorage);
 
-  const hudSidenavHoverListener = React.useCallback((e: MouseEvent) => {
+  const hudKeyListener = React.useCallback((e: KeyboardEvent) => {
+    if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      setHud({...hud, commandPalette: {...hud.commandPalette, open: true}});
+    }
+  }, []);
+
+  React.useEffect(() => {
+    document.addEventListener('keydown', hudKeyListener);
+    return () => document.removeEventListener('keydown', hudKeyListener);
+  }, []);
+
+  const hudMouseListener = React.useCallback((e: MouseEvent) => {
     if (!hud.sideNav.docked) {
       if (e.clientX > 320 || e.clientX <= 1) {
         setHud({...hud, sideNav: {...hud.sideNav, open: false}});
@@ -41,15 +39,9 @@ export const HudProvider: React.FC<PropsWithChildren<unknown>> = ({children}) =>
   }, [hud, hud.sideNav, setHud]);
 
   React.useEffect(() => {
-    if (typeof window !== 'undefined') {
-      window.addEventListener('mousemove', hudSidenavHoverListener);
-    }
-    return () => {
-      if (typeof window !== 'undefined') {
-        window.removeEventListener('mousemove', hudSidenavHoverListener);
-      }
-    };
-  }, [hudSidenavHoverListener]);
+    document.addEventListener('mousemove', hudMouseListener);
+    return () => document.removeEventListener('mousemove', hudMouseListener);
+  }, [hudMouseListener]);
 
   const state = {
     hud: hud,

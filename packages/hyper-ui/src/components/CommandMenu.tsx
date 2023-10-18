@@ -7,19 +7,13 @@ import {
   CommandList
 } from '@/components/ui/command';
 import React from 'react';
+import {useHud} from "@/providers";
 
 export function CommandMenu() {
-  const [open, setOpen] = React.useState(false);
-
-  React.useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setOpen((open) => !open);
-      }
-    };
-    document.addEventListener('keydown', down);
-    return () => document.removeEventListener('keydown', down);
+  const {hud, setHud} = useHud();
+  const open = hud.commandPalette.open;
+  const setOpen = React.useCallback((open: boolean) => {
+    setHud({...hud, commandPalette: {...hud.commandPalette, open}});
   }, []);
 
   return (

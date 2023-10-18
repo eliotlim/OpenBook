@@ -1,11 +1,38 @@
-import {HudDefault, HudProps} from "@/providers";
+export interface HudProps {
+  commandPalette: {
+    open: boolean;
+  };
+  settings: {
+    open: boolean;
+  };
+  sideNav: {
+    open: boolean;
+    docked: boolean;
+  };
+}
+
+export const HudDefault: HudProps = {
+  commandPalette: {
+    open: false,
+  },
+  settings: {
+    open: false,
+  },
+  sideNav: {
+    open: false,
+    docked: false,
+  },
+};
 
 export const HUD_STORAGE_KEY = 'hud';
 export const loadHudStorage = () => {
   if (typeof window === 'undefined' || localStorage.getItem(HUD_STORAGE_KEY) === null) {
     return HudDefault;
   }
-  return JSON.parse(localStorage.getItem(HUD_STORAGE_KEY) ?? '{}') as HudProps;
+  return {
+    ...HudDefault,
+    ...JSON.parse(localStorage.getItem(HUD_STORAGE_KEY) ?? '{}')
+  };
 };
 
 export const saveHudStorage = (hud: HudProps) => {
