@@ -16,7 +16,7 @@ export default function SettingsDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" className="flex flex-grow justify-start">
+        <Button variant="ghost" className="flex flex-grow justify-start h-7">
           <GearIcon className="w-4 h-4 mr-2"/>
           Settings
         </Button>
