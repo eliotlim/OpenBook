@@ -10,7 +10,6 @@ import CommandToggle from "@/components/CommandToggle";
 
 export default function SideNav() {
   const {hud} = useHud();
-  const offset = 12;
   return (
     <>
       <Drawer
@@ -28,7 +27,7 @@ export default function SideNav() {
               <CommandToggle/>
               <SettingsDialog/>
             </div>
-            <ScrollArea className={hud.sideNav.docked ? `h-[calc(100vh-${offset}rem)]` : `h-[calc(100vh-${offset+8}rem)]`}>
+            <ScrollArea className={hud.sideNav.docked ? `h-[calc(100vh-12rem)]` : `h-[calc(100vh-20rem)]`}>
               <WorkspaceNavigationTree/>
             </ScrollArea>
           </div>
