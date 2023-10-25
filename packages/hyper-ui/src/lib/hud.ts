@@ -9,6 +9,9 @@ export interface HudProps {
     open: boolean;
     docked: boolean;
   };
+  viewMode: {
+    fullWidth: boolean;
+  }
 }
 
 export const HudDefault: HudProps = {
@@ -21,6 +24,9 @@ export const HudDefault: HudProps = {
   sideNav: {
     open: false,
     docked: false,
+  },
+  viewMode: {
+    fullWidth: false,
   },
 };
 

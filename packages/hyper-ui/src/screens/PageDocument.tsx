@@ -1,7 +1,7 @@
 import {Editor} from 'novel';
 import EmojiPicker, {Theme} from 'emoji-picker-react';
 import React from 'react';
-import {useTheme} from '@/providers';
+import {useHud, useTheme} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Button} from '@/components/ui/button';
 
@@ -51,9 +51,11 @@ const PageHeader = () => {
 };
 
 const PageDocument = () => {
+  const {hud} = useHud();
+
   return (
     <div
-      className="container mx-auto"
+      className={hud.viewMode.fullWidth ? "w-full" : "container mx-auto"}
     >
       <PageCover/>
       <PageHeader/>

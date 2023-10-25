@@ -1,5 +1,5 @@
 import {
-  DropdownMenu,
+  DropdownMenu, DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -8,8 +8,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import {DotsVerticalIcon} from '@radix-ui/react-icons';
+import {useHud} from "@/providers";
 
 export default function NavContextMenu() {
+  const {hud, setHud} = useHud();
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -21,7 +24,13 @@ export default function NavContextMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent>
-        <DropdownMenuLabel>My Account</DropdownMenuLabel>
+        <DropdownMenuLabel>View Options</DropdownMenuLabel>
+        <DropdownMenuCheckboxItem
+          checked={hud.viewMode.fullWidth}
+          onCheckedChange={e => setHud({...hud, viewMode: {...hud.viewMode, fullWidth: e.valueOf()}})}
+        >
+          Full Width
+        </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator/>
         <DropdownMenuItem>Favourite</DropdownMenuItem>
         <DropdownMenuItem>Settings</DropdownMenuItem>
