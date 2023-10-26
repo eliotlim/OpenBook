@@ -1,14 +1,16 @@
 import {
-  DropdownMenu, DropdownMenuCheckboxItem,
+  DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import {DotsVerticalIcon} from '@radix-ui/react-icons';
 import {useHud} from "@/providers";
+import {Switch} from "@/components/ui/switch";
 
 export default function NavContextMenu() {
   const {hud, setHud} = useHud();
@@ -23,14 +25,19 @@ export default function NavContextMenu() {
           <DotsVerticalIcon className="h-4 w-4"/>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent>
+      <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>View Options</DropdownMenuLabel>
-        <DropdownMenuCheckboxItem
-          checked={hud.viewMode.fullWidth}
-          onCheckedChange={e => setHud({...hud, viewMode: {...hud.viewMode, fullWidth: e.valueOf()}})}
+        <DropdownMenuLabel
+          className="flex flex-row justify-between"
         >
           Full Width
-        </DropdownMenuCheckboxItem>
+          <DropdownMenuShortcut>
+            <Switch
+              checked={hud.viewMode.fullWidth}
+              onCheckedChange={e => setHud({...hud, viewMode: {...hud.viewMode, fullWidth: e.valueOf()}})}
+            />
+          </DropdownMenuShortcut>
+        </DropdownMenuLabel>
         <DropdownMenuSeparator/>
         <DropdownMenuItem>Favourite</DropdownMenuItem>
         <DropdownMenuItem>Settings</DropdownMenuItem>
