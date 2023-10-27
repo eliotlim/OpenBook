@@ -4,12 +4,17 @@ import {MagnifyingGlassIcon} from "@radix-ui/react-icons";
 
 
 export default function CommandToggle() {
-  const {hud, setHud} = useHud();
+  const {setHud} = useHud();
   return (
     <Button
       variant="ghost"
       className="flex flex-grow justify-start h-7"
-      onClick={() => setHud({...hud, commandPalette: {...hud.commandPalette, open: !hud.commandPalette.open}})}
+      onClick={() => {
+        setHud(draft => {
+          draft.commandPalette.open = !draft.commandPalette.open;
+          return draft;
+        })
+      }}
     >
       <MagnifyingGlassIcon className="w-4 h-4 mr-2"/>
       Search

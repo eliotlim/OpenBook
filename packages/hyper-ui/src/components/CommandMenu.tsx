@@ -13,8 +13,8 @@ export function CommandMenu() {
   const {hud, setHud} = useHud();
   const open = hud.commandPalette.open;
   const setOpen = React.useCallback((open: boolean) => {
-    setHud({...hud, commandPalette: {...hud.commandPalette, open}});
-  }, []);
+    setHud(draft => {draft.commandPalette.open = open; return draft;});
+  }, [setHud]);
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>

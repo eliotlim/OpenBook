@@ -1,9 +1,10 @@
-import React, {createContext, PropsWithChildren, useContext, useState} from 'react';
+import React, {createContext, PropsWithChildren, useContext} from 'react';
 import {HudDefault, HudProps, loadHudStorage, saveHudStorage} from "@/lib/hud";
+import {useImmer} from 'use-immer';
 
 export interface HudContext {
   hud: HudProps;
-  setHud: React.Dispatch<HudProps>;
+  setHud: React.Dispatch<HudProps | ((draft: HudProps) => HudProps)>;
 }
 
 export const HudContext = createContext<HudContext>({
@@ -14,7 +15,11 @@ export const HudContext = createContext<HudContext>({
 export const useHud = () => useContext(HudContext);
 
 export const HudProvider: React.FC<PropsWithChildren<unknown>> = ({children}) => {
-  const [hud, setHud] = useState<HudProps>(loadHudStorage);
+  const [hud, setHud] = useImmer<HudProps>(loadHudStorage);
+
+  React.useEffect(() => {
+    saveHudStorage(hud);
+  }, [hud]);
 
   const hudKeyListener = React.useCallback((e: KeyboardEvent) => {
     if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
@@ -31,9 +36,9 @@ export const HudProvider: React.FC<PropsWithChildren<unknown>> = ({children}) =>
   const hudMouseListener = React.useCallback((e: MouseEvent) => {
     if (!hud.sideNav.docked) {
       if (e.clientX > 320 || e.clientX <= 1) {
-        setHud({...hud, sideNav: {...hud.sideNav, open: false}});
+        setHud(draft => {draft.sideNav.open = false; return draft;});
       } else if (e.clientX < 16) {
-        setHud({...hud, sideNav: {...hud.sideNav, open: true}});
+        setHud(draft => {draft.sideNav.open = true; return draft;});
       }
     }
   }, [hud, hud.sideNav, setHud]);
@@ -45,10 +50,7 @@ export const HudProvider: React.FC<PropsWithChildren<unknown>> = ({children}) =>
 
   const state = {
     hud: hud,
-    setHud: (hud: HudProps) => {
-      saveHudStorage(hud);
-      setHud(hud);
-    }
+    setHud: setHud,
   };
 
   return <HudContext.Provider value={state}>

@@ -8,7 +8,11 @@ export default function SideNavToggle() {
     <Button
       variant="ghost"
       className="px-3 py-1"
-      onClick={() => setHud({...hud, sideNav: {docked: !hud.sideNav.docked, open: !hud.sideNav.docked}})}
+      onClick={() => setHud((draft) => {
+        draft.sideNav.open = !draft.sideNav.docked;
+        draft.sideNav.docked = !draft.sideNav.docked;
+        return draft;
+      })}
     >
       {hud.sideNav.docked ? <DoubleArrowLeftIcon className="h-4 w-4"/> : <HamburgerMenuIcon className="h-4 w-4"/>}
     </Button>

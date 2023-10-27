@@ -10,8 +10,8 @@ export default function SettingsDialog() {
 
   const open = hud.settings.open;
   const setOpen = React.useCallback((open: boolean) => {
-    setHud({...hud, settings: {...hud.settings, open}});
-  }, []);
+    setHud(draft => {draft.settings.open = open; return draft;});
+  }, [setHud]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
