@@ -10,17 +10,17 @@ export default function SettingsDialogContent() {
     <>
       <div className="flex flex-row gap-2 m-0">
         <div className="flex flex-col bg-sheet-1 text-sheet-1-foreground pl-4 pt-8 pb-8 pr-4 rounded-l-lg gap-1">
-          <h4 className="text-sm font-semibold pb-2">Settings</h4>
-          <Button variant="ghost" className="flex flex-row justify-start gap-2">
-            <WrenchIcon className="w-4 h-4"/>
+          <h4 className="text-sm font-semibold pb-2 px-2">Settings</h4>
+          <Button variant="ghost" className="flex justify-start h-7 px-2">
+            <WrenchIcon className="w-4 h-4 mr-2"/>
             General
           </Button>
-          <Button variant="ghost" className="flex flex-row justify-start gap-2">
-            <PaintBrushIcon className="w-4 h-4"/>
+          <Button variant="ghost" className="flex justify-start h-7 px-2">
+            <PaintBrushIcon className="w-4 h-4 mr-2"/>
             Appearance
           </Button>
-          <Button variant="ghost" className="flex flex-row justify-start gap-2">
-            <PersonIcon className="w-4 h-4"/>
+          <Button variant="ghost" className="flex justify-start h-7 px-2">
+            <PersonIcon className="w-4 h-4 mr-2"/>
             Profile
           </Button>
         </div>
