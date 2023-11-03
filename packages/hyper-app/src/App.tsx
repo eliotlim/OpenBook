@@ -1,9 +1,10 @@
 import React from 'react';
 import {
   DefaultLayout,
-  PageDocument,
   HudProvider,
-  ThemeProvider
+  PageDocument,
+  ThemeProvider,
+  WorkspaceProvider,
 } from '@hyper-hq/hyper-ui';
 
 import '@hyper-hq/hyper-ui/style.css';
@@ -12,11 +13,14 @@ function App() {
 
   return (
     <ThemeProvider>
-      <HudProvider>
-        <DefaultLayout>
-          <PageDocument/>
-        </DefaultLayout>
-      </HudProvider>
+      <WorkspaceProvider>
+        <HudProvider>
+          <DefaultLayout>
+            <PageDocument/>
+          </DefaultLayout>
+        </HudProvider>
+      </WorkspaceProvider>
+
     </ThemeProvider>
   );
 }

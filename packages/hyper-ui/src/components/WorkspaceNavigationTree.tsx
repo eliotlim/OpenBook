@@ -1,6 +1,9 @@
 import {Button} from '@/components/ui/button';
+import {useWorkspace} from "@/providers/WorkspaceProvider";
 
 export default function WorkspaceNavigationTree (){
+  const {workspace} = useWorkspace();
+
   return (
     <>
       {[
