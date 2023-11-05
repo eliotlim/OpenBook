@@ -29,6 +29,8 @@ const externalModules = [
   "novel",
   "tailwind-merge",
   "tailwindcss-animate",
+  "use-immer",
+  "use-resize-observer",
 ];
 
 export default defineConfig ({
