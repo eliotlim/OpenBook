@@ -24,7 +24,7 @@ export const HudProvider: React.FC<PropsWithChildren<unknown>> = ({children}) =>
   const hudKeyListener = React.useCallback((e: KeyboardEvent) => {
     if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      setHud({...hud, commandPalette: {...hud.commandPalette, open: true}});
+      setHud(draft => {draft.commandPalette.open = true; return draft;});
     }
   }, []);
 
