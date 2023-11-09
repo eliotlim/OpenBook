@@ -32,8 +32,8 @@ export default function WorkspaceInfo( props: WorkspaceInfoProps) {
     <div className="flex flex-1 flex-row items-center">
       <GlobeIcon className="h-8 w-8 mr-2"/>
       <div className="flex flex-1 flex-col">
-        <div className="flex gap-2">{props.name}{badge}</div>
-        <p className="flex text-xs font-normal text-muted-foreground text-ellipsis">
+        <div className="flex gap-2"><span className="whitespace-nowrap">{props.name}</span>{badge}</div>
+        <p className="flex text-xs font-normal text-muted-foreground text-ellipsis whitespace-nowrap">
           {location}
         </p>
       </div>

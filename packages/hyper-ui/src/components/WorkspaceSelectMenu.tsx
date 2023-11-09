@@ -8,8 +8,11 @@ import {
 import {Button} from '@/components/ui/button';
 import WorkspaceInfo from '@/components/WorkspaceInfo';
 import {ChevronUpDownIcon} from '@heroicons/react/24/outline';
+import {useWorkspace} from "@/providers";
 
 export default function WorkspaceSelectMenu (){
+  const {workspace} = useWorkspace();
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -17,7 +20,7 @@ export default function WorkspaceSelectMenu (){
           variant="ghost"
           className="flex h-12 w-60 px-2 justify-start"
         >
-          <WorkspaceInfo name={'Workspace 1'} url={'file:///~/hyper/Workspace 1'}/>
+          <WorkspaceInfo name={workspace?.name ?? 'Loading...'} url={workspace?.uri ?? ''}/>
           <ChevronUpDownIcon className="w-4 h-4"/>
         </Button>
       </DropdownMenuTrigger>
