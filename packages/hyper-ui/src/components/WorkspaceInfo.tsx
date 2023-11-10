@@ -4,6 +4,7 @@ import {Badge} from '@/components/ui/badge';
 export interface WorkspaceInfoProps {
   name: string,
   url: string,
+  icon?: string,
 }
 
 export default function WorkspaceInfo( props: WorkspaceInfoProps) {
@@ -30,9 +31,17 @@ export default function WorkspaceInfo( props: WorkspaceInfoProps) {
   })());
   return (
     <div className="flex flex-1 flex-row items-center">
-      <GlobeIcon className="h-8 w-8 mr-2"/>
+      {props.icon ?
+        <div className="h-8 w-8 mr-2">
+          <span className="h-8 w-8 text-2xl">{props.icon}</span>
+        </div>
+        : <GlobeIcon className="h-8 w-8 mr-2"/>
+      }
       <div className="flex flex-1 flex-col">
-        <div className="flex gap-2"><span className="whitespace-nowrap">{props.name}</span>{badge}</div>
+        <div className="flex gap-2">
+          <span className="whitespace-nowrap">{props.name}</span>
+          {badge}
+        </div>
         <p className="flex text-xs font-normal text-muted-foreground text-ellipsis whitespace-nowrap">
           {location}
         </p>

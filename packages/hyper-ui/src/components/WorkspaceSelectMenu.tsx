@@ -20,7 +20,7 @@ export default function WorkspaceSelectMenu (){
           variant="ghost"
           className="flex h-12 w-60 px-2 justify-start"
         >
-          <WorkspaceInfo name={workspace?.name ?? 'Loading...'} url={workspace?.uri ?? ''}/>
+          <WorkspaceInfo icon={workspace?.icon} name={workspace?.name ?? 'Loading...'} url={workspace?.uri ?? ''}/>
           <ChevronUpDownIcon className="w-4 h-4"/>
         </Button>
       </DropdownMenuTrigger>
