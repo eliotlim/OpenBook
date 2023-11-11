@@ -9,16 +9,6 @@ export interface WorkspaceInfoProps {
 
 export default function WorkspaceInfo( props: WorkspaceInfoProps) {
   const url = new URL(props.url);
-  const badge = (() => {
-    switch (url.protocol) {
-    case 'file:':
-      return <Badge className="px-1" variant="outline">Local</Badge>;
-    case 'https:':
-      return <Badge className="px-1" variant="default">Shared</Badge>;
-    default:
-      return <Badge className="px-1" variant="secondary">Unknown</Badge>;
-    }
-  })();
   const location = ((() => {
     switch (url.protocol) {
     case 'file:':
@@ -39,12 +29,16 @@ export default function WorkspaceInfo( props: WorkspaceInfoProps) {
       }
       <div className="flex flex-1 flex-col">
         <div className="flex gap-2">
-          <span className="whitespace-nowrap">{props.name}</span>
-          {badge}
+          <span className="text-start whitespace-nowrap overflow-hidden w-40 text-ellipsis font-bold">{props.name}</span>
         </div>
-        <p className="flex text-xs font-normal text-muted-foreground text-ellipsis whitespace-nowrap">
-          {location}
-        </p>
+        <div className="flex">
+          <span className="text-start whitespace-nowrap overflow-hidden text-ellipsis text-xs text-muted-foreground font-normal">
+            {url.protocol}//
+          </span>
+          <span className="text-start whitespace-nowrap overflow-hidden w-32 text-ellipsis text-xs text-muted-foreground font-semibold">
+            {location}
+          </span>
+        </div>
       </div>
     </div>
   );
