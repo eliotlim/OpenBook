@@ -6,7 +6,7 @@ import AboutDialog from '@/components/AboutDialog';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
 import SettingsDialog from '@/components/SettingsDialog';
 import WorkspaceNavigationTree from '@/components/WorkspaceNavigationTree';
-import CommandToggle from "@/components/CommandToggle";
+import CommandToggle from '@/components/CommandToggle';
 
 export default function SideNav() {
   const {hud} = useHud();
@@ -27,7 +27,7 @@ export default function SideNav() {
               <CommandToggle/>
               <SettingsDialog/>
             </div>
-            <ScrollArea className={hud.sideNav.docked ? `h-[calc(100vh-12rem)]` : `h-[calc(100vh-20rem)]`}>
+            <ScrollArea className={hud.sideNav.docked ? 'h-[calc(100vh-12rem)]' : 'h-[calc(100vh-20rem)]'}>
               <WorkspaceNavigationTree/>
             </ScrollArea>
           </div>

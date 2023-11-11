@@ -1,5 +1,5 @@
 import React, {createContext, PropsWithChildren, useContext} from 'react';
-import {HudDefault, HudProps, loadHudStorage, saveHudStorage} from "@/lib/hud";
+import {HudDefault, HudProps, loadHudStorage, saveHudStorage} from '@/lib/hud';
 import {useImmer} from 'use-immer';
 
 export interface HudContext {

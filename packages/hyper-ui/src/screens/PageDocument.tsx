@@ -55,7 +55,7 @@ const PageDocument = () => {
 
   return (
     <div
-      className={hud.viewMode.fullWidth ? "w-full" : "container mx-auto"}
+      className={hud.viewMode.fullWidth ? 'w-full' : 'container mx-auto'}
     >
       <PageCover/>
       <PageHeader/>

@@ -8,7 +8,7 @@ import {
 import {Button} from '@/components/ui/button';
 import WorkspaceInfo from '@/components/WorkspaceInfo';
 import {ChevronUpDownIcon} from '@heroicons/react/24/outline';
-import {useWorkspace} from "@/providers";
+import {useWorkspace} from '@/providers';
 
 export default function WorkspaceSelectMenu (){
   const {workspace} = useWorkspace();

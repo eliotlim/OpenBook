@@ -9,8 +9,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import {DotsVerticalIcon} from '@radix-ui/react-icons';
-import {useHud} from "@/providers";
-import {Switch} from "@/components/ui/switch";
+import {useHud} from '@/providers';
+import {Switch} from '@/components/ui/switch';
 
 export default function NavContextMenu() {
   const {hud, setHud} = useHud();

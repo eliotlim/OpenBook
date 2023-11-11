@@ -1,5 +1,4 @@
 import {GlobeIcon} from '@radix-ui/react-icons';
-import {Badge} from '@/components/ui/badge';
 
 export interface WorkspaceInfoProps {
   name: string,
@@ -33,7 +32,7 @@ export default function WorkspaceInfo( props: WorkspaceInfoProps) {
         </div>
         <div className="flex">
           <span className="text-start whitespace-nowrap overflow-hidden text-ellipsis text-xs text-muted-foreground font-normal">
-            {url.protocol}//
+            {`${url.protocol}//`}
           </span>
           <span className="text-start whitespace-nowrap overflow-hidden w-32 text-ellipsis text-xs text-muted-foreground font-semibold">
             {location}

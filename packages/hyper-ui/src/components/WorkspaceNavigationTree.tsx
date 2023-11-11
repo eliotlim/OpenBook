@@ -1,7 +1,7 @@
-import {NavPageRecord, useWorkspace} from "@/providers/WorkspaceProvider";
-import {Tree, TreeDataItem} from "@/components/Tree";
-import {cn} from "@/lib/utils";
-import {useHud} from "@/providers";
+import {NavPageRecord, useWorkspace} from '@/providers/WorkspaceProvider';
+import {Tree, TreeDataItem} from '@/components/ui/tree';
+import {cn} from '@/lib/utils';
+import {useHud} from '@/providers';
 import {FolderIcon} from 'lucide-react';
 
 export function parsePageTree(pages?: NavPageRecord[]): TreeDataItem[] | undefined {
@@ -24,7 +24,7 @@ export default function WorkspaceNavigationTree() {
     <>
       <Tree
         data={data ?? []}
-        className={cn("w-full border-0", hud.sideNav.docked ? `h-[calc(100vh-12rem)]` : `h-[calc(100vh-20rem)]`)}
+        className={cn('w-full border-0', hud.sideNav.docked ? 'h-[calc(100vh-12rem)]' : 'h-[calc(100vh-20rem)]')}
         initialSlelectedItemId="f12"
         // onSelectChange={(item) => setContent(item?.name ?? "")}
         // folderIcon={Folder}

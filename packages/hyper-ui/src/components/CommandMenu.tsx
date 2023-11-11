@@ -7,7 +7,7 @@ import {
   CommandList
 } from '@/components/ui/command';
 import React from 'react';
-import {useHud} from "@/providers";
+import {useHud} from '@/providers';
 
 export function CommandMenu() {
   const {hud, setHud} = useHud();

@@ -58,7 +58,7 @@ export const loadWorkspaceStorage = (): Workspace => {
     };
   }
   return JSON.parse(workspace);
-}
+};
 
 export const WorkspaceProvider: React.FC<PropsWithChildren<unknown>> = ({children}) => {
   const [workspace, setWorkspace] = useState(loadWorkspaceStorage);
