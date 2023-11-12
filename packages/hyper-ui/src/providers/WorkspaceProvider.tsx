@@ -8,7 +8,7 @@ export interface PageRecord {
 }
 
 export interface NavPageRecord extends PageRecord {
-  subPages?: PageRecord[];
+  subPages?: NavPageRecord[];
 }
 
 export interface Workspace {
@@ -37,18 +37,52 @@ export const loadWorkspaceStorage = (): Workspace => {
     return {
       workspaceId: 'workspace-abcdef',
       icon: '🏡',
-      name: 'Default Workspace',
+      name: 'My Workspace',
       uri: 'https://space1.hyper.dev',
       pages: [
         {
           pageId: 'default2',
-          icon: '🏠',
-          title: 'Default Page',
+          icon: '📄',
+          title: 'Checklist',
+          content: 'Simple checklist',
+          subPages: [
+            {
+              pageId: 'subpage1',
+              icon: '📝',
+              title: 'SubPage 1',
+              content: 'Sub page 1',
+              subPages: [
+                {
+                  pageId: 'subpage1',
+                  icon: '📝',
+                  title: 'SubPage 1',
+                  content: 'Sub page 1',
+                },
+              ],
+            },
+            {
+              pageId: 'subpage2',
+              icon: '📝',
+              title: 'SubPage 2',
+              content: 'Sub page 2',
+            },
+            {
+              pageId: 'subpage3',
+              icon: '📝',
+              title: 'SubPage 3',
+              content: 'Sub page 3',
+            },
+          ],
+        },
+        {
+          pageId: 'default3',
+          icon: '📄',
+          title: 'New Page',
           content: 'This is the default page',
           subPages: [
             {
               pageId: 'default3',
-              icon: 'https://www.google.com/s2/favicons?sz=64&domain=google.com',
+              icon: '📝',
               title: 'Default Sub Page',
               content: 'This is the default sub page',
             },

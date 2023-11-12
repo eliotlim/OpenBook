@@ -15,7 +15,7 @@ import useResizeObserver from "use-resize-observer";
 interface TreeDataItem {
   id: string;
   name: string;
-  icon?: LucideIcon,
+  icon?: LucideIcon | string,
   children?: TreeDataItem[];
 }
 
@@ -104,8 +104,8 @@ type TreeItemProps =
     selectedItemId?: string,
     handleSelectChange: (item: TreeDataItem | undefined) => void,
     expandedItemIds: string[],
-    FolderIcon?: LucideIcon,
-    ItemIcon?: LucideIcon
+    FolderIcon?: LucideIcon | string,
+    ItemIcon?: LucideIcon | string,
   }
 
 const TreeItem = React.forwardRef<
@@ -127,7 +127,15 @@ const TreeItem = React.forwardRef<
                     )}
                     onClick={() => handleSelectChange(item)}
                   >
-                    {item.icon &&
+                    {item.icon && typeof item.icon === "string" &&
+                      <span
+                        className="h-4 w-4 shrink-0 mr-2 text-xs"
+                        aria-hidden="true"
+                      >
+                        {item.icon}
+                      </span>
+                    }
+                    {item.icon && typeof item.icon === "function" &&
                       <item.icon
                         className="h-4 w-4 shrink-0 mr-2 text-accent-foreground/50"
                         aria-hidden="true"
@@ -181,7 +189,7 @@ const Leaf = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement> & {
   item: TreeDataItem, isSelected?: boolean,
-  Icon?: LucideIcon
+  Icon?: LucideIcon | string
 }
 >(({ className, item, isSelected, Icon, ...props }, ref) => {
   return (
@@ -195,7 +203,20 @@ const Leaf = React.forwardRef<
       )}
       {...props}
     >
-      {item.icon && <item.icon className="h-4 w-4 shrink-0 mr-2 text-accent-foreground/50" aria-hidden="true" />}
+      {item.icon && typeof item.icon === "string" &&
+        <span
+          className="h-4 w-4 shrink-0 mr-2 text-xs"
+          aria-hidden="true"
+        >
+          {item.icon}
+        </span>
+      }
+      {item.icon && typeof item.icon === "function" &&
+        <item.icon
+          className="h-4 w-4 shrink-0 mr-2 text-accent-foreground/50"
+          aria-hidden="true"
+        />
+      }
       {!item.icon && Icon && <Icon className="h-4 w-4 shrink-0 mr-2 text-accent-foreground/50" aria-hidden="true" />}
       <span className="flex-grow text-sm truncate">{item.name}</span>
     </div>
