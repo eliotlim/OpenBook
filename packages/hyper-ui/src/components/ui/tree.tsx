@@ -122,8 +122,8 @@ const TreeItem = React.forwardRef<
                 <AccordionPrimitive.Item value={item.id}>
                   <AccordionTrigger
                     className={cn(
-                      "px-2 hover:before:opacity-100 before:absolute before:left-0 before:w-full before:opacity-0 before:bg-muted/80 before:h-[1.75rem] before:-z-10",
-                      selectedItemId === item.id && "before:opacity-100 before:bg-accent text-accent-foreground before:border-l-2 before:border-l-accent-foreground/50 dark:before:border-0"
+                      "px-2 hover:after:opacity-100 after:absolute after:right-0 after:w-full after:opacity-0 after:bg-muted/80 after:h-[1.75rem] after:-z-10",
+                      selectedItemId === item.id && "after:opacity-100 after:bg-accent text-accent-foreground after:border-r-2 after:border-r-accent-foreground/50 dark:after:border-0"
                     )}
                     onClick={() => handleSelectChange(item)}
                   >
@@ -197,9 +197,9 @@ const Leaf = React.forwardRef<
       ref={ref}
       className={cn(
         "flex items-center py-2 px-2 cursor-pointer \
-        hover:before:opacity-100 before:absolute before:left-0 before:right-1 before:w-full before:opacity-0 before:bg-muted/80 before:h-[1.75rem] before:-z-10",
+        hover:after:opacity-100 after:absolute after:right-0 after:left-1 after:w-full after:opacity-0 after:bg-muted/80 after:h-[1.75rem] after:-z-10",
         className,
-        isSelected && "before:opacity-100 before:bg-accent text-accent-foreground before:border-l-2 before:border-l-accent-foreground/50 dark:before:border-0"
+        isSelected && "after:opacity-100 after:bg-accent text-accent-foreground after:border-r-2 after:border-r-accent-foreground/50 dark:after:border-0"
       )}
       {...props}
     >
@@ -231,13 +231,13 @@ const AccordionTrigger = React.forwardRef<
     <AccordionPrimitive.Trigger
       ref={ref}
       className={cn(
-        "flex flex-1 w-full items-center py-2 transition-all last:[&[data-state=open]>svg]:rotate-90",
+        "flex flex-1 w-full items-center py-2 transition-all first:[&[data-state=open]>svg]:rotate-90",
         className
       )}
       {...props}
     >
+      <ChevronRight className="h-4 w-4 shrink-0 transition-transform duration-200 text-accent-foreground/50" />
       {children}
-      <ChevronRight className="h-4 w-4 shrink-0 transition-transform duration-200 text-accent-foreground/50 ml-auto" />
     </AccordionPrimitive.Trigger>
   </AccordionPrimitive.Header>
 ));
