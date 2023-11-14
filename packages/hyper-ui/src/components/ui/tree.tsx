@@ -205,7 +205,7 @@ const Leaf = React.forwardRef<
     >
       {item.icon && typeof item.icon === "string" &&
         <span
-          className="h-4 w-4 shrink-0 mr-2 text-xs"
+          className="h-4 w-4 shrink-0 ml-4 mr-2 text-xs"
           aria-hidden="true"
         >
           {item.icon}
