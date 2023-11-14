@@ -196,7 +196,7 @@ const Leaf = React.forwardRef<
     <div
       ref={ref}
       className={cn(
-        "flex items-center py-2 px-2 cursor-pointer \
+        "flex items-center py-1 px-2 cursor-pointer \
         hover:after:opacity-100 after:absolute after:right-0 after:left-1 after:w-full after:opacity-0 after:bg-muted/80 after:h-[1.75rem] after:-z-10",
         className,
         isSelected && "after:opacity-100 after:bg-accent text-accent-foreground after:border-r-2 after:border-r-accent-foreground/50 dark:after:border-0"
@@ -231,7 +231,7 @@ const AccordionTrigger = React.forwardRef<
     <AccordionPrimitive.Trigger
       ref={ref}
       className={cn(
-        "flex flex-1 w-full items-center py-2 transition-all first:[&[data-state=open]>svg]:rotate-90",
+        "flex flex-1 w-full items-center py-1 transition-all first:[&[data-state=open]>svg]:rotate-90",
         className
       )}
       {...props}
@@ -255,7 +255,7 @@ const AccordionContent = React.forwardRef<
     )}
     {...props}
   >
-    <div className="pb-1 pt-0">{children}</div>
+    <div className="pb-0 pt-0">{children}</div>
   </AccordionPrimitive.Content>
 ));
 AccordionContent.displayName = AccordionPrimitive.Content.displayName;
