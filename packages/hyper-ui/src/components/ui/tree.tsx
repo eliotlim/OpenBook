@@ -205,7 +205,7 @@ const Leaf = React.forwardRef<
     >
       {item.icon && typeof item.icon === "string" &&
         <span
-          className="h-4 w-4 shrink-0 ml-4 mr-2 text-xs"
+          className="h-4 w-4 shrink-0 ml-5 mr-2 text-xs"
           aria-hidden="true"
         >
           {item.icon}
@@ -236,7 +236,7 @@ const AccordionTrigger = React.forwardRef<
       )}
       {...props}
     >
-      <ChevronRight className="h-4 w-4 shrink-0 transition-transform duration-200 text-accent-foreground/50" />
+      <ChevronRight className="h-4 w-4 mr-1 shrink-0 transition-transform duration-200 text-accent-foreground/50" />
       {children}
     </AccordionPrimitive.Trigger>
   </AccordionPrimitive.Header>
