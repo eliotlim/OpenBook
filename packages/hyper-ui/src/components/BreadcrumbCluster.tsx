@@ -1,4 +1,5 @@
 import {SlashIcon} from '@radix-ui/react-icons';
+import {useWorkspace} from "@/providers";
 
 export interface BreadcrumbProps {
   emoji: string,
@@ -19,11 +20,12 @@ export function Breadcrumb(props: BreadcrumbProps) {
 }
 
 export default function BreadcrumbCluster() {
+  const {workspace} = useWorkspace();
   return (
     <nav className="flex" aria-label="Breadcrumb">
       <ol className="inline-flex items-center space-x-1 md:space-x-3">
         {[
-          {emoji: '💼', title: 'Workspace 1'},
+          {emoji: workspace?.icon ?? '💼', title: workspace?.name ?? 'Default Workspace'},
           {emoji: '🏠', title: 'Home'},
           {emoji: '📄', title: 'Untitled Page'},
         ].map((pageDetails) => (
