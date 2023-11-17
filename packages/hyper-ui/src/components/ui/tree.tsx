@@ -198,7 +198,7 @@ const Leaf = React.forwardRef<
       className={cn(
         "flex items-center py-1 px-1 cursor-pointer",
         className,
-        isSelected && "after:opacity-100 after:bg-accent text-accent-foreground after:border-r-2 after:border-r-accent-foreground/50 dark:after:border-0"
+        isSelected && "text-accent-foreground bg-muted/40"
       )}
       {...props}
     >
@@ -227,17 +227,23 @@ const AccordionTrigger = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger>
 >(({ className, children, ...props }, ref) => (
   <AccordionPrimitive.Header>
-    <AccordionPrimitive.Trigger
-      ref={ref}
+    <div
       className={cn(
-        "flex flex-1 w-full items-center py-1 transition-all first:[&[data-state=open]>svg]:rotate-90",
-        className
+        "flex flex-1 w-full items-center py-1",
+        className,
       )}
-      {...props}
     >
-      <ChevronRight className="h-4 w-4 mr-1 shrink-0 transition-transform duration-200 text-accent-foreground/50" />
+      <AccordionPrimitive.Trigger
+        ref={ref}
+        className={cn(
+          "transition-all rounded-md hover:bg-muted-foreground/80 mr-1 first:[&[data-state=open]>svg]:rotate-90",
+        )}
+        {...props}
+      >
+        <ChevronRight className="h-4 w-4 shrink-0 transition-transform duration-200 text-accent-foreground/50" />
+      </AccordionPrimitive.Trigger>
       {children}
-    </AccordionPrimitive.Trigger>
+    </div>
   </AccordionPrimitive.Header>
 ));
 AccordionTrigger.displayName = AccordionPrimitive.Trigger.displayName;
