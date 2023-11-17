@@ -196,7 +196,7 @@ const Leaf = React.forwardRef<
     <div
       ref={ref}
       className={cn(
-        "flex items-center py-1 px-1 cursor-pointer",
+        "flex items-center py-1 px-2 cursor-pointer",
         className,
         isSelected && "text-accent-foreground bg-muted/40"
       )}
@@ -229,14 +229,14 @@ const AccordionTrigger = React.forwardRef<
   <AccordionPrimitive.Header>
     <div
       className={cn(
-        "flex flex-1 w-full items-center py-1",
+        "flex flex-1 w-full items-center py-0.5",
         className,
       )}
     >
       <AccordionPrimitive.Trigger
         ref={ref}
         className={cn(
-          "transition-all rounded-md hover:bg-muted-foreground/80 mr-1 first:[&[data-state=open]>svg]:rotate-90",
+          "transition-all rounded-md hover:bg-muted-foreground/40 p-0.5 mr-1 first:[&[data-state=open]>svg]:rotate-90",
         )}
         {...props}
       >
