@@ -81,7 +81,7 @@ const Tree = React.forwardRef<
   return (
     <div ref={refRoot} className={cn("overflow-hidden", className)}>
       <ScrollArea style={{ width, height }}>
-        <div className="relative p-2">
+        <div className="relative">
           <TreeItem
             data={data}
             ref={ref}
@@ -122,8 +122,8 @@ const TreeItem = React.forwardRef<
                 <AccordionPrimitive.Item value={item.id}>
                   <AccordionTrigger
                     className={cn(
-                      "px-2 hover:after:opacity-100 after:absolute after:right-0 after:w-full after:opacity-0 after:bg-muted/80 after:h-[1.75rem] after:-z-10",
-                      selectedItemId === item.id && "after:opacity-100 after:bg-accent text-accent-foreground after:border-r-2 after:border-r-accent-foreground/50 dark:after:border-0"
+                      "px-1 rounded-md hover:bg-muted/80",
+                      selectedItemId === item.id && "bg-muted/40"
                     )}
                     onClick={() => handleSelectChange(item)}
                   >
@@ -149,7 +149,7 @@ const TreeItem = React.forwardRef<
                     }
                     <span className="text-sm truncate">{item.name}</span>
                   </AccordionTrigger>
-                  <AccordionContent className="pl-6">
+                  <AccordionContent className="pl-5">
                     <TreeItem
                       data={item.children ? item.children : item}
                       selectedItemId={selectedItemId}
@@ -196,8 +196,7 @@ const Leaf = React.forwardRef<
     <div
       ref={ref}
       className={cn(
-        "flex items-center py-1 px-2 cursor-pointer \
-        hover:after:opacity-100 after:absolute after:right-0 after:left-1 after:w-full after:opacity-0 after:bg-muted/80 after:h-[1.75rem] after:-z-10",
+        "flex items-center py-1 px-1 cursor-pointer",
         className,
         isSelected && "after:opacity-100 after:bg-accent text-accent-foreground after:border-r-2 after:border-r-accent-foreground/50 dark:after:border-0"
       )}

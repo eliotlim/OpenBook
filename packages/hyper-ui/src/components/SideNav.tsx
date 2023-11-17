@@ -27,9 +27,7 @@ export default function SideNav() {
               <CommandToggle/>
               <SettingsDialog/>
             </div>
-            <ScrollArea className={hud.sideNav.docked ? 'h-[calc(100vh-12rem)]' : 'h-[calc(100vh-20rem)]'}>
-              <WorkspaceNavigationTree/>
-            </ScrollArea>
+            <WorkspaceNavigationTree/>
           </div>
           <div
             className="flex flex-row align-self-end"
