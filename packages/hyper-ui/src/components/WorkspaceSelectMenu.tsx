@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import WorkspaceInfo from '@/components/WorkspaceInfo';
-import {ChevronUpDownIcon} from '@heroicons/react/24/outline';
+import {ChevronUpDownIcon, PencilSquareIcon, PlusIcon} from '@heroicons/react/24/outline';
 import {useWorkspace} from '@/providers';
 
 export default function WorkspaceSelectMenu (){
@@ -32,6 +32,15 @@ export default function WorkspaceSelectMenu (){
         </DropdownMenuItem>
         <DropdownMenuItem>
           <WorkspaceInfo name={'Workspace 2'} url={'https://workspace2.hyper.sh'}/>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator/>
+        <DropdownMenuItem>
+          <PlusIcon className="w-4 h-4 mr-2"/>
+          Add a Workspace...
+        </DropdownMenuItem>
+        <DropdownMenuItem>
+          <PencilSquareIcon className="w-4 h-4 mr-2"/>
+          Manage Workspaces
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
