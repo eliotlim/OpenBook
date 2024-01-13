@@ -62,7 +62,7 @@ const PageDocument = () => {
     >
       <PageCover/>
       <PageHeader/>
-      <BlockNoteView editor={editor} theme={colorScheme}/>
+      <BlockNoteView editor={editor} theme={colorScheme} className="h-fill"/>
     </div>
   );
 };
