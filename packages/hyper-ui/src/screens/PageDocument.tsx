@@ -1,9 +1,10 @@
-import {Editor} from 'novel';
 import EmojiPicker, {Theme} from 'emoji-picker-react';
 import React from 'react';
 import {useHud, useTheme} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Button} from '@/components/ui/button';
+import {BlockNoteView, useBlockNote} from "@blocknote/react";
+import {BlockNoteEditor} from "@blocknote/core";
 
 const PageCover = () => {
   return (
@@ -52,6 +53,8 @@ const PageHeader = () => {
 
 const PageDocument = () => {
   const {hud} = useHud();
+  const editor: BlockNoteEditor = useBlockNote();
+  const {colorScheme} = useTheme();
 
   return (
     <div
@@ -59,9 +62,7 @@ const PageDocument = () => {
     >
       <PageCover/>
       <PageHeader/>
-      <Editor
-        className={'bg-background text-foreground'}
-      />
+      <BlockNoteView editor={editor} theme={colorScheme}/>
     </div>
   );
 };
