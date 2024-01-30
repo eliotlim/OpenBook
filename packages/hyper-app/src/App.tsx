@@ -10,17 +10,15 @@ import {
 import '@hyper-hq/hyper-ui/style.css';
 
 function App() {
-
   return (
     <ThemeProvider>
       <WorkspaceProvider>
         <HudProvider>
           <DefaultLayout>
-            <PageDocument/>
+            <PageDocument />
           </DefaultLayout>
         </HudProvider>
       </WorkspaceProvider>
-
     </ThemeProvider>
   );
 }

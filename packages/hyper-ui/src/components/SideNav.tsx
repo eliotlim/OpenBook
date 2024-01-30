@@ -1,6 +1,5 @@
 import {Drawer} from '@/components';
 import {useHud} from '@/providers';
-import {ScrollArea} from '@/components/ui/scroll-area';
 import ColorSchemeMenu from '@/components/ColorSchemeMenu';
 import AboutDialog from '@/components/AboutDialog';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';

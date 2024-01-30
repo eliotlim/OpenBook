@@ -1,5 +1,5 @@
 import {SlashIcon} from '@radix-ui/react-icons';
-import {useWorkspace} from "@/providers";
+import {useWorkspace} from '@/providers';
 
 export interface BreadcrumbProps {
   emoji: string,

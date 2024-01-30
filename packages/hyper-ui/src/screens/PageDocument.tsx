@@ -3,8 +3,8 @@ import React from 'react';
 import {useHud, useTheme} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Button} from '@/components/ui/button';
-import {BlockNoteView, useBlockNote} from "@blocknote/react";
-import {BlockNoteEditor} from "@blocknote/core";
+import {BlockNoteView, useBlockNote} from '@blocknote/react';
+import {BlockNoteEditor} from '@blocknote/core';
 
 const PageCover = () => {
   return (
