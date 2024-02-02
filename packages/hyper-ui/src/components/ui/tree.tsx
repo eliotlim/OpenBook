@@ -65,11 +65,15 @@ const Tree = React.forwardRef<
           }
           if (!expandAll) ids.pop();
         }
+        // expand all pages with multiple subpages
+        return true;
       } else if (!expandAll && items.id === targetId) {
         return true;
       } else if (items.children) {
         return walkTreeItems(items.children, targetId)
       }
+      // otherwise expand page
+      return true;
     }
 
     walkTreeItems(data, initialSlelectedItemId)
