@@ -36,6 +36,6 @@
     "concurrently": "^8.2.1",
     "rollup": "^3.26.2",
     "rollup-plugin-dts": "^5.3.0",
-    "tslib": "^2.6.0"
+    "tslib": "^2.6.2"
   }
 }
