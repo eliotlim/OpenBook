@@ -3,8 +3,12 @@ import React from 'react';
 import {useHud, useTheme} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Button} from '@/components/ui/button';
-import {BlockNoteView, useBlockNote} from '@blocknote/react';
-import {BlockNoteEditor} from '@blocknote/core';
+import dynamic from 'next/dynamic';
+// import {BlockNoteEditor} from '@blocknote/core';
+// import {BlockNoteView, useBlockNote} from '@blocknote/react';
+const {BlockNoteView, useBlockNote} = dynamic(() => import('@blocknote/react'), {ssr: false});
+const bl = dynamic(() => import('@blocknote/core'), {ssr: false});
+const {BlockNoteEditor} = bl;
 
 const PageCover = () => {
   return (

@@ -32,7 +32,10 @@ export const WorkspaceContext = createContext<WorkspaceContext>({
 export const useWorkspace = () => useContext(WorkspaceContext);
 
 export const loadWorkspaceStorage = (): Workspace => {
-  const workspace = localStorage.getItem('workspace');
+  let workspace = null;
+  if (typeof localStorage !== 'undefined') {
+    workspace = localStorage.getItem('workspace');
+  }
   if (workspace === null) {
     return {
       workspaceId: 'workspace-abcdef',

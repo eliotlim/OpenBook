@@ -11,6 +11,8 @@ const externalModules = [
   'react-dom',
   'react-is',
   '@babel/runtime',
+  '@blocknote/core',
+  '@blocknote/react',
   '@headlessui/react',
   '@heroicons/react',
   '@heroicons/react/24/outline',

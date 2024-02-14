@@ -1,6 +1,7 @@
 import {
   DropdownMenu,
-  DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger
@@ -10,7 +11,7 @@ import WorkspaceInfo from '@/components/WorkspaceInfo';
 import {ChevronUpDownIcon, PencilSquareIcon, PlusIcon} from '@heroicons/react/24/outline';
 import {useWorkspace} from '@/providers';
 
-export default function WorkspaceSelectMenu (){
+export default function WorkspaceSelectMenu() {
   const {workspace} = useWorkspace();
 
   return (
@@ -34,7 +35,16 @@ export default function WorkspaceSelectMenu (){
           <WorkspaceInfo name={'Workspace 2'} url={'https://workspace2.hyper.sh'}/>
         </DropdownMenuItem>
         <DropdownMenuSeparator/>
-        <DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={() => {
+            if (!(window as any).showDirectoryPicker) {
+              console.error('Directory picker not supported');
+              return;
+            }
+            const directory = window.showDirectoryPicker();
+            console.log(directory);
+          }}
+        >
           <PlusIcon className="w-4 h-4 mr-2"/>
           Add a Workspace...
         </DropdownMenuItem>
