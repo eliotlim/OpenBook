@@ -1,5 +1,5 @@
 {
-  "name": "@hyper-hq/hyper-web",
+  "name": "@bookhq/openboook-web",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -10,7 +10,7 @@
     "lint-fix": "eslint --ext .ts,.tsx . --fix"
   },
   "dependencies": {
-    "@hyper-hq/hyper-ui": "^1.0.0",
+    "@bookhq/openbook-ui": "^1.0.0",
     "@types/node": "20.11.17",
     "@types/react": "18.2.55",
     "@types/react-dom": "18.2.19",

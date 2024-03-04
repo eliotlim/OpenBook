@@ -41,7 +41,7 @@ export default defineConfig ({
   build: {
     lib: {
       entry: resolve(__dirname, "src/index.ts"),
-      name: "@hyper-hq/hyper-ui",
+      name: "@bookhq/openbook-ui",
       fileName: "index",
     },
     rollupOptions: {

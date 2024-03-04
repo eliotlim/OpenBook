@@ -2,7 +2,7 @@ import Head from 'next/head';
 import {
   DefaultLayout,
   PageDocument
-} from '@hyper-hq/hyper-ui';
+} from '@bookhq/openbook-ui';
 
 export default function Home() {
 

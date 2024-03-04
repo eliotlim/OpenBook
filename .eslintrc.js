@@ -1,7 +1,7 @@
 module.exports = {
   "ignorePatterns": [
-    "packages/hyper-ui/src/components/ui/**/*.tsx",
-    "packages/hyper-ui/dist/**/*",
+    "packages/openbook-ui/src/components/ui/**/*.tsx",
+    "packages/openbook-ui/dist/**/*",
   ],
   "env": {
     "browser": true,
