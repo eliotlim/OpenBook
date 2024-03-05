@@ -20,9 +20,9 @@ export default function AboutDialog() {
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>About Hyper</DialogTitle>
+          <DialogTitle>About OpenBook</DialogTitle>
           <DialogDescription>
-            Hyper is a new way to make a space your own on the web.
+            OpenBook is a new way to make a space your own on the web.
           </DialogDescription>
         </DialogHeader>
         <DialogDescription>
