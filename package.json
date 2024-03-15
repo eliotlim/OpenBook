@@ -24,18 +24,18 @@
   "license": "MIT",
   "dependencies": {
     "@bookhq/openbook-ui": "^1.0.0",
-    "resolve-tspaths": "^0.8.14",
-    "typescript": "^5.1.6"
+    "resolve-tspaths": "^0.8.18",
+    "typescript": "^5.4.2"
   },
   "devDependencies": {
-    "@rollup/plugin-commonjs": "^25.0.2",
-    "@rollup/plugin-node-resolve": "^15.1.0",
-    "@rollup/plugin-typescript": "^11.1.2",
-    "@tauri-apps/cli": "^1.5.9",
-    "@typescript-eslint/eslint-plugin": "^6.7.0",
-    "concurrently": "^8.2.1",
-    "rollup": "^3.26.2",
-    "rollup-plugin-dts": "^5.3.0",
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "@tauri-apps/cli": "^1.5.11",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "concurrently": "^8.2.2",
+    "rollup": "^4.13.0",
+    "rollup-plugin-dts": "^6.1.0",
     "tslib": "^2.6.2"
   }
 }
