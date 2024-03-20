@@ -5,8 +5,7 @@ import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Button} from '@/components/ui/button';
 import dynamic from 'next/dynamic';
 import {BlockNoteEditor} from '@blocknote/core';
-// import {BlockNoteView, useBlockNote} from '@blocknote/react';
-import {useBlockNote} from '@blocknote/react';
+import {useCreateBlockNote} from '@blocknote/react';
 
 const PageCover = () => {
   return (
@@ -58,7 +57,7 @@ const isSSR = () => typeof window === 'undefined';
 const PageDocument = () => {
   'use client';
   const {hud} = useHud();
-  const editor: BlockNoteEditor = useBlockNote();
+  const editor: BlockNoteEditor = useCreateBlockNote();
   const {colorScheme} = useTheme();
   const BlockNoteView = dynamic(() => import('@blocknote/react').then(res => res.BlockNoteView), {ssr: false});
 
@@ -68,7 +67,7 @@ const PageDocument = () => {
     >
       <PageCover/>
       <PageHeader/>
-      {!isSSR() && <BlockNoteView editor={editor} theme={colorScheme} className="h-fill"/>}
+      {!isSSR() && <BlockNoteView editor={editor as any} theme={colorScheme} className="h-fill"/>}
     </div>
   );
 };

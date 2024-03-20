@@ -35,16 +35,7 @@ export default function WorkspaceSelectMenu() {
           <WorkspaceInfo name={'Workspace 2'} url={'https://workspace2.hyper.sh'}/>
         </DropdownMenuItem>
         <DropdownMenuSeparator/>
-        <DropdownMenuItem
-          onClick={() => {
-            if (!(window as any).showDirectoryPicker) {
-              console.error('Directory picker not supported');
-              return;
-            }
-            const directory = window.showDirectoryPicker();
-            console.log(directory);
-          }}
-        >
+        <DropdownMenuItem>
           <PlusIcon className="w-4 h-4 mr-2"/>
           Add a Workspace...
         </DropdownMenuItem>
