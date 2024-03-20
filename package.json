@@ -13,6 +13,7 @@
     "dev": "concurrently --kill-others \"npm:watch-openbook-app\" \"npm:watch-openbook-web\" \"npm:watch-openbook-ui\" \"npm:watch-openbook-ui-css\" \"npm:watch-openbook-ui-types\"",
     "lint": "npm --workspaces run lint",
     "lint-fix": "npm --workspaces run lint-fix",
+    "tauri": "npm --workspaces @bookhq/openbook-app run tauri",
     "test": "echo \"Error: no test specified\" && exit 1",
     "watch-openbook-app": "npm --workspace @bookhq/openbook-app run tauri dev",
     "watch-openbook-ui": "npm --workspace @bookhq/openbook-ui run dev",
