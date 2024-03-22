@@ -10,8 +10,9 @@ Store thoughts, notes, and ideas in a simple and intuitive way.
 > OpenBook is currently in active development.
 > Please make regular backups of your data while using it.
 
-Binary downloads are not yet available.
-To run OpenBook, you will need to build it from source.
+Download OpenBook from the [Releases page](https://github.com/eliotlim/openbook/releases).
+
+Alternatively, you can build it from source.
 
 ## Setting up development environment
 
