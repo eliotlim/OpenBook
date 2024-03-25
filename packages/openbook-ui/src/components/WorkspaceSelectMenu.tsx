@@ -29,10 +29,10 @@ export default function WorkspaceSelectMenu() {
         <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
         <DropdownMenuSeparator/>
         <DropdownMenuItem>
-          <WorkspaceInfo name={'Workspace 1'} url={'file:///~/hyper/Workspace 1'}/>
+          <WorkspaceInfo name={'Workspace 1'} url={'file:///~/openbook/Workspace 1'}/>
         </DropdownMenuItem>
         <DropdownMenuItem>
-          <WorkspaceInfo name={'Workspace 2'} url={'https://workspace2.hyper.sh'}/>
+          <WorkspaceInfo name={'Workspace 2'} url={'https://workspace2.open.book.dev'}/>
         </DropdownMenuItem>
         <DropdownMenuSeparator/>
         <DropdownMenuItem>
