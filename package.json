@@ -38,10 +38,11 @@
     "@tauri-apps/cli": "^1.5.11",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "concurrently": "^8.2.2",
-    "husky": "^9.0.11",
     "conventional-changelog-conventionalcommits": "^7.0.2",
+    "husky": "^9.0.11",
     "rollup": "^4.13.2",
     "rollup-plugin-dts": "^6.1.0",
+    "semantic-release": "^23.0.7",
     "tslib": "^2.6.2"
   }
 }
