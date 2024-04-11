@@ -21,7 +21,8 @@
     "watch-openbook-ui": "npm --workspace @bookhq/openbook-ui run dev",
     "watch-openbook-ui-css": "npm --workspace @bookhq/openbook-ui run dev-css",
     "watch-openbook-ui-types": "npm --workspace @bookhq/openbook-ui run dev-types",
-    "watch-openbook-web": "npm --workspace @bookhq/openbook-web run dev"
+    "watch-openbook-web": "npm --workspace @bookhq/openbook-web run dev",
+    "postversion": "npm version --workspaces $(npm pkg get version)"
   },
   "author": "Eliot Lim",
   "license": "MIT",
