@@ -22,7 +22,7 @@
     "watch-openbook-ui-css": "npm --workspace @bookhq/openbook-ui run dev-css",
     "watch-openbook-ui-types": "npm --workspace @bookhq/openbook-ui run dev-types",
     "watch-openbook-web": "npm --workspace @bookhq/openbook-web run dev",
-    "postversion": "npm version --workspaces $(npm pkg get version)"
+    "postversion": "npm version --workspaces $(npm pkg get version | sed 's/\"//g')"
   },
   "author": "Eliot Lim",
   "license": "MIT",
