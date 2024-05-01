@@ -1,11 +1,9 @@
 import EmojiPicker, {Theme} from 'emoji-picker-react';
-import React from 'react';
+import React, {useEffect, useRef} from 'react';
 import {useHud, useTheme} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Button} from '@/components/ui/button';
-import dynamic from 'next/dynamic';
-import {BlockNoteEditor} from '@blocknote/core';
-import {useCreateBlockNote} from '@blocknote/react';
+import EditorJS from '@editorjs/editorjs';
 
 const PageCover = () => {
   return (
@@ -57,9 +55,22 @@ const isSSR = () => typeof window === 'undefined';
 const PageDocument = () => {
   'use client';
   const {hud} = useHud();
-  const editor: BlockNoteEditor = useCreateBlockNote();
-  const {colorScheme} = useTheme();
-  const BlockNoteView = dynamic(() => import('@blocknote/react').then(res => res.BlockNoteView), {ssr: false});
+
+  let editorJsInstance = useRef<EditorJS>();
+
+  useEffect(() => {
+    const editorJs = new EditorJS({
+      holder: 'editorJs',
+      onReady: () => {
+        editorJsInstance.current = editorJs;
+      },
+      autofocus: true,
+    });
+
+    return () => {
+      editorJsInstance.current?.destroy();
+    };
+  }, []);
 
   return (
     <div
@@ -67,7 +78,10 @@ const PageDocument = () => {
     >
       <PageCover/>
       <PageHeader/>
-      {!isSSR() && <BlockNoteView editor={editor as any} theme={colorScheme} className="h-fill"/>}
+      {!isSSR() && <div className="h-fill">
+        <div id={"editorJs"} />
+      </div>
+      }
     </div>
   );
 };

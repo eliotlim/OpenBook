@@ -1,5 +1,4 @@
 import 'tailwindcss/tailwind.css';
-import '@blocknote/react/style.css';
 import './index.css';
 
 export * from './components';
