@@ -39,7 +39,7 @@ jobs:
       - name: link and build packages
         run: |
           cd packages/openbook-ui && npm link && cd -
-          npm link @bookhq/openbook-ui
+          npm link @open-book/ui
           npm run build
 
       - uses: tauri-apps/tauri-action@v0

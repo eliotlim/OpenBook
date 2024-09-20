@@ -5,9 +5,9 @@ import {
   PageDocument,
   ThemeProvider,
   WorkspaceProvider,
-} from '@bookhq/openbook-ui';
+} from '@open-book/ui';
 
-import '@bookhq/openbook-ui/style.css';
+import '@open-book/ui/style.css';
 
 function App() {
   return (

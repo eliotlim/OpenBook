@@ -40,7 +40,7 @@ export default defineConfig ({
   build: {
     lib: {
       entry: resolve(__dirname, "src/index.ts"),
-      name: "@bookhq/openbook-ui",
+      name: "@open-book/ui",
       fileName: "index",
     },
     rollupOptions: {

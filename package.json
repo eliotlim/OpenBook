@@ -1,33 +1,33 @@
 {
-  "name": "@bookhq/openbook",
+  "name": "@open-book/open-book",
   "version": "0.0.0-semantically-released",
   "description": "",
   "main": "index.js",
   "workspaces": [
-    "packages/openbook-ui",
-    "packages/openbook-app",
-    "packages/openbook-web"
+    "packages/ui",
+    "packages/app",
+    "packages/web"
   ],
   "scripts": {
-    "build": "npm --workspace @bookhq/openbook-ui run build && npm --workspace @bookhq/openbook-app run tauri build",
+    "build": "npm --workspace @open-book/ui run build && npm --workspace @open-book/app run tauri build",
     "commitlint": "commitlint --edit",
-    "dev": "concurrently --kill-others \"npm:watch-openbook-app\" \"npm:watch-openbook-web\" \"npm:watch-openbook-ui\" \"npm:watch-openbook-ui-css\" \"npm:watch-openbook-ui-types\"",
+    "dev": "concurrently --kill-others \"npm:watch-app\" \"npm:watch-web\" \"npm:watch-ui\" \"npm:watch-ui-css\" \"npm:watch-ui-types\"",
     "lint": "npm --workspaces run lint",
     "lint-fix": "npm --workspaces run lint-fix",
-    "tauri": "npm --workspace @bookhq/openbook-app run tauri",
+    "tauri": "npm --workspace @open-book/app run tauri",
     "test": "echo \"Warning: no test specified\" && exit 0",
     "prepare": "husky",
-    "watch-openbook-app": "npm --workspace @bookhq/openbook-app run tauri dev",
-    "watch-openbook-ui": "npm --workspace @bookhq/openbook-ui run dev",
-    "watch-openbook-ui-css": "npm --workspace @bookhq/openbook-ui run dev-css",
-    "watch-openbook-ui-types": "npm --workspace @bookhq/openbook-ui run dev-types",
-    "watch-openbook-web": "npm --workspace @bookhq/openbook-web run dev",
+    "watch-app": "npm --workspace @open-book/app run tauri dev",
+    "watch-ui": "npm --workspace @open-book/ui run dev",
+    "watch-ui-css": "npm --workspace @open-book/ui run dev-css",
+    "watch-ui-types": "npm --workspace @open-book/ui run dev-types",
+    "watch-web": "npm --workspace @open-book/web run dev",
     "postversion": "npm version --workspaces $(npm pkg get version | sed 's/\"//g')"
   },
   "author": "Eliot Lim",
   "license": "MIT",
   "dependencies": {
-    "@bookhq/openbook-ui": "^1.0.0",
+    "@open-book/ui": "^1.0.0",
     "resolve-tspaths": "^0.8.18",
     "typescript": "^5.4.3"
   },

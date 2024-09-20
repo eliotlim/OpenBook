@@ -1,7 +1,7 @@
 module.exports = {
   "ignorePatterns": [
-    "packages/openbook-ui/src/components/ui/**/*.tsx",
-    "packages/openbook-ui/dist/**/*",
+    "packages/ui/src/components/ui/**/*.tsx",
+    "packages/ui/dist/**/*",
   ],
   "env": {
     "browser": true,

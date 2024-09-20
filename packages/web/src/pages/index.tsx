@@ -2,7 +2,7 @@ import Head from 'next/head';
 import {
   DefaultLayout,
   PageDocument
-} from '@bookhq/openbook-ui';
+} from '@open-book/ui';
 
 export default function Home() {
 
