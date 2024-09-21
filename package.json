@@ -1,5 +1,5 @@
 {
-  "name": "@open-book/open-book",
+  "name": "open-book",
   "version": "0.0.0-semantically-released",
   "description": "",
   "main": "index.js",
@@ -14,6 +14,7 @@
     "dev": "concurrently --kill-others \"npm:watch-app\" \"npm:watch-web\" \"npm:watch-ui\" \"npm:watch-ui-css\" \"npm:watch-ui-types\"",
     "lint": "npm --workspaces run lint",
     "lint-fix": "npm --workspaces run lint-fix",
+    "setup": "tsx scripts/setup-environment.ts",
     "tauri": "npm --workspace @open-book/app run tauri",
     "test": "echo \"Warning: no test specified\" && exit 0",
     "prepare": "husky",
@@ -45,6 +46,7 @@
     "rollup": "^4.13.2",
     "rollup-plugin-dts": "^6.1.0",
     "semantic-release": "^23.0.7",
-    "tslib": "^2.6.2"
+    "tslib": "^2.6.2",
+    "tsx": "^4.19.1"
   }
 }
