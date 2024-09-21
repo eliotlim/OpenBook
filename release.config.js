@@ -13,5 +13,8 @@ module.exports = {
     ["@semantic-release/npm", {
       "npmPublish": false,
     }],
+    ["@semantic-release/exec", {
+      "publishCmd": "echo \"publish_required=true\" >> \"$GITHUB_OUTPUT\""
+    }],
   ],
 };
