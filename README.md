@@ -14,22 +14,13 @@ Download OpenBook from the [Releases page](https://github.com/eliotlim/openbook/
 
 Alternatively, you can build it from source.
 
+### Prerequisites
+
+* [Node.JS 18.x or later](https://nodejs.org/en/download)
+* [Rust toolchain](https://www.rust-lang.org/tools/install) (for the desktop apps)
+
 ## Setting up development environment
 
-1. First create a link for the `openbook-ui` package:
-
-    ```bash copy
-        cd packages/ui && npm link && cd -
-    ```
-
-2. Then link the package to the root of the project:
-
-    ```bash copy
-        npm link ./packages/ui
-    ```
-
-3. Install dependencies:
-
-    ```bash copy
-        npm install
-    ```
+1. Download and install the [prerequisites](#prerequisites).
+2. Setup the environment: `npm run setup`.
+3. Build and start developing: `npm run build`.
