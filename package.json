@@ -28,26 +28,26 @@
   "author": "Eliot Lim",
   "license": "MIT",
   "dependencies": {
-    "@open-book/ui": "^1.0.0",
-    "resolve-tspaths": "^0.8.18",
-    "typescript": "^5.4.3"
+    "@open-book/ui": "*",
+    "resolve-tspaths": "^0.8.22",
+    "typescript": "^5.6.2"
   },
   "devDependencies": {
-    "@commitlint/cli": "^19.2.1",
-    "@rollup/plugin-commonjs": "^25.0.7",
+    "@commitlint/cli": "^19.5.0",
+    "@rollup/plugin-commonjs": "^26.0.1",
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-typescript": "^11.1.6",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/exec": "^6.0.3",
-    "@tauri-apps/cli": "^1.5.11",
+    "@tauri-apps/cli": "^1.6.2",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
-    "concurrently": "^8.2.2",
-    "conventional-changelog-conventionalcommits": "^7.0.2",
-    "husky": "^9.0.11",
-    "rollup": "^4.13.2",
-    "rollup-plugin-dts": "^6.1.0",
-    "semantic-release": "^23.0.7",
-    "tslib": "^2.6.2",
+    "concurrently": "^9.0.1",
+    "conventional-changelog-conventionalcommits": "^8.0.0",
+    "husky": "^9.1.6",
+    "rollup": "^4.22.4",
+    "rollup-plugin-dts": "^6.1.1",
+    "semantic-release": "^24.1.1",
+    "tslib": "^2.7.0",
     "tsx": "^4.19.1"
   }
 }
