@@ -40,7 +40,7 @@ jobs:
 
   publish-tauri:
     needs: release
-    if: ${{ inputs.publish_required }}
+    if: ${{ needs.release.outputs.publish_required }}
     permissions:
       contents: write
     strategy:
