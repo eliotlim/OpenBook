@@ -130,3 +130,4 @@ dist
 
 # IntelliJ IDEA
 .idea/
+.gstack/

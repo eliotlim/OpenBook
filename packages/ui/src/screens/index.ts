@@ -1,1 +1,1 @@
-export {default as PageDocument} from './PageDocument';
+export {default as PageDocument, type PageDocumentProps, type PageSnapshot} from './PageDocument';
