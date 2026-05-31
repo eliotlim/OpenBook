@@ -17,10 +17,11 @@ Alternatively, you can build it from source.
 ### Prerequisites
 
 * [Node.JS 18.x or later](https://nodejs.org/en/download)
+* [pnpm](https://pnpm.io/installation) (pinned via the `packageManager` field — `corepack enable` will install it automatically)
 * [Rust toolchain](https://www.rust-lang.org/tools/install) (for the desktop apps)
 
 ## Setting up development environment
 
 1. Download and install the [prerequisites](#prerequisites).
-2. Setup the environment: `npm run setup`.
-3. Build and start developing: `npm run build`.
+2. Install dependencies: `pnpm install`.
+3. Build and start developing: `pnpm run build`.

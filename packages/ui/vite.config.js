@@ -56,15 +56,6 @@ export default defineConfig ({
   resolve: {
     alias: [
       { find: '@', replacement: fileURLToPath(new URL('./src', import.meta.url)) },
-      // Force a single React instance for tests. packages/ui/node_modules/react
-      // exists alongside the workspace-root react; without this alias the
-      // test file's `import React from 'react'` resolves to the local copy
-      // while react-dom (only at root) imports the root copy — two React
-      // instances at runtime breaks Hooks. Aliasing both to root collapses
-      // them.
-      { find: /^react$/, replacement: fileURLToPath(new URL('../../node_modules/react', import.meta.url)) },
-      { find: /^react-dom\/client$/, replacement: fileURLToPath(new URL('../../node_modules/react-dom/client', import.meta.url)) },
-      { find: /^react-dom$/, replacement: fileURLToPath(new URL('../../node_modules/react-dom', import.meta.url)) },
     ],
     dedupe: ['react', 'react-dom'],
   },

@@ -3,32 +3,27 @@
   "version": "0.0.0-semantically-released",
   "description": "",
   "main": "index.js",
-  "workspaces": [
-    "packages/ui",
-    "packages/app",
-    "packages/web"
-  ],
+  "packageManager": "pnpm@10.28.2",
   "scripts": {
-    "build": "npm --workspace @open-book/ui run build && npm --workspace @open-book/app run tauri build",
+    "build": "pnpm --filter @open-book/ui run build && pnpm --filter @open-book/app run tauri build",
     "commitlint": "commitlint --edit",
-    "dev": "concurrently --kill-others \"npm:watch-app\" \"npm:watch-web\" \"npm:watch-ui\" \"npm:watch-ui-css\" \"npm:watch-ui-types\"",
-    "lint": "npm --workspaces run lint",
-    "lint-fix": "npm --workspaces run lint-fix",
-    "setup": "tsx scripts/setup-environment.ts",
-    "tauri": "npm --workspace @open-book/app run tauri",
+    "dev": "concurrently --kill-others \"pnpm:watch-app\" \"pnpm:watch-web\" \"pnpm:watch-ui\" \"pnpm:watch-ui-css\" \"pnpm:watch-ui-types\"",
+    "lint": "pnpm -r run lint",
+    "lint-fix": "pnpm -r run lint-fix",
+    "tauri": "pnpm --filter @open-book/app run tauri",
     "test": "echo \"Warning: no test specified\" && exit 0",
     "prepare": "husky",
-    "watch-app": "npm --workspace @open-book/app run tauri dev",
-    "watch-ui": "npm --workspace @open-book/ui run dev",
-    "watch-ui-css": "npm --workspace @open-book/ui run dev-css",
-    "watch-ui-types": "npm --workspace @open-book/ui run dev-types",
-    "watch-web": "npm --workspace @open-book/web run dev",
-    "postversion": "npm version --workspaces $(npm pkg get version | sed 's/\"//g')"
+    "watch-app": "pnpm --filter @open-book/app run tauri dev",
+    "watch-ui": "pnpm --filter @open-book/ui run dev",
+    "watch-ui-css": "pnpm --filter @open-book/ui run dev-css",
+    "watch-ui-types": "pnpm --filter @open-book/ui run dev-types",
+    "watch-web": "pnpm --filter @open-book/web run dev",
+    "postversion": "pnpm -r exec npm version --no-git-tag-version --allow-same-version $(pnpm pkg get version | tr -d '\"')"
   },
   "author": "Eliot Lim",
   "license": "MIT",
   "dependencies": {
-    "@open-book/ui": "*",
+    "@open-book/ui": "workspace:*",
     "resolve-tspaths": "^0.8.22",
     "typescript": "^5.6.2"
   },
@@ -49,5 +44,11 @@
     "semantic-release": "^24.1.1",
     "tslib": "^2.7.0",
     "tsx": "^4.19.1"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "unrs-resolver"
+    ]
   }
 }

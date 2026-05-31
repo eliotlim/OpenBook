@@ -1,0 +1,4 @@
+packages:
+  - packages/ui
+  - packages/app
+  - packages/web
