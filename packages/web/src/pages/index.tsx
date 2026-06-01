@@ -1,16 +1,27 @@
 import {useMemo} from 'react';
 import Head from 'next/head';
-import {HttpDataClient} from '@open-book/sdk';
-import {ConnectedPageDocument, DataProvider, DefaultLayout, useCurrentPageId} from '@open-book/ui';
+import {HttpDataClient, getServerUrlOverride} from '@open-book/sdk';
+import {
+  ConnectedPageDocument,
+  DataProvider,
+  DefaultLayout,
+  NavigationProvider,
+  PlatformLibraryProvider,
+  useNavigation,
+} from '@open-book/ui';
 
-// The web shell has no local storage of its own — it always talks to an
-// OpenBook server (a headless deployment, or a desktop install acting as a
-// server). Configure via NEXT_PUBLIC_OPENBOOK_SERVER.
-const SERVER_URL = process.env.NEXT_PUBLIC_OPENBOOK_SERVER ?? 'http://localhost:4319';
+// The web shell always talks to a server: the one it was built against, or an
+// override configured via the Server settings.
+const DEFAULT_SERVER_URL = process.env.NEXT_PUBLIC_OPENBOOK_SERVER ?? 'http://localhost:4319';
+
+function DocumentRoute() {
+  const {currentPageId, loading} = useNavigation();
+  if (loading || !currentPageId) return null;
+  return <ConnectedPageDocument pageId={currentPageId} />;
+}
 
 export default function Home() {
-  const client = useMemo(() => new HttpDataClient(SERVER_URL), []);
-  const pageId = useCurrentPageId();
+  const client = useMemo(() => new HttpDataClient(getServerUrlOverride() ?? DEFAULT_SERVER_URL), []);
 
   return (
     <>
@@ -20,9 +31,15 @@ export default function Home() {
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
-      <DataProvider client={client}>
-        <DefaultLayout>{pageId ? <ConnectedPageDocument pageId={pageId} /> : null}</DefaultLayout>
-      </DataProvider>
+      <PlatformLibraryProvider>
+        <DataProvider client={client}>
+          <NavigationProvider>
+            <DefaultLayout>
+              <DocumentRoute />
+            </DefaultLayout>
+          </NavigationProvider>
+        </DataProvider>
+      </PlatformLibraryProvider>
     </>
   );
 }

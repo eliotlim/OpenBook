@@ -17,6 +17,8 @@ export interface DataClient {
   getPage(id: string): Promise<StoredPage | null>;
   /** Create or update a page (upsert keyed on `input.id`). */
   savePage(input: PageInput): Promise<StoredPage>;
+  /** Update only a page's name (leaves its document data untouched). */
+  renamePage(id: string, name: string | null): Promise<StoredPage>;
   /** Delete a page; resolves `true` if a page was removed. */
   deletePage(id: string): Promise<boolean>;
 }
@@ -46,6 +48,10 @@ export class HttpDataClient implements DataClient {
       return this.request<StoredPage>('PUT', API.page(input.id), input);
     }
     return this.request<StoredPage>('POST', API.pages, input);
+  }
+
+  async renamePage(id: string, name: string | null): Promise<StoredPage> {
+    return this.request<StoredPage>('PATCH', API.page(id), {name});
   }
 
   async deletePage(id: string): Promise<boolean> {

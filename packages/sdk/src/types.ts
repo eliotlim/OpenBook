@@ -58,6 +58,24 @@ export interface PageInput {
 
 /** Status of a desktop install's local server. */
 export interface ServerInfo {
+  /** Whether the local server is currently running. */
   running: boolean;
+  /** Bound base URL, when running. */
   address: string | null;
+  /**
+   * Whether the host process manages the local server lifecycle (true in the
+   * packaged desktop app). When false (e.g. dev, or the web shell), the server
+   * is external and start/stop are unavailable.
+   */
+  managed: boolean;
+}
+
+/**
+ * Controls for the host-managed local server, provided by the platform layer
+ * (the Tauri desktop app). Absent on the web, where there is no local server.
+ */
+export interface ServerControls {
+  info(): Promise<ServerInfo>;
+  start(): Promise<ServerInfo>;
+  stop(): Promise<ServerInfo>;
 }

@@ -67,6 +67,10 @@ async function exerciseCrud(client: HttpDataClient, mode: string): Promise<void>
   );
   check('duplicate name rejected (409)', true);
 
+  const renamed = await client.renamePage(created.id, `renamed-${mode}`);
+  check('rename changes the name', renamed.name === `renamed-${mode}`);
+  check('rename preserves data', JSON.stringify(renamed.data.values) === JSON.stringify([['c1', 99]]));
+
   check('delete returns true', (await client.deletePage(created.id)) === true);
   check('get after delete -> null', (await client.getPage(created.id)) === null);
   check('second delete returns false', (await client.deletePage(created.id)) === false);
