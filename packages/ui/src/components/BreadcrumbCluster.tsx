@@ -1,49 +1,28 @@
-import {SlashIcon} from '@radix-ui/react-icons';
+import React from 'react';
 import {useNavigation, useWorkspace} from '@/providers';
-
-export interface BreadcrumbProps {
-  emoji: string,
-  title: string,
-}
-
-export function Breadcrumb(props: BreadcrumbProps) {
-  return (
-    <li className="inline-flex items-center">
-      <div className="flex items-center">
-        <a href="#"
-          className="ml-1 text-sm font-medium text-gray-700 hover:text-blue-600 md:ml-2 dark:text-gray-400 dark:hover:text-white">
-          {props.emoji} {props.title}
-        </a>
-      </div>
-    </li>
-  );
-}
 
 export default function BreadcrumbCluster() {
   const {workspace} = useWorkspace();
   const {pages, currentPageId} = useNavigation();
   const current = pages.find((p) => p.id === currentPageId);
   const pageTitle = current?.name && current.name.trim().length > 0 ? current.name : 'Untitled';
+
+  const items = [
+    {emoji: workspace?.icon ?? '🗂️', title: workspace?.name ?? 'Workspace'},
+    {emoji: '📄', title: pageTitle},
+  ];
+
   return (
-    <nav className="flex" aria-label="Breadcrumb">
-      <ol className="inline-flex items-center space-x-1 md:space-x-3">
-        {[
-          {emoji: workspace?.icon ?? '💼', title: workspace?.name ?? 'Default Workspace'},
-          {emoji: '📄', title: pageTitle},
-        ].map((pageDetails) => (
-          <Breadcrumb
-            emoji={pageDetails.emoji}
-            title={pageDetails.title}
-            key={`breadcrumb-${pageDetails.title}`}
-          />
-        )
-        ).flatMap((element, index) => [
-          index > 0 && (
-            <SlashIcon className=""/>
-          ),
-          element,
-        ])}
-      </ol>
+    <nav className="flex items-center text-sm" aria-label="Breadcrumb">
+      {items.map((item, index) => (
+        <React.Fragment key={index}>
+          {index > 0 && <span className="mx-0.5 text-muted-foreground/40">/</span>}
+          <span className="flex max-w-[220px] items-center gap-1.5 rounded px-1.5 py-0.5 text-foreground/75 transition-colors hover:bg-accent">
+            <span className="text-[0.95em] leading-none">{item.emoji}</span>
+            <span className="truncate">{item.title}</span>
+          </span>
+        </React.Fragment>
+      ))}
     </nav>
   );
 }

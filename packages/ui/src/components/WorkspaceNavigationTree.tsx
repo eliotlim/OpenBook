@@ -1,14 +1,11 @@
 import {Tree, TreeDataItem} from '@/components/ui/tree';
-import {cn} from '@/lib/utils';
-import {useHud, useNavigation} from '@/providers';
-import {Button} from '@/components/ui/button';
+import {useNavigation} from '@/providers';
 import {FileText, Folder, Plus, Workflow} from 'lucide-react';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : 'Untitled';
 
 export default function WorkspaceNavigationTree() {
-  const {hud} = useHud();
   const {pages, currentPageId, selectPage, createPage} = useNavigation();
 
   const data: TreeDataItem[] = pages.map((page) => ({
@@ -18,20 +15,22 @@ export default function WorkspaceNavigationTree() {
   }));
 
   return (
-    <div className="flex flex-col gap-1">
-      <Button
-        variant="ghost"
-        className="flex justify-start h-7 px-2 text-muted-foreground"
-        onClick={() => void createPage()}
-      >
-        <Plus className="w-4 h-4 mr-2" />
-        New page
-      </Button>
+    <div className="flex h-full flex-col">
+      <div className="flex items-center justify-between px-3 pb-1 pt-1">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Pages</span>
+        <button
+          onClick={() => void createPage()}
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          aria-label="New page"
+          title="New page"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
       <Tree
-        // Re-key on selection so the highlighted item tracks the current page.
         key={currentPageId ?? 'none'}
         data={data}
-        className={cn('w-full border-0', hud.sideNav.docked ? 'h-[calc(100vh-14rem)]' : 'h-[calc(100vh-22rem)]')}
+        className="w-full flex-1 border-0"
         initialSlelectedItemId={currentPageId ?? undefined}
         onSelectChange={(item) => item && selectPage(item.id)}
         folderIcon={Folder}

@@ -1,4 +1,5 @@
 import React from 'react';
+import {cn} from '@/lib/utils';
 
 export interface DrawerProps {
   children: React.ReactNode;
@@ -6,26 +7,14 @@ export interface DrawerProps {
   docked?: boolean;
 }
 
-export default function Drawer({
-  children,
-  ...props
-}: DrawerProps) {
-
-  // class names
-  const classes = [
-    'left-0 z-50 w-64 transition-transform duration-500 transform -translate-x-full',
-    'p-1',
-    'flex flex-col',
-    'border-r dark:border-gray-700 shadow-lg dark:shadow-lg dark:shadow-black',
-    props.docked ? 'order-first' : 'fixed rounded-tr-lg rounded-br-lg border-t border-b top-16 h-[calc(100%-8rem)]',
-    props.open ? ' translate-x-0' : ''
-  ];
-
-  return (
-    <div
-      className={'bg-gradient-to-bl from-sheet-1 to-sheet-2 text-sheet-1-foreground' + classes.join(' ')}
-    >
-      {children}
-    </div>
+export default function Drawer({children, ...props}: DrawerProps) {
+  const classes = cn(
+    'z-50 flex w-64 shrink-0 flex-col bg-sheet-1 text-sheet-1-foreground transition-transform duration-300 ease-out',
+    props.docked
+      ? 'order-first h-screen border-r border-border'
+      : 'fixed left-0 top-14 h-[calc(100vh-3.5rem)] -translate-x-full rounded-r-xl border border-l-0 border-border shadow-2xl',
+    props.open ? 'translate-x-0' : '',
   );
+
+  return <div className={classes}>{children}</div>;
 }
