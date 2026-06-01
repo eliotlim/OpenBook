@@ -15,7 +15,7 @@ tauri-build = { version = "1.5.5", features = [] }
 [dependencies]
 # `process-command-api` enables `tauri::api::process::Command::new_sidecar`,
 # used to launch the bundled TypeScript server (`@open-book/server`).
-tauri = { version = "1.8.0", features = ["shell-open", "process-command-api"] }
+tauri = { version = "1.8.0", features = [ "shell-sidecar", "shell-open", "process-command-api"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.128"
 

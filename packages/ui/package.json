@@ -27,6 +27,7 @@
     "dev-types": "tsc --watch",
     "lint": "eslint --ext .ts,.tsx .",
     "lint-fix": "eslint --ext .ts,.tsx . --fix",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -69,7 +70,7 @@
     "tailwindcss": "^3.4.12",
     "typescript": "5.6.2",
     "vite": "^5.4.7",
-    "vitest": "^4.1.7"
+    "vitest": "^3.2.0"
   },
   "peerDependencies": {
     "@headlessui/react": "^1.7.19",

@@ -5,13 +5,20 @@
   "main": "index.js",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
-    "build": "pnpm --filter @open-book/sdk run build && pnpm --filter @open-book/ui run build && pnpm --filter @open-book/app run tauri build",
+    "build": "pnpm run build:libs && pnpm run build:web && pnpm run build:desktop",
+    "build:libs": "pnpm --filter @open-book/sdk run build && pnpm --filter @open-book/ui run build && pnpm --filter @open-book/server run build",
+    "build:web": "pnpm --filter @open-book/web run build",
+    "build:desktop": "pnpm --filter @open-book/app run tauri build",
+    "build:sidecar": "pnpm --filter @open-book/server run build:sidecar",
     "commitlint": "commitlint --edit",
     "dev": "concurrently --kill-others \"pnpm:watch-sdk\" \"pnpm:watch-server\" \"pnpm:watch-app\" \"pnpm:watch-web\" \"pnpm:watch-ui\" \"pnpm:watch-ui-css\" \"pnpm:watch-ui-types\"",
     "lint": "pnpm -r run lint",
     "lint-fix": "pnpm -r run lint-fix",
+    "typecheck": "pnpm -r --if-present run typecheck",
     "tauri": "pnpm --filter @open-book/app run tauri",
-    "test": "echo \"Warning: no test specified\" && exit 0",
+    "test": "pnpm -r --if-present run test",
+    "test:e2e": "pnpm --filter @open-book/server run test:e2e",
+    "clean": "rm -rf packages/sdk/dist packages/ui/dist packages/server/dist packages/server/assets packages/web/.next packages/app/dist packages/app/src-tauri/binaries/openbook-server-*",
     "prepare": "husky",
     "watch-app": "pnpm --filter @open-book/app run tauri dev",
     "watch-sdk": "pnpm --filter @open-book/sdk run dev",
@@ -31,6 +38,7 @@
   },
   "devDependencies": {
     "@commitlint/cli": "^19.5.0",
+    "@commitlint/types": "^19.5.0",
     "@rollup/plugin-commonjs": "^26.0.1",
     "@rollup/plugin-node-resolve": "^15.2.3",
     "@rollup/plugin-typescript": "^11.1.6",
@@ -50,13 +58,7 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
-      "unrs-resolver",
-      "embedded-postgres",
-      "@embedded-postgres/darwin-arm64",
-      "@embedded-postgres/darwin-x64",
-      "@embedded-postgres/linux-x64",
-      "@embedded-postgres/linux-arm64",
-      "@embedded-postgres/windows-x64"
+      "unrs-resolver"
     ]
   }
 }

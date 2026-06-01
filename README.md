@@ -31,15 +31,17 @@ Alternatively, you can build it from source.
 OpenBook stores documents as **pages** (UUID + optional name + JSON payload) in
 Postgres. The server is written in TypeScript and **the desktop app and the
 headless deployment run the exact same code** — the desktop bundles it as a
-sidecar over an embedded Postgres; a headless deployment runs it against an
-external Postgres. The web shell, desktop, and server all share types and the
-HTTP client through [`@open-book/sdk`](packages/sdk/README.md).
+self-contained sidecar over an embedded Postgres (PGlite/WASM); a headless
+deployment runs it against an external Postgres. The web shell, desktop, and
+server all share types and the HTTP client through
+[`@open-book/sdk`](packages/sdk/README.md).
 
 Packages:
 
 - [`packages/sdk`](packages/sdk/README.md) — shared types + `HttpDataClient`.
-- [`packages/server`](packages/server/README.md) — page store + Hono API +
-  embedded Postgres. Full architecture and deployment modes documented there.
+- [`packages/server`](packages/server/README.md) — page store + Hono API,
+  backed by PGlite (embedded) or external Postgres. Full architecture and
+  deployment modes documented there.
 
 Run the headless server:
 
