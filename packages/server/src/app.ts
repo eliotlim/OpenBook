@@ -52,7 +52,11 @@ export function createApp(store: PageStore): Hono {
   return app;
 }
 
-/** Postgres unique-violation SQLSTATE. */
+/** Postgres unique-violation (SQLSTATE 23505), across both DB backends. */
 function isUniqueViolation(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as {code?: string}).code === '23505';
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as {code?: string; message?: string};
+  if (e.code === '23505') return true;
+  // PGlite surfaces the violation in the message rather than a code field.
+  return typeof e.message === 'string' && /duplicate key|unique constraint|pages_name_key/i.test(e.message);
 }

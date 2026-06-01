@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "lint": "eslint . --ext .ts,.tsx",
     "lint-fix": "eslint . --ext .ts,.tsx --fix",
+    "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "tauri": "tauri"
   },

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Compile the OpenBook server into a single self-contained executable and place
- * it where Tauri expects sidecars: `packages/app/src-tauri/binaries/` with a
- * `-<target-triple>` suffix.
+ * Compile the OpenBook server into a single self-contained executable for the
+ * Tauri desktop sidecar: `packages/app/src-tauri/binaries/openbook-server-<triple>`.
  *
- * Uses Bun's `--compile` (https://bun.sh) to bundle the server + its
- * dependencies into one binary. Install Bun first, then:
+ * Uses Bun's `--compile` to bundle the server, PGlite, and PGlite's embedded
+ * WASM/data assets (copied first by copy-pglite-assets.mjs) into one binary that
+ * needs nothing on disk. Install Bun (https://bun.sh), then:
  *
  *   pnpm --filter @open-book/server build:sidecar          # host triple
  *   pnpm --filter @open-book/server build:sidecar x86_64-pc-windows-msvc
@@ -37,9 +37,13 @@ const triple = process.argv[2] || hostTriple();
 const ext = triple.includes('windows') ? '.exe' : '';
 const outfile = join(binariesDir, `openbook-server-${triple}${ext}`);
 
+// 1. Stage PGlite's WASM/data so Bun can embed them.
+execFileSync('node', [join(here, 'copy-pglite-assets.mjs')], {stdio: 'inherit'});
+
+// 2. Compile the Bun entrypoint into a single binary.
 mkdirSync(binariesDir, {recursive: true});
-console.log(`Compiling OpenBook server sidecar → ${outfile}`);
-execFileSync('bun', ['build', join(serverDir, 'src', 'bin.ts'), '--compile', '--outfile', outfile], {
+console.log(`Compiling OpenBook server sidecar -> ${outfile}`);
+execFileSync('bun', ['build', join(serverDir, 'src', 'bin.bun.ts'), '--compile', '--outfile', outfile], {
   stdio: 'inherit',
 });
 console.log('Done.');

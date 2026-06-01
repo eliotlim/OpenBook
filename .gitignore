@@ -132,6 +132,12 @@ dist
 .idea/
 .gstack/
 
-# OpenBook server dev data (embedded Postgres cluster)
+# OpenBook server dev data (embedded PGlite database)
 .dev-data/
 packages/server/.dev-data/
+
+# PGlite WASM/data assets staged for the sidecar build (generated)
+packages/server/assets/
+
+# Bun --compile incremental build cache
+*.bun-build
