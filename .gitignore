@@ -131,3 +131,7 @@ dist
 # IntelliJ IDEA
 .idea/
 .gstack/
+
+# OpenBook server dev data (embedded Postgres cluster)
+.dev-data/
+packages/server/.dev-data/
