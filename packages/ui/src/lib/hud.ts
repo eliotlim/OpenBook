@@ -22,8 +22,8 @@ export const HudDefault: HudProps = {
     open: false,
   },
   sideNav: {
-    open: false,
-    docked: false,
+    open: true,
+    docked: true,
   },
   viewMode: {
     fullWidth: false,

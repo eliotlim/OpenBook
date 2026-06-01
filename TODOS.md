@@ -38,7 +38,7 @@ Post-v0 follow-ups surfaced during `/office-hours` (2026-05-27) and `/plan-eng-r
 
 **What:** Implement `@docName.cellName` (or chosen syntax) syntax in ExprBlock expressions, allowing one document to reference cells in another document in the vault. References resolve through the same lazy-create + Signals subscribe pattern v0 uses for intra-doc.
 
-**Why:** This is the actual moat per cross-model second opinion: *"a personal computational substrate, not a notes app with toys."* Nothing in the OSS Notion / notebook landscape ships this. Notion can't do it. Observable can't do it across notebooks. Obsidian Dataview is read-only and not reactive.
+**Why:** This is the actual moat per cross-model second opinion: *"a personal computational substrate, not a notes app with toys."* Nothing in the OSS notes / notebook landscape ships this. Mainstream block editors can't do it. Observable can't do it across notebooks. Obsidian Dataview is read-only and not reactive.
 
 **Pros:** The differentiator that justifies OpenBook existing at all in v1+. A household dashboard page that imports rent.total from one doc, grocery.weekly from another, kWh.monthly from a third — and recomputes live when any of them change — is a demo nobody else can give.
 

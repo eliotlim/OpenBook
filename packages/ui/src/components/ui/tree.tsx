@@ -126,8 +126,8 @@ const TreeItem = React.forwardRef<
                 <AccordionPrimitive.Item value={item.id}>
                   <AccordionTrigger
                     className={cn(
-                      "px-1 rounded-md hover:bg-muted/80",
-                      selectedItemId === item.id && "bg-muted/40"
+                      "px-1 rounded-md hover:bg-accent",
+                      selectedItemId === item.id && "bg-accent"
                     )}
                     onClick={() => handleSelectChange(item)}
                   >
@@ -200,9 +200,9 @@ const Leaf = React.forwardRef<
     <div
       ref={ref}
       className={cn(
-        "flex items-center py-1 px-2 cursor-pointer",
+        "flex items-center mx-1 py-1 px-2 rounded-md cursor-pointer text-sm text-foreground/75 transition-colors hover:bg-accent",
         className,
-        isSelected && "text-accent-foreground bg-muted/40"
+        isSelected && "bg-accent text-foreground font-medium"
       )}
       {...props}
     >

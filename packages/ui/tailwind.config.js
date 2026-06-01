@@ -58,6 +58,29 @@ module.exports = {
           DEFAULT: "hsl(var(--sheet-2))",
           foreground: "hsl(var(--sheet-2-foreground))",
         },
+        brand: {
+          DEFAULT: "hsl(var(--brand))",
+          foreground: "hsl(var(--brand-foreground))",
+          subtle: "hsl(var(--brand-subtle))",
+        },
+      },
+      fontFamily: {
+        sans: [
+          "ui-sans-serif",
+          "-apple-system",
+          "BlinkMacSystemFont",
+          "Inter",
+          "Segoe UI",
+          "Roboto",
+          "Helvetica Neue",
+          "Arial",
+          "sans-serif",
+        ],
+        serif: ["ui-serif", "Lyon-Text", "Georgia", "serif"],
+        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "Consolas", "monospace"],
+      },
+      maxWidth: {
+        content: "46rem",
       },
       borderRadius: {
         lg: "var(--radius)",

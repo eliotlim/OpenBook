@@ -5,21 +5,15 @@ import NavContextMenu from '@/components/NavContextMenu';
 
 export default function NavBar() {
   return (
-    <>
-      <nav
-        className="top-0 sticky z-50 bg-popover border-b dark:border-gray-700 shadow-md dark:shadow-md dark:shadow-black flex items-center justify-between px-0.5 py-0.5"
-      >
-        <div
-          className="flex items-center gap-x-2"
-        >
-          <SideNavToggle/>
-          <BackForwardCluster/>
-          <BreadcrumbCluster/>
-        </div>
-        <div className="relative inline-block text-left">
-          <NavContextMenu/>
-        </div>
-      </nav>
-    </>
+    <nav className="sticky top-0 z-40 flex h-12 items-center justify-between gap-2 border-b border-border bg-background/80 px-2 backdrop-blur-md">
+      <div className="flex min-w-0 items-center gap-1">
+        <SideNavToggle />
+        <BackForwardCluster />
+        <BreadcrumbCluster />
+      </div>
+      <div className="flex items-center">
+        <NavContextMenu />
+      </div>
+    </nav>
   );
 }

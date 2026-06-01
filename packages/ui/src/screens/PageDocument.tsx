@@ -2,8 +2,14 @@ import EmojiPicker, {Theme} from 'emoji-picker-react';
 import React, {useEffect, useRef, useState} from 'react';
 import {useHud, useTheme} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
-import {Button} from '@/components/ui/button';
-import {Trash2} from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {cn} from '@/lib/utils';
+import {MoreHorizontal, Trash2} from 'lucide-react';
 // Type-only imports: the EditorJS class is loaded dynamically (client-only)
 // inside the effect below, so importing this module never pulls EditorJS's
 // browser-dependent bundle during SSR (e.g. the Next.js web shell). The default
@@ -18,78 +24,73 @@ import type {PageSnapshot} from '@open-book/sdk';
 // the server, persistence clients, and the editor share one source of truth.
 
 export interface PageDocumentProps {
-  /**
-   * Called whenever the document content changes (debounced ~800ms).
-   * The host (Tauri app) is responsible for serializing this to disk.
-   * If omitted, save is a no-op (useful for the web shell where there
-   * is no filesystem).
-   */
   onSave?: (snap: PageSnapshot) => void | Promise<void>;
-  /**
-   * Returns the saved document (or null if none exists). Called once on
-   * mount before EditorJS initializes.
-   */
   onLoad?: () => Promise<PageSnapshot | null>;
   /** Current page title (the page name). Controlled. */
   title?: string;
   /** Called when the title input changes. */
   onTitleChange?: (title: string) => void;
-  /** When provided, renders a delete control in the header. */
+  /** Page icon (emoji). */
+  icon?: string;
+  /** Called when the icon changes. */
+  onIconChange?: (emoji: string) => void;
+  /** When provided, enables the delete action in the page menu. */
   onDelete?: () => void;
 }
 
-const PageCover = () => {
-  return <div className="bg-background text-foreground h-[10vh] w-full" />;
+const STATUS_LABEL: Record<string, string> = {
+  unsaved: 'Saving…',
+  saved: 'Saved',
+  'save failed': 'Couldn’t save',
 };
+
+const isSSR = () => typeof window === 'undefined';
 
 const PageHeader: React.FC<{
   title: string;
+  icon: string;
   onTitleChange?: (title: string) => void;
-  onDelete?: () => void;
-}> = ({title, onTitleChange, onDelete}) => {
+  onIconChange?: (emoji: string) => void;
+}> = ({title, icon, onTitleChange, onIconChange}) => {
   const {colorScheme} = useTheme();
-  const [emoji, setEmoji] = React.useState('📝');
   return (
-    <div className="flex items-center justify-start gap-4 px-4 py-2">
+    <div className="pt-2 pb-1">
       <Popover>
-        <PopoverTrigger>
-          <Button variant="outline" className="px-2 py-6">
-            <h1 className="text-4xl">{emoji}</h1>
-          </Button>
+        <PopoverTrigger asChild>
+          <button
+            className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-accent"
+            aria-label="Change page icon"
+          >
+            <span>{icon || '📄'}</span>
+          </button>
         </PopoverTrigger>
-        <PopoverContent className="p-0 m-0 border-0 z-40">
+        <PopoverContent className="z-50 w-auto border-0 p-0 shadow-lg">
           <EmojiPicker
-            onEmojiClick={(e) => {
-              setEmoji(e.emoji);
-            }}
+            onEmojiClick={(e) => onIconChange?.(e.emoji)}
             theme={colorScheme === 'light' ? Theme.LIGHT : Theme.DARK}
           />
         </PopoverContent>
       </Popover>
       <input
-        className="text-4xl font-bold bg-transparent outline-none border-0 flex-grow placeholder:text-muted-foreground/40"
+        className="w-full bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-none placeholder:text-muted-foreground/35"
         value={title}
         placeholder="Untitled"
         onChange={(e) => onTitleChange?.(e.target.value)}
         aria-label="Page title"
       />
-      {onDelete && (
-        <Button
-          variant="ghost"
-          className="px-2 text-muted-foreground hover:text-destructive"
-          onClick={onDelete}
-          aria-label="Delete page"
-        >
-          <Trash2 className="w-5 h-5" />
-        </Button>
-      )}
     </div>
   );
 };
 
-const isSSR = () => typeof window === 'undefined';
-
-const PageDocument: React.FC<PageDocumentProps> = ({onSave, onLoad, title = '', onTitleChange, onDelete}) => {
+const PageDocument: React.FC<PageDocumentProps> = ({
+  onSave,
+  onLoad,
+  title = '',
+  onTitleChange,
+  icon = '📄',
+  onIconChange,
+  onDelete,
+}) => {
   'use client';
   const {hud} = useHud();
 
@@ -101,37 +102,60 @@ const PageDocument: React.FC<PageDocumentProps> = ({onSave, onLoad, title = '', 
     let cancelled = false;
 
     const init = async () => {
-      // Load saved snapshot first, then hydrate the store and pass the saved
-      // blocks (including their IDs) into the EditorJS constructor. Block IDs
-      // round-trip so the same cellIds are reassigned to the same blocks on
-      // reload — critical for the saved `values` map to line up with the
-      // blocks' cellIds at runtime.
       let initialData: OutputData | undefined;
       if (onLoad) {
         try {
           const snap = await onLoad();
           if (snap) {
             store.hydrate({values: snap.values, names: snap.names});
-            // `editorjs` is opaque (`unknown`) in the SDK snapshot type; it is
-            // the EditorJS OutputData this editor produced when saving.
             initialData = snap.editorjs as OutputData;
           }
         } catch (e) {
-          // Load failure: start with an empty doc rather than crashing.
           console.error('PageDocument: load failed:', e);
         }
       }
       if (cancelled) return;
 
-      // Load EditorJS lazily on the client only.
-      const {default: EditorJSCtor} = await import('@editorjs/editorjs');
+      // Load the editor + block tools client-side only.
+      const [
+        {default: EditorJSCtor},
+        {default: Header},
+        {default: List},
+        {default: Quote},
+        {default: Delimiter},
+        {default: CodeTool},
+        {default: Marker},
+        {default: InlineCode},
+      ] = await Promise.all([
+        import('@editorjs/editorjs'),
+        import('@editorjs/header'),
+        import('@editorjs/list'),
+        import('@editorjs/quote'),
+        import('@editorjs/delimiter'),
+        import('@editorjs/code'),
+        import('@editorjs/marker'),
+        import('@editorjs/inline-code'),
+      ]);
       if (cancelled) return;
 
       const editorJs = new EditorJSCtor({
         holder: 'editorJs',
         autofocus: true,
         data: initialData,
+        placeholder: 'Write something, or press Tab for blocks…',
         tools: {
+          header: {
+            class: Header as unknown as never,
+            inlineToolbar: true,
+            shortcut: 'CMD+SHIFT+H',
+            config: {placeholder: 'Heading', levels: [1, 2, 3], defaultLevel: 2},
+          },
+          list: {class: List as unknown as never, inlineToolbar: true, config: {defaultStyle: 'unordered'}},
+          quote: {class: Quote as unknown as never, inlineToolbar: true},
+          code: CodeTool as unknown as never,
+          delimiter: Delimiter as unknown as never,
+          marker: {class: Marker as unknown as never, shortcut: 'CMD+SHIFT+M'},
+          inlineCode: {class: InlineCode as unknown as never, shortcut: 'CMD+SHIFT+C'},
           slider: SliderBlock as unknown as never,
           expr: ExprBlock as unknown as never,
           chart: ChartBlock as unknown as never,
@@ -174,16 +198,45 @@ const PageDocument: React.FC<PageDocumentProps> = ({onSave, onLoad, title = '', 
     };
   }, [onSave, onLoad]);
 
+  const statusLabel = STATUS_LABEL[status] ?? '';
+
+  // The title lives in a centered column; the editor is full-width and centers
+  // its own content to the same width (so the toolbar/+ stays in the left gutter
+  // and EditorJS never enters its narrow, right-aligned layout).
+  const columnClass = cn('mx-auto w-full', hud.viewMode.fullWidth ? 'max-w-none' : 'max-w-content');
+
   return (
-    <div className={hud.viewMode.fullWidth ? 'w-full' : 'container mx-auto'}>
-      <PageCover />
-      <PageHeader title={title} onTitleChange={onTitleChange} onDelete={onDelete} />
-      <div style={{padding: '0 16px', fontSize: '11px', color: '#888', textAlign: 'right'}}>{status}</div>
-      {!isSSR() && (
-        <div className="h-fill">
-          <div id={'editorJs'} />
+    <div className="w-full px-6 pb-40 pt-6 md:px-10">
+      <div className={columnClass}>
+        {/* Page action bar: subtle save status + overflow menu. */}
+        <div className="flex h-8 items-center justify-end gap-2 text-xs text-muted-foreground">
+          <span className={cn('transition-opacity', status === 'save failed' && 'text-destructive')}>
+            {statusLabel}
+          </span>
+          {onDelete && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  aria-label="Page actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete page
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
-      )}
+
+        <PageHeader title={title} icon={icon} onTitleChange={onTitleChange} onIconChange={onIconChange} />
+      </div>
+
+      {!isSSR() && <div id="editorJs" className="min-h-[40vh]" />}
     </div>
   );
 };

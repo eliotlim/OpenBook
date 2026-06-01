@@ -55,7 +55,9 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const [currentPageId, setCurrentPageId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const initialized = useRef(false);
+  // Holds the one-time init promise so React 18 StrictMode's double-mount runs
+  // it exactly once (and never discards its result).
+  const initRef = useRef<Promise<void> | null>(null);
 
   const selectPage = useCallback((id: string) => {
     setCurrentPageId(id);
@@ -99,32 +101,28 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   );
 
   // Initial load: list pages, pick the current one, and guarantee a page exists.
+  // Runs once (the shared promise survives StrictMode's double-mount), so its
+  // result is never discarded and a default page is never created twice.
   useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-    let cancelled = false;
-    (async () => {
+    if (initRef.current) return;
+    initRef.current = (async () => {
       try {
         let list = await client.listPages();
         if (list.length === 0) {
           await client.savePage({name: null, data: emptyPageSnapshot()});
           list = await client.listPages();
         }
-        if (cancelled) return;
         setPages(list);
         const saved = readSavedCurrent();
         const next = saved && list.some((p) => p.id === saved) ? saved : list[0]?.id ?? null;
         setCurrentPageId(next);
         writeSavedCurrent(next);
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        setError(e instanceof Error ? e.message : String(e));
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
   }, [client]);
 
   return (
