@@ -1,41 +1,57 @@
 import React, {useMemo} from 'react';
+import {invoke} from '@tauri-apps/api/tauri';
 import {
   ConnectedPageDocument,
   DataProvider,
   DefaultLayout,
   HudProvider,
+  NavigationProvider,
+  PlatformLibraryProvider,
   ThemeProvider,
   WorkspaceProvider,
-  useCurrentPageId,
+  useNavigation,
+  type PlatformLibrary,
 } from '@open-book/ui';
+import type {ServerInfo} from '@open-book/sdk';
 
 import {createDesktopClient} from './data/client';
 
 import '@open-book/ui/style.css';
 
+// Expose the Tauri-managed local server to the UI's server-management screen.
+const platform: PlatformLibrary = {
+  serverControls: {
+    info: () => invoke<ServerInfo>('server_info'),
+    start: () => invoke<ServerInfo>('start_server'),
+    stop: () => invoke<ServerInfo>('stop_server'),
+  },
+};
+
 function DocumentRoute() {
-  // Stable per-install page id (persisted in localStorage). Null until mounted.
-  const pageId = useCurrentPageId();
-  return pageId ? <ConnectedPageDocument pageId={pageId} /> : null;
+  const {currentPageId, loading} = useNavigation();
+  if (loading || !currentPageId) return null;
+  return <ConnectedPageDocument pageId={currentPageId} />;
 }
 
 function App() {
-  // The client is chosen once per session: embedded Postgres (Tauri commands)
-  // by default, or an external server if one is configured. All persistence
-  // flows through it.
+  // Embedded local server by default, or an external one if configured.
   const client = useMemo(() => createDesktopClient(), []);
 
   return (
     <ThemeProvider>
-      <DataProvider client={client}>
-        <WorkspaceProvider>
-          <HudProvider>
-            <DefaultLayout>
-              <DocumentRoute />
-            </DefaultLayout>
-          </HudProvider>
-        </WorkspaceProvider>
-      </DataProvider>
+      <PlatformLibraryProvider value={platform}>
+        <DataProvider client={client}>
+          <NavigationProvider>
+            <WorkspaceProvider>
+              <HudProvider>
+                <DefaultLayout>
+                  <DocumentRoute />
+                </DefaultLayout>
+              </HudProvider>
+            </WorkspaceProvider>
+          </NavigationProvider>
+        </DataProvider>
+      </PlatformLibraryProvider>
     </ThemeProvider>
   );
 }

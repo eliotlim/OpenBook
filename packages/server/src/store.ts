@@ -101,6 +101,16 @@ export class PageStore {
     return pageFromRow(rows[0]);
   }
 
+  /** Update only a page's name, leaving its data untouched. */
+  async renamePage(id: string, name: string | null): Promise<StoredPage | null> {
+    const rows = await this.db.query<PageRow>(
+      `UPDATE pages SET name = $2, updated_at = now() WHERE id = $1
+       RETURNING id, name, data, created_at, updated_at`,
+      [id, name],
+    );
+    return rows.length > 0 ? pageFromRow(rows[0]) : null;
+  }
+
   /** Delete a page. Returns `true` if a row was removed. */
   async deletePage(id: string): Promise<boolean> {
     const rows = await this.db.query('DELETE FROM pages WHERE id = $1 RETURNING id', [id]);

@@ -3,6 +3,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {useHud, useTheme} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Button} from '@/components/ui/button';
+import {Trash2} from 'lucide-react';
 // Type-only imports: the EditorJS class is loaded dynamically (client-only)
 // inside the effect below, so importing this module never pulls EditorJS's
 // browser-dependent bundle during SSR (e.g. the Next.js web shell). The default
@@ -29,13 +30,23 @@ export interface PageDocumentProps {
    * mount before EditorJS initializes.
    */
   onLoad?: () => Promise<PageSnapshot | null>;
+  /** Current page title (the page name). Controlled. */
+  title?: string;
+  /** Called when the title input changes. */
+  onTitleChange?: (title: string) => void;
+  /** When provided, renders a delete control in the header. */
+  onDelete?: () => void;
 }
 
 const PageCover = () => {
   return <div className="bg-background text-foreground h-[10vh] w-full" />;
 };
 
-const PageHeader = () => {
+const PageHeader: React.FC<{
+  title: string;
+  onTitleChange?: (title: string) => void;
+  onDelete?: () => void;
+}> = ({title, onTitleChange, onDelete}) => {
   const {colorScheme} = useTheme();
   const [emoji, setEmoji] = React.useState('📝');
   return (
@@ -55,14 +66,30 @@ const PageHeader = () => {
           />
         </PopoverContent>
       </Popover>
-      <h1 className="text-4xl">Untitled Page</h1>
+      <input
+        className="text-4xl font-bold bg-transparent outline-none border-0 flex-grow placeholder:text-muted-foreground/40"
+        value={title}
+        placeholder="Untitled"
+        onChange={(e) => onTitleChange?.(e.target.value)}
+        aria-label="Page title"
+      />
+      {onDelete && (
+        <Button
+          variant="ghost"
+          className="px-2 text-muted-foreground hover:text-destructive"
+          onClick={onDelete}
+          aria-label="Delete page"
+        >
+          <Trash2 className="w-5 h-5" />
+        </Button>
+      )}
     </div>
   );
 };
 
 const isSSR = () => typeof window === 'undefined';
 
-const PageDocument: React.FC<PageDocumentProps> = ({onSave, onLoad}) => {
+const PageDocument: React.FC<PageDocumentProps> = ({onSave, onLoad, title = '', onTitleChange, onDelete}) => {
   'use client';
   const {hud} = useHud();
 
@@ -150,7 +177,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({onSave, onLoad}) => {
   return (
     <div className={hud.viewMode.fullWidth ? 'w-full' : 'container mx-auto'}>
       <PageCover />
-      <PageHeader />
+      <PageHeader title={title} onTitleChange={onTitleChange} onDelete={onDelete} />
       <div style={{padding: '0 16px', fontSize: '11px', color: '#888', textAlign: 'right'}}>{status}</div>
       {!isSSR() && (
         <div className="h-fill">

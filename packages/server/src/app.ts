@@ -36,6 +36,12 @@ export function createApp(store: PageStore): Hono {
     return c.json(await store.upsertPage(input));
   });
 
+  app.patch(`${API.pages}/:id`, async (c) => {
+    const body = await c.req.json<{name?: string | null}>();
+    const page = await store.renamePage(c.req.param('id'), body.name ?? null);
+    return page ? c.json(page) : c.json({error: 'page not found'}, 404);
+  });
+
   app.delete(`${API.pages}/:id`, async (c) => {
     const deleted = await store.deletePage(c.req.param('id'));
     return deleted ? c.body(null, 204) : c.json({error: 'page not found'}, 404);
