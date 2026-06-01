@@ -1,53 +1,41 @@
-import React, {useCallback} from 'react';
+import React, {useMemo} from 'react';
 import {
+  ConnectedPageDocument,
+  DataProvider,
   DefaultLayout,
   HudProvider,
-  PageDocument,
   ThemeProvider,
   WorkspaceProvider,
-  type PageSnapshot,
+  useCurrentPageId,
 } from '@open-book/ui';
-import {BaseDirectory, createDir, exists, readTextFile, writeTextFile} from '@tauri-apps/api/fs';
+
+import {createDesktopClient} from './data/client';
 
 import '@open-book/ui/style.css';
 
-// Single-document v0: one save file per OpenBook install, stored in the
-// Tauri-managed AppData directory.
-const SAVE_PATH = 'page.json';
-const SAVE_OPTS = {dir: BaseDirectory.AppData} as const;
+function DocumentRoute() {
+  // Stable per-install page id (persisted in localStorage). Null until mounted.
+  const pageId = useCurrentPageId();
+  return pageId ? <ConnectedPageDocument pageId={pageId} /> : null;
+}
 
 function App() {
-  const handleSave = useCallback(async (snap: PageSnapshot) => {
-    // Ensure AppData dir exists (first save on a fresh install).
-    try {
-      await createDir('', {...SAVE_OPTS, recursive: true});
-    } catch {
-      // Already exists; ignore.
-    }
-    await writeTextFile(SAVE_PATH, JSON.stringify(snap, null, 2), SAVE_OPTS);
-  }, []);
-
-  const handleLoad = useCallback(async (): Promise<PageSnapshot | null> => {
-    const there = await exists(SAVE_PATH, SAVE_OPTS).catch(() => false);
-    if (!there) return null;
-    try {
-      const text = await readTextFile(SAVE_PATH, SAVE_OPTS);
-      return JSON.parse(text) as PageSnapshot;
-    } catch (e) {
-      console.error('App: failed to read save file:', e);
-      return null;
-    }
-  }, []);
+  // The client is chosen once per session: embedded Postgres (Tauri commands)
+  // by default, or an external server if one is configured. All persistence
+  // flows through it.
+  const client = useMemo(() => createDesktopClient(), []);
 
   return (
     <ThemeProvider>
-      <WorkspaceProvider>
-        <HudProvider>
-          <DefaultLayout>
-            <PageDocument onSave={handleSave} onLoad={handleLoad} />
-          </DefaultLayout>
-        </HudProvider>
-      </WorkspaceProvider>
+      <DataProvider client={client}>
+        <WorkspaceProvider>
+          <HudProvider>
+            <DefaultLayout>
+              <DocumentRoute />
+            </DefaultLayout>
+          </HudProvider>
+        </WorkspaceProvider>
+      </DataProvider>
     </ThemeProvider>
   );
 }

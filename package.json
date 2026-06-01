@@ -5,15 +5,17 @@
   "main": "index.js",
   "packageManager": "pnpm@10.28.2",
   "scripts": {
-    "build": "pnpm --filter @open-book/ui run build && pnpm --filter @open-book/app run tauri build",
+    "build": "pnpm --filter @open-book/sdk run build && pnpm --filter @open-book/ui run build && pnpm --filter @open-book/app run tauri build",
     "commitlint": "commitlint --edit",
-    "dev": "concurrently --kill-others \"pnpm:watch-app\" \"pnpm:watch-web\" \"pnpm:watch-ui\" \"pnpm:watch-ui-css\" \"pnpm:watch-ui-types\"",
+    "dev": "concurrently --kill-others \"pnpm:watch-sdk\" \"pnpm:watch-server\" \"pnpm:watch-app\" \"pnpm:watch-web\" \"pnpm:watch-ui\" \"pnpm:watch-ui-css\" \"pnpm:watch-ui-types\"",
     "lint": "pnpm -r run lint",
     "lint-fix": "pnpm -r run lint-fix",
     "tauri": "pnpm --filter @open-book/app run tauri",
     "test": "echo \"Warning: no test specified\" && exit 0",
     "prepare": "husky",
     "watch-app": "pnpm --filter @open-book/app run tauri dev",
+    "watch-sdk": "pnpm --filter @open-book/sdk run dev",
+    "watch-server": "pnpm --filter @open-book/server run dev",
     "watch-ui": "pnpm --filter @open-book/ui run dev",
     "watch-ui-css": "pnpm --filter @open-book/ui run dev-css",
     "watch-ui-types": "pnpm --filter @open-book/ui run dev-types",
@@ -48,7 +50,13 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
-      "unrs-resolver"
+      "unrs-resolver",
+      "embedded-postgres",
+      "@embedded-postgres/darwin-arm64",
+      "@embedded-postgres/darwin-x64",
+      "@embedded-postgres/linux-x64",
+      "@embedded-postgres/linux-arm64",
+      "@embedded-postgres/windows-x64"
     ]
   }
 }

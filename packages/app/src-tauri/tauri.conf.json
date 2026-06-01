@@ -15,28 +15,21 @@
       "all": false,
       "shell": {
         "all": false,
-        "open": true
-      },
-      "fs": {
-        "readFile": true,
-        "writeFile": true,
-        "readDir": true,
-        "copyFile": true,
-        "createDir": true,
-        "removeDir": true,
-        "removeFile": true,
-        "renameFile": true,
-        "exists": true,
-        "scope": ["$APPDATA/*", "$APPDATA/**"]
-      },
-      "path": {
-        "all": true
+        "open": true,
+        "sidecar": true,
+        "scope": [
+          {
+            "name": "binaries/openbook-server",
+            "sidecar": true
+          }
+        ]
       }
     },
     "bundle": {
       "active": true,
       "targets": "all",
       "identifier": "dev.book.open",
+      "externalBin": ["binaries/openbook-server"],
       "icon": [
         "icons/32x32.png",
         "icons/128x128.png",

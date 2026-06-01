@@ -3,18 +3,18 @@ import React, {useEffect, useRef, useState} from 'react';
 import {useHud, useTheme} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {Button} from '@/components/ui/button';
-import EditorJS, {type OutputData} from '@editorjs/editorjs';
+// Type-only imports: the EditorJS class is loaded dynamically (client-only)
+// inside the effect below, so importing this module never pulls EditorJS's
+// browser-dependent bundle during SSR (e.g. the Next.js web shell). The default
+// import is kept type-only so `EditorJS` is usable as the instance type.
+import type EditorJS from '@editorjs/editorjs';
+import type {OutputData} from '@editorjs/editorjs';
 import {SliderBlock, ExprBlock, ChartBlock} from '@/reactive';
 import {store} from '@/reactive/ReactiveStore';
+import type {PageSnapshot} from '@open-book/sdk';
 
-// Save format for the whole document. Three sibling top-level keys per the
-// design's persistence spec: editorjs (block content), values (cellId →
-// value), names (name → cellId).
-export interface PageSnapshot {
-  editorjs: OutputData;
-  values: Array<[string, unknown]>;
-  names: Array<[string, string]>;
-}
+// The document save format (`PageSnapshot`) is defined in `@open-book/sdk` so
+// the server, persistence clients, and the editor share one source of truth.
 
 export interface PageDocumentProps {
   /**
@@ -85,7 +85,9 @@ const PageDocument: React.FC<PageDocumentProps> = ({onSave, onLoad}) => {
           const snap = await onLoad();
           if (snap) {
             store.hydrate({values: snap.values, names: snap.names});
-            initialData = snap.editorjs;
+            // `editorjs` is opaque (`unknown`) in the SDK snapshot type; it is
+            // the EditorJS OutputData this editor produced when saving.
+            initialData = snap.editorjs as OutputData;
           }
         } catch (e) {
           // Load failure: start with an empty doc rather than crashing.
@@ -94,7 +96,11 @@ const PageDocument: React.FC<PageDocumentProps> = ({onSave, onLoad}) => {
       }
       if (cancelled) return;
 
-      const editorJs = new EditorJS({
+      // Load EditorJS lazily on the client only.
+      const {default: EditorJSCtor} = await import('@editorjs/editorjs');
+      if (cancelled) return;
+
+      const editorJs = new EditorJSCtor({
         holder: 'editorJs',
         autofocus: true,
         data: initialData,

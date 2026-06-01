@@ -1,0 +1,38 @@
+{
+  "name": "@open-book/server",
+  "version": "0.1.0",
+  "description": "OpenBook server: page store (Postgres) + HTTP API. Runs headless or embedded in the desktop app.",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "openbook-server": "dist/bin.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsx watch src/bin.ts --data-dir ./.dev-data --port 4319",
+    "start": "node dist/bin.js",
+    "test:e2e": "tsx scripts/e2e.mts",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "lint": "eslint --ext .ts src",
+    "lint-fix": "eslint --ext .ts src --fix"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@hono/node-server": "^2.0.4",
+    "@open-book/sdk": "workspace:*",
+    "embedded-postgres": "18.3.0-beta.17",
+    "hono": "^4.12.0",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.5",
+    "tsup": "^8.5.1",
+    "tsx": "^4.22.4",
+    "typescript": "^5.6.2"
+  }
+}

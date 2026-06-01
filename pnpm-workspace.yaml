@@ -1,4 +1,6 @@
 packages:
+  - packages/sdk
+  - packages/server
   - packages/ui
   - packages/app
   - packages/web
