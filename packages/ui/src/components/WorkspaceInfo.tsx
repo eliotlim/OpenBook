@@ -19,25 +19,19 @@ export default function WorkspaceInfo( props: WorkspaceInfoProps) {
     }
   })());
   return (
-    <div className="flex flex-1 flex-row items-center">
-      {props.icon ?
-        <div className="h-8 w-8 mr-2">
-          <span className="h-8 w-8 text-2xl">{props.icon}</span>
-        </div>
-        : <GlobeIcon className="h-8 w-8 mr-2"/>
-      }
-      <div className="flex flex-1 flex-col">
-        <div className="flex gap-2">
-          <span className="text-start whitespace-nowrap overflow-hidden w-40 text-ellipsis font-bold">{props.name}</span>
-        </div>
-        <div className="flex">
-          <span className="text-start whitespace-nowrap overflow-hidden text-ellipsis text-xs text-muted-foreground font-normal">
-            {`${url.protocol}//`}
-          </span>
-          <span className="text-start whitespace-nowrap overflow-hidden w-32 text-ellipsis text-xs text-muted-foreground font-semibold">
-            {location}
-          </span>
-        </div>
+    <div className="flex min-w-0 flex-1 flex-row items-center">
+      {props.icon ? (
+        <span className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center text-2xl leading-none">
+          {props.icon}
+        </span>
+      ) : (
+        <GlobeIcon className="mr-2 h-8 w-8 shrink-0 text-muted-foreground" />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate text-start font-semibold leading-tight">{props.name}</span>
+        <span className="truncate text-start text-xs font-normal text-muted-foreground">
+          {`${url.protocol}//${location}`}
+        </span>
       </div>
     </div>
   );

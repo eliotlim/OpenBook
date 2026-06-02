@@ -216,18 +216,20 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
   }, []);
 
   return (
-    <div style={{padding: '8px', border: '1px solid #ddd', borderRadius: '4px', background: '#fafafa'}}>
-      <div style={{display: 'flex', gap: '8px', marginBottom: '6px', fontSize: '12px', color: '#666'}}>
-        <label>
-          name:{' '}
+    <div className="reactive-block rounded-lg border border-border bg-muted/30 px-3.5 py-3 transition-colors focus-within:border-ring/60">
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+        <label className="inline-flex items-center gap-1.5">
+          <span className="font-mono text-muted-foreground/60">ƒ</span>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            style={{width: '120px'}}
+            className="w-28 rounded-md border border-input bg-background px-2 py-1 font-mono text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
           />
         </label>
-        <span style={{color: '#999'}}>type @cellname to reference other cells (resolved on blur)</span>
+        <span className="text-muted-foreground/60">
+          reference cells with <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground/70">@name</code>
+        </span>
       </div>
       <div
         ref={editorRef}
@@ -237,24 +239,18 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
         onPaste={handlePaste}
         onBlur={handleBlur}
         onFocus={handleFocus}
-        style={{
-          fontFamily: 'monospace',
-          fontSize: '13px',
-          padding: '6px 8px',
-          minHeight: '24px',
-          background: 'white',
-          border: '1px solid #ccc',
-          borderRadius: '3px',
-          whiteSpace: 'pre-wrap',
-          outline: 'none',
-        }}
+        spellCheck={false}
+        className="min-h-[2.25rem] whitespace-pre-wrap rounded-md border border-input bg-background px-2.5 py-2 font-mono text-[13px] leading-relaxed text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
       />
-      <div style={{marginTop: '4px', fontSize: '12px'}}>
+      <div className="mt-2 text-xs">
         {errorMsg ? (
-          <span style={{color: '#b00020'}}>{errorMsg}</span>
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-destructive/10 px-2 py-1 font-medium text-destructive">
+            {errorMsg}
+          </span>
         ) : (
-          <span style={{color: '#666'}}>
-            = <code>{formatResult(result)}</code>
+          <span className="inline-flex items-baseline gap-1.5 text-muted-foreground">
+            <span aria-hidden className="font-mono text-muted-foreground/50">=</span>
+            <code className="font-mono text-[13px] font-medium text-brand">{formatResult(result)}</code>
           </span>
         )}
       </div>

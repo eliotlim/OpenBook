@@ -21,16 +21,24 @@ export default function AboutDialog() {
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>About OpenBook</DialogTitle>
-          <DialogDescription>
-            OpenBook is a new way to make a space your own on the web.
-          </DialogDescription>
+          <DialogDescription>A second brain for thinking in public and in private.</DialogDescription>
         </DialogHeader>
         <DialogDescription>
-          Doggo Ipsum woofers long bois, borkdrive puggo. Puggo wrinkler puggo, borkf long bois. Puggo long bois.
+          OpenBook is a notebook for writing, organizing, and connecting your ideas — with live,
+          reactive blocks that turn notes into something you can compute with. Your pages are yours,
+          stored locally and synced on your terms.
         </DialogDescription>
         <DialogFooter>
-          <Button variant="ghost">Learn more</Button>
-          <Button variant="ghost">Get support</Button>
+          <Button variant="ghost" asChild>
+            <a href="https://github.com/eliotlim/openbook" target="_blank" rel="noreferrer noopener">
+              Learn more
+            </a>
+          </Button>
+          <Button variant="ghost" asChild>
+            <a href="https://github.com/eliotlim/openbook/issues" target="_blank" rel="noreferrer noopener">
+              Get support
+            </a>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

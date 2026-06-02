@@ -43,46 +43,46 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
   }, [name, min, max, step, value, onChange]);
 
   return (
-    <div style={{padding: '8px', border: '1px solid #ddd', borderRadius: '4px', background: '#fafafa'}}>
-      <div style={{display: 'flex', gap: '8px', marginBottom: '6px', fontSize: '12px', color: '#666'}}>
-        <label>
-          name:{' '}
+    <div className="reactive-block group/block rounded-lg border border-border bg-muted/30 px-3.5 py-3 transition-colors focus-within:border-ring/60">
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+        <label className="inline-flex items-center gap-1.5">
+          <span className="select-none text-muted-foreground/70">name</span>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            style={{width: '120px'}}
+            className="w-28 rounded-md border border-input bg-background px-2 py-1 font-mono text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
           />
         </label>
-        <label>
-          min:{' '}
+        <label className="inline-flex items-center gap-1.5">
+          <span className="select-none text-muted-foreground/70">min</span>
           <input
             type="number"
             value={min}
             onChange={(e) => setMin(Number(e.target.value))}
-            style={{width: '80px'}}
+            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
           />
         </label>
-        <label>
-          max:{' '}
+        <label className="inline-flex items-center gap-1.5">
+          <span className="select-none text-muted-foreground/70">max</span>
           <input
             type="number"
             value={max}
             onChange={(e) => setMax(Number(e.target.value))}
-            style={{width: '80px'}}
+            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
           />
         </label>
-        <label>
-          step:{' '}
+        <label className="inline-flex items-center gap-1.5">
+          <span className="select-none text-muted-foreground/70">step</span>
           <input
             type="number"
             value={step}
             onChange={(e) => setStep(Number(e.target.value))}
-            style={{width: '80px'}}
+            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
           />
         </label>
       </div>
-      <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
+      <div className="flex items-center gap-3">
         <input
           type="range"
           min={min}
@@ -90,9 +90,12 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
           step={step}
           value={value}
           onChange={(e) => setValue(Number(e.target.value))}
-          style={{flex: 1}}
+          className="h-1.5 flex-1 cursor-pointer accent-brand"
+          aria-label={name}
         />
-        <code style={{minWidth: '80px', textAlign: 'right'}}>{value}</code>
+        <code className="min-w-[3.5rem] rounded-md bg-brand-subtle px-2 py-1 text-right text-[13px] font-semibold tabular-nums text-brand">
+          {value}
+        </code>
       </div>
     </div>
   );

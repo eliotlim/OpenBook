@@ -52,7 +52,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
     if (activeIds.length === 0) {
       if (chartContainerRef.current) {
         chartContainerRef.current.innerHTML =
-          '<div style="color:#999;font-size:12px;padding:8px">pick at least one cell</div>';
+          '<div class="px-3 py-6 text-center text-xs text-muted-foreground/70">Pick at least one cell to plot</div>';
       }
       return;
     }
@@ -68,8 +68,8 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
       const usableSeries = allSeries.filter((s) => s.data.length > 0);
       if (usableSeries.length === 0) {
         const note = document.createElement('div');
-        note.style.cssText = 'color:#999;font-size:12px;padding:8px';
-        note.textContent = 'no numeric array data in selected cells';
+        note.className = 'px-3 py-6 text-center text-xs text-muted-foreground/70';
+        note.textContent = 'No numeric array data in the selected cells';
         chartContainerRef.current.appendChild(note);
         return;
       }
@@ -82,17 +82,29 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
         }
       }
       try {
+        // Measure the container so the chart fills the document column and
+        // stays responsive instead of a fixed 480px. Fall back to 640 before
+        // first layout. Cap so it never overflows a wide full-width page.
+        const measured = chartContainerRef.current.clientWidth || 640;
+        const width = Math.max(280, Math.min(measured, 720));
         const chart = Plot.plot({
           marks: [Plot.lineY(longData, {x: 'i', y: 'y', stroke: 'series'})],
-          width: 480,
-          height: 240,
-          margin: 36,
-          color: {legend: true},
+          width,
+          height: Math.round(width * 0.5),
+          marginTop: 16,
+          marginRight: 16,
+          marginBottom: 32,
+          marginLeft: 40,
+          // Inherit the document's theme: transparent surface, current text
+          // color for axes/labels (so it reads correctly in light and dark).
+          style: {background: 'transparent', color: 'currentColor', fontSize: '12px'},
+          grid: true,
+          color: {legend: usableSeries.length > 1},
         });
         chartContainerRef.current.appendChild(chart);
       } catch (e) {
         const errDiv = document.createElement('div');
-        errDiv.style.cssText = 'color:#b00020;font-size:12px;padding:8px';
+        errDiv.className = 'px-3 py-2 text-xs font-medium text-destructive';
         errDiv.textContent = `Plot error: ${(e as Error).message}`;
         chartContainerRef.current.appendChild(errDiv);
       }
@@ -114,15 +126,15 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
   const removeRow = (idx: number) => setRows((prev) => prev.filter((_, i) => i !== idx));
 
   return (
-    <div style={{padding: '8px', border: '1px solid #ddd', borderRadius: '4px', background: '#fafafa'}}>
-      <div style={{display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '8px', fontSize: '12px', color: '#666'}}>
+    <div className="reactive-block rounded-lg border border-border bg-muted/30 px-3.5 py-3 transition-colors focus-within:border-ring/60">
+      <div className="mb-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
         {rows.map((row, idx) => (
-          <div key={row.rowKey} style={{display: 'flex', alignItems: 'center', gap: '6px'}}>
-            <span style={{minWidth: '48px'}}>{idx === 0 ? 'plot:' : 'and:'}</span>
+          <div key={row.rowKey} className="flex items-center gap-2">
+            <span className="w-9 select-none text-muted-foreground/60">{idx === 0 ? 'plot' : 'and'}</span>
             <select
               value={row.cellId}
               onChange={(e) => setCellAt(idx, e.target.value)}
-              style={{flex: 1, maxWidth: '200px'}}
+              className="h-8 max-w-[16rem] flex-1 rounded-md border border-input bg-background px-2 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
             >
               <option value="">— pick a cell —</option>
               {availableCells.map(([name, cellId]) => (
@@ -135,17 +147,9 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
               <button
                 type="button"
                 onClick={() => removeRow(idx)}
-                title="remove series"
-                style={{
-                  padding: '0 6px',
-                  background: 'transparent',
-                  border: '1px solid #ccc',
-                  borderRadius: '3px',
-                  cursor: 'pointer',
-                  color: '#666',
-                  fontSize: '13px',
-                  lineHeight: '18px',
-                }}
+                title="Remove series"
+                aria-label="Remove series"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-base text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 ×
               </button>
@@ -155,22 +159,12 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
         <button
           type="button"
           onClick={addRow}
-          style={{
-            alignSelf: 'flex-start',
-            marginTop: '2px',
-            padding: '2px 8px',
-            background: 'transparent',
-            border: '1px dashed #bbb',
-            borderRadius: '3px',
-            cursor: 'pointer',
-            color: '#666',
-            fontSize: '11px',
-          }}
+          className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           + add series
         </button>
       </div>
-      <div ref={chartContainerRef} style={{minHeight: '40px', background: 'white'}} />
+      <div ref={chartContainerRef} className="min-h-[2.5rem] overflow-hidden rounded-md bg-background/60" />
     </div>
   );
 };

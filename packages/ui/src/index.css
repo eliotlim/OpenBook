@@ -97,21 +97,28 @@
 /* ── Thin, unobtrusive scrollbars ───────────────────────────────────────── */
 * {
   scrollbar-width: thin;
-  scrollbar-color: hsl(var(--muted-foreground) / 0.35) transparent;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.3) transparent;
 }
 *::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
 }
 *::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--muted-foreground) / 0.3);
+  background-color: hsl(var(--muted-foreground) / 0.25);
   border-radius: 9999px;
   border: 3px solid transparent;
   background-clip: content-box;
 }
 *::-webkit-scrollbar-thumb:hover {
-  background-color: hsl(var(--muted-foreground) / 0.5);
+  background-color: hsl(var(--muted-foreground) / 0.45);
   background-clip: content-box;
+}
+/* Don't draw a scrollbar until there's a reason to hover the region. */
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ── EditorJS theming to match the document surface ─────────────────────── */
@@ -240,4 +247,31 @@ h3.ce-header {
 .ce-inline-tool:hover,
 .ce-conversion-tool:hover {
   background-color: hsl(var(--accent));
+}
+
+/* ── Reactive blocks (slider / expr / chart) ────────────────────────────── */
+/* Give the interactive blocks a little breathing room within the document
+   flow so they read as distinct cards rather than crowding adjacent text. */
+.reactive-block {
+  margin: 0.35rem 0;
+}
+/* @cell references inside an expression render as inline chips: monospace,
+   tinted with the brand color, non-editable as a single atomic token. */
+.cell-token {
+  display: inline-block;
+  padding: 0 0.3em;
+  margin: 0 0.05em;
+  border-radius: calc(var(--radius) - 2px);
+  background-color: hsl(var(--brand-subtle));
+  color: hsl(var(--brand));
+  font-weight: 600;
+  white-space: nowrap;
+}
+/* Observable Plot legend swatches sit inline; keep their labels readable. */
+.reactive-block figure {
+  margin: 0;
+}
+.reactive-block figure > div {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.75rem;
 }

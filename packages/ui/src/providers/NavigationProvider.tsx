@@ -19,6 +19,14 @@ export interface NavigationContextValue {
   error: string | null;
   /** Open a page. */
   selectPage: (id: string) => void;
+  /** Step back to the previously visited page. */
+  goBack: () => void;
+  /** Step forward in the visit history. */
+  goForward: () => void;
+  /** Whether there is a previous page to step back to. */
+  canGoBack: boolean;
+  /** Whether there is a next page to step forward to. */
+  canGoForward: boolean;
   /** Create a new page (optionally named) and open it. Returns its id. */
   createPage: (name?: string | null) => Promise<string>;
   /** Delete a page; if it was open, opens another (or creates one). */
@@ -59,10 +67,62 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   // it exactly once (and never discards its result).
   const initRef = useRef<Promise<void> | null>(null);
 
-  const selectPage = useCallback((id: string) => {
+  // In-session visit history (browser-style back/forward). The stack holds
+  // visited page ids; `index` is the current position. Forward entries are
+  // truncated when navigating somewhere new. Kept in a ref (not state) so the
+  // mutating helpers run exactly once per call under StrictMode; the two
+  // boolean flags below mirror it for rendering the nav buttons.
+  const historyRef = useRef<{stack: string[]; index: number}>({stack: [], index: -1});
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+  // Mirror of currentPageId for reading inside the (run-once) live-pages
+  // subscription without a stale closure.
+  const currentPageIdRef = useRef<string | null>(null);
+  currentPageIdRef.current = currentPageId;
+
+  const syncHistoryFlags = useCallback(() => {
+    const {stack, index} = historyRef.current;
+    setCanGoBack(index > 0);
+    setCanGoForward(index >= 0 && index < stack.length - 1);
+  }, []);
+
+  // Open a page and record it in history (truncating any forward entries).
+  const selectPage = useCallback(
+    (id: string) => {
+      const hist = historyRef.current;
+      if (hist.stack[hist.index] !== id) {
+        const stack = hist.stack.slice(0, hist.index + 1);
+        stack.push(id);
+        historyRef.current = {stack, index: stack.length - 1};
+        syncHistoryFlags();
+      }
+      setCurrentPageId(id);
+      writeSavedCurrent(id);
+    },
+    [syncHistoryFlags],
+  );
+
+  const goBack = useCallback(() => {
+    const hist = historyRef.current;
+    if (hist.index <= 0) return;
+    const index = hist.index - 1;
+    const id = hist.stack[index];
+    historyRef.current = {...hist, index};
     setCurrentPageId(id);
     writeSavedCurrent(id);
-  }, []);
+    syncHistoryFlags();
+  }, [syncHistoryFlags]);
+
+  const goForward = useCallback(() => {
+    const hist = historyRef.current;
+    if (hist.index >= hist.stack.length - 1) return;
+    const index = hist.index + 1;
+    const id = hist.stack[index];
+    historyRef.current = {...hist, index};
+    setCurrentPageId(id);
+    writeSavedCurrent(id);
+    syncHistoryFlags();
+  }, [syncHistoryFlags]);
 
   const reload = useCallback(async (): Promise<PageMeta[]> => {
     const list = await client.listPages();
@@ -117,32 +177,68 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
         const next = saved && list.some((p) => p.id === saved) ? saved : list[0]?.id ?? null;
         setCurrentPageId(next);
         writeSavedCurrent(next);
+        // Seed the history stack with the first page so back/forward has a base.
+        if (next) {
+          historyRef.current = {stack: [next], index: 0};
+          syncHistoryFlags();
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {
         setLoading(false);
       }
     })();
-  }, [client]);
+  }, [client, syncHistoryFlags]);
 
   // Real-time: keep the page list live as pages are created/renamed/deleted
   // by anyone connected to the same server.
   useEffect(() => {
     return client.subscribePages((list) => {
       setPages(list);
-      setCurrentPageId((cur) => {
-        if (cur === null) return cur; // initial selection handled by the load effect
-        if (list.some((p) => p.id === cur)) return cur;
-        const next = list[0]?.id ?? null;
-        writeSavedCurrent(next);
-        return next;
-      });
+      const existing = new Set(list.map((p) => p.id));
+      const cur = currentPageIdRef.current;
+      if (cur === null) return; // initial selection handled by the load effect
+      // Drop any visited pages that no longer exist from the history stack.
+      const hist = historyRef.current;
+      const filtered = hist.stack.filter((id) => existing.has(id));
+      if (existing.has(cur)) {
+        const idx = filtered.lastIndexOf(cur);
+        historyRef.current = {stack: filtered, index: idx < 0 ? Math.max(0, filtered.length - 1) : idx};
+        syncHistoryFlags();
+        return;
+      }
+      // The open page was deleted: fall back to the first available page.
+      const next = list[0]?.id ?? null;
+      let index = next ? filtered.lastIndexOf(next) : -1;
+      if (next && index === -1) {
+        filtered.push(next);
+        index = filtered.length - 1;
+      }
+      historyRef.current = {stack: filtered, index};
+      syncHistoryFlags();
+      currentPageIdRef.current = next;
+      setCurrentPageId(next);
+      writeSavedCurrent(next);
     });
-  }, [client]);
+  }, [client, syncHistoryFlags]);
 
   return (
     <NavigationContext.Provider
-      value={{pages, currentPageId, loading, error, selectPage, createPage, deletePage, renamePage, reload}}
+      value={{
+        pages,
+        currentPageId,
+        loading,
+        error,
+        selectPage,
+        goBack,
+        goForward,
+        canGoBack,
+        canGoForward,
+        createPage,
+        deletePage,
+        renamePage,
+        reload,
+      }}
     >
       {children}
     </NavigationContext.Provider>

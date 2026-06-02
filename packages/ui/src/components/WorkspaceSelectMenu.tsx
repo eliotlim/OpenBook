@@ -19,10 +19,10 @@ export default function WorkspaceSelectMenu() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="flex h-12 w-60 px-2 justify-start"
+          className="flex h-12 w-full justify-start gap-1 px-2"
         >
           <WorkspaceInfo icon={workspace?.icon} name={workspace?.name ?? 'Loading...'} url={workspace?.uri ?? ''}/>
-          <ChevronUpDownIcon className="w-4 h-4"/>
+          <ChevronUpDownIcon className="h-4 w-4 shrink-0 text-muted-foreground"/>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-72 bg-sheet-2 text-sheet-2-foreground">
