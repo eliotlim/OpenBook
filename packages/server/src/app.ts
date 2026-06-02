@@ -1,18 +1,25 @@
 import {Hono} from 'hono';
 import {cors} from 'hono/cors';
+import {streamSSE} from 'hono/streaming';
 import {API, type PageInput} from '@open-book/sdk';
 import {PageStore} from './store';
+import {PageHub} from './hub';
 
 /**
  * Build the Hono app over a page store. Routes implement the shared
- * `@open-book/sdk` contract, so the server and `HttpDataClient` are guaranteed
- * to agree on paths and payload shapes.
+ * `@open-book/sdk` contract. Every write publishes to an in-memory {@link PageHub},
+ * and the SSE endpoints relay those events to connected clients — the
+ * server-driven refresh loop that powers real-time collaboration.
  */
 export function createApp(store: PageStore): Hono {
   const app = new Hono();
+  const hub = new PageHub();
 
-  // Permissive CORS so a browser (web shell, or another device) can reach a
-  // headless or desktop-hosted server directly.
+  // Push the latest page list to list subscribers (nav stays live).
+  const broadcastList = async (): Promise<void> => {
+    hub.publishList(await store.listPages());
+  };
+
   app.use('*', cors());
 
   app.get(API.health, (c) => c.text('ok'));
@@ -21,7 +28,10 @@ export function createApp(store: PageStore): Hono {
 
   app.post(API.pages, async (c) => {
     const input = await c.req.json<PageInput>();
-    return c.json(await store.upsertPage(input), 201);
+    const page = await store.upsertPage(input);
+    hub.publishPage(page);
+    await broadcastList();
+    return c.json(page, 201);
   });
 
   app.get(`${API.pages}/:id`, async (c) => {
@@ -31,20 +41,73 @@ export function createApp(store: PageStore): Hono {
 
   app.put(`${API.pages}/:id`, async (c) => {
     const input = await c.req.json<PageInput>();
-    // The path id is authoritative for PUT.
     input.id = c.req.param('id');
-    return c.json(await store.upsertPage(input));
+    const page = await store.upsertPage(input);
+    hub.publishPage(page);
+    await broadcastList();
+    return c.json(page);
   });
 
   app.patch(`${API.pages}/:id`, async (c) => {
     const body = await c.req.json<{name?: string | null}>();
     const page = await store.renamePage(c.req.param('id'), body.name ?? null);
-    return page ? c.json(page) : c.json({error: 'page not found'}, 404);
+    if (!page) return c.json({error: 'page not found'}, 404);
+    hub.publishPage(page);
+    await broadcastList();
+    return c.json(page);
   });
 
   app.delete(`${API.pages}/:id`, async (c) => {
-    const deleted = await store.deletePage(c.req.param('id'));
-    return deleted ? c.body(null, 204) : c.json({error: 'page not found'}, 404);
+    const id = c.req.param('id');
+    const deleted = await store.deletePage(id);
+    if (!deleted) return c.json({error: 'page not found'}, 404);
+    hub.publishDeleted(id);
+    await broadcastList();
+    return c.body(null, 204);
+  });
+
+  // ── Live update streams (Server-Sent Events) ──────────────────────────────
+
+  app.get(API.stream, (c) =>
+    streamSSE(c, async (stream) => {
+      await stream.writeSSE({event: 'list', data: JSON.stringify(await store.listPages())});
+      const unsubscribe = hub.subscribeList((event) => {
+        void stream.writeSSE({event: 'list', data: JSON.stringify(event.pages)}).catch(() => undefined);
+      });
+      stream.onAbort(unsubscribe);
+      try {
+        while (!stream.aborted) {
+          await stream.sleep(25_000);
+          await stream.writeSSE({event: 'ping', data: ''});
+        }
+      } finally {
+        unsubscribe();
+      }
+    }),
+  );
+
+  app.get(`${API.pages}/:id/stream`, (c) => {
+    const id = c.req.param('id');
+    return streamSSE(c, async (stream) => {
+      const initial = await store.getPage(id);
+      if (initial) await stream.writeSSE({event: 'page', data: JSON.stringify(initial)});
+      const unsubscribe = hub.subscribePage(id, (event) => {
+        if (event.type === 'page') {
+          void stream.writeSSE({event: 'page', data: JSON.stringify(event.page)}).catch(() => undefined);
+        } else {
+          void stream.writeSSE({event: 'deleted', data: JSON.stringify({id: event.id})}).catch(() => undefined);
+        }
+      });
+      stream.onAbort(unsubscribe);
+      try {
+        while (!stream.aborted) {
+          await stream.sleep(25_000);
+          await stream.writeSSE({event: 'ping', data: ''});
+        }
+      } finally {
+        unsubscribe();
+      }
+    });
   });
 
   app.onError((err, c) => {

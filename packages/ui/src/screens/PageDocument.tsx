@@ -36,6 +36,10 @@ export interface PageDocumentProps {
   onIconChange?: (emoji: string) => void;
   /** When provided, enables the delete action in the page menu. */
   onDelete?: () => void;
+  /** A newer snapshot pushed from the server to apply live (collaboration). */
+  incoming?: {data: PageSnapshot; version: number};
+  /** Notifies when the title input gains/loses focus (to avoid clobbering it). */
+  onTitleActiveChange?: (active: boolean) => void;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -51,7 +55,8 @@ const PageHeader: React.FC<{
   icon: string;
   onTitleChange?: (title: string) => void;
   onIconChange?: (emoji: string) => void;
-}> = ({title, icon, onTitleChange, onIconChange}) => {
+  onTitleActiveChange?: (active: boolean) => void;
+}> = ({title, icon, onTitleChange, onIconChange, onTitleActiveChange}) => {
   const {colorScheme} = useTheme();
   return (
     <div className="pt-2 pb-1">
@@ -76,6 +81,8 @@ const PageHeader: React.FC<{
         value={title}
         placeholder="Untitled"
         onChange={(e) => onTitleChange?.(e.target.value)}
+        onFocus={() => onTitleActiveChange?.(true)}
+        onBlur={() => onTitleActiveChange?.(false)}
         aria-label="Page title"
       />
     </div>
@@ -90,13 +97,20 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   icon = '📄',
   onIconChange,
   onDelete,
+  incoming,
+  onTitleActiveChange,
 }) => {
   'use client';
   const {hud} = useHud();
 
   const editorJsInstance = useRef<EditorJS | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Suppresses autosave while a server-pushed update is being applied, so we
+  // don't echo it straight back to the server.
+  const suppressSaveRef = useRef(false);
   const [status, setStatus] = useState<string>('initializing');
+  const statusRef = useRef(status);
+  statusRef.current = status;
 
   useEffect(() => {
     let cancelled = false;
@@ -165,6 +179,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           setStatus('ready');
         },
         onChange: () => {
+          if (suppressSaveRef.current) return;
           setStatus('unsaved');
           if (saveTimer.current) clearTimeout(saveTimer.current);
           saveTimer.current = setTimeout(() => {
@@ -197,6 +212,31 @@ const PageDocument: React.FC<PageDocumentProps> = ({
       editorJsInstance.current = null;
     };
   }, [onSave, onLoad]);
+
+  // Apply a server-pushed snapshot live (collaboration), unless the local user
+  // is mid-edit. Autosave is suppressed during the re-render so it isn't echoed.
+  useEffect(() => {
+    if (!incoming) return;
+    const inst = editorJsInstance.current;
+    if (!inst || statusRef.current === 'initializing' || statusRef.current === 'unsaved') return;
+    let cancelled = false;
+    void (async () => {
+      suppressSaveRef.current = true;
+      store.hydrate({values: incoming.data.values, names: incoming.data.names});
+      try {
+        await inst.render((incoming.data.editorjs ?? {blocks: []}) as OutputData);
+      } catch (e) {
+        console.error('PageDocument: live update failed:', e);
+      }
+      if (!cancelled) setStatus('saved');
+      setTimeout(() => {
+        suppressSaveRef.current = false;
+      }, 120);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [incoming?.version]);
 
   const statusLabel = STATUS_LABEL[status] ?? '';
 
@@ -233,7 +273,13 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           )}
         </div>
 
-        <PageHeader title={title} icon={icon} onTitleChange={onTitleChange} onIconChange={onIconChange} />
+        <PageHeader
+          title={title}
+          icon={icon}
+          onTitleChange={onTitleChange}
+          onIconChange={onIconChange}
+          onTitleActiveChange={onTitleActiveChange}
+        />
       </div>
 
       {!isSSR() && <div id="editorJs" className="min-h-[40vh]" />}

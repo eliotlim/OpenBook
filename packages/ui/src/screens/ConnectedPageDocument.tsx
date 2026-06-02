@@ -17,28 +17,38 @@ const writeIcon = (pageId: string, emoji: string): void => {
 };
 
 /**
- * A {@link PageDocument} wired to the active data client + {@link NavigationProvider}.
- * Loads the page's content and name on mount, autosaves content changes, renames
- * the page from the title field (debounced), and deletes it.
+ * A {@link PageDocument} wired to the data client + {@link NavigationProvider}.
+ * Loads content + name, autosaves edits, renames from the title field, and —
+ * for real-time collaboration — subscribes to the server's live page stream and
+ * applies snapshots saved by other clients. Our own saves carry an `updatedAt`
+ * we remember, so the echoed event is ignored.
  */
 export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pageId}) => {
   const client = useData();
-  const {pages, renamePage, deletePage} = useNavigation();
+  const {pages, deletePage} = useNavigation();
 
   const [title, setTitle] = useState('');
   const [icon, setIcon] = useState('📄');
+  const [incoming, setIncoming] = useState<{data: PageSnapshot; version: number} | undefined>(undefined);
+
   const nameRef = useRef<string | null>(null);
   const renameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Highest updatedAt this client has saved or applied — used to ignore echoes.
+  const lastUpdatedRef = useRef<string>('');
+  const titleActiveRef = useRef(false);
+  const versionRef = useRef(0);
 
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
 
-  // Seed title + icon on every page switch.
+  // Seed title/icon and reset live state on every page switch.
   useEffect(() => {
     const meta = pagesRef.current.find((p) => p.id === pageId);
     setTitle(meta?.name ?? '');
     nameRef.current = meta?.name ?? null;
     setIcon(readIcon(pageId));
+    setIncoming(undefined);
+    lastUpdatedRef.current = meta?.updatedAt ?? '';
     return () => {
       if (renameTimer.current) clearTimeout(renameTimer.current);
     };
@@ -48,12 +58,14 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     const page = await client.getPage(pageId);
     nameRef.current = page?.name ?? null;
     setTitle(page?.name ?? '');
+    if (page) lastUpdatedRef.current = page.updatedAt;
     return page ? page.data : null;
   }, [client, pageId]);
 
   const onSave = useCallback(
     async (snapshot: PageSnapshot): Promise<void> => {
-      await client.savePage({id: pageId, name: nameRef.current, data: snapshot});
+      const saved = await client.savePage({id: pageId, name: nameRef.current, data: snapshot});
+      lastUpdatedRef.current = saved.updatedAt;
     },
     [client, pageId],
   );
@@ -64,10 +76,15 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
       nameRef.current = next.trim().length > 0 ? next : null;
       if (renameTimer.current) clearTimeout(renameTimer.current);
       renameTimer.current = setTimeout(() => {
-        void renamePage(pageId, nameRef.current).catch(() => undefined);
+        void client
+          .renamePage(pageId, nameRef.current)
+          .then((saved) => {
+            lastUpdatedRef.current = saved.updatedAt;
+          })
+          .catch(() => undefined);
       }, 600);
     },
-    [pageId, renamePage],
+    [client, pageId],
   );
 
   const onIconChange = useCallback(
@@ -85,12 +102,36 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     void deletePage(pageId);
   }, [pageId, deletePage]);
 
+  const onTitleActiveChange = useCallback((active: boolean) => {
+    titleActiveRef.current = active;
+  }, []);
+
+  // Real-time: apply page snapshots saved by other clients.
+  useEffect(() => {
+    return client.subscribePage(pageId, {
+      onPage: (page) => {
+        // Ignore our own echo and any stale event.
+        if (page.updatedAt <= lastUpdatedRef.current) return;
+        lastUpdatedRef.current = page.updatedAt;
+        if (!titleActiveRef.current) {
+          setTitle(page.name ?? '');
+          nameRef.current = page.name ?? null;
+        }
+        versionRef.current += 1;
+        setIncoming({data: page.data, version: versionRef.current});
+      },
+      // Deletion is handled by the navigation list stream, which reselects.
+    });
+  }, [client, pageId]);
+
   return (
     <PageDocument
       key={pageId}
       title={title}
       icon={icon}
+      incoming={incoming}
       onTitleChange={onTitleChange}
+      onTitleActiveChange={onTitleActiveChange}
       onIconChange={onIconChange}
       onDelete={onDelete}
       onLoad={onLoad}
