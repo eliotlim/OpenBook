@@ -1,6 +1,14 @@
 import {API, type ApiError} from './routes';
 import type {PageInput, PageMeta, StoredPage} from './types';
 
+/** Handlers for a single page's live update stream. */
+export interface PageSubscription {
+  /** A newer version of the page was saved (by anyone). */
+  onPage?: (page: StoredPage) => void;
+  /** The page was deleted. */
+  onDeleted?: (id: string) => void;
+}
+
 /**
  * Storage-agnostic data access used by the document UI.
  *
@@ -21,6 +29,10 @@ export interface DataClient {
   renamePage(id: string, name: string | null): Promise<StoredPage>;
   /** Delete a page; resolves `true` if a page was removed. */
   deletePage(id: string): Promise<boolean>;
+  /** Subscribe to a single page's live updates. Returns an unsubscribe fn. */
+  subscribePage(id: string, handlers: PageSubscription): () => void;
+  /** Subscribe to live page-list updates. Returns an unsubscribe fn. */
+  subscribePages(onList: (pages: PageMeta[]) => void): () => void;
 }
 
 /** {@link DataClient} backed by an OpenBook server's HTTP API. Isomorphic. */
@@ -59,6 +71,23 @@ export class HttpDataClient implements DataClient {
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
+  }
+
+  subscribePage(id: string, handlers: PageSubscription): () => void {
+    const source = new EventSource(`${this.baseUrl}${API.pageStream(id)}`);
+    if (handlers.onPage) {
+      source.addEventListener('page', (e) => handlers.onPage!(JSON.parse((e as MessageEvent).data) as StoredPage));
+    }
+    if (handlers.onDeleted) {
+      source.addEventListener('deleted', (e) => handlers.onDeleted!((JSON.parse((e as MessageEvent).data) as {id: string}).id));
+    }
+    return () => source.close();
+  }
+
+  subscribePages(onList: (pages: PageMeta[]) => void): () => void {
+    const source = new EventSource(`${this.baseUrl}${API.stream}`);
+    source.addEventListener('list', (e) => onList(JSON.parse((e as MessageEvent).data) as PageMeta[]));
+    return () => source.close();
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {

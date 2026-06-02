@@ -125,6 +125,21 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     })();
   }, [client]);
 
+  // Real-time: keep the page list live as pages are created/renamed/deleted
+  // by anyone connected to the same server.
+  useEffect(() => {
+    return client.subscribePages((list) => {
+      setPages(list);
+      setCurrentPageId((cur) => {
+        if (cur === null) return cur; // initial selection handled by the load effect
+        if (list.some((p) => p.id === cur)) return cur;
+        const next = list[0]?.id ?? null;
+        writeSavedCurrent(next);
+        return next;
+      });
+    });
+  }, [client]);
+
   return (
     <NavigationContext.Provider
       value={{pages, currentPageId, loading, error, selectPage, createPage, deletePage, renamePage, reload}}
