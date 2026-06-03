@@ -34,8 +34,7 @@
   "license": "MIT",
   "dependencies": {
     "@open-book/ui": "workspace:*",
-    "resolve-tspaths": "^0.8.22",
-    "typescript": "^5.9.0"
+    "resolve-tspaths": "^0.8.22"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.0.0",
@@ -43,8 +42,8 @@
     "@rollup/plugin-commonjs": "^29.0.0",
     "@rollup/plugin-node-resolve": "^16.0.0",
     "@rollup/plugin-typescript": "^12.0.0",
-    "@semantic-release/git": "^10.0.1",
     "@semantic-release/exec": "^7.0.0",
+    "@semantic-release/git": "^10.0.1",
     "@tauri-apps/cli": "^2.11.2",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
@@ -55,7 +54,8 @@
     "rollup-plugin-dts": "^6.1.1",
     "semantic-release": "^25.0.0",
     "tslib": "^2.7.0",
-    "tsx": "^4.19.1"
+    "tsx": "^4.19.1",
+    "typescript": "^6.0.3"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
