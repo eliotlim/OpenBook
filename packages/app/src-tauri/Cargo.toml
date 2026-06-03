@@ -10,16 +10,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-tauri-build = { version = "1.5.5", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
-# `process-command-api` enables `tauri::api::process::Command::new_sidecar`,
-# used to launch the bundled TypeScript server (`@open-book/server`).
-tauri = { version = "1.8.0", features = [ "shell-sidecar", "shell-open", "process-command-api"] }
+tauri = { version = "2", features = [] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0.128"
-
-[features]
-# this feature is used for production builds or when `devPath` points to the filesystem
-# DO NOT REMOVE!!
-custom-protocol = ["tauri/custom-protocol"]
+# The bundled TypeScript server (`@open-book/server`) is launched as a sidecar
+# via the shell plugin (v2 moved `tauri::api::process` here).
+tauri-plugin-shell = "2"
