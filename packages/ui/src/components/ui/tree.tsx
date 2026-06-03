@@ -221,7 +221,7 @@ const Leaf = React.forwardRef<
         />
       }
       {!item.icon && Icon && <Icon className="h-4 w-4 shrink-0 mr-2 text-accent-foreground/50" aria-hidden="true" />}
-      <span className="flex-grow text-sm truncate">{item.name}</span>
+      <span className="grow text-sm truncate">{item.name}</span>
     </div>
   );
 })
@@ -240,7 +240,7 @@ const AccordionTrigger = React.forwardRef<
       <AccordionPrimitive.Trigger
         ref={ref}
         className={cn(
-          "transition-all rounded-md hover:bg-muted-foreground/40 p-0.5 mr-1 first:[&[data-state=open]>svg]:rotate-90",
+          "transition-all rounded-md hover:bg-muted-foreground/40 p-0.5 mr-1 [&[data-state=open]>svg]:first:rotate-90",
         )}
         {...props}
       >

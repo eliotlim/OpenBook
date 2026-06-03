@@ -12,7 +12,7 @@ export default function CommandToggle() {
         <TooltipTrigger asChild>
           <Button
             variant="ghost"
-            className="flex flex-grow justify-start h-7"
+            className="flex grow justify-start h-7"
             onClick={() => {
               setHud(draft => {
                 draft.commandPalette.open = !draft.commandPalette.open;

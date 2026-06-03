@@ -51,7 +51,7 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-28 rounded-md border border-input bg-background px-2 py-1 font-mono text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
+            className="w-28 rounded-md border border-input bg-background px-2 py-1 font-mono text-[13px] text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
           />
         </label>
         <label className="inline-flex items-center gap-1.5">
@@ -60,7 +60,7 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
             type="number"
             value={min}
             onChange={(e) => setMin(Number(e.target.value))}
-            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
+            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
           />
         </label>
         <label className="inline-flex items-center gap-1.5">
@@ -69,7 +69,7 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
             type="number"
             value={max}
             onChange={(e) => setMax(Number(e.target.value))}
-            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
+            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
           />
         </label>
         <label className="inline-flex items-center gap-1.5">
@@ -78,7 +78,7 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
             type="number"
             value={step}
             onChange={(e) => setStep(Number(e.target.value))}
-            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
+            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
           />
         </label>
       </div>
@@ -93,7 +93,7 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
           className="h-1.5 flex-1 cursor-pointer accent-brand"
           aria-label={name}
         />
-        <code className="min-w-[3.5rem] rounded-md bg-brand-subtle px-2 py-1 text-right text-[13px] font-semibold tabular-nums text-brand">
+        <code className="min-w-14 rounded-md bg-brand-subtle px-2 py-1 text-right text-[13px] font-semibold tabular-nums text-brand">
           {value}
         </code>
       </div>

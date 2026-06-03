@@ -147,7 +147,7 @@ const PageHeader: React.FC<{
         </PopoverContent>
       </Popover>
       <input
-        className="w-full bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-none placeholder:text-muted-foreground/35"
+        className="w-full bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-muted-foreground/35"
         value={title}
         placeholder="Untitled"
         onChange={(e) => onTitleChange?.(e.target.value)}
