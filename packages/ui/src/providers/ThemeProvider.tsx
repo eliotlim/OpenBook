@@ -37,7 +37,7 @@ export function ThemeProvider({
   React.useEffect(() => {
     const onChangeModeListener = (e: MediaQueryListEvent) => {
       if (mode === 'system') {
-        e.matches ? setColorScheme('dark') : setColorScheme('light');
+        setColorScheme(e.matches ? 'dark' : 'light');
       }
     };
     if (typeof window !== 'undefined') {

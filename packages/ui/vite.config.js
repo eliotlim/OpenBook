@@ -42,6 +42,10 @@ export default defineConfig ({
       entry: resolve(__dirname, "src/index.ts"),
       name: "@open-book/ui",
       fileName: "index",
+      // Vite 6+ names the lib's CSS bundle after the entry (index.css) instead
+      // of the old `style.css`. Pin it so `@open-book/ui/style.css` keeps
+      // resolving (see the "./style.css" export in package.json).
+      cssFileName: "style",
     },
     rollupOptions: {
       external: externalModules,

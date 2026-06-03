@@ -125,7 +125,7 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
   useEffect(() => {
     return effect(() => {
       // Read namesVersion to subscribe.
-      store.namesVersion.value;
+      void store.namesVersion.value;
       if (editorRef.current && !isFocusedRef.current) {
         editorRef.current.innerHTML = sourceToHTML(source);
       }

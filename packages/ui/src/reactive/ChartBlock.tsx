@@ -40,7 +40,8 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
   // Build the dropdown of available cell names by subscribing to namesVersion.
   useEffect(() => {
     return effect(() => {
-      store.namesVersion.value;
+      // Read namesVersion to subscribe to name changes.
+      void store.namesVersion.value;
       setAvailableCells(store.snapshot().names.slice());
     });
   }, []);
