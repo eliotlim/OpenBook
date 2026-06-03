@@ -1,5 +1,8 @@
 {
   "compilerOptions": {
+    // tsup's DTS step injects a baseUrl, which TS 6 flags as deprecated; this
+    // keeps `pnpm --filter @open-book/server build` green until TS 7.
+    "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "lib": ["ES2022", "DOM"],
     "module": "ESNext",
