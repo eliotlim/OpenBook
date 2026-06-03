@@ -4,3 +4,16 @@ packages:
   - packages/ui
   - packages/app
   - packages/web
+
+# ── Supply-chain hardening ────────────────────────────────────────────────
+# Don't install any package version published less than this many minutes ago.
+# Most malicious/compromised npm releases are caught and pulled within a day or
+# two; a cooldown means we never pull a brand-new (potentially compromised)
+# release before the ecosystem has had a chance to flag it. 4320 = 3 days.
+minimumReleaseAge: 4320
+# Trusted build-tooling whose newest release is sometimes inside the cooldown
+# window and is pulled as a transitive/peer (where pnpm won't fall back to an
+# older version). Keep this list short and only for high-trust, widely-used
+# packages.
+minimumReleaseAgeExclude:
+  - tsx
