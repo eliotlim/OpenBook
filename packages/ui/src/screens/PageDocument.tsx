@@ -178,12 +178,22 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   // Suppresses autosave while a server-pushed update is being applied, so we
   // don't echo it straight back to the server.
   const suppressSaveRef = useRef(false);
+  // True once the *local user* has actually edited (typed/dragged/pasted) since
+  // the last save. EditorJS fires onChange for programmatic DOM changes too —
+  // applying a peer's snapshot, reactive blocks re-rendering — and saving those
+  // back is what bounced edits between peers forever. The browser only fires
+  // `input`/`beforeinput` for genuine user editing, never for programmatic DOM
+  // mutation, so we gate autosave on this flag.
+  const userEditedRef = useRef(false);
   const [status, setStatus] = useState<string>('initializing');
   const statusRef = useRef(status);
   statusRef.current = status;
 
   useEffect(() => {
     let cancelled = false;
+    const markUserEdited = () => {
+      userEditedRef.current = true;
+    };
 
     const init = async () => {
       let initialData: OutputData | undefined;
@@ -246,6 +256,13 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         },
         onReady: () => {
           editorJsInstance.current = editorJs;
+          // Flag genuine user editing. `input`/`beforeinput` fire for typing,
+          // deleting, pasting, and form-control (slider) interaction, but never
+          // for programmatic DOM changes — so this distinguishes a real edit
+          // from applying a peer's snapshot.
+          const holder = document.getElementById(EDITOR_HOLDER_ID);
+          holder?.addEventListener('beforeinput', markUserEdited);
+          holder?.addEventListener('input', markUserEdited);
           setStatus('ready');
         },
         onChange: () => {
@@ -262,6 +279,16 @@ const PageDocument: React.FC<PageDocumentProps> = ({
     const doSave = async () => {
       const inst = editorJsInstance.current;
       if (!inst || !onSave) return;
+      // No genuine local edit since the last save — this onChange came from
+      // applying a peer's snapshot (or reactive blocks re-rendering), not the
+      // user. Don't echo it back: that's what bounced edits between peers.
+      if (!userEditedRef.current) {
+        setStatus('saved');
+        return;
+      }
+      // Clear before awaiting so edits made *during* the save still count and
+      // schedule a follow-up save.
+      userEditedRef.current = false;
       try {
         const editorjs = await inst.save();
         const snap = store.snapshot();
@@ -270,6 +297,8 @@ const PageDocument: React.FC<PageDocumentProps> = ({
       } catch (e) {
         console.error('PageDocument: save failed:', e);
         setStatus('save failed');
+        // Saving failed — keep the document dirty so a later change retries.
+        userEditedRef.current = true;
       }
     };
 
@@ -278,6 +307,9 @@ const PageDocument: React.FC<PageDocumentProps> = ({
     return () => {
       cancelled = true;
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      const holder = document.getElementById(EDITOR_HOLDER_ID);
+      holder?.removeEventListener('beforeinput', markUserEdited);
+      holder?.removeEventListener('input', markUserEdited);
       editorJsInstance.current?.destroy();
       editorJsInstance.current = null;
     };

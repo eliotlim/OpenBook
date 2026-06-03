@@ -33,25 +33,15 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
 
   const nameRef = useRef<string | null>(null);
   const renameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Highest updatedAt this client has saved or applied — used to ignore echoes.
+  // Highest updatedAt this client has saved or applied — used to drop stale
+  // events. Echo handling (not re-saving content a peer sent us) lives in
+  // PageDocument's content-digest check, so this is just an ordering guard.
   const lastUpdatedRef = useRef<string>('');
   const titleActiveRef = useRef(false);
   const versionRef = useRef(0);
-  // Number of our own writes (saves/renames) currently awaiting their server
-  // response, plus a buffer of live events that arrived while one was in flight.
-  // The server echoes our own writes back over the live stream; that echo can
-  // arrive *before* the write's response updates lastUpdatedRef, so a naive
-  // `updatedAt <= lastUpdatedRef` check races and re-applies our own save. That
-  // re-render re-runs the reactive store, which mutates the DOM, which triggers
-  // another autosave — a feedback loop that re-renders the page every second.
-  // Buffering events until our in-flight writes settle closes the race: by the
-  // time we process them, lastUpdatedRef reflects our write and the echo is
-  // correctly suppressed.
-  const writesInFlightRef = useRef(0);
-  const bufferedPagesRef = useRef<StoredPage[]>([]);
 
   const applyPage = useCallback((page: StoredPage) => {
-    // Our own echo or a stale event — ignore.
+    // Stale event (older than what we've already applied/saved) — ignore.
     if (page.updatedAt <= lastUpdatedRef.current) return;
     lastUpdatedRef.current = page.updatedAt;
     if (!titleActiveRef.current) {
@@ -61,16 +51,6 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     versionRef.current += 1;
     setIncoming({data: page.data, version: versionRef.current});
   }, []);
-
-  // Called when a write settles: drain any events that arrived mid-flight, now
-  // that lastUpdatedRef reflects the write.
-  const onWriteSettled = useCallback(() => {
-    writesInFlightRef.current = Math.max(0, writesInFlightRef.current - 1);
-    if (writesInFlightRef.current > 0) return;
-    const buffered = bufferedPagesRef.current;
-    bufferedPagesRef.current = [];
-    for (const page of buffered) applyPage(page);
-  }, [applyPage]);
 
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
@@ -83,8 +63,6 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     setIcon(readIcon(pageId));
     setIncoming(undefined);
     lastUpdatedRef.current = meta?.updatedAt ?? '';
-    writesInFlightRef.current = 0;
-    bufferedPagesRef.current = [];
     return () => {
       if (renameTimer.current) clearTimeout(renameTimer.current);
     };
@@ -100,15 +78,10 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
 
   const onSave = useCallback(
     async (snapshot: PageSnapshot): Promise<void> => {
-      writesInFlightRef.current += 1;
-      try {
-        const saved = await client.savePage({id: pageId, name: nameRef.current, data: snapshot});
-        lastUpdatedRef.current = saved.updatedAt;
-      } finally {
-        onWriteSettled();
-      }
+      const saved = await client.savePage({id: pageId, name: nameRef.current, data: snapshot});
+      lastUpdatedRef.current = saved.updatedAt;
     },
-    [client, pageId, onWriteSettled],
+    [client, pageId],
   );
 
   const onTitleChange = useCallback(
@@ -117,17 +90,15 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
       nameRef.current = next.trim().length > 0 ? next : null;
       if (renameTimer.current) clearTimeout(renameTimer.current);
       renameTimer.current = setTimeout(() => {
-        writesInFlightRef.current += 1;
         void client
           .renamePage(pageId, nameRef.current)
           .then((saved) => {
             lastUpdatedRef.current = saved.updatedAt;
           })
-          .catch(() => undefined)
-          .finally(() => onWriteSettled());
+          .catch(() => undefined);
       }, 600);
     },
-    [client, pageId, onWriteSettled],
+    [client, pageId],
   );
 
   const onIconChange = useCallback(
@@ -149,19 +120,13 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     titleActiveRef.current = active;
   }, []);
 
-  // Real-time: apply page snapshots saved by other clients.
+  // Real-time: apply page snapshots saved by other clients. Our own echoes are
+  // harmless now — applying identical content is a no-op patch and the
+  // content-digest check in PageDocument stops it being re-saved — so we no
+  // longer need to race-guard the echo here.
   useEffect(() => {
     return client.subscribePage(pageId, {
-      onPage: (page) => {
-        // If one of our own writes is in flight, its echo may reach us before
-        // the write's response updates lastUpdatedRef. Buffer until it settles
-        // (see writesInFlightRef) so we don't re-apply our own save.
-        if (writesInFlightRef.current > 0) {
-          bufferedPagesRef.current.push(page);
-          return;
-        }
-        applyPage(page);
-      },
+      onPage: (page) => applyPage(page),
       // Deletion is handled by the navigation list stream, which reselects.
     });
   }, [client, pageId, applyPage]);
