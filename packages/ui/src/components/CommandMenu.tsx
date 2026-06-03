@@ -8,7 +8,7 @@ import {
   CommandSeparator,
 } from '@/components/ui/command';
 import React from 'react';
-import {FileText, Plus} from 'lucide-react';
+import {FileText, Plus, Settings as SettingsIcon} from 'lucide-react';
 import {useHud, useNavigation} from '@/providers';
 
 const displayName = (name: string | null): string =>
@@ -62,6 +62,13 @@ export function CommandMenu() {
           <CommandItem value="new page create" onSelect={() => run(() => void createPage())}>
             <Plus className="mr-2 h-4 w-4 text-muted-foreground" />
             Create new page
+          </CommandItem>
+          <CommandItem
+            value="open settings preferences"
+            onSelect={() => run(() => setHud((draft) => {draft.settings.open = true; return draft;}))}
+          >
+            <SettingsIcon className="mr-2 h-4 w-4 text-muted-foreground" />
+            Open settings
           </CommandItem>
         </CommandGroup>
       </CommandList>

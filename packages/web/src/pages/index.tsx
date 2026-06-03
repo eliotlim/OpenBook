@@ -9,6 +9,7 @@ import {
   PlatformLibraryProvider,
   useNavigation,
 } from '@open-book/ui';
+import SettingsDeepLink from '@/components/SettingsDeepLink';
 
 // The web shell always talks to a server: the one it was built against, or an
 // override configured via the Server settings.
@@ -34,6 +35,7 @@ export default function Home() {
       <PlatformLibraryProvider>
         <DataProvider client={client}>
           <NavigationProvider>
+            <SettingsDeepLink />
             <DefaultLayout>
               <DocumentRoute />
             </DefaultLayout>

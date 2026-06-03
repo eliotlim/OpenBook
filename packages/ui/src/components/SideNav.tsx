@@ -3,7 +3,7 @@ import {useHud} from '@/providers';
 import ColorSchemeMenu from '@/components/ColorSchemeMenu';
 import AboutDialog from '@/components/AboutDialog';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
-import SettingsDialog from '@/components/SettingsDialog';
+import SettingsButton from '@/components/SettingsButton';
 import WorkspaceNavigationTree from '@/components/WorkspaceNavigationTree';
 import CommandToggle from '@/components/CommandToggle';
 
@@ -17,7 +17,7 @@ export default function SideNav() {
         </div>
         <div className="flex flex-col gap-0.5 px-2 pb-1 pt-1">
           <CommandToggle />
-          <SettingsDialog />
+          <SettingsButton />
         </div>
         <div className="mt-1 min-h-0 flex-1 overflow-hidden">
           <WorkspaceNavigationTree />
