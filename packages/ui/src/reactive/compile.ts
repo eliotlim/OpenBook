@@ -68,7 +68,7 @@ export function compile(source: string): CompiledExpr {
     .map((id) => `const ${aliasOf.get(id)!} = store.getByCellId(${JSON.stringify(id)});`)
     .join('\n');
   const body = `${aliasLines}\nreturn (${rewritten});`;
-  // eslint-disable-next-line @typescript-eslint/no-implied-eval, no-new-func
+  // v0 evaluator: see TODOS.md T1 for the planned QuickJS sandbox replacement.
   const fn = new Function('store', body) as (s: ReactiveStore) => unknown;
   return (s) => fn(s);
 }
