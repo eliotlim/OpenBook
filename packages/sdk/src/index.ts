@@ -4,3 +4,4 @@ export {API, type ApiError} from './routes';
 export type {DataClient, PageSubscription} from './client';
 export {HttpDataClient} from './client';
 export {getServerUrlOverride, setServerUrlOverride} from './connection';
+export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';

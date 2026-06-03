@@ -18,6 +18,7 @@
     "tauri": "pnpm --filter @open-book/app run tauri",
     "test": "pnpm -r --if-present run test",
     "test:e2e": "pnpm --filter @open-book/server run test:e2e",
+    "seed": "pnpm --filter @open-book/server run seed",
     "clean": "rm -rf packages/sdk/dist packages/ui/dist packages/server/dist packages/server/assets packages/web/.next packages/app/dist packages/app/src-tauri/binaries/openbook-server-*",
     "prepare": "husky",
     "watch-app": "pnpm --filter @open-book/app run tauri dev",

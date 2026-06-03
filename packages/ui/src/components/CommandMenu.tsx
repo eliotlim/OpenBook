@@ -8,16 +8,27 @@ import {
   CommandSeparator,
 } from '@/components/ui/command';
 import React from 'react';
-import {FileText, Plus, Settings as SettingsIcon} from 'lucide-react';
+import {FileText, FlaskConical, Plus, Settings as SettingsIcon} from 'lucide-react';
+import {seedSampleDocument} from '@open-book/sdk';
 import {useHud, useNavigation} from '@/providers';
+import {useData} from '@/data';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : 'Untitled';
 
 export function CommandMenu() {
   const {hud, setHud} = useHud();
-  const {pages, currentPageId, selectPage, createPage} = useNavigation();
+  const {pages, currentPageId, selectPage, createPage, reload} = useNavigation();
+  const client = useData();
   const open = hud.commandPalette.open;
+
+  // Seed a known-good reactive document (slider → expression → chart) and open
+  // it. Idempotent: refreshes the existing sample page rather than duplicating.
+  const insertSampleDocument = React.useCallback(async () => {
+    const page = await seedSampleDocument(client);
+    await reload();
+    selectPage(page.id);
+  }, [client, reload, selectPage]);
 
   const setOpen = React.useCallback(
     (open: boolean) => {
@@ -62,6 +73,13 @@ export function CommandMenu() {
           <CommandItem value="new page create" onSelect={() => run(() => void createPage())}>
             <Plus className="mr-2 h-4 w-4 text-muted-foreground" />
             Create new page
+          </CommandItem>
+          <CommandItem
+            value="insert sample document test seed reactive slider chart"
+            onSelect={() => run(() => void insertSampleDocument())}
+          >
+            <FlaskConical className="mr-2 h-4 w-4 text-muted-foreground" />
+            Insert sample document
           </CommandItem>
           <CommandItem
             value="open settings preferences"

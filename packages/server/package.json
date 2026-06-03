@@ -16,6 +16,7 @@
     "dev": "tsx watch src/bin.ts --data-dir ./.dev-data --port 4319",
     "start": "node dist/bin.js",
     "test:e2e": "tsx scripts/e2e.mts",
+    "seed": "tsx scripts/seed.mts",
     "build:sidecar": "node scripts/build-sidecar.mjs",
     "lint": "eslint --ext .ts src",
     "lint-fix": "eslint --ext .ts src --fix"
