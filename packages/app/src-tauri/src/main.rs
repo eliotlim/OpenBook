@@ -15,8 +15,9 @@
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::api::process::{Command, CommandChild, CommandEvent};
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, State};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
+use tauri_plugin_shell::ShellExt;
 
 const DEFAULT_PORT: &str = "4319";
 const DEFAULT_URL: &str = "http://127.0.0.1:4319";
@@ -58,23 +59,45 @@ fn build_info(state: &AppState) -> ServerInfo {
 }
 
 /// Spawn the server sidecar, forwarding its logs and capturing the URL it prints.
-fn spawn_sidecar(data_dir: &str, url_slot: Arc<Mutex<Option<String>>>) -> Result<CommandChild, String> {
-    let (mut rx, child) = Command::new_sidecar("openbook-server")
+/// Tauri v2 routes sidecars through the shell plugin, so this needs an app
+/// handle to reach `shell()`; stdout/stderr arrive as bytes (not strings).
+fn spawn_sidecar(
+    app: &AppHandle,
+    data_dir: &str,
+    url_slot: Arc<Mutex<Option<String>>>,
+) -> Result<CommandChild, String> {
+    let (mut rx, child) = app
+        .shell()
+        .sidecar("openbook-server")
         .map_err(|e| format!("failed to locate server sidecar: {e}"))?
-        .args(["--data-dir", data_dir, "--host", "127.0.0.1", "--port", DEFAULT_PORT])
+        .args([
+            "--data-dir",
+            data_dir,
+            "--host",
+            "127.0.0.1",
+            "--port",
+            DEFAULT_PORT,
+        ])
         .spawn()
         .map_err(|e| format!("failed to spawn server sidecar: {e}"))?;
 
     tauri::async_runtime::spawn(async move {
         while let Some(event) = rx.recv().await {
             match event {
-                CommandEvent::Stdout(line) => {
+                CommandEvent::Stdout(bytes) => {
+                    let line = String::from_utf8_lossy(&bytes);
+                    let line = line.trim_end();
                     if let Some(url) = line.strip_prefix("OPENBOOK_READY ") {
                         *url_slot.lock().unwrap() = Some(url.trim().to_string());
                     }
                     println!("[openbook-server] {line}");
                 }
-                CommandEvent::Stderr(line) => eprintln!("[openbook-server] {line}"),
+                CommandEvent::Stderr(bytes) => {
+                    eprintln!(
+                        "[openbook-server] {}",
+                        String::from_utf8_lossy(&bytes).trim_end()
+                    );
+                }
                 _ => {}
             }
         }
@@ -88,11 +111,11 @@ fn server_info(state: State<AppState>) -> ServerInfo {
 }
 
 #[tauri::command]
-fn start_server(state: State<AppState>) -> Result<ServerInfo, String> {
+fn start_server(app: AppHandle, state: State<AppState>) -> Result<ServerInfo, String> {
     if state.managed {
         let mut guard = state.child.lock().unwrap();
         if guard.is_none() {
-            *guard = Some(spawn_sidecar(&state.data_dir, state.server_url.clone())?);
+            *guard = Some(spawn_sidecar(&app, &state.data_dir, state.server_url.clone())?);
         }
     }
     Ok(build_info(&state))
@@ -102,7 +125,9 @@ fn start_server(state: State<AppState>) -> Result<ServerInfo, String> {
 fn stop_server(state: State<AppState>) -> Result<ServerInfo, String> {
     if state.managed {
         if let Some(child) = state.child.lock().unwrap().take() {
-            child.kill().map_err(|e| format!("failed to stop server: {e}"))?;
+            child
+                .kill()
+                .map_err(|e| format!("failed to stop server: {e}"))?;
         }
     }
     Ok(build_info(&state))
@@ -110,11 +135,12 @@ fn stop_server(state: State<AppState>) -> Result<ServerInfo, String> {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let data_dir = app
-                .path_resolver()
+                .path()
                 .app_data_dir()
-                .ok_or("could not resolve the app data directory")?;
+                .map_err(|e| format!("could not resolve the app data directory: {e}"))?;
             std::fs::create_dir_all(&data_dir).ok();
             let data_dir = data_dir.to_string_lossy().to_string();
 
@@ -123,7 +149,8 @@ fn main() {
 
             let mut child = None;
             if managed {
-                child = Some(spawn_sidecar(&data_dir, server_url.clone())?);
+                let handle = app.handle().clone();
+                child = Some(spawn_sidecar(&handle, &data_dir, server_url.clone())?);
             }
 
             app.manage(AppState {
@@ -134,7 +161,11 @@ fn main() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![server_info, start_server, stop_server])
+        .invoke_handler(tauri::generate_handler![
+            server_info,
+            start_server,
+            stop_server
+        ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
