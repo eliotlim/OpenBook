@@ -135,7 +135,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
             <select
               value={row.cellId}
               onChange={(e) => setCellAt(idx, e.target.value)}
-              className="h-8 max-w-[16rem] flex-1 rounded-md border border-input bg-background px-2 text-[13px] text-foreground outline-none transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
+              className="h-8 max-w-[16rem] flex-1 rounded-md border border-input bg-background px-2 text-[13px] text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
             >
               <option value="">— pick a cell —</option>
               {availableCells.map(([name, cellId]) => (
@@ -165,7 +165,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
           + add series
         </button>
       </div>
-      <div ref={chartContainerRef} className="min-h-[2.5rem] overflow-hidden rounded-md bg-background/60" />
+      <div ref={chartContainerRef} className="min-h-10 overflow-hidden rounded-md bg-background/60" />
     </div>
   );
 };

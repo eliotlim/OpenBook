@@ -8,7 +8,7 @@ export default function SettingsButton() {
   return (
     <Button
       variant="ghost"
-      className="flex h-7 flex-grow justify-start"
+      className="flex h-7 grow justify-start"
       onClick={() => setHud((draft) => {draft.settings.open = true; return draft;})}
     >
       <GearIcon className="mr-2 h-4 w-4" />
