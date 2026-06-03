@@ -16,6 +16,76 @@ import {MoreHorizontal, Trash2} from 'lucide-react';
 // import is kept type-only so `EditorJS` is usable as the instance type.
 import type EditorJS from '@editorjs/editorjs';
 import type {OutputData} from '@editorjs/editorjs';
+
+const EDITOR_HOLDER_ID = 'editorJs';
+
+/**
+ * Apply a peer's snapshot to the live editor with minimal disruption.
+ *
+ * The naive approach — `editor.render(next)` — tears down and rebuilds every
+ * block, which blows away the local user's focus and drops their caret to the
+ * top of the document. That's the "cursor jumps when a peer edits" bug.
+ *
+ * Instead, when the editor is focused we diff block-by-block and patch only
+ * what changed, and we *never* touch the block under the caret. A peer's edits
+ * to other blocks still appear live; the block you're typing in is left exactly
+ * as-is, so focus and cursor position survive. When the editor isn't focused
+ * there's no caret to protect, so a full render is simplest and correct.
+ */
+async function applyIncomingBlocks(inst: EditorJS, next: OutputData): Promise<void> {
+  const holder = typeof document !== 'undefined' ? document.getElementById(EDITOR_HOLDER_ID) : null;
+  const active = (typeof document !== 'undefined' ? document.activeElement : null) as HTMLElement | null;
+  const editorFocused = !!(holder && active && holder.contains(active));
+  const focusedBlockId = editorFocused
+    ? active?.closest('.ce-block')?.getAttribute('data-id') ?? null
+    : null;
+
+  // No caret to protect (or we can't identify its block): full render is safe.
+  if (!editorFocused || !focusedBlockId) {
+    await inst.render(next);
+    return;
+  }
+
+  const current = await inst.save();
+  const currentBlocks = current.blocks ?? [];
+  const nextBlocks = next.blocks ?? [];
+  const currentById = new Map(currentBlocks.map((b) => [b.id, b] as const));
+  const nextById = new Map(nextBlocks.map((b) => [b.id, b] as const));
+  const liveIds = new Set(currentBlocks.map((b) => b.id));
+
+  // 1. Delete blocks the peer removed — but never the one under the caret.
+  for (const b of currentBlocks) {
+    if (b.id && b.id !== focusedBlockId && !nextById.has(b.id)) {
+      const idx = inst.blocks.getBlockIndex(b.id);
+      if (idx >= 0) {
+        inst.blocks.delete(idx);
+        liveIds.delete(b.id);
+      }
+    }
+  }
+
+  // 2. Update blocks whose data changed — but never the focused one (that would
+  //    re-render it and yank the caret). The focused block reconciles on blur.
+  for (const b of nextBlocks) {
+    if (!b.id || b.id === focusedBlockId) continue;
+    const cur = currentById.get(b.id);
+    if (cur && JSON.stringify(cur.data) !== JSON.stringify(b.data)) {
+      await inst.blocks.update(b.id, b.data);
+    }
+  }
+
+  // 3. Insert blocks the peer added, each anchored after its predecessor so the
+  //    relative order is preserved across multiple inserts.
+  for (let i = 0; i < nextBlocks.length; i++) {
+    const b = nextBlocks[i];
+    if (!b.id || liveIds.has(b.id)) continue;
+    const prevId = i > 0 ? nextBlocks[i - 1].id : undefined;
+    const prevIdx = prevId ? inst.blocks.getBlockIndex(prevId) : -1;
+    const insertAt = prevIdx >= 0 ? prevIdx + 1 : i;
+    inst.blocks.insert(b.type, b.data, {}, insertAt, false, false, b.id);
+    liveIds.add(b.id);
+  }
+}
 import {SliderBlock, ExprBlock, ChartBlock} from '@/reactive';
 import {store} from '@/reactive/ReactiveStore';
 import type {PageSnapshot} from '@open-book/sdk';
@@ -213,18 +283,21 @@ const PageDocument: React.FC<PageDocumentProps> = ({
     };
   }, [onSave, onLoad]);
 
-  // Apply a server-pushed snapshot live (collaboration), unless the local user
-  // is mid-edit. Autosave is suppressed during the re-render so it isn't echoed.
+  // Apply a server-pushed snapshot live (collaboration). The block-level patch
+  // in applyIncomingBlocks protects the caret, so we no longer skip updates
+  // while the user is mid-edit — a peer's changes to other blocks merge in live
+  // and the block under the caret is left untouched. Autosave is suppressed
+  // during the patch so the merged content isn't immediately echoed back.
   useEffect(() => {
     if (!incoming) return;
     const inst = editorJsInstance.current;
-    if (!inst || statusRef.current === 'initializing' || statusRef.current === 'unsaved') return;
+    if (!inst || statusRef.current === 'initializing') return;
     let cancelled = false;
     void (async () => {
       suppressSaveRef.current = true;
       store.hydrate({values: incoming.data.values, names: incoming.data.names});
       try {
-        await inst.render((incoming.data.editorjs ?? {blocks: []}) as OutputData);
+        await applyIncomingBlocks(inst, (incoming.data.editorjs ?? {blocks: []}) as OutputData);
       } catch (e) {
         console.error('PageDocument: live update failed:', e);
       }
