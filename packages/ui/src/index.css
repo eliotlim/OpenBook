@@ -248,6 +248,19 @@ h3.ce-header {
 .ce-conversion-tool:hover {
   background-color: hsl(var(--accent));
 }
+/* WKWebView (the desktop's Safari engine) suppresses `click` events on elements
+   that aren't "clickable" — i.e. lack `cursor: pointer` — while a contenteditable
+   is focused. EditorJS 2.31 only sets a cursor on *disabled* popover items, so the
+   toolbox/inline-tool items default to `cursor: auto`: the popover opens but
+   selecting an item silently does nothing on desktop (works in Chromium, which
+   ignores the quirk). Marking the interactive items as pointers restores clicks.
+   See https://developer.apple.com/forums/thread/71375. */
+.ce-popover-item,
+.ce-inline-tool,
+.ce-conversion-tool,
+.ce-toolbox__button {
+  cursor: pointer;
+}
 
 /* ── Reactive blocks (slider / expr / chart) ────────────────────────────── */
 /* Give the interactive blocks a little breathing room within the document
