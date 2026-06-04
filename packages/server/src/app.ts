@@ -1,7 +1,7 @@
 import {Hono} from 'hono';
 import {cors} from 'hono/cors';
 import {streamSSE} from 'hono/streaming';
-import {API, type PageInput} from '@open-book/sdk';
+import {API, type DatabaseInput, type DatabaseUpdate, type PageInput, type RowInput} from '@open-book/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 
@@ -20,6 +20,14 @@ export function createApp(store: PageStore): Hono {
     hub.publishList(await store.listPages());
   };
 
+  // Push a database's latest rows to its subscribers (table/list views stay
+  // live). Skipped when nobody is watching to avoid a needless row query on
+  // every row-page content save.
+  const broadcastRows = async (databaseId: string): Promise<void> => {
+    if (!hub.hasRowsListeners(databaseId)) return;
+    hub.publishRows(databaseId, await store.listRows(databaseId));
+  };
+
   app.use('*', cors());
 
   app.get(API.health, (c) => c.text('ok'));
@@ -31,6 +39,8 @@ export function createApp(store: PageStore): Hono {
     const page = await store.upsertPage(input);
     hub.publishPage(page);
     await broadcastList();
+    // A row page's content changed — refresh its database's expr columns.
+    if (page.databaseId) await broadcastRows(page.databaseId);
     return c.json(page, 201);
   });
 
@@ -45,6 +55,7 @@ export function createApp(store: PageStore): Hono {
     const page = await store.upsertPage(input);
     hub.publishPage(page);
     await broadcastList();
+    if (page.databaseId) await broadcastRows(page.databaseId);
     return c.json(page);
   });
 
@@ -59,11 +70,83 @@ export function createApp(store: PageStore): Hono {
 
   app.delete(`${API.pages}/:id`, async (c) => {
     const id = c.req.param('id');
+    // Learn the page's database membership before it's gone, so we can refresh
+    // the owning database's row list after the delete.
+    const existing = await store.getPage(id);
     const deleted = await store.deletePage(id);
     if (!deleted) return c.json({error: 'page not found'}, 404);
     hub.publishDeleted(id);
     await broadcastList();
+    if (existing?.databaseId) await broadcastRows(existing.databaseId);
     return c.body(null, 204);
+  });
+
+  // ── Databases ──────────────────────────────────────────────────────────────
+
+  app.post(API.databases, async (c) => {
+    const input = await c.req.json<DatabaseInput>();
+    const database = await store.createDatabase(input);
+    // The host page now hosts a database: refresh its page event + the list so
+    // the document area renders the view and the sidebar marks it.
+    const host = await store.getPage(database.pageId);
+    if (host) hub.publishPage(host);
+    await broadcastList();
+    return c.json(database, 201);
+  });
+
+  app.get(`${API.databases}/:id`, async (c) => {
+    const database = await store.getDatabase(c.req.param('id'));
+    return database ? c.json(database) : c.json({error: 'database not found'}, 404);
+  });
+
+  app.patch(`${API.databases}/:id`, async (c) => {
+    const patch = await c.req.json<DatabaseUpdate>();
+    const database = await store.updateDatabase(c.req.param('id'), patch);
+    if (!database) return c.json({error: 'database not found'}, 404);
+    // Schema changes (new/removed columns, filters) affect every row view.
+    await broadcastRows(database.id);
+    return c.json(database);
+  });
+
+  app.delete(`${API.databases}/:id`, async (c) => {
+    const id = c.req.param('id');
+    const database = await store.getDatabase(id);
+    const deleted = await store.deleteDatabase(id);
+    if (!deleted) return c.json({error: 'database not found'}, 404);
+    // The host page no longer hosts a database; its rows are gone too.
+    if (database) {
+      const host = await store.getPage(database.pageId);
+      if (host) hub.publishPage(host);
+    }
+    await broadcastList();
+    return c.body(null, 204);
+  });
+
+  app.get(`${API.pages}/:id/database`, async (c) => {
+    const database = await store.getDatabaseByPage(c.req.param('id'));
+    return database ? c.json(database) : c.json({error: 'page hosts no database'}, 404);
+  });
+
+  app.get(`${API.databases}/:id/rows`, async (c) => {
+    return c.json(await store.listRows(c.req.param('id')));
+  });
+
+  app.post(`${API.databases}/:id/rows`, async (c) => {
+    const id = c.req.param('id');
+    const input = await c.req.json<RowInput>().catch(() => ({}) as RowInput);
+    const page = await store.createRow(id, input);
+    hub.publishPage(page);
+    await broadcastRows(id);
+    return c.json(page, 201);
+  });
+
+  app.patch(`${API.databases}/:id/rows/:rowId`, async (c) => {
+    const id = c.req.param('id');
+    const body = await c.req.json<{name?: string | null; properties?: Record<string, unknown>}>();
+    const row = await store.updateRow(id, c.req.param('rowId'), body);
+    if (!row) return c.json({error: 'row not found'}, 404);
+    await broadcastRows(id);
+    return c.json(row);
   });
 
   // ── Live update streams (Server-Sent Events) ──────────────────────────────
@@ -97,6 +180,25 @@ export function createApp(store: PageStore): Hono {
         } else {
           void stream.writeSSE({event: 'deleted', data: JSON.stringify({id: event.id})}).catch(() => undefined);
         }
+      });
+      stream.onAbort(unsubscribe);
+      try {
+        while (!stream.aborted) {
+          await stream.sleep(25_000);
+          await stream.writeSSE({event: 'ping', data: ''});
+        }
+      } finally {
+        unsubscribe();
+      }
+    });
+  });
+
+  app.get(`${API.databases}/:id/stream`, (c) => {
+    const id = c.req.param('id');
+    return streamSSE(c, async (stream) => {
+      await stream.writeSSE({event: 'rows', data: JSON.stringify(await store.listRows(id))});
+      const unsubscribe = hub.subscribeRows(id, (event) => {
+        void stream.writeSSE({event: 'rows', data: JSON.stringify(event.rows)}).catch(() => undefined);
       });
       stream.onAbort(unsubscribe);
       try {

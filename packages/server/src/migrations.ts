@@ -25,6 +25,32 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS pages_updated_at_idx ON pages (updated_at DESC)',
     ],
   },
+  {
+    // Notion-style databases. A database is owned by a host page (1:1) and its
+    // rows are ordinary pages tagged with `database_id`. Manual property values
+    // live in `pages.properties`; `expr` columns are projected from the row
+    // page's reactive snapshot at read time (see sdk `projectExports`).
+    //
+    // Circular FKs by design: `databases.page_id → pages.id` (the host) and
+    // `pages.database_id → databases.id` (row membership). The databases table
+    // is created first so the column FK below resolves. Deleting a host page
+    // cascades to its database, which cascades to its row pages.
+    name: '0002_databases',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS databases (
+        id          UUID        PRIMARY KEY,
+        page_id     UUID        NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        name        TEXT,
+        schema      JSONB       NOT NULL DEFAULT '{"properties":[],"views":[]}'::jsonb,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      'CREATE UNIQUE INDEX IF NOT EXISTS databases_page_id_key ON databases (page_id)',
+      'ALTER TABLE pages ADD COLUMN IF NOT EXISTS database_id UUID REFERENCES databases(id) ON DELETE CASCADE',
+      'ALTER TABLE pages ADD COLUMN IF NOT EXISTS properties JSONB NOT NULL DEFAULT \'{}\'::jsonb',
+      'CREATE INDEX IF NOT EXISTS pages_database_id_idx ON pages (database_id)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

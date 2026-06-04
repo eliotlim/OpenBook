@@ -32,6 +32,12 @@ export const emptyPageSnapshot = (): PageSnapshot => ({
 export interface PageMeta {
   id: string;
   name: string | null;
+  /**
+   * If this page *hosts* a database (contains a collection of row pages), the
+   * id of that database; otherwise `null`. Lets the sidebar mark database
+   * pages and the document area decide whether to render the database view.
+   */
+  hostedDatabaseId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -41,6 +47,12 @@ export interface StoredPage {
   id: string;
   name: string | null;
   data: PageSnapshot;
+  /** The database this page *hosts*, if any (mirrors {@link PageMeta.hostedDatabaseId}). */
+  hostedDatabaseId: string | null;
+  /** The database this page is a *row* of, if any; `null` for ordinary pages. */
+  databaseId: string | null;
+  /** Manual database-property values, keyed by property id (empty for non-rows). */
+  properties: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,6 +61,10 @@ export interface StoredPage {
  * Payload for creating/updating a page.
  *  - `id` present → upsert that page; absent → create with a fresh server id.
  *  - `name` optional; unique across the store when set.
+ *
+ * Note: a page's database membership (`databaseId`) and manual `properties` are
+ * not set through this payload — they are managed by the database row APIs so a
+ * routine content save never clobbers them.
  */
 export interface PageInput {
   id?: string;

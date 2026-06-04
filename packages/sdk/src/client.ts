@@ -1,5 +1,13 @@
 import {API, type ApiError} from './routes';
 import type {PageInput, PageMeta, StoredPage} from './types';
+import type {
+  DatabaseInput,
+  DatabaseRow,
+  DatabaseUpdate,
+  RowInput,
+  RowUpdate,
+  StoredDatabase,
+} from './database';
 
 /** Handlers for a single page's live update stream. */
 export interface PageSubscription {
@@ -33,6 +41,26 @@ export interface DataClient {
   subscribePage(id: string, handlers: PageSubscription): () => void;
   /** Subscribe to live page-list updates. Returns an unsubscribe fn. */
   subscribePages(onList: (pages: PageMeta[]) => void): () => void;
+
+  // ── Databases ──────────────────────────────────────────────────────────────
+  /** Create a database for a host page. */
+  createDatabase(input: DatabaseInput): Promise<StoredDatabase>;
+  /** Fetch a database by id, or `null` if it does not exist. */
+  getDatabase(id: string): Promise<StoredDatabase | null>;
+  /** Fetch the database hosted by a page, or `null` if the page hosts none. */
+  getPageDatabase(pageId: string): Promise<StoredDatabase | null>;
+  /** Update a database's name and/or schema. */
+  updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase>;
+  /** Delete a database and all its row pages. Resolves `true` if removed. */
+  deleteDatabase(id: string): Promise<boolean>;
+  /** List a database's rows (projected: properties + exported cell values). */
+  listRows(databaseId: string): Promise<DatabaseRow[]>;
+  /** Create a row (a new page) inside a database. Returns the row page. */
+  createRow(databaseId: string, input?: RowInput): Promise<StoredPage>;
+  /** Update a row's title and/or manual property values. */
+  updateRow(databaseId: string, rowId: string, patch: RowUpdate): Promise<DatabaseRow>;
+  /** Subscribe to a database's live row-list updates. Returns an unsubscribe fn. */
+  subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void;
 }
 
 /** {@link DataClient} backed by an OpenBook server's HTTP API. Isomorphic. */
@@ -87,6 +115,55 @@ export class HttpDataClient implements DataClient {
   subscribePages(onList: (pages: PageMeta[]) => void): () => void {
     const source = new EventSource(`${this.baseUrl}${API.stream}`);
     source.addEventListener('list', (e) => onList(JSON.parse((e as MessageEvent).data) as PageMeta[]));
+    return () => source.close();
+  }
+
+  // ── Databases ──────────────────────────────────────────────────────────────
+
+  async createDatabase(input: DatabaseInput): Promise<StoredDatabase> {
+    return this.request<StoredDatabase>('POST', API.databases, input);
+  }
+
+  async getDatabase(id: string): Promise<StoredDatabase | null> {
+    const res = await fetch(`${this.baseUrl}${API.database(id)}`);
+    if (res.status === 404) return null;
+    await throwIfNotOk(res);
+    return (await res.json()) as StoredDatabase;
+  }
+
+  async getPageDatabase(pageId: string): Promise<StoredDatabase | null> {
+    const res = await fetch(`${this.baseUrl}${API.pageDatabase(pageId)}`);
+    if (res.status === 404) return null;
+    await throwIfNotOk(res);
+    return (await res.json()) as StoredDatabase;
+  }
+
+  async updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase> {
+    return this.request<StoredDatabase>('PATCH', API.database(id), patch);
+  }
+
+  async deleteDatabase(id: string): Promise<boolean> {
+    const res = await fetch(`${this.baseUrl}${API.database(id)}`, {method: 'DELETE'});
+    if (res.status === 404) return false;
+    await throwIfNotOk(res);
+    return true;
+  }
+
+  async listRows(databaseId: string): Promise<DatabaseRow[]> {
+    return this.request<DatabaseRow[]>('GET', API.databaseRows(databaseId));
+  }
+
+  async createRow(databaseId: string, input: RowInput = {}): Promise<StoredPage> {
+    return this.request<StoredPage>('POST', API.databaseRows(databaseId), input);
+  }
+
+  async updateRow(databaseId: string, rowId: string, patch: RowUpdate): Promise<DatabaseRow> {
+    return this.request<DatabaseRow>('PATCH', API.databaseRow(databaseId, rowId), patch);
+  }
+
+  subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void {
+    const source = new EventSource(`${this.baseUrl}${API.databaseStream(databaseId)}`);
+    source.addEventListener('rows', (e) => onRows(JSON.parse((e as MessageEvent).data) as DatabaseRow[]));
     return () => source.close();
   }
 

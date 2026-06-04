@@ -15,7 +15,13 @@ import assert from 'node:assert/strict';
 import {rmSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 import {PGLiteSocketServer} from '@electric-sql/pglite-socket';
-import {HttpDataClient, type PageSnapshot} from '@open-book/sdk';
+import {
+  applyView,
+  defaultDatabaseSchema,
+  HttpDataClient,
+  TITLE_PROPERTY_ID,
+  type PageSnapshot,
+} from '@open-book/sdk';
 import {startServer} from '../src/server';
 
 const ROOT = '/tmp/openbook-e2e';
@@ -76,6 +82,78 @@ async function exerciseCrud(client: HttpDataClient, mode: string): Promise<void>
   check('second delete returns false', (await client.deletePage(created.id)) === false);
 }
 
+// A row snapshot whose reactive store exports a named `total` cell — exercises
+// the `expr`/exports projection that powers reactive database columns.
+const rowSnapshot = (total: number): PageSnapshot => ({
+  editorjs: {blocks: [{type: 'paragraph', data: {text: `row total ${total}`}}]},
+  values: [['cell-total', total]],
+  names: [['total', 'cell-total']],
+});
+
+async function exerciseDatabase(client: HttpDataClient, mode: string): Promise<void> {
+  console.log(`\n[${mode}] Notion-style database via HttpDataClient`);
+
+  // Host page (a regular page that will point at a database).
+  const host = await client.savePage({name: `db-host-${mode}`, data: sampleSnapshot(0)});
+  const schema = defaultDatabaseSchema();
+  const db = await client.createDatabase({pageId: host.id, name: `Tasks ${mode}`, schema});
+  check('create database returns id', /^[0-9a-f-]{36}$/.test(db.id));
+  check('database is linked to its host page', db.pageId === host.id);
+  check('database round-trips schema', db.schema.properties.length === schema.properties.length);
+
+  const hostAfter = await client.getPage(host.id);
+  check('host page reports hostedDatabaseId', hostAfter?.hostedDatabaseId === db.id);
+  check('host page keeps its own content', JSON.stringify(hostAfter?.data.values) === JSON.stringify([['c1', 0]]));
+
+  const viaPage = await client.getPageDatabase(host.id);
+  check('database is reachable via its host page', viaPage?.id === db.id);
+
+  const list = await client.listPages();
+  check('host page appears in the page list', list.some((p) => p.id === host.id && p.hostedDatabaseId === db.id));
+
+  // Rows are pages tagged with the database id, hidden from the page list.
+  const notesProp = schema.properties.find((p) => p.type === 'text')!;
+  const r1 = await client.createRow(db.id, {
+    name: 'Alpha',
+    properties: {[notesProp.id]: 'first note'},
+    data: rowSnapshot(10),
+  });
+  const r2 = await client.createRow(db.id, {name: 'Bravo', data: rowSnapshot(30)});
+  check('row create returns a page id', /^[0-9a-f-]{36}$/.test(r1.id));
+  check('row carries its database membership', r1.databaseId === db.id);
+
+  const afterRows = await client.listPages();
+  check('rows are excluded from the page list', !afterRows.some((p) => p.id === r1.id || p.id === r2.id));
+
+  const rows = await client.listRows(db.id);
+  check('listRows returns both rows', rows.length === 2);
+  const alpha = rows.find((r) => r.name === 'Alpha');
+  check('row round-trips manual property', alpha?.properties[notesProp.id] === 'first note');
+  check('row projects exported cell value', alpha?.exports.total === 10);
+
+  // Editing a row's content (a page write) updates its projected exports.
+  await client.savePage({id: r1.id, name: 'Alpha', data: rowSnapshot(99)});
+  const rowsAfterEdit = await client.listRows(db.id);
+  check('exports refresh after a content save', rowsAfterEdit.find((r) => r.id === r1.id)?.exports.total === 99);
+
+  // updateRow changes title + manual properties without touching content.
+  const renamed = await client.updateRow(db.id, r1.id, {name: 'Alpha Prime', properties: {[notesProp.id]: 'edited'}});
+  check('updateRow changes the title', renamed.name === 'Alpha Prime');
+  check('updateRow changes a property', renamed.properties[notesProp.id] === 'edited');
+  check('updateRow leaves exports intact', renamed.exports.total === 99);
+
+  // Pure view evaluation: filter + sort run identically here and in the UI.
+  const sorted = applyView(rowsAfterEdit, {
+    id: 'v', name: 'v', type: 'table', filters: [], sorts: [{propertyId: TITLE_PROPERTY_ID, direction: 'asc'}],
+  }, schema.properties);
+  check('applyView sorts by title ascending', sorted[0].name === 'Alpha Prime' || sorted[0].name === 'Alpha');
+
+  // Deleting the host page cascades to the database and its row pages.
+  check('delete host page', (await client.deletePage(host.id)) === true);
+  check('database removed by cascade', (await client.getDatabase(db.id)) === null);
+  check('row page removed by cascade', (await client.getPage(r1.id)) === null);
+}
+
 async function main(): Promise<void> {
   rmSync(ROOT, {recursive: true, force: true});
 
@@ -89,6 +167,7 @@ async function main(): Promise<void> {
   check('health endpoint returns ok', health === 'ok');
 
   await exerciseCrud(embeddedClient, 'embedded');
+  await exerciseDatabase(embeddedClient, 'embedded');
 
   // ---- 2. Persistence across restart ----
   console.log('\n=== 2. PERSISTENCE ACROSS RESTART ===');
@@ -118,6 +197,7 @@ async function main(): Promise<void> {
   });
   console.log(`  headless server up at ${headless.url}`);
   await exerciseCrud(new HttpDataClient(headless.url), 'headless');
+  await exerciseDatabase(new HttpDataClient(headless.url), 'headless');
   await headless.close();
   await socket.stop();
   await pglite.close();
