@@ -107,6 +107,9 @@ export interface PageDocumentProps {
   incoming?: {data: PageSnapshot; version: number};
   /** Notifies when the title input gains/loses focus (to avoid clobbering it). */
   onTitleActiveChange?: (active: boolean) => void;
+  /** Extra content rendered below the editor, in the same content column (e.g.
+   *  the database view for a page that hosts a database). */
+  footer?: React.ReactNode;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -166,6 +169,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   onDelete,
   incoming,
   onTitleActiveChange,
+  footer,
 }) => {
   'use client';
   const {hud} = useHud();
@@ -389,6 +393,8 @@ const PageDocument: React.FC<PageDocumentProps> = ({
       </div>
 
       {!isSSR() && <div ref={holderRef} className="min-h-[40vh]" />}
+
+      {footer && <div className={columnClass}>{footer}</div>}
     </div>
   );
 };

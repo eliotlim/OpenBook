@@ -3,6 +3,7 @@ import type {PageSnapshot, StoredPage} from '@open-book/sdk';
 import {useData} from '@/data';
 import {useNavigation} from '@/providers';
 import {DEFAULT_PAGE_ICON, readPageIcon, writePageIcon} from '@/lib/pageIcon';
+import {DatabaseView} from '@/components/database/DatabaseView';
 import PageDocument from './PageDocument';
 
 export interface ConnectedPageDocumentProps {
@@ -134,6 +135,11 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     });
   }, [client, pageId, applyPage, closePage]);
 
+  // Whether this page hosts a database. Known definitively for top-level pages
+  // (in the nav list); `undefined` for subpages so the view probes by page id.
+  const meta = pages.find((p) => p.id === pageId);
+  const databaseIdHint = meta ? meta.hostedDatabaseId : undefined;
+
   return (
     <PageDocument
       key={pageId}
@@ -146,6 +152,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
       onDelete={onDelete}
       onLoad={onLoad}
       onSave={onSave}
+      footer={<DatabaseView pageId={pageId} databaseIdHint={databaseIdHint} />}
     />
   );
 };

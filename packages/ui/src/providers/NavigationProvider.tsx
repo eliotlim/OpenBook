@@ -8,7 +8,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {emptyPageSnapshot, type PageMeta} from '@open-book/sdk';
+import {defaultDatabaseSchema, emptyPageSnapshot, type PageMeta} from '@open-book/sdk';
 import {useData} from '@/data';
 import * as M from './tabsModel';
 import type {PaneState, ViewState} from './tabsModel';
@@ -59,6 +59,8 @@ export interface NavigationContextValue {
 
   /** Create a new page (optionally named) and open it. Returns its id. */
   createPage: (name?: string | null) => Promise<string>;
+  /** Create a host page that contains a fresh database, and open it. */
+  createDatabasePage: () => Promise<string>;
   /** Delete a page; closes its tabs and falls back if nothing remains open. */
   deletePage: (id: string) => Promise<void>;
   /** Rename a page (name only). */
@@ -184,6 +186,16 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [client, reload, selectPage],
   );
 
+  const createDatabasePage = useCallback(async (): Promise<string> => {
+    // A database lives on a regular host page: create the page, attach a
+    // database with a starter schema, then open it.
+    const page = await client.savePage({name: null, data: emptyPageSnapshot()});
+    await client.createDatabase({pageId: page.id, name: null, schema: defaultDatabaseSchema()});
+    await reload();
+    selectPage(page.id);
+    return page.id;
+  }, [client, reload, selectPage]);
+
   const deletePage = useCallback(
     async (id: string): Promise<void> => {
       await client.deletePage(id);
@@ -297,6 +309,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       canGoBack,
       canGoForward,
       createPage,
+      createDatabasePage,
       deletePage,
       renamePage,
       reload,
@@ -304,7 +317,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [
       pages, currentPageId, loading, error, panes, focusedPaneId, focusPane, openInNewTab, newTab, openInSplit,
       selectTab, closeTab, closePane, closePage, pageLabel, setPageHint, selectPage, goBack, goForward,
-      canGoBack, canGoForward, createPage, deletePage, renamePage, reload,
+      canGoBack, canGoForward, createPage, createDatabasePage, deletePage, renamePage, reload,
     ],
   );
 

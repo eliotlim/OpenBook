@@ -1,31 +1,43 @@
 import {Tree, TreeDataItem} from '@/components/ui/tree';
 import {useNavigation} from '@/providers';
-import {FileText, Folder, Plus, Workflow} from 'lucide-react';
+import {Database, FileText, Folder, Plus, Table2, Workflow} from 'lucide-react';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : 'Untitled';
 
 export default function WorkspaceNavigationTree() {
-  const {pages, currentPageId, selectPage, createPage} = useNavigation();
+  const {pages, currentPageId, selectPage, createPage, createDatabasePage} = useNavigation();
 
   const data: TreeDataItem[] = pages.map((page) => ({
     id: page.id,
     name: displayName(page.name),
-    icon: FileText,
+    // Pages that host a database get the database glyph so collections stand
+    // out from plain notes in the tree.
+    icon: page.hostedDatabaseId ? Database : FileText,
   }));
 
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between px-3 pb-1 pt-1">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Pages</span>
-        <button
-          onClick={() => void createPage()}
-          className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          aria-label="New page"
-          title="New page"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => void createDatabasePage()}
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="New database"
+            title="New database"
+          >
+            <Table2 className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => void createPage()}
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="New page"
+            title="New page"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
       </div>
       <Tree
         key={currentPageId ?? 'none'}
