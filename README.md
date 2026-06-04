@@ -36,6 +36,13 @@ deployment runs it against an external Postgres. The web shell, desktop, and
 server all share types and the HTTP client through
 [`@open-book/sdk`](packages/sdk/README.md).
 
+A page can also host a **database** (a Notion-style collection in its own
+`databases` table). Database rows are themselves ordinary pages — each with its
+own editable document — so a row opens in a split pane for editing. Columns are
+typed properties, or `expr` columns that read a row page's live exported
+reactive value, and every view can filter and sort. The workspace is tabbed and
+splittable: open several pages across tabs, or two side by side.
+
 Packages:
 
 - [`packages/sdk`](packages/sdk/README.md) — shared types + `HttpDataClient`.

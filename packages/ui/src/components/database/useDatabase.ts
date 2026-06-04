@@ -1,7 +1,6 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   applyView,
-  defaultDatabaseSchema,
   SELECT_COLORS,
   shortId,
   type DatabaseProperty,
@@ -272,6 +271,3 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     updateView,
   };
 }
-
-/** Builds a fresh database schema for a new database host page. */
-export {defaultDatabaseSchema};
