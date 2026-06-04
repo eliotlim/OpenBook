@@ -17,8 +17,6 @@ import {MoreHorizontal, Trash2} from 'lucide-react';
 import type EditorJS from '@editorjs/editorjs';
 import type {OutputData} from '@editorjs/editorjs';
 
-const EDITOR_HOLDER_ID = 'editorJs';
-
 /**
  * Apply a peer's snapshot to the live editor with minimal disruption.
  *
@@ -32,8 +30,7 @@ const EDITOR_HOLDER_ID = 'editorJs';
  * as-is, so focus and cursor position survive. When the editor isn't focused
  * there's no caret to protect, so a full render is simplest and correct.
  */
-async function applyIncomingBlocks(inst: EditorJS, next: OutputData): Promise<void> {
-  const holder = typeof document !== 'undefined' ? document.getElementById(EDITOR_HOLDER_ID) : null;
+async function applyIncomingBlocks(inst: EditorJS, next: OutputData, holder: HTMLElement | null): Promise<void> {
   const active = (typeof document !== 'undefined' ? document.activeElement : null) as HTMLElement | null;
   const editorFocused = !!(holder && active && holder.contains(active));
   const focusedBlockId = editorFocused
@@ -174,6 +171,10 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   const {hud} = useHud();
 
   const editorJsInstance = useRef<EditorJS | null>(null);
+  // Per-instance holder element. EditorJS keys its DOM off this node, so each
+  // PageDocument owns its own — required for the split pane, where two editors
+  // are mounted at once and a shared element id would collide.
+  const holderRef = useRef<HTMLDivElement | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Suppresses autosave while a server-pushed update is being applied, so we
   // don't echo it straight back to the server.
@@ -230,10 +231,10 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         import('@editorjs/marker'),
         import('@editorjs/inline-code'),
       ]);
-      if (cancelled) return;
+      if (cancelled || !holderRef.current) return;
 
       const editorJs = new EditorJSCtor({
-        holder: 'editorJs',
+        holder: holderRef.current,
         autofocus: true,
         data: initialData,
         placeholder: 'Write something, or press Tab for blocks…',
@@ -260,7 +261,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           // deleting, pasting, and form-control (slider) interaction, but never
           // for programmatic DOM changes — so this distinguishes a real edit
           // from applying a peer's snapshot.
-          const holder = document.getElementById(EDITOR_HOLDER_ID);
+          const holder = holderRef.current;
           holder?.addEventListener('beforeinput', markUserEdited);
           holder?.addEventListener('input', markUserEdited);
           setStatus('ready');
@@ -307,7 +308,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
     return () => {
       cancelled = true;
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      const holder = document.getElementById(EDITOR_HOLDER_ID);
+      const holder = holderRef.current;
       holder?.removeEventListener('beforeinput', markUserEdited);
       holder?.removeEventListener('input', markUserEdited);
       editorJsInstance.current?.destroy();
@@ -329,7 +330,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
       suppressSaveRef.current = true;
       store.hydrate({values: incoming.data.values, names: incoming.data.names});
       try {
-        await applyIncomingBlocks(inst, (incoming.data.editorjs ?? {blocks: []}) as OutputData);
+        await applyIncomingBlocks(inst, (incoming.data.editorjs ?? {blocks: []}) as OutputData, holderRef.current);
       } catch (e) {
         console.error('PageDocument: live update failed:', e);
       }
@@ -387,7 +388,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         />
       </div>
 
-      {!isSSR() && <div id="editorJs" className="min-h-[40vh]" />}
+      {!isSSR() && <div ref={holderRef} className="min-h-[40vh]" />}
     </div>
   );
 };

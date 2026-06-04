@@ -2,19 +2,13 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import type {PageSnapshot, StoredPage} from '@open-book/sdk';
 import {useData} from '@/data';
 import {useNavigation} from '@/providers';
+import {DEFAULT_PAGE_ICON, readPageIcon, writePageIcon} from '@/lib/pageIcon';
 import PageDocument from './PageDocument';
 
 export interface ConnectedPageDocumentProps {
   /** Stable page id (UUID) this editor reads from and writes to. */
   pageId: string;
 }
-
-const iconKey = (pageId: string) => `openbook.icon.${pageId}`;
-const readIcon = (pageId: string): string =>
-  (typeof localStorage !== 'undefined' && localStorage.getItem(iconKey(pageId))) || '📄';
-const writeIcon = (pageId: string, emoji: string): void => {
-  if (typeof localStorage !== 'undefined') localStorage.setItem(iconKey(pageId), emoji);
-};
 
 /**
  * A {@link PageDocument} wired to the data client + {@link NavigationProvider}.
@@ -25,10 +19,10 @@ const writeIcon = (pageId: string, emoji: string): void => {
  */
 export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pageId}) => {
   const client = useData();
-  const {pages, deletePage} = useNavigation();
+  const {pages, deletePage, setPageHint, closePage} = useNavigation();
 
   const [title, setTitle] = useState('');
-  const [icon, setIcon] = useState('📄');
+  const [icon, setIcon] = useState(DEFAULT_PAGE_ICON);
   const [incoming, setIncoming] = useState<{data: PageSnapshot; version: number} | undefined>(undefined);
 
   const nameRef = useRef<string | null>(null);
@@ -40,17 +34,21 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   const titleActiveRef = useRef(false);
   const versionRef = useRef(0);
 
-  const applyPage = useCallback((page: StoredPage) => {
-    // Stale event (older than what we've already applied/saved) — ignore.
-    if (page.updatedAt <= lastUpdatedRef.current) return;
-    lastUpdatedRef.current = page.updatedAt;
-    if (!titleActiveRef.current) {
-      setTitle(page.name ?? '');
-      nameRef.current = page.name ?? null;
-    }
-    versionRef.current += 1;
-    setIncoming({data: page.data, version: versionRef.current});
-  }, []);
+  const applyPage = useCallback(
+    (page: StoredPage) => {
+      // Stale event (older than what we've already applied/saved) — ignore.
+      if (page.updatedAt <= lastUpdatedRef.current) return;
+      lastUpdatedRef.current = page.updatedAt;
+      if (!titleActiveRef.current) {
+        setTitle(page.name ?? '');
+        nameRef.current = page.name ?? null;
+        setPageHint(pageId, page.name);
+      }
+      versionRef.current += 1;
+      setIncoming({data: page.data, version: versionRef.current});
+    },
+    [pageId, setPageHint],
+  );
 
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
@@ -60,7 +58,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     const meta = pagesRef.current.find((p) => p.id === pageId);
     setTitle(meta?.name ?? '');
     nameRef.current = meta?.name ?? null;
-    setIcon(readIcon(pageId));
+    setIcon(readPageIcon(pageId));
     setIncoming(undefined);
     lastUpdatedRef.current = meta?.updatedAt ?? '';
     return () => {
@@ -72,9 +70,10 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     const page = await client.getPage(pageId);
     nameRef.current = page?.name ?? null;
     setTitle(page?.name ?? '');
+    setPageHint(pageId, page?.name ?? null);
     if (page) lastUpdatedRef.current = page.updatedAt;
     return page ? page.data : null;
-  }, [client, pageId]);
+  }, [client, pageId, setPageHint]);
 
   const onSave = useCallback(
     async (snapshot: PageSnapshot): Promise<void> => {
@@ -88,6 +87,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     (next: string) => {
       setTitle(next);
       nameRef.current = next.trim().length > 0 ? next : null;
+      setPageHint(pageId, nameRef.current);
       if (renameTimer.current) clearTimeout(renameTimer.current);
       renameTimer.current = setTimeout(() => {
         void client
@@ -104,7 +104,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   const onIconChange = useCallback(
     (emoji: string) => {
       setIcon(emoji);
-      writeIcon(pageId, emoji);
+      writePageIcon(pageId, emoji);
     },
     [pageId],
   );
@@ -127,9 +127,12 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   useEffect(() => {
     return client.subscribePage(pageId, {
       onPage: (page) => applyPage(page),
-      // Deletion is handled by the navigation list stream, which reselects.
+      // Close any tab showing this page when it is deleted elsewhere. Top-level
+      // pages are also covered by the list stream; this additionally handles
+      // subpages (database rows), which never appear in the page list.
+      onDeleted: () => closePage(pageId),
     });
-  }, [client, pageId, applyPage]);
+  }, [client, pageId, applyPage, closePage]);
 
   return (
     <PageDocument

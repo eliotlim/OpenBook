@@ -1,15 +1,14 @@
 import React, {useMemo} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {
-  ConnectedPageDocument,
   DataProvider,
   DefaultLayout,
+  DocumentArea,
   HudProvider,
   NavigationProvider,
   PlatformLibraryProvider,
   ThemeProvider,
   WorkspaceProvider,
-  useNavigation,
   type PlatformLibrary,
 } from '@open-book/ui';
 import type {ServerInfo} from '@open-book/sdk';
@@ -27,12 +26,6 @@ const platform: PlatformLibrary = {
   },
 };
 
-function DocumentRoute() {
-  const {currentPageId, loading} = useNavigation();
-  if (loading || !currentPageId) return null;
-  return <ConnectedPageDocument pageId={currentPageId} />;
-}
-
 function App() {
   // Embedded local server by default, or an external one if configured.
   const client = useMemo(() => createDesktopClient(), []);
@@ -45,7 +38,7 @@ function App() {
             <WorkspaceProvider>
               <HudProvider>
                 <DefaultLayout>
-                  <DocumentRoute />
+                  <DocumentArea />
                 </DefaultLayout>
               </HudProvider>
             </WorkspaceProvider>

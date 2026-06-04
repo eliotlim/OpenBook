@@ -1,5 +1,4 @@
 import {NavBar, SideNav} from '@/components';
-import {ScrollArea} from '@/components/ui/scroll-area';
 import {CommandMenu} from '@/components/CommandMenu';
 import Settings from '@/components/Settings';
 
@@ -14,11 +13,13 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
         <CommandMenu/>
         <Settings/>
         <SideNav/>
-        <div className="flex flex-col h-screen w-full">
+        <div className="flex flex-col h-screen w-full min-w-0">
           <NavBar/>
-          <ScrollArea className="flex w-full">
+          {/* The document area owns scrolling, one ScrollArea per pane, so the
+              split panes can scroll independently. */}
+          <main className="min-h-0 flex-1 overflow-hidden">
             {props.children}
-          </ScrollArea>
+          </main>
         </div>
       </div>
     </>

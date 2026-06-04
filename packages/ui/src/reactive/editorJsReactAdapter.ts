@@ -65,11 +65,19 @@ export abstract class ReactBlockTool implements BlockTool {
    * EditorJS calls this on block removal. Unmounting the React root triggers
    * useEffect cleanup chains inside the component — which is where
    * useReactiveCell's store.deleteCell call lives.
+   *
+   * The unmount is deferred to a microtask: `editor.destroy()` is called from
+   * PageDocument's effect cleanup, which can run *during* a parent re-render
+   * (switching tabs or closing a split pane). Unmounting a nested React root
+   * synchronously at that point makes React warn about unmounting while it is
+   * already rendering. Deferring runs the unmount (and its effect cleanups)
+   * just after the current render commits, which is safe.
    */
   destroy(): void {
-    this.root?.unmount();
+    const root = this.root;
     this.root = null;
     this.dom = null;
+    if (root) queueMicrotask(() => root.unmount());
   }
 
   // Subclasses override save() with their specific data shape.

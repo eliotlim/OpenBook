@@ -2,24 +2,17 @@ import {useMemo} from 'react';
 import Head from 'next/head';
 import {HttpDataClient, getServerUrlOverride} from '@open-book/sdk';
 import {
-  ConnectedPageDocument,
   DataProvider,
   DefaultLayout,
+  DocumentArea,
   NavigationProvider,
   PlatformLibraryProvider,
-  useNavigation,
 } from '@open-book/ui';
 import SettingsDeepLink from '@/components/SettingsDeepLink';
 
 // The web shell always talks to a server: the one it was built against, or an
 // override configured via the Server settings.
 const DEFAULT_SERVER_URL = process.env.NEXT_PUBLIC_OPENBOOK_SERVER ?? 'http://localhost:4319';
-
-function DocumentRoute() {
-  const {currentPageId, loading} = useNavigation();
-  if (loading || !currentPageId) return null;
-  return <ConnectedPageDocument pageId={currentPageId} />;
-}
 
 export default function Home() {
   const client = useMemo(() => new HttpDataClient(getServerUrlOverride() ?? DEFAULT_SERVER_URL), []);
@@ -37,7 +30,7 @@ export default function Home() {
           <NavigationProvider>
             <SettingsDeepLink />
             <DefaultLayout>
-              <DocumentRoute />
+              <DocumentArea />
             </DefaultLayout>
           </NavigationProvider>
         </DataProvider>
