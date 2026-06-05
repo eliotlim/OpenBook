@@ -100,10 +100,22 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     };
   }, [client, pageId, databaseIdHint]);
 
-  // Keep rows live for the resolved database.
+  // Seed rows once, then keep them live. The live stream is a firehose that
+  // only carries *updates*, so the initial row set is fetched over REST.
   useEffect(() => {
     if (!database) return;
-    return client.subscribeRows(database.id, (next) => setRows(next));
+    let cancelled = false;
+    void client
+      .listRows(database.id)
+      .then((initial) => {
+        if (!cancelled) setRows(initial);
+      })
+      .catch(() => undefined);
+    const unsubscribe = client.subscribeRows(database.id, (next) => setRows(next));
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [client, database]);
 
   const setActiveViewId = useCallback(

@@ -151,6 +151,29 @@ export function createApp(store: PageStore): Hono {
 
   // ── Live update streams (Server-Sent Events) ──────────────────────────────
 
+  // The multiplexed firehose: one connection per client carrying every event.
+  // This is what the client uses — it keeps each tab to a single long-lived
+  // connection so multiple tabs don't exhaust the browser's per-origin limit.
+  app.get(API.live, (c) =>
+    streamSSE(c, async (stream) => {
+      // Initial snapshot uses the same envelope as live events so the client
+      // parses every message uniformly.
+      await stream.writeSSE({event: 'list', data: JSON.stringify({type: 'list', pages: await store.listPages()})});
+      const unsubscribe = hub.subscribeLive((event) => {
+        void stream.writeSSE({event: event.type, data: JSON.stringify(event)}).catch(() => undefined);
+      });
+      stream.onAbort(unsubscribe);
+      try {
+        while (!stream.aborted) {
+          await stream.sleep(25_000);
+          await stream.writeSSE({event: 'ping', data: ''});
+        }
+      } finally {
+        unsubscribe();
+      }
+    }),
+  );
+
   app.get(API.stream, (c) =>
     streamSSE(c, async (stream) => {
       await stream.writeSSE({event: 'list', data: JSON.stringify(await store.listPages())});

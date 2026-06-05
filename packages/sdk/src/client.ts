@@ -63,12 +63,113 @@ export interface DataClient {
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void;
 }
 
+/**
+ * One multiplexed live connection for a client. Every subscription (page list,
+ * a page, a database's rows) registers here and is served by a single
+ * `EventSource` to `/api/live`, which the client opens lazily and closes once
+ * nothing is listening. This keeps each tab to one long-lived connection so
+ * several tabs don't exhaust the browser's per-origin connection limit.
+ */
+class LiveStream {
+  private source: EventSource | null = null;
+  private readonly listListeners = new Set<(pages: PageMeta[]) => void>();
+  private readonly pageListeners = new Map<string, Set<PageSubscription>>();
+  private readonly rowsListeners = new Map<string, Set<(rows: DatabaseRow[]) => void>>();
+
+  constructor(private readonly liveUrl: string) {}
+
+  private dispatch(raw: string): void {
+    let ev: {type: string; [k: string]: unknown};
+    try {
+      ev = JSON.parse(raw) as {type: string};
+    } catch {
+      return;
+    }
+    if (ev.type === 'list') {
+      this.listListeners.forEach((fn) => fn(ev.pages as PageMeta[]));
+    } else if (ev.type === 'page') {
+      const page = ev.page as StoredPage;
+      this.pageListeners.get(page.id)?.forEach((s) => s.onPage?.(page));
+    } else if (ev.type === 'deleted') {
+      const id = ev.id as string;
+      this.pageListeners.get(id)?.forEach((s) => s.onDeleted?.(id));
+    } else if (ev.type === 'rows') {
+      this.rowsListeners.get(ev.databaseId as string)?.forEach((fn) => fn(ev.rows as DatabaseRow[]));
+    }
+  }
+
+  private ensureOpen(): void {
+    if (this.source) return;
+    const source = new EventSource(this.liveUrl);
+    const handle = (e: Event) => this.dispatch((e as MessageEvent).data);
+    for (const name of ['list', 'page', 'deleted', 'rows']) source.addEventListener(name, handle);
+    this.source = source;
+  }
+
+  private maybeClose(): void {
+    if (this.listListeners.size === 0 && this.pageListeners.size === 0 && this.rowsListeners.size === 0) {
+      this.source?.close();
+      this.source = null;
+    }
+  }
+
+  private removeFromMap<T>(map: Map<string, Set<T>>, key: string, value: T): void {
+    const set = map.get(key);
+    set?.delete(value);
+    if (set && set.size === 0) map.delete(key);
+  }
+
+  onList(fn: (pages: PageMeta[]) => void): () => void {
+    this.ensureOpen();
+    this.listListeners.add(fn);
+    return () => {
+      this.listListeners.delete(fn);
+      this.maybeClose();
+    };
+  }
+
+  onPage(id: string, sub: PageSubscription): () => void {
+    this.ensureOpen();
+    let set = this.pageListeners.get(id);
+    if (!set) {
+      set = new Set();
+      this.pageListeners.set(id, set);
+    }
+    set.add(sub);
+    return () => {
+      this.removeFromMap(this.pageListeners, id, sub);
+      this.maybeClose();
+    };
+  }
+
+  onRows(databaseId: string, fn: (rows: DatabaseRow[]) => void): () => void {
+    this.ensureOpen();
+    let set = this.rowsListeners.get(databaseId);
+    if (!set) {
+      set = new Set();
+      this.rowsListeners.set(databaseId, set);
+    }
+    set.add(fn);
+    return () => {
+      this.removeFromMap(this.rowsListeners, databaseId, fn);
+      this.maybeClose();
+    };
+  }
+}
+
 /** {@link DataClient} backed by an OpenBook server's HTTP API. Isomorphic. */
 export class HttpDataClient implements DataClient {
   private readonly baseUrl: string;
+  private live: LiveStream | null = null;
 
   constructor(baseUrl: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+  }
+
+  /** Lazily create the shared live connection (browser-only). */
+  private liveStream(): LiveStream {
+    if (!this.live) this.live = new LiveStream(`${this.baseUrl}${API.live}`);
+    return this.live;
   }
 
   async listPages(): Promise<PageMeta[]> {
@@ -102,20 +203,11 @@ export class HttpDataClient implements DataClient {
   }
 
   subscribePage(id: string, handlers: PageSubscription): () => void {
-    const source = new EventSource(`${this.baseUrl}${API.pageStream(id)}`);
-    if (handlers.onPage) {
-      source.addEventListener('page', (e) => handlers.onPage!(JSON.parse((e as MessageEvent).data) as StoredPage));
-    }
-    if (handlers.onDeleted) {
-      source.addEventListener('deleted', (e) => handlers.onDeleted!((JSON.parse((e as MessageEvent).data) as {id: string}).id));
-    }
-    return () => source.close();
+    return this.liveStream().onPage(id, handlers);
   }
 
   subscribePages(onList: (pages: PageMeta[]) => void): () => void {
-    const source = new EventSource(`${this.baseUrl}${API.stream}`);
-    source.addEventListener('list', (e) => onList(JSON.parse((e as MessageEvent).data) as PageMeta[]));
-    return () => source.close();
+    return this.liveStream().onList(onList);
   }
 
   // ── Databases ──────────────────────────────────────────────────────────────
@@ -162,9 +254,7 @@ export class HttpDataClient implements DataClient {
   }
 
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void {
-    const source = new EventSource(`${this.baseUrl}${API.databaseStream(databaseId)}`);
-    source.addEventListener('rows', (e) => onRows(JSON.parse((e as MessageEvent).data) as DatabaseRow[]));
-    return () => source.close();
+    return this.liveStream().onRows(databaseId, onRows);
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {

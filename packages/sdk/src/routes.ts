@@ -13,6 +13,13 @@ export const API = {
   stream: '/api/stream',
   /** SSE stream of a single page's live updates + deletion. */
   pageStream: (id: string): string => `/api/pages/${encodeURIComponent(id)}/stream`,
+  /**
+   * The multiplexed live stream: one SSE connection carrying every event (page
+   * list, page updates/deletions, database rows). Clients open exactly one of
+   * these per tab and filter by the ids they care about, so an open tab costs a
+   * single connection regardless of how many pages/databases it watches.
+   */
+  live: '/api/live',
 
   // ── Databases ──────────────────────────────────────────────────────────────
   /** Collection: `POST` (create a database for a host page). */
