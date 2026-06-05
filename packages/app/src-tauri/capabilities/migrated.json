@@ -3,10 +3,12 @@
   "description": "permissions that were migrated from v1",
   "local": true,
   "windows": [
-    "main"
+    "main",
+    "tab-*"
   ],
   "permissions": [
     "core:default",
+    "core:webview:allow-create-webview-window",
     {
       "identifier": "shell:allow-execute",
       "allow": [

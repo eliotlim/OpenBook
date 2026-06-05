@@ -34,7 +34,8 @@
         "width": 1440,
         "height": 900,
         "dragDropEnabled": false,
-        "useHttpsScheme": true
+        "useHttpsScheme": true,
+        "tabbingIdentifier": "openbook"
       }
     ],
     "security": {
