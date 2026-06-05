@@ -2,6 +2,7 @@ import BackForwardCluster from '@/components/BackForwardCluster';
 import SideNavToggle from '@/components/SideNavToggle';
 import BreadcrumbCluster from '@/components/BreadcrumbCluster';
 import NavContextMenu from '@/components/NavContextMenu';
+import WindowActionsCluster from '@/components/WindowActionsCluster';
 
 export default function NavBar() {
   return (
@@ -11,7 +12,8 @@ export default function NavBar() {
         <BackForwardCluster />
         <BreadcrumbCluster />
       </div>
-      <div className="flex items-center">
+      <div className="flex items-center gap-1">
+        <WindowActionsCluster />
         <NavContextMenu />
       </div>
     </nav>
