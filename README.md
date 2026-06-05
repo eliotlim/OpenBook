@@ -40,8 +40,15 @@ A page can also host a **database** (a Notion-style collection in its own
 `databases` table). Database rows are themselves ordinary pages — each with its
 own editable document — so a row opens in a split pane for editing. Columns are
 typed properties, or `expr` columns that read a row page's live exported
-reactive value, and every view can filter and sort. The workspace is tabbed and
-splittable: open several pages across tabs, or two side by side.
+reactive value, and every view can filter and sort.
+
+**Tabs are native.** Each page lives at its own URL (`?page=<id>`), so "open in
+new tab" opens a real browser tab on the web and a macOS window-tab on the
+desktop (Tauri windows grouped by a shared `tabbingIdentifier`); a window can
+also split to show two pages side by side. Because several tabs talk to the
+same origin and browsers cap connections per origin, every client multiplexes
+all live updates (page list, page edits, database rows) onto a single
+`/api/live` stream — one connection per tab regardless of what it is watching.
 
 Packages:
 
