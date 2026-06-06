@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import type {PageSnapshot, StoredPage} from '@open-book/sdk';
 import {useData} from '@/data';
-import {useNavigation} from '@/providers';
+import {useConfirm, useNavigation} from '@/providers';
 import {DEFAULT_PAGE_ICON, readPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {DatabaseView} from '@/components/database/DatabaseView';
 import PageDocument from './PageDocument';
@@ -20,6 +20,7 @@ export interface ConnectedPageDocumentProps {
  */
 export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pageId}) => {
   const client = useData();
+  const confirm = useConfirm();
   const {pages, deletePage, setPageHint, closePage} = useNavigation();
 
   const [title, setTitle] = useState('');
@@ -110,12 +111,16 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     [pageId],
   );
 
-  const onDelete = useCallback(() => {
-    if (typeof window !== 'undefined' && !window.confirm('Move this page to the trash? You can restore it later.')) {
-      return;
-    }
+  const onDelete = useCallback(async () => {
+    const ok = await confirm({
+      title: 'Move this page to the trash?',
+      description: 'You can restore it later from the trash.',
+      confirmText: 'Move to trash',
+      destructive: true,
+    });
+    if (!ok) return;
     void deletePage(pageId);
-  }, [pageId, deletePage]);
+  }, [pageId, deletePage, confirm]);
 
   const onTitleActiveChange = useCallback((active: boolean) => {
     titleActiveRef.current = active;

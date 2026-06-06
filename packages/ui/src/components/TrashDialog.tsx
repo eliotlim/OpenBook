@@ -13,7 +13,7 @@ import {
 import {Button} from '@/components/ui/button';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {useData} from '@/data';
-import {useNavigation} from '@/providers';
+import {useConfirm, useNavigation} from '@/providers';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : 'Untitled';
@@ -46,6 +46,7 @@ function timeAgo(iso: string | null): string {
  */
 export default function TrashDialog() {
   const client = useData();
+  const confirm = useConfirm();
   const {selectPage} = useNavigation();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<PageMeta[]>([]);
@@ -88,12 +89,13 @@ export default function TrashDialog() {
 
   const purge = useCallback(
     async (item: PageMeta) => {
-      if (
-        typeof window !== 'undefined' &&
-        !window.confirm(`Permanently delete "${displayName(item.name)}"? This cannot be undone.`)
-      ) {
-        return;
-      }
+      const ok = await confirm({
+        title: `Permanently delete "${displayName(item.name)}"?`,
+        description: 'This cannot be undone.',
+        confirmText: 'Delete forever',
+        destructive: true,
+      });
+      if (!ok) return;
       setBusy(item.id);
       try {
         await client.purgePage(item.id);
@@ -102,13 +104,17 @@ export default function TrashDialog() {
         setBusy(null);
       }
     },
-    [client, refresh],
+    [client, refresh, confirm],
   );
 
   const emptyTrash = useCallback(async () => {
-    if (typeof window !== 'undefined' && !window.confirm('Permanently delete everything in the trash? This cannot be undone.')) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Empty the trash?',
+      description: 'Permanently delete everything in the trash. This cannot be undone.',
+      confirmText: 'Empty trash',
+      destructive: true,
+    });
+    if (!ok) return;
     setBusy('__all__');
     try {
       await client.emptyTrash();
@@ -116,7 +122,7 @@ export default function TrashDialog() {
     } finally {
       setBusy(null);
     }
-  }, [client, refresh]);
+  }, [client, refresh, confirm]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
