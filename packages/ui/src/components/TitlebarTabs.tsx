@@ -23,8 +23,9 @@ export default function TitlebarTabs() {
 
   return (
     <div className="flex h-full items-stretch select-none">
-      {/* Inset past the traffic lights (~78px), draggable. */}
-      <div data-tauri-drag-region className="w-[78px] shrink-0" />
+      {/* Leading inset past the window controls, draggable. macOS sets this to
+          clear the traffic lights; elsewhere it is ~0 (controls aren't here). */}
+      <div data-tauri-drag-region className="shrink-0" style={{width: 'var(--ob-titlebar-pad-left, 0px)'}} />
 
       <div className="flex min-w-0 items-end gap-1 overflow-x-auto pb-1 scrollbar-none">
         {tabs.map((tab) => {

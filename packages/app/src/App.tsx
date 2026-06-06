@@ -19,13 +19,18 @@ import {createDesktopClient} from './data/client';
 import '@open-book/ui/style.css';
 
 // Tabs are in-window (a custom tab bar drawn in the titlebar by the UI), so a
-// "new tab" never opens an OS window — only "new window" does. The windows use
-// an overlay titlebar (content extends under it) so the tab bar sits level with
-// the traffic lights; the layout reserves a strip of this height at the top.
-// Tune here if the tab bar overlaps the nav bar or leaves a gap.
+// "new tab" never opens an OS window — only "new window" does.
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
+
+// macOS uses an overlay titlebar (content extends under it) so the tab bar sits
+// level with the traffic lights; the leading inset clears them. On Windows /
+// Linux the macOS-only `titleBarStyle`/`hiddenTitle` options are ignored, so the
+// tab bar renders as a strip below the OS title bar with no leading inset. Tune
+// the height here if the tab bar overlaps the nav bar or leaves a gap.
 const TITLEBAR_HEIGHT = '38px';
 if (typeof document !== 'undefined') {
   document.documentElement.style.setProperty('--ob-titlebar-height', TITLEBAR_HEIGHT);
+  document.documentElement.style.setProperty('--ob-titlebar-pad-left', IS_MAC ? '78px' : '8px');
 }
 
 const newWindowLabel = (): string =>
@@ -41,6 +46,7 @@ function openWindow(pageId: string): void {
     title: 'OpenBook',
     width: 1440,
     height: 900,
+    // macOS-only; ignored on Windows/Linux, which keep their native title bar.
     titleBarStyle: 'overlay',
     hiddenTitle: true,
   });
