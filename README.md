@@ -47,6 +47,12 @@ on delete), so the sidebar is a tree and the breadcrumb shows the full path.
 Inside the editor, a **Page** or **Database** block links a child inline — it
 creates the nested page on the spot and clicking it navigates there.
 
+**Deletes are recoverable.** Deleting a page is a soft delete: it (and its
+nested subtree) gets a `deleted_at` stamp and moves to the **Trash**, where it
+can be restored or removed for good. A background cleanup job empties the trash
+after a configurable retention window (`OPENBOOK_TRASH_RETENTION_MS` /
+`OPENBOOK_TRASH_CLEANUP_INTERVAL_MS`, default 30 days / 1 hour).
+
 **Tabs are native.** Each page lives at its own URL (`?page=<id>`), so opening a
 page elsewhere uses the platform: on the web a new browser tab or window
 (`window.open`), on the desktop a macOS window-tab (Tauri windows grouped by a
