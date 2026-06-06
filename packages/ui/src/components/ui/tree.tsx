@@ -8,6 +8,7 @@
 import React from "react";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { cn } from "@/lib/utils";
 import { ChevronRight, type LucideIcon } from "lucide-react";
 import useResizeObserver from "use-resize-observer";
@@ -27,8 +28,21 @@ type TreeProps =
     onSelectChange?: (item: TreeDataItem | undefined) => void,
     expandAll?: boolean,
     folderIcon?: LucideIcon,
-    itemIcon?: LucideIcon
+    itemIcon?: LucideIcon,
+    /** Right-click menu for a row (e.g. page actions). Rendered in a ContextMenuContent. */
+    renderItemContextMenu?: (item: TreeDataItem) => React.ReactNode,
   }
+
+/** Wrap a row so right-clicking it opens `menu` (no-op when there's no menu). */
+function WithRowMenu({menu, children}: {menu?: React.ReactNode; children: React.ReactElement}) {
+  if (!menu) return children;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-52">{menu}</ContextMenuContent>
+    </ContextMenu>
+  );
+}
 
 const Tree = React.forwardRef<
   HTMLDivElement,
@@ -37,6 +51,7 @@ const Tree = React.forwardRef<
      data, initialSlelectedItemId, onSelectChange, expandAll,
      folderIcon,
      itemIcon,
+     renderItemContextMenu,
      className, ...props
    }, ref) => {
   const [selectedItemId, setSelectedItemId] = React.useState<string | undefined>(initialSlelectedItemId)
@@ -94,6 +109,7 @@ const Tree = React.forwardRef<
             expandedItemIds={expandedItemIds}
             FolderIcon={folderIcon}
             ItemIcon={itemIcon}
+            renderItemContextMenu={renderItemContextMenu}
             {...props}
           />
         </div>
@@ -115,7 +131,7 @@ type TreeItemProps =
 const TreeItem = React.forwardRef<
   HTMLDivElement,
   TreeItemProps
->(({ className, data, selectedItemId, handleSelectChange, expandedItemIds, FolderIcon, ItemIcon, ...props }, ref) => {
+>(({ className, data, selectedItemId, handleSelectChange, expandedItemIds, FolderIcon, ItemIcon, renderItemContextMenu, ...props }, ref) => {
   return (
     <div ref={ref} role="tree" className={className} {...props}><ul>
       {data instanceof Array ? (
@@ -124,6 +140,7 @@ const TreeItem = React.forwardRef<
             {item.children ? (
               <AccordionPrimitive.Root type="multiple" defaultValue={expandedItemIds}>
                 <AccordionPrimitive.Item value={item.id}>
+                  <WithRowMenu menu={renderItemContextMenu?.(item)}>
                   <AccordionTrigger
                     className={cn(
                       "px-1 rounded-md hover:bg-accent",
@@ -153,6 +170,7 @@ const TreeItem = React.forwardRef<
                     }
                     <span className="text-sm truncate">{item.name}</span>
                   </AccordionTrigger>
+                  </WithRowMenu>
                   <AccordionContent className="pl-5">
                     <TreeItem
                       data={item.children ? item.children : item}
@@ -161,28 +179,33 @@ const TreeItem = React.forwardRef<
                       expandedItemIds={expandedItemIds}
                       FolderIcon={FolderIcon}
                       ItemIcon={ItemIcon}
+                      renderItemContextMenu={renderItemContextMenu}
                     />
                   </AccordionContent>
                 </AccordionPrimitive.Item>
               </AccordionPrimitive.Root>
             ) : (
-              <Leaf
-                item={item}
-                isSelected={selectedItemId === item.id}
-                onClick={() => handleSelectChange(item)}
-                Icon={ItemIcon}
-              />
+              <WithRowMenu menu={renderItemContextMenu?.(item)}>
+                <Leaf
+                  item={item}
+                  isSelected={selectedItemId === item.id}
+                  onClick={() => handleSelectChange(item)}
+                  Icon={ItemIcon}
+                />
+              </WithRowMenu>
             )}
           </li>
         ))
       ) : (
         <li>
-          <Leaf
-            item={data}
-            isSelected={selectedItemId === data.id}
-            onClick={() => handleSelectChange(data)}
-            Icon={ItemIcon}
-          />
+          <WithRowMenu menu={renderItemContextMenu?.(data)}>
+            <Leaf
+              item={data}
+              isSelected={selectedItemId === data.id}
+              onClick={() => handleSelectChange(data)}
+              Icon={ItemIcon}
+            />
+          </WithRowMenu>
         </li>
       )}
     </ul></div>
@@ -229,13 +252,17 @@ const Leaf = React.forwardRef<
 const AccordionTrigger = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
+>(({ className, children, onContextMenu, ...props }, ref) => (
   <AccordionPrimitive.Header>
+    {/* `onContextMenu` (injected by a ContextMenuTrigger wrapping this row) lives
+        on the whole row, so right-click works anywhere on it — not just the
+        chevron, which is the only actual AccordionPrimitive.Trigger. */}
     <div
       className={cn(
         "flex flex-1 w-full items-center py-0.5",
         className,
       )}
+      onContextMenu={onContextMenu as React.MouseEventHandler<HTMLDivElement> | undefined}
     >
       <AccordionPrimitive.Trigger
         ref={ref}

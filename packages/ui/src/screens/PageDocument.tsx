@@ -84,6 +84,7 @@ async function applyIncomingBlocks(inst: EditorJS, next: OutputData, holder: HTM
   }
 }
 import {SliderBlock, ExprBlock, ChartBlock, SubpageBlock} from '@/reactive';
+import {PageContextMenu} from '@/components/PageContextMenu';
 import {store} from '@/reactive/ReactiveStore';
 import type {PageSnapshot} from '@open-book/sdk';
 
@@ -367,7 +368,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   // and EditorJS never enters its narrow, right-aligned layout).
   const columnClass = cn('mx-auto w-full', hud.viewMode.fullWidth ? 'max-w-none' : 'max-w-content');
 
-  return (
+  const body = (
     <div className="w-full px-6 pb-40 pt-6 md:px-10">
       <div className={columnClass}>
         {/* Page action bar: subtle save status + overflow menu. */}
@@ -409,6 +410,10 @@ const PageDocument: React.FC<PageDocumentProps> = ({
       {footer && <div className={columnClass}>{footer}</div>}
     </div>
   );
+
+  // Right-click anywhere on the page opens its action menu (desktop has no
+  // native context menu). Only when we know which page this is.
+  return pageId ? <PageContextMenu pageId={pageId}>{body}</PageContextMenu> : body;
 };
 
 export default PageDocument;

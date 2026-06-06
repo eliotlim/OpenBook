@@ -1,6 +1,7 @@
 import {useMemo} from 'react';
 import type {PageMeta} from '@open-book/sdk';
 import {Tree, TreeDataItem} from '@/components/ui/tree';
+import {PageMenuItems} from '@/components/PageContextMenu';
 import {useNavigation} from '@/providers';
 import {Database, FileText, Folder, Plus, Table2, Workflow} from 'lucide-react';
 
@@ -67,6 +68,7 @@ export default function WorkspaceNavigationTree() {
         onSelectChange={(item) => item && selectPage(item.id)}
         folderIcon={Folder}
         itemIcon={Workflow}
+        renderItemContextMenu={(item) => <PageMenuItems pageId={item.id} />}
       />
     </div>
   );

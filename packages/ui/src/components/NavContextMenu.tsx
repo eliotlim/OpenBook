@@ -1,17 +1,16 @@
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import {DotsVerticalIcon} from '@radix-ui/react-icons';
 import {AppWindow, ExternalLink} from 'lucide-react';
 import {useHud, useNavigation} from '@/providers';
-import {Switch} from '@/components/ui/switch';
 
 export default function NavContextMenu() {
   const {hud, setHud} = useHud();
@@ -29,17 +28,20 @@ export default function NavContextMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
         <DropdownMenuLabel>View Options</DropdownMenuLabel>
-        <DropdownMenuLabel
-          className="flex flex-row justify-between"
+        {/* A real menu item (role=menuitemcheckbox), not a Switch inside a Label:
+            Radix only routes pointer/keyboard activation to its menu items, so a
+            bare control nested in a label never toggled (dead on click in the
+            desktop WKWebView especially). `onSelect` preventDefault keeps the
+            menu open so you can see the layout change. */}
+        <DropdownMenuCheckboxItem
+          checked={hud.viewMode.fullWidth}
+          onCheckedChange={(checked) =>
+            setHud({...hud, viewMode: {...hud.viewMode, fullWidth: checked}})
+          }
+          onSelect={(e) => e.preventDefault()}
         >
           Full Width
-          <DropdownMenuShortcut>
-            <Switch
-              checked={hud.viewMode.fullWidth}
-              onCheckedChange={e => setHud({...hud, viewMode: {...hud.viewMode, fullWidth: e.valueOf()}})}
-            />
-          </DropdownMenuShortcut>
-        </DropdownMenuLabel>
+        </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator/>
         <DropdownMenuItem
           disabled={!currentPageId}
