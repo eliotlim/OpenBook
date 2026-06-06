@@ -30,6 +30,16 @@ export function createApp(store: PageStore): Hono {
 
   app.use('*', cors());
 
+  // API responses are dynamic; never let a client cache them. The desktop
+  // WKWebView shell heuristically caches header-less GETs, which made the Trash
+  // dialog keep showing a stale empty `GET /api/trash` even after a page was
+  // moved to the trash (the page list still updated, since it also rides the SSE
+  // stream — the trash does not). `no-store` keeps every read fresh.
+  app.use('/api/*', async (c, next) => {
+    c.header('Cache-Control', 'no-store');
+    await next();
+  });
+
   app.get(API.health, (c) => c.text('ok'));
 
   app.get(API.pages, async (c) => c.json(await store.listPages()));

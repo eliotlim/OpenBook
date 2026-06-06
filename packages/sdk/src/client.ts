@@ -189,7 +189,7 @@ export class HttpDataClient implements DataClient {
   }
 
   async getPage(id: string): Promise<StoredPage | null> {
-    const res = await fetch(`${this.baseUrl}${API.page(id)}`);
+    const res = await fetch(`${this.baseUrl}${API.page(id)}`, {cache: 'no-store'});
     if (res.status === 404) return null;
     await throwIfNotOk(res);
     return (await res.json()) as StoredPage;
@@ -252,14 +252,14 @@ export class HttpDataClient implements DataClient {
   }
 
   async getDatabase(id: string): Promise<StoredDatabase | null> {
-    const res = await fetch(`${this.baseUrl}${API.database(id)}`);
+    const res = await fetch(`${this.baseUrl}${API.database(id)}`, {cache: 'no-store'});
     if (res.status === 404) return null;
     await throwIfNotOk(res);
     return (await res.json()) as StoredDatabase;
   }
 
   async getPageDatabase(pageId: string): Promise<StoredDatabase | null> {
-    const res = await fetch(`${this.baseUrl}${API.pageDatabase(pageId)}`);
+    const res = await fetch(`${this.baseUrl}${API.pageDatabase(pageId)}`, {cache: 'no-store'});
     if (res.status === 404) return null;
     await throwIfNotOk(res);
     return (await res.json()) as StoredDatabase;
@@ -297,6 +297,9 @@ export class HttpDataClient implements DataClient {
       method,
       headers: body === undefined ? undefined : {'Content-Type': 'application/json'},
       body: body === undefined ? undefined : JSON.stringify(body),
+      // Always hit the server: the desktop WKWebView otherwise serves cached
+      // GETs (e.g. a stale empty `GET /api/trash`). See the server's no-store header.
+      cache: 'no-store',
     });
     await throwIfNotOk(res);
     return (await res.json()) as T;
