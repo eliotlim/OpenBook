@@ -42,13 +42,15 @@ own editable document — so a row opens in a split pane for editing. Columns ar
 typed properties, or `expr` columns that read a row page's live exported
 reactive value, and every view can filter and sort.
 
-**Tabs are native.** Each page lives at its own URL (`?page=<id>`), so "open in
-new tab" opens a real browser tab on the web and a macOS window-tab on the
-desktop (Tauri windows grouped by a shared `tabbingIdentifier`); a window can
-also split to show two pages side by side. Because several tabs talk to the
-same origin and browsers cap connections per origin, every client multiplexes
-all live updates (page list, page edits, database rows) onto a single
-`/api/live` stream — one connection per tab regardless of what it is watching.
+**Tabs are native.** Each page lives at its own URL (`?page=<id>`), so opening a
+page elsewhere uses the platform: on the web a new browser tab or window
+(`window.open`), on the desktop a macOS window-tab (Tauri windows grouped by a
+shared `tabbingIdentifier`) or a standalone window. The new-page button and the
+"open in…" menu both let you choose tab or window; a window can also split to
+show two pages side by side. Because several tabs talk to the same origin and
+browsers cap connections per origin, every client multiplexes all live updates
+(page list, page edits, database rows) onto a single `/api/live` stream — one
+connection per tab regardless of what it is watching.
 
 Packages:
 

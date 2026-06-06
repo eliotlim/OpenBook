@@ -1,14 +1,18 @@
 import React, {createContext, PropsWithChildren, useContext} from 'react';
 import type {ServerControls} from '@open-book/sdk';
 
+/** Where to open a page: a new tab or a separate new window. */
+export type NewViewTarget = 'tab' | 'window';
+
 /**
- * How the host opens a page in a new native tab. The desktop supplies a Tauri
- * implementation (a new macOS window-tab); the web shell leaves it undefined,
- * and the UI falls back to `window.open` (a real browser tab).
+ * How the host opens a page in a new tab or window. The desktop supplies a
+ * Tauri implementation (a macOS window-tab, or a standalone window); the web
+ * shell leaves it undefined and the UI falls back to `window.open` (a browser
+ * tab, or a popup window).
  */
 export interface TabsPlatform {
-  /** Open `pageId` in a new OS/browser tab. */
-  openPageInNewTab: (pageId: string) => void;
+  /** Open `pageId` in a new tab or a separate window. */
+  openPage: (pageId: string, target: NewViewTarget) => void;
 }
 
 /**

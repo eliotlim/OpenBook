@@ -10,7 +10,7 @@ import React, {
 } from 'react';
 import {defaultDatabaseSchema, emptyPageSnapshot, type PageMeta} from '@open-book/sdk';
 import {useData} from '@/data';
-import {usePlatformLibrary} from './PlatformLibraryProvider';
+import {usePlatformLibrary, type NewViewTarget} from './PlatformLibraryProvider';
 import * as W from './windowModel';
 import type {Pane, PaneId, WindowState} from './windowModel';
 
@@ -39,10 +39,10 @@ export interface NavigationContextValue {
   closeSplit: () => void;
   /** Close a pane (secondary collapses the split; primary promotes the secondary). */
   closePane: (pane: PaneId) => void;
-  /** Open a page in a new native tab (browser tab on web, macOS window-tab on desktop). */
-  openInNewTab: (id: string) => void;
-  /** Create a fresh blank page and open it in a new native tab. */
-  newTab: () => Promise<void>;
+  /** Open a page in a new tab or window (browser tab/window on web, macOS window-tab/window on desktop). */
+  openInNew: (id: string, target: NewViewTarget) => void;
+  /** Create a fresh blank page and open it in a new tab or window. */
+  newPageIn: (target: NewViewTarget) => Promise<void>;
   /** Remove this window's view of a page (used when a row/subpage is deleted). */
   closePage: (id: string) => void;
   /** A display title for any page id, including open subpages not in `pages`. */
@@ -161,10 +161,15 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [pages],
   );
 
-  const openInNewTab = useCallback(
-    (id: string) => {
-      if (platform.tabs) platform.tabs.openPageInNewTab(id);
-      else if (typeof window !== 'undefined') window.open(pageUrl(id), '_blank', 'noopener');
+  const openInNew = useCallback(
+    (id: string, target: NewViewTarget) => {
+      if (platform.tabs) {
+        platform.tabs.openPage(id, target);
+      } else if (typeof window !== 'undefined') {
+        // No window features → a browser tab; popup + size → a separate window.
+        const features = target === 'window' ? 'noopener,popup,width=1280,height=860' : 'noopener';
+        window.open(pageUrl(id), '_blank', features);
+      }
     },
     [platform],
   );
@@ -204,11 +209,14 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     return page.id;
   }, [client, reload, selectPage]);
 
-  const newTab = useCallback(async (): Promise<void> => {
-    const page = await client.savePage({name: null, data: emptyPageSnapshot()});
-    await reload();
-    openInNewTab(page.id);
-  }, [client, reload, openInNewTab]);
+  const newPageIn = useCallback(
+    async (target: NewViewTarget): Promise<void> => {
+      const page = await client.savePage({name: null, data: emptyPageSnapshot()});
+      await reload();
+      openInNew(page.id, target);
+    },
+    [client, reload, openInNew],
+  );
 
   const deletePage = useCallback(
     async (id: string): Promise<void> => {
@@ -310,8 +318,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       openInSplit,
       closeSplit,
       closePane,
-      openInNewTab,
-      newTab,
+      openInNew,
+      newPageIn,
       closePage,
       pageLabel,
       setPageHint,
@@ -328,7 +336,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     }),
     [
       pages, currentPageId, loading, error, panes, focusedPaneId, splitOpen, focusPane, openInSplit,
-      closeSplit, closePane, openInNewTab, newTab, closePage, pageLabel, setPageHint, selectPage, goBack,
+      closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, selectPage, goBack,
       goForward, canGoBack, canGoForward, createPage, createDatabasePage, deletePage, renamePage, reload,
     ],
   );

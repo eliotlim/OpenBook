@@ -9,13 +9,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import {DotsVerticalIcon} from '@radix-ui/react-icons';
-import {ExternalLink} from 'lucide-react';
+import {AppWindow, ExternalLink} from 'lucide-react';
 import {useHud, useNavigation} from '@/providers';
 import {Switch} from '@/components/ui/switch';
 
 export default function NavContextMenu() {
   const {hud, setHud} = useHud();
-  const {openInNewTab, currentPageId} = useNavigation();
+  const {openInNew, currentPageId} = useNavigation();
 
   return (
     <DropdownMenu>
@@ -43,10 +43,17 @@ export default function NavContextMenu() {
         <DropdownMenuSeparator/>
         <DropdownMenuItem
           disabled={!currentPageId}
-          onClick={() => currentPageId && openInNewTab(currentPageId)}
+          onClick={() => currentPageId && openInNew(currentPageId, 'tab')}
         >
           <ExternalLink className="mr-2 h-4 w-4" />
           Open in new tab
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!currentPageId}
+          onClick={() => currentPageId && openInNew(currentPageId, 'window')}
+        >
+          <AppWindow className="mr-2 h-4 w-4" />
+          Open in new window
         </DropdownMenuItem>
         <DropdownMenuItem>Favourite</DropdownMenuItem>
         <DropdownMenuItem>Settings</DropdownMenuItem>

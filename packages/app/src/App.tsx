@@ -18,39 +18,42 @@ import {createDesktopClient} from './data/client';
 
 import '@open-book/ui/style.css';
 
-// All windows share one tabbing identifier, so macOS groups them as native
-// window-tabs (a tab bar at the top of the window). Each tab is its own
-// WebviewWindow running the app on a page, all talking to the one bundled
-// server — so the OS provides the tab UX while the server stays the source of
-// truth shared across tabs.
+// Windows that share this tabbing identifier are grouped by macOS into native
+// window-tabs (a tab bar at the top of the window). A "new tab" carries the
+// identifier so it joins the group; a "new window" omits it so macOS opens it
+// standalone. Each is its own WebviewWindow running the app on a page, all
+// talking to the one bundled server — the OS provides the tab/window UX while
+// the server stays the source of truth shared across them.
 const TABBING_IDENTIFIER = 'openbook';
 
 const newWindowLabel = (): string =>
   `tab-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().slice(0, 8) : `${Date.now()}`}`;
 
-/** Open `pageId` in a new macOS window-tab. */
-function openPageInNewTab(pageId: string): void {
-  const target = new URL(window.location.href);
-  target.searchParams.set('page', pageId);
-  target.searchParams.delete('split');
-  const tab = new WebviewWindow(newWindowLabel(), {
-    url: `${target.pathname}${target.search}`,
+/** Open `pageId` in a new macOS window-tab (`tab`) or a standalone window (`window`). */
+function openPage(pageId: string, target: 'tab' | 'window'): void {
+  const url = new URL(window.location.href);
+  url.searchParams.set('page', pageId);
+  url.searchParams.delete('split');
+  const view = new WebviewWindow(newWindowLabel(), {
+    url: `${url.pathname}${url.search}`,
     title: 'OpenBook',
     width: 1440,
     height: 900,
-    tabbingIdentifier: TABBING_IDENTIFIER,
+    // Only tabs join the tabbing group; windows omit the identifier so macOS
+    // keeps them standalone.
+    ...(target === 'tab' ? {tabbingIdentifier: TABBING_IDENTIFIER} : {}),
   });
-  void tab.once('tauri://error', (e) => console.error('OpenBook: failed to open a new tab:', e.payload));
+  void view.once('tauri://error', (e) => console.error(`OpenBook: failed to open a new ${target}:`, e.payload));
 }
 
-// Expose the Tauri-managed local server + native tabs to the UI.
+// Expose the Tauri-managed local server + native tabs/windows to the UI.
 const platform: PlatformLibrary = {
   serverControls: {
     info: () => invoke<ServerInfo>('server_info'),
     start: () => invoke<ServerInfo>('start_server'),
     stop: () => invoke<ServerInfo>('stop_server'),
   },
-  tabs: {openPageInNewTab},
+  tabs: {openPage},
 };
 
 function App() {
