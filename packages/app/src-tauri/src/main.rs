@@ -159,6 +159,15 @@ fn main() {
                 data_dir,
                 managed,
             });
+
+            // The UI draws its own title bar (in-window tabs + controls). On
+            // macOS we keep the native traffic lights via an overlay titlebar
+            // (set in tauri.conf); on Windows/Linux make the main window
+            // frameless so the UI's controls are the only ones.
+            #[cfg(not(target_os = "macos"))]
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_decorations(false);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

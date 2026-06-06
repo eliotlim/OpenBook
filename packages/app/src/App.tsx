@@ -1,6 +1,7 @@
 import React, {useMemo} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {WebviewWindow} from '@tauri-apps/api/webviewWindow';
+import {getCurrentWindow} from '@tauri-apps/api/window';
 import {
   DataProvider,
   DefaultLayout,
@@ -11,6 +12,7 @@ import {
   ThemeProvider,
   WorkspaceProvider,
   type PlatformLibrary,
+  type WindowControls,
 } from '@open-book/ui';
 import type {ServerInfo} from '@open-book/sdk';
 
@@ -46,14 +48,29 @@ function openWindow(pageId: string): void {
     title: 'OpenBook',
     width: 1440,
     height: 900,
-    // macOS-only; ignored on Windows/Linux, which keep their native title bar.
-    titleBarStyle: 'overlay',
-    hiddenTitle: true,
+    // macOS keeps its native traffic lights via an overlay titlebar; elsewhere
+    // the window is frameless and the UI draws its own controls.
+    ...(IS_MAC ? {titleBarStyle: 'overlay', hiddenTitle: true} : {decorations: false}),
   });
   void view.once('tauri://error', (e) => console.error('OpenBook: failed to open a new window:', e.payload));
 }
 
-// Expose the Tauri-managed local server + in-window tabs to the UI.
+// Frameless window controls (Windows/Linux); macOS uses its native traffic lights.
+const windowControls: WindowControls | undefined = IS_MAC
+  ? undefined
+  : {
+    minimize: () => void getCurrentWindow().minimize(),
+    toggleMaximize: () => void getCurrentWindow().toggleMaximize(),
+    close: () => void getCurrentWindow().close(),
+    watchMaximized: (cb) => {
+      const win = getCurrentWindow();
+      void win.isMaximized().then(cb).catch(() => undefined);
+      const unlisten = win.onResized(() => void win.isMaximized().then(cb).catch(() => undefined));
+      return () => void unlisten.then((u) => u()).catch(() => undefined);
+    },
+  };
+
+// Expose the Tauri-managed local server + in-window tabs + window controls.
 const platform: PlatformLibrary = {
   serverControls: {
     info: () => invoke<ServerInfo>('server_info'),
@@ -61,6 +78,7 @@ const platform: PlatformLibrary = {
     stop: () => invoke<ServerInfo>('stop_server'),
   },
   tabs: {inWindow: true, openWindow},
+  windowControls,
 };
 
 function App() {

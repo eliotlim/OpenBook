@@ -18,14 +18,32 @@ export interface TabsPlatform {
 }
 
 /**
+ * The window-management buttons a frameless window must draw itself. The
+ * desktop supplies these on Windows/Linux (where the window has no native title
+ * bar); macOS keeps its native traffic lights, so it leaves this undefined and
+ * the UI draws no custom controls.
+ */
+export interface WindowControls {
+  minimize: () => void;
+  toggleMaximize: () => void;
+  close: () => void;
+  /**
+   * Observe the maximized state (to show maximize vs restore). Calls back with
+   * the current value immediately and on every change; returns an unsubscribe.
+   */
+  watchMaximized?: (cb: (maximized: boolean) => void) => () => void;
+}
+
+/**
  * Capabilities the host platform provides to the UI. The Tauri desktop app
- * supplies `serverControls` (start/stop/inspect the bundled local server) and
- * `tabs` (native macOS window-tabs); the web shell leaves `serverControls`
- * undefined (no local server) and relies on the default browser-tab behavior.
+ * supplies `serverControls` (start/stop/inspect the bundled local server),
+ * `tabs` (in-window tabs), and `windowControls` (frameless min/max/close on
+ * Windows/Linux); the web shell leaves these undefined.
  */
 export interface PlatformLibrary {
   serverControls?: ServerControls;
   tabs?: TabsPlatform;
+  windowControls?: WindowControls;
 }
 
 const PlatformLibraryContext = createContext<PlatformLibrary>({});
