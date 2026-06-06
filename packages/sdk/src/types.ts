@@ -40,6 +40,12 @@ export interface PageMeta {
   hostedDatabaseId: string | null;
   /** The page this page is nested under, if any (drives the sidebar tree). */
   parentId: string | null;
+  /**
+   * When the page is in the trash (soft-deleted), the ISO timestamp it was
+   * deleted; `null` for live pages. Trash listings carry this so the UI can
+   * show how long ago each item was deleted.
+   */
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -57,6 +63,8 @@ export interface StoredPage {
   parentId: string | null;
   /** Manual database-property values, keyed by property id (empty for non-rows). */
   properties: Record<string, unknown>;
+  /** When the page is in the trash, the ISO timestamp it was deleted; else `null`. */
+  deletedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

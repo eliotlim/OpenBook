@@ -35,8 +35,20 @@ export interface DataClient {
   savePage(input: PageInput): Promise<StoredPage>;
   /** Update only a page's name (leaves its document data untouched). */
   renamePage(id: string, name: string | null): Promise<StoredPage>;
-  /** Delete a page; resolves `true` if a page was removed. */
+  /**
+   * Move a page (and its nested subtree) to the trash. Soft delete: the page is
+   * recoverable via {@link restorePage} until the server's cleanup job purges
+   * it. Resolves `true` if a live page was trashed.
+   */
   deletePage(id: string): Promise<boolean>;
+  /** List the trash (most-recently-deleted first). */
+  listTrash(): Promise<PageMeta[]>;
+  /** Restore a trashed page, or `null` if it isn't in the trash. */
+  restorePage(id: string): Promise<StoredPage | null>;
+  /** Permanently delete one trashed page (and its subtree). `true` if removed. */
+  purgePage(id: string): Promise<boolean>;
+  /** Permanently empty the whole trash. Resolves the number of pages purged. */
+  emptyTrash(): Promise<number>;
   /** Subscribe to a single page's live updates. Returns an unsubscribe fn. */
   subscribePage(id: string, handlers: PageSubscription): () => void;
   /** Subscribe to live page-list updates. Returns an unsubscribe fn. */
@@ -200,6 +212,29 @@ export class HttpDataClient implements DataClient {
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
+  }
+
+  async listTrash(): Promise<PageMeta[]> {
+    return this.request<PageMeta[]>('GET', API.trash);
+  }
+
+  async restorePage(id: string): Promise<StoredPage | null> {
+    const res = await fetch(`${this.baseUrl}${API.pageRestore(id)}`, {method: 'POST'});
+    if (res.status === 404) return null;
+    await throwIfNotOk(res);
+    return (await res.json()) as StoredPage;
+  }
+
+  async purgePage(id: string): Promise<boolean> {
+    const res = await fetch(`${this.baseUrl}${API.trashItem(id)}`, {method: 'DELETE'});
+    if (res.status === 404) return false;
+    await throwIfNotOk(res);
+    return true;
+  }
+
+  async emptyTrash(): Promise<number> {
+    const {purged} = await this.request<{purged: number}>('DELETE', API.trash);
+    return purged;
   }
 
   subscribePage(id: string, handlers: PageSubscription): () => void {

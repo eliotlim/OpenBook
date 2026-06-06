@@ -7,8 +7,14 @@ export const API = {
   health: '/health',
   /** Collection: `GET` (list) / `POST` (create). */
   pages: '/api/pages',
-  /** Single page: `GET` / `PUT` (upsert) / `PATCH` (rename) / `DELETE`. */
+  /** Single page: `GET` / `PUT` (upsert) / `PATCH` (rename) / `DELETE` (to trash). */
   page: (id: string): string => `/api/pages/${encodeURIComponent(id)}`,
+  /** Restore a trashed page (and the subtree trashed with it): `POST`. */
+  pageRestore: (id: string): string => `/api/pages/${encodeURIComponent(id)}/restore`,
+  /** The trash: `GET` (list trashed pages) / `DELETE` (empty the whole trash). */
+  trash: '/api/trash',
+  /** A single trashed page: `DELETE` (permanently purge it and its subtree). */
+  trashItem: (id: string): string => `/api/trash/${encodeURIComponent(id)}`,
   /** SSE stream of the page list (created / renamed / deleted). */
   stream: '/api/stream',
   /** SSE stream of a single page's live updates + deletion. */
