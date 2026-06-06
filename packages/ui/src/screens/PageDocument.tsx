@@ -278,11 +278,13 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         onChange: (_api, event) => {
           if (suppressSaveRef.current) return;
           // Adding/removing/moving a block (e.g. inserting a subpage from the
-          // block menu) is a genuine user edit but fires no `input` event, so
-          // mark it here — otherwise the structural change wouldn't autosave.
-          // Peer-applied patches set `suppressSaveRef` and are filtered above.
+          // block menu), or a block updating its own data (e.g. a subpage block
+          // recording the page id it just created via dispatchChange), is a
+          // genuine edit but fires no `input` event, so mark it here — otherwise
+          // the change wouldn't autosave. Peer-applied patches set
+          // `suppressSaveRef` and are filtered above.
           const events = Array.isArray(event) ? event : [event];
-          if (events.some((e) => ['block-added', 'block-removed', 'block-moved'].includes(e?.type))) {
+          if (events.some((e) => ['block-added', 'block-removed', 'block-moved', 'block-changed'].includes(e?.type))) {
             userEditedRef.current = true;
           }
           setStatus('unsaved');

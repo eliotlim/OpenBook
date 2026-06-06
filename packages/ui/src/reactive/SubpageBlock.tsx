@@ -9,6 +9,14 @@ interface SubpageData {
   kind?: SubpageKind;
 }
 
+// In-flight child creations, keyed by the block's stable id. `this.creating`
+// already dedups within one block instance; this adds dedup *across* instances
+// of the same block — React StrictMode double-mounts in dev, and an editor that
+// re-inits before the new page id is persisted re-instantiates the block — so a
+// single block still creates exactly one child page. A failed creation is
+// dropped so it can be retried.
+const creatingByBlockId = new Map<string, Promise<string>>();
+
 interface SubpageViewProps {
   kind: SubpageKind;
   initialPageId: string | null;
@@ -99,12 +107,23 @@ export class SubpageBlock extends ReactBlockTool {
   private ensureCreated(): Promise<string> {
     if (!this.creating) {
       const data = this.data as SubpageData;
-      this.creating = pageLinks.createSubpage(this.hostPageId!, data.kind === 'database' ? 'database' : 'page').then(
-        (id) => {
-          (this.data as SubpageData).pageId = id;
-          return id;
-        },
-      );
+      let shared = creatingByBlockId.get(this.cellId);
+      if (!shared) {
+        shared = pageLinks.createSubpage(this.hostPageId!, data.kind === 'database' ? 'database' : 'page');
+        creatingByBlockId.set(this.cellId, shared);
+        // Let a failed creation be retried (but keep successes cached so a later
+        // re-mount of the same block reuses the page instead of making a new one).
+        shared.catch(() => creatingByBlockId.delete(this.cellId));
+      }
+      this.creating = shared.then((id) => {
+        (this.data as SubpageData).pageId = id;
+        // Persist the new page id into the document. Without this the block is
+        // saved as `{kind}` with no `pageId`, so every reload thinks the child
+        // is missing and creates another orphan. dispatchChange() fires the
+        // editor's onChange, which autosaves the block (now carrying pageId).
+        this.block?.dispatchChange();
+        return id;
+      });
     }
     return this.creating;
   }
