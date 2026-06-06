@@ -1,6 +1,7 @@
 import {NavBar, SideNav} from '@/components';
 import {CommandMenu} from '@/components/CommandMenu';
 import Settings from '@/components/Settings';
+import TitlebarTabs from '@/components/TitlebarTabs';
 
 export interface DefaultLayoutProps {
   children: React.ReactNode;
@@ -9,15 +10,13 @@ export interface DefaultLayoutProps {
 export default function DefaultLayout(props: DefaultLayoutProps) {
   return (
     <div className="flex h-screen flex-col">
-      {/* Reserve a strip at the top for the macOS overlay titlebar — the native
-          tab bar and traffic lights sit over it. The height comes from
+      {/* The overlay-titlebar strip (desktop): hosts the in-window tab bar and
+          sits level with the traffic lights. Its height comes from
           `--ob-titlebar-height`, which the desktop shell sets; it is unset (0)
           on the web, so the web layout is unchanged. */}
-      <div
-        data-tauri-drag-region
-        className="shrink-0"
-        style={{height: 'var(--ob-titlebar-height, 0px)'}}
-      />
+      <div className="shrink-0 bg-sheet-1" style={{height: 'var(--ob-titlebar-height, 0px)'}}>
+        <TitlebarTabs />
+      </div>
       <div className="flex min-h-0 flex-1 flex-row items-stretch overflow-hidden">
         <CommandMenu/>
         <Settings/>

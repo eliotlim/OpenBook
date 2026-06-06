@@ -19,45 +19,6 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
-/// Force a newly-created window to become a native tab of the window it was
-/// opened from. The frontend creates the tab window (with a matching tabbing
-/// identifier) and then calls this with both labels. macOS only — elsewhere
-/// the tab is just a separate window, which is the platform-native behavior.
-///
-/// Setting a tabbing identifier alone leaves the window's tabbing mode on
-/// `automatic`, so macOS honors the user's "Prefer tabs when opening documents"
-/// system setting and may open a standalone window. `addTabbedWindow:` pulls the
-/// new window into the opener's tab group regardless of that setting.
-#[tauri::command]
-fn tab_window(app: AppHandle, opener_label: String, new_label: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        let opener = app.get_webview_window(&opener_label);
-        let new_window = app.get_webview_window(&new_label);
-        if let (Some(opener), Some(new_window)) = (opener, new_window) {
-            // NSWindow calls must run on the main thread.
-            app.run_on_main_thread(move || {
-                if let (Ok(opener_ptr), Ok(new_ptr)) = (opener.ns_window(), new_window.ns_window()) {
-                    use objc2_app_kit::{NSWindow, NSWindowOrderingMode};
-                    // SAFETY: ns_window() returns live NSWindow pointers, and we
-                    // are on the main thread.
-                    unsafe {
-                        let opener_win: &NSWindow = &*(opener_ptr as *const NSWindow);
-                        let new_win: &NSWindow = &*(new_ptr as *const NSWindow);
-                        opener_win.addTabbedWindow_ordered(new_win, NSWindowOrderingMode::Above);
-                    }
-                }
-            })
-            .map_err(|e| format!("failed to schedule tabbing: {e}"))?;
-        }
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (&app, opener_label, new_label);
-    }
-    Ok(())
-}
-
 const DEFAULT_PORT: &str = "4319";
 const DEFAULT_URL: &str = "http://127.0.0.1:4319";
 
@@ -203,8 +164,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             server_info,
             start_server,
-            stop_server,
-            tab_window
+            stop_server
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

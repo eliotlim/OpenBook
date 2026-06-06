@@ -24,12 +24,24 @@ export interface NavigationContextValue {
   loading: boolean;
   error: string | null;
 
-  // ── Panes (this window) + native tabs ───────────────────────────────────────
-  /** The panes shown in this window (the primary, plus the secondary when split). */
+  // ── In-window tabs (desktop) ────────────────────────────────────────────────
+  /** Whether tabs live inside the window (a custom titlebar tab bar). */
+  inWindowTabs: boolean;
+  /** The window's tabs, each with the page it shows. */
+  tabs: {id: string; pageId: string}[];
+  /** The active tab's id. */
+  activeTabId: string;
+  /** Activate a tab. */
+  selectTab: (tabId: string) => void;
+  /** Close a tab (the window keeps at least one). */
+  closeTab: (tabId: string) => void;
+
+  // ── Panes (the active tab) ───────────────────────────────────────────────────
+  /** The panes shown by the active tab (the primary, plus the secondary when split). */
   panes: Pane[];
   /** The focused pane id. */
   focusedPaneId: PaneId;
-  /** Whether the window is currently split. */
+  /** Whether the active tab is currently split. */
   splitOpen: boolean;
   /** Mark a pane focused (e.g. on click). */
   focusPane: (pane: PaneId) => void;
@@ -39,7 +51,7 @@ export interface NavigationContextValue {
   closeSplit: () => void;
   /** Close a pane (secondary collapses the split; primary promotes the secondary). */
   closePane: (pane: PaneId) => void;
-  /** Open a page in a new tab or window (browser tab/window on web, macOS window-tab/window on desktop). */
+  /** Open a page in a new tab or window (in-window tab + OS window on desktop, browser tab/window on web). */
   openInNew: (id: string, target: NewViewTarget) => void;
   /** Create a fresh blank page and open it in a new tab or window. */
   newPageIn: (target: NewViewTarget) => Promise<void>;
@@ -134,7 +146,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   // Mirror the window into the URL whenever it changes.
   useEffect(() => {
-    if (win) writeUrl(W.primaryPage(win), win.split);
+    if (win) writeUrl(W.primaryPage(win), W.activeTab(win).split);
   }, [win]);
 
   const update = useCallback((fn: (w: WindowState) => WindowState) => {
@@ -155,6 +167,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const openInSplit = useCallback((id: string) => update((w) => W.openSplit(w, id)), [update]);
   const closeSplit = useCallback(() => update(W.closeSplit), [update]);
   const closePane = useCallback((pane: PaneId) => update((w) => W.closePane(w, pane)), [update]);
+  const selectTab = useCallback((tabId: string) => update((w) => W.selectTab(w, tabId)), [update]);
+  const closeTab = useCallback((tabId: string) => update((w) => W.closeTab(w, tabId)), [update]);
 
   const closePage = useCallback(
     (id: string) => setWin((w) => (w ? W.reconcile(w, (pid) => pid !== id, pages[0]?.id ?? null) : w)),
@@ -163,15 +177,19 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   const openInNew = useCallback(
     (id: string, target: NewViewTarget) => {
-      if (platform.tabs) {
-        platform.tabs.openPage(id, target);
-      } else if (typeof window !== 'undefined') {
-        // No window features → a browser tab; popup + size → a separate window.
-        const features = target === 'window' ? 'noopener,popup,width=1280,height=860' : 'noopener';
-        window.open(pageUrl(id), '_blank', features);
+      if (target === 'tab') {
+        // Desktop: an in-window tab. Web: a real browser tab.
+        if (platform.tabs?.inWindow) update((w) => W.addTab(w, id));
+        else if (typeof window !== 'undefined') window.open(pageUrl(id), '_blank', 'noopener');
+        return;
+      }
+      // A separate window: an OS window on desktop, a popup window on the web.
+      if (platform.tabs) platform.tabs.openWindow(id);
+      else if (typeof window !== 'undefined') {
+        window.open(pageUrl(id), '_blank', 'noopener,popup,width=1280,height=860');
       }
     },
-    [platform],
+    [platform, update],
   );
 
   const setPageHint = useCallback((id: string, name: string | null) => {
@@ -300,10 +318,13 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   const currentPageId = win ? W.currentPageId(win) : null;
   const panes = win ? W.panesOf(win) : [];
-  const focusedPaneId: PaneId = win?.focused ?? 'primary';
-  const splitOpen = win?.split != null;
+  const focusedPaneId: PaneId = win ? W.focusedPaneId(win) : 'primary';
+  const splitOpen = win ? W.splitOpen(win) : false;
   const canGoBack = win ? W.canGoBack(win) : false;
   const canGoForward = win ? W.canGoForward(win) : false;
+  const inWindowTabs = platform.tabs?.inWindow ?? false;
+  const tabs = win ? win.tabs.map((t) => ({id: t.id, pageId: W.tabPageId(t)})) : [];
+  const activeTabId = win?.activeTabId ?? '';
 
   const value = useMemo<NavigationContextValue>(
     () => ({
@@ -311,6 +332,11 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       currentPageId,
       loading,
       error,
+      inWindowTabs,
+      tabs,
+      activeTabId,
+      selectTab,
+      closeTab,
       panes,
       focusedPaneId,
       splitOpen,
@@ -335,7 +361,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       reload,
     }),
     [
-      pages, currentPageId, loading, error, panes, focusedPaneId, splitOpen, focusPane, openInSplit,
+      pages, currentPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
+      panes, focusedPaneId, splitOpen, focusPane, openInSplit,
       closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, selectPage, goBack,
       goForward, canGoBack, canGoForward, createPage, createDatabasePage, deletePage, renamePage, reload,
     ],

@@ -5,14 +5,16 @@ import type {ServerControls} from '@open-book/sdk';
 export type NewViewTarget = 'tab' | 'window';
 
 /**
- * How the host opens a page in a new tab or window. The desktop supplies a
- * Tauri implementation (a macOS window-tab, or a standalone window); the web
- * shell leaves it undefined and the UI falls back to `window.open` (a browser
- * tab, or a popup window).
+ * How the host handles new tabs/windows. The desktop sets `inWindow` so a "new
+ * tab" becomes an in-window tab (a custom tab bar in the titlebar) and supplies
+ * `openWindow` for a separate OS window. The web shell leaves this undefined, so
+ * the UI falls back to `window.open` — a real browser tab or a popup window.
  */
 export interface TabsPlatform {
-  /** Open `pageId` in a new tab or a separate window. */
-  openPage: (pageId: string, target: NewViewTarget) => void;
+  /** Tabs live inside the window (custom titlebar tab bar) rather than as OS tabs. */
+  inWindow?: boolean;
+  /** Open `pageId` in a separate OS window. */
+  openWindow: (pageId: string) => void;
 }
 
 /**

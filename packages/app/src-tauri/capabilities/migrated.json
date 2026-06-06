@@ -4,7 +4,7 @@
   "local": true,
   "windows": [
     "main",
-    "tab-*"
+    "win-*"
   ],
   "permissions": [
     "core:default",
