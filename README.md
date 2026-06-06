@@ -42,6 +42,11 @@ own editable document — so a row opens in a split pane for editing. Columns ar
 typed properties, or `expr` columns that read a row page's live exported
 reactive value, and every view can filter and sort.
 
+**Pages nest.** A page can be a child of another (a `parent_id` link, cascading
+on delete), so the sidebar is a tree and the breadcrumb shows the full path.
+Inside the editor, a **Page** or **Database** block links a child inline — it
+creates the nested page on the spot and clicking it navigates there.
+
 **Tabs are native.** Each page lives at its own URL (`?page=<id>`), so opening a
 page elsewhere uses the platform: on the web a new browser tab or window
 (`window.open`), on the desktop a macOS window-tab (Tauri windows grouped by a
