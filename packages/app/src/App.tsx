@@ -40,6 +40,12 @@ function openPage(pageId: string, target: 'tab' | 'window'): void {
     title: 'OpenBook',
     width: 1440,
     height: 900,
+    // Transparent, title-hidden titlebar so the macOS tab bar sits at the
+    // titlebar level (one strip) rather than as a separate row below it.
+    // `transparent` (unlike `overlay`) keeps the content view below the
+    // titlebar, so the app's nav bar isn't pushed under the traffic lights.
+    titleBarStyle: 'transparent',
+    hiddenTitle: true,
     // Only tabs join the tabbing group; windows omit the identifier so macOS
     // keeps them standalone.
     ...(target === 'tab' ? {tabbingIdentifier: TABBING_IDENTIFIER} : {}),
