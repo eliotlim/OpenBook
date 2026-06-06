@@ -3,8 +3,17 @@ import { resolve, isAbsolute } from "path";
 import { fileURLToPath, URL } from "url";
 import { defineConfig } from "vite";
 
+// In watch mode (`pnpm dev` → `vite build --watch`) Vite would empty `dist/`
+// at startup before the first rebuild, briefly removing `dist/index.js`. The
+// app and web dev servers resolve `@open-book/ui` to that file, so a dep scan
+// landing in that window fails with "could not be resolved". Keep the existing
+// build in place while watching (overwrite in place); still clean for one-shot
+// production builds.
+const isWatch = process.argv.includes("--watch");
+
 export default defineConfig ({
   build: {
+    emptyOutDir: !isWatch,
     lib: {
       entry: resolve(__dirname, "src/index.ts"),
       name: "@open-book/ui",
