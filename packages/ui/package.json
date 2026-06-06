@@ -20,7 +20,7 @@
   "scripts": {
     "build": "vite build && tsc",
     "dev": "vite build --watch",
-    "dev-css": "pnpm exec @tailwindcss/cli --input ./src/index.css --output ./dist/index.css --watch",
+    "dev-css": "pnpm exec tailwindcss --input ./src/index.css --output ./dist/index.css --watch",
     "dev-types": "tsc --watch",
     "lint": "eslint .",
     "lint-fix": "eslint . --fix",
