@@ -1,6 +1,6 @@
 import React, {useMemo} from 'react';
 import {invoke} from '@tauri-apps/api/core';
-import {WebviewWindow} from '@tauri-apps/api/webviewWindow';
+import {getCurrentWebviewWindow, WebviewWindow} from '@tauri-apps/api/webviewWindow';
 import {
   DataProvider,
   DefaultLayout,
@@ -34,7 +34,8 @@ function openPage(pageId: string, target: 'tab' | 'window'): void {
   const url = new URL(window.location.href);
   url.searchParams.set('page', pageId);
   url.searchParams.delete('split');
-  const view = new WebviewWindow(newWindowLabel(), {
+  const label = newWindowLabel();
+  const view = new WebviewWindow(label, {
     url: `${url.pathname}${url.search}`,
     title: 'OpenBook',
     width: 1440,
@@ -44,6 +45,18 @@ function openPage(pageId: string, target: 'tab' | 'window'): void {
     ...(target === 'tab' ? {tabbingIdentifier: TABBING_IDENTIFIER} : {}),
   });
   void view.once('tauri://error', (e) => console.error(`OpenBook: failed to open a new ${target}:`, e.payload));
+
+  // The tabbing identifier alone lets macOS's "Prefer tabs" setting decide, and
+  // it often opens a standalone window. Once the window exists, ask the host to
+  // pull it into this window's tab group so a "new tab" is always a real tab.
+  if (target === 'tab') {
+    const openerLabel = getCurrentWebviewWindow().label;
+    void view.once('tauri://created', () => {
+      void invoke('tab_window', {openerLabel, newLabel: label}).catch((e) =>
+        console.error('OpenBook: failed to tab the new window:', e),
+      );
+    });
+  }
 }
 
 // Expose the Tauri-managed local server + native tabs/windows to the UI.
