@@ -8,12 +8,21 @@ export interface DefaultLayoutProps {
 
 export default function DefaultLayout(props: DefaultLayoutProps) {
   return (
-    <>
-      <div className="flex flex-row items-stretch overflow-hidden">
+    <div className="flex h-screen flex-col">
+      {/* Reserve a strip at the top for the macOS overlay titlebar — the native
+          tab bar and traffic lights sit over it. The height comes from
+          `--ob-titlebar-height`, which the desktop shell sets; it is unset (0)
+          on the web, so the web layout is unchanged. */}
+      <div
+        data-tauri-drag-region
+        className="shrink-0"
+        style={{height: 'var(--ob-titlebar-height, 0px)'}}
+      />
+      <div className="flex min-h-0 flex-1 flex-row items-stretch overflow-hidden">
         <CommandMenu/>
         <Settings/>
         <SideNav/>
-        <div className="flex flex-col h-screen w-full min-w-0">
+        <div className="flex min-h-0 w-full min-w-0 flex-col">
           <NavBar/>
           {/* The document area owns scrolling, one ScrollArea per pane, so the
               split panes can scroll independently. */}
@@ -22,6 +31,6 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           </main>
         </div>
       </div>
-    </>
+    </div>
   );
 }

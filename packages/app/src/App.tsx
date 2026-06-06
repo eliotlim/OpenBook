@@ -26,6 +26,14 @@ import '@open-book/ui/style.css';
 // the server stays the source of truth shared across them.
 const TABBING_IDENTIFIER = 'openbook';
 
+// The windows use an overlay titlebar (content extends under it), so the layout
+// reserves a strip of this height at the top for the native tab bar + traffic
+// lights. Tune here if the tab bar overlaps the nav bar or leaves a gap.
+const TITLEBAR_HEIGHT = '38px';
+if (typeof document !== 'undefined') {
+  document.documentElement.style.setProperty('--ob-titlebar-height', TITLEBAR_HEIGHT);
+}
+
 const newWindowLabel = (): string =>
   `tab-${typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID().slice(0, 8) : `${Date.now()}`}`;
 
@@ -40,11 +48,10 @@ function openPage(pageId: string, target: 'tab' | 'window'): void {
     title: 'OpenBook',
     width: 1440,
     height: 900,
-    // Transparent, title-hidden titlebar so the macOS tab bar sits at the
-    // titlebar level (one strip) rather than as a separate row below it.
-    // `transparent` (unlike `overlay`) keeps the content view below the
-    // titlebar, so the app's nav bar isn't pushed under the traffic lights.
-    titleBarStyle: 'transparent',
+    // Overlay, title-hidden titlebar: the content extends under the titlebar so
+    // the native tab bar sits at the titlebar level (one strip). The layout
+    // reserves `--ob-titlebar-height` at the top so the nav bar clears it.
+    titleBarStyle: 'overlay',
     hiddenTitle: true,
     // Only tabs join the tabbing group; windows omit the identifier so macOS
     // keeps them standalone.
