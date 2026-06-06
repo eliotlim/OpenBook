@@ -90,6 +90,29 @@ const rowSnapshot = (total: number): PageSnapshot => ({
   names: [['total', 'cell-total']],
 });
 
+async function exerciseNesting(client: HttpDataClient, mode: string): Promise<void> {
+  console.log(`\n[${mode}] Nested pages via HttpDataClient`);
+
+  const parent = await client.savePage({name: `parent-${mode}`, data: sampleSnapshot(1)});
+  const child = await client.savePage({name: `child-${mode}`, data: sampleSnapshot(2), parentId: parent.id});
+  const grandchild = await client.savePage({name: `gc-${mode}`, data: sampleSnapshot(3), parentId: child.id});
+  check('child records its parent', child.parentId === parent.id);
+  check('grandchild records its parent', grandchild.parentId === child.id);
+  check('top-level page has no parent', parent.parentId === null);
+
+  const list = await client.listPages();
+  check('nested pages appear in the list with parentId', list.find((p) => p.id === child.id)?.parentId === parent.id);
+
+  // A content save (no parentId) must not detach the page from its parent.
+  const resaved = await client.savePage({id: child.id, name: child.name, data: sampleSnapshot(99)});
+  check('content save preserves the parent', resaved.parentId === parent.id);
+
+  // Deleting the parent cascades through the whole subtree.
+  check('delete parent', (await client.deletePage(parent.id)) === true);
+  check('child removed by cascade', (await client.getPage(child.id)) === null);
+  check('grandchild removed by cascade', (await client.getPage(grandchild.id)) === null);
+}
+
 async function exerciseDatabase(client: HttpDataClient, mode: string): Promise<void> {
   console.log(`\n[${mode}] Notion-style database via HttpDataClient`);
 
@@ -168,6 +191,7 @@ async function main(): Promise<void> {
 
   await exerciseCrud(embeddedClient, 'embedded');
   await exerciseDatabase(embeddedClient, 'embedded');
+  await exerciseNesting(embeddedClient, 'embedded');
 
   // ---- 2. Persistence across restart ----
   console.log('\n=== 2. PERSISTENCE ACROSS RESTART ===');
@@ -198,6 +222,7 @@ async function main(): Promise<void> {
   console.log(`  headless server up at ${headless.url}`);
   await exerciseCrud(new HttpDataClient(headless.url), 'headless');
   await exerciseDatabase(new HttpDataClient(headless.url), 'headless');
+  await exerciseNesting(new HttpDataClient(headless.url), 'headless');
   await headless.close();
   await socket.stop();
   await pglite.close();

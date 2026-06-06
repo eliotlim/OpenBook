@@ -23,6 +23,7 @@ interface PageRow {
   // others (e.g. over the wire), so accept both.
   data?: PageSnapshot | string | null;
   database_id?: string | null;
+  parent_id?: string | null;
   properties?: Record<string, unknown> | string | null;
   // Populated by a LEFT JOIN onto `databases` — the database this page hosts.
   hosted_database_id?: string | null;
@@ -60,6 +61,7 @@ const metaFromRow = (row: PageRow): PageMeta => ({
   id: row.id,
   name: row.name,
   hostedDatabaseId: row.hosted_database_id ?? null,
+  parentId: row.parent_id ?? null,
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
@@ -70,6 +72,7 @@ const pageFromRow = (row: PageRow): StoredPage => ({
   data: parseSnapshot(row.data),
   hostedDatabaseId: row.hosted_database_id ?? null,
   databaseId: row.database_id ?? null,
+  parentId: row.parent_id ?? null,
   properties: parseJson<Record<string, unknown>>(row.properties, {}),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
@@ -98,7 +101,7 @@ const rowFromPage = (row: PageRow): DatabaseRow => {
 
 // Column list for a full page fetch, including the hosted-database join.
 const PAGE_COLUMNS =
-  'p.id, p.name, p.data, p.database_id, p.properties, p.created_at, p.updated_at, ' +
+  'p.id, p.name, p.data, p.database_id, p.parent_id, p.properties, p.created_at, p.updated_at, ' +
   'd.id AS hosted_database_id';
 const PAGE_FROM = 'pages p LEFT JOIN databases d ON d.page_id = p.id';
 
@@ -128,7 +131,7 @@ export class PageStore {
    */
   async listPages(): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.created_at, p.updated_at, d.id AS hosted_database_id
+      `SELECT p.id, p.name, p.parent_id, p.created_at, p.updated_at, d.id AS hosted_database_id
        FROM ${PAGE_FROM}
        WHERE p.database_id IS NULL
        ORDER BY p.updated_at DESC`,
@@ -155,23 +158,24 @@ export class PageStore {
   }
 
   /**
-   * Create or update a page. Mints a UUID when `input.id` is absent. Only
-   * `name` and `data` are written here — a page's `database_id` and manual
-   * `properties` are owned by the database row APIs, so a routine content save
-   * never clobbers them (the upsert simply leaves those columns untouched).
+   * Create or update a page. Mints a UUID when `input.id` is absent. `parent_id`
+   * is written only on insert (a `parentId` in the payload nests a *new* page);
+   * `database_id` and manual `properties` are owned by the database row APIs.
+   * On update only `name`/`data` change, so a routine content save never
+   * clobbers a page's parent, database membership, or properties.
    */
   async upsertPage(input: PageInput): Promise<StoredPage> {
     const id = input.id ?? randomUUID();
     const rows = await this.db.query<PageRow>(
-      `INSERT INTO pages (id, name, data, updated_at)
-       VALUES ($1, $2, $3::jsonb, now())
+      `INSERT INTO pages (id, name, data, parent_id, updated_at)
+       VALUES ($1, $2, $3::jsonb, $4, now())
        ON CONFLICT (id) DO UPDATE
          SET name = EXCLUDED.name,
              data = EXCLUDED.data,
              updated_at = now()
-       RETURNING id, name, data, database_id, properties, created_at, updated_at,
+       RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
          (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
-      [id, input.name ?? null, JSON.stringify(input.data ?? EMPTY_SNAPSHOT)],
+      [id, input.name ?? null, JSON.stringify(input.data ?? EMPTY_SNAPSHOT), input.parentId ?? null],
     );
     return pageFromRow(rows[0]);
   }
@@ -180,7 +184,7 @@ export class PageStore {
   async renamePage(id: string, name: string | null): Promise<StoredPage | null> {
     const rows = await this.db.query<PageRow>(
       `UPDATE pages SET name = $2, updated_at = now() WHERE id = $1
-       RETURNING id, name, data, database_id, properties, created_at, updated_at,
+       RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
          (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
       [id, name],
     );
@@ -274,7 +278,7 @@ export class PageStore {
     const rows = await this.db.query<PageRow>(
       `INSERT INTO pages (id, name, data, database_id, properties, updated_at)
        VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, now())
-       RETURNING id, name, data, database_id, properties, created_at, updated_at, NULL AS hosted_database_id`,
+       RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at, NULL AS hosted_database_id`,
       [
         id,
         input.name ?? null,

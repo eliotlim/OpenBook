@@ -38,6 +38,8 @@ export interface PageMeta {
    * pages and the document area decide whether to render the database view.
    */
   hostedDatabaseId: string | null;
+  /** The page this page is nested under, if any (drives the sidebar tree). */
+  parentId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +53,8 @@ export interface StoredPage {
   hostedDatabaseId: string | null;
   /** The database this page is a *row* of, if any; `null` for ordinary pages. */
   databaseId: string | null;
+  /** The page this page is nested under, if any. */
+  parentId: string | null;
   /** Manual database-property values, keyed by property id (empty for non-rows). */
   properties: Record<string, unknown>;
   createdAt: string;
@@ -70,6 +74,11 @@ export interface PageInput {
   id?: string;
   name?: string | null;
   data: PageSnapshot;
+  /**
+   * The page to nest this new page under. Applied only when the page is first
+   * created; a later content save with the same id leaves the parent untouched.
+   */
+  parentId?: string | null;
 }
 
 /** Status of a desktop install's local server. */

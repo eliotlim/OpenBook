@@ -51,6 +51,15 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS pages_database_id_idx ON pages (database_id)',
     ],
   },
+  {
+    // Page nesting: a page may be a child of another page. Deleting a parent
+    // cascades to its children (and theirs), so a subtree is removed together.
+    name: '0003_page_nesting',
+    statements: [
+      'ALTER TABLE pages ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES pages(id) ON DELETE CASCADE',
+      'CREATE INDEX IF NOT EXISTS pages_parent_id_idx ON pages (parent_id)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */
