@@ -10,6 +10,8 @@ import React, {
 } from 'react';
 import {defaultDatabaseSchema, emptyPageSnapshot, type PageMeta} from '@open-book/sdk';
 import {useData} from '@/data';
+import {setPageLinkBridge} from '@/lib/pageLinks';
+import {readPageIcon} from '@/lib/pageIcon';
 import {usePlatformLibrary, type NewViewTarget} from './PlatformLibraryProvider';
 import * as W from './windowModel';
 import type {Pane, PaneId, WindowState} from './windowModel';
@@ -70,10 +72,16 @@ export interface NavigationContextValue {
   canGoBack: boolean;
   canGoForward: boolean;
 
-  /** Create a new page (optionally named) and open it in this window. Returns its id. */
-  createPage: (name?: string | null) => Promise<string>;
-  /** Create a host page that contains a fresh database, and open it. */
-  createDatabasePage: () => Promise<string>;
+  /** Create a new page (optionally named, optionally nested) and open it. Returns its id. */
+  createPage: (name?: string | null, parentId?: string | null) => Promise<string>;
+  /** Create a host page that contains a fresh database (optionally nested), and open it. */
+  createDatabasePage: (parentId?: string | null) => Promise<string>;
+  /**
+   * Create a child page nested under `parentId` without navigating to it (used
+   * by the inline subpage blocks). `kind: 'database'` also attaches a database.
+   * Returns the new page's id.
+   */
+  createSubpage: (parentId: string, kind?: 'page' | 'database') => Promise<string>;
   /** Delete a page; closes its panes and falls back if nothing remains open. */
   deletePage: (id: string) => Promise<void>;
   /** Rename a page (name only). */
@@ -210,8 +218,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   );
 
   const createPage = useCallback(
-    async (name: string | null = null): Promise<string> => {
-      const page = await client.savePage({name, data: emptyPageSnapshot()});
+    async (name: string | null = null, parentId: string | null = null): Promise<string> => {
+      const page = await client.savePage({name, data: emptyPageSnapshot(), parentId});
       await reload();
       selectPage(page.id);
       return page.id;
@@ -219,13 +227,28 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [client, reload, selectPage],
   );
 
-  const createDatabasePage = useCallback(async (): Promise<string> => {
-    const page = await client.savePage({name: null, data: emptyPageSnapshot()});
-    await client.createDatabase({pageId: page.id, name: null, schema: defaultDatabaseSchema()});
-    await reload();
-    selectPage(page.id);
-    return page.id;
-  }, [client, reload, selectPage]);
+  const createDatabasePage = useCallback(
+    async (parentId: string | null = null): Promise<string> => {
+      const page = await client.savePage({name: null, data: emptyPageSnapshot(), parentId});
+      await client.createDatabase({pageId: page.id, name: null, schema: defaultDatabaseSchema()});
+      await reload();
+      selectPage(page.id);
+      return page.id;
+    },
+    [client, reload, selectPage],
+  );
+
+  const createSubpage = useCallback(
+    async (parentId: string, kind: 'page' | 'database' = 'page'): Promise<string> => {
+      const page = await client.savePage({name: null, data: emptyPageSnapshot(), parentId});
+      if (kind === 'database') {
+        await client.createDatabase({pageId: page.id, name: null, schema: defaultDatabaseSchema()});
+      }
+      await reload();
+      return page.id;
+    },
+    [client, reload],
+  );
 
   const newPageIn = useCallback(
     async (target: NewViewTarget): Promise<void> => {
@@ -306,6 +329,19 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     });
   }, [client]);
 
+  // Bridge the inline subpage blocks (which live outside React's context) to
+  // navigation. Re-installing on every label/action change refreshes the blocks
+  // (e.g. when a linked page is renamed).
+  useEffect(() => {
+    setPageLinkBridge({
+      createSubpage: (parentId, kind) => createSubpage(parentId, kind),
+      openPage: (id) => selectPage(id),
+      label: (id) => pageLabel(id),
+      icon: (id) => readPageIcon(id),
+    });
+    return () => setPageLinkBridge(null);
+  }, [createSubpage, selectPage, pageLabel]);
+
   // Refresh title hints from the live page list.
   useEffect(() => {
     if (pages.length === 0) return;
@@ -356,6 +392,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       canGoForward,
       createPage,
       createDatabasePage,
+      createSubpage,
       deletePage,
       renamePage,
       reload,
@@ -364,7 +401,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       pages, currentPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
       panes, focusedPaneId, splitOpen, focusPane, openInSplit,
       closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, selectPage, goBack,
-      goForward, canGoBack, canGoForward, createPage, createDatabasePage, deletePage, renamePage, reload,
+      goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, deletePage, renamePage, reload,
     ],
   );
 

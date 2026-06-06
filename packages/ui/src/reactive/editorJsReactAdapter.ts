@@ -37,12 +37,15 @@ export abstract class ReactBlockTool implements BlockTool {
   protected readonly api: API;
   protected data: ReactiveBlockData;
   protected readonly cellId: string;
+  /** The tool's `config` from the EditorJS `tools` map (e.g. the host page id). */
+  protected readonly config: Record<string, unknown>;
   protected dom: HTMLElement | null = null;
   protected root: Root | null = null;
 
-  constructor({api, data, block}: BlockToolConstructorOptions<ReactiveBlockData>) {
+  constructor({api, data, block, config}: BlockToolConstructorOptions<ReactiveBlockData>) {
     this.api = api;
     this.data = data ?? {};
+    this.config = (config as Record<string, unknown> | undefined) ?? {};
     // EditorJS 2.30+ exposes block.id on the BlockAPI; this is our stable
     // cellId. The persistence layer must round-trip block.id through
     // save() and the load() data param so the same id is reassigned to the

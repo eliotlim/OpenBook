@@ -152,6 +152,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
       onDelete={onDelete}
       onLoad={onLoad}
       onSave={onSave}
+      pageId={pageId}
       footer={<DatabaseView pageId={pageId} databaseIdHint={databaseIdHint} />}
     />
   );

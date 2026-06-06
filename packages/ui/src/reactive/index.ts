@@ -5,6 +5,7 @@ export {ReactBlockTool, type ReactiveBlockData} from './editorJsReactAdapter';
 export {SliderBlock} from './SliderBlock';
 export {ExprBlock} from './ExprBlock';
 export {ChartBlock} from './ChartBlock';
+export {SubpageBlock} from './SubpageBlock';
 
 // EditorJS tools config — drop this into the EditorJS constructor's `tools`.
 import {SliderBlock} from './SliderBlock';

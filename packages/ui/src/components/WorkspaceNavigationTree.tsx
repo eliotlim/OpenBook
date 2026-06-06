@@ -1,3 +1,5 @@
+import {useMemo} from 'react';
+import type {PageMeta} from '@open-book/sdk';
 import {Tree, TreeDataItem} from '@/components/ui/tree';
 import {useNavigation} from '@/providers';
 import {Database, FileText, Folder, Plus, Table2, Workflow} from 'lucide-react';
@@ -5,16 +7,34 @@ import {Database, FileText, Folder, Plus, Table2, Workflow} from 'lucide-react';
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : 'Untitled';
 
+/**
+ * Build the sidebar tree from the flat page list: each page becomes a node, and
+ * a page with a `parentId` is attached under that parent (recursively). Pages
+ * whose parent isn't in the list (e.g. it was deleted) surface at the top level.
+ */
+function buildTree(pages: PageMeta[]): TreeDataItem[] {
+  const nodes = new Map<string, TreeDataItem>();
+  for (const page of pages) {
+    nodes.set(page.id, {
+      id: page.id,
+      name: displayName(page.name),
+      icon: page.hostedDatabaseId ? Database : FileText,
+    });
+  }
+  const roots: TreeDataItem[] = [];
+  for (const page of pages) {
+    const node = nodes.get(page.id)!;
+    const parent = page.parentId ? nodes.get(page.parentId) : undefined;
+    if (parent) (parent.children ??= []).push(node);
+    else roots.push(node);
+  }
+  return roots;
+}
+
 export default function WorkspaceNavigationTree() {
   const {pages, currentPageId, selectPage, createPage, createDatabasePage} = useNavigation();
 
-  const data: TreeDataItem[] = pages.map((page) => ({
-    id: page.id,
-    name: displayName(page.name),
-    // Pages that host a database get the database glyph so collections stand
-    // out from plain notes in the tree.
-    icon: page.hostedDatabaseId ? Database : FileText,
-  }));
+  const data = useMemo(() => buildTree(pages), [pages]);
 
   return (
     <div className="flex h-full flex-col">

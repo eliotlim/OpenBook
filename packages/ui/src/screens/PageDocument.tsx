@@ -83,7 +83,7 @@ async function applyIncomingBlocks(inst: EditorJS, next: OutputData, holder: HTM
     liveIds.add(b.id);
   }
 }
-import {SliderBlock, ExprBlock, ChartBlock} from '@/reactive';
+import {SliderBlock, ExprBlock, ChartBlock, SubpageBlock} from '@/reactive';
 import {store} from '@/reactive/ReactiveStore';
 import type {PageSnapshot} from '@open-book/sdk';
 
@@ -110,6 +110,8 @@ export interface PageDocumentProps {
   /** Extra content rendered below the editor, in the same content column (e.g.
    *  the database view for a page that hosts a database). */
   footer?: React.ReactNode;
+  /** The page being edited — passed to the subpage block so new children nest here. */
+  pageId?: string;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -170,6 +172,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   incoming,
   onTitleActiveChange,
   footer,
+  pageId,
 }) => {
   'use client';
   const {hud} = useHud();
@@ -258,6 +261,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           slider: SliderBlock as unknown as never,
           expr: ExprBlock as unknown as never,
           chart: ChartBlock as unknown as never,
+          subpage: {class: SubpageBlock as unknown as never, config: {hostPageId: pageId}},
         },
         onReady: () => {
           editorJsInstance.current = editorJs;
@@ -270,8 +274,16 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           holder?.addEventListener('input', markUserEdited);
           setStatus('ready');
         },
-        onChange: () => {
+        onChange: (_api, event) => {
           if (suppressSaveRef.current) return;
+          // Adding/removing/moving a block (e.g. inserting a subpage from the
+          // block menu) is a genuine user edit but fires no `input` event, so
+          // mark it here — otherwise the structural change wouldn't autosave.
+          // Peer-applied patches set `suppressSaveRef` and are filtered above.
+          const events = Array.isArray(event) ? event : [event];
+          if (events.some((e) => ['block-added', 'block-removed', 'block-moved'].includes(e?.type))) {
+            userEditedRef.current = true;
+          }
           setStatus('unsaved');
           if (saveTimer.current) clearTimeout(saveTimer.current);
           saveTimer.current = setTimeout(() => {
