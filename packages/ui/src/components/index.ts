@@ -1,6 +1,7 @@
 export {default as Drawer} from './Drawer';
 export {default as NavBar} from './NavBar';
 export {default as SideNav} from './SideNav';
+export {default as TrashDialog} from './TrashDialog';
 export {default as DocumentArea} from './DocumentArea';
 export {default as TitlebarTabs} from './TitlebarTabs';
 // WindowControls (the component) is intentionally not re-exported: it is used

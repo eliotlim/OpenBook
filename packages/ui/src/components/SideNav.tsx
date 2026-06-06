@@ -2,6 +2,7 @@ import {Drawer} from '@/components';
 import {useHud} from '@/providers';
 import ColorSchemeMenu from '@/components/ColorSchemeMenu';
 import AboutDialog from '@/components/AboutDialog';
+import TrashDialog from '@/components/TrashDialog';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
 import SettingsButton from '@/components/SettingsButton';
 import WorkspaceNavigationTree from '@/components/WorkspaceNavigationTree';
@@ -24,7 +25,10 @@ export default function SideNav() {
         </div>
         <div className="flex items-center justify-between border-t border-border/60 px-2 py-1.5">
           <AboutDialog />
-          <ColorSchemeMenu />
+          <div className="flex items-center gap-0.5">
+            <TrashDialog />
+            <ColorSchemeMenu />
+          </div>
         </div>
       </div>
     </Drawer>

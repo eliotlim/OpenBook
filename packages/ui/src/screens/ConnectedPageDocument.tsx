@@ -111,7 +111,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   );
 
   const onDelete = useCallback(() => {
-    if (typeof window !== 'undefined' && !window.confirm('Delete this page? This cannot be undone.')) {
+    if (typeof window !== 'undefined' && !window.confirm('Move this page to the trash? You can restore it later.')) {
       return;
     }
     void deletePage(pageId);
