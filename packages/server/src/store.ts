@@ -29,6 +29,8 @@ interface PageRow {
   hosted_database_id?: string | null;
   created_at: Date | string;
   updated_at: Date | string;
+  // Set when the page is in the trash (soft-deleted); null for live pages.
+  deleted_at?: Date | string | null;
 }
 
 /** Raw row shape for the `databases` table. */
@@ -48,6 +50,10 @@ const EMPTY_SCHEMA: DatabaseSchema = {properties: [], views: []};
 const toIso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 
+// Nullable timestamp (e.g. `deleted_at`): normalize to ISO or null.
+const toIsoOrNull = (value: Date | string | null | undefined): string | null =>
+  value == null ? null : toIso(value);
+
 // JSONB may be parsed (object) or raw (string) depending on the driver.
 const parseJson = <T>(value: T | string | null | undefined, fallback: T): T => {
   if (value == null) return fallback;
@@ -62,6 +68,7 @@ const metaFromRow = (row: PageRow): PageMeta => ({
   name: row.name,
   hostedDatabaseId: row.hosted_database_id ?? null,
   parentId: row.parent_id ?? null,
+  deletedAt: toIsoOrNull(row.deleted_at),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
@@ -74,6 +81,7 @@ const pageFromRow = (row: PageRow): StoredPage => ({
   databaseId: row.database_id ?? null,
   parentId: row.parent_id ?? null,
   properties: parseJson<Record<string, unknown>>(row.properties, {}),
+  deletedAt: toIsoOrNull(row.deleted_at),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
@@ -99,9 +107,28 @@ const rowFromPage = (row: PageRow): DatabaseRow => {
   };
 };
 
+/**
+ * Resolve a page name that is free among *live* pages (and not already claimed
+ * by `taken` in the current batch), appending `" (restored)"` — then
+ * `" (restored 2)"`, etc. — until it no longer collides. Used by restore, where
+ * the original name may have been reused while the page was in the trash.
+ */
+const freeName = async (tx: Db, base: string, taken: Set<string>): Promise<string> => {
+  const collides = async (candidate: string): Promise<boolean> => {
+    if (taken.has(candidate)) return true;
+    const rows = await tx.query('SELECT 1 FROM pages WHERE name = $1 AND deleted_at IS NULL LIMIT 1', [candidate]);
+    return rows.length > 0;
+  };
+  if (!(await collides(base))) return base;
+  for (let n = 1; ; n += 1) {
+    const candidate = n === 1 ? `${base} (restored)` : `${base} (restored ${n})`;
+    if (!(await collides(candidate))) return candidate;
+  }
+};
+
 // Column list for a full page fetch, including the hosted-database join.
 const PAGE_COLUMNS =
-  'p.id, p.name, p.data, p.database_id, p.parent_id, p.properties, p.created_at, p.updated_at, ' +
+  'p.id, p.name, p.data, p.database_id, p.parent_id, p.properties, p.deleted_at, p.created_at, p.updated_at, ' +
   'd.id AS hosted_database_id';
 const PAGE_FROM = 'pages p LEFT JOIN databases d ON d.page_id = p.id';
 
@@ -131,27 +158,27 @@ export class PageStore {
    */
   async listPages(): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.parent_id, p.created_at, p.updated_at, d.id AS hosted_database_id
+      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id
        FROM ${PAGE_FROM}
-       WHERE p.database_id IS NULL
+       WHERE p.database_id IS NULL AND p.deleted_at IS NULL
        ORDER BY p.updated_at DESC`,
     );
     return rows.map(metaFromRow);
   }
 
-  /** Fetch a single page by id, or `null` if it does not exist. */
+  /** Fetch a single (live, non-trashed) page by id, or `null`. */
   async getPage(id: string): Promise<StoredPage | null> {
     const rows = await this.db.query<PageRow>(
-      `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.id = $1`,
+      `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.id = $1 AND p.deleted_at IS NULL`,
       [id],
     );
     return rows.length > 0 ? pageFromRow(rows[0]) : null;
   }
 
-  /** Fetch a page by its (optional, unique) name. */
+  /** Fetch a (live, non-trashed) page by its (optional, unique) name. */
   async getPageByName(name: string): Promise<StoredPage | null> {
     const rows = await this.db.query<PageRow>(
-      `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.name = $1`,
+      `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.name = $1 AND p.deleted_at IS NULL`,
       [name],
     );
     return rows.length > 0 ? pageFromRow(rows[0]) : null;
@@ -191,10 +218,129 @@ export class PageStore {
     return rows.length > 0 ? pageFromRow(rows[0]) : null;
   }
 
-  /** Delete a page. Returns `true` if a row was removed. */
+  /**
+   * Soft-delete a page: move it (and its whole `parent_id` subtree) to the
+   * trash by stamping `deleted_at`, instead of removing the rows. All affected
+   * rows get the same timestamp so {@link restorePage} can bring back exactly
+   * the subtree that was deleted together. Returns `true` if anything was newly
+   * trashed (a no-op when the page is missing or already trashed). The page's
+   * hosted database and its rows are left in place; they ride along with the
+   * host on restore and are removed by the FK cascade when it's finally purged.
+   */
   async deletePage(id: string): Promise<boolean> {
-    const rows = await this.db.query('DELETE FROM pages WHERE id = $1 RETURNING id', [id]);
+    const rows = await this.db.query<{id: string}>(
+      `WITH RECURSIVE subtree AS (
+         SELECT id FROM pages WHERE id = $1
+         UNION ALL
+         SELECT p.id FROM pages p JOIN subtree s ON p.parent_id = s.id
+       )
+       UPDATE pages SET deleted_at = now()
+       WHERE id IN (SELECT id FROM subtree) AND deleted_at IS NULL
+       RETURNING id`,
+      [id],
+    );
     return rows.length > 0;
+  }
+
+  /**
+   * Restore a trashed page and the descendants that were trashed together with
+   * it (matched by the shared `deleted_at` timestamp — a child trashed in a
+   * separate, earlier operation stays in the trash). Returns the restored page,
+   * or `null` if it was not in the trash.
+   *
+   * A page's name can be reused while it sits in the trash, so a restore can
+   * collide with the unique-name index. Rather than fail, the restored page is
+   * given a `" (restored)"` suffix to make its name free again.
+   */
+  async restorePage(id: string): Promise<StoredPage | null> {
+    const ok = await this.db.begin(async (tx) => {
+      const root = await tx.query<{deleted_at: Date | string | null}>(
+        'SELECT deleted_at FROM pages WHERE id = $1',
+        [id],
+      );
+      if (root.length === 0 || root[0].deleted_at == null) return false;
+
+      // The subtree trashed together with the root (same `deleted_at`). All of
+      // these rows are still trashed at this point, so the collision check below
+      // (against live pages) naturally ignores them.
+      const subtree = await tx.query<{id: string; name: string | null}>(
+        `WITH RECURSIVE subtree AS (
+           SELECT id, name FROM pages WHERE id = $1
+           UNION ALL
+           SELECT p.id, p.name FROM pages p JOIN subtree s ON p.parent_id = s.id
+           WHERE p.deleted_at = (SELECT deleted_at FROM pages WHERE id = $1)
+         )
+         SELECT id, name FROM subtree`,
+        [id],
+      );
+
+      const assigned = new Set<string>();
+      for (const row of subtree) {
+        const name = row.name ? await freeName(tx, row.name, assigned) : null;
+        if (name) assigned.add(name);
+        await tx.query('UPDATE pages SET name = $2, deleted_at = NULL, updated_at = now() WHERE id = $1', [
+          row.id,
+          name,
+        ]);
+      }
+      return true;
+    });
+    return ok ? this.getPage(id) : null;
+  }
+
+  /**
+   * List the trash: trashed pages whose parent isn't itself trashed (the roots
+   * of each deleted subtree), most-recently-deleted first. A row deleted on its
+   * own appears here (it can be restored back into its database), but rows whose
+   * host page was deleted do not — they ride along with the host and reappear
+   * when it is restored.
+   */
+  async listTrash(): Promise<PageMeta[]> {
+    const rows = await this.db.query<PageRow>(
+      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id
+       FROM pages p
+       LEFT JOIN databases d ON d.page_id = p.id
+       LEFT JOIN pages par ON par.id = p.parent_id
+       WHERE p.deleted_at IS NOT NULL
+         AND (p.parent_id IS NULL OR par.deleted_at IS NULL)
+       ORDER BY p.deleted_at DESC`,
+    );
+    return rows.map(metaFromRow);
+  }
+
+  /** Permanently delete a single trashed page (and, by cascade, its subtree,
+   *  hosted database, and rows). Returns `true` if a trashed row was removed. */
+  async purgePage(id: string): Promise<boolean> {
+    const rows = await this.db.query(
+      'DELETE FROM pages WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id',
+      [id],
+    );
+    return rows.length > 0;
+  }
+
+  /** Permanently delete everything currently in the trash. Returns the count of
+   *  directly-trashed pages removed (cascaded descendants aren't counted). */
+  async emptyTrash(): Promise<number> {
+    const rows = await this.db.query<{id: string}>(
+      'DELETE FROM pages WHERE deleted_at IS NOT NULL RETURNING id',
+    );
+    return rows.length;
+  }
+
+  /**
+   * The cleanup job: permanently delete trashed pages whose `deleted_at` is
+   * older than `retentionMs`. `retentionMs <= 0` purges the whole trash at the
+   * next sweep (no retention). Returns the count of directly-purged pages.
+   */
+  async purgeExpired(retentionMs: number): Promise<number> {
+    const rows = await this.db.query<{id: string}>(
+      `DELETE FROM pages
+       WHERE deleted_at IS NOT NULL
+         AND deleted_at <= now() - ($1::bigint * interval '1 millisecond')
+       RETURNING id`,
+      [Math.max(0, Math.trunc(retentionMs))],
+    );
+    return rows.length;
   }
 
   // ── Databases ──────────────────────────────────────────────────────────────
@@ -266,7 +412,7 @@ export class PageStore {
   async listRows(databaseId: string): Promise<DatabaseRow[]> {
     const rows = await this.db.query<PageRow>(
       `SELECT id, name, data, properties, created_at, updated_at
-       FROM pages WHERE database_id = $1 ORDER BY updated_at DESC`,
+       FROM pages WHERE database_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC`,
       [databaseId],
     );
     return rows.map(rowFromPage);
@@ -305,7 +451,7 @@ export class PageStore {
          SET name = CASE WHEN $3 THEN $4 ELSE name END,
              properties = COALESCE($5::jsonb, properties),
              updated_at = now()
-       WHERE id = $1 AND database_id = $2
+       WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL
        RETURNING id, name, data, properties, created_at, updated_at`,
       [
         rowId,

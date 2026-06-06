@@ -68,6 +68,8 @@ export function createApp(store: PageStore): Hono {
     return c.json(page);
   });
 
+  // Soft delete: move the page (and its nested subtree) to the trash. It stays
+  // recoverable via the restore route until the cleanup job purges it.
   app.delete(`${API.pages}/:id`, async (c) => {
     const id = c.req.param('id');
     // Learn the page's database membership before it's gone, so we can refresh
@@ -79,6 +81,33 @@ export function createApp(store: PageStore): Hono {
     await broadcastList();
     if (existing?.databaseId) await broadcastRows(existing.databaseId);
     return c.body(null, 204);
+  });
+
+  // ── Trash (soft-deleted pages) ───────────────────────────────────────────────
+
+  app.get(API.trash, async (c) => c.json(await store.listTrash()));
+
+  // Restore a trashed page (and the subtree trashed with it).
+  app.post(`${API.pages}/:id/restore`, async (c) => {
+    const page = await store.restorePage(c.req.param('id'));
+    if (!page) return c.json({error: 'page not found in trash'}, 404);
+    hub.publishPage(page);
+    await broadcastList();
+    if (page.databaseId) await broadcastRows(page.databaseId);
+    return c.json(page);
+  });
+
+  // Permanently delete a single trashed page (and its subtree, by cascade).
+  app.delete(`${API.trash}/:id`, async (c) => {
+    const purged = await store.purgePage(c.req.param('id'));
+    if (!purged) return c.json({error: 'page not found in trash'}, 404);
+    return c.body(null, 204);
+  });
+
+  // Permanently empty the whole trash.
+  app.delete(API.trash, async (c) => {
+    const purged = await store.emptyTrash();
+    return c.json({purged});
   });
 
   // ── Databases ──────────────────────────────────────────────────────────────

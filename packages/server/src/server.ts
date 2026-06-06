@@ -20,6 +20,17 @@ export interface StartOptions {
   port?: number;
   /** Max Postgres connections (server mode only). Defaults to 10. */
   poolMax?: number;
+  /**
+   * How long a soft-deleted page stays in the trash before the cleanup job
+   * purges it, in milliseconds. Defaults to 30 days. `0` purges on the next
+   * sweep (no retention).
+   */
+  trashRetentionMs?: number;
+  /**
+   * How often the trash cleanup job runs, in milliseconds. Defaults to 1 hour.
+   * `<= 0` disables the job (trash is kept until emptied manually).
+   */
+  trashCleanupIntervalMs?: number;
 }
 
 export interface RunningServer {
@@ -35,6 +46,8 @@ type NodeServer = ReturnType<typeof serve>;
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 4319;
+const DEFAULT_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const DEFAULT_TRASH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 /**
  * Start the OpenBook server. The single entry both modes use:
@@ -57,6 +70,26 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const store = new PageStore(db);
   await store.migrate();
 
+  // Trash cleanup job: periodically purge pages whose `deleted_at` is older than
+  // the retention window. Runs once on boot to catch up after downtime, then on
+  // an interval. The timer is `unref`'d so it never keeps the process alive.
+  const retentionMs = opts.trashRetentionMs ?? DEFAULT_TRASH_RETENTION_MS;
+  const cleanupIntervalMs = opts.trashCleanupIntervalMs ?? DEFAULT_TRASH_CLEANUP_INTERVAL_MS;
+  let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  const sweepTrash = async (): Promise<void> => {
+    try {
+      const purged = await store.purgeExpired(retentionMs);
+      if (purged > 0) console.log(`OpenBook trash cleanup: purged ${purged} expired page(s)`);
+    } catch (err) {
+      console.error('OpenBook trash cleanup failed:', err);
+    }
+  };
+  if (cleanupIntervalMs > 0) {
+    await sweepTrash();
+    cleanupTimer = setInterval(() => void sweepTrash(), cleanupIntervalMs);
+    cleanupTimer.unref?.();
+  }
+
   const app = createApp(store);
   const host = opts.host ?? DEFAULT_HOST;
   const port = opts.port ?? DEFAULT_PORT;
@@ -73,6 +106,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     url,
     address: `${host}:${info.port}`,
     close: async () => {
+      if (cleanupTimer) clearInterval(cleanupTimer);
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await store.close();
     },

@@ -11,6 +11,8 @@ import {startServer} from './server';
  *   --data-dir <path>   | OPENBOOK_DATA_DIR        embedded mode: PGlite location
  *   OPENBOOK_DATABASE_URL | DATABASE_URL           server mode: external Postgres
  *   --host <host>  --port <port>  | --bind <h:p> | OPENBOOK_BIND
+ *   OPENBOOK_TRASH_RETENTION_MS         how long trash is kept before purge
+ *   OPENBOOK_TRASH_CLEANUP_INTERVAL_MS  how often the cleanup job runs (0 = off)
  */
 export interface CliOverrides {
   /** PGlite asset overrides supplied by the compiled sidecar. */
@@ -55,6 +57,8 @@ export async function runCli(overrides: CliOverrides = {}): Promise<void> {
     // Headless defaults to all interfaces; embedded desktop to loopback.
     host: host ?? (databaseUrl ? '0.0.0.0' : '127.0.0.1'),
     port: port ?? 4319,
+    trashRetentionMs: numeric(process.env.OPENBOOK_TRASH_RETENTION_MS),
+    trashCleanupIntervalMs: numeric(process.env.OPENBOOK_TRASH_CLEANUP_INTERVAL_MS),
   });
 
   console.log(`OpenBook server listening on ${running.url}`);

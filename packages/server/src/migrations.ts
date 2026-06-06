@@ -60,6 +60,21 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS pages_parent_id_idx ON pages (parent_id)',
     ],
   },
+  {
+    // Soft delete: deleting a page sets `deleted_at` instead of removing the
+    // row, so it can be restored from the trash. A cleanup job hard-deletes
+    // pages whose `deleted_at` is older than the configured retention; the FK
+    // cascades then remove nested children, the hosted database, and its rows.
+    // The unique-name index is narrowed to live rows so a trashed page's name
+    // can be reused (and is re-checked on restore).
+    name: '0004_soft_delete',
+    statements: [
+      'ALTER TABLE pages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ',
+      'CREATE INDEX IF NOT EXISTS pages_deleted_at_idx ON pages (deleted_at) WHERE deleted_at IS NOT NULL',
+      'DROP INDEX IF EXISTS pages_name_key',
+      'CREATE UNIQUE INDEX IF NOT EXISTS pages_name_key ON pages (name) WHERE name IS NOT NULL AND deleted_at IS NULL',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

@@ -34,6 +34,8 @@ function check(label: string, cond: boolean): void {
   console.log(`  ✓ ${label}`);
 }
 
+const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
 const sampleSnapshot = (n: number): PageSnapshot => ({
   editorjs: {blocks: [{type: 'paragraph', data: {text: `hello ${n}`}}]},
   values: [['c1', n]],
@@ -107,10 +109,55 @@ async function exerciseNesting(client: HttpDataClient, mode: string): Promise<vo
   const resaved = await client.savePage({id: child.id, name: child.name, data: sampleSnapshot(99)});
   check('content save preserves the parent', resaved.parentId === parent.id);
 
-  // Deleting the parent cascades through the whole subtree.
-  check('delete parent', (await client.deletePage(parent.id)) === true);
-  check('child removed by cascade', (await client.getPage(child.id)) === null);
-  check('grandchild removed by cascade', (await client.getPage(grandchild.id)) === null);
+  // Deleting the parent moves the whole subtree to the trash together.
+  check('delete parent (soft)', (await client.deletePage(parent.id)) === true);
+  check('child hidden with the parent', (await client.getPage(child.id)) === null);
+  check('grandchild hidden with the parent', (await client.getPage(grandchild.id)) === null);
+  const trash = await client.listTrash();
+  check('parent is a trash root', trash.some((p) => p.id === parent.id));
+  check('nested child is not a separate trash root', !trash.some((p) => p.id === child.id));
+
+  // Restoring the parent brings the whole subtree back together.
+  check('restore parent', (await client.restorePage(parent.id))?.id === parent.id);
+  check('child restored with the parent', (await client.getPage(child.id)) !== null);
+  check('grandchild restored with the parent', (await client.getPage(grandchild.id)) !== null);
+  check('parent left the trash', !(await client.listTrash()).some((p) => p.id === parent.id));
+}
+
+async function exerciseTrash(client: HttpDataClient, mode: string): Promise<void> {
+  console.log(`\n[${mode}] Trash: restore, purge, empty`);
+
+  // A standalone page round-trips through the trash and back.
+  const page = await client.savePage({name: `trash-${mode}`, data: sampleSnapshot(1)});
+  check('soft delete returns true', (await client.deletePage(page.id)) === true);
+  check('soft-deleted page is hidden', (await client.getPage(page.id)) === null);
+  check('soft-deleted page is in the trash', (await client.listTrash()).some((p) => p.id === page.id));
+  check('a trashed name is freed for reuse', (await client.savePage({name: `trash-${mode}`, data: sampleSnapshot(2)})).id !== page.id);
+  const restored = await client.restorePage(page.id);
+  check('restore brings the page back', restored?.id === page.id);
+  check('restore renames around a name collision', restored?.name === `trash-${mode} (restored)`);
+  check('restored page is visible again', (await client.getPage(page.id)) !== null);
+
+  // Purge a single page for good.
+  await client.deletePage(page.id);
+  check('purge a single trashed page', (await client.purgePage(page.id)) === true);
+  check('purging a missing page returns false', (await client.purgePage(page.id)) === false);
+  check('a purged page cannot be restored', (await client.restorePage(page.id)) === null);
+
+  // A database row deleted on its own lands in the trash and restores back in.
+  const host = await client.savePage({name: `trash-db-${mode}`, data: sampleSnapshot(0)});
+  const db = await client.createDatabase({pageId: host.id, name: null, schema: defaultDatabaseSchema()});
+  const row = await client.createRow(db.id, {name: 'Doomed', data: rowSnapshot(5)});
+  check('delete a row (soft)', (await client.deletePage(row.id)) === true);
+  check('row leaves the database view', !(await client.listRows(db.id)).some((r) => r.id === row.id));
+  check('row appears in the trash', (await client.listTrash()).some((t) => t.id === row.id));
+  check('restore the row', (await client.restorePage(row.id))?.id === row.id);
+  check('row returns to the database view', (await client.listRows(db.id)).some((r) => r.id === row.id));
+
+  // Empty the trash wholesale.
+  await client.deletePage(host.id);
+  check('emptyTrash purges remaining trash', (await client.emptyTrash()) >= 1);
+  check('trash is empty afterwards', (await client.listTrash()).length === 0);
 }
 
 async function exerciseDatabase(client: HttpDataClient, mode: string): Promise<void> {
@@ -171,10 +218,19 @@ async function exerciseDatabase(client: HttpDataClient, mode: string): Promise<v
   }, schema.properties);
   check('applyView sorts by title ascending', sorted[0].name === 'Alpha Prime' || sorted[0].name === 'Alpha');
 
-  // Deleting the host page cascades to the database and its row pages.
-  check('delete host page', (await client.deletePage(host.id)) === true);
-  check('database removed by cascade', (await client.getDatabase(db.id)) === null);
-  check('row page removed by cascade', (await client.getPage(r1.id)) === null);
+  // Deleting the host page moves it to the trash; the database + rows survive
+  // until it's purged, so restoring the host brings the whole view back.
+  check('delete host page (soft)', (await client.deletePage(host.id)) === true);
+  check('host page hidden after delete', (await client.getPage(host.id)) === null);
+  check('database survives a soft delete', (await client.getDatabase(db.id)) !== null);
+  check('host page restores', (await client.restorePage(host.id))?.id === host.id);
+  check('rows survive the round-trip', (await client.listRows(db.id)).length === 2);
+
+  // Purge for good: now the FK cascade removes the database and its row pages.
+  await client.deletePage(host.id);
+  check('purge host page', (await client.purgePage(host.id)) === true);
+  check('database removed by cascade after purge', (await client.getDatabase(db.id)) === null);
+  check('row page removed by cascade after purge', (await client.getPage(r1.id)) === null);
 }
 
 async function main(): Promise<void> {
@@ -192,6 +248,7 @@ async function main(): Promise<void> {
   await exerciseCrud(embeddedClient, 'embedded');
   await exerciseDatabase(embeddedClient, 'embedded');
   await exerciseNesting(embeddedClient, 'embedded');
+  await exerciseTrash(embeddedClient, 'embedded');
 
   // ---- 2. Persistence across restart ----
   console.log('\n=== 2. PERSISTENCE ACROSS RESTART ===');
@@ -223,12 +280,38 @@ async function main(): Promise<void> {
   await exerciseCrud(new HttpDataClient(headless.url), 'headless');
   await exerciseDatabase(new HttpDataClient(headless.url), 'headless');
   await exerciseNesting(new HttpDataClient(headless.url), 'headless');
+  await exerciseTrash(new HttpDataClient(headless.url), 'headless');
   await headless.close();
   await socket.stop();
   await pglite.close();
 
+  // ---- 4. Trash cleanup job (retention purge) ----
+  console.log('\n=== 4. TRASH CLEANUP JOB ===');
+  const janitor = await startServer({
+    dataDir: `${ROOT}/janitor`,
+    host: '127.0.0.1',
+    port: 4403,
+    trashRetentionMs: 0, // purge as soon as a sweep runs
+    trashCleanupIntervalMs: 300, // sweep on a short interval for the test
+  });
+  const jclient = new HttpDataClient(janitor.url);
+  const doomed = await jclient.savePage({name: 'doomed', data: sampleSnapshot(1)});
+  check('janitor: page created', (await jclient.getPage(doomed.id)) !== null);
+  check('janitor: soft delete', (await jclient.deletePage(doomed.id)) === true);
+  let swept = false;
+  for (let i = 0; i < 40; i += 1) {
+    await delay(100);
+    if ((await jclient.listTrash()).length === 0) {
+      swept = true;
+      break;
+    }
+  }
+  check('janitor: cleanup job purged the expired page', swept);
+  check('janitor: purged page is gone for good', (await jclient.restorePage(doomed.id)) === null);
+  await janitor.close();
+
   rmSync(ROOT, {recursive: true, force: true});
-  console.log(`\n✅ ALL ${passed} CHECKS PASSED — embedded, persistence, and headless flows verified.`);
+  console.log(`\n✅ ALL ${passed} CHECKS PASSED — embedded, persistence, headless, and trash-cleanup flows verified.`);
 }
 
 main().catch((err) => {
