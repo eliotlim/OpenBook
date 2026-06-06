@@ -6,6 +6,7 @@ import {ReactBlockTool, type ReactiveBlockData} from './editorJsReactAdapter';
 import {store} from './ReactiveStore';
 import {useReactiveCell} from './useReactiveCell';
 import {compile} from './compile';
+import {Skeleton} from '@/components/ui/skeleton';
 
 interface ExprBlockData extends ReactiveBlockData {
   name?: string;
@@ -246,6 +247,13 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
         {errorMsg ? (
           <span className="inline-flex items-center gap-1.5 rounded-md bg-destructive/10 px-2 py-1 font-medium text-destructive">
             {errorMsg}
+          </span>
+        ) : result === undefined && source.trim() !== '' ? (
+          // Computing: a fixed-size placeholder so the result line doesn't jump
+          // when the value arrives.
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden className="font-mono text-muted-foreground/50">=</span>
+            <Skeleton className="h-4 w-16" />
           </span>
         ) : (
           <span className="inline-flex items-baseline gap-1.5 text-muted-foreground">

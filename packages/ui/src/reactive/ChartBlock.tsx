@@ -6,6 +6,7 @@ import {effect} from '@preact/signals-core';
 import {ReactBlockTool, type ReactiveBlockData} from './editorJsReactAdapter';
 import {store} from './ReactiveStore';
 import {normalizeChartInput, type NormalizedSeries} from './chartNormalize';
+import {Skeleton} from '@/components/ui/skeleton';
 
 interface ChartBlockData extends ReactiveBlockData {
   // Multi-series: one cellId per series row in the picker UI.
@@ -34,6 +35,12 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
       : [{rowKey: 'row-0', cellId: ''}],
   );
   const [availableCells, setAvailableCells] = useState<Array<[string, string]>>([]);
+  // Render phase drives the skeleton vs chart vs message, so the block reserves
+  // its height up front and never jumps as data (re)computes. Starts 'pending'
+  // when there are cells to plot (skeleton shows immediately, before the first
+  // effect run), 'idle' (a short note) when there's nothing to plot yet.
+  const [phase, setPhase] = useState<'idle' | 'pending' | 'ready'>(initialIds.length > 0 ? 'pending' : 'idle');
+  const [note, setNote] = useState<string>('Pick at least one cell to plot');
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const nextKeyRef = useRef<number>(rows.length);
 
@@ -51,27 +58,31 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
   useEffect(() => {
     const activeIds = rows.map((r) => r.cellId).filter(Boolean);
     if (activeIds.length === 0) {
-      if (chartContainerRef.current) {
-        chartContainerRef.current.innerHTML =
-          '<div class="px-3 py-6 text-center text-xs text-muted-foreground/70">Pick at least one cell to plot</div>';
-      }
+      setPhase('idle');
+      setNote('Pick at least one cell to plot');
+      if (chartContainerRef.current) chartContainerRef.current.innerHTML = '';
       return;
     }
     return effect(() => {
       const allSeries: NormalizedSeries[] = [];
+      let anyPending = false;
       for (const cellId of activeIds) {
         const value = store.getByCellId(cellId);
+        if (value === undefined) anyPending = true;
         const fallback = store.getName(cellId) ?? cellId;
         allSeries.push(...normalizeChartInput(value, fallback));
       }
-      if (!chartContainerRef.current) return;
-      chartContainerRef.current.innerHTML = '';
       const usableSeries = allSeries.filter((s) => s.data.length > 0);
       if (usableSeries.length === 0) {
-        const note = document.createElement('div');
-        note.className = 'px-3 py-6 text-center text-xs text-muted-foreground/70';
-        note.textContent = 'No numeric array data in the selected cells';
-        chartContainerRef.current.appendChild(note);
+        // A referenced cell hasn't produced a value yet → keep the skeleton
+        // (reserve height, no jump). Genuinely non-numeric data → a short note.
+        if (anyPending) {
+          setPhase('pending');
+        } else {
+          setPhase('idle');
+          setNote('No numeric array data in the selected cells');
+        }
+        if (chartContainerRef.current) chartContainerRef.current.innerHTML = '';
         return;
       }
       // Long format: one row per (series, index, value). Plot handles
@@ -82,10 +93,13 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
           longData.push({i, y: s.data[i], series: s.name});
         }
       }
+      if (!chartContainerRef.current) return;
       try {
         // Measure the container so the chart fills the document column and
         // stays responsive instead of a fixed 480px. Fall back to 640 before
-        // first layout. Cap so it never overflows a wide full-width page.
+        // first layout. Cap so it never overflows a wide full-width page. (The
+        // container keeps full width even while the skeleton reserves height,
+        // so this measures correctly on the pending → ready transition.)
         const measured = chartContainerRef.current.clientWidth || 640;
         const width = Math.max(280, Math.min(measured, 720));
         const chart = Plot.plot({
@@ -102,12 +116,13 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
           grid: true,
           color: {legend: usableSeries.length > 1},
         });
+        chartContainerRef.current.innerHTML = '';
         chartContainerRef.current.appendChild(chart);
+        setPhase('ready');
       } catch (e) {
-        const errDiv = document.createElement('div');
-        errDiv.className = 'px-3 py-2 text-xs font-medium text-destructive';
-        errDiv.textContent = `Plot error: ${(e as Error).message}`;
-        chartContainerRef.current.appendChild(errDiv);
+        setPhase('idle');
+        setNote(`Plot error: ${(e as Error).message}`);
+        chartContainerRef.current.innerHTML = '';
       }
     });
     // Re-run the effect whenever the picker rows change.
@@ -165,7 +180,16 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
           + add series
         </button>
       </div>
-      <div ref={chartContainerRef} className="min-h-10 overflow-hidden rounded-md bg-background/60" />
+      <div className="overflow-hidden rounded-md bg-background/60">
+        {/* The chart mounts here. While not ready it's collapsed to height 0 but
+            keeps full width (so the effect can still measure it); the skeleton
+            below reserves the chart's eventual height (~2:1) so nothing jumps. */}
+        <div ref={chartContainerRef} className={phase === 'ready' ? '' : 'h-0 overflow-hidden'} />
+        {phase === 'pending' && <Skeleton className="aspect-[2/1] w-full" />}
+        {phase === 'idle' && (
+          <div className="px-3 py-6 text-center text-xs text-muted-foreground/70">{note}</div>
+        )}
+      </div>
     </div>
   );
 };

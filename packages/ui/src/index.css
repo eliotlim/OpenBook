@@ -237,6 +237,12 @@
 .ce-toolbar__content {
   max-width: 46rem;
 }
+/* Full-width view: let the editor content fill the page like the title and
+   database sections (toggled by the holder class the document sets). */
+.ob-editor-full .ce-block__content,
+.ob-editor-full .ce-toolbar__content {
+  max-width: none;
+}
 .ce-paragraph {
   line-height: 1.65;
   font-size: 1rem;

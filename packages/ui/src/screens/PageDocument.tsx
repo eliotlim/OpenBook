@@ -37,12 +37,12 @@ async function applyIncomingBlocks(inst: EditorJS, next: OutputData, holder: HTM
     ? active?.closest('.ce-block')?.getAttribute('data-id') ?? null
     : null;
 
-  // No caret to protect (or we can't identify its block): full render is safe.
-  if (!editorFocused || !focusedBlockId) {
-    await inst.render(next);
-    return;
-  }
-
+  // Always diff — never `inst.render(next)`. A full render tears down and
+  // rebuilds *every* block, which shifts the layout and re-mounts reactive /
+  // subpage blocks, re-running their side effects (recompute, child creation) —
+  // the source of the save loop on pages with complex blocks. We patch only the
+  // blocks that actually changed. `focusedBlockId` is null when nothing here has
+  // the caret, in which case every changed block is eligible for update.
   const current = await inst.save();
   const currentBlocks = current.blocks ?? [];
   const nextBlocks = next.blocks ?? [];
@@ -277,16 +277,24 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         },
         onChange: (_api, event) => {
           if (suppressSaveRef.current) return;
-          // Adding/removing/moving a block (e.g. inserting a subpage from the
-          // block menu), or a block updating its own data (e.g. a subpage block
-          // recording the page id it just created via dispatchChange), is a
-          // genuine edit but fires no `input` event, so mark it here — otherwise
-          // the change wouldn't autosave. Peer-applied patches set
+          // Adding/removing/moving a block is a genuine edit that fires no
+          // `input` event, so mark it here. `block-changed` is trickier: reactive
+          // blocks (expr/chart/slider) fire it constantly as they recompute and
+          // re-render their DOM — treating those as edits causes a save loop. So
+          // only a subpage block recording the child page id it just created
+          // (via dispatchChange) counts. Peer-applied patches set
           // `suppressSaveRef` and are filtered above.
           const events = Array.isArray(event) ? event : [event];
-          if (events.some((e) => ['block-added', 'block-removed', 'block-moved', 'block-changed'].includes(e?.type))) {
-            userEditedRef.current = true;
-          }
+          const isEdit = events.some((e) => {
+            const type = e?.type;
+            if (type === 'block-added' || type === 'block-removed' || type === 'block-moved') return true;
+            if (type === 'block-changed') {
+              const target = (e as {detail?: {target?: {name?: string}}})?.detail?.target;
+              return target?.name === 'subpage';
+            }
+            return false;
+          });
+          if (isEdit) userEditedRef.current = true;
           setStatus('unsaved');
           if (saveTimer.current) clearTimeout(saveTimer.current);
           saveTimer.current = setTimeout(() => {
@@ -407,7 +415,12 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         />
       </div>
 
-      {!isSSR() && <div ref={holderRef} className="min-h-[40vh]" />}
+      {/* `ob-editor-full` lets the CSS widen the EditorJS content column to match
+          the full-width title/database sections (the editor centers its blocks
+          via a max-width in index.css, which this overrides). */}
+      {!isSSR() && (
+        <div ref={holderRef} className={cn('min-h-[40vh]', hud.viewMode.fullWidth && 'ob-editor-full')} />
+      )}
 
       {footer && <div className={columnClass}>{footer}</div>}
     </div>
