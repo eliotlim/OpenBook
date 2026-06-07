@@ -15,7 +15,8 @@ import {MoreHorizontal, Trash2} from 'lucide-react';
 // browser-dependent bundle during SSR (e.g. the Next.js web shell). The default
 // import is kept type-only so `EditorJS` is usable as the instance type.
 import type EditorJS from '@editorjs/editorjs';
-import type {OutputData} from '@editorjs/editorjs';
+import type {BlockToolData, OutputData} from '@editorjs/editorjs';
+import {planBlockSync, isPersistWorthyChange} from './liveSync';
 
 /**
  * Apply a peer's snapshot to the live editor with minimal disruption.
@@ -40,47 +41,26 @@ async function applyIncomingBlocks(inst: EditorJS, next: OutputData, holder: HTM
   // Always diff — never `inst.render(next)`. A full render tears down and
   // rebuilds *every* block, which shifts the layout and re-mounts reactive /
   // subpage blocks, re-running their side effects (recompute, child creation) —
-  // the source of the save loop on pages with complex blocks. We patch only the
-  // blocks that actually changed. `focusedBlockId` is null when nothing here has
-  // the caret, in which case every changed block is eligible for update.
+  // the source of the save loop on pages with complex blocks. {@link planBlockSync}
+  // returns only the ops for blocks that actually changed (an identical snapshot
+  // → empty plan → no churn). `focusedBlockId` is null when nothing here has the
+  // caret; the planner never touches the focused block.
   const current = await inst.save();
-  const currentBlocks = current.blocks ?? [];
-  const nextBlocks = next.blocks ?? [];
-  const currentById = new Map(currentBlocks.map((b) => [b.id, b] as const));
-  const nextById = new Map(nextBlocks.map((b) => [b.id, b] as const));
-  const liveIds = new Set(currentBlocks.map((b) => b.id));
+  const plan = planBlockSync(current.blocks ?? [], next.blocks ?? [], focusedBlockId);
 
-  // 1. Delete blocks the peer removed — but never the one under the caret.
-  for (const b of currentBlocks) {
-    if (b.id && b.id !== focusedBlockId && !nextById.has(b.id)) {
-      const idx = inst.blocks.getBlockIndex(b.id);
-      if (idx >= 0) {
-        inst.blocks.delete(idx);
-        liveIds.delete(b.id);
-      }
-    }
+  for (const id of plan.deletes) {
+    const idx = inst.blocks.getBlockIndex(id);
+    if (idx >= 0) inst.blocks.delete(idx);
   }
-
-  // 2. Update blocks whose data changed — but never the focused one (that would
-  //    re-render it and yank the caret). The focused block reconciles on blur.
-  for (const b of nextBlocks) {
-    if (!b.id || b.id === focusedBlockId) continue;
-    const cur = currentById.get(b.id);
-    if (cur && JSON.stringify(cur.data) !== JSON.stringify(b.data)) {
-      await inst.blocks.update(b.id, b.data);
-    }
+  for (const u of plan.updates) {
+    await inst.blocks.update(u.id, u.data as BlockToolData);
   }
-
-  // 3. Insert blocks the peer added, each anchored after its predecessor so the
-  //    relative order is preserved across multiple inserts.
-  for (let i = 0; i < nextBlocks.length; i++) {
-    const b = nextBlocks[i];
-    if (!b.id || liveIds.has(b.id)) continue;
-    const prevId = i > 0 ? nextBlocks[i - 1].id : undefined;
-    const prevIdx = prevId ? inst.blocks.getBlockIndex(prevId) : -1;
-    const insertAt = prevIdx >= 0 ? prevIdx + 1 : i;
-    inst.blocks.insert(b.type, b.data, {}, insertAt, false, false, b.id);
-    liveIds.add(b.id);
+  for (const ins of plan.inserts) {
+    // Anchor after the predecessor so relative order survives multiple inserts;
+    // fall back to the incoming index when the anchor isn't live.
+    const prevIdx = ins.afterId ? inst.blocks.getBlockIndex(ins.afterId) : -1;
+    const insertAt = prevIdx >= 0 ? prevIdx + 1 : ins.index;
+    inst.blocks.insert(ins.type, ins.data as BlockToolData, {}, insertAt, false, false, ins.id);
   }
 }
 import {SliderBlock, ExprBlock, ChartBlock, SubpageBlock} from '@/reactive';
@@ -277,24 +257,12 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         },
         onChange: (_api, event) => {
           if (suppressSaveRef.current) return;
-          // Adding/removing/moving a block is a genuine edit that fires no
-          // `input` event, so mark it here. `block-changed` is trickier: reactive
-          // blocks (expr/chart/slider) fire it constantly as they recompute and
-          // re-render their DOM — treating those as edits causes a save loop. So
-          // only a subpage block recording the child page id it just created
-          // (via dispatchChange) counts. Peer-applied patches set
-          // `suppressSaveRef` and are filtered above.
-          const events = Array.isArray(event) ? event : [event];
-          const isEdit = events.some((e) => {
-            const type = e?.type;
-            if (type === 'block-added' || type === 'block-removed' || type === 'block-moved') return true;
-            if (type === 'block-changed') {
-              const target = (e as {detail?: {target?: {name?: string}}})?.detail?.target;
-              return target?.name === 'subpage';
-            }
-            return false;
-          });
-          if (isEdit) userEditedRef.current = true;
+          // Mark genuine structural edits (which fire no `input` event). Reactive
+          // blocks fire `block-changed` on every recompute — {@link isPersistWorthyChange}
+          // filters those out (only a subpage recording its new child id counts)
+          // so they don't drive a save loop. Peer patches set `suppressSaveRef`
+          // and are filtered above.
+          if (isPersistWorthyChange(event)) userEditedRef.current = true;
           setStatus('unsaved');
           if (saveTimer.current) clearTimeout(saveTimer.current);
           saveTimer.current = setTimeout(() => {

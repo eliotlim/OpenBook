@@ -141,3 +141,9 @@ packages/server/assets/
 
 # Bun --compile incremental build cache
 *.bun-build
+
+# Playwright e2e + Chromatic artifacts
+packages/web/test-results/
+packages/web/playwright-report/
+packages/web/blob-report/
+packages/web/.last-run.json

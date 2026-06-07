@@ -7,6 +7,8 @@ import {store} from './ReactiveStore';
 import {useReactiveCell} from './useReactiveCell';
 import {compile} from './compile';
 import {Skeleton} from '@/components/ui/skeleton';
+import {Input} from '@/components/ui/input';
+import {ReactiveCard} from './blockChrome';
 
 interface ExprBlockData extends ReactiveBlockData {
   name?: string;
@@ -217,16 +219,11 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
   }, []);
 
   return (
-    <div className="reactive-block rounded-lg border border-border bg-muted/30 px-3.5 py-3 transition-colors focus-within:border-ring/60">
+    <ReactiveCard>
       <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
         <label className="inline-flex items-center gap-1.5">
           <span className="font-mono text-muted-foreground/60">ƒ</span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-28 rounded-md border border-input bg-background px-2 py-1 font-mono text-[13px] text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
-          />
+          <Input inputSize="sm" value={name} onChange={(e) => setName(e.target.value)} className="w-28 font-mono" />
         </label>
         <span className="text-muted-foreground/60">
           reference cells with <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground/70">@name</code>
@@ -241,7 +238,7 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
         onBlur={handleBlur}
         onFocus={handleFocus}
         spellCheck={false}
-        className="min-h-9 whitespace-pre-wrap rounded-md border border-input bg-background px-2.5 py-2 font-mono text-[13px] leading-relaxed text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
+        className="min-h-9 whitespace-pre-wrap rounded-md border border-input bg-background px-2.5 py-2 font-mono text-sm leading-relaxed text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
       />
       <div className="mt-2 text-xs">
         {errorMsg ? (
@@ -258,11 +255,11 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
         ) : (
           <span className="inline-flex items-baseline gap-1.5 text-muted-foreground">
             <span aria-hidden className="font-mono text-muted-foreground/50">=</span>
-            <code className="font-mono text-[13px] font-medium text-brand">{formatResult(result)}</code>
+            <code className="font-mono text-sm font-medium text-brand">{formatResult(result)}</code>
           </span>
         )}
       </div>
-    </div>
+    </ReactiveCard>
   );
 };
 

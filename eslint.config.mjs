@@ -13,6 +13,10 @@ export default tseslint.config(
       '**/.next/**',
       '**/node_modules/**',
       '**/next-env.d.ts',
+      // Playwright / Chromatic run artifacts (generated; includes built JS).
+      '**/test-results/**',
+      '**/playwright-report/**',
+      '**/blob-report/**',
       // Rust host + generated Tauri capability schemas.
       'packages/app/src-tauri/**',
       // shadcn/ui primitives, kept verbatim from upstream.

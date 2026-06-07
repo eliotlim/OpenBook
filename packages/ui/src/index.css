@@ -138,7 +138,8 @@
     --border: 40 8% 90%;
     --input: 40 8% 87%;
     --ring: 207 75% 49%;
-    --radius: 0.375rem;
+    /* Refined-minimal: softer 8px corners cascade to every rounded-{sm,md,lg}. */
+    --radius: 0.5rem;
     --sheet-1: 40 14% 97.5%;
     --sheet-1-foreground: 34 9% 19%;
     --sheet-2: 40 11% 93.5%;
@@ -244,8 +245,8 @@
   max-width: none;
 }
 .ce-paragraph {
-  line-height: 1.65;
-  font-size: 1rem;
+  line-height: 1.6;
+  font-size: 0.9375rem; /* 15px — comfortable reading body */
 }
 .cdx-block {
   padding: 0.2rem 0;

@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint .",
     "lint-fix": "eslint . --fix",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "chromatic": "chromatic --playwright --exit-zero-on-changes"
   },
   "dependencies": {
     "@open-book/sdk": "workspace:*",
@@ -21,6 +24,9 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@chromatic-com/playwright": "^0.14.5",
+    "@playwright/test": "^1.60.0",
+    "chromatic": "^17.2.0",
     "typescript": "^6.0.3"
   }
 }

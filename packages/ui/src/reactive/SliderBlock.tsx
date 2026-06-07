@@ -4,6 +4,8 @@ import type {ToolboxConfig} from '@editorjs/editorjs';
 import {ReactBlockTool, type ReactiveBlockData} from './editorJsReactAdapter';
 import {store} from './ReactiveStore';
 import {useReactiveCell} from './useReactiveCell';
+import {Input} from '@/components/ui/input';
+import {ReactiveCard, FieldRow} from './blockChrome';
 
 interface SliderBlockData extends ReactiveBlockData {
   name?: string;
@@ -43,44 +45,20 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
   }, [name, min, max, step, value, onChange]);
 
   return (
-    <div className="reactive-block group/block rounded-lg border border-border bg-muted/30 px-3.5 py-3 transition-colors focus-within:border-ring/60">
+    <ReactiveCard className="group/block">
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-        <label className="inline-flex items-center gap-1.5">
-          <span className="select-none text-muted-foreground/70">name</span>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-28 rounded-md border border-input bg-background px-2 py-1 font-mono text-[13px] text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
-          />
-        </label>
-        <label className="inline-flex items-center gap-1.5">
-          <span className="select-none text-muted-foreground/70">min</span>
-          <input
-            type="number"
-            value={min}
-            onChange={(e) => setMin(Number(e.target.value))}
-            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
-          />
-        </label>
-        <label className="inline-flex items-center gap-1.5">
-          <span className="select-none text-muted-foreground/70">max</span>
-          <input
-            type="number"
-            value={max}
-            onChange={(e) => setMax(Number(e.target.value))}
-            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
-          />
-        </label>
-        <label className="inline-flex items-center gap-1.5">
-          <span className="select-none text-muted-foreground/70">step</span>
-          <input
-            type="number"
-            value={step}
-            onChange={(e) => setStep(Number(e.target.value))}
-            className="w-16 rounded-md border border-input bg-background px-2 py-1 text-[13px] tabular-nums text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
-          />
-        </label>
+        <FieldRow label="name">
+          <Input inputSize="sm" value={name} onChange={(e) => setName(e.target.value)} className="w-28 font-mono" />
+        </FieldRow>
+        <FieldRow label="min">
+          <Input inputSize="sm" type="number" value={min} onChange={(e) => setMin(Number(e.target.value))} className="w-16 tabular-nums" />
+        </FieldRow>
+        <FieldRow label="max">
+          <Input inputSize="sm" type="number" value={max} onChange={(e) => setMax(Number(e.target.value))} className="w-16 tabular-nums" />
+        </FieldRow>
+        <FieldRow label="step">
+          <Input inputSize="sm" type="number" value={step} onChange={(e) => setStep(Number(e.target.value))} className="w-16 tabular-nums" />
+        </FieldRow>
       </div>
       <div className="flex items-center gap-3">
         <input
@@ -93,11 +71,11 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
           className="h-1.5 flex-1 cursor-pointer accent-brand"
           aria-label={name}
         />
-        <code className="min-w-14 rounded-md bg-brand-subtle px-2 py-1 text-right text-[13px] font-semibold tabular-nums text-brand">
+        <code className="min-w-14 rounded-md bg-brand-subtle px-2 py-1 text-right text-sm font-semibold tabular-nums text-brand">
           {value}
         </code>
       </div>
-    </div>
+    </ReactiveCard>
   );
 };
 

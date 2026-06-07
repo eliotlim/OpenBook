@@ -13,7 +13,7 @@ const displayName = (name: string | null): string =>
  * a page with a `parentId` is attached under that parent (recursively). Pages
  * whose parent isn't in the list (e.g. it was deleted) surface at the top level.
  */
-function buildTree(pages: PageMeta[]): TreeDataItem[] {
+export function buildTree(pages: PageMeta[]): TreeDataItem[] {
   const nodes = new Map<string, TreeDataItem>();
   for (const page of pages) {
     nodes.set(page.id, {

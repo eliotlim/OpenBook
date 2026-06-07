@@ -16,6 +16,7 @@ import {rmSync} from 'node:fs';
 import {PGlite} from '@electric-sql/pglite';
 import {PGLiteSocketServer} from '@electric-sql/pglite-socket';
 import {
+  API,
   applyView,
   defaultDatabaseSchema,
   HttpDataClient,
@@ -233,6 +234,18 @@ async function exerciseDatabase(client: HttpDataClient, mode: string): Promise<v
   check('row page removed by cascade after purge', (await client.getPage(r1.id)) === null);
 }
 
+// API responses must never be cached: the desktop WKWebView shell otherwise
+// serves stale GETs (e.g. an empty trash) from its URL cache. Regression guard
+// for the `Cache-Control: no-store` middleware.
+async function exerciseCacheHeaders(baseUrl: string, mode: string): Promise<void> {
+  console.log(`\n[${mode}] API responses are non-cacheable`);
+  for (const path of [API.pages, API.trash]) {
+    const res = await fetch(`${baseUrl}${path}`);
+    check(`${path} sends Cache-Control: no-store`, res.headers.get('cache-control') === 'no-store');
+    await res.text(); // drain the body
+  }
+}
+
 async function main(): Promise<void> {
   rmSync(ROOT, {recursive: true, force: true});
 
@@ -245,6 +258,7 @@ async function main(): Promise<void> {
   const health = await fetch(`${server.url}/health`).then((r) => r.text());
   check('health endpoint returns ok', health === 'ok');
 
+  await exerciseCacheHeaders(server.url, 'embedded');
   await exerciseCrud(embeddedClient, 'embedded');
   await exerciseDatabase(embeddedClient, 'embedded');
   await exerciseNesting(embeddedClient, 'embedded');

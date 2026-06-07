@@ -7,6 +7,8 @@ import {ReactBlockTool, type ReactiveBlockData} from './editorJsReactAdapter';
 import {store} from './ReactiveStore';
 import {normalizeChartInput, type NormalizedSeries} from './chartNormalize';
 import {Skeleton} from '@/components/ui/skeleton';
+import {Select} from '@/components/ui/select';
+import {ReactiveCard} from './blockChrome';
 
 interface ChartBlockData extends ReactiveBlockData {
   // Multi-series: one cellId per series row in the picker UI.
@@ -142,15 +144,16 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
   const removeRow = (idx: number) => setRows((prev) => prev.filter((_, i) => i !== idx));
 
   return (
-    <div className="reactive-block rounded-lg border border-border bg-muted/30 px-3.5 py-3 transition-colors focus-within:border-ring/60">
+    <ReactiveCard>
       <div className="mb-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
         {rows.map((row, idx) => (
           <div key={row.rowKey} className="flex items-center gap-2">
             <span className="w-9 select-none text-muted-foreground/60">{idx === 0 ? 'plot' : 'and'}</span>
-            <select
+            <Select
+              inputSize="sm"
+              wrapperClassName="max-w-[16rem] flex-1"
               value={row.cellId}
               onChange={(e) => setCellAt(idx, e.target.value)}
-              className="h-8 max-w-[16rem] flex-1 rounded-md border border-input bg-background px-2 text-[13px] text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
             >
               <option value="">— pick a cell —</option>
               {availableCells.map(([name, cellId]) => (
@@ -158,7 +161,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
                   {name}
                 </option>
               ))}
-            </select>
+            </Select>
             {rows.length > 1 && (
               <button
                 type="button"
@@ -190,7 +193,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
           <div className="px-3 py-6 text-center text-xs text-muted-foreground/70">{note}</div>
         )}
       </div>
-    </div>
+    </ReactiveCard>
   );
 };
 
