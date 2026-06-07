@@ -1,5 +1,6 @@
 import {API, type ApiError} from './routes';
 import type {PageInput, PageMeta, StoredPage} from './types';
+import type {ImportRequest, ImportResult} from './backup';
 import type {
   DatabaseInput,
   DatabaseRow,
@@ -48,6 +49,10 @@ export interface DataClient {
    * it. Resolves `true` if a live page was trashed.
    */
   deletePage(id: string): Promise<boolean>;
+  /** Export the whole space: every live page (full data) + every database. */
+  exportSpace(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}>;
+  /** Restore a (client-selected) set of pages/databases; see {@link ImportRequest}. */
+  importSpace(req: ImportRequest): Promise<ImportResult>;
   /** List the trash (most-recently-deleted first). */
   listTrash(): Promise<PageMeta[]>;
   /** Restore a trashed page, or `null` if it isn't in the trash. */
@@ -223,6 +228,14 @@ export class HttpDataClient implements DataClient {
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
+  }
+
+  async exportSpace(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
+    return this.request<{pages: StoredPage[]; databases: StoredDatabase[]}>('GET', API.exportSpace);
+  }
+
+  async importSpace(req: ImportRequest): Promise<ImportResult> {
+    return this.request<ImportResult>('POST', API.importSpace, req);
   }
 
   async listTrash(): Promise<PageMeta[]> {

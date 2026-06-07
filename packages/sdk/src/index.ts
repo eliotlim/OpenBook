@@ -33,3 +33,11 @@ export {
 } from './database';
 export {getServerUrlOverride, setServerUrlOverride} from './connection';
 export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';
+export {
+  BACKUP_VERSION,
+  remapBundle,
+  type SpaceBackup,
+  type ImportMode,
+  type ImportRequest,
+  type ImportResult,
+} from './backup';

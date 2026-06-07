@@ -163,6 +163,38 @@ async function exerciseOrdering(client: HttpDataClient, mode: string): Promise<v
   await client.deletePage(parent.id);
 }
 
+async function exerciseBackup(client: HttpDataClient, mode: string): Promise<void> {
+  console.log(`\n[${mode}] Whole-space backup: export / import`);
+
+  const parent = await client.savePage({name: `bk-parent-${mode}`, data: sampleSnapshot(1)});
+  const child = await client.savePage({name: `bk-child-${mode}`, data: sampleSnapshot(2), parentId: parent.id});
+
+  const bundle = await client.exportSpace();
+  check('export includes live pages with data', bundle.pages.some((p) => p.id === parent.id && p.data.values.length > 0));
+  check('export includes nested pages', bundle.pages.some((p) => p.id === child.id && p.parentId === parent.id));
+
+  // Copy-import the parent + child: new ids, names suffixed on clash, nesting kept.
+  const subtree = bundle.pages.filter((p) => p.id === parent.id || p.id === child.id);
+  const copied = await client.importSpace({pages: subtree, databases: [], mode: 'copy'});
+  check('copy import creates new pages', copied.created === 2 && copied.overwritten === 0);
+  check('copy import suffixes clashing names', copied.renamed === 2);
+
+  const afterCopy = await client.exportSpace();
+  const importedParent = afterCopy.pages.find((p) => p.name === `bk-parent-${mode} (imported)`);
+  const importedChild = afterCopy.pages.find((p) => p.name === `bk-child-${mode} (imported)`);
+  check('copy import: parent copied under a fresh id', !!importedParent && importedParent.id !== parent.id);
+  check('copy import: nesting preserved', !!importedChild && importedChild.parentId === importedParent?.id);
+
+  // Overwrite-import the original parent (same id) with a new name → replace in place.
+  const overwritten = await client.importSpace({
+    pages: [{...parent, name: `bk-parent-${mode}-edited`}],
+    databases: [],
+    mode: 'overwrite',
+  });
+  check('overwrite replaces by id (no new page)', overwritten.overwritten === 1 && overwritten.created === 0);
+  check('overwrite applies the new content', (await client.getPage(parent.id))?.name === `bk-parent-${mode}-edited`);
+}
+
 async function exerciseTrash(client: HttpDataClient, mode: string): Promise<void> {
   console.log(`\n[${mode}] Trash: restore, purge, empty`);
 
@@ -301,6 +333,7 @@ async function main(): Promise<void> {
   await exerciseDatabase(embeddedClient, 'embedded');
   await exerciseNesting(embeddedClient, 'embedded');
   await exerciseOrdering(embeddedClient, 'embedded');
+  await exerciseBackup(embeddedClient, 'embedded');
   await exerciseTrash(embeddedClient, 'embedded');
 
   // ---- 2. Persistence across restart ----

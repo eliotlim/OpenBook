@@ -60,6 +60,8 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.0.0",
     "editorjs-drag-drop": "^1.1.16",
+    "jspdf": "^4.2.1",
+    "svg2pdf.js": "^2.7.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
     "use-immer": "^0.11.0",

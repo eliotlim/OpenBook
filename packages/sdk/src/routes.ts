@@ -13,6 +13,10 @@ export const API = {
   pageRestore: (id: string): string => `/api/pages/${encodeURIComponent(id)}/restore`,
   /** Move/reorder a page in the sidebar tree (re-parent + reorder siblings): `PUT`. */
   pageMove: (id: string): string => `/api/pages/${encodeURIComponent(id)}/move`,
+  /** Whole-space backup: `GET` returns every live page + database as one bundle. */
+  exportSpace: '/api/export',
+  /** Restore a backup: `POST` `{pages, databases, mode}` → import summary. */
+  importSpace: '/api/import',
   /** The trash: `GET` (list trashed pages) / `DELETE` (empty the whole trash). */
   trash: '/api/trash',
   /** A single trashed page: `DELETE` (permanently purge it and its subtree). */

@@ -1,8 +1,9 @@
 import {type ComponentType} from 'react';
 import {Cross2Icon, EnterFullScreenIcon, ExitFullScreenIcon, PersonIcon} from '@radix-ui/react-icons';
-import {PaintBrushIcon, ServerStackIcon, WrenchIcon} from '@heroicons/react/24/outline';
+import {ArchiveBoxIcon, PaintBrushIcon, ServerStackIcon, WrenchIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
 import ServerSettings from '@/components/ServerSettings';
+import BackupSettings from '@/components/BackupSettings';
 import {cn} from '@/lib/utils';
 import {SETTINGS_TABS, type SettingsMode, type SettingsTab} from '@/lib/hud';
 
@@ -10,6 +11,7 @@ const TAB_META: Record<SettingsTab, {label: string; icon: ComponentType<{classNa
   general: {label: 'General', icon: WrenchIcon},
   appearance: {label: 'Appearance', icon: PaintBrushIcon},
   server: {label: 'Server', icon: ServerStackIcon},
+  backup: {label: 'Backup', icon: ArchiveBoxIcon},
   profile: {label: 'Profile', icon: PersonIcon},
 };
 
@@ -57,6 +59,8 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
       <div className="flex min-h-0 w-full flex-col overflow-y-auto px-8 pb-8 pt-12">
         {tab === 'server' ? (
           <ServerSettings />
+        ) : tab === 'backup' ? (
+          <BackupSettings />
         ) : (
           <div className="flex flex-col gap-1">
             <h3 className="text-lg font-semibold">{TAB_META[tab].label}</h3>

@@ -1,7 +1,7 @@
 import {Hono} from 'hono';
 import {cors} from 'hono/cors';
 import {streamSSE} from 'hono/streaming';
-import {API, type DatabaseInput, type DatabaseUpdate, type PageInput, type RowInput} from '@open-book/sdk';
+import {API, type DatabaseInput, type DatabaseUpdate, type ImportRequest, type PageInput, type RowInput} from '@open-book/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 
@@ -106,6 +106,17 @@ export function createApp(store: PageStore): Hono {
     await broadcastList();
     if (existing?.databaseId) await broadcastRows(existing.databaseId);
     return c.body(null, 204);
+  });
+
+  // ── Whole-space backup ───────────────────────────────────────────────────────
+
+  app.get(API.exportSpace, async (c) => c.json(await store.exportAll()));
+
+  app.post(API.importSpace, async (c) => {
+    const req = await c.req.json<ImportRequest>();
+    const result = await store.importBundle(req);
+    await broadcastList();
+    return c.json(result);
   });
 
   // ── Trash (soft-deleted pages) ───────────────────────────────────────────────

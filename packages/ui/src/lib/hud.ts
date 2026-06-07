@@ -1,5 +1,5 @@
 /** Settings panels, in display order. */
-export const SETTINGS_TABS = ['general', 'appearance', 'server', 'profile'] as const;
+export const SETTINGS_TABS = ['general', 'appearance', 'server', 'backup', 'profile'] as const;
 export type SettingsTab = (typeof SETTINGS_TABS)[number];
 
 /** How the settings screen is presented. */

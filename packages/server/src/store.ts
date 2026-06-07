@@ -4,6 +4,8 @@ import type {
   DatabaseRow,
   DatabaseSchema,
   DatabaseUpdate,
+  ImportRequest,
+  ImportResult,
   PageInput,
   PageMeta,
   PageSnapshot,
@@ -11,7 +13,7 @@ import type {
   StoredDatabase,
   StoredPage,
 } from '@open-book/sdk';
-import {emptyPageSnapshot, projectExports} from '@open-book/sdk';
+import {emptyPageSnapshot, projectExports, remapBundle} from '@open-book/sdk';
 import type {Db} from './db';
 import {runMigrations} from './migrations';
 
@@ -109,19 +111,28 @@ const rowFromPage = (row: PageRow): DatabaseRow => {
 
 /**
  * Resolve a page name that is free among *live* pages (and not already claimed
- * by `taken` in the current batch), appending `" (restored)"` — then
- * `" (restored 2)"`, etc. — until it no longer collides. Used by restore, where
- * the original name may have been reused while the page was in the trash.
+ * by `taken` in the current batch), appending `" (<label>)"` — then
+ * `" (<label> 2)"`, etc. — until it no longer collides. `excludeId` ignores one
+ * page's own row (so an overwrite of the same page keeps its name). Used by
+ * restore (`label='restored'`) and backup import (`label='imported'`).
  */
-const freeName = async (tx: Db, base: string, taken: Set<string>): Promise<string> => {
+const freeName = async (
+  tx: Db,
+  base: string,
+  taken: Set<string>,
+  label = 'restored',
+  excludeId?: string,
+): Promise<string> => {
   const collides = async (candidate: string): Promise<boolean> => {
     if (taken.has(candidate)) return true;
-    const rows = await tx.query('SELECT 1 FROM pages WHERE name = $1 AND deleted_at IS NULL LIMIT 1', [candidate]);
+    const rows = excludeId
+      ? await tx.query('SELECT 1 FROM pages WHERE name = $1 AND deleted_at IS NULL AND id <> $2 LIMIT 1', [candidate, excludeId])
+      : await tx.query('SELECT 1 FROM pages WHERE name = $1 AND deleted_at IS NULL LIMIT 1', [candidate]);
     return rows.length > 0;
   };
   if (!(await collides(base))) return base;
   for (let n = 1; ; n += 1) {
-    const candidate = n === 1 ? `${base} (restored)` : `${base} (restored ${n})`;
+    const candidate = n === 1 ? `${base} (${label})` : `${base} (${label} ${n})`;
     if (!(await collides(candidate))) return candidate;
   }
 };
@@ -167,6 +178,111 @@ export class PageStore {
        ORDER BY p.position ASC, p.created_at ASC`,
     );
     return rows.map(metaFromRow);
+  }
+
+  // ── Whole-space backup ───────────────────────────────────────────────────────
+
+  /** Export every live page (full data, nesting, database membership) + every
+   *  database — the entire workspace as one bundle. */
+  async exportAll(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
+    const pageRows = await this.db.query<PageRow>(
+      `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.deleted_at IS NULL ORDER BY p.created_at ASC`,
+    );
+    const dbRows = await this.db.query<DatabaseRowRecord>(
+      'SELECT id, page_id, name, schema, created_at, updated_at FROM databases',
+    );
+    return {pages: pageRows.map(pageFromRow), databases: dbRows.map(databaseFromRow)};
+  }
+
+  /**
+   * Restore a backup, transactionally. `copy` (default) imports the pages/
+   * databases as fresh copies — new ids (via {@link remapBundle}), names suffixed
+   * `" (imported)"` on clash, appended below existing pages. `overwrite` upserts
+   * by id, replacing pages in place. Returns counts + the old→new id map.
+   */
+  async importBundle(req: ImportRequest): Promise<ImportResult> {
+    return req.mode === 'overwrite'
+      ? this.importOverwrite(req.pages, req.databases)
+      : this.importCopy(req.pages, req.databases);
+  }
+
+  private async importCopy(pages: StoredPage[], databases: StoredDatabase[]): Promise<ImportResult> {
+    const {pages: rp, databases: rd, idMap} = remapBundle(pages, databases, randomUUID);
+    let renamed = 0;
+    await this.db.begin(async (tx) => {
+      const taken = new Set<string>();
+      const names = new Map<string, string | null>();
+      for (const p of rp) {
+        if (!p.name) {
+          names.set(p.id, null);
+          continue;
+        }
+        const free = await freeName(tx, p.name, taken, 'imported');
+        if (free !== p.name) renamed += 1;
+        taken.add(free);
+        names.set(p.id, free);
+      }
+      // Insert pages first (parent_id/database_id deferred so the FKs resolve).
+      let i = 0;
+      for (const p of rp) {
+        await tx.query(
+          `INSERT INTO pages (id, name, data, properties, position, created_at, updated_at)
+           VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, now())`,
+          [p.id, names.get(p.id) ?? null, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), 1_000_000 + i, p.createdAt],
+        );
+        i += 1;
+      }
+      for (const d of rd) {
+        await tx.query(
+          'INSERT INTO databases (id, page_id, name, schema, updated_at) VALUES ($1, $2, $3, $4::jsonb, now())',
+          [d.id, d.pageId, d.name, JSON.stringify(d.schema)],
+        );
+      }
+      for (const p of rp) {
+        if (p.parentId || p.databaseId) {
+          await tx.query('UPDATE pages SET parent_id = $2, database_id = $3 WHERE id = $1', [p.id, p.parentId, p.databaseId]);
+        }
+      }
+    });
+    return {created: rp.length, overwritten: 0, renamed, idMap};
+  }
+
+  private async importOverwrite(pages: StoredPage[], databases: StoredDatabase[]): Promise<ImportResult> {
+    let created = 0;
+    let overwritten = 0;
+    const idMap: Record<string, string> = {};
+    await this.db.begin(async (tx) => {
+      const taken = new Set<string>();
+      for (const p of pages) {
+        idMap[p.id] = p.id;
+        const existing = await tx.query<{id: string}>('SELECT id FROM pages WHERE id = $1', [p.id]);
+        if (existing.length > 0) overwritten += 1;
+        else created += 1;
+        // Keep the page's own name; suffix only if a *different* live page holds it.
+        const name = p.name ? await freeName(tx, p.name, taken, 'imported', p.id) : null;
+        if (name) taken.add(name);
+        await tx.query(
+          `INSERT INTO pages (id, name, data, properties, created_at, updated_at)
+           VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, now())
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name, data = EXCLUDED.data, properties = EXCLUDED.properties,
+             deleted_at = NULL, updated_at = now()`,
+          [p.id, name, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), p.createdAt],
+        );
+      }
+      for (const d of databases) {
+        await tx.query(
+          `INSERT INTO databases (id, page_id, name, schema, updated_at)
+           VALUES ($1, $2, $3, $4::jsonb, now())
+           ON CONFLICT (id) DO UPDATE SET page_id = EXCLUDED.page_id, name = EXCLUDED.name, schema = EXCLUDED.schema, updated_at = now()`,
+          [d.id, d.pageId, d.name, JSON.stringify(d.schema)],
+        );
+      }
+      for (const p of pages) {
+        await tx.query('UPDATE pages SET parent_id = $2, database_id = $3 WHERE id = $1', [p.id, p.parentId, p.databaseId]);
+      }
+    });
+    return {created, overwritten, renamed: 0, idMap};
   }
 
   /** Fetch a single (live, non-trashed) page by id, or `null`. */
