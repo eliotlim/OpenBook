@@ -8,6 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {IconButton} from '@/components/ui/icon-button';
 import {cn} from '@/lib/utils';
 
 /** Tailwind classes for each `select` swatch token. */
@@ -180,16 +181,16 @@ const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange
                 placeholder="New option…"
                 className="w-full rounded bg-accent/40 px-1.5 py-1 text-xs outline-hidden"
               />
-              <button
+              <IconButton
+                size="sm"
                 onClick={(e) => {
                   e.stopPropagation();
                   void create();
                 }}
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
                 aria-label="Add option"
               >
                 <Plus className="h-3.5 w-3.5" />
-              </button>
+              </IconButton>
             </div>
           </>
         )}

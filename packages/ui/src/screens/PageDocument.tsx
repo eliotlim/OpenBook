@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {cn} from '@/lib/utils';
+import {IconButton} from '@/components/ui/icon-button';
 import {MoreHorizontal, Trash2} from 'lucide-react';
 // Type-only imports: the EditorJS class is loaded dynamically (client-only)
 // inside the effect below, so importing this module never pulls EditorJS's
@@ -357,12 +358,9 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           {onDelete && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button
-                  className="rounded p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                  aria-label="Page actions"
-                >
+                <IconButton aria-label="Page actions">
                   <MoreHorizontal className="h-4 w-4" />
-                </button>
+                </IconButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
                 <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">

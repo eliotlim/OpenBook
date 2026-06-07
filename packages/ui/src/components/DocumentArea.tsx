@@ -1,6 +1,7 @@
 import React, {useCallback, useRef, useState} from 'react';
 import {X} from 'lucide-react';
 import {ScrollArea} from '@/components/ui/scroll-area';
+import {IconButton} from '@/components/ui/icon-button';
 import {ConnectedPageDocument} from '@/screens';
 import {useNavigation, type Pane as PaneModel} from '@/providers';
 import {cn} from '@/lib/utils';
@@ -19,14 +20,9 @@ const Pane: React.FC<{pane: PaneModel; focused: boolean; split: boolean}> = ({pa
     >
       {split && (
         <div className="flex h-7 items-center justify-end border-b border-border bg-background/60 px-1">
-          <button
-            onClick={() => closePane(pane.id)}
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            aria-label="Close pane"
-            title="Close pane"
-          >
+          <IconButton size="sm" onClick={() => closePane(pane.id)} aria-label="Close pane" title="Close pane">
             <X className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         </div>
       )}
       <ScrollArea className="min-h-0 flex-1">

@@ -1,6 +1,7 @@
 import {useMemo} from 'react';
 import type {PageMeta} from '@open-book/sdk';
 import {Tree, TreeDataItem} from '@/components/ui/tree';
+import {IconButton} from '@/components/ui/icon-button';
 import {PageMenuItems} from '@/components/PageContextMenu';
 import {useNavigation} from '@/providers';
 import {Database, FileText, Folder, Plus, Table2, Workflow} from 'lucide-react';
@@ -42,22 +43,12 @@ export default function WorkspaceNavigationTree() {
       <div className="flex items-center justify-between px-3 pb-1 pt-1">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Pages</span>
         <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => void createDatabasePage()}
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            aria-label="New database"
-            title="New database"
-          >
+          <IconButton size="sm" onClick={() => void createDatabasePage()} aria-label="New database" title="New database">
             <Table2 className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => void createPage()}
-            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            aria-label="New page"
-            title="New page"
-          >
+          </IconButton>
+          <IconButton size="sm" onClick={() => void createPage()} aria-label="New page" title="New page">
             <Plus className="h-4 w-4" />
-          </button>
+          </IconButton>
         </div>
       </div>
       <Tree

@@ -16,6 +16,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {IconButton} from '@/components/ui/icon-button';
 import {cn} from '@/lib/utils';
 import type {NewPropertyInput} from './useDatabase';
 
@@ -206,9 +207,9 @@ export const FilterMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
                 className={cn(fieldClass, 'w-20')}
               />
             )}
-            <button onClick={() => removeFilter(filter.id)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Remove filter">
+            <IconButton size="sm" onClick={() => removeFilter(filter.id)} aria-label="Remove filter">
               <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            </IconButton>
           </div>
         ))}
         <button onClick={addFilter} className={cn(toolButtonClass, 'w-full justify-center border border-dashed border-border')}>
@@ -255,9 +256,9 @@ export const SortMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
             >
               {sort.direction === 'asc' ? <ArrowDownAZ className="h-3.5 w-3.5" /> : <ArrowUpAZ className="h-3.5 w-3.5" />}
             </button>
-            <button onClick={() => removeSort(index)} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Remove sort">
+            <IconButton size="sm" onClick={() => removeSort(index)} aria-label="Remove sort">
               <Trash2 className="h-3.5 w-3.5" />
-            </button>
+            </IconButton>
           </div>
         ))}
         <button onClick={addSort} className={cn(toolButtonClass, 'w-full justify-center border border-dashed border-border')}>

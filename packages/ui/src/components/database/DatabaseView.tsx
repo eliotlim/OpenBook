@@ -7,6 +7,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {IconButton} from '@/components/ui/icon-button';
 import {readPageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
@@ -20,12 +21,13 @@ const exprValueOf = (row: DatabaseRow, property: DatabaseProperty): unknown =>
 const RowMenu: React.FC<{onOpen: () => void; onDelete: () => void}> = ({onOpen, onDelete}) => (
   <DropdownMenu>
     <DropdownMenuTrigger asChild>
-      <button
-        className="rounded p-1 text-muted-foreground/60 opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
+      <IconButton
+        size="sm"
+        className="text-muted-foreground/60 opacity-0 transition group-hover:opacity-100"
         aria-label="Row actions"
       >
         <MoreHorizontal className="h-4 w-4" />
-      </button>
+      </IconButton>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" className="w-44">
       <DropdownMenuItem onClick={onOpen}>
@@ -53,14 +55,15 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase}> = ({row, db}) => 
       placeholder="Untitled"
       className="w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/40"
     />
-    <button
+    <IconButton
+      size="sm"
       onClick={() => db.openRow(row.id)}
-      className="shrink-0 rounded p-1 text-muted-foreground/60 opacity-0 transition hover:bg-accent hover:text-foreground group-hover/title:opacity-100"
+      className="text-muted-foreground/60 opacity-0 transition group-hover/title:opacity-100"
       aria-label="Open row"
       title="Open in split"
     >
       <PanelRightOpen className="h-3.5 w-3.5" />
-    </button>
+    </IconButton>
   </div>
 );
 
