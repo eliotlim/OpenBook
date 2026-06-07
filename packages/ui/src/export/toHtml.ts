@@ -8,11 +8,22 @@
  * A page with no reactive blocks produces a purely static document.
  */
 import type {PageSnapshot} from '@open-book/sdk';
+// Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
+// then Plot's UMD (which expects a global d3) sets `window.Plot`. Inlined only
+// when the document actually has a chart, and code-split (this module is a
+// dynamic import) so it never weighs on the main bundle.
+import d3Umd from './vendor/d3.min.js?raw';
+import plotUmd from './vendor/plot.umd.min.js?raw';
 import {parseInline, type InlineRun, type ListItem} from './documentModel';
 import {formatValue} from './format';
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]!);
+}
+
+/** Make JS safe to inline inside a `<script>` element. */
+function escapeScript(js: string): string {
+  return js.replace(/<\/script>/gi, '<\\/script>');
 }
 
 function runToHtml(r: InlineRun): string {
@@ -116,6 +127,12 @@ export function toHtml(snapshot: PageSnapshot, title: string, icon: string): str
 
   const live = sliders.length > 0 || exprs.length > 0 || charts.length > 0;
   const data = {values: initialValues, sliders, exprs, charts};
+  // Classic scripts run before the deferred module, so window.d3/window.Plot
+  // exist when the runtime executes — fully offline, no CDN.
+  const libs = charts.length > 0 ? `<script>${escapeScript(d3Umd)}</script>\n<script>${escapeScript(plotUmd)}</script>\n` : '';
+  const scripts = live
+    ? `${libs}<script type="application/json" id="ob-data">${JSON.stringify(data)}</script>\n<script type="module">${RUNTIME}</script>`
+    : '';
 
   return `<!doctype html>
 <html lang="en">
@@ -130,7 +147,7 @@ export function toHtml(snapshot: PageSnapshot, title: string, icon: string): str
 <h1 class="doc-title">${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1>
 ${html.join('\n')}
 </main>
-${live ? `<script type="application/json" id="ob-data">${JSON.stringify(data)}</script>\n<script type="module">${RUNTIME}</script>` : ''}
+${scripts}
 </body>
 </html>`;
 }
@@ -173,12 +190,10 @@ figure.chart svg { max-width: 100%; height: auto; }
 `;
 
 // Inlined live runtime: recomputes expressions from slider values and redraws
-// charts. Reuses the saved `__C__{cellId}__` reference tokens. Plot from a CDN.
+// charts. Reuses the saved `__C__{cellId}__` reference tokens. Observable Plot
+// (and d3) are inlined as classic scripts above, so this works offline.
 const RUNTIME = `
-// Charts use Observable Plot from a CDN; load it lazily so sliders/expressions
-// stay live even offline (charts simply don't render without it).
-let Plot = null;
-import("https://cdn.jsdelivr.net/npm/@observablehq/plot@0.6/+esm").then((m) => { Plot = m; recompute(); }).catch(() => {});
+const Plot = (typeof window !== "undefined" && window.Plot) || null;
 const D = JSON.parse(document.getElementById("ob-data").textContent);
 const store = new Map(Object.entries(D.values));
 const get = (id) => store.get(id);

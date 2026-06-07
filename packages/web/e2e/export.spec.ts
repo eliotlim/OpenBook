@@ -40,16 +40,18 @@ test('page export: Markdown, HTML and vector PDFs download', async ({page, reque
   await exportFromMenu(page, 'PDF — continuous');
 });
 
-test('interactive HTML stays live: a slider recomputes its expression', async ({page, request, context}) => {
+test('interactive HTML stays live and works offline (incl. charts)', async ({page, request, context}) => {
   const id = await newPage(
     request,
     'Live Spec',
     [
       {id: 'm1', type: 'slider', data: {name: 'n', min: 1, max: 10, step: 1, initial: 3}},
       {id: 'e1', type: 'expr', data: {name: 'doubled', source: '__C__{m1}__ * 2'}},
+      {id: 'e2', type: 'expr', data: {name: 'arr', source: '{series:[{name:"s",data:Array.from({length: __C__{m1}__}, (_,i)=>i*i)}]}'}},
+      {id: 'c1', type: 'chart', data: {refCellIds: ['e2']}},
     ],
-    [['m1', 3], ['e1', 6]],
-    [['n', 'm1'], ['doubled', 'e1']],
+    [['m1', 3], ['e1', 6], ['e2', {series: [{name: 's', data: [0, 1, 4]}]}]],
+    [['n', 'm1'], ['doubled', 'e1'], ['arr', 'e2']],
   );
   await page.goto(`/?page=${id}`);
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
@@ -57,13 +59,18 @@ test('interactive HTML stays live: a slider recomputes its expression', async ({
   const html = await readFile(await download.path(), 'utf8');
 
   const viewer = await context.newPage();
+  // Block ALL network so we prove the export (d3 + Plot inlined) is fully offline.
+  await viewer.route('**/*', (route) => route.abort());
   await viewer.setContent(html, {waitUntil: 'load'});
+
   const val = viewer.locator('.expr[data-cell="e1"] [data-val]');
   await expect(val).toHaveText('6');
+  await expect(viewer.locator('figure[data-chart] svg')).toBeVisible(); // chart renders offline
+
   const input = viewer.locator('.slider[data-cell="m1"] input');
   await input.fill('8');
   await input.dispatchEvent('input');
-  await expect(val).toHaveText('16'); // recomputed live, no CDN needed
+  await expect(val).toHaveText('16'); // expression recomputed live
 });
 
 test('backup: export downloads a bundle and restore brings pages back', async ({page, request}, testInfo) => {

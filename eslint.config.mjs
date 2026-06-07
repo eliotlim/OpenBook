@@ -21,6 +21,8 @@ export default tseslint.config(
       'packages/app/src-tauri/**',
       // shadcn/ui primitives, kept verbatim from upstream.
       'packages/ui/src/components/ui/**',
+      // Vendored UMD bundles (d3 / Observable Plot) inlined into the HTML export.
+      'packages/ui/src/export/vendor/**',
       '**/*.config.{js,cjs,mjs,ts}',
       'eslint.config.mjs',
     ],
