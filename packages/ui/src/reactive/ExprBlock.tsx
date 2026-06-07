@@ -9,6 +9,7 @@ import {compile} from './compile';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Input} from '@/components/ui/input';
 import {ReactiveCard} from './blockChrome';
+import {t} from '@/i18n';
 
 interface ExprBlockData extends ReactiveBlockData {
   name?: string;
@@ -234,7 +235,8 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
           />
         </label>
         <span className="text-muted-foreground/60">
-          reference cells with <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground/70">@name</code>
+          {t('blocks.referenceHint')}{' '}
+          <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground/70">@name</code>
         </span>
       </div>
       <div
@@ -283,7 +285,7 @@ function formatResult(r: unknown): string {
 export class ExprBlock extends ReactBlockTool {
   static get toolbox(): ToolboxConfig {
     return {
-      title: 'Expression',
+      title: t('blocks.expression'),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 5h14M5 12h14M5 19h14"/><circle cx="12" cy="12" r="2" fill="currentColor"/></svg>',
     };
   }

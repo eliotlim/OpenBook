@@ -10,11 +10,12 @@ import {
 import {Button} from '@/components/ui/button';
 import {DotsVerticalIcon} from '@radix-ui/react-icons';
 import {AppWindow, ExternalLink} from 'lucide-react';
-import {useHud, useNavigation} from '@/providers';
+import {useHud, useNavigation, useTranslation} from '@/providers';
 
 export default function NavContextMenu() {
   const {hud, setHud} = useHud();
   const {openInNew, currentPageId} = useNavigation();
+  const {t} = useTranslation();
 
   return (
     <DropdownMenu>
@@ -27,7 +28,7 @@ export default function NavContextMenu() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-56">
-        <DropdownMenuLabel>View Options</DropdownMenuLabel>
+        <DropdownMenuLabel>{t('menu.viewOptions')}</DropdownMenuLabel>
         {/* A real menu item (role=menuitemcheckbox), not a Switch inside a Label:
             Radix only routes pointer/keyboard activation to its menu items, so a
             bare control nested in a label never toggled (dead on click in the
@@ -40,7 +41,7 @@ export default function NavContextMenu() {
           }
           onSelect={(e) => e.preventDefault()}
         >
-          Full Width
+          {t('menu.fullWidth')}
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator/>
         <DropdownMenuItem
@@ -48,17 +49,17 @@ export default function NavContextMenu() {
           onClick={() => currentPageId && openInNew(currentPageId, 'tab')}
         >
           <ExternalLink className="mr-2 h-4 w-4" />
-          Open in new tab
+          {t('menu.openTab')}
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={!currentPageId}
           onClick={() => currentPageId && openInNew(currentPageId, 'window')}
         >
           <AppWindow className="mr-2 h-4 w-4" />
-          Open in new window
+          {t('menu.openWindow')}
         </DropdownMenuItem>
-        <DropdownMenuItem>Favourite</DropdownMenuItem>
-        <DropdownMenuItem>Settings</DropdownMenuItem>
+        <DropdownMenuItem>{t('menu.favourite')}</DropdownMenuItem>
+        <DropdownMenuItem>{t('common.settings')}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

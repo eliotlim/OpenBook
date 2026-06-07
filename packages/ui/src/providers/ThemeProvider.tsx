@@ -1,4 +1,5 @@
 import React from 'react';
+import {applyTheme, getTheme, themes, DEFAULT_THEME_ID, type Theme} from '@/lib/themes';
 
 export type ColorScheme = 'light' | 'dark';
 export type ColorMode = ColorScheme | 'system';
@@ -13,12 +14,22 @@ type ThemeProviderState = {
   colorScheme: ColorScheme;
   mode: ColorMode;
   setMode: (theme: ColorMode) => void;
+  /** The active named color theme (palette). */
+  themeId: string;
+  setThemeId: (id: string) => void;
+  /** All available color themes. */
+  themes: Theme[];
 }
+
+const THEME_ID_KEY = 'openbook.theme';
 
 const initialState: ThemeProviderState = {
   mode: 'system',
   colorScheme: 'light',
   setMode: () => null,
+  themeId: DEFAULT_THEME_ID,
+  setThemeId: () => null,
+  themes,
 };
 
 const ThemeProviderContext = React.createContext<ThemeProviderState>(initialState);
@@ -33,6 +44,14 @@ export function ThemeProvider({
     return ((typeof window !== 'undefined' && localStorage.getItem(storageKey)) || defaultColorMode) as ColorScheme;
   });
   const [colorScheme, setColorScheme] = React.useState<ColorScheme>('light');
+  const [themeId, setThemeIdState] = React.useState<string>(() => {
+    return (typeof window !== 'undefined' && localStorage.getItem(THEME_ID_KEY)) || DEFAULT_THEME_ID;
+  });
+
+  // Apply the selected palette whenever the theme or resolved scheme changes.
+  React.useEffect(() => {
+    applyTheme(getTheme(themeId), mode === 'system' ? colorScheme : (mode as ColorScheme));
+  }, [themeId, colorScheme, mode]);
 
   React.useEffect(() => {
     const onChangeModeListener = (e: MediaQueryListEvent) => {
@@ -68,6 +87,12 @@ export function ThemeProvider({
       localStorage.setItem(storageKey, theme);
       setMode(theme);
     },
+    themeId,
+    setThemeId: (id: string) => {
+      localStorage.setItem(THEME_ID_KEY, id);
+      setThemeIdState(id);
+    },
+    themes,
   };
 
   return (

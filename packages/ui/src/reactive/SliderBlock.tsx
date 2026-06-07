@@ -6,6 +6,7 @@ import {store} from './ReactiveStore';
 import {useReactiveCell} from './useReactiveCell';
 import {Input} from '@/components/ui/input';
 import {ReactiveCard, FieldRow} from './blockChrome';
+import {t} from '@/i18n';
 
 interface SliderBlockData extends ReactiveBlockData {
   name?: string;
@@ -82,7 +83,7 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
 export class SliderBlock extends ReactBlockTool {
   static get toolbox(): ToolboxConfig {
     return {
-      title: 'Slider',
+      title: t('blocks.slider'),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><circle cx="9" cy="12" r="3" fill="currentColor"/></svg>',
     };
   }

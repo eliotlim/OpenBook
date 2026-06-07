@@ -1,6 +1,7 @@
 import {useSyncExternalStore} from 'react';
 import {Plus} from 'lucide-react';
 import {cn} from '@/lib/utils';
+import {useTranslation} from '@/providers';
 import type {MentionController} from '@/editor/pageMention';
 
 /**
@@ -10,6 +11,7 @@ import type {MentionController} from '@/editor/pageMention';
  * (↑/↓/Enter/Esc) is owned by the controller, which intercepts it in the editor.
  */
 export function MentionPopover({controller}: {controller: MentionController}) {
+  const {t} = useTranslation();
   const state = useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);
 
   if (!state.open || !state.position) return null;
@@ -20,7 +22,7 @@ export function MentionPopover({controller}: {controller: MentionController}) {
   return (
     <div
       role="listbox"
-      aria-label="Link to page"
+      aria-label={t('mention.label')}
       className="fixed z-50 max-h-72 w-72 overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
       style={{left: position.left, top: position.top + 4}}
       // Keep the editor selection (the @query range) intact while clicking.
@@ -44,13 +46,11 @@ export function MentionPopover({controller}: {controller: MentionController}) {
           onPick={() => void controller.pick(results.length)}
         >
           <Plus className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="truncate">
-            Create page <span className="font-medium">“{createName}”</span>
-          </span>
+          <span className="truncate">{t('mention.create', {name: createName})}</span>
         </Row>
       )}
       {results.length === 0 && !createName && (
-        <div className="px-2 py-1.5 text-sm text-muted-foreground">No pages — keep typing to create one.</div>
+        <div className="px-2 py-1.5 text-sm text-muted-foreground">{t('mention.empty')}</div>
       )}
     </div>
   );

@@ -7,6 +7,7 @@ import {
   DefaultLayout,
   DocumentArea,
   HudProvider,
+  I18nProvider,
   NavigationProvider,
   PlatformLibraryProvider,
   ThemeProvider,
@@ -87,19 +88,21 @@ function App() {
 
   return (
     <ThemeProvider>
-      <PlatformLibraryProvider value={platform}>
-        <DataProvider client={client}>
-          <NavigationProvider>
-            <WorkspaceProvider>
-              <HudProvider>
-                <DefaultLayout>
-                  <DocumentArea />
-                </DefaultLayout>
-              </HudProvider>
-            </WorkspaceProvider>
-          </NavigationProvider>
-        </DataProvider>
-      </PlatformLibraryProvider>
+      <I18nProvider>
+        <PlatformLibraryProvider value={platform}>
+          <DataProvider client={client}>
+            <NavigationProvider>
+              <WorkspaceProvider>
+                <HudProvider>
+                  <DefaultLayout>
+                    <DocumentArea />
+                  </DefaultLayout>
+                </HudProvider>
+              </WorkspaceProvider>
+            </NavigationProvider>
+          </DataProvider>
+        </PlatformLibraryProvider>
+      </I18nProvider>
     </ThemeProvider>
   );
 }

@@ -1,5 +1,5 @@
 import {Plus, X} from 'lucide-react';
-import {useNavigation} from '@/providers';
+import {useNavigation, useTranslation} from '@/providers';
 import {readPageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
@@ -17,6 +17,7 @@ import BackForwardCluster from '@/components/BackForwardCluster';
  */
 export default function TitlebarTabs() {
   const {inWindowTabs, tabs, activeTabId, selectTab, closeTab, newPageIn, pageLabel} = useNavigation();
+  const {t} = useTranslation();
 
   if (!inWindowTabs) {
     return <div data-tauri-drag-region className="h-full w-full" />;
@@ -64,7 +65,7 @@ export default function TitlebarTabs() {
                     e.stopPropagation();
                     closeTab(tab.id);
                   }}
-                  aria-label="Close tab"
+                  aria-label={t('tabs.close')}
                   className={cn(
                     'ml-0.5 shrink-0 rounded p-0.5 text-muted-foreground/70 transition',
                     'opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100',
@@ -79,8 +80,8 @@ export default function TitlebarTabs() {
         })}
         <button
           onClick={() => void newPageIn('tab')}
-          aria-label="New tab"
-          title="New tab"
+          aria-label={t('tabs.new')}
+          title={t('tabs.new')}
           className="mb-0.5 flex h-6 shrink-0 items-center rounded p-1 text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"
         >
           <Plus className="h-4 w-4" />

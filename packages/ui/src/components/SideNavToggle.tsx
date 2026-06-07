@@ -1,13 +1,15 @@
 import {Button} from '@/components/ui/button';
 import {DoubleArrowLeftIcon, HamburgerMenuIcon} from '@radix-ui/react-icons';
 import {cn} from '@/lib/utils';
-import {useHud} from '@/providers';
+import {useHud, useTranslation} from '@/providers';
 
 export default function SideNavToggle({className}: {className?: string}) {
   const {hud, setHud} = useHud();
+  const {t} = useTranslation();
   return (
     <Button
       variant="ghost"
+      aria-label={t('nav.toggleSidebar')}
       className={cn('px-3 py-1', className)}
       onClick={() => setHud((draft) => {
         draft.sideNav.open = !draft.sideNav.docked;

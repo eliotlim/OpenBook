@@ -4,6 +4,7 @@ import type {AppProps} from 'next/app';
 import {ErrorBoundary} from 'next/dist/client/components/error-boundary';
 import {
   HudProvider,
+  I18nProvider,
   ThemeProvider,
   WorkspaceProvider,
 } from '@open-book/ui';
@@ -14,11 +15,13 @@ export default function App({Component, pageProps}: AppProps) {
     <>
       <ErrorBoundary errorComponent={(err) => <div>Something went wrong {JSON.stringify(err.error)}</div>}>
         <ThemeProvider>
-          <WorkspaceProvider>
-            <HudProvider>
-              <Component {...pageProps} />
-            </HudProvider>
-          </WorkspaceProvider>
+          <I18nProvider>
+            <WorkspaceProvider>
+              <HudProvider>
+                <Component {...pageProps} />
+              </HudProvider>
+            </WorkspaceProvider>
+          </I18nProvider>
         </ThemeProvider>
       </ErrorBoundary>
     </>

@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import type {PageSnapshot, StoredPage} from '@open-book/sdk';
 import {useData} from '@/data';
-import {useConfirm, useNavigation} from '@/providers';
+import {useConfirm, useNavigation, useTranslation} from '@/providers';
 import {DEFAULT_PAGE_ICON, readPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {DatabaseView} from '@/components/database/DatabaseView';
 import PageDocument from './PageDocument';
@@ -21,6 +21,7 @@ export interface ConnectedPageDocumentProps {
 export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pageId}) => {
   const client = useData();
   const confirm = useConfirm();
+  const {t} = useTranslation();
   const {pages, deletePage, setPageHint, closePage} = useNavigation();
 
   const [title, setTitle] = useState('');
@@ -113,14 +114,14 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
 
   const onDelete = useCallback(async () => {
     const ok = await confirm({
-      title: 'Move this page to the trash?',
-      description: 'You can restore it later from the trash.',
-      confirmText: 'Move to trash',
+      title: t('confirm.trashTitle'),
+      description: t('confirm.trashBody'),
+      confirmText: t('confirm.trashConfirm'),
       destructive: true,
     });
     if (!ok) return;
     void deletePage(pageId);
-  }, [pageId, deletePage, confirm]);
+  }, [pageId, deletePage, confirm, t]);
 
   const onTitleActiveChange = useCallback((active: boolean) => {
     titleActiveRef.current = active;

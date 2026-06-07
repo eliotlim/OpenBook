@@ -22,7 +22,7 @@ import WorkspaceInfo from '@/components/WorkspaceInfo';
 import {ChevronUpDownIcon, PlusIcon} from '@heroicons/react/24/outline';
 import {CheckIcon, GlobeIcon} from '@radix-ui/react-icons';
 import {Trash2} from 'lucide-react';
-import {useWorkspace, workspaceHostLabel} from '@/providers';
+import {useTranslation, useWorkspace, workspaceHostLabel} from '@/providers';
 
 /**
  * The workspace switcher. `variant` controls the trigger only:
@@ -33,6 +33,7 @@ import {useWorkspace, workspaceHostLabel} from '@/providers';
  */
 export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 'sidebar' | 'titlebar'}) {
   const {workspaces, workspace, selectWorkspace, addWorkspace, removeWorkspace} = useWorkspace();
+  const {t} = useTranslation();
 
   const [addOpen, setAddOpen] = useState(false);
   const [name, setName] = useState('');
@@ -55,14 +56,14 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
   const submitAdd = () => {
     const url = serverUrl.trim();
     if (!url) {
-      setError('Enter the server URL for this workspace.');
+      setError(t('workspace.urlRequired'));
       return;
     }
     try {
       // Validate the URL shape early so a typo doesn't silently fail on connect.
       new URL(url);
     } catch {
-      setError('That doesn’t look like a valid URL.');
+      setError(t('workspace.urlInvalid'));
       return;
     }
     addWorkspace({name, serverUrl: url, icon});
@@ -91,7 +92,7 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72 bg-sheet-2 text-sheet-2-foreground">
-          <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+          <DropdownMenuLabel>{t('workspace.workspaces')}</DropdownMenuLabel>
           <DropdownMenuSeparator />
           {workspaces.map((ws) => {
             const active = ws.id === workspace.id;
@@ -115,8 +116,8 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
                 {canRemove && (
                   <button
                     type="button"
-                    aria-label={`Remove ${ws.name}`}
-                    title="Remove workspace"
+                    aria-label={t('workspace.removeWorkspace', {name: ws.name})}
+                    title={t('common.remove')}
                     className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-destructive group-hover:flex"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
@@ -140,7 +141,7 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
             }}
           >
             <PlusIcon className="mr-2 h-4 w-4" />
-            Add a workspace…
+            {t('workspace.addWorkspace')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -148,15 +149,13 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
       <Dialog open={addOpen} onOpenChange={(open) => (open ? setAddOpen(true) : closeAdd())}>
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
-            <DialogTitle>Add a workspace</DialogTitle>
-            <DialogDescription>
-              Connect to another OpenBook server. Switching to it re-points this device at that server.
-            </DialogDescription>
+            <DialogTitle>{t('workspace.addTitle')}</DialogTitle>
+            <DialogDescription>{t('workspace.addDescription')}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-1">
             <div className="flex gap-3">
               <div className="flex w-16 flex-col gap-1.5">
-                <Label htmlFor="ws-icon">Icon</Label>
+                <Label htmlFor="ws-icon">{t('workspace.icon')}</Label>
                 <Input
                   id="ws-icon"
                   value={icon}
@@ -167,21 +166,21 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
                 />
               </div>
               <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor="ws-name">Name</Label>
+                <Label htmlFor="ws-name">{t('workspace.name')}</Label>
                 <Input
                   id="ws-name"
                   value={name}
-                  placeholder="Home wiki"
+                  placeholder={t('workspace.namePlaceholder')}
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-url">Server URL</Label>
+              <Label htmlFor="ws-url">{t('workspace.serverUrl')}</Label>
               <Input
                 id="ws-url"
                 value={serverUrl}
-                placeholder="https://my-server.example:4319"
+                placeholder={t('workspace.urlPlaceholder')}
                 onChange={(e) => {
                   setServerUrl(e.target.value);
                   setError(null);
@@ -193,9 +192,9 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={closeAdd}>
-              Cancel
+              {t('common.cancel')}
             </Button>
-            <Button onClick={submitAdd}>Add workspace</Button>
+            <Button onClick={submitAdd}>{t('workspace.addButton')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -9,6 +9,7 @@ import {normalizeChartInput, type NormalizedSeries} from './chartNormalize';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Select} from '@/components/ui/select';
 import {ReactiveCard} from './blockChrome';
+import {t} from '@/i18n';
 
 interface ChartBlockData extends ReactiveBlockData {
   // Multi-series: one cellId per series row in the picker UI.
@@ -42,7 +43,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
   // when there are cells to plot (skeleton shows immediately, before the first
   // effect run), 'idle' (a short note) when there's nothing to plot yet.
   const [phase, setPhase] = useState<'idle' | 'pending' | 'ready'>(initialIds.length > 0 ? 'pending' : 'idle');
-  const [note, setNote] = useState<string>('Pick at least one cell to plot');
+  const [note, setNote] = useState<string>(t('blocks.chartPick'));
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const nextKeyRef = useRef<number>(rows.length);
 
@@ -61,7 +62,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
     const activeIds = rows.map((r) => r.cellId).filter(Boolean);
     if (activeIds.length === 0) {
       setPhase('idle');
-      setNote('Pick at least one cell to plot');
+      setNote(t('blocks.chartPick'));
       if (chartContainerRef.current) chartContainerRef.current.innerHTML = '';
       return;
     }
@@ -82,7 +83,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
           setPhase('pending');
         } else {
           setPhase('idle');
-          setNote('No numeric array data in the selected cells');
+          setNote(t('blocks.chartNoData'));
         }
         if (chartContainerRef.current) chartContainerRef.current.innerHTML = '';
         return;
@@ -148,14 +149,14 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
       <div className="mb-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
         {rows.map((row, idx) => (
           <div key={row.rowKey} className="flex items-center gap-2">
-            <span className="w-9 select-none text-muted-foreground/60">{idx === 0 ? 'plot' : 'and'}</span>
+            <span className="w-9 select-none text-muted-foreground/60">{idx === 0 ? t('blocks.chartPlot') : t('blocks.chartAnd')}</span>
             <Select
               inputSize="sm"
               wrapperClassName="max-w-[16rem] flex-1"
               value={row.cellId}
               onChange={(e) => setCellAt(idx, e.target.value)}
             >
-              <option value="">— pick a cell —</option>
+              <option value="">{t('blocks.chartPickCell')}</option>
               {availableCells.map(([name, cellId]) => (
                 <option key={cellId} value={cellId}>
                   {name}
@@ -166,8 +167,8 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
               <button
                 type="button"
                 onClick={() => removeRow(idx)}
-                title="Remove series"
-                aria-label="Remove series"
+                title={t('blocks.chartRemoveSeries')}
+                aria-label={t('blocks.chartRemoveSeries')}
                 className="flex h-7 w-7 items-center justify-center rounded-md text-base text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 ×
@@ -180,7 +181,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
           onClick={addRow}
           className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
-          + add series
+          {`+ ${t('blocks.chartAddSeries')}`}
         </button>
       </div>
       <div className="overflow-hidden rounded-md bg-background/60">
@@ -200,7 +201,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
 export class ChartBlock extends ReactBlockTool {
   static get toolbox(): ToolboxConfig {
     return {
-      title: 'Chart',
+      title: t('blocks.chart'),
       icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 17 9 11 13 15 21 7"/></svg>',
     };
   }

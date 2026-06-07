@@ -1,6 +1,7 @@
 import EmojiPicker, {Theme} from 'emoji-picker-react';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {useHud, useTheme} from '@/providers';
+import {useHud, useTheme, useTranslation} from '@/providers';
+import {t as bareT} from '@/i18n';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {
   DropdownMenu,
@@ -107,12 +108,6 @@ export interface PageDocumentProps {
   pageId?: string;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  unsaved: 'Saving…',
-  saved: 'Saved',
-  'save failed': 'Couldn’t save',
-};
-
 const isSSR = () => typeof window === 'undefined';
 
 const PageHeader: React.FC<{
@@ -123,13 +118,14 @@ const PageHeader: React.FC<{
   onTitleActiveChange?: (active: boolean) => void;
 }> = ({title, icon, onTitleChange, onIconChange, onTitleActiveChange}) => {
   const {colorScheme} = useTheme();
+  const {t} = useTranslation();
   return (
     <div className="pt-2 pb-1">
       <Popover>
         <PopoverTrigger asChild>
           <button
             className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-accent"
-            aria-label="Change page icon"
+            aria-label={t('page.changeIcon')}
           >
             <span>{icon || '📄'}</span>
           </button>
@@ -144,11 +140,11 @@ const PageHeader: React.FC<{
       <input
         className="w-full bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-muted-foreground/35"
         value={title}
-        placeholder="Untitled"
+        placeholder={t('common.untitled')}
         onChange={(e) => onTitleChange?.(e.target.value)}
         onFocus={() => onTitleActiveChange?.(true)}
         onBlur={() => onTitleActiveChange?.(false)}
-        aria-label="Page title"
+        aria-label={t('page.titleLabel')}
       />
     </div>
   );
@@ -169,6 +165,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
 }) => {
   'use client';
   const {hud} = useHud();
+  const {t} = useTranslation();
 
   const editorJsInstance = useRef<EditorJS | null>(null);
   // Per-instance holder element. EditorJS keys its DOM off this node, so each
@@ -256,7 +253,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         holder: holderRef.current,
         autofocus: true,
         data: initialData,
-        placeholder: 'Write something, or press Tab for blocks…',
+        placeholder: bareT('page.editorPlaceholder'),
         tools: {
           header: {
             class: Header as unknown as never,
@@ -388,7 +385,8 @@ const PageDocument: React.FC<PageDocumentProps> = ({
     };
   }, [incoming?.version]);
 
-  const statusLabel = STATUS_LABEL[status] ?? '';
+  const statusLabel =
+    status === 'unsaved' ? t('page.saving') : status === 'saved' ? t('page.saved') : status === 'save failed' ? t('page.saveFailed') : '';
 
   // Export the page's *current* document (incl. unsaved edits) to a file.
   const handleExport = useCallback(
@@ -433,7 +431,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           {pageId && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <IconButton aria-label="Page actions">
+                <IconButton aria-label={t('page.actions')}>
                   <MoreHorizontal className="h-4 w-4" />
                 </IconButton>
               </DropdownMenuTrigger>
@@ -441,31 +439,31 @@ const PageDocument: React.FC<PageDocumentProps> = ({
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
                     <Download className="mr-2 h-4 w-4" />
-                    Export
+                    {t('page.export')}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
                     <DropdownMenuItem onClick={() => void handleExport('md')}>
                       <FileTextIcon className="mr-2 h-4 w-4" />
-                      Markdown (.md)
+                      {t('page.exportMarkdown')}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => void handleExport('html')}>
                       <FileCode className="mr-2 h-4 w-4" />
-                      Interactive HTML
+                      {t('page.exportHtml')}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => void handleExport('pdf-paged')}>
                       <FileType className="mr-2 h-4 w-4" />
-                      PDF — paged
+                      {t('page.exportPdfPaged')}
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => void handleExport('pdf-continuous')}>
                       <FileType className="mr-2 h-4 w-4" />
-                      PDF — continuous
+                      {t('page.exportPdfContinuous')}
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 {onDelete && (
                   <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
                     <Trash2 className="mr-2 h-4 w-4" />
-                    Delete page
+                    {t('page.delete')}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>

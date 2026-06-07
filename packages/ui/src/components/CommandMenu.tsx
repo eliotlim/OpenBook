@@ -10,16 +10,18 @@ import {
 import React from 'react';
 import {FileText, FlaskConical, Plus, Settings as SettingsIcon} from 'lucide-react';
 import {seedSampleDocument} from '@open-book/sdk';
-import {useHud, useNavigation} from '@/providers';
+import {useHud, useNavigation, useTranslation} from '@/providers';
 import {useData} from '@/data';
+import {t} from '@/i18n';
 
 const displayName = (name: string | null): string =>
-  name && name.trim().length > 0 ? name : 'Untitled';
+  name && name.trim().length > 0 ? name : t('common.untitled');
 
 export function CommandMenu() {
   const {hud, setHud} = useHud();
   const {pages, currentPageId, selectPage, createPage, reload} = useNavigation();
   const client = useData();
+  const {t} = useTranslation();
   const open = hud.commandPalette.open;
 
   // Seed a known-good reactive document (slider → expression → chart) and open
@@ -50,10 +52,10 @@ export function CommandMenu() {
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
-      <CommandInput placeholder="Search pages or run a command…" />
+      <CommandInput placeholder={t('command.placeholder')} />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
-        <CommandGroup heading="Pages">
+        <CommandEmpty>{t('command.noResults')}</CommandEmpty>
+        <CommandGroup heading={t('command.pages')}>
           {pages.map((page) => (
             <CommandItem
               key={page.id}
@@ -63,30 +65,30 @@ export function CommandMenu() {
               <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
               <span className="truncate">{displayName(page.name)}</span>
               {page.id === currentPageId && (
-                <span className="ml-auto text-xs text-muted-foreground">current</span>
+                <span className="ml-auto text-xs text-muted-foreground">{t('command.current')}</span>
               )}
             </CommandItem>
           ))}
         </CommandGroup>
         <CommandSeparator />
-        <CommandGroup heading="Actions">
+        <CommandGroup heading={t('command.actions')}>
           <CommandItem value="new page create" onSelect={() => run(() => void createPage())}>
             <Plus className="mr-2 h-4 w-4 text-muted-foreground" />
-            Create new page
+            {t('command.createPage')}
           </CommandItem>
           <CommandItem
             value="insert sample document test seed reactive slider chart"
             onSelect={() => run(() => void insertSampleDocument())}
           >
             <FlaskConical className="mr-2 h-4 w-4 text-muted-foreground" />
-            Insert sample document
+            {t('command.insertSample')}
           </CommandItem>
           <CommandItem
             value="open settings preferences"
             onSelect={() => run(() => setHud((draft) => {draft.settings.open = true; return draft;}))}
           >
             <SettingsIcon className="mr-2 h-4 w-4 text-muted-foreground" />
-            Open settings
+            {t('command.openSettings')}
           </CommandItem>
         </CommandGroup>
       </CommandList>

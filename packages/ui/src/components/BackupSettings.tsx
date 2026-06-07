@@ -11,18 +11,20 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {useData} from '@/data';
-import {useConfirm, useNavigation} from '@/providers';
+import {useConfirm, useNavigation, useTranslation} from '@/providers';
 import {readStoredPageIcon, writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
 import {downloadText} from '@/lib/download';
 import {bundleRoots, closure, overwriteCount, parseBackup} from '@/lib/backupBundle';
+import {t as bareT} from '@/i18n';
 
-const displayName = (name: string | null): string => (name && name.trim() ? name : 'Untitled');
+const displayName = (name: string | null): string => (name && name.trim() ? name : bareT('common.untitled'));
 
 /** Backup & restore the whole workspace, from the Settings panel. */
 export default function BackupSettings() {
   const client = useData();
   const {reload} = useNavigation();
   const confirm = useConfirm();
+  const {t} = useTranslation();
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [busy, setBusy] = useState<null | 'export' | 'import'>(null);
@@ -41,38 +43,38 @@ export default function BackupSettings() {
       }
       const backup: SpaceBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons};
       downloadText(`openbook-backup-${new Date().toISOString().slice(0, 10)}.openbook.json`, JSON.stringify(backup), 'application/json');
-      setStatus(`Exported ${pages.length} page${pages.length === 1 ? '' : 's'}.`);
+      setStatus(t('backup.exported', {count: pages.length}));
     } catch (e) {
-      setStatus(`Export failed: ${(e as Error).message}`);
+      setStatus(t('backup.exportFailed', {error: (e as Error).message}));
     } finally {
       setBusy(null);
     }
-  }, [client]);
+  }, [client, t]);
 
   const onFile = useCallback(async (file: File) => {
     setStatus(null);
     try {
       setBundle(parseBackup(await file.text()));
     } catch (e) {
-      setStatus(`Couldn’t read backup: ${(e as Error).message}`);
+      setStatus(t('backup.readFailed', {error: (e as Error).message}));
     }
-  }, []);
+  }, [t]);
 
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-2">
-        <h3 className="text-lg font-semibold">Backup &amp; restore</h3>
+        <h3 className="text-lg font-semibold">{t('backup.heading')}</h3>
         <p className="text-sm text-muted-foreground">
-          Export your whole workspace to a single file, or restore one — choosing which pages to bring back.
+          {t('backup.intro')}
         </p>
         <div className="mt-1 flex flex-wrap gap-2">
           <Button onClick={() => void onExport()} disabled={busy !== null} className="gap-2">
             <Download className="h-4 w-4" />
-            {busy === 'export' ? 'Exporting…' : 'Export backup'}
+            {busy === 'export' ? t('backup.exporting') : t('backup.export')}
           </Button>
           <Button variant="secondary" onClick={() => fileInput.current?.click()} disabled={busy !== null} className="gap-2">
             <Upload className="h-4 w-4" />
-            Restore backup…
+            {t('backup.restore')}
           </Button>
           <input
             ref={fileInput}
@@ -133,6 +135,7 @@ function RestoreDialog({
   confirm: ReturnType<typeof useConfirm>;
   setBusy: (b: null | 'import') => void;
 }) {
+  const {t} = useTranslation();
   const roots = useMemo(() => bundleRoots(bundle), [bundle]);
   const [checked, setChecked] = useState<Set<string>>(() => new Set(roots.map((r) => r.id)));
   const [mode, setMode] = useState<'copy' | 'overwrite'>('copy');
@@ -151,12 +154,12 @@ function RestoreDialog({
     if (mode === 'overwrite') {
       const n = overwriteCount(sel.pages, await existingIds());
       const ok = await confirm({
-        title: `Overwrite ${n} existing page${n === 1 ? '' : 's'}?`,
+        title: t('backup.dialog.confirmTitle', {count: n}),
         description:
           n > 0
-            ? `Restoring in place will replace the current content of ${n} page${n === 1 ? '' : 's'}. This can’t be undone.`
-            : 'No existing pages match — these will be added as new pages.',
-        confirmText: 'Overwrite',
+            ? t('backup.dialog.confirmBody', {count: n})
+            : t('backup.dialog.confirmBodyNone'),
+        confirmText: t('backup.dialog.confirmOverwrite'),
         destructive: true,
       });
       if (!ok) return;
@@ -165,37 +168,39 @@ function RestoreDialog({
     try {
       const result = await run({pages: sel.pages, databases: sel.databases, mode});
       const bits = [
-        result.created ? `${result.created} added` : '',
-        result.overwritten ? `${result.overwritten} overwritten` : '',
-        result.renamed ? `${result.renamed} renamed` : '',
+        result.created ? t('backup.added', {count: result.created}) : '',
+        result.overwritten ? t('backup.overwrittenCount', {count: result.overwritten}) : '',
+        result.renamed ? t('backup.renamedCount', {count: result.renamed}) : '',
       ].filter(Boolean);
-      onDone(`Restored ${sel.pages.length} page${sel.pages.length === 1 ? '' : 's'}${bits.length ? ` (${bits.join(', ')})` : ''}.`);
+      const detail = bits.length ? ` (${bits.join(', ')})` : '';
+      onDone(t('backup.restored', {count: sel.pages.length, detail}));
     } catch (e) {
-      onDone(`Restore failed: ${(e as Error).message}`);
+      onDone(t('backup.restoreFailed', {error: (e as Error).message}));
     } finally {
       setBusy(null);
     }
-  }, [bundle, checked, mode, confirm, existingIds, run, onDone, setBusy]);
+  }, [bundle, checked, mode, confirm, existingIds, run, onDone, setBusy, t]);
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Restore backup</DialogTitle>
+          <DialogTitle>{t('backup.dialog.title')}</DialogTitle>
           <DialogDescription>
-            {roots.length} page{roots.length === 1 ? '' : 's'}
-            {bundle.exportedAt ? ` · exported ${new Date(bundle.exportedAt).toLocaleDateString()}` : ''}. Pick what to restore.
+            {bundle.exportedAt
+              ? t('backup.dialog.summaryDated', {count: roots.length, date: new Date(bundle.exportedAt).toLocaleDateString()})
+              : t('backup.dialog.summary', {count: roots.length})}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>{checked.size} selected</span>
+          <span>{t('backup.dialog.selected', {count: checked.size})}</span>
           <div className="flex gap-2">
             <button type="button" className="cursor-pointer hover:text-foreground" onClick={() => setChecked(new Set(roots.map((r) => r.id)))}>
-              All
+              {t('backup.dialog.all')}
             </button>
             <button type="button" className="cursor-pointer hover:text-foreground" onClick={() => setChecked(new Set())}>
-              None
+              {t('backup.dialog.none')}
             </button>
           </div>
         </div>
@@ -220,19 +225,19 @@ function RestoreDialog({
             onChange={(e) => setMode(e.target.checked ? 'overwrite' : 'copy')}
           />
           <span>
-            <span className="font-medium">Overwrite existing pages</span>
+            <span className="font-medium">{t('backup.dialog.overwrite')}</span>
             <span className="block text-xs text-muted-foreground">
-              Restore in place by id. Off (default) imports as copies, suffixing names that clash.
+              {t('backup.dialog.overwriteHint')}
             </span>
           </span>
         </label>
 
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button onClick={() => void onRestore()} disabled={checked.size === 0}>
-            Restore {checked.size > 0 ? checked.size : ''}
+            {t('backup.dialog.restoreN', {count: checked.size})}
           </Button>
         </DialogFooter>
       </DialogContent>

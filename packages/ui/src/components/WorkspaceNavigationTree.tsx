@@ -3,13 +3,14 @@ import type {PageMeta} from '@open-book/sdk';
 import {Tree, TreeDataItem} from '@/components/ui/tree';
 import {IconButton} from '@/components/ui/icon-button';
 import {PageMenuItems} from '@/components/PageContextMenu';
-import {useNavigation} from '@/providers';
+import {useNavigation, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {planTreeMove, type DropWhere} from '@/lib/treeMove';
 import {Plus, Table2} from 'lucide-react';
+import {t} from '@/i18n';
 
 const displayName = (name: string | null): string =>
-  name && name.trim().length > 0 ? name : 'Untitled';
+  name && name.trim().length > 0 ? name : t('common.untitled');
 
 /**
  * Build the sidebar tree from the flat page list: each page becomes a node, and
@@ -42,6 +43,7 @@ export function buildTree(pages: PageMeta[]): TreeDataItem[] {
 
 export default function WorkspaceNavigationTree() {
   const {pages, currentPageId, selectPage, createPage, createDatabasePage, movePage} = useNavigation();
+  const {t} = useTranslation();
 
   // Icons live in localStorage; re-render the tree when one changes so a freshly
   // picked emoji shows in the sidebar without a reload.
@@ -58,12 +60,12 @@ export default function WorkspaceNavigationTree() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between px-3 pb-1 pt-1">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">Pages</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">{t('nav.pages')}</span>
         <div className="flex items-center gap-0.5">
-          <IconButton size="sm" onClick={() => void createDatabasePage()} aria-label="New database" title="New database">
+          <IconButton size="sm" onClick={() => void createDatabasePage()} aria-label={t('nav.newDatabase')} title={t('nav.newDatabase')}>
             <Table2 className="h-4 w-4" />
           </IconButton>
-          <IconButton size="sm" onClick={() => void createPage()} aria-label="New page" title="New page">
+          <IconButton size="sm" onClick={() => void createPage()} aria-label={t('nav.newPage')} title={t('nav.newPage')}>
             <Plus className="h-4 w-4" />
           </IconButton>
         </div>

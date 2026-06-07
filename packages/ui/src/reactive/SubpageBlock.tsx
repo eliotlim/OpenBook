@@ -3,6 +3,7 @@ import type {ReactElement} from 'react';
 import type {ToolboxConfig} from '@editorjs/editorjs';
 import {ReactBlockTool} from './editorJsReactAdapter';
 import {pageLinks, subscribePageLinks, type SubpageKind} from '@/lib/pageLinks';
+import {t} from '@/i18n';
 
 interface SubpageData {
   pageId?: string;
@@ -49,7 +50,7 @@ const SubpageView: React.FC<SubpageViewProps> = ({kind, initialPageId, ensureCre
   if (!pageId) {
     return (
       <div className="rounded-md border border-border px-2.5 py-1.5 text-sm text-muted-foreground">
-        Creating {kind === 'database' ? 'database' : 'page'}…
+        {t('blocks.creating', {kind: kind === 'database' ? t('blocks.subpageDatabase') : t('blocks.subpagePage')})}
       </div>
     );
   }
@@ -85,8 +86,8 @@ export class SubpageBlock extends ReactBlockTool {
 
   static get toolbox(): ToolboxConfig {
     return [
-      {title: 'Page', icon: PAGE_ICON, data: {kind: 'page'}},
-      {title: 'Database', icon: DB_ICON, data: {kind: 'database'}},
+      {title: t('blocks.subpagePage'), icon: PAGE_ICON, data: {kind: 'page'}},
+      {title: t('blocks.subpageDatabase'), icon: DB_ICON, data: {kind: 'database'}},
     ] as unknown as ToolboxConfig;
   }
 

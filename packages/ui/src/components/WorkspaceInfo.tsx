@@ -1,4 +1,5 @@
 import {GlobeIcon} from '@radix-ui/react-icons';
+import {t} from '@/i18n';
 
 export interface WorkspaceInfoProps {
   name: string,
@@ -10,7 +11,7 @@ export interface WorkspaceInfoProps {
 // the local/default server ("This device"); otherwise show the host (or the
 // decoded path for file:// URLs), falling back to the raw value if unparseable.
 function describeLocation(raw: string): string {
-  if (!raw.trim()) return 'This device';
+  if (!raw.trim()) return t('workspace.thisDevice');
   try {
     const url = new URL(raw);
     switch (url.protocol) {

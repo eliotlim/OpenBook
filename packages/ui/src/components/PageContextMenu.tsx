@@ -8,7 +8,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import {useConfirm, useNavigation} from '@/providers';
+import {useConfirm, useNavigation, useTranslation} from '@/providers';
 
 /**
  * The right-click actions for a page, shared by the sidebar tree rows and the
@@ -17,40 +17,41 @@ import {useConfirm, useNavigation} from '@/providers';
 export function PageMenuItems({pageId}: {pageId: string}) {
   const {openInNew, createSubpage, deletePage, selectPage} = useNavigation();
   const confirm = useConfirm();
+  const {t} = useTranslation();
 
   const onDelete = useCallback(async () => {
     const ok = await confirm({
-      title: 'Move this page to the trash?',
-      description: 'You can restore it later from the trash.',
-      confirmText: 'Move to trash',
+      title: t('confirm.trashTitle'),
+      description: t('confirm.trashBody'),
+      confirmText: t('confirm.trashConfirm'),
       destructive: true,
     });
     if (ok) void deletePage(pageId);
-  }, [confirm, deletePage, pageId]);
+  }, [confirm, deletePage, pageId, t]);
 
   return (
     <>
       <ContextMenuItem onSelect={() => openInNew(pageId, 'tab')}>
         <ExternalLink className="mr-2 h-4 w-4" />
-        Open in new tab
+        {t('menu.openTab')}
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => openInNew(pageId, 'window')}>
         <AppWindow className="mr-2 h-4 w-4" />
-        Open in new window
+        {t('menu.openWindow')}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => void createSubpage(pageId, 'page').then(selectPage)}>
         <FilePlus2 className="mr-2 h-4 w-4" />
-        Add subpage
+        {t('menu.addSubpage')}
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => void createSubpage(pageId, 'database').then(selectPage)}>
         <Table2 className="mr-2 h-4 w-4" />
-        Add database
+        {t('menu.addDatabase')}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => void onDelete()} className="text-destructive focus:text-destructive">
         <Trash2 className="mr-2 h-4 w-4" />
-        Move to trash
+        {t('menu.moveToTrash')}
       </ContextMenuItem>
     </>
   );
@@ -68,6 +69,7 @@ export function BlockMenuItems({
   editorRef: React.RefObject<EditorJS | null>;
   blockId: string;
 }) {
+  const {t} = useTranslation();
   const indexOf = (): number => editorRef.current?.blocks.getBlockIndex(blockId) ?? -1;
 
   const moveUp = () => {
@@ -101,19 +103,19 @@ export function BlockMenuItems({
     <>
       <ContextMenuItem onSelect={moveUp}>
         <ArrowUp className="mr-2 h-4 w-4" />
-        Move up
+        {t('menu.block.moveUp')}
       </ContextMenuItem>
       <ContextMenuItem onSelect={moveDown}>
         <ArrowDown className="mr-2 h-4 w-4" />
-        Move down
+        {t('menu.block.moveDown')}
       </ContextMenuItem>
       <ContextMenuItem onSelect={() => void duplicate()}>
         <Copy className="mr-2 h-4 w-4" />
-        Duplicate
+        {t('menu.block.duplicate')}
       </ContextMenuItem>
       <ContextMenuItem onSelect={remove} className="text-destructive focus:text-destructive">
         <Trash2 className="mr-2 h-4 w-4" />
-        Delete block
+        {t('menu.block.deleteBlock')}
       </ContextMenuItem>
     </>
   );
