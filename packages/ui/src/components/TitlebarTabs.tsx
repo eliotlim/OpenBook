@@ -2,6 +2,8 @@ import {Plus, X} from 'lucide-react';
 import {useNavigation} from '@/providers';
 import {readPageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';
+import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
+import SideNavToggle from '@/components/SideNavToggle';
 
 /**
  * The in-window tab bar, drawn in the titlebar (Chrome/Arc style) on the
@@ -26,6 +28,14 @@ export default function TitlebarTabs() {
       {/* Leading inset past the window controls, draggable. macOS sets this to
           clear the traffic lights; elsewhere it is ~0 (controls aren't here). */}
       <div data-tauri-drag-region className="shrink-0" style={{width: 'var(--ob-titlebar-pad-left, 0px)'}} />
+
+      {/* Desktop-only leading controls: the workspace switcher and the sidebar
+          hide button live here (before the tabs) instead of in the sidebar /
+          nav bar. Interactive, so not drag regions. */}
+      <div className="flex shrink-0 items-center gap-0.5 pr-1">
+        <WorkspaceSelectMenu variant="titlebar" />
+        <SideNavToggle className="h-7 px-2" />
+      </div>
 
       <div className="flex min-w-0 items-end gap-1 overflow-x-auto pb-1 scrollbar-none">
         {tabs.map((tab) => {

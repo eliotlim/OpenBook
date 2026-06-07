@@ -20,11 +20,18 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import WorkspaceInfo from '@/components/WorkspaceInfo';
 import {ChevronUpDownIcon, PlusIcon} from '@heroicons/react/24/outline';
-import {CheckIcon} from '@radix-ui/react-icons';
+import {CheckIcon, GlobeIcon} from '@radix-ui/react-icons';
 import {Trash2} from 'lucide-react';
 import {useWorkspace, workspaceHostLabel} from '@/providers';
 
-export default function WorkspaceSelectMenu() {
+/**
+ * The workspace switcher. `variant` controls the trigger only:
+ *  - `sidebar` (default) — the full-width, two-line button at the top of the
+ *    sidebar (web);
+ *  - `titlebar` — a compact icon + name button for the desktop titlebar.
+ * The dropdown contents (workspace list + "add a workspace") are identical.
+ */
+export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 'sidebar' | 'titlebar'}) {
   const {workspaces, workspace, selectWorkspace, addWorkspace, removeWorkspace} = useWorkspace();
 
   const [addOpen, setAddOpen] = useState(false);
@@ -66,10 +73,22 @@ export default function WorkspaceSelectMenu() {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" className="flex h-12 w-full justify-start gap-1 px-2">
-            <WorkspaceInfo icon={workspace.icon} name={workspace.name} url={workspace.serverUrl ?? ''} />
-            <ChevronUpDownIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
-          </Button>
+          {variant === 'titlebar' ? (
+            <Button variant="ghost" className="flex h-7 max-w-[200px] items-center gap-1.5 px-2">
+              {workspace.icon ? (
+                <span className="shrink-0 text-base leading-none">{workspace.icon}</span>
+              ) : (
+                <GlobeIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+              )}
+              <span className="truncate text-sm font-medium">{workspace.name}</span>
+              <ChevronUpDownIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            </Button>
+          ) : (
+            <Button variant="ghost" className="flex h-12 w-full justify-start gap-1 px-2">
+              <WorkspaceInfo icon={workspace.icon} name={workspace.name} url={workspace.serverUrl ?? ''} />
+              <ChevronUpDownIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+            </Button>
+          )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72 bg-sheet-2 text-sheet-2-foreground">
           <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
