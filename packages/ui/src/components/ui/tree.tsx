@@ -276,8 +276,8 @@ interface TreeRowProps {
   dnd: DndState;
 }
 
-const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps>(function TreeRow(
-  { item, depth, isFolder, isExpanded, isSelected, onSelect, onToggle, Icon, dnd },
+const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttributes<HTMLDivElement>>(function TreeRow(
+  { item, depth, isFolder, isExpanded, isSelected, onSelect, onToggle, Icon, dnd, ...rest },
   ref,
 ) {
   const isDropTarget = dnd.dropTarget?.id === item.id;
@@ -290,6 +290,10 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps>(function TreeRow(
       <div
         ref={ref}
         role="treeitem"
+        // `rest` carries the handlers a wrapping ContextMenuTrigger injects via
+        // `asChild` (notably `onContextMenu`) — spread them so right-clicking a
+        // row opens its page menu instead of the browser default.
+        {...rest}
         draggable={dnd.enabled}
         onClick={onSelect}
         onDragStart={dnd.enabled ? (e) => dnd.onDragStart(e, item.id) : undefined}

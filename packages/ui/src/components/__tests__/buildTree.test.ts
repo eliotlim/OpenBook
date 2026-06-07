@@ -1,5 +1,4 @@
 import {describe, it, expect} from 'vitest';
-import {Database, FileText} from 'lucide-react';
 import type {PageMeta} from '@open-book/sdk';
 import {buildTree} from '../WorkspaceNavigationTree';
 
@@ -43,13 +42,11 @@ describe('buildTree', () => {
     expect(tree[0].name).toBe('Untitled');
   });
 
-  it('uses the stored emoji icon, else a fallback glyph', () => {
+  it('mirrors the page icon: chosen emoji, else the default page icon', () => {
     localStorage.setItem('openbook.icon.a', '🔥');
-    const dbPage: PageMeta = {...page('b', 'B'), hostedDatabaseId: 'db-1'};
-    const tree = buildTree([page('a', 'A'), dbPage, page('c', 'C')]);
-    expect(tree[0].icon).toBe('🔥'); // chosen emoji wins
-    expect(tree[1].icon).toBe(Database); // database host fallback
-    expect(tree[2].icon).toBe(FileText); // plain page fallback
+    const tree = buildTree([page('a', 'A'), page('b', 'B')]);
+    expect(tree[0].icon).toBe('🔥'); // chosen emoji
+    expect(tree[1].icon).toBe('📄'); // DEFAULT_PAGE_ICON, same as the page header
     localStorage.removeItem('openbook.icon.a');
   });
 });

@@ -4,9 +4,9 @@ import {Tree, TreeDataItem} from '@/components/ui/tree';
 import {IconButton} from '@/components/ui/icon-button';
 import {PageMenuItems} from '@/components/PageContextMenu';
 import {useNavigation} from '@/providers';
-import {readStoredPageIcon, subscribePageIcon} from '@/lib/pageIcon';
+import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {planTreeMove, type DropWhere} from '@/lib/treeMove';
-import {Database, FileText, Folder, Plus, Table2, Workflow} from 'lucide-react';
+import {Plus, Table2} from 'lucide-react';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : 'Untitled';
@@ -18,8 +18,8 @@ const displayName = (name: string | null): string =>
  * The page list arrives in manual sidebar order (server `position`), so each
  * parent's children come out in the order the user arranged them.
  *
- * A node's icon is the page's chosen emoji when it has one, otherwise a generic
- * database/file glyph.
+ * A node's icon mirrors the page's own icon: its chosen emoji, or the default
+ * page icon (📄) when none is set — so the sidebar matches the page header.
  */
 export function buildTree(pages: PageMeta[]): TreeDataItem[] {
   const nodes = new Map<string, TreeDataItem>();
@@ -27,7 +27,7 @@ export function buildTree(pages: PageMeta[]): TreeDataItem[] {
     nodes.set(page.id, {
       id: page.id,
       name: displayName(page.name),
-      icon: readStoredPageIcon(page.id) ?? (page.hostedDatabaseId ? Database : FileText),
+      icon: readPageIcon(page.id),
     });
   }
   const roots: TreeDataItem[] = [];
@@ -73,8 +73,6 @@ export default function WorkspaceNavigationTree() {
         className="w-full flex-1 border-0"
         selectedItemId={currentPageId ?? undefined}
         onSelectChange={(item) => item && selectPage(item.id)}
-        folderIcon={Folder}
-        itemIcon={Workflow}
         renderItemContextMenu={(item) => <PageMenuItems pageId={item.id} />}
         onMove={onMove}
       />

@@ -1,11 +1,11 @@
-import {test, expect} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
 
 const SERVER = 'http://127.0.0.1:4319';
 
 // Right-clicking an editor block opens a *block-aware* context menu: block
 // actions (delete/move/duplicate) above the page actions. Deleting removes that
 // block and leaves the rest of the document intact.
-test('block context menu: delete removes the right block', async ({page, request}) => {
+test('block context menu: delete removes the right block', async ({page, request}, testInfo) => {
   const create = await request.post(`${SERVER}/api/pages`, {
     data: {
       name: 'Block Menu E2E',
@@ -32,6 +32,7 @@ test('block context menu: delete removes the right block', async ({page, request
   // The block menu is shown (a page-only menu would not have this item).
   const deleteBlock = page.getByRole('menuitem', {name: 'Delete block'});
   await expect(deleteBlock).toBeVisible();
+  await takeSnapshot(page, testInfo); // visual: block-aware context menu (block + page actions)
   await deleteBlock.click();
 
   await expect(page.getByText('First block here')).toHaveCount(0);

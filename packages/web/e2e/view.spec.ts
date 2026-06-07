@@ -24,7 +24,7 @@ test('full-width toggle widens the editor content', async ({page}, testInfo) => 
 // Regression for: right-clicking in the page opens a custom context menu (the
 // desktop has no native one). Tested on the page body, which is always visible
 // (the sidebar version uses the same menu but the sidebar can be collapsed).
-test('right-click in the page opens the context menu', async ({page}) => {
+test('right-click in the page opens the context menu', async ({page}, testInfo) => {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
 
@@ -34,4 +34,5 @@ test('right-click in the page opens the context menu', async ({page}) => {
   await expect(menu).toBeVisible();
   await expect(menu.getByText('Open in new tab')).toBeVisible();
   await expect(menu.getByText('Move to trash')).toBeVisible();
+  await takeSnapshot(page, testInfo); // visual: page body context menu
 });
