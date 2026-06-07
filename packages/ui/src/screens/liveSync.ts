@@ -86,10 +86,16 @@ export interface BlockMutationLike {
  * Whether an editor `onChange` event represents a genuine, persist-worthy edit.
  *
  * Structural changes (add/remove/move) always count. `block-changed` is the
- * trap: reactive blocks (expr/chart/slider) fire it constantly as they recompute
- * and re-render their own DOM — treating those as edits causes an autosave loop.
- * Only a subpage block recording the child page id it just created counts.
+ * trap: the reactive blocks (slider/expr/chart) fire it constantly as they
+ * recompute and re-render their own DOM — treating those as edits causes an
+ * autosave loop. So `block-changed` is persist-worthy for *every* block except
+ * those three: a subpage recording its new child id, a callout switching
+ * variant, an accordion collapsing, a divider restyling, etc. all need to save.
+ * (Text edits in contenteditable blocks also fire native `input`, handled
+ * separately; this deny-list covers the programmatic data changes that don't.)
  */
+const REACTIVE_RECOMPUTE = new Set(['slider', 'expr', 'chart']);
+
 export function isPersistWorthyChange(
   event: BlockMutationLike | BlockMutationLike[] | undefined,
 ): boolean {
@@ -97,7 +103,7 @@ export function isPersistWorthyChange(
   return events.some((e) => {
     const type = e?.type;
     if (type === 'block-added' || type === 'block-removed' || type === 'block-moved') return true;
-    if (type === 'block-changed') return e?.detail?.target?.name === 'subpage';
+    if (type === 'block-changed') return !REACTIVE_RECOMPUTE.has(e?.detail?.target?.name ?? '');
     return false;
   });
 }

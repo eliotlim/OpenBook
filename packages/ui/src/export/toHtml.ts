@@ -66,15 +66,30 @@ export function toHtml(snapshot: PageSnapshot, title: string, icon: string): str
   const charts: ChartSpec[] = [];
   const initialValues: Record<string, unknown> = {};
 
+  // Pre-pass: assign each heading a stable anchor id (in document order) so a
+  // table-of-contents block can link to headings that appear after it.
+  const headerList: {anchor: string; level: number; text: string}[] = [];
+  for (const block of blocks) {
+    if (block.type !== 'header') continue;
+    const runs = parseInline(str(block.data?.text));
+    headerList.push({
+      anchor: `h-${headerList.length}`,
+      level: typeof block.data?.level === 'number' ? Math.min(6, Math.max(1, block.data.level as number)) : 2,
+      text: runs.map((r) => r.text).join(''),
+    });
+  }
+
   const html: string[] = [];
   let chartSeq = 0;
+  let headerSeq = 0;
   for (const block of blocks) {
     const d = block.data ?? {};
     const id = block.id ?? '';
     switch (block.type) {
     case 'header': {
       const level = typeof d.level === 'number' ? Math.min(6, Math.max(1, d.level)) : 2;
-      html.push(`<h${level}>${inlineToHtml(parseInline(str(d.text)))}</h${level}>`);
+      const anchor = headerList[headerSeq++]?.anchor ?? '';
+      html.push(`<h${level} id="${anchor}">${inlineToHtml(parseInline(str(d.text)))}</h${level}>`);
       break;
     }
     case 'paragraph':
@@ -92,6 +107,65 @@ export function toHtml(snapshot: PageSnapshot, title: string, icon: string): str
     case 'delimiter':
       html.push('<hr>');
       break;
+    case 'table': {
+      const content = Array.isArray(d.content) ? (d.content as unknown[][]) : [];
+      const cellHtml = (cell: unknown) => inlineToHtml(parseInline(str(cell)));
+      const rowsHtml = content.map((row, ri) => {
+        const cells = (Array.isArray(row) ? row : [])
+          .map((c) => (ri === 0 && d.withHeadings === true ? `<th>${cellHtml(c)}</th>` : `<td>${cellHtml(c)}</td>`))
+          .join('');
+        return `<tr>${cells}</tr>`;
+      });
+      html.push(`<table class="block-table">${rowsHtml.join('')}</table>`);
+      break;
+    }
+    case 'callout':
+      html.push(
+        `<div class="callout" data-variant="${escapeHtml(str(d.variant) || 'info')}"><div class="callout__body">${inlineToHtml(parseInline(str(d.text)))}</div></div>`,
+      );
+      break;
+    case 'accordion':
+      html.push(
+        `<details class="accordion"${d.open === false ? '' : ' open'}><summary>${inlineToHtml(parseInline(str(d.title)))}</summary><div class="accordion__content">${inlineToHtml(parseInline(str(d.content)))}</div></details>`,
+      );
+      break;
+    case 'checklist': {
+      const items = Array.isArray(d.items) ? (d.items as Array<Record<string, unknown>>) : [];
+      const lis = items
+        .map(
+          (it) =>
+            `<li><label><input type="checkbox"${it.checked === true ? ' checked' : ''}> ${inlineToHtml(parseInline(str(it.text)))}</label></li>`,
+        )
+        .join('');
+      html.push(`<ul class="checklist">${lis}</ul>`);
+      break;
+    }
+    case 'toc': {
+      if (headerList.length === 0) break;
+      const min = Math.min(...headerList.map((h) => h.level));
+      const lis = headerList
+        .map((h) => `<li style="margin-left:${(h.level - min) * 14}px"><a href="#${h.anchor}">${escapeHtml(h.text)}</a></li>`)
+        .join('');
+      html.push(`<nav class="toc"><ul>${lis}</ul></nav>`);
+      break;
+    }
+    case 'button': {
+      const label = escapeHtml(str(d.label) || str(d.url));
+      const url = str(d.url);
+      const ext = /^https?:\/\//i.test(url) ? ' target="_blank" rel="noreferrer noopener"' : '';
+      html.push(url ? `<p><a class="button" href="${escapeHtml(url)}"${ext}>${label}</a></p>` : `<p><span class="button is-empty">${label}</span></p>`);
+      break;
+    }
+    case 'divider': {
+      const style = escapeHtml(str(d.style) || 'line');
+      const label = str(d.label);
+      html.push(
+        style === 'labeled' && label
+          ? `<div class="divider" data-style="labeled"><span>${escapeHtml(label)}</span></div>`
+          : `<hr class="divider" data-style="${style}">`,
+      );
+      break;
+    }
     case 'slider': {
       const min = num(d.min, 0);
       const max = num(d.max, 100);
@@ -187,6 +261,37 @@ a.mention { font-weight: 600; text-decoration: underline; text-underline-offset:
 .expr code { color: #4f46e5; }
 figure.chart { margin: 1.2em 0; }
 figure.chart svg { max-width: 100%; height: auto; }
+table.block-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
+table.block-table th, table.block-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; }
+table.block-table th { background: rgba(127,127,127,.08); font-weight: 600; }
+.callout { display: flex; gap: 10px; margin: 1em 0; padding: 12px 14px; border-radius: 8px; border: 1px solid; }
+.callout::before { content: "💡"; }
+.callout[data-variant=warning]::before { content: "⚠️"; }
+.callout[data-variant=success]::before { content: "✅"; }
+.callout[data-variant=danger]::before { content: "🛑"; }
+.callout { background: rgba(59,130,246,.10); border-color: rgba(59,130,246,.35); }
+.callout[data-variant=warning] { background: rgba(245,158,11,.12); border-color: rgba(245,158,11,.4); }
+.callout[data-variant=success] { background: rgba(34,197,94,.12); border-color: rgba(34,197,94,.4); }
+.callout[data-variant=danger] { background: rgba(239,68,68,.12); border-color: rgba(239,68,68,.4); }
+.callout__body { flex: 1; }
+.accordion { margin: 1em 0; border: 1px solid rgba(127,127,127,.25); border-radius: 8px; padding: 4px 14px; }
+.accordion summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.accordion__content { padding: 2px 0 8px; }
+ul.checklist { list-style: none; padding-left: .2em; }
+ul.checklist li { margin: .25em 0; }
+ul.checklist input { margin-right: .5em; }
+nav.toc { margin: 1em 0; padding: 10px 14px; border-left: 3px solid rgba(127,127,127,.3); }
+nav.toc ul { list-style: none; padding-left: 0; margin: 0; }
+nav.toc a { text-decoration: none; opacity: .85; }
+nav.toc a:hover { opacity: 1; text-decoration: underline; }
+a.button { display: inline-block; background: #4f46e5; color: #fff; padding: 8px 18px; border-radius: 8px; font-weight: 600; text-decoration: none; }
+a.button:hover { filter: brightness(1.08); }
+.button.is-empty { background: rgba(127,127,127,.3); }
+hr.divider[data-style=dashed] { border-top-style: dashed; }
+hr.divider[data-style=dotted] { border-top-style: dotted; }
+hr.divider[data-style=thick] { border-top-width: 3px; }
+.divider[data-style=labeled] { display: flex; align-items: center; gap: 12px; text-align: center; width: 100%; margin: 2em 0; opacity: .7; font-size: .85em; }
+.divider[data-style=labeled]::before, .divider[data-style=labeled]::after { content: ""; flex: 1; border-top: 1px solid rgba(127,127,127,.3); }
 `;
 
 // Inlined live runtime: recomputes expressions from slider values and redraws

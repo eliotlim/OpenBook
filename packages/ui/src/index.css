@@ -417,3 +417,218 @@ h3.ce-header {
   color: hsl(var(--muted-foreground));
   font-size: 0.75rem;
 }
+
+/* ── New block types ──────────────────────────────────────────────────────── */
+
+/* Placeholder for our custom contenteditable regions (EditorJS only supplies
+   the `content` for its own .ce-paragraph). */
+.block-callout__body[data-placeholder]:empty::before,
+.block-accordion__title[data-placeholder]:empty::before,
+.block-accordion__content[data-placeholder]:empty::before,
+.block-divider__label[data-placeholder]:empty::before {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground) / 0.6);
+  pointer-events: none;
+}
+
+/* Callout — a tinted box keyed off the variant hue. */
+.block-callout {
+  --callout: 217 91% 60%; /* info */
+  display: flex;
+  gap: 0.6rem;
+  margin: 0.4rem 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid hsl(var(--callout) / 0.35);
+  border-radius: var(--radius);
+  background: hsl(var(--callout) / 0.08);
+}
+.block-callout[data-variant='warning'] { --callout: 38 92% 50%; }
+.block-callout[data-variant='success'] { --callout: 142 71% 45%; }
+.block-callout[data-variant='danger'] { --callout: 0 84% 60%; }
+.block-callout__emoji {
+  flex: none;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  padding: 0;
+}
+.block-callout__body {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.6;
+  outline: none;
+}
+
+/* Accordion — collapsible summary + body with a rotating chevron. */
+.block-accordion {
+  margin: 0.4rem 0;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  padding: 0.2rem 0.75rem;
+}
+.block-accordion__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+.block-accordion__chevron {
+  flex: none;
+  display: flex;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  padding: 0.35rem 0.1rem;
+  transition: transform 0.15s ease;
+}
+.block-accordion[data-open='true'] .block-accordion__chevron {
+  transform: rotate(90deg);
+}
+.block-accordion__title {
+  flex: 1;
+  font-weight: 600;
+  padding: 0.3rem 0;
+  line-height: 1.5;
+  outline: none;
+}
+.block-accordion__content {
+  padding: 0 0 0.5rem 1.4rem;
+  line-height: 1.6;
+  outline: none;
+}
+.block-accordion[data-open='false'] .block-accordion__content {
+  display: none;
+}
+
+/* Divider — a rule whose style is data-driven; `labeled` adds a centred caption. */
+.block-divider {
+  display: flex;
+  align-items: center;
+  margin: 0.9rem 0;
+}
+.block-divider::before {
+  content: '';
+  flex: 1;
+  border-top: 1px solid hsl(var(--border));
+}
+.block-divider[data-style='dashed']::before { border-top-style: dashed; }
+.block-divider[data-style='dotted']::before { border-top-style: dotted; }
+.block-divider[data-style='thick']::before { border-top-width: 3px; }
+.block-divider__label { display: none; }
+.block-divider[data-style='labeled'] { gap: 0.75rem; }
+.block-divider[data-style='labeled']::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid hsl(var(--border));
+}
+.block-divider[data-style='labeled'] .block-divider__label {
+  display: block;
+  flex: none;
+  min-width: 1ch;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.8rem;
+  text-align: center;
+  outline: none;
+}
+
+/* Button / link card. */
+.block-button {
+  margin: 0.5rem 0;
+}
+.block-button__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.block-button__input {
+  flex: 1;
+  min-width: 8rem;
+  border: 1px solid hsl(var(--input));
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  color: hsl(var(--foreground));
+  padding: 0.35rem 0.6rem;
+  font-size: 0.85rem;
+  outline: none;
+}
+.block-button__input:focus {
+  border-color: hsl(var(--ring));
+}
+.block-button__cta {
+  display: inline-block;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  padding: 0.45rem 1.1rem;
+  border-radius: var(--radius);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+  cursor: pointer;
+}
+.block-button__cta.is-empty {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+  cursor: default;
+}
+
+/* Table of contents. */
+.block-toc {
+  margin: 0.5rem 0;
+  padding: 0.4rem 0.85rem;
+  border-left: 3px solid hsl(var(--border));
+}
+.block-toc__label {
+  margin-bottom: 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: hsl(var(--muted-foreground));
+}
+.block-toc__empty {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.85rem;
+  font-style: italic;
+}
+.block-toc__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.block-toc__item {
+  margin: 0.1rem 0;
+}
+.block-toc__link {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.875rem;
+  padding: 0.1rem 0;
+}
+.block-toc__link:hover {
+  color: hsl(var(--foreground));
+  text-decoration: underline;
+}
+.ce-block--toc-flash {
+  animation: tocFlash 0.9s ease-out;
+}
+@keyframes tocFlash {
+  0% { background: hsl(var(--brand-subtle)); }
+  100% { background: transparent; }
+}
+
+/* @editorjs/table theming (it reads these CSS vars). */
+.tc-wrap {
+  --color-border: hsl(var(--border));
+  --color-text-secondary: hsl(var(--muted-foreground));
+  --toolbox-buttons-color: hsl(var(--muted-foreground));
+  --toolbox-buttons-color-hover: hsl(var(--foreground));
+}
+.tc-table {
+  font-size: 0.9rem;
+}

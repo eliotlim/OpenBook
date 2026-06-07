@@ -55,6 +55,38 @@ function blockToMd(block: DocBlock): string {
     return '```\n' + block.code + '\n```';
   case 'delimiter':
     return '---';
+  case 'table': {
+    if (block.rows.length === 0) return '';
+    const cell = (runs: InlineRun[]) => inlineToMd(runs).replace(/\|/g, '\\|').replace(/\n/g, ' ') || ' ';
+    const [head, ...body] = block.rows;
+    const lines = [
+      `| ${head.map(cell).join(' | ')} |`,
+      `| ${head.map(() => '---').join(' | ')} |`,
+      ...body.map((row) => `| ${row.map(cell).join(' | ')} |`),
+    ];
+    return lines.join('\n');
+  }
+  case 'callout': {
+    const tag = `> [!${block.variant}]`;
+    const body = inlineToMd(block.runs)
+      .split('\n')
+      .map((l) => `> ${l}`)
+      .join('\n');
+    return body.trim() ? `${tag}\n${body}` : tag;
+  }
+  case 'accordion':
+    return `<details${block.open ? ' open' : ''}>\n<summary>${inlineToMd(block.title)}</summary>\n\n${inlineToMd(block.content)}\n\n</details>`;
+  case 'checklist':
+    return block.items.map((it) => `- [${it.checked ? 'x' : ' '}] ${inlineToMd(it.runs)}`).join('\n');
+  case 'toc': {
+    if (block.entries.length === 0) return '';
+    const min = Math.min(...block.entries.map((e) => e.level));
+    return block.entries.map((e) => `${'  '.repeat(e.level - min)}- ${escapeMd(e.text)}`).join('\n');
+  }
+  case 'button':
+    return block.url ? `[${escapeMd(block.label || block.url)}](${block.url})` : escapeMd(block.label);
+  case 'divider':
+    return block.style === 'labeled' && block.label ? `**${escapeMd(block.label)}**\n\n---` : '---';
   case 'slider':
   case 'expr':
     return `**${block.name}** = ${formatValue(block.value)}`;

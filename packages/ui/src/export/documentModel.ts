@@ -33,6 +33,13 @@ export type DocBlock =
   | {type: 'quote'; runs: InlineRun[]; caption: string}
   | {type: 'code'; code: string}
   | {type: 'delimiter'}
+  | {type: 'table'; withHeadings: boolean; rows: InlineRun[][][]}
+  | {type: 'callout'; variant: string; runs: InlineRun[]}
+  | {type: 'accordion'; title: InlineRun[]; content: InlineRun[]; open: boolean}
+  | {type: 'checklist'; items: {runs: InlineRun[]; checked: boolean}[]}
+  | {type: 'toc'; entries: {level: number; text: string}[]}
+  | {type: 'button'; label: string; url: string}
+  | {type: 'divider'; style: string; label: string}
   | {type: 'slider'; name: string; value: unknown}
   | {type: 'expr'; name: string; value: unknown; source: string}
   | {type: 'chart'; series: NormalizedSeries[]}
@@ -145,6 +152,41 @@ export function buildDocumentModel({title, icon, snapshot}: BuildModelOptions): 
     case 'delimiter':
       out.push({type: 'delimiter'});
       break;
+    case 'table': {
+      const content = Array.isArray(data.content) ? (data.content as unknown[][]) : [];
+      const rows = content.map((row) => (Array.isArray(row) ? row : []).map((cell) => parseInline(str(cell))));
+      out.push({type: 'table', withHeadings: data.withHeadings === true, rows});
+      break;
+    }
+    case 'callout':
+      out.push({type: 'callout', variant: str(data.variant) || 'info', runs: parseInline(str(data.text))});
+      break;
+    case 'accordion':
+      out.push({
+        type: 'accordion',
+        title: parseInline(str(data.title)),
+        content: parseInline(str(data.content)),
+        open: data.open !== false,
+      });
+      break;
+    case 'checklist': {
+      const items = Array.isArray(data.items) ? (data.items as Array<Record<string, unknown>>) : [];
+      out.push({
+        type: 'checklist',
+        items: items.map((it) => ({runs: parseInline(str(it.text)), checked: it.checked === true})),
+      });
+      break;
+    }
+    case 'toc':
+      // Entries are filled from the document's headers in a post-process pass.
+      out.push({type: 'toc', entries: []});
+      break;
+    case 'button':
+      out.push({type: 'button', label: str(data.label), url: str(data.url)});
+      break;
+    case 'divider':
+      out.push({type: 'divider', style: str(data.style) || 'line', label: str(data.label)});
+      break;
     case 'slider':
       out.push({type: 'slider', name: str(data.name) || nameByCell.get(id) || 'value', value: values.get(id)});
       break;
@@ -181,5 +223,12 @@ export function buildDocumentModel({title, icon, snapshot}: BuildModelOptions): 
       break;
     }
   }
+
+  // Fill any table-of-contents blocks from the document's headers.
+  const entries = out
+    .filter((b): b is Extract<DocBlock, {type: 'header'}> => b.type === 'header')
+    .map((h) => ({level: h.level, text: runsToText(h.runs)}));
+  for (const b of out) if (b.type === 'toc') b.entries = entries;
+
   return {title: title.trim() || 'Untitled', icon, blocks: out};
 }

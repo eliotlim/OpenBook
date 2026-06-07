@@ -73,6 +73,7 @@ async function applyIncomingBlocks(inst: EditorJS, next: OutputData, holder: HTM
   }
 }
 import {SliderBlock, ExprBlock, ChartBlock, SubpageBlock} from '@/reactive';
+import {CalloutBlock, AccordionBlock, DividerBlock, ButtonBlock, TableOfContentsBlock} from '@/editor/blocks';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {installEditorChrome} from '@/lib/editorChrome';
 import {MentionController, PageLinkInlineTool} from '@/editor/pageMention';
@@ -241,6 +242,8 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         {default: CodeTool},
         {default: Marker},
         {default: InlineCode},
+        {default: Table},
+        {default: Checklist},
         {default: DragDrop},
       ] = await Promise.all([
         import('@editorjs/editorjs'),
@@ -251,11 +254,26 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         import('@editorjs/code'),
         import('@editorjs/marker'),
         import('@editorjs/inline-code'),
+        import('@editorjs/table'),
+        import('@editorjs/checklist'),
         // EditorJS dropped built-in block drag-and-drop in 2.20; this plugin
         // restores it (dragging a block by its settings handle reorders it).
         import('editorjs-drag-drop'),
       ]);
       if (cancelled || !holderRef.current) return;
+
+      // Localize the third-party table/checklist toolbox titles (their other
+      // strings are minimal) by subclassing to override the static toolbox.
+      const LocalTable = class extends (Table as new (...a: never[]) => object) {
+        static get toolbox() {
+          return {...(Table as {toolbox: object}).toolbox, title: bareT('blocks.table')};
+        }
+      };
+      const LocalChecklist = class extends (Checklist as new (...a: never[]) => object) {
+        static get toolbox() {
+          return {...(Checklist as {toolbox: object}).toolbox, title: bareT('blocks.todo')};
+        }
+      };
 
       const editorJs = new EditorJSCtor({
         holder: holderRef.current,
@@ -275,6 +293,13 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           delimiter: Delimiter as unknown as never,
           marker: {class: Marker as unknown as never, shortcut: 'CMD+SHIFT+M'},
           inlineCode: {class: InlineCode as unknown as never, shortcut: 'CMD+SHIFT+C'},
+          table: {class: LocalTable as unknown as never, inlineToolbar: true},
+          checklist: {class: LocalChecklist as unknown as never, inlineToolbar: true},
+          callout: {class: CalloutBlock as unknown as never, inlineToolbar: true},
+          accordion: {class: AccordionBlock as unknown as never, inlineToolbar: true},
+          divider: DividerBlock as unknown as never,
+          button: ButtonBlock as unknown as never,
+          toc: TableOfContentsBlock as unknown as never,
           slider: SliderBlock as unknown as never,
           expr: ExprBlock as unknown as never,
           chart: ChartBlock as unknown as never,

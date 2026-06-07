@@ -2,6 +2,7 @@ import {describe, it, expect} from 'vitest';
 import type {PageSnapshot} from '@open-book/sdk';
 import {buildDocumentModel, parseInline, runsToText} from '../documentModel';
 import {toMarkdown} from '../toMarkdown';
+import {toHtml} from '../toHtml';
 
 const snapshot = (blocks: unknown[], values: Array<[string, unknown]> = [], names: Array<[string, string]> = []): PageSnapshot => ({
   editorjs: {blocks},
@@ -94,5 +95,64 @@ describe('toMarkdown', () => {
     expect(md).toContain('- a\n- b');
     expect(md).toContain('```\nconst x = 1\n```');
     expect(md).toContain('**months** = 120');
+  });
+});
+
+describe('new block types', () => {
+  const blocks = [
+    {type: 'header', data: {text: 'Alpha', level: 2}},
+    {type: 'toc', data: {}},
+    {type: 'table', data: {withHeadings: true, content: [['Name', 'Age'], ['Ada', '36']]}},
+    {type: 'callout', data: {variant: 'warning', text: 'Be <b>careful</b>'}},
+    {type: 'accordion', data: {title: 'More', content: 'Hidden detail', open: false}},
+    {type: 'checklist', data: {items: [{text: 'done', checked: true}, {text: 'todo', checked: false}]}},
+    {type: 'button', data: {label: 'Open', url: 'https://example.com'}},
+    {type: 'divider', data: {style: 'dashed'}},
+    {type: 'header', data: {text: 'Beta', level: 3}},
+  ];
+
+  it('normalizes every new block (documentModel)', () => {
+    const model = buildDocumentModel({title: 'T', icon: '', snapshot: snapshot(blocks)});
+    const byType = Object.fromEntries(model.blocks.map((b) => [b.type, b]));
+
+    expect((byType.table as {withHeadings: boolean; rows: unknown[][][]}).withHeadings).toBe(true);
+    expect(runsToText((byType.table as {rows: import('../documentModel').InlineRun[][][]}).rows[1][0])).toBe('Ada');
+    expect(byType.callout).toMatchObject({type: 'callout', variant: 'warning'});
+    expect((byType.accordion as {open: boolean}).open).toBe(false);
+    const checklist = byType.checklist as {items: {checked: boolean}[]};
+    expect(checklist.items.map((i) => i.checked)).toEqual([true, false]);
+    expect(byType.button).toMatchObject({label: 'Open', url: 'https://example.com'});
+    expect(byType.divider).toMatchObject({style: 'dashed'});
+    // ToC entries are filled from the document's headers (before and after it).
+    expect((byType.toc as {entries: {text: string}[]}).entries.map((e) => e.text)).toEqual(['Alpha', 'Beta']);
+  });
+
+  it('renders every new block to Markdown', () => {
+    const md = toMarkdown(buildDocumentModel({title: 'T', icon: '', snapshot: snapshot(blocks)}));
+    expect(md).toContain('| Name | Age |');
+    expect(md).toContain('| --- | --- |');
+    expect(md).toContain('| Ada | 36 |');
+    expect(md).toContain('> [!warning]');
+    expect(md).toContain('<details');
+    expect(md).toContain('- [x] done');
+    expect(md).toContain('- [ ] todo');
+    expect(md).toContain('[Open](https://example.com)');
+    expect(md).toMatch(/- Alpha[\s\S]*- Beta/); // ToC outline
+  });
+
+  it('renders every new block to interactive HTML', () => {
+    const html = toHtml(snapshot(blocks), 'T', '');
+    expect(html).toContain('<table class="block-table">');
+    expect(html).toContain('<th>Name</th>');
+    expect(html).toContain('<td>Ada</td>');
+    expect(html).toContain('data-variant="warning"');
+    expect(html).toContain('<details class="accordion"');
+    expect(html).toContain('<ul class="checklist">');
+    expect(html).toContain('type="checkbox" checked');
+    expect(html).toContain('<a class="button" href="https://example.com"');
+    expect(html).toContain('data-style="dashed"');
+    expect(html).toContain('<nav class="toc">');
+    expect(html).toContain('href="#h-0"'); // ToC links to the first heading anchor
+    expect(html).toContain('id="h-0"');
   });
 });

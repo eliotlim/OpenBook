@@ -10,10 +10,17 @@
  */
 import {jsPDF} from 'jspdf';
 import 'svg2pdf.js';
-import type {DocBlock, DocModel, ListItem} from './documentModel';
+import type {DocBlock, DocModel, InlineRun, ListItem} from './documentModel';
 import {runsToText} from './documentModel';
 import {formatValue} from './format';
 import {buildChartSvg} from './chartSvg';
+
+const CALLOUT_COLOR: Record<string, [number, number, number]> = {
+  info: [59, 130, 246],
+  warning: [245, 158, 11],
+  success: [34, 197, 94],
+  danger: [239, 68, 68],
+};
 
 const PAGE_W = 612; // US Letter, points
 const PAGE_H = 792;
@@ -84,6 +91,50 @@ function writeList(s: RenderState, items: ListItem[], ordered: boolean, depth: n
   s.y += 4;
 }
 
+/** Render an equal-column grid with cell borders (deterministic across passes). */
+function writeTable(s: RenderState, rows: InlineRun[][][], withHeadings: boolean): void {
+  if (rows.length === 0) return;
+  const cols = Math.max(...rows.map((r) => r.length), 1);
+  const colW = CONTENT_W / cols;
+  const pad = 5;
+  const size = 10;
+  const lineH = size * 1.35;
+  s.doc.setFontSize(size);
+  for (let r = 0; r < rows.length; r++) {
+    const head = r === 0 && withHeadings;
+    s.doc.setFont('helvetica', head ? 'bold' : 'normal');
+    const cellLines: string[][] = [];
+    let maxLines = 1;
+    for (let c = 0; c < cols; c++) {
+      const text = runsToText(rows[r][c] ?? []) || ' ';
+      const lines = s.doc.splitTextToSize(text, colW - pad * 2) as string[];
+      cellLines.push(lines);
+      maxLines = Math.max(maxLines, lines.length);
+    }
+    const rowH = maxLines * lineH + pad * 2;
+    breakIfNeeded(s, rowH);
+    const y0 = s.y;
+    if (s.draw) {
+      s.doc.setDrawColor(205, 205, 205);
+      if (head) {
+        s.doc.setFillColor(244, 244, 245);
+        s.doc.rect(MARGIN, y0, CONTENT_W, rowH, 'F');
+      }
+      for (let c = 0; c <= cols; c++) s.doc.line(MARGIN + c * colW, y0, MARGIN + c * colW, y0 + rowH);
+      s.doc.line(MARGIN, y0, MARGIN + CONTENT_W, y0);
+      s.doc.line(MARGIN, y0 + rowH, MARGIN + CONTENT_W, y0 + rowH);
+      s.doc.setTextColor(25, 25, 25);
+      for (let c = 0; c < cols; c++) {
+        cellLines[c].forEach((ln, li) =>
+          s.doc.text(ln, MARGIN + c * colW + pad, y0 + pad + li * lineH, {baseline: 'top'}),
+        );
+      }
+    }
+    s.y = y0 + rowH;
+  }
+  s.y += 8;
+}
+
 async function writeBlock(s: RenderState, block: DocBlock): Promise<void> {
   switch (block.type) {
   case 'header':
@@ -110,6 +161,74 @@ async function writeBlock(s: RenderState, block: DocBlock): Promise<void> {
     }
     s.y += 18;
     break;
+  case 'table':
+    writeTable(s, block.rows, block.withHeadings);
+    break;
+  case 'callout': {
+    const start = s.y;
+    writeText(s, runsToText(block.runs) || ' ', {size: 11, x: MARGIN + 16, color: [50, 50, 55], gapAfter: 8});
+    if (s.draw) {
+      s.doc.setDrawColor(...(CALLOUT_COLOR[block.variant] ?? CALLOUT_COLOR.info));
+      s.doc.setLineWidth(2.5);
+      s.doc.line(MARGIN + 6, start, MARGIN + 6, Math.max(start, s.y - 8));
+      s.doc.setLineWidth(1);
+    }
+    break;
+  }
+  case 'accordion':
+    writeText(s, runsToText(block.title) || ' ', {size: 12, style: 'bold', gapAfter: 2});
+    writeText(s, runsToText(block.content), {size: 11, x: MARGIN + 14, color: [60, 60, 60], gapAfter: 8});
+    break;
+  case 'checklist':
+    for (const item of block.items) {
+      writeText(s, `${item.checked ? '[x]' : '[ ]'} ${runsToText(item.runs)}`, {size: 11, x: MARGIN + 4, gapAfter: 2});
+    }
+    s.y += 6;
+    break;
+  case 'toc':
+    if (block.entries.length) {
+      const min = Math.min(...block.entries.map((e) => e.level));
+      writeText(s, 'Contents', {size: 12, style: 'bold', gapAfter: 4});
+      for (const e of block.entries) {
+        writeText(s, e.text, {size: 10.5, x: MARGIN + 14 + (e.level - min) * 14, color: [60, 60, 60], gapAfter: 1});
+      }
+      s.y += 6;
+    }
+    break;
+  case 'button':
+    writeText(s, block.url ? `${block.label || block.url}  →  ${block.url}` : block.label, {
+      size: 11,
+      style: 'bold',
+      color: [79, 70, 229],
+      gapAfter: 8,
+    });
+    break;
+  case 'divider': {
+    breakIfNeeded(s, 18);
+    if (s.draw) {
+      const yy = s.y + 6;
+      s.doc.setDrawColor(200, 200, 200);
+      if (block.style === 'thick') s.doc.setLineWidth(2);
+      if (block.style === 'dashed') s.doc.setLineDashPattern([4, 3], 0);
+      if (block.style === 'dotted') s.doc.setLineDashPattern([1, 3], 0);
+      if (block.style === 'labeled' && block.label) {
+        s.doc.setFont('helvetica', 'normal');
+        s.doc.setFontSize(9.5);
+        s.doc.setTextColor(140, 140, 140);
+        const tw = s.doc.getTextWidth(block.label);
+        const cx = MARGIN + CONTENT_W / 2;
+        s.doc.line(MARGIN, yy, cx - tw / 2 - 8, yy);
+        s.doc.line(cx + tw / 2 + 8, yy, MARGIN + CONTENT_W, yy);
+        s.doc.text(block.label, cx - tw / 2, yy, {baseline: 'middle'});
+      } else {
+        s.doc.line(MARGIN, yy, MARGIN + CONTENT_W, yy);
+      }
+      s.doc.setLineWidth(1);
+      s.doc.setLineDashPattern([], 0);
+    }
+    s.y += 18;
+    break;
+  }
   case 'slider':
   case 'expr':
     writeText(s, `${block.name} = ${formatValue(block.value)}`, {size: 11, font: 'courier', color: [40, 40, 90], gapAfter: 8});

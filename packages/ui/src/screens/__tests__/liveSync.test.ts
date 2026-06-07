@@ -76,13 +76,17 @@ describe('isPersistWorthyChange', () => {
     expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'slider'}}})).toBe(false);
   });
 
-  it('counts a subpage recording its created child id', () => {
+  it('counts a non-reactive block-changed (subpage + structural blocks)', () => {
     expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'subpage'}}})).toBe(true);
+    expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'callout'}}})).toBe(true);
+    expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'accordion'}}})).toBe(true);
+    expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'divider'}}})).toBe(true);
+    // An unnamed block-changed is treated as a real edit (better to over-save).
+    expect(isPersistWorthyChange({type: 'block-changed'})).toBe(true);
   });
 
-  it('handles arrays and missing data', () => {
+  it('handles arrays and missing events', () => {
     expect(isPersistWorthyChange([{type: 'block-changed', detail: {target: {name: 'expr'}}}, {type: 'block-added'}])).toBe(true);
-    expect(isPersistWorthyChange({type: 'block-changed'})).toBe(false);
     expect(isPersistWorthyChange(undefined)).toBe(false);
   });
 });
