@@ -117,6 +117,10 @@ export const ja: PartialMessages = {
     create: 'ページ「{name}」を作成',
     empty: 'ページがありません — 入力を続けると作成できます。',
   },
+  emoji: {
+    label: '絵文字',
+    search: '絵文字を検索',
+  },
   confirm: {
     trashTitle: 'このページをゴミ箱へ移動しますか？',
     trashBody: '後でゴミ箱から復元できます。',
@@ -190,7 +194,7 @@ export const ja: PartialMessages = {
     calloutWarning: '警告',
     calloutSuccess: '成功',
     calloutDanger: '危険',
-    calloutCycle: 'スタイルを変更',
+    calloutEmoji: '絵文字を変更',
     calloutPlaceholder: 'コールアウトを入力…',
     accordion: 'トグル',
     accordionToggle: '展開または折りたたみ',

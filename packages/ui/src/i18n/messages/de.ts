@@ -117,6 +117,10 @@ export const de: PartialMessages = {
     create: 'Seite „{name}“ erstellen',
     empty: 'Keine Seiten — weiter tippen, um eine zu erstellen.',
   },
+  emoji: {
+    label: 'Emoji',
+    search: 'Emoji suchen',
+  },
   confirm: {
     trashTitle: 'Diese Seite in den Papierkorb verschieben?',
     trashBody: 'Du kannst sie später aus dem Papierkorb wiederherstellen.',
@@ -190,7 +194,7 @@ export const de: PartialMessages = {
     calloutWarning: 'Warnung',
     calloutSuccess: 'Erfolg',
     calloutDanger: 'Gefahr',
-    calloutCycle: 'Stil ändern',
+    calloutEmoji: 'Emoji ändern',
     calloutPlaceholder: 'Hinweis schreiben…',
     accordion: 'Umschalter',
     accordionToggle: 'Ein- oder ausklappen',

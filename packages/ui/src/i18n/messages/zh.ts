@@ -117,6 +117,10 @@ export const zh: PartialMessages = {
     create: '创建页面“{name}”',
     empty: '没有页面 — 继续输入即可创建。',
   },
+  emoji: {
+    label: '表情',
+    search: '搜索表情',
+  },
   confirm: {
     trashTitle: '将此页面移到回收站？',
     trashBody: '之后可从回收站恢复。',
@@ -190,7 +194,7 @@ export const zh: PartialMessages = {
     calloutWarning: '警告',
     calloutSuccess: '成功',
     calloutDanger: '危险',
-    calloutCycle: '更改样式',
+    calloutEmoji: '更改表情',
     calloutPlaceholder: '输入标注…',
     accordion: '折叠块',
     accordionToggle: '展开或折叠',

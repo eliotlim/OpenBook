@@ -1,8 +1,7 @@
-import EmojiPicker, {Theme} from 'emoji-picker-react';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {useHud, usePreferences, useTheme, useTranslation} from '@/providers';
+import {useHud, usePreferences, useTranslation} from '@/providers';
 import {t as bareT} from '@/i18n';
-import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {IconPicker} from '@/components/IconPicker';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -78,6 +77,8 @@ import {PageContextMenu} from '@/components/PageContextMenu';
 import {installEditorChrome} from '@/lib/editorChrome';
 import {MentionController, PageLinkInlineTool} from '@/editor/pageMention';
 import {MentionPopover} from '@/components/MentionPopover';
+import {EmojiSuggestController} from '@/editor/emojiSuggest';
+import {EmojiSuggestPopover} from '@/components/EmojiSuggestPopover';
 import {pageLinks} from '@/lib/pageLinks';
 import {store} from '@/reactive/ReactiveStore';
 import type {PageSnapshot} from '@open-book/sdk';
@@ -118,26 +119,15 @@ const PageHeader: React.FC<{
   onIconChange?: (emoji: string) => void;
   onTitleActiveChange?: (active: boolean) => void;
 }> = ({title, icon, onTitleChange, onIconChange, onTitleActiveChange}) => {
-  const {colorScheme} = useTheme();
   const {t} = useTranslation();
   return (
     <div className="pt-2 pb-1">
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-accent"
-            aria-label={t('page.changeIcon')}
-          >
-            <span>{icon || '📄'}</span>
-          </button>
-        </PopoverTrigger>
-        <PopoverContent className="z-50 w-auto border-0 p-0 shadow-lg">
-          <EmojiPicker
-            onEmojiClick={(e) => onIconChange?.(e.emoji)}
-            theme={colorScheme === 'light' ? Theme.LIGHT : Theme.DARK}
-          />
-        </PopoverContent>
-      </Popover>
+      <IconPicker
+        value={icon}
+        onPick={(emoji) => onIconChange?.(emoji)}
+        ariaLabel={t('page.changeIcon')}
+        className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-accent"
+      />
       <input
         className="w-full bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-muted-foreground/35"
         value={title}
@@ -190,6 +180,9 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   // it's available when building the tools config (before the editor mounts).
   const mentionRef = useRef<MentionController | null>(null);
   if (!mentionRef.current) mentionRef.current = new MentionController();
+  // The `:`-shortcode emoji controller for this editor (one per pane).
+  const emojiRef = useRef<EmojiSuggestController | null>(null);
+  if (!emojiRef.current) emojiRef.current = new EmojiSuggestController();
   const [status, setStatus] = useState<string>('initializing');
   const statusRef = useRef(status);
   statusRef.current = status;
@@ -328,6 +321,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           if (holder) {
             disposeChrome = installEditorChrome(holder);
             mentionRef.current?.attach(holder);
+            emojiRef.current?.attach(holder);
           }
           setStatus('ready');
         },
@@ -381,6 +375,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
       if (saveTimer.current) clearTimeout(saveTimer.current);
       disposeChrome?.();
       mentionRef.current?.detach();
+      emojiRef.current?.detach();
       const holder = holderRef.current;
       holder?.removeEventListener('beforeinput', markUserEdited);
       holder?.removeEventListener('input', markUserEdited);
@@ -521,6 +516,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
       )}
 
       {!isSSR() && mentionRef.current && <MentionPopover controller={mentionRef.current} />}
+      {!isSSR() && emojiRef.current && <EmojiSuggestPopover controller={emojiRef.current} />}
 
       {footer && <div className={columnClass}>{footer}</div>}
     </div>

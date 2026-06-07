@@ -19,6 +19,7 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import WorkspaceInfo from '@/components/WorkspaceInfo';
+import {IconPicker} from '@/components/IconPicker';
 import {ChevronUpDownIcon, PlusIcon} from '@heroicons/react/24/outline';
 import {CheckIcon, GlobeIcon} from '@radix-ui/react-icons';
 import {Trash2} from 'lucide-react';
@@ -156,13 +157,13 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
             <div className="flex gap-3">
               <div className="flex w-16 flex-col gap-1.5">
                 <Label htmlFor="ws-icon">{t('workspace.icon')}</Label>
-                <Input
+                <IconPicker
                   id="ws-icon"
                   value={icon}
-                  maxLength={2}
-                  placeholder="📓"
-                  className="text-center text-lg"
-                  onChange={(e) => setIcon(e.target.value)}
+                  onPick={setIcon}
+                  fallback="📓"
+                  ariaLabel={t('workspace.icon')}
+                  className="flex h-9 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-accent"
                 />
               </div>
               <div className="flex flex-1 flex-col gap-1.5">

@@ -272,6 +272,9 @@ importers:
       lucide-react:
         specifier: ^1.0.0
         version: 1.17.0(react@19.2.6)
+      node-emoji:
+        specifier: ^2.2.0
+        version: 2.2.0
       svg2pdf.js:
         specifier: ^2.7.0
         version: 2.7.0(jspdf@4.2.1)

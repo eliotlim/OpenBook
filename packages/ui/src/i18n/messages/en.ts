@@ -121,6 +121,10 @@ export const en = {
     create: 'Create page “{name}”',
     empty: 'No pages — keep typing to create one.',
   },
+  emoji: {
+    label: 'Emoji',
+    search: 'Search emoji',
+  },
   confirm: {
     trashTitle: 'Move this page to the trash?',
     trashBody: 'You can restore it later from the trash.',
@@ -194,7 +198,7 @@ export const en = {
     calloutWarning: 'Warning',
     calloutSuccess: 'Success',
     calloutDanger: 'Danger',
-    calloutCycle: 'Change style',
+    calloutEmoji: 'Change emoji',
     calloutPlaceholder: 'Write a callout…',
     accordion: 'Toggle',
     accordionToggle: 'Expand or collapse',

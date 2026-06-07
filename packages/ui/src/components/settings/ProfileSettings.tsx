@@ -1,4 +1,5 @@
 import {Input, inputVariants} from '@/components/ui/input';
+import {IconPicker} from '@/components/IconPicker';
 import {usePreferences, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
 import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
@@ -16,13 +17,13 @@ export default function ProfileSettings() {
       <SettingsSection title={t('profile.identity')}>
         <div className="flex gap-3">
           <SettingsField label={t('profile.avatar')} htmlFor="ob-profile-avatar" className="w-20">
-            <Input
+            <IconPicker
               id="ob-profile-avatar"
               value={avatar}
-              maxLength={2}
-              className="text-center text-lg"
-              autoComplete="off"
-              onChange={(e) => update({profile: {avatar: e.target.value}})}
+              onPick={(emoji) => update({profile: {avatar: emoji}})}
+              ariaLabel={t('profile.avatar')}
+              fallback="🙂"
+              className="flex h-9 w-full items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-accent"
             />
           </SettingsField>
           <SettingsField label={t('profile.name')} hint={t('profile.nameHint')} htmlFor="ob-profile-name" className="flex-1">

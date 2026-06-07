@@ -1,6 +1,7 @@
 import {NavBar, SideNav} from '@/components';
 import {CommandMenu} from '@/components/CommandMenu';
 import Settings from '@/components/Settings';
+import EmojiPickerHost from '@/components/EmojiPickerHost';
 import TitlebarTabs from '@/components/TitlebarTabs';
 import WindowControls from '@/components/WindowControls';
 import {ConfirmProvider} from '@/providers/ConfirmProvider';
@@ -26,6 +27,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
         <div className="flex min-h-0 flex-1 flex-row items-stretch overflow-hidden">
           <CommandMenu/>
           <Settings/>
+          <EmojiPickerHost/>
           <SideNav/>
           <div className="flex min-h-0 w-full min-w-0 flex-col">
             <NavBar/>

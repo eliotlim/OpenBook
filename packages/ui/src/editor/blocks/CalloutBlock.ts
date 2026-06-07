@@ -1,12 +1,15 @@
 import type {BlockTool, BlockToolConstructorOptions, BlockToolData, ToolboxConfig} from '@editorjs/editorjs';
 import {t} from '@/i18n';
 import type {TKey} from '@/i18n';
+import {emojiPicker} from '@/lib/emojiPicker';
 import {RICH_TEXT_SANITIZE, makeEditable, icon} from './shared';
 
 export type CalloutVariant = 'info' | 'warning' | 'success' | 'danger';
 
 interface CalloutData extends BlockToolData {
   variant?: CalloutVariant;
+  /** A custom marker emoji; when unset the variant's default emoji is shown. */
+  emoji?: string;
   text?: string;
 }
 
@@ -45,17 +48,29 @@ export class CalloutBlock implements BlockTool {
   }
 
   static get sanitize() {
-    return {variant: false, text: RICH_TEXT_SANITIZE};
+    return {variant: false, emoji: false, text: RICH_TEXT_SANITIZE};
   }
 
   private get variant(): CalloutVariant {
     return this.data.variant && this.data.variant in VARIANTS ? this.data.variant : 'info';
   }
 
+  /** The shown marker: a custom emoji if picked, else the variant's default. */
+  private get displayEmoji(): string {
+    return this.data.emoji || VARIANTS[this.variant].emoji;
+  }
+
   private setVariant(variant: CalloutVariant): void {
     this.data.variant = variant;
     if (this.wrapper) this.wrapper.dataset.variant = variant;
-    if (this.emojiEl) this.emojiEl.textContent = VARIANTS[variant].emoji;
+    // Only follow the variant's emoji while no custom one has been picked.
+    if (this.emojiEl && !this.data.emoji) this.emojiEl.textContent = VARIANTS[variant].emoji;
+    this.block?.dispatchChange();
+  }
+
+  private setEmoji(emoji: string): void {
+    this.data.emoji = emoji;
+    if (this.emojiEl) this.emojiEl.textContent = emoji;
     this.block?.dispatchChange();
   }
 
@@ -68,14 +83,18 @@ export class CalloutBlock implements BlockTool {
     const emoji = document.createElement('button');
     emoji.type = 'button';
     emoji.className = 'block-callout__emoji';
-    emoji.textContent = VARIANTS[variant].emoji;
-    emoji.title = t('blocks.calloutCycle');
-    // Clicking the emoji cycles to the next variant — a quick alternative to
-    // the block tunes menu. preventDefault keeps the caret out of the button.
+    emoji.textContent = this.displayEmoji;
+    emoji.title = t('blocks.calloutEmoji');
+    // Clicking the emoji opens the app-wide emoji picker (the variant/colour is
+    // set via block tunes). preventDefault keeps the caret out of the button.
     emoji.addEventListener('mousedown', (e) => e.preventDefault());
     emoji.addEventListener('click', () => {
-      const next = ORDER[(ORDER.indexOf(this.variant) + 1) % ORDER.length];
-      this.setVariant(next);
+      const r = emoji.getBoundingClientRect();
+      emojiPicker.open(
+        {left: r.left, top: r.top, width: r.width, height: r.height},
+        this.displayEmoji,
+        (picked) => this.setEmoji(picked),
+      );
     });
 
     const body = makeEditable({
@@ -101,6 +120,10 @@ export class CalloutBlock implements BlockTool {
   }
 
   save(): CalloutData {
-    return {variant: this.variant, text: this.bodyEl?.innerHTML ?? this.data.text ?? ''};
+    return {
+      variant: this.variant,
+      emoji: this.data.emoji,
+      text: this.bodyEl?.innerHTML ?? this.data.text ?? '',
+    };
   }
 }
