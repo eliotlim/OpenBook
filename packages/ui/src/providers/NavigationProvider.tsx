@@ -10,7 +10,7 @@ import React, {
 } from 'react';
 import {defaultDatabaseSchema, emptyPageSnapshot, type PageMeta} from '@open-book/sdk';
 import {useData} from '@/data';
-import {setPageLinkBridge} from '@/lib/pageLinks';
+import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
 import {readPageIcon} from '@/lib/pageIcon';
 import {usePlatformLibrary, type NewViewTarget} from './PlatformLibraryProvider';
 import * as W from './windowModel';
@@ -291,6 +291,30 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [client, reload],
   );
 
+  // ── @-mention page links ──────────────────────────────────────────────────
+  const searchPages = useCallback(
+    (query: string): PageLinkResult[] => {
+      const q = query.trim().toLowerCase();
+      const matches = pages
+        .map((p) => ({id: p.id, label: pageLabel(p.id), icon: readPageIcon(p.id)}))
+        .filter((r) => q === '' || r.label.toLowerCase().includes(q));
+      // Prefer prefix matches, then by position; cap the list for the popover.
+      return matches
+        .sort((a, b) => Number(b.label.toLowerCase().startsWith(q)) - Number(a.label.toLowerCase().startsWith(q)))
+        .slice(0, 8);
+    },
+    [pages, pageLabel],
+  );
+
+  const createLinkedPage = useCallback(
+    async (name: string): Promise<string> => {
+      const page = await client.savePage({name: name.trim() || null, data: emptyPageSnapshot()});
+      await reload();
+      return page.id;
+    },
+    [client, reload],
+  );
+
   // Initial load: list pages, ensure one exists, then open the window described
   // by the URL (`?page`/`?split`), falling back to the last/first page. Runs
   // exactly once (the shared promise survives StrictMode's double-mount).
@@ -352,9 +376,11 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       openPage: (id) => selectPage(id),
       label: (id) => pageLabel(id),
       icon: (id) => readPageIcon(id),
+      searchPages,
+      createPage: createLinkedPage,
     });
     return () => setPageLinkBridge(null);
-  }, [createSubpage, selectPage, pageLabel]);
+  }, [createSubpage, selectPage, pageLabel, searchPages, createLinkedPage]);
 
   // Refresh title hints from the live page list.
   useEffect(() => {

@@ -374,6 +374,23 @@ h3.ce-header {
   cursor: pointer;
 }
 
+/* Inline @-mention: a link from one page to another. Atomic (contenteditable
+   false), styled like the subpage link — a subtle underline + the page emoji. */
+.ob-mention {
+  cursor: pointer;
+  white-space: nowrap;
+  padding: 0 0.15em;
+  border-radius: calc(var(--radius) - 2px);
+  color: inherit;
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.4);
+  text-underline-offset: 2px;
+}
+.ob-mention:hover {
+  background-color: hsl(var(--accent));
+}
+
 /* ── Reactive blocks (slider / expr / chart) ────────────────────────────── */
 /* Give the interactive blocks a little breathing room within the document
    flow so they read as distinct cards rather than crowding adjacent text. */

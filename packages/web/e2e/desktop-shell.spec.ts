@@ -18,7 +18,15 @@ test('desktop shell: workspace switcher + sidebar toggle live in the titlebar', 
   await expect(page.getByRole('tab', {name: /Desktop Shell Demo/})).toBeVisible();
   // ...and the compact workspace switcher now lives in the titlebar (on the web
   // it's in the sidebar, which hides it in this mode).
-  await expect(page.getByRole('button').filter({hasText: 'My Workspace'})).toBeVisible();
+  const workspace = page.getByRole('button').filter({hasText: 'My Workspace'}).first();
+  await expect(workspace).toBeVisible();
+
+  // Order in the titlebar: [sidebar toggle] [workspace switcher] [back/forward].
+  const back = page.getByRole('button', {name: 'Go back'});
+  const wsBox = await workspace.boundingBox();
+  const backBox = await back.boundingBox();
+  expect(wsBox && backBox).toBeTruthy();
+  expect(backBox!.x).toBeGreaterThan(wsBox!.x); // back/forward sits right of the workspace switcher
 
   await takeSnapshot(page, testInfo); // visual: desktop titlebar shell
 });

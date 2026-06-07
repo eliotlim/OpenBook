@@ -66,6 +66,10 @@ async function applyIncomingBlocks(inst: EditorJS, next: OutputData, holder: HTM
 }
 import {SliderBlock, ExprBlock, ChartBlock, SubpageBlock} from '@/reactive';
 import {PageContextMenu} from '@/components/PageContextMenu';
+import {installEditorChrome} from '@/lib/editorChrome';
+import {MentionController, PageLinkInlineTool} from '@/editor/pageMention';
+import {MentionPopover} from '@/components/MentionPopover';
+import {pageLinks} from '@/lib/pageLinks';
 import {store} from '@/reactive/ReactiveStore';
 import type {PageSnapshot} from '@open-book/sdk';
 
@@ -175,14 +179,29 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   // `input`/`beforeinput` for genuine user editing, never for programmatic DOM
   // mutation, so we gate autosave on this flag.
   const userEditedRef = useRef(false);
+  // The `@`-mention controller for this editor (one per pane). Created lazily so
+  // it's available when building the tools config (before the editor mounts).
+  const mentionRef = useRef<MentionController | null>(null);
+  if (!mentionRef.current) mentionRef.current = new MentionController();
   const [status, setStatus] = useState<string>('initializing');
   const statusRef = useRef(status);
   statusRef.current = status;
 
   useEffect(() => {
     let cancelled = false;
+    let disposeChrome: (() => void) | null = null;
     const markUserEdited = () => {
       userEditedRef.current = true;
+    };
+    // Clicking an inline page-mention navigates (it's contenteditable=false, so
+    // the click isn't placing a caret). Delegated on the holder.
+    const onMentionClick = (e: MouseEvent) => {
+      const link = (e.target as HTMLElement).closest('a.ob-mention');
+      const id = link?.getAttribute('data-page-id');
+      if (id) {
+        e.preventDefault();
+        pageLinks.openPage(id);
+      }
     };
 
     const init = async () => {
@@ -248,6 +267,10 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           expr: ExprBlock as unknown as never,
           chart: ChartBlock as unknown as never,
           subpage: {class: SubpageBlock as unknown as never, config: {hostPageId: pageId}},
+          // Inline tool: preserves the `@`-mention anchor through save sanitization
+          // and links a selection to a page. The `@` typing flow is driven by the
+          // controller attached in onReady.
+          pageLink: {class: PageLinkInlineTool as unknown as never, config: {controller: mentionRef.current}},
         },
         onReady: () => {
           editorJsInstance.current = editorJs;
@@ -262,6 +285,13 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           const holder = holderRef.current;
           holder?.addEventListener('beforeinput', markUserEdited);
           holder?.addEventListener('input', markUserEdited);
+          holder?.addEventListener('click', onMentionClick);
+          // Preselect the first block/slash-menu item (Enter inserts it) and
+          // turn off autocorrect on code textareas, as blocks/menus appear.
+          if (holder) {
+            disposeChrome = installEditorChrome(holder);
+            mentionRef.current?.attach(holder);
+          }
           setStatus('ready');
         },
         onChange: (_api, event) => {
@@ -312,9 +342,12 @@ const PageDocument: React.FC<PageDocumentProps> = ({
     return () => {
       cancelled = true;
       if (saveTimer.current) clearTimeout(saveTimer.current);
+      disposeChrome?.();
+      mentionRef.current?.detach();
       const holder = holderRef.current;
       holder?.removeEventListener('beforeinput', markUserEdited);
       holder?.removeEventListener('input', markUserEdited);
+      holder?.removeEventListener('click', onMentionClick);
       editorJsInstance.current?.destroy();
       editorJsInstance.current = null;
     };
@@ -395,6 +428,8 @@ const PageDocument: React.FC<PageDocumentProps> = ({
       {!isSSR() && (
         <div ref={holderRef} className={cn('min-h-[40vh]', hud.viewMode.fullWidth && 'ob-editor-full')} />
       )}
+
+      {!isSSR() && mentionRef.current && <MentionPopover controller={mentionRef.current} />}
 
       {footer && <div className={columnClass}>{footer}</div>}
     </div>

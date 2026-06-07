@@ -8,6 +8,13 @@
 
 export type SubpageKind = 'page' | 'database';
 
+/** A page candidate for the `@` link menu. */
+export interface PageLinkResult {
+  id: string;
+  label: string;
+  icon: string;
+}
+
 export interface PageLinkBridge {
   /** Create a child page nested under `parentId`; resolves to the new page id. */
   createSubpage: (parentId: string, kind: SubpageKind) => Promise<string>;
@@ -17,6 +24,10 @@ export interface PageLinkBridge {
   label: (id: string) => string;
   /** The emoji icon for a page id. */
   icon: (id: string) => string;
+  /** Existing top-level pages whose title matches `query` (best matches first). */
+  searchPages: (query: string) => PageLinkResult[];
+  /** Create a new page titled `name` (no navigation); resolves its id. */
+  createPage: (name: string) => Promise<string>;
 }
 
 let bridge: PageLinkBridge | null = null;
@@ -44,4 +55,7 @@ export const pageLinks: PageLinkBridge = {
   openPage: (id) => bridge?.openPage(id),
   label: (id) => bridge?.label(id) ?? 'Untitled',
   icon: (id) => bridge?.icon(id) ?? '📄',
+  searchPages: (query) => bridge?.searchPages(query) ?? [],
+  createPage: (name) =>
+    bridge ? bridge.createPage(name) : Promise.reject(new Error('page links not ready')),
 };

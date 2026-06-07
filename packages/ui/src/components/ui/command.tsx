@@ -43,6 +43,11 @@ const CommandInput = React.forwardRef<
     <MagnifyingGlassIcon className="mr-2 h-4 w-4 shrink-0 opacity-50" />
     <CommandPrimitive.Input
       ref={ref}
+      // Verbatim search — never autocorrect/autocapitalize a command or page name.
+      autoCorrect="off"
+      autoCapitalize="off"
+      autoComplete="off"
+      spellCheck={false}
       className={cn(
         "flex h-10 w-full rounded-md bg-transparent py-3 text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
         className
@@ -137,8 +142,12 @@ const CommandItem = React.forwardRef<
       className={cn(
         // cursor-pointer (not the shadcn default cursor-default): WKWebView only
         // dispatches click events to elements it treats as clickable, so a div
-        // menu item without a pointer cursor is dead on click.
-        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden aria-selected:bg-accent aria-selected:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
+        // menu item without a pointer cursor is dead on click. `[&_*]:pointer-events-none`
+        // makes the children (icon/text) transparent to pointer events so the
+        // click always lands on *this* div — the element that has cursor-pointer
+        // — otherwise WKWebView hit-tests the child (cursor not pointer) and never
+        // synthesizes the click.
+        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden aria-selected:bg-accent aria-selected:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_*]:pointer-events-none",
         className
       )}
     />

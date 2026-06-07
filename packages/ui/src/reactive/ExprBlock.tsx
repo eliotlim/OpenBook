@@ -223,7 +223,15 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
       <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
         <label className="inline-flex items-center gap-1.5">
           <span className="font-mono text-muted-foreground/60">ƒ</span>
-          <Input inputSize="sm" value={name} onChange={(e) => setName(e.target.value)} className="w-28 font-mono" />
+          <Input
+            inputSize="sm"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            className="w-28 font-mono"
+          />
         </label>
         <span className="text-muted-foreground/60">
           reference cells with <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground/70">@name</code>
@@ -238,6 +246,8 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
         onBlur={handleBlur}
         onFocus={handleFocus}
         spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="off"
         className="min-h-9 whitespace-pre-wrap rounded-md border border-input bg-background px-2.5 py-2 font-mono text-sm leading-relaxed text-foreground outline-hidden transition-colors focus:border-ring focus:ring-1 focus:ring-ring"
       />
       <div className="mt-2 text-xs">
