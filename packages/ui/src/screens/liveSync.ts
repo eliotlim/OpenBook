@@ -86,15 +86,17 @@ export interface BlockMutationLike {
  * Whether an editor `onChange` event represents a genuine, persist-worthy edit.
  *
  * Structural changes (add/remove/move) always count. `block-changed` is the
- * trap: the reactive blocks (slider/expr/chart) fire it constantly as they
- * recompute and re-render their own DOM — treating those as edits causes an
- * autosave loop. So `block-changed` is persist-worthy for *every* block except
- * those three: a subpage recording its new child id, a callout switching
- * variant, an accordion collapsing, a divider restyling, etc. all need to save.
- * (Text edits in contenteditable blocks also fire native `input`, handled
- * separately; this deny-list covers the programmatic data changes that don't.)
+ * trap: many blocks fire it for non-edit reasons — the reactive blocks
+ * (slider/expr/chart) on every recompute, and third-party blocks (table,
+ * checklist) when they re-normalize their data on mount/update — and treating
+ * those as edits drives an autosave loop. So `block-changed` only counts for the
+ * blocks that emit it *exclusively* on a real user action with no accompanying
+ * native `input` event: a subpage recording its created child id, and the
+ * tune-driven blocks (callout variant, accordion collapse, divider style).
+ * Everything else that the user actually edits — paragraphs, table cells,
+ * checklist text — reaches autosave through the editor holder's `input` listener.
  */
-const REACTIVE_RECOMPUTE = new Set(['slider', 'expr', 'chart']);
+const EDIT_SIGNALING_BLOCKS = new Set(['subpage', 'callout', 'accordion', 'divider']);
 
 export function isPersistWorthyChange(
   event: BlockMutationLike | BlockMutationLike[] | undefined,
@@ -103,7 +105,7 @@ export function isPersistWorthyChange(
   return events.some((e) => {
     const type = e?.type;
     if (type === 'block-added' || type === 'block-removed' || type === 'block-moved') return true;
-    if (type === 'block-changed') return !REACTIVE_RECOMPUTE.has(e?.detail?.target?.name ?? '');
+    if (type === 'block-changed') return EDIT_SIGNALING_BLOCKS.has(e?.detail?.target?.name ?? '');
     return false;
   });
 }

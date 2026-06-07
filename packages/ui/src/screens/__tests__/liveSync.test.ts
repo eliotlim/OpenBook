@@ -70,19 +70,23 @@ describe('isPersistWorthyChange', () => {
     expect(isPersistWorthyChange({type: 'block-moved'})).toBe(true);
   });
 
-  it('ignores reactive blocks firing block-changed (no save loop)', () => {
+  it('ignores block-changed from blocks that fire it spuriously (no save loop)', () => {
+    // Reactive recompute sources…
     expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'expr'}}})).toBe(false);
     expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'chart'}}})).toBe(false);
     expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'slider'}}})).toBe(false);
+    // …and third-party blocks that re-normalize on mount/update (genuine edits
+    // to these reach autosave via the `input` listener instead).
+    expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'table'}}})).toBe(false);
+    expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'checklist'}}})).toBe(false);
+    expect(isPersistWorthyChange({type: 'block-changed'})).toBe(false);
   });
 
-  it('counts a non-reactive block-changed (subpage + structural blocks)', () => {
+  it('counts block-changed from edit-signaling blocks (no input event of their own)', () => {
     expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'subpage'}}})).toBe(true);
     expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'callout'}}})).toBe(true);
     expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'accordion'}}})).toBe(true);
     expect(isPersistWorthyChange({type: 'block-changed', detail: {target: {name: 'divider'}}})).toBe(true);
-    // An unnamed block-changed is treated as a real edit (better to over-save).
-    expect(isPersistWorthyChange({type: 'block-changed'})).toBe(true);
   });
 
   it('handles arrays and missing events', () => {
