@@ -78,6 +78,21 @@ export function createApp(store: PageStore): Hono {
     return c.json(page);
   });
 
+  // Reorder / re-nest a page in the sidebar tree: set its parent and the new
+  // ordered sibling list under that parent. 404 if the page is gone, 409 if the
+  // move would create a cycle (nesting a page under itself or a descendant).
+  app.put(`${API.pages}/:id/move`, async (c) => {
+    const id = c.req.param('id');
+    const body = await c.req.json<{parentId?: string | null; orderedIds?: string[]}>();
+    const existing = await store.getPage(id);
+    if (!existing) return c.json({error: 'page not found'}, 404);
+    const page = await store.movePage(id, body.parentId ?? null, body.orderedIds ?? []);
+    if (!page) return c.json({error: 'invalid move (would create a cycle)'}, 409);
+    hub.publishPage(page);
+    await broadcastList();
+    return c.json(page);
+  });
+
   // Soft delete: move the page (and its nested subtree) to the trash. It stays
   // recoverable via the restore route until the cleanup job purges it.
   app.delete(`${API.pages}/:id`, async (c) => {

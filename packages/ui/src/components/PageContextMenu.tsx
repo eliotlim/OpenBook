@@ -1,5 +1,6 @@
-import React, {useCallback} from 'react';
-import {AppWindow, ExternalLink, FilePlus2, Table2, Trash2} from 'lucide-react';
+import React, {useCallback, useState} from 'react';
+import {ArrowDown, ArrowUp, AppWindow, Copy, ExternalLink, FilePlus2, Table2, Trash2} from 'lucide-react';
+import type EditorJS from '@editorjs/editorjs';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -56,14 +57,109 @@ export function PageMenuItems({pageId}: {pageId: string}) {
 }
 
 /**
- * Wrap `children` so right-clicking them opens the page action menu. Used for
- * the page body; the sidebar tree wires {@link PageMenuItems} in directly.
+ * Right-click actions for a single editor block, driven by the EditorJS block
+ * API. These mutations fire `block-moved` / `block-added` / `block-removed`,
+ * which the document treats as persist-worthy edits, so the change autosaves.
  */
-export function PageContextMenu({pageId, children}: {pageId: string; children: React.ReactNode}) {
+export function BlockMenuItems({
+  editorRef,
+  blockId,
+}: {
+  editorRef: React.RefObject<EditorJS | null>;
+  blockId: string;
+}) {
+  const indexOf = (): number => editorRef.current?.blocks.getBlockIndex(blockId) ?? -1;
+
+  const moveUp = () => {
+    const inst = editorRef.current;
+    const i = indexOf();
+    if (inst && i > 0) inst.blocks.move(i - 1, i);
+  };
+
+  const moveDown = () => {
+    const inst = editorRef.current;
+    const i = indexOf();
+    if (inst && i >= 0 && i < inst.blocks.getBlocksCount() - 1) inst.blocks.move(i + 1, i);
+  };
+
+  const duplicate = async () => {
+    const inst = editorRef.current;
+    const i = indexOf();
+    if (!inst || i < 0) return;
+    const saved = await inst.blocks.getById(blockId)?.save();
+    if (!saved) return;
+    inst.blocks.insert(saved.tool, saved.data, undefined, i + 1, false);
+  };
+
+  const remove = () => {
+    const inst = editorRef.current;
+    const i = indexOf();
+    if (inst && i >= 0) inst.blocks.delete(i);
+  };
+
+  return (
+    <>
+      <ContextMenuItem onSelect={moveUp}>
+        <ArrowUp className="mr-2 h-4 w-4" />
+        Move up
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={moveDown}>
+        <ArrowDown className="mr-2 h-4 w-4" />
+        Move down
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void duplicate()}>
+        <Copy className="mr-2 h-4 w-4" />
+        Duplicate
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={remove} className="text-destructive focus:text-destructive">
+        <Trash2 className="mr-2 h-4 w-4" />
+        Delete block
+      </ContextMenuItem>
+    </>
+  );
+}
+
+/**
+ * Wrap the page body so right-clicking it opens a context menu. When `editorRef`
+ * is supplied and the click lands on an editor block (`.ce-block`), block
+ * actions are shown above the page actions; clicking empty space (or any page
+ * without an editor) shows the page actions alone. The sidebar tree wires
+ * {@link PageMenuItems} in directly.
+ */
+export function PageContextMenu({
+  pageId,
+  editorRef,
+  children,
+}: {
+  pageId: string;
+  editorRef?: React.RefObject<EditorJS | null>;
+  children: React.ReactNode;
+}) {
+  const [blockId, setBlockId] = useState<string | null>(null);
+
+  const onContextMenu = (e: React.MouseEvent) => {
+    if (!editorRef) {
+      setBlockId(null);
+      return;
+    }
+    const block = (e.target as HTMLElement).closest('.ce-block');
+    setBlockId(block?.getAttribute('data-id') ?? null);
+  };
+
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuTrigger asChild>
+        <div className="contents" onContextMenu={onContextMenu}>
+          {children}
+        </div>
+      </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
+        {editorRef && blockId && (
+          <>
+            <BlockMenuItems editorRef={editorRef} blockId={blockId} />
+            <ContextMenuSeparator />
+          </>
+        )}
         <PageMenuItems pageId={pageId} />
       </ContextMenuContent>
     </ContextMenu>

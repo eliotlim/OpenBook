@@ -111,19 +111,39 @@ CommandSeparator.displayName = CommandPrimitive.Separator.displayName
 const CommandItem = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive.Item>,
   React.ComponentPropsWithoutRef<typeof CommandPrimitive.Item>
->(({ className, ...props }, ref) => (
-  <CommandPrimitive.Item
-    ref={ref}
-    className={cn(
-      // cursor-pointer (not the shadcn default cursor-default): WKWebView, the
-      // desktop's engine, only dispatches click events to elements it treats as
-      // clickable, so a div menu item without a pointer cursor is dead on click.
-      "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden aria-selected:bg-accent aria-selected:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
-      className
-    )}
-    {...props}
-  />
-))
+>(({ className, onSelect, value, ...props }, ref) => {
+  // WKWebView (the desktop engine) doesn't synthesize a `click` on React's
+  // delegated root for a `div[role=option]` even with `cursor: pointer`, so
+  // cmdk's internal onClick→onSelect never fires and items look dead. Pointer
+  // events *do* fire, so we also select on `pointerup`. `fire` debounces (the
+  // normal-browser pointerup→click pair would otherwise run the action twice).
+  const lastFired = React.useRef(0)
+  const fire = React.useCallback(
+    (v: string) => {
+      const now = Date.now()
+      if (now - lastFired.current < 350) return
+      lastFired.current = now
+      onSelect?.(v)
+    },
+    [onSelect]
+  )
+  return (
+    <CommandPrimitive.Item
+      ref={ref}
+      {...props}
+      value={value}
+      onSelect={fire}
+      onPointerUp={() => fire(typeof value === "string" ? value : "")}
+      className={cn(
+        // cursor-pointer (not the shadcn default cursor-default): WKWebView only
+        // dispatches click events to elements it treats as clickable, so a div
+        // menu item without a pointer cursor is dead on click.
+        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden aria-selected:bg-accent aria-selected:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
+        className
+      )}
+    />
+  )
+})
 
 CommandItem.displayName = CommandPrimitive.Item.displayName
 

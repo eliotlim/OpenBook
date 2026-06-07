@@ -210,6 +210,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         {default: CodeTool},
         {default: Marker},
         {default: InlineCode},
+        {default: DragDrop},
       ] = await Promise.all([
         import('@editorjs/editorjs'),
         import('@editorjs/header'),
@@ -219,6 +220,9 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         import('@editorjs/code'),
         import('@editorjs/marker'),
         import('@editorjs/inline-code'),
+        // EditorJS dropped built-in block drag-and-drop in 2.20; this plugin
+        // restores it (dragging a block by its settings handle reorders it).
+        import('editorjs-drag-drop'),
       ]);
       if (cancelled || !holderRef.current) return;
 
@@ -247,6 +251,10 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         },
         onReady: () => {
           editorJsInstance.current = editorJs;
+          // Enable block drag-and-drop (reorder blocks by dragging the settings
+          // handle). Tauri's `dragDropEnabled: false` keeps the OS file-drop
+          // handler from intercepting these drags in the desktop WKWebView.
+          new DragDrop(editorJs);
           // Flag genuine user editing. `input`/`beforeinput` fire for typing,
           // deleting, pasting, and form-control (slider) interaction, but never
           // for programmatic DOM changes — so this distinguishes a real edit
@@ -393,8 +401,15 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   );
 
   // Right-click anywhere on the page opens its action menu (desktop has no
-  // native context menu). Only when we know which page this is.
-  return pageId ? <PageContextMenu pageId={pageId}>{body}</PageContextMenu> : body;
+  // native context menu); right-clicking a block adds block actions. Only when
+  // we know which page this is.
+  return pageId ? (
+    <PageContextMenu pageId={pageId} editorRef={editorJsInstance}>
+      {body}
+    </PageContextMenu>
+  ) : (
+    body
+  );
 };
 
 export default PageDocument;

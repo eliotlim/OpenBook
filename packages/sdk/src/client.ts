@@ -36,6 +36,13 @@ export interface DataClient {
   /** Update only a page's name (leaves its document data untouched). */
   renamePage(id: string, name: string | null): Promise<StoredPage>;
   /**
+   * Move a page within the sidebar tree: set its parent (`null` = top level) and
+   * the full ordered list of sibling ids under that parent (including this page).
+   * Used by drag-to-reorder / drag-to-nest. Rejects a move that would create a
+   * cycle (nesting a page under itself or a descendant).
+   */
+  movePage(id: string, move: {parentId: string | null; orderedIds: string[]}): Promise<StoredPage>;
+  /**
    * Move a page (and its nested subtree) to the trash. Soft delete: the page is
    * recoverable via {@link restorePage} until the server's cleanup job purges
    * it. Resolves `true` if a live page was trashed.
@@ -205,6 +212,10 @@ export class HttpDataClient implements DataClient {
 
   async renamePage(id: string, name: string | null): Promise<StoredPage> {
     return this.request<StoredPage>('PATCH', API.page(id), {name});
+  }
+
+  async movePage(id: string, move: {parentId: string | null; orderedIds: string[]}): Promise<StoredPage> {
+    return this.request<StoredPage>('PUT', API.pageMove(id), move);
   }
 
   async deletePage(id: string): Promise<boolean> {

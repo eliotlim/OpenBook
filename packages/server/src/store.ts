@@ -151,17 +151,20 @@ export class PageStore {
   }
 
   /**
-   * List page metadata, most-recently-updated first. Database *rows* (pages
-   * tagged with a `database_id`) are excluded so the sidebar shows only
-   * top-level pages; rows are listed through the database APIs instead. Each
-   * entry carries `hostedDatabaseId` when the page hosts a database.
+   * List page metadata in sidebar order (`position` ascending within each
+   * sibling group; `created_at` breaks ties). Database *rows* (pages tagged
+   * with a `database_id`) are excluded so the sidebar shows only top-level
+   * pages; rows are listed through the database APIs instead. Each entry
+   * carries `hostedDatabaseId` when the page hosts a database. Because the list
+   * is position-ordered, `buildTree` (UI) yields each parent's children in
+   * their manual order.
    */
   async listPages(): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
       `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id
        FROM ${PAGE_FROM}
        WHERE p.database_id IS NULL AND p.deleted_at IS NULL
-       ORDER BY p.updated_at DESC`,
+       ORDER BY p.position ASC, p.created_at ASC`,
     );
     return rows.map(metaFromRow);
   }
@@ -194,8 +197,13 @@ export class PageStore {
   async upsertPage(input: PageInput): Promise<StoredPage> {
     const id = input.id ?? randomUUID();
     const rows = await this.db.query<PageRow>(
-      `INSERT INTO pages (id, name, data, parent_id, updated_at)
-       VALUES ($1, $2, $3::jsonb, $4, now())
+      // A new page is appended to the bottom of its sibling group (one past the
+      // current max position). Like `parent_id`, `position` is set only on
+      // insert — a routine content save (ON CONFLICT) never reorders the page.
+      `INSERT INTO pages (id, name, data, parent_id, position, updated_at)
+       VALUES ($1, $2, $3::jsonb, $4,
+         (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NOT DISTINCT FROM $4),
+         now())
        ON CONFLICT (id) DO UPDATE
          SET name = EXCLUDED.name,
              data = EXCLUDED.data,
@@ -205,6 +213,47 @@ export class PageStore {
       [id, input.name ?? null, JSON.stringify(input.data ?? EMPTY_SNAPSHOT), input.parentId ?? null],
     );
     return pageFromRow(rows[0]);
+  }
+
+  /**
+   * Move a page within the sidebar tree: re-parent it to `parentId` (`null` =
+   * top level) and renumber `orderedIds` — the full ordered list of sibling ids
+   * under that parent, including this page — to sequential positions. Rejects a
+   * move that would create a cycle (the new parent is the page itself or one of
+   * its descendants) by returning `null`; also returns `null` when the page is
+   * missing. Runs in one transaction so the tree never observes a half-move.
+   */
+  async movePage(
+    id: string,
+    parentId: string | null,
+    orderedIds: string[],
+  ): Promise<StoredPage | null> {
+    const ok = await this.db.begin(async (tx) => {
+      const exists = await tx.query<{id: string}>('SELECT id FROM pages WHERE id = $1 AND deleted_at IS NULL', [id]);
+      if (exists.length === 0) return false;
+
+      if (parentId !== null) {
+        // The new parent must not be the page itself or any of its descendants,
+        // or the tree would form a cycle.
+        const cycle = await tx.query<{id: string}>(
+          `WITH RECURSIVE subtree AS (
+             SELECT id FROM pages WHERE id = $1
+             UNION ALL
+             SELECT p.id FROM pages p JOIN subtree s ON p.parent_id = s.id
+           )
+           SELECT id FROM subtree WHERE id = $2`,
+          [id, parentId],
+        );
+        if (cycle.length > 0) return false;
+      }
+
+      await tx.query('UPDATE pages SET parent_id = $2, updated_at = now() WHERE id = $1', [id, parentId]);
+      for (let i = 0; i < orderedIds.length; i += 1) {
+        await tx.query('UPDATE pages SET position = $2 WHERE id = $1', [orderedIds[i], i]);
+      }
+      return true;
+    });
+    return ok ? this.getPage(id) : null;
   }
 
   /** Update only a page's name, leaving its data untouched. */

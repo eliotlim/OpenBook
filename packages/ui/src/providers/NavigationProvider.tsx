@@ -86,6 +86,12 @@ export interface NavigationContextValue {
   deletePage: (id: string) => Promise<void>;
   /** Rename a page (name only). */
   renamePage: (id: string, name: string | null) => Promise<void>;
+  /**
+   * Reorder / re-nest a page in the sidebar tree: set its parent (`null` = top
+   * level) and the new ordered list of sibling ids under that parent (including
+   * this page). Drives drag-to-reorder and drag-to-nest.
+   */
+  movePage: (id: string, parentId: string | null, orderedIds: string[]) => Promise<void>;
   /** Re-list pages from the store. */
   reload: () => Promise<PageMeta[]>;
 }
@@ -277,6 +283,14 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [client, reload, setPageHint],
   );
 
+  const movePage = useCallback(
+    async (id: string, parentId: string | null, orderedIds: string[]): Promise<void> => {
+      await client.movePage(id, {parentId, orderedIds});
+      await reload();
+    },
+    [client, reload],
+  );
+
   // Initial load: list pages, ensure one exists, then open the window described
   // by the URL (`?page`/`?split`), falling back to the last/first page. Runs
   // exactly once (the shared promise survives StrictMode's double-mount).
@@ -395,13 +409,15 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       createSubpage,
       deletePage,
       renamePage,
+      movePage,
       reload,
     }),
     [
       pages, currentPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
       panes, focusedPaneId, splitOpen, focusPane, openInSplit,
       closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, selectPage, goBack,
-      goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, deletePage, renamePage, reload,
+      goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, deletePage, renamePage,
+      movePage, reload,
     ],
   );
 

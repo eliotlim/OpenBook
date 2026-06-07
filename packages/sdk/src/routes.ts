@@ -11,6 +11,8 @@ export const API = {
   page: (id: string): string => `/api/pages/${encodeURIComponent(id)}`,
   /** Restore a trashed page (and the subtree trashed with it): `POST`. */
   pageRestore: (id: string): string => `/api/pages/${encodeURIComponent(id)}/restore`,
+  /** Move/reorder a page in the sidebar tree (re-parent + reorder siblings): `PUT`. */
+  pageMove: (id: string): string => `/api/pages/${encodeURIComponent(id)}/move`,
   /** The trash: `GET` (list trashed pages) / `DELETE` (empty the whole trash). */
   trash: '/api/trash',
   /** A single trashed page: `DELETE` (permanently purge it and its subtree). */

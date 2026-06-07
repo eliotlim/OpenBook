@@ -75,6 +75,23 @@ const MIGRATIONS: Migration[] = [
       'CREATE UNIQUE INDEX IF NOT EXISTS pages_name_key ON pages (name) WHERE name IS NOT NULL AND deleted_at IS NULL',
     ],
   },
+  {
+    // Manual sidebar ordering. `position` orders a page among its siblings (the
+    // pages sharing its `parent_id`, NULL = top level); the sidebar tree lists
+    // pages by it instead of by recency. Backfilled from the previous
+    // updated-at-desc order so existing workspaces keep their current layout.
+    // Drag-to-reorder / drag-to-nest renumbers a sibling group via `movePage`.
+    name: '0005_page_order',
+    statements: [
+      'ALTER TABLE pages ADD COLUMN IF NOT EXISTS position DOUBLE PRECISION NOT NULL DEFAULT 0',
+      `WITH ordered AS (
+         SELECT id, row_number() OVER (PARTITION BY parent_id ORDER BY updated_at DESC) - 1 AS rn
+         FROM pages
+       )
+       UPDATE pages p SET position = o.rn FROM ordered o WHERE p.id = o.id`,
+      'CREATE INDEX IF NOT EXISTS pages_parent_position_idx ON pages (parent_id, position)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

@@ -125,6 +125,44 @@ async function exerciseNesting(client: HttpDataClient, mode: string): Promise<vo
   check('parent left the trash', !(await client.listTrash()).some((p) => p.id === parent.id));
 }
 
+async function exerciseOrdering(client: HttpDataClient, mode: string): Promise<void> {
+  console.log(`\n[${mode}] Page ordering & movePage`);
+
+  const parent = await client.savePage({name: `order-parent-${mode}`, data: sampleSnapshot(0)});
+  const x = await client.savePage({name: `order-x-${mode}`, data: sampleSnapshot(1), parentId: parent.id});
+  const y = await client.savePage({name: `order-y-${mode}`, data: sampleSnapshot(2), parentId: parent.id});
+  const z = await client.savePage({name: `order-z-${mode}`, data: sampleSnapshot(3), parentId: parent.id});
+
+  // The page list is position-ordered, so a parent's children come back in
+  // their manual order.
+  const childrenOf = async (pid: string): Promise<string[]> =>
+    (await client.listPages()).filter((p) => p.parentId === pid).map((p) => p.id);
+
+  check('new children list in creation order (appended)', JSON.stringify(await childrenOf(parent.id)) === JSON.stringify([x.id, y.id, z.id]));
+
+  // Reorder: move z to the front of its siblings.
+  const moved = await client.movePage(z.id, {parentId: parent.id, orderedIds: [z.id, x.id, y.id]});
+  check('movePage returns the moved page', moved.id === z.id);
+  check('movePage reorders siblings', JSON.stringify(await childrenOf(parent.id)) === JSON.stringify([z.id, x.id, y.id]));
+
+  // Re-nest: move x under its sibling z (changes parentId).
+  await client.movePage(x.id, {parentId: z.id, orderedIds: [x.id]});
+  check('movePage re-parents the page', (await client.getPage(x.id))?.parentId === z.id);
+  check('the re-nested page leaves its old group', JSON.stringify(await childrenOf(parent.id)) === JSON.stringify([z.id, y.id]));
+  check('the re-nested page joins its new parent', JSON.stringify(await childrenOf(z.id)) === JSON.stringify([x.id]));
+
+  // Cycle guard: nesting z under x (now z's descendant) must be rejected.
+  await assert.rejects(
+    () => client.movePage(z.id, {parentId: x.id, orderedIds: [z.id]}),
+    /409|cycle/i,
+    'a cyclic move should be rejected',
+  );
+  check('movePage rejects a cycle (409)', true);
+
+  // Clean up so these don't pollute later listings.
+  await client.deletePage(parent.id);
+}
+
 async function exerciseTrash(client: HttpDataClient, mode: string): Promise<void> {
   console.log(`\n[${mode}] Trash: restore, purge, empty`);
 
@@ -262,20 +300,31 @@ async function main(): Promise<void> {
   await exerciseCrud(embeddedClient, 'embedded');
   await exerciseDatabase(embeddedClient, 'embedded');
   await exerciseNesting(embeddedClient, 'embedded');
+  await exerciseOrdering(embeddedClient, 'embedded');
   await exerciseTrash(embeddedClient, 'embedded');
 
   // ---- 2. Persistence across restart ----
   console.log('\n=== 2. PERSISTENCE ACROSS RESTART ===');
   const durable = await embeddedClient.savePage({name: 'durable', data: sampleSnapshot(7)});
   check('seeded a page before restart', durable.id.length === 36);
+  // Seed a manually-reordered subtree to confirm ordering is durable.
+  const orderParent = await embeddedClient.savePage({name: 'order-durable', data: sampleSnapshot(0)});
+  const oc1 = await embeddedClient.savePage({name: 'order-durable-1', data: sampleSnapshot(1), parentId: orderParent.id});
+  const oc2 = await embeddedClient.savePage({name: 'order-durable-2', data: sampleSnapshot(2), parentId: orderParent.id});
+  await embeddedClient.movePage(oc2.id, {parentId: orderParent.id, orderedIds: [oc2.id, oc1.id]});
   await server.close();
   console.log('  server stopped');
 
   server = await startServer({dataDir: EMBEDDED_DIR, host: '127.0.0.1', port: 4401});
   console.log(`  server restarted at ${server.url}`);
-  const survivor = await new HttpDataClient(server.url).getPage(durable.id);
+  const restartedClient = new HttpDataClient(server.url);
+  const survivor = await restartedClient.getPage(durable.id);
   check('page survived restart', survivor !== null && survivor.id === durable.id);
   check('data survived restart', JSON.stringify(survivor?.data.values) === JSON.stringify([['c1', 7]]));
+  const survivingOrder = (await restartedClient.listPages())
+    .filter((p) => p.parentId === orderParent.id)
+    .map((p) => p.id);
+  check('manual order survived restart', JSON.stringify(survivingOrder) === JSON.stringify([oc2.id, oc1.id]));
   await server.close();
 
   // ---- 3. Headless mode (Postgres over the wire via pglite-socket) ----
@@ -294,6 +343,7 @@ async function main(): Promise<void> {
   await exerciseCrud(new HttpDataClient(headless.url), 'headless');
   await exerciseDatabase(new HttpDataClient(headless.url), 'headless');
   await exerciseNesting(new HttpDataClient(headless.url), 'headless');
+  await exerciseOrdering(new HttpDataClient(headless.url), 'headless');
   await exerciseTrash(new HttpDataClient(headless.url), 'headless');
   await headless.close();
   await socket.stop();
