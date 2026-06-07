@@ -1,20 +1,19 @@
 import {Select} from '@/components/ui/select';
-import {useTranslation} from '@/providers';
+import {usePreferences, useTranslation} from '@/providers';
+import {SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
 import type {Locale} from '@/i18n';
 
-/** General app settings — currently the display language. */
+/** General app settings — display language + basic editor/behavior toggles. */
 export default function GeneralSettings() {
   const {t, locale, setLocale, locales} = useTranslation();
+  const {preferences, update} = usePreferences();
 
   return (
-    <div className="flex flex-col gap-7">
-      <h3 className="text-lg font-semibold">{t('settings.tab.general')}</h3>
-
-      <section className="flex flex-col gap-1.5">
-        <label htmlFor="ob-language" className="text-sm font-medium">
-          {t('settings.language')}
+    <SettingsScreen title={t('general.title')} description={t('general.description')}>
+      <SettingsSection title={t('general.languageSection')} description={t('general.languageHint')}>
+        <label htmlFor="ob-language" className="sr-only">
+          {t('general.language')}
         </label>
-        <span className="text-xs text-muted-foreground">{t('settings.languageHint')}</span>
         <Select
           id="ob-language"
           wrapperClassName="mt-1 max-w-xs"
@@ -27,7 +26,22 @@ export default function GeneralSettings() {
             </option>
           ))}
         </Select>
-      </section>
-    </div>
+      </SettingsSection>
+
+      <SettingsSection title={t('general.behavior')}>
+        <SettingsToggle
+          label={t('general.confirmTrash')}
+          hint={t('general.confirmTrashHint')}
+          checked={preferences.general.confirmOnTrash}
+          onCheckedChange={(confirmOnTrash) => update({general: {confirmOnTrash}})}
+        />
+        <SettingsToggle
+          label={t('general.spellcheck')}
+          hint={t('general.spellcheckHint')}
+          checked={preferences.general.spellcheck}
+          onCheckedChange={(spellcheck) => update({general: {spellcheck}})}
+        />
+      </SettingsSection>
+    </SettingsScreen>
   );
 }

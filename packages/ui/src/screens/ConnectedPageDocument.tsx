@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import type {PageSnapshot, StoredPage} from '@open-book/sdk';
 import {useData} from '@/data';
-import {useConfirm, useNavigation, useTranslation} from '@/providers';
+import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
 import {DEFAULT_PAGE_ICON, readPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {DatabaseView} from '@/components/database/DatabaseView';
 import PageDocument from './PageDocument';
@@ -21,6 +21,7 @@ export interface ConnectedPageDocumentProps {
 export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pageId}) => {
   const client = useData();
   const confirm = useConfirm();
+  const {preferences} = usePreferences();
   const {t} = useTranslation();
   const {pages, deletePage, setPageHint, closePage} = useNavigation();
 
@@ -113,15 +114,18 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   );
 
   const onDelete = useCallback(async () => {
-    const ok = await confirm({
-      title: t('confirm.trashTitle'),
-      description: t('confirm.trashBody'),
-      confirmText: t('confirm.trashConfirm'),
-      destructive: true,
-    });
-    if (!ok) return;
+    // Skip the confirm when the user has turned it off in General settings.
+    if (preferences.general.confirmOnTrash) {
+      const ok = await confirm({
+        title: t('confirm.trashTitle'),
+        description: t('confirm.trashBody'),
+        confirmText: t('confirm.trashConfirm'),
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     void deletePage(pageId);
-  }, [pageId, deletePage, confirm, t]);
+  }, [pageId, deletePage, confirm, preferences.general.confirmOnTrash, t]);
 
   const onTitleActiveChange = useCallback((active: boolean) => {
     titleActiveRef.current = active;

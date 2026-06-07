@@ -77,7 +77,8 @@ test('backup: export downloads a bundle and restore brings pages back', async ({
   await newPage(request, 'Backup Spec Page', [{type: 'paragraph', data: {text: 'content'}}]);
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
-  await page.getByRole('button', {name: 'Backup'}).click();
+  // Backup & restore now lives under the Workspace → Admin settings tab.
+  await page.getByRole('button', {name: 'Admin'}).click();
 
   const [bundle] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', {name: 'Export backup'}).click()]);
   expect(bundle.suggestedFilename()).toContain('.openbook.json');

@@ -19,7 +19,7 @@ test('color theme: switching the palette updates the accent and persists', async
   await expect.poll(() => primary(page)).toBe(forest); // persisted
 });
 
-test('language: switching translates the chrome and persists', async ({page}) => {
+test('language: switching translates the chrome and persists', async ({page}, testInfo) => {
   await page.goto('/');
   await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toBe('en');
 
@@ -30,8 +30,9 @@ test('language: switching translates the chrome and persists', async ({page}) =>
   // The settings tab rail re-labels in German ("Darstellung" = Appearance).
   await expect(page.getByRole('button', {name: 'Darstellung'})).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toBe('de');
+  await takeSnapshot(page, testInfo); // visual: German settings (also primes the chromatic snapshot helper)
 
   await page.reload();
-  await expect(page.getByRole('button', {name: 'Settings'}).first()).toBeVisible(); // settle before teardown snapshot
+  await expect(page.getByRole('button', {name: 'Settings'}).first()).toBeVisible(); // settle
   await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toBe('de'); // persisted
 });

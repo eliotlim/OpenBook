@@ -1,6 +1,6 @@
 import EmojiPicker, {Theme} from 'emoji-picker-react';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {useHud, useTheme, useTranslation} from '@/providers';
+import {useHud, usePreferences, useTheme, useTranslation} from '@/providers';
 import {t as bareT} from '@/i18n';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {
@@ -166,6 +166,8 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   'use client';
   const {hud} = useHud();
   const {t} = useTranslation();
+  const {preferences} = usePreferences();
+  const spellcheck = preferences.general.spellcheck;
 
   const editorJsInstance = useRef<EditorJS | null>(null);
   // Per-instance holder element. EditorJS keys its DOM off this node, so each
@@ -190,6 +192,12 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   const [status, setStatus] = useState<string>('initializing');
   const statusRef = useRef(status);
   statusRef.current = status;
+
+  // Reflect the spellcheck preference onto the editor holder. The contenteditable
+  // blocks EditorJS injects don't set their own `spellcheck`, so they inherit it.
+  useEffect(() => {
+    if (holderRef.current) holderRef.current.spellcheck = spellcheck;
+  }, [spellcheck]);
 
   useEffect(() => {
     let cancelled = false;

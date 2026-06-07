@@ -8,7 +8,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
-import {useConfirm, useNavigation, useTranslation} from '@/providers';
+import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
 
 /**
  * The right-click actions for a page, shared by the sidebar tree rows and the
@@ -17,17 +17,22 @@ import {useConfirm, useNavigation, useTranslation} from '@/providers';
 export function PageMenuItems({pageId}: {pageId: string}) {
   const {openInNew, createSubpage, deletePage, selectPage} = useNavigation();
   const confirm = useConfirm();
+  const {preferences} = usePreferences();
   const {t} = useTranslation();
 
   const onDelete = useCallback(async () => {
-    const ok = await confirm({
-      title: t('confirm.trashTitle'),
-      description: t('confirm.trashBody'),
-      confirmText: t('confirm.trashConfirm'),
-      destructive: true,
-    });
-    if (ok) void deletePage(pageId);
-  }, [confirm, deletePage, pageId, t]);
+    // Skip the confirm when the user has turned it off in General settings.
+    if (preferences.general.confirmOnTrash) {
+      const ok = await confirm({
+        title: t('confirm.trashTitle'),
+        description: t('confirm.trashBody'),
+        confirmText: t('confirm.trashConfirm'),
+        destructive: true,
+      });
+      if (!ok) return;
+    }
+    void deletePage(pageId);
+  }, [confirm, deletePage, pageId, preferences.general.confirmOnTrash, t]);
 
   return (
     <>

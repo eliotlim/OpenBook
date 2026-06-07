@@ -10,6 +10,7 @@ import {
   I18nProvider,
   NavigationProvider,
   PlatformLibraryProvider,
+  PreferencesProvider,
   ThemeProvider,
   WorkspaceProvider,
   type PlatformLibrary,
@@ -89,19 +90,21 @@ function App() {
   return (
     <ThemeProvider>
       <I18nProvider>
-        <PlatformLibraryProvider value={platform}>
-          <DataProvider client={client}>
-            <NavigationProvider>
-              <WorkspaceProvider>
-                <HudProvider>
-                  <DefaultLayout>
-                    <DocumentArea />
-                  </DefaultLayout>
-                </HudProvider>
-              </WorkspaceProvider>
-            </NavigationProvider>
-          </DataProvider>
-        </PlatformLibraryProvider>
+        <PreferencesProvider>
+          <PlatformLibraryProvider value={platform}>
+            <DataProvider client={client}>
+              <NavigationProvider>
+                <WorkspaceProvider>
+                  <HudProvider>
+                    <DefaultLayout>
+                      <DocumentArea />
+                    </DefaultLayout>
+                  </HudProvider>
+                </WorkspaceProvider>
+              </NavigationProvider>
+            </DataProvider>
+          </PlatformLibraryProvider>
+        </PreferencesProvider>
       </I18nProvider>
     </ThemeProvider>
   );

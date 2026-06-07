@@ -12,4 +12,3 @@ export {useDatabase} from './database/useDatabase';
 export {default as Settings} from './Settings';
 export {default as SettingsPanel} from './SettingsPanel';
 export {default as SettingsButton} from './SettingsButton';
-export {default as ServerSettings} from './ServerSettings';

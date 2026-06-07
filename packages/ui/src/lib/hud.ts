@@ -1,12 +1,41 @@
-/** Settings panels, in display order. */
-export const SETTINGS_TABS = ['general', 'appearance', 'server', 'backup', 'profile'] as const;
-export type SettingsTab = (typeof SETTINGS_TABS)[number];
+/** The settings sidebar: three sections, each with its sub-screens, in order. */
+export const SETTINGS_SECTIONS = [
+  {id: 'preferences', tabs: ['general', 'profile', 'appearance', 'customisation']},
+  {id: 'account', tabs: ['signup', 'signin', 'support']},
+  {id: 'workspace', tabs: ['connection', 'integrations', 'admin']},
+] as const;
+
+export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];
+
+/** Settings panels, flattened in display order (derived from the sections). */
+export const SETTINGS_TABS = SETTINGS_SECTIONS.flatMap((s) => s.tabs);
+export type SettingsTab = (typeof SETTINGS_SECTIONS)[number]['tabs'][number];
+
+/** The first sub-screen — the default when nothing (valid) is persisted. */
+export const DEFAULT_SETTINGS_TAB: SettingsTab = SETTINGS_SECTIONS[0].tabs[0];
 
 /** How the settings screen is presented. */
 export type SettingsMode = 'modal' | 'fullscreen';
 
 export const isSettingsTab = (value: unknown): value is SettingsTab =>
   typeof value === 'string' && (SETTINGS_TABS as readonly string[]).includes(value);
+
+/** Sub-screens that were renamed when the flat tabs became grouped sections. */
+const LEGACY_TAB_MAP: Record<string, SettingsTab> = {
+  server: 'connection',
+  backup: 'admin',
+};
+
+/**
+ * Resolve a persisted tab id to a current one: map renamed legacy ids
+ * (`server`→`connection`, `backup`→`admin`) and fall back to the default for
+ * anything no longer a valid tab, so an old `settings.tab` never dead-ends.
+ */
+export const normalizeTab = (value: unknown): SettingsTab => {
+  if (isSettingsTab(value)) return value;
+  if (typeof value === 'string' && value in LEGACY_TAB_MAP) return LEGACY_TAB_MAP[value];
+  return DEFAULT_SETTINGS_TAB;
+};
 
 export interface HudProps {
   commandPalette: {
@@ -35,7 +64,7 @@ export const HudDefault: HudProps = {
   settings: {
     open: false,
     mode: 'modal',
-    tab: 'general',
+    tab: DEFAULT_SETTINGS_TAB,
   },
   sideNav: {
     open: true,
@@ -55,9 +84,11 @@ export const loadHudStorage = (): HudProps => {
   const stored = JSON.parse(localStorage.getItem(HUD_STORAGE_KEY) ?? '{}') as Partial<HudProps>;
   // Merge each section over its defaults so HUD shapes added after a value was
   // persisted (e.g. settings.mode/tab) don't come back undefined.
+  const settings = {...HudDefault.settings, ...stored.settings};
   return {
     commandPalette: {...HudDefault.commandPalette, ...stored.commandPalette},
-    settings: {...HudDefault.settings, ...stored.settings},
+    // Resolve a possibly-legacy persisted tab to a current one.
+    settings: {...settings, tab: normalizeTab(settings.tab)},
     sideNav: {...HudDefault.sideNav, ...stored.sideNav},
     viewMode: {...HudDefault.viewMode, ...stored.viewMode},
   };
