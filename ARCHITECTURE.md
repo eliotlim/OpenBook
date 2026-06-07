@@ -202,7 +202,10 @@ Other commands:
    reactive page.
 4. **Visual diffs (Chromatic)** — the Playwright tests use `@chromatic-com/playwright`;
    `takeSnapshot` captures key states (centered dialog, full-width editor, computed
-   reactive blocks, and the page / block / sidebar context menus open).
+   reactive blocks, the page / block / sidebar context menus open, and the desktop
+   titlebar shell). The desktop chrome (in-window tabs + titlebar workspace switcher
+   and sidebar toggle) is web-invisible, so the web shell exposes a `?shell=desktop`
+   preview seam (`packages/web/src/pages/index.tsx`) the snapshot drives.
    `chromatic --playwright` uploads them. Set the `CHROMATIC_PROJECT_TOKEN` repo
    secret to enable the CI step.
 
