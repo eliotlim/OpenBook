@@ -32,6 +32,26 @@ export interface BlockSyncPlan {
 }
 
 /**
+ * Order-insensitive JSON: object keys are sorted (recursively) and `undefined`
+ * values dropped, while array order is preserved. The live editor's `save()`
+ * emits block data in *insertion* order, but the server stores it as Postgres
+ * `jsonb`, which round-trips keys in a different order. A plain `JSON.stringify`
+ * comparison would therefore flag every multi-key block as "changed" on each
+ * echo — a phantom diff that, for a persist-worthy block like `callout`, drives
+ * an endless save loop. Comparing canonical strings removes the phantom.
+ */
+export function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const obj = value as Record<string, unknown>;
+  const entries = Object.keys(obj)
+    .sort()
+    .filter((k) => obj[k] !== undefined)
+    .map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`);
+  return `{${entries.join(',')}}`;
+}
+
+/**
  * Diff the current editor blocks against an incoming snapshot and return the
  * minimal set of operations to reconcile them. Crucially, an *identical*
  * snapshot yields an empty plan (no churn) — that's what stops the save loop and
@@ -60,7 +80,7 @@ export function planBlockSync(
   for (const b of next) {
     if (!b.id || b.id === focusedBlockId) continue;
     const cur = currentById.get(b.id);
-    if (cur && JSON.stringify(cur.data) !== JSON.stringify(b.data)) {
+    if (cur && stableStringify(cur.data) !== stableStringify(b.data)) {
       updates.push({id: b.id, data: b.data});
     }
   }

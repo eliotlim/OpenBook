@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {planBlockSync, isPersistWorthyChange, type SyncBlock} from '../liveSync';
+import {planBlockSync, isPersistWorthyChange, stableStringify, type SyncBlock} from '../liveSync';
 
 const b = (id: string, type: string, data: unknown): SyncBlock => ({id, type, data});
 
@@ -9,6 +9,13 @@ describe('planBlockSync', () => {
     // A fresh array with equal contents — the echo of our own save.
     const plan = planBlockSync(blocks, blocks.map((x) => ({...x, data: {...(x.data as object)}})), null);
     expect(plan).toEqual({deletes: [], updates: [], inserts: []});
+  });
+
+  it('treats key-reordered data as unchanged (the jsonb round-trip; no callout save loop)', () => {
+    // Live save() emits insertion order; the server's jsonb stores keys sorted.
+    const current = [b('c', 'callout', {variant: 'info', emoji: undefined, text: 'hi'})];
+    const next = [b('c', 'callout', {text: 'hi', variant: 'info'})];
+    expect(planBlockSync(current, next, null).updates).toEqual([]);
   });
 
   it('updates only the block whose data changed', () => {
@@ -60,6 +67,15 @@ describe('planBlockSync', () => {
     const next: SyncBlock[] = [{type: 'paragraph', data: {text: 'x'}}, b('1', 'paragraph', {text: 'a'})];
     const plan = planBlockSync(current, next, null);
     expect(plan).toEqual({deletes: [], updates: [], inserts: []});
+  });
+});
+
+describe('stableStringify', () => {
+  it('is order-insensitive for object keys and drops undefined, but keeps array order', () => {
+    expect(stableStringify({a: 1, b: 2})).toBe(stableStringify({b: 2, a: 1}));
+    expect(stableStringify({x: 1, y: undefined})).toBe(stableStringify({x: 1}));
+    expect(stableStringify({n: {p: 1, q: 2}})).toBe(stableStringify({n: {q: 2, p: 1}}));
+    expect(stableStringify([1, 2, 3])).not.toBe(stableStringify([3, 2, 1])); // array order matters
   });
 });
 
