@@ -13,7 +13,7 @@ import type {
   StoredDatabase,
   StoredPage,
 } from '@open-book/sdk';
-import {emptyPageSnapshot, extractMentionIds, projectExports, remapBundle} from '@open-book/sdk';
+import {emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle} from '@open-book/sdk';
 import type {Db} from './db';
 import {runMigrations} from './migrations';
 
@@ -414,22 +414,31 @@ export class PageStore {
   }
 
   /**
-   * The pages that link to `id` — its backlinks. Scans every live page's
-   * document for an inline mention anchor referencing `id`. A `LIKE` prefilter
-   * narrows to pages whose serialised document even contains the id, then
-   * {@link extractMentionIds} confirms a real mention (so the id appearing
-   * elsewhere doesn't count). Most-recently-updated first; excludes the page itself.
+   * The pages that link to `id` — its backlinks. A page links here if its
+   * document holds an inline mention anchor referencing `id`, *or* its stored
+   * properties reference `id` (a `relation`). A `LIKE` prefilter (over document
+   * + properties) narrows the scan; {@link extractMentionIds} /
+   * {@link propertiesReferencePage} then confirm a real reference so the id
+   * appearing elsewhere doesn't count. Most-recently-updated first; excludes the
+   * page itself.
    */
   async listBacklinks(id: string): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, p.data,
+      `SELECT p.id, p.name, p.parent_id, p.properties, p.deleted_at, p.created_at, p.updated_at, p.data,
               d.id AS hosted_database_id
          FROM pages p LEFT JOIN databases d ON d.page_id = p.id
-        WHERE p.deleted_at IS NULL AND p.id <> $1 AND p.data::text LIKE $2
+        WHERE p.deleted_at IS NULL AND p.id <> $1
+          AND (p.data::text LIKE $2 OR p.properties::text LIKE $2)
         ORDER BY p.updated_at DESC`,
       [id, `%${id}%`],
     );
-    return rows.filter((row) => extractMentionIds(parseSnapshot(row.data)).includes(id)).map(metaFromRow);
+    return rows
+      .filter(
+        (row) =>
+          extractMentionIds(parseSnapshot(row.data)).includes(id) ||
+          propertiesReferencePage(parseJson<Record<string, unknown>>(row.properties, {}), id),
+      )
+      .map(metaFromRow);
   }
 
   /**

@@ -149,7 +149,10 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
   const addRow = useCallback(async (): Promise<void> => {
     if (!database) return;
     await client.createRow(database.id, {name: null});
-    // The row stream pushes the new list; no local mutation needed.
+    // The live row stream normally pushes the new list; refetch as a fallback so
+    // the row appears immediately even if that event is missed (e.g. a stream
+    // reconnect gap, or an environment where SSE is unavailable).
+    setRows(await client.listRows(database.id));
   }, [client, database]);
 
   const renameRow = useCallback(
@@ -176,8 +179,10 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
   const deleteRow = useCallback(
     async (rowId: string): Promise<void> => {
       await client.deletePage(rowId);
+      // Refetch as a fallback (see addRow) so the row leaves the view promptly.
+      if (database) setRows(await client.listRows(database.id));
     },
-    [client],
+    [client, database],
   );
 
   const openRow = useCallback(
@@ -197,7 +202,7 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
         name: input.name.trim() || 'Property',
         type: input.type,
       };
-      if (input.type === 'select') {
+      if (input.type === 'select' || input.type === 'multi_select') {
         property.options = (input.options ?? [])
           .map((label) => label.trim())
           .filter(Boolean)

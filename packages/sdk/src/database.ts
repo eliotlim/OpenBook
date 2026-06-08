@@ -35,8 +35,15 @@ export type DatabasePropertyType =
   | 'text'
   | 'number'
   | 'select'
+  | 'multi_select'
   | 'checkbox'
   | 'date'
+  | 'url'
+  | 'email'
+  | 'phone'
+  | 'relation'
+  | 'created_time'
+  | 'last_edited_time'
   | 'expr'
   | 'person'
   | 'verification'
@@ -211,10 +218,13 @@ export function projectExports(snapshot: Pick<PageSnapshot, 'values' | 'names'>)
   return out;
 }
 
-/** Resolve the value a row holds for a given property (title / manual / expr). */
+/** Resolve the value a row holds for a given property (title / manual / derived). */
 export function rowValue(row: DatabaseRow, property: DatabaseProperty | typeof TITLE_PROPERTY_ID): unknown {
   if (property === TITLE_PROPERTY_ID) return row.name ?? '';
   if (property.type === 'expr') return row.exports[property.cellName ?? property.name];
+  // Timestamps are derived from the row page, not stored in `properties`.
+  if (property.type === 'created_time') return row.createdAt;
+  if (property.type === 'last_edited_time') return row.updatedAt;
   // Verification filters/sorts on the boolean flag (so `is checked` works); the
   // full {verified, by, at} object is read directly by the cell renderer.
   if (property.type === 'verification') {
@@ -224,7 +234,8 @@ export function rowValue(row: DatabaseRow, property: DatabaseProperty | typeof T
   return row.properties[property.id];
 }
 
-const isEmpty = (v: unknown): boolean => v === undefined || v === null || v === '';
+const isEmpty = (v: unknown): boolean =>
+  v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
 
 const asNumber = (v: unknown): number => {
   if (typeof v === 'number') return v;
@@ -234,6 +245,23 @@ const asNumber = (v: unknown): number => {
 
 /** Evaluate a single filter against a resolved value. */
 export function matchesFilter(operator: FilterOperator, cell: unknown, target: unknown): boolean {
+  // Array cells (multi-select / relation) test membership / emptiness.
+  if (Array.isArray(cell)) {
+    const needle = String(target ?? '').toLowerCase();
+    const has = cell.some((x) => String(x).toLowerCase().includes(needle));
+    switch (operator) {
+    case 'contains':
+      return has;
+    case 'not_contains':
+      return !has;
+    case 'is_empty':
+      return cell.length === 0;
+    case 'is_not_empty':
+      return cell.length > 0;
+    default:
+      return true;
+    }
+  }
   switch (operator) {
   case 'equals':
     return String(cell ?? '') === String(target ?? '');

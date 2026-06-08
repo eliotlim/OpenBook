@@ -39,6 +39,7 @@ export {
   isVerified,
   makeVerification,
   extractMentionIds,
+  propertiesReferencePage,
   type VerificationValue,
 } from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride} from './connection';

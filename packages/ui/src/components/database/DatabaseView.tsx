@@ -9,9 +9,10 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
 import {readPageIcon} from '@/lib/pageIcon';
+import {pageLinks} from '@/lib/pageLinks';
 import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
-import {formatCellValue, PropertyValueCell, SelectChip} from './databaseCells';
+import {cellValue, formatCellValue, PropertyValueCell, SelectChip} from './databaseCells';
 import {AddPropertyMenu, FilterMenu, PropertyHeaderMenu, SortMenu} from './databaseMenus';
 
 const exprValueOf = (row: DatabaseRow, property: DatabaseProperty): unknown =>
@@ -101,7 +102,7 @@ const TableView: React.FC<{db: UseDatabase; properties: DatabaseProperty[]}> = (
               <td key={property.id} className="border-l border-border/70 align-middle">
                 <PropertyValueCell
                   property={property}
-                  value={row.properties[property.id]}
+                  value={cellValue(row, property)}
                   exprValue={exprValueOf(row, property)}
                   onChange={(value) => void db.setRowProperty(row.id, property.id, value)}
                   onAddOption={(label) => db.addSelectOption(property.id, label)}
@@ -142,13 +143,33 @@ const ListView: React.FC<{db: UseDatabase; properties: DatabaseProperty[]}> = ({
           <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
           <div className="flex min-w-0 flex-wrap items-center gap-1">
             {properties.map((property) => {
-              const value = property.type === 'expr' ? exprValueOf(row, property) : row.properties[property.id];
-              const text = formatCellValue(property, value);
-              if (!text) return null;
+              const value = cellValue(row, property);
               if (property.type === 'select') {
                 const option = property.options?.find((o) => o.id === value);
                 return option ? <SelectChip key={property.id} option={option} /> : null;
               }
+              if (property.type === 'multi_select') {
+                const ids = Array.isArray(value) ? (value as string[]) : [];
+                const opts = (property.options ?? []).filter((o) => ids.includes(o.id));
+                return opts.length ? (
+                  <span key={property.id} className="flex flex-wrap items-center gap-1">
+                    {opts.map((o) => (
+                      <SelectChip key={o.id} option={o} />
+                    ))}
+                  </span>
+                ) : null;
+              }
+              if (property.type === 'relation') {
+                const ids = Array.isArray(value) ? (value as string[]) : [];
+                if (ids.length === 0) return null;
+                return (
+                  <span key={property.id} className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                    {property.name}: {ids.map((id) => pageLinks.label(id)).join(', ')}
+                  </span>
+                );
+              }
+              const text = formatCellValue(property, value);
+              if (!text) return null;
               return (
                 <span key={property.id} className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                   {property.name}: {text}

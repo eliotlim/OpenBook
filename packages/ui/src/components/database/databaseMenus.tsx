@@ -24,10 +24,17 @@ const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
   {value: 'text', label: 'Text'},
   {value: 'number', label: 'Number'},
   {value: 'select', label: 'Select'},
+  {value: 'multi_select', label: 'Multi-select'},
   {value: 'checkbox', label: 'Checkbox'},
   {value: 'date', label: 'Date'},
+  {value: 'url', label: 'URL'},
+  {value: 'email', label: 'Email'},
+  {value: 'phone', label: 'Phone'},
+  {value: 'relation', label: 'Relation (link pages)'},
   {value: 'person', label: 'Person'},
   {value: 'verification', label: 'Verification'},
+  {value: 'created_time', label: 'Created time'},
+  {value: 'last_edited_time', label: 'Last edited time'},
   {value: 'expr', label: 'Expression (exported cell)'},
 ];
 
@@ -65,7 +72,7 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
     onAdd({
       name,
       type,
-      options: type === 'select' ? options.split(',') : undefined,
+      options: type === 'select' || type === 'multi_select' ? options.split(',') : undefined,
       cellName: type === 'expr' ? cellName : undefined,
     });
     setName('');
@@ -80,7 +87,7 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
       <PopoverTrigger asChild>
         <button
           className="flex h-full w-full items-center justify-center px-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          aria-label="Add property"
+          aria-label="Add column"
           title="Add a column"
         >
           <Plus className="h-4 w-4" />
@@ -103,7 +110,7 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
             </option>
           ))}
         </select>
-        {type === 'select' && (
+        {(type === 'select' || type === 'multi_select') && (
           <input
             value={options}
             onChange={(e) => setOptions(e.target.value)}

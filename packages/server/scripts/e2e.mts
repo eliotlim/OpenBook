@@ -347,6 +347,15 @@ async function exercisePageProperties(client: HttpDataClient, mode: string): Pro
   const resaved = await client.savePage({id: target.id, name: target.name, data: sampleSnapshot(2)});
   check('a content save preserves properties', resaved.properties[OWNER_PROPERTY_ID] === 'Ada');
 
+  // A relation (an id stored in a page's properties) also counts as a backlink,
+  // so links set as database columns are bidirectional with the panel.
+  const relator = await client.savePage({name: `prop-relator-${mode}`, data: sampleSnapshot(3)});
+  await client.setPageProperties(relator.id, {rel_demo: [target.id]});
+  const withRelation = await client.listBacklinks(target.id);
+  check('a relation property counts as a backlink', withRelation.some((p) => p.id === relator.id));
+  check('the mention link is still a backlink too', withRelation.some((p) => p.id === linker.id));
+  await client.deletePage(relator.id);
+
   // Trashing the linker removes the backlink.
   await client.deletePage(linker.id);
   check('backlink clears when the linker is trashed', (await client.listBacklinks(target.id)).length === 0);

@@ -59,6 +59,21 @@ export function makeVerification(by: string | null, atIso: string): Verification
  * form (`data-page-id=\"id\"`) that appears once the document is serialised, so
  * it can run over a parsed snapshot or a stringified one alike.
  */
+/**
+ * Pure: does a page's stored `properties` reference `id`? True when any property
+ * value equals `id`, or `id` is an element of an array-valued property (a
+ * `relation`). This lets the backlink graph count relation links — set on a
+ * row's properties — alongside inline `@`-mentions in the document.
+ */
+export function propertiesReferencePage(properties: Record<string, unknown> | null | undefined, id: string): boolean {
+  if (!properties) return false;
+  for (const value of Object.values(properties)) {
+    if (value === id) return true;
+    if (Array.isArray(value) && value.includes(id)) return true;
+  }
+  return false;
+}
+
 export function extractMentionIds(snapshot: Pick<PageSnapshot, 'editorjs'>): string[] {
   const json = JSON.stringify(snapshot.editorjs ?? {});
   const ids: string[] = [];

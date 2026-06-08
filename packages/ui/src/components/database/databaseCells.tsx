@@ -1,6 +1,13 @@
 import React, {useState} from 'react';
-import {BadgeCheck, Check, ChevronDown, Plus} from 'lucide-react';
-import {isVerified, makeVerification, type DatabaseProperty, type DatabaseSelectOption, type VerificationValue} from '@open-book/sdk';
+import {BadgeCheck, Check, ChevronDown, ExternalLink, Plus, X} from 'lucide-react';
+import {
+  isVerified,
+  makeVerification,
+  type DatabaseProperty,
+  type DatabaseRow,
+  type DatabaseSelectOption,
+  type VerificationValue,
+} from '@open-book/sdk';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,9 +15,23 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {IconButton} from '@/components/ui/icon-button';
 import {usePreferences} from '@/providers';
+import {pageLinks, subscribePageLinks} from '@/lib/pageLinks';
 import {cn} from '@/lib/utils';
+
+/**
+ * The raw value to feed a property cell: the stored value for editable types,
+ * and the *derived* value for the read-only ones — `expr` (a reactive export)
+ * and the `created_time`/`last_edited_time` timestamps (from the row page).
+ */
+export function cellValue(row: DatabaseRow, property: DatabaseProperty): unknown {
+  if (property.type === 'expr') return row.exports[property.cellName ?? property.name];
+  if (property.type === 'created_time') return row.createdAt;
+  if (property.type === 'last_edited_time') return row.updatedAt;
+  return row.properties[property.id];
+}
 
 /** The current user's display name, used to stamp owner/verification. */
 export function useIdentity(): string {
@@ -72,7 +93,17 @@ export const SelectChip: React.FC<{option: DatabaseSelectOption}> = ({option}) =
 /** Read-only text of a cell value (for list-view chips and expr columns). */
 export function formatCellValue(property: DatabaseProperty, value: unknown): string {
   if (property.type === 'verification') return isVerified(value) ? 'Verified' : '';
-  if (property.type === 'backlinks') return '';
+  if (property.type === 'backlinks' || property.type === 'relation') return ''; // rendered as chips
+  if (property.type === 'created_time' || property.type === 'last_edited_time') {
+    return value ? new Date(String(value)).toLocaleDateString() : '';
+  }
+  if (property.type === 'multi_select') {
+    const ids = Array.isArray(value) ? (value as string[]) : [];
+    return ids
+      .map((id) => property.options?.find((o) => o.id === id)?.label)
+      .filter(Boolean)
+      .join(', ');
+  }
   if (value === undefined || value === null || value === '') return '';
   if (property.type === 'checkbox') return value ? '✓' : '';
   if (property.type === 'select') return findOption(property, value)?.label ?? '';
@@ -159,6 +190,21 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
     );
   case 'select':
     return <SelectCell property={property} value={value} onChange={onChange} onAddOption={onAddOption} />;
+  case 'multi_select':
+    return <MultiSelectCell property={property} value={value} onChange={onChange} onAddOption={onAddOption} />;
+  case 'relation':
+    return <RelationCell value={value} onChange={onChange} />;
+  case 'url':
+  case 'email':
+  case 'phone':
+    return <LinkCell kind={property.type} value={value} onChange={onChange} />;
+  case 'created_time':
+  case 'last_edited_time':
+    return (
+      <div className="px-2 py-1 text-sm text-muted-foreground/80" title="Set automatically">
+        {formatCellValue(property, value)}
+      </div>
+    );
   case 'person':
     return (
       <input
@@ -209,6 +255,181 @@ const VerificationCell: React.FC<{value: unknown; onChange: (value: unknown) => 
     >
       <VerificationBadge value={value} />
     </button>
+  );
+};
+
+const LINK_HREF = {
+  url: (v: string) => (/^https?:\/\//i.test(v) ? v : `https://${v}`),
+  email: (v: string) => `mailto:${v}`,
+  phone: (v: string) => `tel:${v}`,
+} as const;
+
+/** Editable url / email / phone cell with an "open" affordance when filled. */
+const LinkCell: React.FC<{kind: 'url' | 'email' | 'phone'; value: unknown; onChange: (value: unknown) => void}> = ({
+  kind,
+  value,
+  onChange,
+}) => {
+  const str = typeof value === 'string' ? value : '';
+  return (
+    <div className="flex items-center">
+      <input
+        type={kind === 'phone' ? 'tel' : kind}
+        defaultValue={str}
+        onBlur={(e) => onChange(e.target.value.trim() || null)}
+        className={inputClass}
+        placeholder="Empty"
+        aria-label={kind}
+      />
+      {str && (
+        <a
+          href={LINK_HREF[kind](str)}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="px-1.5 text-muted-foreground transition-colors hover:text-foreground"
+          title="Open"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      )}
+    </div>
+  );
+};
+
+/** Multi-select: toggle any number of option chips; create options inline. */
+const MultiSelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange, onAddOption}) => {
+  const [draft, setDraft] = useState('');
+  const ids = Array.isArray(value) ? (value as string[]) : [];
+  const selected = (property.options ?? []).filter((o) => ids.includes(o.id));
+  const toggle = (id: string) => onChange(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+  const create = async () => {
+    const option = await onAddOption?.(draft);
+    setDraft('');
+    if (option) onChange([...ids, option.id]);
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="flex min-h-[28px] w-full flex-wrap items-center gap-1 px-2 py-1 text-left text-sm hover:bg-accent/40">
+          {selected.length > 0 ? (
+            selected.map((o) => <SelectChip key={o.id} option={o} />)
+          ) : (
+            <span className="text-muted-foreground/40">Empty</span>
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        {(property.options ?? []).map((option) => (
+          <DropdownMenuItem
+            key={option.id}
+            onSelect={(e) => e.preventDefault()}
+            onClick={() => toggle(option.id)}
+            className="gap-2"
+          >
+            <SelectChip option={option} />
+            {ids.includes(option.id) && <Check className="ml-auto h-3.5 w-3.5" />}
+          </DropdownMenuItem>
+        ))}
+        {onAddOption && (
+          <>
+            <DropdownMenuSeparator />
+            <div className="flex items-center gap-1 px-1.5 py-1" onKeyDown={(e) => e.stopPropagation()}>
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void create();
+                }}
+                onClick={(e) => e.stopPropagation()}
+                placeholder="New option…"
+                className="w-full rounded bg-accent/40 px-1.5 py-1 text-xs outline-hidden"
+              />
+              <IconButton
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void create();
+                }}
+                aria-label="Add option"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </IconButton>
+            </div>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
+/** Relation: link the row to any pages — chips you can remove + a search to add. */
+const RelationCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> = ({value, onChange}) => {
+  const ids = Array.isArray(value) ? (value as string[]) : [];
+  const [query, setQuery] = useState('');
+  // Page titles/icons resolve through the live bridge; refresh on change.
+  const [, bump] = React.useReducer((x: number) => x + 1, 0);
+  React.useEffect(() => subscribePageLinks(bump), []);
+
+  const results = pageLinks.searchPages(query).filter((r) => !ids.includes(r.id));
+  const add = (id: string) => {
+    onChange([...ids, id]);
+    setQuery('');
+  };
+  const remove = (id: string) => onChange(ids.filter((x) => x !== id));
+
+  return (
+    <div className="flex min-h-[28px] flex-wrap items-center gap-1 px-2 py-1">
+      {ids.map((id) => (
+        <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs">
+          <span className="leading-none">{pageLinks.icon(id)}</span>
+          <span className="max-w-[120px] truncate">{pageLinks.label(id)}</span>
+          <button
+            type="button"
+            onClick={() => remove(id)}
+            className="text-muted-foreground/70 transition-colors hover:text-destructive"
+            aria-label="Remove link"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Link a page"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-60 p-1">
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Link a page…"
+            className="mb-1 w-full rounded bg-accent/40 px-1.5 py-1 text-sm outline-hidden"
+          />
+          <div className="max-h-52 overflow-y-auto">
+            {results.length === 0 && <div className="px-1.5 py-1.5 text-xs text-muted-foreground">No pages found</div>}
+            {results.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => add(r.id)}
+                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-accent"
+              >
+                <span className="leading-none">{r.icon}</span>
+                <span className="truncate">{r.label}</span>
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 };
 
