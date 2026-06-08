@@ -10,6 +10,8 @@ import {
   FilePlus2,
   Link2,
   Pencil,
+  Star,
+  StarOff,
   Table2,
   Trash2,
 } from 'lucide-react';
@@ -23,6 +25,7 @@ import {
 } from '@/components/ui/context-menu';
 import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
 import {copyPageLink, requestRenamePage} from '@/lib/pageActions';
+import {isFavorite, toggleFavorite} from '@/lib/favorites';
 
 /**
  * The right-click actions for a page, shared by the sidebar tree rows and the
@@ -55,8 +58,16 @@ export function PageMenuItems({pageId}: {pageId: string}) {
     setTimeout(() => requestRenamePage(pageId), 50);
   }, [pageId, selectPage]);
 
+  // Read at render — the menu re-mounts each time it opens, so this is current.
+  const fav = isFavorite(pageId);
+
   return (
     <>
+      <ContextMenuItem onSelect={() => toggleFavorite(pageId)}>
+        {fav ? <StarOff className="mr-2 h-4 w-4" /> : <Star className="mr-2 h-4 w-4" />}
+        {fav ? t('menu.unfavorite') : t('menu.favorite')}
+      </ContextMenuItem>
+      <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => openInNew(pageId, 'tab')}>
         <ExternalLink className="mr-2 h-4 w-4" />
         {t('menu.openTab')}

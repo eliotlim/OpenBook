@@ -5,6 +5,7 @@ import AboutDialog from '@/components/AboutDialog';
 import TrashDialog from '@/components/TrashDialog';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
 import SettingsButton from '@/components/SettingsButton';
+import FavoritesNav from '@/components/FavoritesNav';
 import WorkspaceNavigationTree from '@/components/WorkspaceNavigationTree';
 import CommandToggle from '@/components/CommandToggle';
 
@@ -24,6 +25,7 @@ export default function SideNav() {
           <CommandToggle />
           <SettingsButton />
         </div>
+        <FavoritesNav />
         <div className="mt-1 min-h-0 flex-1 overflow-hidden">
           <WorkspaceNavigationTree />
         </div>

@@ -9,11 +9,14 @@ import {
   CommandShortcut,
 } from '@/components/ui/command';
 import React from 'react';
+import type {PageMeta} from '@open-book/sdk';
 import {FileText} from 'lucide-react';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {useAppCommands, type AppCommand, type CommandGroup as CmdGroup} from '@/components/useAppCommands';
 import {formatShortcut} from '@/lib/shortcuts';
 import {readPageIcon} from '@/lib/pageIcon';
+import {readFavorites, subscribeFavorites} from '@/lib/favorites';
+import {readRecents, subscribeRecents} from '@/lib/recents';
 import {t} from '@/i18n';
 
 const displayName = (name: string | null): string =>
@@ -28,6 +31,12 @@ export function CommandMenu() {
   const {t} = useTranslation();
   const commands = useAppCommands();
   const open = hud.commandPalette.open;
+
+  // Favourites + recents live in localStorage; bump on change so the palette
+  // reflects a pin/visit made while it's open.
+  const [version, setVersion] = React.useState(0);
+  React.useEffect(() => subscribeFavorites(() => setVersion((v) => v + 1)), []);
+  React.useEffect(() => subscribeRecents(() => setVersion((v) => v + 1)), []);
 
   const setOpen = React.useCallback(
     (open: boolean) => {
@@ -47,6 +56,24 @@ export function CommandMenu() {
     [setOpen],
   );
 
+  const byId = React.useMemo(() => new Map(pages.map((p) => [p.id, p] as const)), [pages]);
+  // Resolve stored id lists to live pages (dropping any since deleted).
+  const resolve = React.useCallback(
+    (ids: string[]): PageMeta[] => ids.map((id) => byId.get(id)).filter((p): p is PageMeta => !!p),
+    [byId],
+  );
+  // `version` participates so a pin/visit re-derives these lists.
+  const favorites = React.useMemo(() => {
+    void version;
+    return resolve(readFavorites());
+  }, [resolve, version]);
+  const recents = React.useMemo(() => {
+    void version;
+    return resolve(readRecents())
+      .filter((p) => p.id !== currentPageId)
+      .slice(0, 6);
+  }, [resolve, version, currentPageId]);
+
   const groupHeading: Record<CmdGroup, string> = {
     create: t('command.groupCreate'),
     view: t('command.groupView'),
@@ -54,29 +81,39 @@ export function CommandMenu() {
     app: t('command.groupApp'),
   };
 
-  const byGroup = (group: CmdGroup): AppCommand[] => commands.filter((c) => c.group === group);
+  const pageItem = (page: PageMeta, scope: string) => (
+    <CommandItem
+      key={`${scope}:${page.id}`}
+      value={`${displayName(page.name)} ${page.id} ${scope}`}
+      onSelect={() => run(() => selectPage(page.id))}
+    >
+      <span className="mr-2 inline-flex h-4 w-4 shrink-0 items-center justify-center text-center text-sm leading-none">
+        {readPageIcon(page.id)}
+      </span>
+      <span className="truncate">{displayName(page.name)}</span>
+      {page.id === currentPageId && (
+        <span className="ml-auto text-xs text-muted-foreground">{t('command.current')}</span>
+      )}
+    </CommandItem>
+  );
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen} title={t('command.title')} description={t('command.placeholder')}>
       <CommandInput placeholder={t('command.placeholder')} />
       <CommandList>
         <CommandEmpty>{t('command.noResults')}</CommandEmpty>
+        {favorites.length > 0 && (
+          <CommandGroup heading={t('command.groupFavorites')}>
+            {favorites.map((page) => pageItem(page, 'favorite'))}
+          </CommandGroup>
+        )}
+        {recents.length > 0 && (
+          <CommandGroup heading={t('command.groupRecent')}>
+            {recents.map((page) => pageItem(page, 'recent'))}
+          </CommandGroup>
+        )}
         <CommandGroup heading={t('command.pages')}>
-          {pages.map((page) => (
-            <CommandItem
-              key={page.id}
-              value={`${displayName(page.name)} ${page.id}`}
-              onSelect={() => run(() => selectPage(page.id))}
-            >
-              <span className="mr-2 inline-flex h-4 w-4 shrink-0 items-center justify-center text-center text-sm leading-none">
-                {readPageIcon(page.id)}
-              </span>
-              <span className="truncate">{displayName(page.name)}</span>
-              {page.id === currentPageId && (
-                <span className="ml-auto text-xs text-muted-foreground">{t('command.current')}</span>
-              )}
-            </CommandItem>
-          ))}
+          {pages.map((page) => pageItem(page, 'page'))}
           {pages.length === 0 && (
             <CommandItem disabled value="__no_pages__">
               <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
@@ -85,13 +122,13 @@ export function CommandMenu() {
           )}
         </CommandGroup>
         {GROUP_ORDER.map((group) => {
-          const items = byGroup(group);
+          const items = commands.filter((c) => c.group === group);
           if (items.length === 0) return null;
           return (
             <React.Fragment key={group}>
               <CommandSeparator />
               <CommandGroup heading={groupHeading[group]}>
-                {items.map((cmd) => {
+                {items.map((cmd: AppCommand) => {
                   const Icon = cmd.icon;
                   return (
                     <CommandItem

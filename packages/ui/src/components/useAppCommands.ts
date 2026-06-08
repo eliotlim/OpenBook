@@ -9,6 +9,8 @@ import {
   Moon,
   PanelLeft,
   Settings as SettingsIcon,
+  Star,
+  StarOff,
   StretchHorizontal,
   Sun,
   Table2,
@@ -18,6 +20,7 @@ import {seedSampleDocument} from '@open-book/sdk';
 import {useData} from '@/data';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
+import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
 
 /** A command's bucket in the palette (each renders as a labelled group). */
 export type CommandGroup = 'create' | 'view' | 'navigation' | 'app';
@@ -63,6 +66,10 @@ export function useAppCommands(): AppCommand[] {
   const {t} = useTranslation();
   const client = useData();
 
+  // Re-derive the favourite command's label/icon when the pin state changes.
+  const [favVersion, setFavVersion] = React.useState(0);
+  React.useEffect(() => subscribeFavorites(() => setFavVersion((v) => v + 1)), []);
+
   const insertSampleDocument = React.useCallback(async () => {
     const page = await seedSampleDocument(client);
     await reload();
@@ -71,6 +78,7 @@ export function useAppCommands(): AppCommand[] {
 
   return React.useMemo<AppCommand[]>(() => {
     const isDark = colorScheme === 'dark';
+    const fav = !!currentPageId && isFavorite(currentPageId);
     return [
       // ── Create ──────────────────────────────────────────────────────────
       {
@@ -167,6 +175,17 @@ export function useAppCommands(): AppCommand[] {
       },
       // ── App ─────────────────────────────────────────────────────────────
       {
+        id: 'toggle-favorite',
+        group: 'app',
+        title: fav ? t('command.unfavorite') : t('command.favorite'),
+        keywords: 'favorite favourite pin star bookmark unpin',
+        icon: fav ? StarOff : Star,
+        disabled: !currentPageId,
+        run: () => {
+          if (currentPageId) toggleFavorite(currentPageId);
+        },
+      },
+      {
         id: 'open-settings',
         group: 'app',
         title: t('command.openSettings'),
@@ -198,6 +217,7 @@ export function useAppCommands(): AppCommand[] {
     colorScheme,
     splitOpen,
     currentPageId,
+    favVersion,
     canGoBack,
     canGoForward,
     createPage,

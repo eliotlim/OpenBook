@@ -12,6 +12,8 @@ import {defaultDatabaseSchema, emptyPageSnapshot, type PageMeta} from '@open-boo
 import {useData} from '@/data';
 import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
 import {readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
+import {recordRecent} from '@/lib/recents';
+import {removeFavorite} from '@/lib/favorites';
 import {usePlatformLibrary, type NewViewTarget} from './PlatformLibraryProvider';
 import * as W from './windowModel';
 import type {Pane, PaneId, WindowState} from './windowModel';
@@ -286,6 +288,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const deletePage = useCallback(
     async (id: string): Promise<void> => {
       await client.deletePage(id);
+      removeFavorite(id); // a trashed page shouldn't linger in favourites
       const list = await reload();
       setWin((w) => (w ? W.reconcile(w, (pid) => pid !== id, list[0]?.id ?? null) : w));
     },
@@ -380,6 +383,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       const removed = [...prevTopLevelIds.current].filter((id) => !newIds.has(id));
       prevTopLevelIds.current = newIds;
       if (removed.length === 0) return;
+      removed.forEach(removeFavorite); // drop deleted pages from favourites
       const removedSet = new Set(removed);
       setWin((w) => (w ? W.reconcile(w, (id) => !removedSet.has(id), list[0]?.id ?? null) : w));
     });
@@ -411,6 +415,13 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   }, [pages]);
 
   const currentPageId = win ? W.currentPageId(win) : null;
+
+  // Track the focused page as "recently visited" (drives the palette's Recent
+  // group). Covers every entry point — sidebar, palette, tabs, back/forward.
+  useEffect(() => {
+    if (currentPageId) recordRecent(currentPageId);
+  }, [currentPageId]);
+
   const panes = win ? W.panesOf(win) : [];
   const focusedPaneId: PaneId = win ? W.focusedPaneId(win) : 'primary';
   const splitOpen = win ? W.splitOpen(win) : false;

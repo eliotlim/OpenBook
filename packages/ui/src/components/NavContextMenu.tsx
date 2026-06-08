@@ -10,15 +10,17 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import {DotsVerticalIcon} from '@radix-ui/react-icons';
-import {AppWindow, Columns2, ExternalLink, Link2, Settings as SettingsIcon, Trash2} from 'lucide-react';
+import {AppWindow, Columns2, ExternalLink, Link2, Settings as SettingsIcon, Star, StarOff, Trash2} from 'lucide-react';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {copyPageLink} from '@/lib/pageActions';
+import {isFavorite, toggleFavorite} from '@/lib/favorites';
 import {formatShortcut, SHORTCUTS} from '@/lib/shortcuts';
 
 export default function NavContextMenu() {
   const {hud, setHud} = useHud();
   const {openInNew, openInSplit, currentPageId} = useNavigation();
   const {t} = useTranslation();
+  const fav = !!currentPageId && isFavorite(currentPageId);
 
   return (
     <DropdownMenu>
@@ -48,6 +50,13 @@ export default function NavContextMenu() {
           <DropdownMenuShortcut>{formatShortcut(SHORTCUTS.toggleFullWidth)}</DropdownMenuShortcut>
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator/>
+        <DropdownMenuItem
+          disabled={!currentPageId}
+          onClick={() => currentPageId && toggleFavorite(currentPageId)}
+        >
+          {fav ? <StarOff className="mr-2 h-4 w-4" /> : <Star className="mr-2 h-4 w-4" />}
+          {fav ? t('menu.unfavorite') : t('menu.favorite')}
+        </DropdownMenuItem>
         <DropdownMenuItem
           disabled={!currentPageId}
           onClick={() => currentPageId && openInNew(currentPageId, 'tab')}
