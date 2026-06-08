@@ -7,7 +7,9 @@ import {
   FormulaError,
   groupRows,
   rowValue,
+  summarizeColumn,
   NO_VALUE_GROUP,
+  TITLE_PROPERTY_ID,
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseView,
@@ -159,6 +161,39 @@ describe('aggregateRows', () => {
       ['Todo', 15],
       ['Done', 20],
     ]);
+  });
+});
+
+describe('summarizeColumn', () => {
+  const cost: DatabaseProperty = {id: 'c', name: 'Cost', type: 'number'};
+  const rows = [
+    row({id: 'a', name: 'A', properties: {c: 10}}),
+    row({id: 'b', name: 'B', properties: {c: 30}}),
+    row({id: 'd', name: '', properties: {}}), // empty cost + empty title
+  ];
+  const props = [cost];
+
+  it('counts all / filled / empty / unique', () => {
+    expect(summarizeColumn(rows, cost, 'count_all', props)).toBe('3');
+    expect(summarizeColumn(rows, cost, 'count_filled', props)).toBe('2');
+    expect(summarizeColumn(rows, cost, 'count_empty', props)).toBe('1');
+    expect(summarizeColumn(rows, cost, 'count_unique', props)).toBe('2');
+  });
+  it('percentages', () => {
+    expect(summarizeColumn(rows, cost, 'percent_filled', props)).toBe('67%');
+    expect(summarizeColumn(rows, cost, 'percent_empty', props)).toBe('33%');
+  });
+  it('numeric folds ignore empties', () => {
+    expect(summarizeColumn(rows, cost, 'sum', props)).toBe('40');
+    expect(summarizeColumn(rows, cost, 'avg', props)).toBe('20');
+    expect(summarizeColumn(rows, cost, 'min', props)).toBe('10');
+    expect(summarizeColumn(rows, cost, 'max', props)).toBe('30');
+    expect(summarizeColumn(rows, cost, 'range', props)).toBe('20');
+    expect(summarizeColumn(rows, cost, 'median', props)).toBe('20');
+  });
+  it('summarises the title column and returns empty for none', () => {
+    expect(summarizeColumn(rows, TITLE_PROPERTY_ID, 'count_filled', props)).toBe('2');
+    expect(summarizeColumn(rows, cost, 'none', props)).toBe('');
   });
 });
 

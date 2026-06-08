@@ -64,6 +64,36 @@ test('database views: board, gallery, and bar chart layouts render', async ({pag
   await expect(page.getByText('No value', {exact: true})).toBeVisible();
 });
 
+// A table column footer can summarise its values (here, a row count).
+test('database summaries: a column footer calculation renders', async ({page}) => {
+  await newDatabase(page);
+  await page.getByRole('button', {name: 'New row'}).click();
+  await page.getByRole('button', {name: 'New row'}).click();
+
+  // Set the Name column footer summary to "Count all" → shows the row count.
+  await page.locator('tfoot button').first().click();
+  await page.getByRole('menuitem', {name: 'Count all'}).click();
+  await expect(page.locator('tfoot').getByText('2', {exact: true})).toBeVisible();
+});
+
+// The quick-search box filters the active view's rows.
+test('database quick search: filters rows by text', async ({page}) => {
+  await newDatabase(page);
+  await page.getByRole('button', {name: 'New row'}).click();
+  const title = page.getByRole('table').getByPlaceholder('Untitled').first();
+  await title.fill('Findme');
+  await title.blur();
+
+  // A non-matching query empties the view.
+  await page.getByRole('textbox', {name: 'Search rows'}).fill('zzz');
+  await expect(page.getByText('No rows match the current view')).toBeVisible();
+  await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(0);
+
+  // A matching query brings the row back.
+  await page.getByRole('textbox', {name: 'Search rows'}).fill('Find');
+  await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(1);
+});
+
 // An inline database block embeds a full database view inside a document.
 test('inline database block: embeds a database view in a page', async ({page, request}) => {
   const id = await newPage(request, `Inline DB Host ${Date.now()}`);

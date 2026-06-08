@@ -46,6 +46,8 @@ export const API = {
   pageDatabase: (pageId: string): string => `/api/pages/${encodeURIComponent(pageId)}/database`,
   /** A database's rows: `GET` (list) / `POST` (create a row page). */
   databaseRows: (id: string): string => `/api/databases/${encodeURIComponent(id)}/rows`,
+  /** Set the manual row order: `PUT` `{orderedIds}`. */
+  databaseRowsOrder: (id: string): string => `/api/databases/${encodeURIComponent(id)}/rows/order`,
   /** A single row: `PATCH` (title + manual properties). Row content/deletion use the page routes. */
   databaseRow: (id: string, rowId: string): string =>
     `/api/databases/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowId)}`,

@@ -628,25 +628,29 @@ export class PageStore {
   // ── Database rows (pages tagged with a database_id) ──────────────────────────
 
   /**
-   * List a database's rows, most-recently-updated first, projected for table/
-   * list rendering: page title + manual `properties` + `exports` (named
-   * reactive cell values pulled from each row page's snapshot).
+   * List a database's rows in manual order, projected for table/list rendering:
+   * page title + manual `properties` + `exports` (named reactive cell values
+   * pulled from each row page's snapshot). Ordered by `position` (set on insert
+   * and rewritten by {@link reorderRows}), `created_at` breaking ties — so a
+   * routine cell edit never reshuffles the list (unlike an updated-at order).
    */
   async listRows(databaseId: string): Promise<DatabaseRow[]> {
     const rows = await this.db.query<PageRow>(
       `SELECT id, name, data, properties, created_at, updated_at
-       FROM pages WHERE database_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC`,
+       FROM pages WHERE database_id = $1 AND deleted_at IS NULL ORDER BY position ASC, created_at ASC`,
       [databaseId],
     );
     return rows.map(rowFromPage);
   }
 
-  /** Create a row: a fresh page tagged with `database_id`. Returns the page. */
+  /** Create a row: a fresh page tagged with `database_id`, appended at the
+   *  bottom of the database's manual order. Returns the page. */
   async createRow(databaseId: string, input: RowInput = {}): Promise<StoredPage> {
     const id = randomUUID();
     const rows = await this.db.query<PageRow>(
-      `INSERT INTO pages (id, name, data, database_id, properties, updated_at)
-       VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, now())
+      `INSERT INTO pages (id, name, data, database_id, properties, position, updated_at)
+       VALUES ($1, $2, $3::jsonb, $4, $5::jsonb,
+         (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE database_id = $4), now())
        RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at, NULL AS hosted_database_id`,
       [
         id,
@@ -657,6 +661,25 @@ export class PageStore {
       ],
     );
     return pageFromRow(rows[0]);
+  }
+
+  /**
+   * Set the manual order of a database's rows. `orderedIds` is the full list of
+   * its row ids in the desired order; each is renumbered to its index. Runs in
+   * one transaction so the list never observes a half-reorder. Ids not belonging
+   * to the database are ignored. Returns `true` once applied.
+   */
+  async reorderRows(databaseId: string, orderedIds: string[]): Promise<boolean> {
+    await this.db.begin(async (tx) => {
+      for (let i = 0; i < orderedIds.length; i += 1) {
+        await tx.query('UPDATE pages SET position = $3 WHERE id = $1 AND database_id = $2', [
+          orderedIds[i],
+          databaseId,
+          i,
+        ]);
+      }
+    });
+    return true;
   }
 
   /**

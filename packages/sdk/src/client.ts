@@ -91,6 +91,8 @@ export interface DataClient {
   createRow(databaseId: string, input?: RowInput): Promise<StoredPage>;
   /** Update a row's title and/or manual property values. */
   updateRow(databaseId: string, rowId: string, patch: RowUpdate): Promise<DatabaseRow>;
+  /** Set the manual order of a database's rows (full ordered id list). */
+  reorderRows(databaseId: string, orderedIds: string[]): Promise<void>;
   /** Subscribe to a database's live row-list updates. Returns an unsubscribe fn. */
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void;
 }
@@ -326,6 +328,10 @@ export class HttpDataClient implements DataClient {
 
   async updateRow(databaseId: string, rowId: string, patch: RowUpdate): Promise<DatabaseRow> {
     return this.request<DatabaseRow>('PATCH', API.databaseRow(databaseId, rowId), patch);
+  }
+
+  async reorderRows(databaseId: string, orderedIds: string[]): Promise<void> {
+    await this.request<{ok: boolean}>('PUT', API.databaseRowsOrder(databaseId), {orderedIds});
   }
 
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void {

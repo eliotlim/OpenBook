@@ -6,6 +6,7 @@ import {
   ArrowUpAZ,
   BarChart3,
   Calendar,
+  ChevronDown,
   Columns3,
   Filter,
   LayoutGrid,
@@ -15,6 +16,7 @@ import {
   PieChart,
   Plus,
   Settings2,
+  Sigma,
   Table2,
   Trash2,
 } from 'lucide-react';
@@ -32,6 +34,7 @@ import {
   type FilterOperator,
   type NumberFormat,
   type StoredDatabase,
+  type SummaryType,
 } from '@open-book/sdk';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {
@@ -42,6 +45,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
 import {cn} from '@/lib/utils';
+import {SWATCH_HEX} from './databaseColors';
 import type {NewPropertyInput, UseDatabase} from './useDatabase';
 
 const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
@@ -222,6 +226,39 @@ const FormulaHint: React.FC = () => (
   </div>
 );
 
+/** A colored dot that opens a swatch grid to recolor a select option. */
+const ColorSwatch: React.FC<{value?: string; onChange: (color: string) => void}> = ({value, onChange}) => (
+  <Popover>
+    <PopoverTrigger asChild>
+      <button
+        type="button"
+        className="h-5 w-5 shrink-0 rounded-full border border-black/10 transition-transform hover:scale-110 dark:border-white/15"
+        style={{backgroundColor: SWATCH_HEX[value ?? 'gray']}}
+        aria-label="Option color"
+        title={value ?? 'gray'}
+      />
+    </PopoverTrigger>
+    <PopoverContent align="start" className="w-auto p-2">
+      <div className="grid grid-cols-5 gap-1.5">
+        {SELECT_COLORS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => onChange(c)}
+            title={c}
+            aria-label={c}
+            className={cn(
+              'h-5 w-5 rounded-full border border-black/10 transition-transform hover:scale-110 dark:border-white/15',
+              (value ?? 'gray') === c && 'ring-2 ring-foreground/50 ring-offset-1',
+            )}
+            style={{backgroundColor: SWATCH_HEX[c]}}
+          />
+        ))}
+      </div>
+    </PopoverContent>
+  </Popover>
+);
+
 /** Inline editor for one `select`/`multi_select` property's options. */
 const OptionsEditor: React.FC<{property: DatabaseProperty; db: UseDatabase}> = ({property, db}) => {
   const [draft, setDraft] = useState('');
@@ -244,18 +281,7 @@ const OptionsEditor: React.FC<{property: DatabaseProperty; db: UseDatabase}> = (
       <div className={sectionLabel}>Options</div>
       {options.map((option) => (
         <div key={option.id} className="flex items-center gap-1">
-          <select
-            value={option.color ?? 'gray'}
-            onChange={(e) => setOption(option.id, {color: e.target.value})}
-            className={cn(fieldClass, 'w-16')}
-            aria-label="Color"
-          >
-            {SELECT_COLORS.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <ColorSwatch value={option.color} onChange={(color) => setOption(option.id, {color})} />
           <input
             defaultValue={option.label}
             onBlur={(e) => e.target.value.trim() && setOption(option.id, {label: e.target.value.trim()})}
@@ -514,6 +540,59 @@ export const SortMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
   );
 };
 
+const SUMMARY_TYPES: {value: SummaryType; label: string}[] = [
+  {value: 'none', label: 'None'},
+  {value: 'count_all', label: 'Count all'},
+  {value: 'count_values', label: 'Count values'},
+  {value: 'count_unique', label: 'Count unique'},
+  {value: 'count_empty', label: 'Count empty'},
+  {value: 'count_filled', label: 'Count filled'},
+  {value: 'percent_empty', label: 'Percent empty'},
+  {value: 'percent_filled', label: 'Percent filled'},
+  {value: 'sum', label: 'Sum'},
+  {value: 'avg', label: 'Average'},
+  {value: 'min', label: 'Min'},
+  {value: 'max', label: 'Max'},
+  {value: 'range', label: 'Range'},
+  {value: 'median', label: 'Median'},
+];
+
+/**
+ * A table column-footer summary control: shows the computed value (`display`)
+ * and, on click, a menu to choose the calculation (count/sum/avg/…). Shows a
+ * subtle "Calculate" affordance on hover when no summary is set.
+ */
+export const SummaryPicker: React.FC<{current: SummaryType; display: string; onChange: (t: SummaryType) => void}> = ({
+  current,
+  display,
+  onChange,
+}) => (
+  <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <button className="group/sum flex w-full items-center justify-end gap-1 px-2 py-1 text-right text-xs text-muted-foreground transition-colors hover:text-foreground">
+        {current === 'none' ? (
+          <span className="flex items-center gap-1 opacity-0 transition-opacity group-hover/sum:opacity-100">
+            <Sigma className="h-3 w-3" /> Calculate
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 tabular-nums">
+            <span className="text-muted-foreground/60">{SUMMARY_TYPES.find((s) => s.value === current)?.label}</span>
+            <span className="font-medium text-foreground/80">{display}</span>
+            <ChevronDown className="h-3 w-3 opacity-0 transition-opacity group-hover/sum:opacity-100" />
+          </span>
+        )}
+      </button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end" className="max-h-72 w-44 overflow-y-auto">
+      {SUMMARY_TYPES.map((s) => (
+        <DropdownMenuItem key={s.value} onClick={() => onChange(s.value)} className={cn(s.value === current && 'font-medium')}>
+          {s.label}
+        </DropdownMenuItem>
+      ))}
+    </DropdownMenuContent>
+  </DropdownMenu>
+);
+
 /** The `+` next to the view tabs: add a new view of a chosen layout. */
 export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = ({onAdd}) => (
   <DropdownMenu>
@@ -553,7 +632,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
     db.updateView(view.id, {visiblePropertyIds: next});
   };
 
-  const showGroup = view.type === 'board' || view.type === 'bar' || view.type === 'pie';
+  const showGroup = view.type === 'board' || view.type === 'bar' || view.type === 'pie' || view.type === 'table';
   const showChart = view.type === 'bar' || view.type === 'pie';
   const showDate = view.type === 'calendar';
   const showColumns = view.type === 'table' || view.type === 'list' || view.type === 'gallery';

@@ -283,6 +283,19 @@ async function exerciseDatabase(client: HttpDataClient, mode: string): Promise<v
   check('row round-trips manual property', alpha?.properties[notesProp.id] === 'first note');
   check('row projects exported cell value', alpha?.exports.total === 10);
 
+  // Manual row ordering: rows list in creation order; reorderRows rewrites it;
+  // a fresh row appends at the bottom (never reshuffles on edit).
+  check('rows list in creation order', rows[0].id === r1.id && rows[1].id === r2.id);
+  await client.reorderRows(db.id, [r2.id, r1.id]);
+  const reordered = await client.listRows(db.id);
+  check('reorderRows sets the manual order', reordered[0].id === r2.id && reordered[1].id === r1.id);
+  const r3 = await client.createRow(db.id, {name: 'Charlie'});
+  const withThird = await client.listRows(db.id);
+  check('new row appends at the bottom', withThird[withThird.length - 1].id === r3.id);
+  await client.deletePage(r3.id);
+  await client.purgePage(r3.id); // remove fully so later row/trash counts are unaffected
+  await client.reorderRows(db.id, [r1.id, r2.id]); // restore creation order
+
   // Editing a row's content (a page write) updates its projected exports.
   await client.savePage({id: r1.id, name: 'Alpha', data: rowSnapshot(99)});
   const rowsAfterEdit = await client.listRows(db.id);

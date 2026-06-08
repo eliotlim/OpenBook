@@ -10,6 +10,7 @@ export type {
   DatabaseProperty,
   DatabaseViewType,
   ChartAggregate,
+  SummaryType,
   FilterOperator,
   DatabaseFilter,
   SortDirection,
@@ -39,6 +40,7 @@ export {
   formatNumber,
   groupRows,
   aggregateRows,
+  summarizeColumn,
 } from './database';
 export {
   evaluateFormula,

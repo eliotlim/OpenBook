@@ -2,6 +2,8 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   applyView,
   defaultView,
+  FormulaError,
+  rowValue,
   SELECT_COLORS,
   shortId,
   type DatabaseProperty,
@@ -44,18 +46,23 @@ export interface PropertyPatch {
 export interface UseDatabase {
   database: StoredDatabase | null;
   loading: boolean;
-  /** All rows (unfiltered), most-recently-updated first. */
+  /** All rows (unfiltered), in manual order. */
   rows: DatabaseRow[];
-  /** Rows after the active view's filters + sorts. */
+  /** Rows after the active view's filters + sorts + the quick-search query. */
   visibleRows: DatabaseRow[];
   activeView: DatabaseView | null;
   setActiveViewId: (viewId: string) => void;
+  /** The quick-search query applied across every column. */
+  search: string;
+  setSearch: (query: string) => void;
 
   // Row mutations
   /** Create a row, optionally pre-setting property values. Returns the new id. */
   addRow: (initial?: Record<string, unknown>) => Promise<string | undefined>;
   renameRow: (rowId: string, name: string) => Promise<void>;
   setRowProperty: (rowId: string, propertyId: string, value: unknown) => Promise<void>;
+  /** Set the manual order of rows (full ordered id list). */
+  reorderRows: (orderedIds: string[]) => Promise<void>;
   deleteRow: (rowId: string) => Promise<void>;
   /** Open a row in the split pane for editing its document. */
   openRow: (rowId: string) => void;
@@ -97,6 +104,7 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
   const [rows, setRows] = useState<DatabaseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeViewId, setActiveViewIdState] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
 
   // Latest rows for read-modify-write of a single row's properties.
   const rowsRef = useRef<DatabaseRow[]>(rows);
@@ -163,8 +171,11 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
 
   const visibleRows = useMemo<DatabaseRow[]>(() => {
     if (!database || !activeView) return rows;
-    return applyView(rows, activeView, database.schema.properties);
-  }, [rows, database, activeView]);
+    const viewed = applyView(rows, activeView, database.schema.properties);
+    const query = search.trim().toLowerCase();
+    if (!query) return viewed;
+    return viewed.filter((row) => rowMatchesSearch(row, query, database.schema.properties));
+  }, [rows, database, activeView, search]);
 
   // Persist a schema edit and adopt the returned database.
   const saveSchema = useCallback(
@@ -210,6 +221,21 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
       // Optimistic: reflect the edit immediately, the stream confirms it.
       setRows((prev) => prev.map((r) => (r.id === rowId ? {...r, properties} : r)));
       await client.updateRow(database.id, rowId, {properties});
+    },
+    [client, database],
+  );
+
+  const reorderRows = useCallback(
+    async (orderedIds: string[]): Promise<void> => {
+      if (!database) return;
+      // Optimistic: apply the new order at once (the row stream confirms it).
+      setRows((prev) => {
+        const byId = new Map(prev.map((r) => [r.id, r]));
+        const ordered = orderedIds.map((id) => byId.get(id)).filter(Boolean) as DatabaseRow[];
+        const seen = new Set(orderedIds);
+        return [...ordered, ...prev.filter((r) => !seen.has(r.id))];
+      });
+      await client.reorderRows(database.id, orderedIds);
     },
     [client, database],
   );
@@ -394,9 +420,12 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     visibleRows,
     activeView,
     setActiveViewId,
+    search,
+    setSearch,
     addRow,
     renameRow,
     setRowProperty,
+    reorderRows,
     deleteRow,
     openRow,
     addProperty,
@@ -411,6 +440,27 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     deleteView,
     renameDatabase,
   };
+}
+
+/** Does any of a row's columns (title included) contain the search needle? */
+function rowMatchesSearch(row: DatabaseRow, needle: string, properties: DatabaseProperty[]): boolean {
+  if ((row.name ?? '').toLowerCase().includes(needle)) return true;
+  for (const property of properties) {
+    let text = '';
+    if (property.type === 'select') {
+      text = property.options?.find((o) => o.id === row.properties[property.id])?.label ?? '';
+    } else if (property.type === 'multi_select') {
+      const ids = Array.isArray(row.properties[property.id]) ? (row.properties[property.id] as string[]) : [];
+      text = (property.options ?? []).filter((o) => ids.includes(o.id)).map((o) => o.label).join(' ');
+    } else {
+      const v = rowValue(row, property, properties);
+      if (v instanceof FormulaError) text = '';
+      else if (Array.isArray(v)) text = v.map(String).join(' ');
+      else if (v != null) text = String(v);
+    }
+    if (text.toLowerCase().includes(needle)) return true;
+  }
+  return false;
 }
 
 /** Default display name for a freshly-added view of each type. */

@@ -220,6 +220,14 @@ export function createApp(store: PageStore): Hono {
     return c.json(page, 201);
   });
 
+  app.put(`${API.databases}/:id/rows/order`, async (c) => {
+    const id = c.req.param('id');
+    const {orderedIds} = await c.req.json<{orderedIds: string[]}>();
+    await store.reorderRows(id, orderedIds ?? []);
+    await broadcastRows(id);
+    return c.json({ok: true});
+  });
+
   app.patch(`${API.databases}/:id/rows/:rowId`, async (c) => {
     const id = c.req.param('id');
     const body = await c.req.json<{name?: string | null; properties?: Record<string, unknown>}>();

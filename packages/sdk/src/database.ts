@@ -106,6 +106,23 @@ export interface ChartAggregate {
   propertyId?: string;
 }
 
+/** A per-column footer calculation (Notion-style table summaries). */
+export type SummaryType =
+  | 'none'
+  | 'count_all'
+  | 'count_values'
+  | 'count_empty'
+  | 'count_filled'
+  | 'count_unique'
+  | 'percent_empty'
+  | 'percent_filled'
+  | 'sum'
+  | 'avg'
+  | 'min'
+  | 'max'
+  | 'range'
+  | 'median';
+
 /** Comparison used by a {@link DatabaseFilter}. */
 export type FilterOperator =
   | 'equals'
@@ -158,6 +175,8 @@ export interface DatabaseView {
   aggregate?: ChartAggregate;
   /** Date property positioning rows on the month grid (`calendar`). */
   datePropertyId?: string;
+  /** Per-column footer summaries (table), keyed by property id (or {@link TITLE_PROPERTY_ID}). */
+  summaries?: Record<string, SummaryType>;
 }
 
 /** The full editable definition of a database: its columns and its views. */
@@ -648,4 +667,70 @@ export function aggregateRows(rows: DatabaseRow[], view: DatabaseView, propertie
     color: g.color,
     value: foldAggregate(g.rows, agg, properties),
   }));
+}
+
+// ── Column summaries (table footers) ─────────────────────────────────────────
+
+const toNum = (v: unknown): number =>
+  typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN;
+
+/**
+ * Compute a column footer summary over a row set: counts (all / values / empty /
+ * filled / unique), percentages, or numeric folds (sum / avg / min / max / range
+ * / median). Returns a display string ('' for `none`). `property` is
+ * {@link TITLE_PROPERTY_ID} for the title column; numeric folds honour a
+ * property's `numberFormat`. Pure — shared by the table footer UI and tests.
+ */
+export function summarizeColumn(
+  rows: DatabaseRow[],
+  property: DatabaseProperty | typeof TITLE_PROPERTY_ID,
+  type: SummaryType,
+  properties: DatabaseProperty[],
+): string {
+  if (type === 'none') return '';
+  if (type === 'count_all') return String(rows.length);
+
+  const values = rows.map((r) => rowValue(r, property, properties));
+  const filled = values.filter((v) => !isEmpty(v));
+  const total = rows.length || 1;
+
+  switch (type) {
+  case 'count_values':
+  case 'count_filled':
+    return String(filled.length);
+  case 'count_empty':
+    return String(values.length - filled.length);
+  case 'count_unique':
+    return String(new Set(filled.map((v) => (Array.isArray(v) ? JSON.stringify(v) : String(v)))).size);
+  case 'percent_empty':
+    return `${Math.round(((values.length - filled.length) / total) * 100)}%`;
+  case 'percent_filled':
+    return `${Math.round((filled.length / total) * 100)}%`;
+  default:
+    break;
+  }
+
+  // Numeric folds.
+  const nums = filled.map(toNum).filter((n) => !Number.isNaN(n)).sort((a, b) => a - b);
+  if (nums.length === 0) return '—';
+  const format = property !== TITLE_PROPERTY_ID ? property.numberFormat : undefined;
+  const fmt = (n: number): string => formatNumber(n, format);
+  switch (type) {
+  case 'sum':
+    return fmt(nums.reduce((a, b) => a + b, 0));
+  case 'avg':
+    return fmt(nums.reduce((a, b) => a + b, 0) / nums.length);
+  case 'min':
+    return fmt(nums[0]);
+  case 'max':
+    return fmt(nums[nums.length - 1]);
+  case 'range':
+    return fmt(nums[nums.length - 1] - nums[0]);
+  case 'median': {
+    const mid = Math.floor(nums.length / 2);
+    return fmt(nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2);
+  }
+  default:
+    return '';
+  }
 }
