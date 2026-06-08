@@ -72,8 +72,18 @@ async function applyIncomingBlocks(inst: EditorJS, next: OutputData, holder: HTM
     inst.blocks.insert(ins.type, ins.data as BlockToolData, {}, insertAt, false, false, ins.id);
   }
 }
+import {createPortal} from 'react-dom';
 import {SliderBlock, ExprBlock, ChartBlock, SubpageBlock} from '@/reactive';
-import {CalloutBlock, AccordionBlock, DividerBlock, ButtonBlock, TableOfContentsBlock} from '@/editor/blocks';
+import {
+  CalloutBlock,
+  AccordionBlock,
+  DividerBlock,
+  ButtonBlock,
+  TableOfContentsBlock,
+  DatabaseBlock,
+  type InlineDatabaseRegistry,
+} from '@/editor/blocks';
+import {DatabaseView} from '@/components/database/DatabaseView';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
 import {installEditorChrome} from '@/lib/editorChrome';
@@ -206,6 +216,34 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   // The `:`-shortcode emoji controller for this editor (one per pane).
   const emojiRef = useRef<EmojiSuggestController | null>(null);
   if (!emojiRef.current) emojiRef.current = new EmojiSuggestController();
+  // Inline database blocks hand their DOM nodes here; we portal a DatabaseView
+  // into each from inside the provider tree (see InlineDatabaseRegistry). Updates
+  // are deferred to a microtask so a block's render/destroy never sets state
+  // synchronously during an EditorJS operation that runs amid a React commit.
+  const [dbBlocks, setDbBlocks] = useState<Map<string, {el: HTMLElement; pageId: string | null}>>(new Map());
+  const dbRegistry = useRef<InlineDatabaseRegistry>({
+    register: (id, el, pageId) =>
+      queueMicrotask(() => setDbBlocks((prev) => new Map(prev).set(id, {el, pageId}))),
+    setPageId: (id, pageId) =>
+      queueMicrotask(() =>
+        setDbBlocks((prev) => {
+          const entry = prev.get(id);
+          if (!entry) return prev;
+          const next = new Map(prev);
+          next.set(id, {...entry, pageId});
+          return next;
+        }),
+      ),
+    unregister: (id) =>
+      queueMicrotask(() =>
+        setDbBlocks((prev) => {
+          if (!prev.has(id)) return prev;
+          const next = new Map(prev);
+          next.delete(id);
+          return next;
+        }),
+      ),
+  });
   const [status, setStatus] = useState<string>('initializing');
   const statusRef = useRef(status);
   statusRef.current = status;
@@ -320,6 +358,9 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           expr: ExprBlock as unknown as never,
           chart: ChartBlock as unknown as never,
           subpage: {class: SubpageBlock as unknown as never, config: {hostPageId: pageId}},
+          // Inline database: the block hands its node to the registry and we
+          // portal a live DatabaseView into it (below) from inside the providers.
+          database: {class: DatabaseBlock as unknown as never, config: {hostPageId: pageId, registry: dbRegistry.current}},
           // Inline tool: preserves the `@`-mention anchor through save sanitization
           // and links a selection to a page. The `@` typing flow is driven by the
           // controller attached in onReady.
@@ -541,6 +582,12 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           via a max-width in index.css, which this overrides). */}
       {!isSSR() && (
         <div ref={holderRef} className={cn('min-h-[40vh]', hud.viewMode.fullWidth && 'ob-editor-full')} />
+      )}
+
+      {/* Inline databases: a live DatabaseView portaled into each database
+          block's DOM node, so the view runs inside the document's providers. */}
+      {[...dbBlocks].map(([id, {el, pageId: dbPageId}]) =>
+        dbPageId ? createPortal(<DatabaseView pageId={dbPageId} inline />, el, id) : null,
       )}
 
       {!isSSR() && mentionRef.current && <MentionPopover controller={mentionRef.current} />}

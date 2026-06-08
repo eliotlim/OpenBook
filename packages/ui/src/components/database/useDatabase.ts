@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   applyView,
+  defaultView,
   SELECT_COLORS,
   shortId,
   type DatabaseProperty,
@@ -8,6 +9,8 @@ import {
   type DatabaseRow,
   type DatabaseSelectOption,
   type DatabaseView,
+  type DatabaseViewType,
+  type NumberFormat,
   type StoredDatabase,
 } from '@open-book/sdk';
 import {useData} from '@/data';
@@ -18,10 +21,24 @@ const activeViewKey = (databaseId: string): string => `openbook.dbview.${databas
 export interface NewPropertyInput {
   name: string;
   type: DatabasePropertyType;
-  /** For `select`: initial option labels. */
+  /** For `select`/`multi_select`: initial option labels. */
   options?: string[];
   /** For `expr`: the exported cell name to read. */
   cellName?: string;
+  /** For `formula`: the expression source. */
+  formula?: string;
+  /** For `number`/`formula`: the display format. */
+  numberFormat?: NumberFormat;
+}
+
+/** Fields editable on an existing property (any subset). */
+export interface PropertyPatch {
+  name?: string;
+  type?: DatabasePropertyType;
+  options?: DatabaseSelectOption[];
+  cellName?: string;
+  formula?: string;
+  numberFormat?: NumberFormat;
 }
 
 export interface UseDatabase {
@@ -35,18 +52,31 @@ export interface UseDatabase {
   setActiveViewId: (viewId: string) => void;
 
   // Row mutations
-  addRow: () => Promise<void>;
+  /** Create a row, optionally pre-setting property values. Returns the new id. */
+  addRow: (initial?: Record<string, unknown>) => Promise<string | undefined>;
   renameRow: (rowId: string, name: string) => Promise<void>;
   setRowProperty: (rowId: string, propertyId: string, value: unknown) => Promise<void>;
   deleteRow: (rowId: string) => Promise<void>;
   /** Open a row in the split pane for editing its document. */
   openRow: (rowId: string) => void;
 
-  // Schema mutations
+  // Schema mutations — properties
   addProperty: (input: NewPropertyInput) => Promise<void>;
+  updateProperty: (propertyId: string, patch: PropertyPatch) => Promise<void>;
+  /** Move a property left/right among the columns (delta -1 or +1). */
+  moveProperty: (propertyId: string, delta: number) => Promise<void>;
   deleteProperty: (propertyId: string) => Promise<void>;
   addSelectOption: (propertyId: string, label: string) => Promise<DatabaseSelectOption | null>;
+
+  // Schema mutations — views
   updateView: (viewId: string, patch: Partial<DatabaseView>) => Promise<void>;
+  /** Add a view of a given type and switch to it. */
+  addView: (type: DatabaseViewType, name?: string) => Promise<void>;
+  renameView: (viewId: string, name: string) => Promise<void>;
+  duplicateView: (viewId: string) => Promise<void>;
+  deleteView: (viewId: string) => Promise<void>;
+  /** Rename the database itself. */
+  renameDatabase: (name: string) => Promise<void>;
 }
 
 /**
@@ -146,20 +176,28 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     [client, database],
   );
 
-  const addRow = useCallback(async (): Promise<void> => {
-    if (!database) return;
-    await client.createRow(database.id, {name: null});
-    // The live row stream normally pushes the new list; refetch as a fallback so
-    // the row appears immediately even if that event is missed (e.g. a stream
-    // reconnect gap, or an environment where SSE is unavailable).
-    setRows(await client.listRows(database.id));
-  }, [client, database]);
+  const addRow = useCallback(
+    async (initial?: Record<string, unknown>): Promise<string | undefined> => {
+      if (!database) return undefined;
+      const page = await client.createRow(database.id, {name: null, properties: initial});
+      // The live row stream normally pushes the new list; refetch as a fallback so
+      // the row appears immediately even if that event is missed (e.g. a stream
+      // reconnect gap, or an environment where SSE is unavailable).
+      setRows(await client.listRows(database.id));
+      return page.id;
+    },
+    [client, database],
+  );
 
   const renameRow = useCallback(
     async (rowId: string, name: string): Promise<void> => {
       if (!database) return;
+      const next = name.trim().length > 0 ? name : null;
       setPageHint(rowId, name);
-      await client.updateRow(database.id, rowId, {name: name.trim().length > 0 ? name : null});
+      // Optimistic: reflect the new title at once so a `formula`/`title` column
+      // recomputes immediately (the row stream then confirms it).
+      setRows((prev) => prev.map((r) => (r.id === rowId ? {...r, name: next} : r)));
+      await client.updateRow(database.id, rowId, {name: next});
     },
     [client, database, setPageHint],
   );
@@ -209,7 +247,38 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
           .map((label, i) => ({id: shortId('opt'), label, color: SELECT_COLORS[i % SELECT_COLORS.length]}));
       }
       if (input.type === 'expr') property.cellName = input.cellName?.trim() || input.name.trim();
+      if (input.type === 'formula') property.formula = input.formula?.trim() ?? '';
+      if (input.numberFormat) property.numberFormat = input.numberFormat;
       await saveSchema({...database.schema, properties: [...database.schema.properties, property]});
+    },
+    [database, saveSchema],
+  );
+
+  const updateProperty = useCallback(
+    async (propertyId: string, patch: PropertyPatch): Promise<void> => {
+      if (!database) return;
+      await saveSchema({
+        ...database.schema,
+        properties: database.schema.properties.map((p) => {
+          if (p.id !== propertyId) return p;
+          const next: DatabaseProperty = {...p, ...patch};
+          if (patch.name !== undefined) next.name = patch.name.trim() || p.name;
+          return next;
+        }),
+      });
+    },
+    [database, saveSchema],
+  );
+
+  const moveProperty = useCallback(
+    async (propertyId: string, delta: number): Promise<void> => {
+      if (!database) return;
+      const props = [...database.schema.properties];
+      const from = props.findIndex((p) => p.id === propertyId);
+      const to = from + delta;
+      if (from < 0 || to < 0 || to >= props.length) return;
+      [props[from], props[to]] = [props[to], props[from]];
+      await saveSchema({...database.schema, properties: props});
     },
     [database, saveSchema],
   );
@@ -270,6 +339,54 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     [database, saveSchema],
   );
 
+  const addView = useCallback(
+    async (type: DatabaseViewType, name?: string): Promise<void> => {
+      if (!database) return;
+      const count = database.schema.views.filter((v) => v.type === type).length;
+      const label = name?.trim() || `${VIEW_TYPE_LABEL[type]}${count > 0 ? ` ${count + 1}` : ''}`;
+      const view = defaultView(type, label, database.schema.properties);
+      await saveSchema({...database.schema, views: [...database.schema.views, view]});
+      setActiveViewId(view.id);
+    },
+    [database, saveSchema, setActiveViewId],
+  );
+
+  const renameView = useCallback(
+    async (viewId: string, name: string): Promise<void> => updateView(viewId, {name: name.trim() || 'View'}),
+    [updateView],
+  );
+
+  const duplicateView = useCallback(
+    async (viewId: string): Promise<void> => {
+      if (!database) return;
+      const src = database.schema.views.find((v) => v.id === viewId);
+      if (!src) return;
+      const copy: DatabaseView = {...src, id: shortId('view'), name: `${src.name} copy`};
+      await saveSchema({...database.schema, views: [...database.schema.views, copy]});
+      setActiveViewId(copy.id);
+    },
+    [database, saveSchema, setActiveViewId],
+  );
+
+  const deleteView = useCallback(
+    async (viewId: string): Promise<void> => {
+      if (!database || database.schema.views.length <= 1) return; // keep at least one
+      const remaining = database.schema.views.filter((v) => v.id !== viewId);
+      await saveSchema({...database.schema, views: remaining});
+      if (activeViewId === viewId) setActiveViewId(remaining[0].id);
+    },
+    [database, saveSchema, activeViewId, setActiveViewId],
+  );
+
+  const renameDatabase = useCallback(
+    async (name: string): Promise<void> => {
+      if (!database) return;
+      const updated = await client.updateDatabase(database.id, {name: name.trim() || null});
+      setDatabase(updated);
+    },
+    [client, database],
+  );
+
   return {
     database,
     loading,
@@ -283,8 +400,26 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     deleteRow,
     openRow,
     addProperty,
+    updateProperty,
+    moveProperty,
     deleteProperty,
     addSelectOption,
     updateView,
+    addView,
+    renameView,
+    duplicateView,
+    deleteView,
+    renameDatabase,
   };
 }
+
+/** Default display name for a freshly-added view of each type. */
+const VIEW_TYPE_LABEL: Record<DatabaseViewType, string> = {
+  table: 'Table',
+  list: 'List',
+  gallery: 'Gallery',
+  board: 'Board',
+  calendar: 'Calendar',
+  bar: 'Bar chart',
+  pie: 'Pie chart',
+};

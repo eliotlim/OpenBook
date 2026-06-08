@@ -1,8 +1,11 @@
 import React, {useState} from 'react';
 import {BadgeCheck, Check, ChevronDown, ExternalLink, Plus, X} from 'lucide-react';
 import {
+  formatNumber,
+  FormulaError,
   isVerified,
   makeVerification,
+  rowValue,
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseSelectOption,
@@ -23,11 +26,13 @@ import {cn} from '@/lib/utils';
 
 /**
  * The raw value to feed a property cell: the stored value for editable types,
- * and the *derived* value for the read-only ones — `expr` (a reactive export)
+ * and the *derived* value for the read-only ones — `expr` (a reactive export),
+ * `formula` (computed from sibling properties; needs the full property list),
  * and the `created_time`/`last_edited_time` timestamps (from the row page).
  */
-export function cellValue(row: DatabaseRow, property: DatabaseProperty): unknown {
+export function cellValue(row: DatabaseRow, property: DatabaseProperty, properties?: DatabaseProperty[]): unknown {
   if (property.type === 'expr') return row.exports[property.cellName ?? property.name];
+  if (property.type === 'formula') return rowValue(row, property, properties);
   if (property.type === 'created_time') return row.createdAt;
   if (property.type === 'last_edited_time') return row.updatedAt;
   return row.properties[property.id];
@@ -97,6 +102,7 @@ export function formatCellValue(property: DatabaseProperty, value: unknown): str
   if (property.type === 'created_time' || property.type === 'last_edited_time') {
     return value ? new Date(String(value)).toLocaleDateString() : '';
   }
+  if (property.type === 'formula') return formatFormulaValue(value, property.numberFormat);
   if (property.type === 'multi_select') {
     const ids = Array.isArray(value) ? (value as string[]) : [];
     return ids
@@ -107,14 +113,24 @@ export function formatCellValue(property: DatabaseProperty, value: unknown): str
   if (value === undefined || value === null || value === '') return '';
   if (property.type === 'checkbox') return value ? '✓' : '';
   if (property.type === 'select') return findOption(property, value)?.label ?? '';
-  if (property.type === 'expr') return formatExprValue(value);
+  if (property.type === 'number') return formatNumber(value, property.numberFormat);
+  if (property.type === 'expr') return formatExprValue(value, property.numberFormat);
   return String(value);
 }
 
+/** Render a computed formula value, surfacing errors and honouring number format. */
+export function formatFormulaValue(value: unknown, format?: DatabaseProperty['numberFormat']): string {
+  if (value instanceof FormulaError) return `⚠ ${value.message}`;
+  if (typeof value === 'number') return formatNumber(value, format);
+  if (typeof value === 'boolean') return value ? '✓' : '✗';
+  return formatExprValue(value, format);
+}
+
 /** Compact, human-readable rendering of an arbitrary exported expression value. */
-export function formatExprValue(value: unknown): string {
+export function formatExprValue(value: unknown, format?: DatabaseProperty['numberFormat']): string {
   if (value === undefined || value === null) return '';
-  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  if (value instanceof FormulaError) return `⚠ ${value.message}`;
+  if (typeof value === 'number') return formatNumber(value, format);
   if (typeof value === 'boolean') return value ? 'true' : 'false';
   if (typeof value === 'string') return value;
   if (Array.isArray(value)) return `[${value.length}]`;
@@ -154,7 +170,19 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
   case 'expr':
     return (
       <div className="px-2 py-1 text-sm tabular-nums text-foreground/80" title="Computed from the row's exported cell">
-        {formatExprValue(exprValue)}
+        {formatExprValue(exprValue, property.numberFormat)}
+      </div>
+    );
+  case 'formula':
+    return (
+      <div
+        className={cn(
+          'px-2 py-1 text-sm tabular-nums',
+          value instanceof FormulaError ? 'text-destructive' : 'text-foreground/80',
+        )}
+        title={value instanceof FormulaError ? value.message : 'Computed from other properties'}
+      >
+        {formatFormulaValue(value, property.numberFormat)}
       </div>
     );
   case 'checkbox':

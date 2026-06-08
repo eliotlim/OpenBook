@@ -1,13 +1,37 @@
 import React, {useState} from 'react';
-import {ArrowDownAZ, ArrowUpAZ, Filter, ListFilter, MoreHorizontal, Plus, Trash2} from 'lucide-react';
 import {
+  ArrowDownAZ,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpAZ,
+  BarChart3,
+  Calendar,
+  Columns3,
+  Filter,
+  LayoutGrid,
+  List,
+  ListFilter,
+  MoreHorizontal,
+  PieChart,
+  Plus,
+  Settings2,
+  Table2,
+  Trash2,
+} from 'lucide-react';
+import {
+  SELECT_COLORS,
   TITLE_PROPERTY_ID,
-  type DatabaseFilter,
-  type DatabasePropertyType,
-  type DatabaseView,
-  type FilterOperator,
-  type StoredDatabase,
   shortId,
+  type ChartAggregate,
+  type DatabaseFilter,
+  type DatabaseProperty,
+  type DatabasePropertyType,
+  type DatabaseSelectOption,
+  type DatabaseView,
+  type DatabaseViewType,
+  type FilterOperator,
+  type NumberFormat,
+  type StoredDatabase,
 } from '@open-book/sdk';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {
@@ -18,7 +42,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
 import {cn} from '@/lib/utils';
-import type {NewPropertyInput} from './useDatabase';
+import type {NewPropertyInput, UseDatabase} from './useDatabase';
 
 const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
   {value: 'text', label: 'Text'},
@@ -35,7 +59,17 @@ const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
   {value: 'verification', label: 'Verification'},
   {value: 'created_time', label: 'Created time'},
   {value: 'last_edited_time', label: 'Last edited time'},
+  {value: 'formula', label: 'Formula'},
   {value: 'expr', label: 'Expression (exported cell)'},
+];
+
+const NUMBER_FORMATS: {value: NumberFormat; label: string}[] = [
+  {value: 'plain', label: 'Plain'},
+  {value: 'integer', label: 'Integer (1,234)'},
+  {value: 'decimal', label: 'Decimal (1,234.00)'},
+  {value: 'percent', label: 'Percent (12%)'},
+  {value: 'dollar', label: 'Dollar ($)'},
+  {value: 'euro', label: 'Euro (€)'},
 ];
 
 const OPERATORS: {value: FilterOperator; label: string}[] = [
@@ -55,9 +89,24 @@ const OPERATORS: {value: FilterOperator; label: string}[] = [
 
 const VALUELESS = new Set<FilterOperator>(['is_empty', 'is_not_empty', 'is_checked', 'is_unchecked']);
 
+/** Per-view-type display metadata (icon + label), shared by the toolbar + menus. */
+export const VIEW_TYPES: {value: DatabaseViewType; label: string; Icon: React.ComponentType<{className?: string}>}[] = [
+  {value: 'table', label: 'Table', Icon: Table2},
+  {value: 'board', label: 'Board', Icon: Columns3},
+  {value: 'gallery', label: 'Gallery', Icon: LayoutGrid},
+  {value: 'list', label: 'List', Icon: List},
+  {value: 'calendar', label: 'Calendar', Icon: Calendar},
+  {value: 'bar', label: 'Bar chart', Icon: BarChart3},
+  {value: 'pie', label: 'Pie chart', Icon: PieChart},
+];
+
+export const viewIcon = (type: DatabaseViewType): React.ComponentType<{className?: string}> =>
+  VIEW_TYPES.find((v) => v.value === type)?.Icon ?? Table2;
+
 const fieldClass = 'rounded border border-border bg-background px-1.5 py-1 text-sm outline-hidden';
 const toolButtonClass =
   'flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground';
+const sectionLabel = 'text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70';
 
 /** The `+` column header: add a new property to the database. */
 export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void}> = ({onAdd}) => {
@@ -66,6 +115,10 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
   const [type, setType] = useState<DatabasePropertyType>('text');
   const [options, setOptions] = useState('');
   const [cellName, setCellName] = useState('');
+  const [formula, setFormula] = useState('');
+  const [numberFormat, setNumberFormat] = useState<NumberFormat>('plain');
+
+  const numeric = type === 'number' || type === 'formula' || type === 'expr';
 
   const submit = () => {
     if (!name.trim()) return;
@@ -74,10 +127,14 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
       type,
       options: type === 'select' || type === 'multi_select' ? options.split(',') : undefined,
       cellName: type === 'expr' ? cellName : undefined,
+      formula: type === 'formula' ? formula : undefined,
+      numberFormat: numeric && numberFormat !== 'plain' ? numberFormat : undefined,
     });
     setName('');
     setOptions('');
     setCellName('');
+    setFormula('');
+    setNumberFormat('plain');
     setType('text');
     setOpen(false);
   };
@@ -93,13 +150,13 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
           <Plus className="h-4 w-4" />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 space-y-2 p-3">
-        <div className="text-xs font-semibold text-muted-foreground">New property</div>
+      <PopoverContent align="end" className="w-72 space-y-2 p-3">
+        <div className={sectionLabel}>New property</div>
         <input
           autoFocus
           value={name}
           onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && submit()}
+          onKeyDown={(e) => e.key === 'Enter' && type !== 'formula' && submit()}
           placeholder="Property name"
           className={cn(fieldClass, 'w-full')}
         />
@@ -126,6 +183,27 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
             className={cn(fieldClass, 'w-full')}
           />
         )}
+        {type === 'formula' && (
+          <>
+            <textarea
+              value={formula}
+              onChange={(e) => setFormula(e.target.value)}
+              placeholder={'e.g. prop("Price") * prop("Qty")'}
+              rows={2}
+              className={cn(fieldClass, 'w-full font-mono text-xs')}
+            />
+            <FormulaHint />
+          </>
+        )}
+        {numeric && (
+          <select value={numberFormat} onChange={(e) => setNumberFormat(e.target.value as NumberFormat)} className={cn(fieldClass, 'w-full')}>
+            {NUMBER_FORMATS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        )}
         <button
           onClick={submit}
           className="w-full rounded bg-primary px-2 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
@@ -137,25 +215,183 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
   );
 };
 
-/** Per-column header dropdown: delete the property. */
-export const PropertyHeaderMenu: React.FC<{onDelete: () => void}> = ({onDelete}) => (
-  <DropdownMenu>
-    <DropdownMenuTrigger asChild>
-      <button
-        className="rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100"
-        aria-label="Property options"
-      >
-        <MoreHorizontal className="h-3.5 w-3.5" />
-      </button>
-    </DropdownMenuTrigger>
-    <DropdownMenuContent align="start" className="w-40">
-      <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
-        <Trash2 className="mr-2 h-3.5 w-3.5" />
-        Delete property
-      </DropdownMenuItem>
-    </DropdownMenuContent>
-  </DropdownMenu>
+const FormulaHint: React.FC = () => (
+  <div className="rounded bg-muted/50 px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+    Reference other columns by name: <code>prop(&quot;Name&quot;)</code> or a bare word. Use <code>+ - * /</code>,{' '}
+    <code>if(c, a, b)</code>, <code>round</code>, <code>concat</code>, <code>min</code>, <code>max</code>.
+  </div>
 );
+
+/** Inline editor for one `select`/`multi_select` property's options. */
+const OptionsEditor: React.FC<{property: DatabaseProperty; db: UseDatabase}> = ({property, db}) => {
+  const [draft, setDraft] = useState('');
+  const options = property.options ?? [];
+
+  const setOption = (id: string, patch: Partial<DatabaseSelectOption>) =>
+    void db.updateProperty(property.id, {options: options.map((o) => (o.id === id ? {...o, ...patch} : o))});
+  const removeOption = (id: string) =>
+    void db.updateProperty(property.id, {options: options.filter((o) => o.id !== id)});
+  const addOption = () => {
+    const label = draft.trim();
+    if (!label) return;
+    const option: DatabaseSelectOption = {id: shortId('opt'), label, color: SELECT_COLORS[options.length % SELECT_COLORS.length]};
+    void db.updateProperty(property.id, {options: [...options, option]});
+    setDraft('');
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className={sectionLabel}>Options</div>
+      {options.map((option) => (
+        <div key={option.id} className="flex items-center gap-1">
+          <select
+            value={option.color ?? 'gray'}
+            onChange={(e) => setOption(option.id, {color: e.target.value})}
+            className={cn(fieldClass, 'w-16')}
+            aria-label="Color"
+          >
+            {SELECT_COLORS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <input
+            defaultValue={option.label}
+            onBlur={(e) => e.target.value.trim() && setOption(option.id, {label: e.target.value.trim()})}
+            className={cn(fieldClass, 'min-w-0 flex-1')}
+          />
+          <IconButton size="sm" onClick={() => removeOption(option.id)} aria-label="Remove option">
+            <Trash2 className="h-3.5 w-3.5" />
+          </IconButton>
+        </div>
+      ))}
+      <div className="flex items-center gap-1">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && addOption()}
+          placeholder="New option…"
+          className={cn(fieldClass, 'min-w-0 flex-1')}
+        />
+        <IconButton size="sm" onClick={addOption} aria-label="Add option">
+          <Plus className="h-3.5 w-3.5" />
+        </IconButton>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * Per-column header editor: rename, change type, edit select options / formula /
+ * number format, reorder, and delete the property. Opens from the `⋯` in a
+ * column header.
+ */
+export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase; index: number; count: number}> = ({
+  property,
+  db,
+  index,
+  count,
+}) => {
+  const [open, setOpen] = useState(false);
+  const numeric = property.type === 'number' || property.type === 'formula' || property.type === 'expr';
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          className="rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
+          aria-label="Property options"
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 space-y-2 p-2.5">
+        <input
+          defaultValue={property.name}
+          onBlur={(e) => e.target.value.trim() !== property.name && db.updateProperty(property.id, {name: e.target.value})}
+          className={cn(fieldClass, 'w-full font-medium')}
+          aria-label="Property name"
+        />
+        <select
+          value={property.type}
+          onChange={(e) => void db.updateProperty(property.id, {type: e.target.value as DatabasePropertyType})}
+          className={cn(fieldClass, 'w-full')}
+        >
+          {PROPERTY_TYPES.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+
+        {(property.type === 'select' || property.type === 'multi_select') && <OptionsEditor property={property} db={db} />}
+
+        {property.type === 'formula' && (
+          <>
+            <textarea
+              defaultValue={property.formula ?? ''}
+              onBlur={(e) => db.updateProperty(property.id, {formula: e.target.value})}
+              rows={2}
+              placeholder={'prop("Price") * prop("Qty")'}
+              className={cn(fieldClass, 'w-full font-mono text-xs')}
+            />
+            <FormulaHint />
+          </>
+        )}
+
+        {property.type === 'expr' && (
+          <input
+            defaultValue={property.cellName ?? ''}
+            onBlur={(e) => db.updateProperty(property.id, {cellName: e.target.value})}
+            placeholder="Exported cell name"
+            className={cn(fieldClass, 'w-full')}
+          />
+        )}
+
+        {numeric && (
+          <select
+            value={property.numberFormat ?? 'plain'}
+            onChange={(e) => void db.updateProperty(property.id, {numberFormat: e.target.value as NumberFormat})}
+            className={cn(fieldClass, 'w-full')}
+          >
+            {NUMBER_FORMATS.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <div className="flex items-center gap-1 border-t border-border pt-2">
+          <button
+            disabled={index <= 0}
+            onClick={() => void db.moveProperty(property.id, -1)}
+            className={cn(toolButtonClass, 'flex-1 justify-center disabled:opacity-30')}
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Left
+          </button>
+          <button
+            disabled={index >= count - 1}
+            onClick={() => void db.moveProperty(property.id, 1)}
+            className={cn(toolButtonClass, 'flex-1 justify-center disabled:opacity-30')}
+          >
+            Right <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        <button
+          onClick={() => {
+            setOpen(false);
+            void db.deleteProperty(property.id);
+          }}
+          className={cn(toolButtonClass, 'w-full justify-center text-destructive hover:text-destructive')}
+        >
+          <Trash2 className="h-3.5 w-3.5" /> Delete property
+        </button>
+      </PopoverContent>
+    </Popover>
+  );
+};
 
 interface MenuProps {
   database: StoredDatabase;
@@ -277,3 +513,199 @@ export const SortMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
     </Popover>
   );
 };
+
+/** The `+` next to the view tabs: add a new view of a chosen layout. */
+export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = ({onAdd}) => (
+  <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <button className="flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground" aria-label="Add view">
+        <Plus className="h-3.5 w-3.5" />
+      </button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="start" className="w-44">
+      {VIEW_TYPES.map(({value, label, Icon}) => (
+        <DropdownMenuItem key={value} onClick={() => onAdd(value)}>
+          <Icon className="mr-2 h-4 w-4" />
+          {label}
+        </DropdownMenuItem>
+      ))}
+    </DropdownMenuContent>
+  </DropdownMenu>
+);
+
+/**
+ * The active view's settings: rename, switch layout, configure layout-specific
+ * options (board/chart grouping, chart aggregation, calendar date, visible
+ * columns), duplicate, and delete.
+ */
+export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const properties = db.database!.schema.properties;
+  const groupable = properties; // any property can group
+  const numericProps = properties.filter((p) => p.type === 'number' || p.type === 'formula' || p.type === 'expr');
+  const dateProps = properties.filter((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time');
+  const aggregate: ChartAggregate = view.aggregate ?? {type: 'count'};
+  const visible = view.visiblePropertyIds && view.visiblePropertyIds.length > 0 ? view.visiblePropertyIds : null;
+
+  const isVisible = (id: string): boolean => (visible ? visible.includes(id) : true);
+  const toggleVisible = (id: string): void => {
+    const shown = properties.filter((p) => (visible ? visible.includes(p.id) : true)).map((p) => p.id);
+    const next = shown.includes(id) ? shown.filter((x) => x !== id) : [...shown, id];
+    db.updateView(view.id, {visiblePropertyIds: next});
+  };
+
+  const showGroup = view.type === 'board' || view.type === 'bar' || view.type === 'pie';
+  const showChart = view.type === 'bar' || view.type === 'pie';
+  const showDate = view.type === 'calendar';
+  const showColumns = view.type === 'table' || view.type === 'list' || view.type === 'gallery';
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className={toolButtonClass} aria-label="View options">
+          <Settings2 className="h-3.5 w-3.5" />
+          View
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 space-y-2.5 p-3">
+        <input
+          defaultValue={view.name}
+          onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== view.name && db.renameView(view.id, e.target.value)}
+          className={cn(fieldClass, 'w-full font-medium')}
+          aria-label="View name"
+        />
+
+        <div>
+          <div className={cn(sectionLabel, 'mb-1')}>Layout</div>
+          <div className="grid grid-cols-4 gap-1">
+            {VIEW_TYPES.map(({value, label, Icon}) => (
+              <button
+                key={value}
+                onClick={() => db.updateView(view.id, viewTypePatch(value, view, properties))}
+                title={label}
+                className={cn(
+                  'flex flex-col items-center gap-1 rounded border px-1 py-1.5 text-[10px] transition-colors',
+                  view.type === value ? 'border-brand/50 bg-accent text-foreground' : 'border-border text-muted-foreground hover:bg-accent/50',
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {label.split(' ')[0]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {showGroup && (
+          <label className="block">
+            <span className={sectionLabel}>Group by</span>
+            <select
+              value={view.groupByPropertyId ?? ''}
+              onChange={(e) => db.updateView(view.id, {groupByPropertyId: e.target.value || undefined})}
+              className={cn(fieldClass, 'mt-1 w-full')}
+            >
+              <option value="">—</option>
+              {groupable.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {showChart && (
+          <div className="flex gap-1">
+            <label className="flex-1">
+              <span className={sectionLabel}>Measure</span>
+              <select
+                value={aggregate.type}
+                onChange={(e) => db.updateView(view.id, {aggregate: {...aggregate, type: e.target.value as ChartAggregate['type']}})}
+                className={cn(fieldClass, 'mt-1 w-full')}
+              >
+                {(['count', 'sum', 'avg', 'min', 'max'] as const).map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {aggregate.type !== 'count' && (
+              <label className="flex-1">
+                <span className={sectionLabel}>Of</span>
+                <select
+                  value={aggregate.propertyId ?? ''}
+                  onChange={(e) => db.updateView(view.id, {aggregate: {...aggregate, propertyId: e.target.value || undefined}})}
+                  className={cn(fieldClass, 'mt-1 w-full')}
+                >
+                  <option value="">—</option>
+                  {numericProps.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+        )}
+
+        {showDate && (
+          <label className="block">
+            <span className={sectionLabel}>Date property</span>
+            <select
+              value={view.datePropertyId ?? ''}
+              onChange={(e) => db.updateView(view.id, {datePropertyId: e.target.value || undefined})}
+              className={cn(fieldClass, 'mt-1 w-full')}
+            >
+              <option value="">—</option>
+              {dateProps.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {showColumns && properties.length > 0 && (
+          <div>
+            <div className={cn(sectionLabel, 'mb-1')}>Properties</div>
+            <div className="max-h-40 space-y-0.5 overflow-y-auto">
+              {properties.map((p) => (
+                <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-accent/40">
+                  <input type="checkbox" checked={isVisible(p.id)} onChange={() => toggleVisible(p.id)} className="h-3.5 w-3.5 accent-primary" />
+                  <span className="truncate">{p.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-1 border-t border-border pt-2">
+          <button onClick={() => void db.duplicateView(view.id)} className={cn(toolButtonClass, 'flex-1 justify-center')}>
+            Duplicate
+          </button>
+          <button
+            onClick={() => void db.deleteView(view.id)}
+            disabled={db.database!.schema.views.length <= 1}
+            className={cn(toolButtonClass, 'flex-1 justify-center text-destructive hover:text-destructive disabled:opacity-30')}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+/** Build the patch for switching a view's layout, defaulting layout-specific config. */
+function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: DatabaseProperty[]): Partial<DatabaseView> {
+  const patch: Partial<DatabaseView> = {type};
+  if ((type === 'board' || type === 'bar' || type === 'pie') && !view.groupByPropertyId) {
+    const select = properties.find((p) => p.type === 'select');
+    patch.groupByPropertyId = (select ?? properties[0])?.id;
+  }
+  if (type === 'calendar' && !view.datePropertyId) {
+    patch.datePropertyId = properties.find((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time')?.id;
+  }
+  return patch;
+}

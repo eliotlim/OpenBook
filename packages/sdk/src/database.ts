@@ -1,9 +1,10 @@
 /**
  * Notion-style databases — the second unit of storage layered over {@link
  * StoredPage}. A **database** is a collection of pages (its *rows*) managed by
- * typed *properties* and presented through one or more *views* (table / list).
+ * typed *properties* and presented through one or more configurable *views*
+ * (table, board, gallery, calendar, list, or a bar/pie chart).
  *
- * Two ideas make OpenBook databases different from a plain spreadsheet:
+ * Three ideas make OpenBook databases different from a plain spreadsheet:
  *
  *  1. **Rows are real pages.** Each row is an ordinary page in the `pages`
  *     table with its own editable document — so a row can itself contain text,
@@ -14,7 +15,12 @@
  *     exported cell* from the row page's reactive store (the `names`/`values`
  *     pairs in its {@link PageSnapshot}). A "Total" column can therefore show
  *     the live result of an expression block inside each row, and the table can
- *     filter and sort on it — no formula language of its own required.
+ *     filter and sort on it.
+ *
+ *  3. **Columns can compute.** A property of type `formula` evaluates a small
+ *     expression over the row's *other* properties (`prop("Price") * prop("Qty")`)
+ *     via the pure evaluator in {@link ./formula}. Filters/sorts/charts read the
+ *     computed value just like any stored one.
  *
  * The host page (the page that *contains* the database) is itself a regular
  * page with its own content; it merely points at the database. The database
@@ -22,14 +28,17 @@
  */
 
 import type {PageSnapshot} from './types';
+import {evaluateFormula, FormulaError, type FormulaResolver} from './formula';
 
 /**
  * The value kinds a property can hold. The manual kinds
  * (`text`/`number`/`select`/`checkbox`/`date`/`person`/`verification`) store
  * their value per row in `page.properties[id]`. `expr` projects a named reactive
- * cell; `backlinks` is computed from the link graph (never stored). The last
- * three (`person`/`verification`/`backlinks`) double as the built-in page
- * properties — see {@link ./pageProperties}.
+ * cell from the row page's document; `formula` computes from the row's *other*
+ * properties (`prop("Price") * prop("Qty")`); `backlinks` is computed from the
+ * link graph (never stored). The last three
+ * (`person`/`verification`/`backlinks`) double as the built-in page properties —
+ * see {@link ./pageProperties}.
  */
 export type DatabasePropertyType =
   | 'text'
@@ -45,9 +54,13 @@ export type DatabasePropertyType =
   | 'created_time'
   | 'last_edited_time'
   | 'expr'
+  | 'formula'
   | 'person'
   | 'verification'
   | 'backlinks';
+
+/** Display formatting for `number`/`formula`/`expr` numeric values. */
+export type NumberFormat = 'plain' | 'integer' | 'decimal' | 'percent' | 'dollar' | 'euro';
 
 /** One choice in a `select` property. */
 export interface DatabaseSelectOption {
@@ -67,14 +80,31 @@ export interface DatabaseProperty {
   id: string;
   name: string;
   type: DatabasePropertyType;
-  /** Choices, for `select` properties. */
+  /** Choices, for `select` / `multi_select` properties. */
   options?: DatabaseSelectOption[];
   /** Name of the exported reactive cell to read, for `expr` properties. */
   cellName?: string;
+  /** Expression source, for `formula` properties (references other props by name). */
+  formula?: string;
+  /** Numeric display format, for `number` / `formula` / `expr` properties. */
+  numberFormat?: NumberFormat;
 }
 
-/** The two row presentations the database screen supports. */
-export type DatabaseViewType = 'table' | 'list';
+/**
+ * The presentations the database screen supports. `table`/`list` are the
+ * row-oriented layouts; `gallery` shows cards; `board` is a kanban grouped by a
+ * select property; `calendar` lays rows out on a month grid by a date property;
+ * `bar`/`pie` are charts that aggregate rows by a category property.
+ */
+export type DatabaseViewType = 'table' | 'list' | 'gallery' | 'board' | 'calendar' | 'bar' | 'pie';
+
+/** How a chart (or a board column footer) aggregates a group of rows. */
+export interface ChartAggregate {
+  /** `count` tallies rows; the others fold a numeric `propertyId`. */
+  type: 'count' | 'sum' | 'avg' | 'min' | 'max';
+  /** Property to fold (ignored for `count`). */
+  propertyId?: string;
+}
 
 /** Comparison used by a {@link DatabaseFilter}. */
 export type FilterOperator =
@@ -118,6 +148,16 @@ export interface DatabaseView {
    * title is always shown and is not listed here.
    */
   visiblePropertyIds?: string[];
+  /**
+   * Property to group rows by. Drives the kanban columns (`board`) and the
+   * category axis of a chart (`bar`/`pie`). Best paired with a `select`
+   * property, but any property works (rows group by their displayed value).
+   */
+  groupByPropertyId?: string;
+  /** Chart aggregation (`bar`/`pie`). Defaults to counting rows per group. */
+  aggregate?: ChartAggregate;
+  /** Date property positioning rows on the month grid (`calendar`). */
+  datePropertyId?: string;
 }
 
 /** The full editable definition of a database: its columns and its views. */
@@ -218,10 +258,86 @@ export function projectExports(snapshot: Pick<PageSnapshot, 'values' | 'names'>)
   return out;
 }
 
-/** Resolve the value a row holds for a given property (title / manual / derived). */
-export function rowValue(row: DatabaseRow, property: DatabaseProperty | typeof TITLE_PROPERTY_ID): unknown {
+/**
+ * The friendly value a `formula` reads when it references another property by
+ * name: a `select` resolves to its option *label* (not the opaque id), a
+ * verification to its boolean flag, multi-selects/relations to a comma list. So
+ * `prop("Status")` in a formula sees `"Done"`, matching what the cell shows.
+ */
+function formulaFacingValue(row: DatabaseRow, property: DatabaseProperty): unknown {
+  switch (property.type) {
+  case 'select': {
+    const opt = property.options?.find((o) => o.id === row.properties[property.id]);
+    return opt ? opt.label : '';
+  }
+  case 'multi_select': {
+    const ids = Array.isArray(row.properties[property.id]) ? (row.properties[property.id] as string[]) : [];
+    return ids.map((id) => property.options?.find((o) => o.id === id)?.label ?? '').filter(Boolean).join(', ');
+  }
+  case 'checkbox':
+    return row.properties[property.id] === true;
+  case 'created_time':
+    return row.createdAt;
+  case 'last_edited_time':
+    return row.updatedAt;
+  case 'expr':
+    return row.exports[property.cellName ?? property.name];
+  case 'verification': {
+    const v = row.properties[property.id];
+    return !!(v && typeof v === 'object' && (v as {verified?: boolean}).verified);
+  }
+  default:
+    return row.properties[property.id];
+  }
+}
+
+/**
+ * A {@link FormulaResolver} that looks a property up by name within one row and
+ * returns its formula-facing value. Resolves nested formulas recursively and
+ * guards against reference cycles (a cyclic ref yields a {@link FormulaError}).
+ * The reserved names `Name`/`Title` map to the row's page title.
+ */
+function rowFormulaResolver(row: DatabaseRow, properties: DatabaseProperty[]): FormulaResolver {
+  const byName = new Map(properties.map((p) => [p.name.toLowerCase(), p]));
+  const visiting = new Set<string>();
+  const resolve: FormulaResolver = (name) => {
+    const key = name.toLowerCase();
+    const property = byName.get(key);
+    if (!property) {
+      if (key === 'name' || key === 'title') return row.name ?? '';
+      return null;
+    }
+    if (property.type === 'formula') {
+      if (visiting.has(property.id)) return new FormulaError('Circular formula');
+      visiting.add(property.id);
+      try {
+        return evaluateFormula(property.formula ?? '', resolve) as unknown;
+      } finally {
+        visiting.delete(property.id);
+      }
+    }
+    return formulaFacingValue(row, property);
+  };
+  return resolve;
+}
+
+/**
+ * Resolve the value a row holds for a given property (title / manual / derived).
+ * `properties` is needed only to evaluate `formula` columns (which read other
+ * properties); pass it from any caller that has the schema (filters, sorts,
+ * cells). Without it, a formula resolves to `undefined`.
+ */
+export function rowValue(
+  row: DatabaseRow,
+  property: DatabaseProperty | typeof TITLE_PROPERTY_ID,
+  properties?: DatabaseProperty[],
+): unknown {
   if (property === TITLE_PROPERTY_ID) return row.name ?? '';
   if (property.type === 'expr') return row.exports[property.cellName ?? property.name];
+  if (property.type === 'formula') {
+    if (!properties) return undefined;
+    return evaluateFormula(property.formula ?? '', rowFormulaResolver(row, properties));
+  }
   // Timestamps are derived from the row page, not stored in `properties`.
   if (property.type === 'created_time') return row.createdAt;
   if (property.type === 'last_edited_time') return row.updatedAt;
@@ -319,7 +435,7 @@ export function applyView(rows: DatabaseRow[], view: DatabaseView, properties: D
     (view.filters ?? []).every((filter) => {
       const prop = propertyById(properties, filter.propertyId);
       if (!prop) return true;
-      return matchesFilter(filter.operator, rowValue(row, prop), filter.value);
+      return matchesFilter(filter.operator, rowValue(row, prop, properties), filter.value);
     }),
   );
 
@@ -333,7 +449,7 @@ export function applyView(rows: DatabaseRow[], view: DatabaseView, properties: D
       for (const sort of sorts) {
         const prop = propertyById(properties, sort.propertyId);
         if (!prop) continue;
-        const cmp = compareValues(rowValue(a.row, prop), rowValue(b.row, prop));
+        const cmp = compareValues(rowValue(a.row, prop, properties), rowValue(b.row, prop, properties));
         if (cmp !== 0) return sort.direction === 'desc' ? -cmp : cmp;
       }
       return a.index - b.index;
@@ -372,7 +488,164 @@ export function defaultDatabaseSchema(): DatabaseSchema {
     properties: [status, notes],
     views: [
       {id: shortId('view'), name: 'Table', type: 'table', filters: [], sorts: []},
+      {id: shortId('view'), name: 'Board', type: 'board', filters: [], sorts: [], groupByPropertyId: status.id},
       {id: shortId('view'), name: 'List', type: 'list', filters: [], sorts: []},
     ],
   };
+}
+
+/** A fresh view of a given type with sensible defaults for its layout. */
+export function defaultView(type: DatabaseViewType, name: string, properties: DatabaseProperty[]): DatabaseView {
+  const view: DatabaseView = {id: shortId('view'), name, type, filters: [], sorts: []};
+  if (type === 'board' || type === 'bar' || type === 'pie') {
+    // Default the grouping to the first select property (kanban columns / chart
+    // categories read best off a select), falling back to any property.
+    const select = properties.find((p) => p.type === 'select');
+    view.groupByPropertyId = (select ?? properties[0])?.id;
+  }
+  if (type === 'calendar') {
+    const date = properties.find((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time');
+    view.datePropertyId = date?.id;
+  }
+  return view;
+}
+
+// ── Number formatting ────────────────────────────────────────────────────────
+
+const FORMAT_PREFIX: Partial<Record<NumberFormat, string>> = {dollar: '$', euro: '€'};
+
+/** Format a numeric value for display per a {@link NumberFormat}. Non-numbers pass through as text. */
+export function formatNumber(value: unknown, format: NumberFormat | undefined): string {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  if (Number.isNaN(n)) return value === undefined || value === null ? '' : String(value);
+  switch (format) {
+  case 'integer':
+    return Math.round(n).toLocaleString();
+  case 'decimal':
+    return n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  case 'percent':
+    return `${(n * 100).toLocaleString(undefined, {maximumFractionDigits: 2})}%`;
+  case 'dollar':
+  case 'euro':
+    return `${FORMAT_PREFIX[format]}${n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+  default:
+    return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(4)));
+  }
+}
+
+// ── Grouping + aggregation (board columns, charts) ───────────────────────────
+
+/** The label shown for rows that have no value for the grouping property. */
+export const NO_VALUE_GROUP = 'No value';
+
+/** One group of rows sharing a value of the grouping property. */
+export interface RowGroup {
+  /** Stable key for the group (option id, or the displayed string). */
+  key: string;
+  /** Human label (option label, or the value itself). */
+  label: string;
+  /** Swatch color, when the group corresponds to a select option. */
+  color?: string;
+  rows: DatabaseRow[];
+}
+
+/** Display string for a row's value of a property (option labels, joined lists). */
+function displayValue(row: DatabaseRow, property: DatabaseProperty, properties: DatabaseProperty[]): string {
+  const v = rowValue(row, property, properties);
+  if (property.type === 'select') {
+    return property.options?.find((o) => o.id === row.properties[property.id])?.label ?? '';
+  }
+  if (v instanceof FormulaError) return v.message;
+  if (Array.isArray(v)) return v.map(String).join(', ');
+  if (v === undefined || v === null) return '';
+  if (typeof v === 'boolean') return v ? 'Checked' : 'Unchecked';
+  return String(v);
+}
+
+/**
+ * Group rows by a property for the board (kanban) layout. When the property is a
+ * `select`, columns follow the option order (including empty ones) so the board
+ * is stable as rows move; otherwise columns are the distinct displayed values.
+ * Rows with no value collect into a trailing {@link NO_VALUE_GROUP} column.
+ */
+export function groupRows(
+  rows: DatabaseRow[],
+  property: DatabaseProperty | undefined,
+  properties: DatabaseProperty[],
+): RowGroup[] {
+  if (!property) return [{key: '__all__', label: 'All', rows}];
+
+  if (property.type === 'select') {
+    const groups: RowGroup[] = (property.options ?? []).map((o) => ({key: o.id, label: o.label, color: o.color, rows: []}));
+    const byId = new Map(groups.map((g) => [g.key, g]));
+    const none: RowGroup = {key: '__none__', label: NO_VALUE_GROUP, rows: []};
+    for (const row of rows) {
+      const id = row.properties[property.id];
+      const group = typeof id === 'string' ? byId.get(id) : undefined;
+      (group ?? none).rows.push(row);
+    }
+    return none.rows.length ? [...groups, none] : groups;
+  }
+
+  // Generic: bucket by displayed value, preserving first-seen order.
+  const order: string[] = [];
+  const byLabel = new Map<string, RowGroup>();
+  for (const row of rows) {
+    const label = displayValue(row, property, properties) || NO_VALUE_GROUP;
+    let group = byLabel.get(label);
+    if (!group) {
+      group = {key: label, label, rows: []};
+      byLabel.set(label, group);
+      order.push(label);
+    }
+    group.rows.push(row);
+  }
+  return order.map((label) => byLabel.get(label)!);
+}
+
+/** One category of a chart: a label, its aggregated value, and an optional color. */
+export interface ChartDatum {
+  key: string;
+  label: string;
+  value: number;
+  color?: string;
+}
+
+const foldAggregate = (rows: DatabaseRow[], agg: ChartAggregate, properties: DatabaseProperty[]): number => {
+  if (agg.type === 'count' || !agg.propertyId) return rows.length;
+  const prop = properties.find((p) => p.id === agg.propertyId);
+  if (!prop) return rows.length;
+  const nums = rows
+    .map((r) => rowValue(r, prop, properties))
+    .map((v) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN))
+    .filter((n) => !Number.isNaN(n));
+  if (nums.length === 0) return 0;
+  switch (agg.type) {
+  case 'sum':
+    return nums.reduce((a, b) => a + b, 0);
+  case 'avg':
+    return nums.reduce((a, b) => a + b, 0) / nums.length;
+  case 'min':
+    return Math.min(...nums);
+  case 'max':
+    return Math.max(...nums);
+  default:
+    return rows.length;
+  }
+};
+
+/**
+ * Aggregate rows into chart data: one datum per group of the view's
+ * `groupByPropertyId`, with the bar/slice height computed by the view's
+ * `aggregate` (count by default, else sum/avg/min/max of a numeric property).
+ */
+export function aggregateRows(rows: DatabaseRow[], view: DatabaseView, properties: DatabaseProperty[]): ChartDatum[] {
+  const group = properties.find((p) => p.id === view.groupByPropertyId);
+  const agg: ChartAggregate = view.aggregate ?? {type: 'count'};
+  return groupRows(rows, group, properties).map((g) => ({
+    key: g.key,
+    label: g.label,
+    color: g.color,
+    value: foldAggregate(g.rows, agg, properties),
+  }));
 }

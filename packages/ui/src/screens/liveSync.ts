@@ -116,7 +116,7 @@ export interface BlockMutationLike {
  * Everything else that the user actually edits — paragraphs, table cells,
  * checklist text — reaches autosave through the editor holder's `input` listener.
  */
-const EDIT_SIGNALING_BLOCKS = new Set(['subpage', 'callout', 'accordion', 'divider']);
+const EDIT_SIGNALING_BLOCKS = new Set(['subpage', 'database', 'callout', 'accordion', 'divider']);
 
 export function isPersistWorthyChange(
   event: BlockMutationLike | BlockMutationLike[] | undefined,

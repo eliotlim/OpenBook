@@ -1,5 +1,5 @@
 import React from 'react';
-import {List, MoreHorizontal, PanelRightOpen, Plus, Table2, Trash2} from 'lucide-react';
+import {MoreHorizontal, PanelRightOpen, Plus, Trash2} from 'lucide-react';
 import type {DatabaseProperty, DatabaseRow, DatabaseView as DbView} from '@open-book/sdk';
 import {
   DropdownMenu,
@@ -9,11 +9,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
 import {readPageIcon} from '@/lib/pageIcon';
-import {pageLinks} from '@/lib/pageLinks';
 import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
-import {cellValue, formatCellValue, PropertyValueCell, SelectChip} from './databaseCells';
-import {AddPropertyMenu, FilterMenu, PropertyHeaderMenu, SortMenu} from './databaseMenus';
+import {cellValue, PropertyValueCell} from './databaseCells';
+import {AddPropertyMenu, AddViewMenu, FilterMenu, PropertyMenu, SortMenu, ViewOptionsMenu, viewIcon} from './databaseMenus';
+import {BoardView, CalendarView, GalleryView, RowChips} from './databaseLayouts';
+import {BarChartView, PieChartView} from './databaseCharts';
 
 const exprValueOf = (row: DatabaseRow, property: DatabaseProperty): unknown =>
   row.exports[property.cellName ?? property.name];
@@ -68,17 +69,24 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase}> = ({row, db}) => 
   </div>
 );
 
-const TableView: React.FC<{db: UseDatabase; properties: DatabaseProperty[]}> = ({db, properties}) => (
+/** `columns` are the displayed properties; `schema` is the full set (formula resolution). */
+interface ViewProps {
+  db: UseDatabase;
+  columns: DatabaseProperty[];
+  schema: DatabaseProperty[];
+}
+
+const TableView: React.FC<ViewProps> = ({db, columns, schema}) => (
   <div className="overflow-x-auto rounded-md border border-border">
     <table className="w-full border-collapse text-sm">
       <thead>
         <tr className="border-b border-border bg-muted/30 text-left text-xs font-medium text-muted-foreground">
           <th className="min-w-[220px] px-2 py-1.5 font-medium">Name</th>
-          {properties.map((property) => (
+          {columns.map((property, i) => (
             <th key={property.id} className="group min-w-[140px] border-l border-border px-2 py-1.5 font-medium">
               <span className="flex items-center justify-between gap-1">
                 <span className="truncate">{property.name}</span>
-                <PropertyHeaderMenu onDelete={() => void db.deleteProperty(property.id)} />
+                <PropertyMenu property={property} db={db} index={i} count={columns.length} />
               </span>
             </th>
           ))}
@@ -98,11 +106,11 @@ const TableView: React.FC<{db: UseDatabase; properties: DatabaseProperty[]}> = (
                 <RowMenu onOpen={() => db.openRow(row.id)} onDelete={() => void db.deleteRow(row.id)} />
               </div>
             </td>
-            {properties.map((property) => (
+            {columns.map((property) => (
               <td key={property.id} className="border-l border-border/70 align-middle">
                 <PropertyValueCell
                   property={property}
-                  value={cellValue(row, property)}
+                  value={cellValue(row, property, schema)}
                   exprValue={exprValueOf(row, property)}
                   onChange={(value) => void db.setRowProperty(row.id, property.id, value)}
                   onAddOption={(label) => db.addSelectOption(property.id, label)}
@@ -114,7 +122,7 @@ const TableView: React.FC<{db: UseDatabase; properties: DatabaseProperty[]}> = (
         ))}
         {db.visibleRows.length === 0 && (
           <tr>
-            <td colSpan={properties.length + 2} className="px-2 py-3 text-center text-sm text-muted-foreground">
+            <td colSpan={columns.length + 2} className="px-2 py-3 text-center text-sm text-muted-foreground">
               No rows{db.rows.length > 0 ? ' match the current filters' : ' yet'}.
             </td>
           </tr>
@@ -130,7 +138,7 @@ const TableView: React.FC<{db: UseDatabase; properties: DatabaseProperty[]}> = (
   </div>
 );
 
-const ListView: React.FC<{db: UseDatabase; properties: DatabaseProperty[]}> = ({db, properties}) => (
+const ListView: React.FC<ViewProps> = ({db, columns}) => (
   <div className="overflow-hidden rounded-md border border-border">
     {db.visibleRows.map((row) => (
       <div
@@ -141,42 +149,7 @@ const ListView: React.FC<{db: UseDatabase; properties: DatabaseProperty[]}> = ({
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="shrink-0 text-base leading-none">{readPageIcon(row.id)}</span>
           <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-          <div className="flex min-w-0 flex-wrap items-center gap-1">
-            {properties.map((property) => {
-              const value = cellValue(row, property);
-              if (property.type === 'select') {
-                const option = property.options?.find((o) => o.id === value);
-                return option ? <SelectChip key={property.id} option={option} /> : null;
-              }
-              if (property.type === 'multi_select') {
-                const ids = Array.isArray(value) ? (value as string[]) : [];
-                const opts = (property.options ?? []).filter((o) => ids.includes(o.id));
-                return opts.length ? (
-                  <span key={property.id} className="flex flex-wrap items-center gap-1">
-                    {opts.map((o) => (
-                      <SelectChip key={o.id} option={o} />
-                    ))}
-                  </span>
-                ) : null;
-              }
-              if (property.type === 'relation') {
-                const ids = Array.isArray(value) ? (value as string[]) : [];
-                if (ids.length === 0) return null;
-                return (
-                  <span key={property.id} className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                    {property.name}: {ids.map((id) => pageLinks.label(id)).join(', ')}
-                  </span>
-                );
-              }
-              const text = formatCellValue(property, value);
-              if (!text) return null;
-              return (
-                <span key={property.id} className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-                  {property.name}: {text}
-                </span>
-              );
-            })}
-          </div>
+          <RowChips row={row} properties={columns} labelled />
         </div>
         <div onClick={(e) => e.stopPropagation()}>
           <RowMenu onOpen={() => db.openRow(row.id)} onDelete={() => void db.deleteRow(row.id)} />
@@ -197,13 +170,36 @@ const ListView: React.FC<{db: UseDatabase; properties: DatabaseProperty[]}> = ({
   </div>
 );
 
-const VIEW_ICON = {table: Table2, list: List} as const;
+/** Render the active view's body for its layout type. */
+const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProperty[]; schema: DatabaseProperty[]}> = ({
+  db,
+  view,
+  columns,
+  schema,
+}) => {
+  switch (view.type) {
+  case 'list':
+    return <ListView db={db} columns={columns} schema={schema} />;
+  case 'gallery':
+    return <GalleryView db={db} properties={columns} />;
+  case 'board':
+    return <BoardView db={db} view={view} properties={schema} />;
+  case 'calendar':
+    return <CalendarView db={db} view={view} properties={schema} />;
+  case 'bar':
+    return <BarChartView db={db} view={view} properties={schema} />;
+  case 'pie':
+    return <PieChartView db={db} view={view} properties={schema} />;
+  default:
+    return <TableView db={db} columns={columns} schema={schema} />;
+  }
+};
 
 const Toolbar: React.FC<{db: UseDatabase; view: DbView}> = ({db, view}) => (
   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
     <div className="flex items-center gap-0.5">
       {db.database!.schema.views.map((v) => {
-        const Icon = VIEW_ICON[v.type];
+        const Icon = viewIcon(v.type);
         const active = v.id === view.id;
         return (
           <button
@@ -219,10 +215,12 @@ const Toolbar: React.FC<{db: UseDatabase; view: DbView}> = ({db, view}) => (
           </button>
         );
       })}
+      <AddViewMenu onAdd={(type) => void db.addView(type)} />
     </div>
     <div className="flex items-center gap-1">
       <FilterMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
       <SortMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
+      <ViewOptionsMenu db={db} view={view} />
       <span className="px-1 text-xs text-muted-foreground/70">
         {db.visibleRows.length} row{db.visibleRows.length === 1 ? '' : 's'}
       </span>
@@ -231,22 +229,41 @@ const Toolbar: React.FC<{db: UseDatabase; view: DbView}> = ({db, view}) => (
 );
 
 /**
- * The database section rendered beneath a host page's own content. Shows the
- * collection of row pages through the active view (table or list), with live
- * `expr` columns, inline editing, filtering and sorting, and opening a row in
- * the split pane. Renders nothing for ordinary (non-host) pages.
+ * The database section: a collection of row pages presented through the active
+ * view (table, board, gallery, calendar, list, or a bar/pie chart), with live
+ * `expr` + `formula` columns, inline editing, filtering, sorting, configurable
+ * views, and add/remove/edit of properties. Used both beneath a host page's own
+ * content (a full-page database) and embedded inline via the database block.
  */
-export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | null}> = ({pageId, databaseIdHint}) => {
+export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | null; inline?: boolean}> = ({
+  pageId,
+  databaseIdHint,
+  inline,
+}) => {
   const db = useDatabase(pageId, databaseIdHint);
   if (!db.database || !db.activeView) return null;
 
-  const properties = db.database.schema.properties;
+  const schema = db.database.schema.properties;
   const view = db.activeView;
+  // Table/list honour the view's chosen+ordered columns; other layouts show all.
+  const visibleIds = view.visiblePropertyIds;
+  const columns =
+    visibleIds && visibleIds.length > 0
+      ? (visibleIds.map((id) => schema.find((p) => p.id === id)).filter(Boolean) as DatabaseProperty[])
+      : schema;
 
   return (
-    <div className="mt-6 border-t border-border pt-5">
+    <div className={cn(inline ? 'rounded-lg border border-border p-3' : 'mt-6 border-t border-border pt-5')}>
+      {inline && (
+        <input
+          defaultValue={db.database.name ?? ''}
+          onBlur={(e) => e.target.value !== (db.database?.name ?? '') && void db.renameDatabase(e.target.value)}
+          placeholder="Untitled database"
+          className="mb-2 w-full bg-transparent text-base font-semibold outline-hidden placeholder:text-muted-foreground/40"
+        />
+      )}
       <Toolbar db={db} view={view} />
-      {view.type === 'list' ? <ListView db={db} properties={properties} /> : <TableView db={db} properties={properties} />}
+      <ViewBody db={db} view={view} columns={columns} schema={schema} />
     </div>
   );
 };

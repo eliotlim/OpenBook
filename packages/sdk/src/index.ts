@@ -5,9 +5,11 @@ export type {DataClient, PageSubscription} from './client';
 export {HttpDataClient} from './client';
 export type {
   DatabasePropertyType,
+  NumberFormat,
   DatabaseSelectOption,
   DatabaseProperty,
   DatabaseViewType,
+  ChartAggregate,
   FilterOperator,
   DatabaseFilter,
   SortDirection,
@@ -20,17 +22,31 @@ export type {
   DatabaseRow,
   RowInput,
   RowUpdate,
+  RowGroup,
+  ChartDatum,
 } from './database';
 export {
   TITLE_PROPERTY_ID,
   SELECT_COLORS,
+  NO_VALUE_GROUP,
   projectExports,
   rowValue,
   matchesFilter,
   applyView,
   shortId,
   defaultDatabaseSchema,
+  defaultView,
+  formatNumber,
+  groupRows,
+  aggregateRows,
 } from './database';
+export {
+  evaluateFormula,
+  formulaReferences,
+  FormulaError,
+  type FormulaValue,
+  type FormulaResolver,
+} from './formula';
 export {
   OWNER_PROPERTY_ID,
   VERIFICATION_PROPERTY_ID,
