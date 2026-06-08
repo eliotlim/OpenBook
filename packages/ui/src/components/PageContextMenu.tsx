@@ -1,5 +1,18 @@
 import React, {useCallback, useState} from 'react';
-import {ArrowDown, ArrowUp, AppWindow, Copy, ExternalLink, FilePlus2, Table2, Trash2} from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  AppWindow,
+  Columns2,
+  Copy,
+  CopyPlus,
+  ExternalLink,
+  FilePlus2,
+  Link2,
+  Pencil,
+  Table2,
+  Trash2,
+} from 'lucide-react';
 import type EditorJS from '@editorjs/editorjs';
 import {
   ContextMenu,
@@ -9,13 +22,14 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
+import {copyPageLink, requestRenamePage} from '@/lib/pageActions';
 
 /**
  * The right-click actions for a page, shared by the sidebar tree rows and the
  * page body. Rendered inside a {@link ContextMenuContent}.
  */
 export function PageMenuItems({pageId}: {pageId: string}) {
-  const {openInNew, createSubpage, deletePage, selectPage} = useNavigation();
+  const {openInNew, openInSplit, createSubpage, duplicatePage, deletePage, selectPage} = useNavigation();
   const confirm = useConfirm();
   const {preferences} = usePreferences();
   const {t} = useTranslation();
@@ -34,6 +48,13 @@ export function PageMenuItems({pageId}: {pageId: string}) {
     void deletePage(pageId);
   }, [confirm, deletePage, pageId, preferences.general.confirmOnTrash, t]);
 
+  // "Rename" focuses the page's title field: switch to the page first, then ask
+  // its (possibly freshly mounted) editor to focus the title for editing.
+  const onRename = useCallback(() => {
+    selectPage(pageId);
+    setTimeout(() => requestRenamePage(pageId), 50);
+  }, [pageId, selectPage]);
+
   return (
     <>
       <ContextMenuItem onSelect={() => openInNew(pageId, 'tab')}>
@@ -43,6 +64,23 @@ export function PageMenuItems({pageId}: {pageId: string}) {
       <ContextMenuItem onSelect={() => openInNew(pageId, 'window')}>
         <AppWindow className="mr-2 h-4 w-4" />
         {t('menu.openWindow')}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => openInSplit(pageId)}>
+        <Columns2 className="mr-2 h-4 w-4" />
+        {t('menu.openSplit')}
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={onRename}>
+        <Pencil className="mr-2 h-4 w-4" />
+        {t('menu.rename')}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void copyPageLink(pageId)}>
+        <Link2 className="mr-2 h-4 w-4" />
+        {t('menu.copyLink')}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void duplicatePage(pageId)}>
+        <CopyPlus className="mr-2 h-4 w-4" />
+        {t('menu.duplicate')}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => void createSubpage(pageId, 'page').then(selectPage)}>
@@ -118,6 +156,7 @@ export function BlockMenuItems({
         <Copy className="mr-2 h-4 w-4" />
         {t('menu.block.duplicate')}
       </ContextMenuItem>
+      <ContextMenuSeparator />
       <ContextMenuItem onSelect={remove} className="text-destructive focus:text-destructive">
         <Trash2 className="mr-2 h-4 w-4" />
         {t('menu.block.deleteBlock')}

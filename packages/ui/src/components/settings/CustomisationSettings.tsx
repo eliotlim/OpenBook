@@ -1,20 +1,14 @@
 import {useHud, useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
 import {SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
+import {formatShortcut, isMacPlatform, SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
 
-/** A keystroke rendered as one or more <kbd> chips. */
-function Keys({keys}: {keys: string[]}) {
+/** A keystroke rendered as a <kbd> chip. */
+function Keys({label}: {label: string}) {
   return (
-    <span className="flex items-center gap-1">
-      {keys.map((k) => (
-        <kbd
-          key={k}
-          className="inline-flex h-5 min-w-[20px] items-center justify-center rounded border border-border bg-muted px-1.5 text-xs font-medium text-muted-foreground"
-        >
-          {k}
-        </kbd>
-      ))}
-    </span>
+    <kbd className="inline-flex h-5 min-w-[20px] items-center justify-center rounded border border-border bg-muted px-1.5 font-sans text-xs font-medium text-muted-foreground">
+      {label}
+    </kbd>
   );
 }
 
@@ -23,15 +17,23 @@ export default function CustomisationSettings() {
   const {t} = useTranslation();
   const {hud, setHud} = useHud();
 
-  const isMac =
-    typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-  const mod = isMac ? '⌘' : 'Ctrl';
+  // The settings panel is client-only (a modal), so reading the platform
+  // directly is safe — no SSR render to mismatch.
+  const fmt = (combo: ShortcutCombo): string => formatShortcut(combo, isMacPlatform);
 
-  const shortcuts: Array<{key: TKey; keys: string[]}> = [
-    {key: 'customisation.shortcut.commandPalette', keys: [mod, 'K']},
-    {key: 'customisation.shortcut.closeOverlay', keys: ['Esc']},
-    {key: 'customisation.shortcut.slashMenu', keys: ['/']},
-    {key: 'customisation.shortcut.mention', keys: ['@']},
+  const shortcuts: Array<{key: TKey; label: string}> = [
+    {key: 'customisation.shortcut.commandPalette', label: fmt(SHORTCUTS.commandPalette)},
+    {key: 'customisation.shortcut.newPage', label: fmt(SHORTCUTS.newPage)},
+    {key: 'customisation.shortcut.toggleSidebar', label: fmt(SHORTCUTS.toggleSidebar)},
+    {key: 'customisation.shortcut.fullWidth', label: fmt(SHORTCUTS.toggleFullWidth)},
+    {key: 'customisation.shortcut.theme', label: fmt(SHORTCUTS.toggleTheme)},
+    {key: 'customisation.shortcut.back', label: fmt(SHORTCUTS.goBack)},
+    {key: 'customisation.shortcut.forward', label: fmt(SHORTCUTS.goForward)},
+    {key: 'customisation.shortcut.openSettings', label: fmt(SHORTCUTS.openSettings)},
+    {key: 'customisation.shortcut.trash', label: fmt(SHORTCUTS.openTrash)},
+    {key: 'customisation.shortcut.slashMenu', label: '/'},
+    {key: 'customisation.shortcut.mention', label: '@'},
+    {key: 'customisation.shortcut.closeOverlay', label: 'Esc'},
   ];
 
   return (
@@ -68,7 +70,7 @@ export default function CustomisationSettings() {
           {shortcuts.map((s) => (
             <li key={s.key} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
               <span>{t(s.key)}</span>
-              <Keys keys={s.keys} />
+              <Keys label={s.label} />
             </li>
           ))}
         </ul>

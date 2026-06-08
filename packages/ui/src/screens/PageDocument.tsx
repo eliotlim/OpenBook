@@ -25,6 +25,7 @@ import {downloadBlob, downloadText, safeFilename} from '@/lib/download';
 import type EditorJS from '@editorjs/editorjs';
 import type {BlockToolData, OutputData} from '@editorjs/editorjs';
 import {planBlockSync, isPersistWorthyChange} from './liveSync';
+import {consumePendingRename, onRenamePageRequest} from '@/lib/pageActions';
 
 /**
  * Apply a peer's snapshot to the live editor with minimal disruption.
@@ -115,11 +116,31 @@ const isSSR = () => typeof window === 'undefined';
 const PageHeader: React.FC<{
   title: string;
   icon: string;
+  pageId?: string;
   onTitleChange?: (title: string) => void;
   onIconChange?: (emoji: string) => void;
   onTitleActiveChange?: (active: boolean) => void;
-}> = ({title, icon, onTitleChange, onIconChange, onTitleActiveChange}) => {
+}> = ({title, icon, pageId, onTitleChange, onIconChange, onTitleActiveChange}) => {
   const {t} = useTranslation();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // "Rename" from a menu focuses + selects this title field. Handle both a
+  // request fired while we're already mounted, and one queued just before a
+  // page switch mounted this header (claimed via consumePendingRename).
+  useEffect(() => {
+    if (!pageId) return;
+    const focusTitle = () => {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      el.select();
+    };
+    if (consumePendingRename(pageId)) focusTitle();
+    return onRenamePageRequest((id) => {
+      if (id === pageId) focusTitle();
+    });
+  }, [pageId]);
+
   return (
     <div className="pt-2 pb-1">
       <IconPicker
@@ -129,6 +150,7 @@ const PageHeader: React.FC<{
         className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-accent"
       />
       <input
+        ref={inputRef}
         className="w-full bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-muted-foreground/35"
         value={title}
         placeholder={t('common.untitled')}
@@ -502,6 +524,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         <PageHeader
           title={title}
           icon={icon}
+          pageId={pageId}
           onTitleChange={onTitleChange}
           onIconChange={onIconChange}
           onTitleActiveChange={onTitleActiveChange}

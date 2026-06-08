@@ -6,31 +6,28 @@ import {
   CommandItem,
   CommandList,
   CommandSeparator,
+  CommandShortcut,
 } from '@/components/ui/command';
 import React from 'react';
-import {FileText, FlaskConical, Plus, Settings as SettingsIcon} from 'lucide-react';
-import {seedSampleDocument} from '@open-book/sdk';
+import {FileText} from 'lucide-react';
 import {useHud, useNavigation, useTranslation} from '@/providers';
-import {useData} from '@/data';
+import {useAppCommands, type AppCommand, type CommandGroup as CmdGroup} from '@/components/useAppCommands';
+import {formatShortcut} from '@/lib/shortcuts';
+import {readPageIcon} from '@/lib/pageIcon';
 import {t} from '@/i18n';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : t('common.untitled');
 
+/** Command groups in display order, with their localised headings. */
+const GROUP_ORDER: CmdGroup[] = ['create', 'view', 'navigation', 'app'];
+
 export function CommandMenu() {
   const {hud, setHud} = useHud();
-  const {pages, currentPageId, selectPage, createPage, reload} = useNavigation();
-  const client = useData();
+  const {pages, currentPageId, selectPage} = useNavigation();
   const {t} = useTranslation();
+  const commands = useAppCommands();
   const open = hud.commandPalette.open;
-
-  // Seed a known-good reactive document (slider → expression → chart) and open
-  // it. Idempotent: refreshes the existing sample page rather than duplicating.
-  const insertSampleDocument = React.useCallback(async () => {
-    const page = await seedSampleDocument(client);
-    await reload();
-    selectPage(page.id);
-  }, [client, reload, selectPage]);
 
   const setOpen = React.useCallback(
     (open: boolean) => {
@@ -50,8 +47,17 @@ export function CommandMenu() {
     [setOpen],
   );
 
+  const groupHeading: Record<CmdGroup, string> = {
+    create: t('command.groupCreate'),
+    view: t('command.groupView'),
+    navigation: t('command.groupNavigation'),
+    app: t('command.groupApp'),
+  };
+
+  const byGroup = (group: CmdGroup): AppCommand[] => commands.filter((c) => c.group === group);
+
   return (
-    <CommandDialog open={open} onOpenChange={setOpen}>
+    <CommandDialog open={open} onOpenChange={setOpen} title={t('command.title')} description={t('command.placeholder')}>
       <CommandInput placeholder={t('command.placeholder')} />
       <CommandList>
         <CommandEmpty>{t('command.noResults')}</CommandEmpty>
@@ -62,35 +68,48 @@ export function CommandMenu() {
               value={`${displayName(page.name)} ${page.id}`}
               onSelect={() => run(() => selectPage(page.id))}
             >
-              <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
+              <span className="mr-2 inline-flex h-4 w-4 shrink-0 items-center justify-center text-center text-sm leading-none">
+                {readPageIcon(page.id)}
+              </span>
               <span className="truncate">{displayName(page.name)}</span>
               {page.id === currentPageId && (
                 <span className="ml-auto text-xs text-muted-foreground">{t('command.current')}</span>
               )}
             </CommandItem>
           ))}
+          {pages.length === 0 && (
+            <CommandItem disabled value="__no_pages__">
+              <FileText className="mr-2 h-4 w-4 text-muted-foreground" />
+              <span className="text-muted-foreground">{t('command.noPages')}</span>
+            </CommandItem>
+          )}
         </CommandGroup>
-        <CommandSeparator />
-        <CommandGroup heading={t('command.actions')}>
-          <CommandItem value="new page create" onSelect={() => run(() => void createPage())}>
-            <Plus className="mr-2 h-4 w-4 text-muted-foreground" />
-            {t('command.createPage')}
-          </CommandItem>
-          <CommandItem
-            value="insert sample document test seed reactive slider chart"
-            onSelect={() => run(() => void insertSampleDocument())}
-          >
-            <FlaskConical className="mr-2 h-4 w-4 text-muted-foreground" />
-            {t('command.insertSample')}
-          </CommandItem>
-          <CommandItem
-            value="open settings preferences"
-            onSelect={() => run(() => setHud((draft) => {draft.settings.open = true; return draft;}))}
-          >
-            <SettingsIcon className="mr-2 h-4 w-4 text-muted-foreground" />
-            {t('command.openSettings')}
-          </CommandItem>
-        </CommandGroup>
+        {GROUP_ORDER.map((group) => {
+          const items = byGroup(group);
+          if (items.length === 0) return null;
+          return (
+            <React.Fragment key={group}>
+              <CommandSeparator />
+              <CommandGroup heading={groupHeading[group]}>
+                {items.map((cmd) => {
+                  const Icon = cmd.icon;
+                  return (
+                    <CommandItem
+                      key={cmd.id}
+                      value={`${cmd.title} ${cmd.keywords ?? ''}`}
+                      disabled={cmd.disabled}
+                      onSelect={() => run(cmd.run)}
+                    >
+                      <Icon className="mr-2 h-4 w-4 text-muted-foreground" />
+                      <span className="truncate">{cmd.title}</span>
+                      {cmd.shortcut && <CommandShortcut>{formatShortcut(cmd.shortcut)}</CommandShortcut>}
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            </React.Fragment>
+          );
+        })}
       </CommandList>
     </CommandDialog>
   );

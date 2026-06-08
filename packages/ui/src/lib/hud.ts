@@ -52,6 +52,9 @@ export interface HudProps {
     open: boolean;
     docked: boolean;
   };
+  trash: {
+    open: boolean;
+  };
   viewMode: {
     fullWidth: boolean;
   }
@@ -69,6 +72,9 @@ export const HudDefault: HudProps = {
   sideNav: {
     open: true,
     docked: true,
+  },
+  trash: {
+    open: false,
   },
   viewMode: {
     fullWidth: false,
@@ -90,13 +96,20 @@ export const loadHudStorage = (): HudProps => {
     // Resolve a possibly-legacy persisted tab to a current one.
     settings: {...settings, tab: normalizeTab(settings.tab)},
     sideNav: {...HudDefault.sideNav, ...stored.sideNav},
+    // Never restore the trash open (a transient overlay, like settings).
+    trash: {open: false},
     viewMode: {...HudDefault.viewMode, ...stored.viewMode},
   };
 };
 
 export const saveHudStorage = (hud: HudProps) => {
   // Persist preferences (mode, tab, dock state) but never the open state: a
-  // reload should not pop settings back up. On the web the URL re-opens it.
-  const persisted: HudProps = {...hud, settings: {...hud.settings, open: false}};
+  // reload should not pop settings (or the trash) back up. On the web the URL
+  // re-opens settings.
+  const persisted: HudProps = {
+    ...hud,
+    settings: {...hud.settings, open: false},
+    trash: {open: false},
+  };
   localStorage.setItem(HUD_STORAGE_KEY, JSON.stringify(persisted));
 };

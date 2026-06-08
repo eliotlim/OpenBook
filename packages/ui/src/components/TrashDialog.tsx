@@ -1,4 +1,4 @@
-import {useCallback, useState} from 'react';
+import {useCallback, useEffect, useState} from 'react';
 import type {PageMeta} from '@open-book/sdk';
 import {Database, FileText, RotateCcw, Trash2} from 'lucide-react';
 import {
@@ -13,7 +13,7 @@ import {
 import {Button} from '@/components/ui/button';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {useData} from '@/data';
-import {useConfirm, useNavigation} from '@/providers';
+import {useConfirm, useHud, useNavigation} from '@/providers';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : 'Untitled';
@@ -48,7 +48,18 @@ export default function TrashDialog() {
   const client = useData();
   const confirm = useConfirm();
   const {selectPage} = useNavigation();
-  const [open, setOpen] = useState(false);
+  // Open state lives in the HUD so the command palette, the ⋮ menu, and the
+  // keyboard shortcut can all open the trash, not just the sidebar trigger.
+  const {hud, setHud} = useHud();
+  const open = hud.trash.open;
+  const setOpen = useCallback(
+    (next: boolean) =>
+      setHud((draft) => {
+        draft.trash.open = next;
+        return draft;
+      }),
+    [setHud],
+  );
   const [items, setItems] = useState<PageMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -62,13 +73,10 @@ export default function TrashDialog() {
     }
   }, [client]);
 
-  const onOpenChange = useCallback(
-    (next: boolean) => {
-      setOpen(next);
-      if (next) void refresh();
-    },
-    [refresh],
-  );
+  // Refresh whenever the trash opens — by trigger, menu, palette, or shortcut.
+  useEffect(() => {
+    if (open) void refresh();
+  }, [open, refresh]);
 
   const restore = useCallback(
     async (id: string) => {
@@ -125,7 +133,7 @@ export default function TrashDialog() {
   }, [client, refresh, confirm]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Trash" title="Trash">
           <Trash2 className="h-4 w-4" />

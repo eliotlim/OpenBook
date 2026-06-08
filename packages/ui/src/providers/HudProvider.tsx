@@ -21,17 +21,9 @@ export const HudProvider: React.FC<PropsWithChildren<unknown>> = ({children}) =>
     saveHudStorage(hud);
   }, [hud]);
 
-  const hudKeyListener = React.useCallback((e: KeyboardEvent) => {
-    if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      setHud(draft => {draft.commandPalette.open = true; return draft;});
-    }
-  }, []);
-
-  React.useEffect(() => {
-    document.addEventListener('keydown', hudKeyListener);
-    return () => document.removeEventListener('keydown', hudKeyListener);
-  }, []);
+  // Global keyboard shortcuts (incl. ⌘K for the palette) are owned by the
+  // <GlobalShortcuts> behavior in the layout, which fires the shared command
+  // registry — so a key and its command/menu entry never drift.
 
   const hudMouseListener = React.useCallback((e: MouseEvent) => {
     if (!hud.sideNav.docked) {

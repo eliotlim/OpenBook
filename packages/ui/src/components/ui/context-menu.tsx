@@ -1,5 +1,6 @@
 import * as React from "react"
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu"
+import { ChevronRightIcon } from "@radix-ui/react-icons"
 
 import { cn } from "@/lib/utils"
 
@@ -10,6 +11,44 @@ const ContextMenuTrigger = ContextMenuPrimitive.Trigger
 const ContextMenuGroup = ContextMenuPrimitive.Group
 
 const ContextMenuPortal = ContextMenuPrimitive.Portal
+
+const ContextMenuSub = ContextMenuPrimitive.Sub
+
+const ContextMenuSubTrigger = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.SubTrigger>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubTrigger> & {
+    inset?: boolean
+  }
+>(({ className, inset, children, ...props }, ref) => (
+  <ContextMenuPrimitive.SubTrigger
+    ref={ref}
+    className={cn(
+      "flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden transition-colors focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent",
+      inset && "pl-8",
+      className
+    )}
+    {...props}
+  >
+    {children}
+    <ChevronRightIcon className="ml-auto h-4 w-4" />
+  </ContextMenuPrimitive.SubTrigger>
+))
+ContextMenuSubTrigger.displayName = ContextMenuPrimitive.SubTrigger.displayName
+
+const ContextMenuSubContent = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.SubContent>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
+>(({ className, ...props }, ref) => (
+  <ContextMenuPrimitive.SubContent
+    ref={ref}
+    className={cn(
+      "z-50 min-w-32 overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+      className
+    )}
+    {...props}
+  />
+))
+ContextMenuSubContent.displayName = ContextMenuPrimitive.SubContent.displayName
 
 const ContextMenuContent = React.forwardRef<
   React.ElementRef<typeof ContextMenuPrimitive.Content>,
@@ -75,6 +114,19 @@ const ContextMenuSeparator = React.forwardRef<
 ))
 ContextMenuSeparator.displayName = ContextMenuPrimitive.Separator.displayName
 
+const ContextMenuShortcut = ({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLSpanElement>) => {
+  return (
+    <span
+      className={cn("ml-auto pl-4 text-xs tracking-widest text-muted-foreground", className)}
+      {...props}
+    />
+  )
+}
+ContextMenuShortcut.displayName = "ContextMenuShortcut"
+
 export {
   ContextMenu,
   ContextMenuTrigger,
@@ -82,6 +134,10 @@ export {
   ContextMenuItem,
   ContextMenuLabel,
   ContextMenuSeparator,
+  ContextMenuShortcut,
   ContextMenuGroup,
   ContextMenuPortal,
+  ContextMenuSub,
+  ContextMenuSubTrigger,
+  ContextMenuSubContent,
 }

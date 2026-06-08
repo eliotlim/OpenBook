@@ -11,7 +11,7 @@ import React, {
 import {defaultDatabaseSchema, emptyPageSnapshot, type PageMeta} from '@open-book/sdk';
 import {useData} from '@/data';
 import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
-import {readPageIcon} from '@/lib/pageIcon';
+import {readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {usePlatformLibrary, type NewViewTarget} from './PlatformLibraryProvider';
 import * as W from './windowModel';
 import type {Pane, PaneId, WindowState} from './windowModel';
@@ -82,6 +82,8 @@ export interface NavigationContextValue {
    * Returns the new page's id.
    */
   createSubpage: (parentId: string, kind?: 'page' | 'database') => Promise<string>;
+  /** Duplicate a page (its content, name, and icon) as a sibling, then open it. */
+  duplicatePage: (id: string) => Promise<void>;
   /** Delete a page; closes its panes and falls back if nothing remains open. */
   deletePage: (id: string) => Promise<void>;
   /** Rename a page (name only). */
@@ -265,6 +267,22 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [client, reload, openInNew],
   );
 
+  const duplicatePage = useCallback(
+    async (id: string): Promise<void> => {
+      const src = await client.getPage(id);
+      if (!src) return;
+      const name = src.name && src.name.trim().length > 0 ? `${src.name} (copy)` : null;
+      // Copy content + nesting. A hosted database isn't cloned (1:1 with its
+      // host); the reactive cell values travel with the snapshot.
+      const page = await client.savePage({name, data: src.data, parentId: src.parentId});
+      const icon = readStoredPageIcon(id);
+      if (icon) writePageIcon(page.id, icon);
+      await reload();
+      selectPage(page.id);
+    },
+    [client, reload, selectPage],
+  );
+
   const deletePage = useCallback(
     async (id: string): Promise<void> => {
       await client.deletePage(id);
@@ -433,6 +451,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       createPage,
       createDatabasePage,
       createSubpage,
+      duplicatePage,
       deletePage,
       renamePage,
       movePage,
@@ -442,7 +461,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       pages, currentPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
       panes, focusedPaneId, splitOpen, focusPane, openInSplit,
       closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, selectPage, goBack,
-      goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, deletePage, renamePage,
+      goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, duplicatePage, deletePage, renamePage,
       movePage, reload,
     ],
   );

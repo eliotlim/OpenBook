@@ -1,5 +1,6 @@
 import {NavBar, SideNav} from '@/components';
 import {CommandMenu} from '@/components/CommandMenu';
+import GlobalShortcuts from '@/components/GlobalShortcuts';
 import Settings from '@/components/Settings';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
 import TitlebarTabs from '@/components/TitlebarTabs';
@@ -25,6 +26,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <WindowControls />
         </div>
         <div className="flex min-h-0 flex-1 flex-row items-stretch overflow-hidden">
+          <GlobalShortcuts/>
           <CommandMenu/>
           <Settings/>
           <EmojiPickerHost/>

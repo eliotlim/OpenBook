@@ -33,6 +33,8 @@ test('language: switching translates the chrome and persists', async ({page}, te
   await takeSnapshot(page, testInfo); // visual: German settings (also primes the chromatic snapshot helper)
 
   await page.reload();
-  await expect(page.getByRole('button', {name: 'Settings'}).first()).toBeVisible(); // settle
+  // Settle on a locale-stable landmark: the chrome (incl. the Settings button)
+  // now translates, so wait for the sidebar tree instead of an English label.
+  await expect(page.getByRole('treeitem').first()).toBeVisible(); // settle
   await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toBe('de'); // persisted
 });

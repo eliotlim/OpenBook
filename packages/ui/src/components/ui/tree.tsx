@@ -37,6 +37,9 @@ type TreeProps =
     itemIcon?: LucideIcon,
     /** Right-click menu for a row (e.g. page actions). Rendered in a ContextMenuContent. */
     renderItemContextMenu?: (item: TreeDataItem) => React.ReactNode,
+    /** Trailing controls revealed on row hover/focus (e.g. add / ⋯). `openMenu`
+     *  opens the row's context menu at the row, so a button can mirror right-click. */
+    renderRowActions?: (item: TreeDataItem, helpers: {openMenu: () => void}) => React.ReactNode,
     /** Called when a row is dropped on another (drag-to-reorder / drag-to-nest). */
     onMove?: (draggedId: string, targetId: string, where: DropWhere) => void,
   }
@@ -103,6 +106,7 @@ const Tree = React.forwardRef<
      folderIcon,
      itemIcon,
      renderItemContextMenu,
+     renderRowActions,
      onMove,
      className, ...props
    }, ref) => {
@@ -197,6 +201,7 @@ const Tree = React.forwardRef<
             FolderIcon={folderIcon}
             ItemIcon={itemIcon}
             renderItemContextMenu={renderItemContextMenu}
+            renderRowActions={renderRowActions}
             dnd={dnd}
           />
         </div>
@@ -216,12 +221,13 @@ interface TreeItemProps {
   FolderIcon?: LucideIcon;
   ItemIcon?: LucideIcon;
   renderItemContextMenu?: (item: TreeDataItem) => React.ReactNode;
+  renderRowActions?: (item: TreeDataItem, helpers: {openMenu: () => void}) => React.ReactNode;
   dnd: DndState;
 }
 
 function TreeItem({
   data, depth, selectedItemId, handleSelectChange, expandedIds, toggleExpand,
-  FolderIcon, ItemIcon, renderItemContextMenu, dnd,
+  FolderIcon, ItemIcon, renderItemContextMenu, renderRowActions, dnd,
 }: TreeItemProps) {
   return (
     <ul role={depth === 0 ? "tree" : "group"}>
@@ -240,6 +246,7 @@ function TreeItem({
                 onSelect={() => handleSelectChange(item)}
                 onToggle={() => toggleExpand(item.id)}
                 Icon={isFolder ? FolderIcon : ItemIcon}
+                renderRowActions={renderRowActions}
                 dnd={dnd}
               />
             </WithRowMenu>
@@ -254,6 +261,7 @@ function TreeItem({
                 FolderIcon={FolderIcon}
                 ItemIcon={ItemIcon}
                 renderItemContextMenu={renderItemContextMenu}
+                renderRowActions={renderRowActions}
                 dnd={dnd}
               />
             )}
@@ -273,22 +281,44 @@ interface TreeRowProps {
   onSelect: () => void;
   onToggle: () => void;
   Icon?: LucideIcon;
+  renderRowActions?: (item: TreeDataItem, helpers: {openMenu: () => void}) => React.ReactNode;
   dnd: DndState;
 }
 
 const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttributes<HTMLDivElement>>(function TreeRow(
-  { item, depth, isFolder, isExpanded, isSelected, onSelect, onToggle, Icon, dnd, ...rest },
+  { item, depth, isFolder, isExpanded, isSelected, onSelect, onToggle, Icon, renderRowActions, dnd, ...rest },
   ref,
 ) {
   const isDropTarget = dnd.dropTarget?.id === item.id;
   const where = isDropTarget ? dnd.dropTarget?.where : undefined;
   const isDragged = dnd.draggedId === item.id;
 
+  // Keep our own handle to the row so a hover action (the ⋯ button) can re-open
+  // the same context menu, while still satisfying the forwarded ref the wrapping
+  // ContextMenuTrigger needs.
+  const rowRef = React.useRef<HTMLDivElement | null>(null);
+  const setRefs = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      rowRef.current = el;
+      if (typeof ref === "function") ref(el);
+      else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    },
+    [ref],
+  );
+  const openMenu = React.useCallback(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    el.dispatchEvent(
+      new MouseEvent("contextmenu", {bubbles: true, cancelable: true, clientX: rect.right - 16, clientY: rect.bottom}),
+    );
+  }, []);
+
   return (
     <div className="relative">
       {where === "before" && <div className="pointer-events-none absolute inset-x-1 top-0 z-10 h-0.5 rounded-full bg-primary" />}
       <div
-        ref={ref}
+        ref={setRefs}
         role="treeitem"
         // `rest` carries the handlers a wrapping ContextMenuTrigger injects via
         // `asChild` (notably `onContextMenu`) — spread them so right-clicking a
@@ -302,7 +332,7 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttrib
         onDragEnd={dnd.enabled ? dnd.onDragEnd : undefined}
         style={{ paddingLeft: depth * 12 + 4 }}
         className={cn(
-          "flex items-center mx-1 py-1 pr-2 rounded-md cursor-pointer text-sm text-foreground/75 transition-colors hover:bg-accent",
+          "group/row flex items-center mx-1 py-1 pr-1.5 rounded-md cursor-pointer text-sm text-foreground/75 transition-colors hover:bg-accent",
           isSelected && "bg-accent text-foreground font-medium",
           where === "inside" && "ring-2 ring-inset ring-primary bg-accent",
           isDragged && "opacity-50",
@@ -330,6 +360,17 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttrib
         )}
         <RowIcon icon={item.icon} Fallback={Icon} />
         <span className="grow truncate text-sm">{item.name}</span>
+        {renderRowActions && (
+          <span
+            // Revealed on hover or when something inside has focus; doesn't shift
+            // the row on hover (it overlays the trailing padding).
+            className="ml-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/row:opacity-100 focus-within:opacity-100"
+            // Don't let clicks on the actions select/navigate the row.
+            onClick={(e) => e.stopPropagation()}
+          >
+            {renderRowActions(item, {openMenu})}
+          </span>
+        )}
       </div>
       {where === "after" && <div className="pointer-events-none absolute inset-x-1 bottom-0 z-10 h-0.5 rounded-full bg-primary" />}
     </div>

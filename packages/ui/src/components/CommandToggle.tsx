@@ -1,38 +1,27 @@
-import {useHud} from '@/providers';
+import {useHud, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {MagnifyingGlassIcon} from '@radix-ui/react-icons';
-import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '@/components/ui/tooltip';
+import {Kbd} from '@/components/ui/kbd';
+import {SHORTCUTS} from '@/lib/shortcuts';
 
-
+/** Sidebar launcher for the command palette, with its keyboard hint inline. */
 export default function CommandToggle() {
   const {setHud} = useHud();
+  const {t} = useTranslation();
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            className="flex grow justify-start h-7"
-            onClick={() => {
-              setHud(draft => {
-                draft.commandPalette.open = !draft.commandPalette.open;
-                return draft;
-              });
-            }}
-          >
-            <MagnifyingGlassIcon className="w-4 h-4 mr-2"/>
-            Search
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side={'right'} className="flex flex-col bg-background">
-          <span className="text-foreground">
-            Search or perform an action
-          </span>
-          <span className="text-muted-foreground">
-            (Ctrl+K)
-          </span>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Button
+      variant="ghost"
+      className="flex h-7 grow justify-start gap-2 px-2 text-muted-foreground hover:text-foreground"
+      onClick={() => {
+        setHud((draft) => {
+          draft.commandPalette.open = true;
+          return draft;
+        });
+      }}
+    >
+      <MagnifyingGlassIcon className="h-4 w-4 shrink-0" />
+      <span className="grow text-left">{t('command.search')}</span>
+      <Kbd combo={SHORTCUTS.commandPalette} />
+    </Button>
   );
 }

@@ -6,7 +6,7 @@ import {PageMenuItems} from '@/components/PageContextMenu';
 import {useNavigation, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {planTreeMove, type DropWhere} from '@/lib/treeMove';
-import {Plus, Table2} from 'lucide-react';
+import {MoreHorizontal, Plus, Table2} from 'lucide-react';
 import {t} from '@/i18n';
 
 const displayName = (name: string | null): string =>
@@ -42,7 +42,7 @@ export function buildTree(pages: PageMeta[]): TreeDataItem[] {
 }
 
 export default function WorkspaceNavigationTree() {
-  const {pages, currentPageId, selectPage, createPage, createDatabasePage, movePage} = useNavigation();
+  const {pages, currentPageId, selectPage, createPage, createDatabasePage, createSubpage, movePage} = useNavigation();
   const {t} = useTranslation();
 
   // Icons live in localStorage; re-render the tree when one changes so a freshly
@@ -76,6 +76,28 @@ export default function WorkspaceNavigationTree() {
         selectedItemId={currentPageId ?? undefined}
         onSelectChange={(item) => item && selectPage(item.id)}
         renderItemContextMenu={(item) => <PageMenuItems pageId={item.id} />}
+        renderRowActions={(item, {openMenu}) => (
+          <>
+            <IconButton
+              size="sm"
+              className="h-5 w-5 rounded p-0.5"
+              aria-label={t('menu.addSubpage')}
+              title={t('menu.addSubpage')}
+              onClick={() => void createSubpage(item.id, 'page').then(selectPage)}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </IconButton>
+            <IconButton
+              size="sm"
+              className="h-5 w-5 rounded p-0.5"
+              aria-label={t('nav.more')}
+              title={t('nav.more')}
+              onClick={openMenu}
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </IconButton>
+          </>
+        )}
         onMove={onMove}
       />
     </div>
