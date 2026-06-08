@@ -20,7 +20,9 @@ import {
   applyView,
   defaultDatabaseSchema,
   HttpDataClient,
+  OWNER_PROPERTY_ID,
   TITLE_PROPERTY_ID,
+  VERIFICATION_PROPERTY_ID,
   type PageSnapshot,
 } from '@open-book/sdk';
 import {startServer} from '../src/server';
@@ -41,6 +43,15 @@ const sampleSnapshot = (n: number): PageSnapshot => ({
   editorjs: {blocks: [{type: 'paragraph', data: {text: `hello ${n}`}}]},
   values: [['c1', n]],
   names: [['x', 'c1']],
+});
+
+/** A snapshot whose document links to `targetId` via an inline mention anchor. */
+const mentionSnapshot = (targetId: string): PageSnapshot => ({
+  editorjs: {
+    blocks: [{type: 'paragraph', data: {text: `see <a class="ob-mention" data-page-id="${targetId}">📄 page</a>`}}],
+  },
+  values: [],
+  names: [],
 });
 
 async function exerciseCrud(client: HttpDataClient, mode: string): Promise<void> {
@@ -307,6 +318,43 @@ async function exerciseDatabase(client: HttpDataClient, mode: string): Promise<v
 // API responses must never be cached: the desktop WKWebView shell otherwise
 // serves stale GETs (e.g. an empty trash) from its URL cache. Regression guard
 // for the `Cache-Control: no-store` middleware.
+async function exercisePageProperties(client: HttpDataClient, mode: string): Promise<void> {
+  console.log(`\n[${mode}] Page properties: owner, verification, backlinks`);
+
+  const target = await client.savePage({name: `prop-target-${mode}`, data: sampleSnapshot(1)});
+  const linker = await client.savePage({name: `prop-linker-${mode}`, data: mentionSnapshot(target.id)});
+
+  // ── Backlinks (computed from the link graph) ──
+  const back = await client.listBacklinks(target.id);
+  check('backlinks include the linking page', back.some((p) => p.id === linker.id));
+  check('backlinks exclude the target itself', !back.some((p) => p.id === target.id));
+  check('a never-linked page has no backlinks', (await client.listBacklinks(linker.id)).length === 0);
+
+  // ── Owner + verification (shallow-merged into properties) ──
+  const withOwner = await client.setPageProperties(target.id, {[OWNER_PROPERTY_ID]: 'Ada'});
+  check('owner persists', withOwner.properties[OWNER_PROPERTY_ID] === 'Ada');
+
+  const withVerify = await client.setPageProperties(target.id, {
+    [VERIFICATION_PROPERTY_ID]: {verified: true, by: 'Ada', at: '2026-01-01T00:00:00.000Z'},
+  });
+  check(
+    'verification persists',
+    (withVerify.properties[VERIFICATION_PROPERTY_ID] as {verified: boolean}).verified === true,
+  );
+  check('a second property merges (owner preserved)', withVerify.properties[OWNER_PROPERTY_ID] === 'Ada');
+
+  // A routine content save must not clobber the stored properties.
+  const resaved = await client.savePage({id: target.id, name: target.name, data: sampleSnapshot(2)});
+  check('a content save preserves properties', resaved.properties[OWNER_PROPERTY_ID] === 'Ada');
+
+  // Trashing the linker removes the backlink.
+  await client.deletePage(linker.id);
+  check('backlink clears when the linker is trashed', (await client.listBacklinks(target.id)).length === 0);
+
+  // Clean up the target so it doesn't collide with later runs.
+  await client.deletePage(target.id);
+}
+
 async function exerciseCacheHeaders(baseUrl: string, mode: string): Promise<void> {
   console.log(`\n[${mode}] API responses are non-cacheable`);
   for (const path of [API.pages, API.trash]) {
@@ -330,6 +378,7 @@ async function main(): Promise<void> {
 
   await exerciseCacheHeaders(server.url, 'embedded');
   await exerciseCrud(embeddedClient, 'embedded');
+  await exercisePageProperties(embeddedClient, 'embedded');
   await exerciseDatabase(embeddedClient, 'embedded');
   await exerciseNesting(embeddedClient, 'embedded');
   await exerciseOrdering(embeddedClient, 'embedded');
@@ -374,6 +423,7 @@ async function main(): Promise<void> {
   });
   console.log(`  headless server up at ${headless.url}`);
   await exerciseCrud(new HttpDataClient(headless.url), 'headless');
+  await exercisePageProperties(new HttpDataClient(headless.url), 'headless');
   await exerciseDatabase(new HttpDataClient(headless.url), 'headless');
   await exerciseNesting(new HttpDataClient(headless.url), 'headless');
   await exerciseOrdering(new HttpDataClient(headless.url), 'headless');

@@ -26,6 +26,8 @@ const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
   {value: 'select', label: 'Select'},
   {value: 'checkbox', label: 'Checkbox'},
   {value: 'date', label: 'Date'},
+  {value: 'person', label: 'Person'},
+  {value: 'verification', label: 'Verification'},
   {value: 'expr', label: 'Expression (exported cell)'},
 ];
 

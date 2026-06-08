@@ -31,6 +31,16 @@ export {
   shortId,
   defaultDatabaseSchema,
 } from './database';
+export {
+  OWNER_PROPERTY_ID,
+  VERIFICATION_PROPERTY_ID,
+  BACKLINKS_PROPERTY_ID,
+  SYSTEM_PAGE_PROPERTIES,
+  isVerified,
+  makeVerification,
+  extractMentionIds,
+  type VerificationValue,
+} from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride} from './connection';
 export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';
 export {

@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
-import {Check, ChevronDown, Plus} from 'lucide-react';
-import type {DatabaseProperty, DatabaseSelectOption} from '@open-book/sdk';
+import {BadgeCheck, Check, ChevronDown, Plus} from 'lucide-react';
+import {isVerified, makeVerification, type DatabaseProperty, type DatabaseSelectOption, type VerificationValue} from '@open-book/sdk';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,7 +9,40 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
+import {usePreferences} from '@/providers';
 import {cn} from '@/lib/utils';
+
+/** The current user's display name, used to stamp owner/verification. */
+export function useIdentity(): string {
+  const {preferences} = usePreferences();
+  return preferences.profile.displayName.trim() || preferences.profile.name.trim() || 'You';
+}
+
+/** A person value rendered as an avatar chip. */
+export const PersonChip: React.FC<{name: string}> = ({name}) => (
+  <span className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-muted px-2 py-0.5 text-xs">
+    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand/15 text-[9px] font-semibold uppercase text-brand">
+      {name.slice(0, 1) || '?'}
+    </span>
+    <span className="truncate">{name}</span>
+  </span>
+);
+
+/** A verification badge (verified / not). */
+export const VerificationBadge: React.FC<{value: unknown}> = ({value}) => {
+  const verified = isVerified(value);
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs',
+        verified ? 'text-green-700 dark:text-green-300' : 'text-muted-foreground',
+      )}
+    >
+      <BadgeCheck className={cn('h-3.5 w-3.5', verified ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground/50')} />
+      {verified ? 'Verified' : 'Unverified'}
+    </span>
+  );
+};
 
 /** Tailwind classes for each `select` swatch token. */
 const COLOR_CLASSES: Record<string, string> = {
@@ -38,6 +71,8 @@ export const SelectChip: React.FC<{option: DatabaseSelectOption}> = ({option}) =
 
 /** Read-only text of a cell value (for list-view chips and expr columns). */
 export function formatCellValue(property: DatabaseProperty, value: unknown): string {
+  if (property.type === 'verification') return isVerified(value) ? 'Verified' : '';
+  if (property.type === 'backlinks') return '';
   if (value === undefined || value === null || value === '') return '';
   if (property.type === 'checkbox') return value ? '✓' : '';
   if (property.type === 'select') return findOption(property, value)?.label ?? '';
@@ -124,6 +159,23 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
     );
   case 'select':
     return <SelectCell property={property} value={value} onChange={onChange} onAddOption={onAddOption} />;
+  case 'person':
+    return (
+      <input
+        type="text"
+        defaultValue={typeof value === 'string' ? value : value == null ? '' : String(value)}
+        onBlur={(e) => onChange(e.target.value.trim() || null)}
+        className={inputClass}
+        placeholder="Add a person…"
+        aria-label={property.name}
+      />
+    );
+  case 'verification':
+    return <VerificationCell value={value} onChange={onChange} />;
+  case 'backlinks':
+    // Backlinks are computed from the link graph, not stored per row; the page
+    // properties panel is where they're shown. A row cell stays read-only.
+    return <div className="px-2 py-1 text-xs text-muted-foreground/50">—</div>;
   default:
     return (
       <input
@@ -135,6 +187,29 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
       />
     );
   }
+};
+
+/** Verification cell: a clickable badge that toggles verified, stamping the
+ *  current user + time. The full {verified, by, at} object is stored. */
+const VerificationCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> = ({value, onChange}) => {
+  const identity = useIdentity();
+  const verified = isVerified(value);
+  const toggle = () => {
+    const next: VerificationValue = verified
+      ? {verified: false}
+      : makeVerification(identity, new Date().toISOString());
+    onChange(next);
+  };
+  return (
+    <button
+      type="button"
+      onClick={toggle}
+      className="flex w-full items-center px-2 py-1 text-left hover:bg-accent/40"
+      title={verified && (value as VerificationValue).by ? `Verified by ${(value as VerificationValue).by}` : 'Toggle verification'}
+    >
+      <VerificationBadge value={value} />
+    </button>
+  );
 };
 
 const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange, onAddOption}) => {

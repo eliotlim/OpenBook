@@ -13,7 +13,7 @@ import type {
   StoredDatabase,
   StoredPage,
 } from '@open-book/sdk';
-import {emptyPageSnapshot, projectExports, remapBundle} from '@open-book/sdk';
+import {emptyPageSnapshot, extractMentionIds, projectExports, remapBundle} from '@open-book/sdk';
 import type {Db} from './db';
 import {runMigrations} from './migrations';
 
@@ -381,6 +381,55 @@ export class PageStore {
       [id, name],
     );
     return rows.length > 0 ? pageFromRow(rows[0]) : null;
+  }
+
+  /**
+   * Shallow-merge structured property values into a page's `properties` (jsonb
+   * `||`), leaving its document content and any unmentioned properties intact.
+   * This is how a standalone page's owner/verification are set — database rows
+   * still go through {@link updateRow}. Returns the updated page, or `null` if
+   * it's missing.
+   */
+  async setPageProperties(id: string, patch: Record<string, unknown>): Promise<StoredPage | null> {
+    // Read-merge-write in a transaction. We merge in JS and write the whole
+    // object with a plain `$2::jsonb` replace (portable across the embedded and
+    // wire-protocol PGlite backends, unlike the jsonb `||` merge operator).
+    return this.db.begin(async (tx) => {
+      const current = await tx.query<PageRow>(
+        'SELECT properties FROM pages WHERE id = $1 AND deleted_at IS NULL',
+        [id],
+      );
+      if (current.length === 0) return null;
+      const merged = {...parseJson<Record<string, unknown>>(current[0].properties, {}), ...patch};
+      const rows = await tx.query<PageRow>(
+        `UPDATE pages
+           SET properties = $2::jsonb, updated_at = now()
+         WHERE id = $1 AND deleted_at IS NULL
+         RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
+           (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
+        [id, JSON.stringify(merged)],
+      );
+      return rows.length > 0 ? pageFromRow(rows[0]) : null;
+    });
+  }
+
+  /**
+   * The pages that link to `id` — its backlinks. Scans every live page's
+   * document for an inline mention anchor referencing `id`. A `LIKE` prefilter
+   * narrows to pages whose serialised document even contains the id, then
+   * {@link extractMentionIds} confirms a real mention (so the id appearing
+   * elsewhere doesn't count). Most-recently-updated first; excludes the page itself.
+   */
+  async listBacklinks(id: string): Promise<PageMeta[]> {
+    const rows = await this.db.query<PageRow>(
+      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, p.data,
+              d.id AS hosted_database_id
+         FROM pages p LEFT JOIN databases d ON d.page_id = p.id
+        WHERE p.deleted_at IS NULL AND p.id <> $1 AND p.data::text LIKE $2
+        ORDER BY p.updated_at DESC`,
+      [id, `%${id}%`],
+    );
+    return rows.filter((row) => extractMentionIds(parseSnapshot(row.data)).includes(id)).map(metaFromRow);
   }
 
   /**

@@ -9,6 +9,10 @@ export const API = {
   pages: '/api/pages',
   /** Single page: `GET` / `PUT` (upsert) / `PATCH` (rename) / `DELETE` (to trash). */
   page: (id: string): string => `/api/pages/${encodeURIComponent(id)}`,
+  /** A page's structured properties (owner, verification, …): `PATCH` (shallow merge). */
+  pageProperties: (id: string): string => `/api/pages/${encodeURIComponent(id)}/properties`,
+  /** Pages that link to this one (the backlink graph): `GET`. */
+  pageBacklinks: (id: string): string => `/api/pages/${encodeURIComponent(id)}/backlinks`,
   /** Restore a trashed page (and the subtree trashed with it): `POST`. */
   pageRestore: (id: string): string => `/api/pages/${encodeURIComponent(id)}/restore`,
   /** Move/reorder a page in the sidebar tree (re-parent + reorder siblings): `PUT`. */

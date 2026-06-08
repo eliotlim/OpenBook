@@ -37,6 +37,14 @@ export interface DataClient {
   /** Update only a page's name (leaves its document data untouched). */
   renamePage(id: string, name: string | null): Promise<StoredPage>;
   /**
+   * Shallow-merge structured property values into a page (owner, verification,
+   * …), leaving its document content and other properties untouched. Used by
+   * the page properties panel for non-row pages (database rows use {@link updateRow}).
+   */
+  setPageProperties(id: string, properties: Record<string, unknown>): Promise<StoredPage>;
+  /** List the live pages that link to `id` (via `@`-mentions), newest first. */
+  listBacklinks(id: string): Promise<PageMeta[]>;
+  /**
    * Move a page within the sidebar tree: set its parent (`null` = top level) and
    * the full ordered list of sibling ids under that parent (including this page).
    * Used by drag-to-reorder / drag-to-nest. Rejects a move that would create a
@@ -217,6 +225,14 @@ export class HttpDataClient implements DataClient {
 
   async renamePage(id: string, name: string | null): Promise<StoredPage> {
     return this.request<StoredPage>('PATCH', API.page(id), {name});
+  }
+
+  async setPageProperties(id: string, properties: Record<string, unknown>): Promise<StoredPage> {
+    return this.request<StoredPage>('PATCH', API.pageProperties(id), {properties});
+  }
+
+  async listBacklinks(id: string): Promise<PageMeta[]> {
+    return this.request<PageMeta[]>('GET', API.pageBacklinks(id));
   }
 
   async movePage(id: string, move: {parentId: string | null; orderedIds: string[]}): Promise<StoredPage> {

@@ -75,6 +75,7 @@ async function applyIncomingBlocks(inst: EditorJS, next: OutputData, holder: HTM
 import {SliderBlock, ExprBlock, ChartBlock, SubpageBlock} from '@/reactive';
 import {CalloutBlock, AccordionBlock, DividerBlock, ButtonBlock, TableOfContentsBlock} from '@/editor/blocks';
 import {PageContextMenu} from '@/components/PageContextMenu';
+import {PageProperties} from '@/components/PageProperties';
 import {installEditorChrome} from '@/lib/editorChrome';
 import {MentionController, PageLinkInlineTool} from '@/editor/pageMention';
 import {MentionPopover} from '@/components/MentionPopover';
@@ -529,6 +530,10 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           onIconChange={onIconChange}
           onTitleActiveChange={onTitleActiveChange}
         />
+
+        {/* Wiki-style page properties (owner, verification, backlinks). The same
+            values double as database columns for a databased collection. */}
+        {pageId && <PageProperties pageId={pageId} />}
       </div>
 
       {/* `ob-editor-full` lets the CSS widen the EditorJS content column to match

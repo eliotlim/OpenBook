@@ -78,6 +78,21 @@ export function createApp(store: PageStore): Hono {
     return c.json(page);
   });
 
+  // Shallow-merge structured property values (owner, verification, …) onto a
+  // page. Publishes the page so an open editor reflects it live, and refreshes
+  // the owning database's rows when the page is a row.
+  app.patch(`${API.pages}/:id/properties`, async (c) => {
+    const body = await c.req.json<{properties?: Record<string, unknown>}>();
+    const page = await store.setPageProperties(c.req.param('id'), body.properties ?? {});
+    if (!page) return c.json({error: 'page not found'}, 404);
+    hub.publishPage(page);
+    if (page.databaseId) await broadcastRows(page.databaseId);
+    return c.json(page);
+  });
+
+  // The backlink graph: pages whose document links to this one.
+  app.get(`${API.pages}/:id/backlinks`, async (c) => c.json(await store.listBacklinks(c.req.param('id'))));
+
   // Reorder / re-nest a page in the sidebar tree: set its parent and the new
   // ordered sibling list under that parent. 404 if the page is gone, 409 if the
   // move would create a cycle (nesting a page under itself or a descendant).

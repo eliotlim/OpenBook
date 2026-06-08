@@ -23,8 +23,24 @@
 
 import type {PageSnapshot} from './types';
 
-/** The value kinds a (manual) database property can hold. */
-export type DatabasePropertyType = 'text' | 'number' | 'select' | 'checkbox' | 'date' | 'expr';
+/**
+ * The value kinds a property can hold. The manual kinds
+ * (`text`/`number`/`select`/`checkbox`/`date`/`person`/`verification`) store
+ * their value per row in `page.properties[id]`. `expr` projects a named reactive
+ * cell; `backlinks` is computed from the link graph (never stored). The last
+ * three (`person`/`verification`/`backlinks`) double as the built-in page
+ * properties — see {@link ./pageProperties}.
+ */
+export type DatabasePropertyType =
+  | 'text'
+  | 'number'
+  | 'select'
+  | 'checkbox'
+  | 'date'
+  | 'expr'
+  | 'person'
+  | 'verification'
+  | 'backlinks';
 
 /** One choice in a `select` property. */
 export interface DatabaseSelectOption {
@@ -199,6 +215,12 @@ export function projectExports(snapshot: Pick<PageSnapshot, 'values' | 'names'>)
 export function rowValue(row: DatabaseRow, property: DatabaseProperty | typeof TITLE_PROPERTY_ID): unknown {
   if (property === TITLE_PROPERTY_ID) return row.name ?? '';
   if (property.type === 'expr') return row.exports[property.cellName ?? property.name];
+  // Verification filters/sorts on the boolean flag (so `is checked` works); the
+  // full {verified, by, at} object is read directly by the cell renderer.
+  if (property.type === 'verification') {
+    const v = row.properties[property.id];
+    return !!(v && typeof v === 'object' && (v as {verified?: boolean}).verified);
+  }
   return row.properties[property.id];
 }
 
