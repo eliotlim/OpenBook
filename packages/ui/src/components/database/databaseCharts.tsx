@@ -9,6 +9,7 @@ import {
   type DatabaseRow,
   type DatabaseView as DbView,
 } from '@open-book/sdk';
+import {cn} from '@/lib/utils';
 import {readPageIcon} from '@/lib/pageIcon';
 import type {UseDatabase} from './useDatabase';
 import {chartColor} from './databaseColors';
@@ -19,6 +20,36 @@ const fmt = (n: number): string => {
   if (Number.isInteger(n)) return n.toLocaleString();
   return n.toLocaleString(undefined, {maximumFractionDigits: 2});
 };
+
+const TAU = Math.PI * 2;
+const polar = (cx: number, cy: number, r: number, a: number): [number, number] => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+
+/** SVG path for an annular sector (a pie slice when `rInner` is 0). Angles in radians. */
+function arcPath(cx: number, cy: number, rInner: number, rOuter: number, a0: number, a1: number): string {
+  const large = a1 - a0 > Math.PI ? 1 : 0;
+  const [xo0, yo0] = polar(cx, cy, rOuter, a0);
+  const [xo1, yo1] = polar(cx, cy, rOuter, a1);
+  if (rInner <= 0) {
+    return `M ${cx} ${cy} L ${xo0} ${yo0} A ${rOuter} ${rOuter} 0 ${large} 1 ${xo1} ${yo1} Z`;
+  }
+  const [xi1, yi1] = polar(cx, cy, rInner, a1);
+  const [xi0, yi0] = polar(cx, cy, rInner, a0);
+  return `M ${xo0} ${yo0} A ${rOuter} ${rOuter} 0 ${large} 1 ${xo1} ${yo1} L ${xi1} ${yi1} A ${rInner} ${rInner} 0 ${large} 0 ${xi0} ${yi0} Z`;
+}
+
+/** One drawable slice of the pie/sunburst, carrying its drill-down rows. */
+interface Slice {
+  key: string;
+  a0: number;
+  a1: number;
+  frac: number;
+  rInner: number;
+  rOuter: number;
+  color: string;
+  label: string;
+  value: number;
+  rows: DatabaseRow[];
+}
 
 /** Human label for the view's measure, e.g. `Count` or `Sum of Cost`. */
 const measureLabel = (view: DbView, properties: DatabaseProperty[]): string => {
@@ -207,6 +238,9 @@ const SeriesLegend: React.FC<{
 export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
   const [drill, setDrill] = useState<Drill>(null);
   const [hover, setHover] = useState<Hover>(null);
+  // The slice/legend the pointer is over — drives the slice highlight + readout,
+  // and is shared so hovering the legend lights up the matching slice and back.
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
   if (!view.groupByPropertyId) return <NeedsGrouping />;
 
   const {groups, series} = aggregateMatrix(db.visibleRows, view, properties);
@@ -215,95 +249,133 @@ export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
   const total = live.reduce((sum, g) => sum + g.total, 0);
   if (total === 0) return <NoData />;
 
-  // Inner disc (or the whole pie when there's no breakdown): one arc per group.
-  let acc = 0;
-  const groupStops = live
-    .map((g, i) => {
-      const start = (acc / total) * 360;
-      acc += g.total;
-      return `${chartColor(g, i)} ${start}deg ${(acc / total) * 360}deg`;
-    })
-    .join(', ');
+  const CX = 50;
+  const CY = 50;
+  const R = 47;
+  const RINNER = stacked ? 28 : 0; // donut hole / inner-disc radius for the sunburst
 
-  // Outer ring: each group's arc subdivided into its breakdown segments.
-  let acc2 = 0;
-  const segStops = stacked
-    ? live
-      .flatMap((g) =>
-        g.segments
-          .filter((seg) => seg.value > 0)
-          .map((seg) => {
-            const si = series.findIndex((s) => s.key === seg.seriesKey);
-            const start = (acc2 / total) * 360;
-            acc2 += seg.value;
-            return `${chartColor(series[si], si)} ${start}deg ${(acc2 / total) * 360}deg`;
-          }),
-      )
-      .join(', ')
-    : '';
+  // Inner disc (or the whole pie when there's no breakdown): one arc per group.
+  let ga = -Math.PI / 2;
+  const groupSlices: Slice[] = live.map((g, i) => {
+    const frac = g.total / total;
+    const a0 = ga;
+    ga += frac * TAU;
+    return {key: `g:${g.key}`, a0, a1: ga, frac, rInner: 0, rOuter: stacked ? RINNER : R, color: chartColor(g, i), label: g.label || '—', value: g.total, rows: g.rows};
+  });
+
+  // Outer ring (sunburst): each group's arc subdivided into its breakdown segments.
+  let sa = -Math.PI / 2;
+  const segSlices: Slice[] = stacked
+    ? live.flatMap((g) =>
+      g.segments
+        .filter((seg) => seg.value > 0)
+        .map((seg) => {
+          const si = series.findIndex((s) => s.key === seg.seriesKey);
+          const s = series[si];
+          const frac = seg.value / total;
+          const a0 = sa;
+          sa += frac * TAU;
+          return {key: `s:${g.key}:${seg.seriesKey}`, a0, a1: sa, frac, rInner: RINNER, rOuter: R, color: chartColor(s, si), label: `${g.label || '—'} · ${s.label || '—'}`, value: seg.value, rows: seg.rows};
+        }),
+    )
+    : [];
+
+  // Ring first, inner disc last so the disc cleanly covers the sunburst's centre.
+  const slices = [...segSlices, ...groupSlices];
+  const enter = (sl: Slice): void => {
+    setHoverKey(sl.key);
+    setHover({label: sl.label, value: sl.value});
+  };
+  const leave = (): void => {
+    setHoverKey(null);
+    setHover(null);
+  };
 
   return (
     <div>
       <div className="flex flex-wrap items-center gap-6 rounded-md border border-border p-5">
-        <div className="relative h-44 w-44 shrink-0">
-          <div
-            className="h-full w-full rounded-full shadow-inner"
-            style={{background: `conic-gradient(${stacked ? segStops : groupStops})`}}
-            role="img"
-            aria-label={stacked ? 'Sunburst chart' : 'Pie chart'}
-          />
-          {stacked && (
-            <div
-              className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-inner ring-4 ring-card"
-              style={{background: `conic-gradient(${groupStops})`}}
-            />
-          )}
-        </div>
+        <svg viewBox="0 0 100 100" className="h-44 w-44 shrink-0" role="img" aria-label={stacked ? 'Sunburst chart' : 'Pie chart'}>
+          {slices.map((sl) => {
+            const active = hoverKey === sl.key;
+            const dim = hoverKey !== null && !active;
+            const common = {
+              fill: sl.color,
+              style: {
+                stroke: active ? 'hsl(var(--foreground))' : 'hsl(var(--card))',
+                strokeWidth: active ? 1.2 : 0.6,
+                opacity: dim ? 0.3 : 1,
+                transition: 'opacity .12s ease, stroke .12s ease',
+              },
+              className: 'cursor-pointer',
+              onMouseEnter: () => enter(sl),
+              onMouseLeave: leave,
+              onClick: () => setDrill({title: sl.label, rows: sl.rows}),
+            };
+            return sl.frac >= 0.9999 ? (
+              <circle key={sl.key} cx={CX} cy={CY} r={sl.rOuter} {...common} />
+            ) : (
+              <path key={sl.key} d={arcPath(CX, CY, sl.rInner, sl.rOuter, sl.a0, sl.a1)} {...common} />
+            );
+          })}
+        </svg>
         <div className="min-w-[12rem] flex-1 space-y-2">
           <ChartReadout view={view} properties={properties} hover={hover} total={total} />
           <div className="space-y-1.5">
-            {live.map((g, i) => (
-              <div key={g.key}>
-                <button
-                  onMouseEnter={() => setHover({label: g.label || '—', value: g.total})}
-                  onMouseLeave={() => setHover(null)}
-                  onClick={() => setDrill({title: g.label || '—', rows: g.rows})}
-                  className="flex w-full cursor-pointer items-center gap-2 text-sm transition-colors hover:text-foreground"
-                >
-                  <span className="h-3 w-3 shrink-0 rounded-sm" style={{backgroundColor: chartColor(g, i)}} />
-                  <span className="min-w-0 flex-1 truncate text-left" title={g.label}>
-                    {g.label || '—'}
-                  </span>
-                  <span className="tabular-nums text-xs text-muted-foreground">{fmt(g.total)}</span>
-                  <span className="w-10 text-right tabular-nums text-xs font-medium">{Math.round((g.total / total) * 100)}%</span>
-                </button>
-                {stacked && (
-                  <div className="ml-5 mt-0.5 flex flex-wrap gap-1">
-                    {g.segments
-                      .filter((seg) => seg.value > 0)
-                      .map((seg) => {
-                        const si = series.findIndex((s) => s.key === seg.seriesKey);
-                        const s = series[si];
-                        const label = `${g.label || '—'} · ${s.label || '—'}`;
-                        return (
-                          <button
-                            key={seg.seriesKey}
-                            onMouseEnter={() => setHover({label, value: seg.value})}
-                            onMouseLeave={() => setHover(null)}
-                            onClick={() => setDrill({title: label, rows: seg.rows})}
-                            title={`${s.label || '—'}: ${fmt(seg.value)}`}
-                            className="flex cursor-pointer items-center gap-1 rounded bg-muted/50 px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                          >
-                            <span className="h-2 w-2 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si)}} />
-                            <span className="max-w-[7rem] truncate">{s.label || '—'}</span>
-                            <span className="tabular-nums">{fmt(seg.value)}</span>
-                          </button>
-                        );
-                      })}
-                  </div>
-                )}
-              </div>
-            ))}
+            {live.map((g, i) => {
+              const gk = `g:${g.key}`;
+              return (
+                <div key={g.key}>
+                  <button
+                    onMouseEnter={() => enter({...groupSlices[i], label: g.label || '—', value: g.total} as Slice)}
+                    onMouseLeave={leave}
+                    onClick={() => setDrill({title: g.label || '—', rows: g.rows})}
+                    className={cn(
+                      'flex w-full cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm transition-colors hover:text-foreground',
+                      hoverKey === gk && 'bg-accent/50',
+                    )}
+                  >
+                    <span className="h-3 w-3 shrink-0 rounded-sm" style={{backgroundColor: chartColor(g, i)}} />
+                    <span className="min-w-0 flex-1 truncate text-left" title={g.label}>
+                      {g.label || '—'}
+                    </span>
+                    <span className="tabular-nums text-xs text-muted-foreground">{fmt(g.total)}</span>
+                    <span className="w-10 text-right tabular-nums text-xs font-medium">{Math.round((g.total / total) * 100)}%</span>
+                  </button>
+                  {stacked && (
+                    <div className="ml-5 mt-0.5 flex flex-wrap gap-1">
+                      {g.segments
+                        .filter((seg) => seg.value > 0)
+                        .map((seg) => {
+                          const si = series.findIndex((s) => s.key === seg.seriesKey);
+                          const s = series[si];
+                          const label = `${g.label || '—'} · ${s.label || '—'}`;
+                          const sk = `s:${g.key}:${seg.seriesKey}`;
+                          return (
+                            <button
+                              key={seg.seriesKey}
+                              onMouseEnter={() => {
+                                setHoverKey(sk);
+                                setHover({label, value: seg.value});
+                              }}
+                              onMouseLeave={leave}
+                              onClick={() => setDrill({title: label, rows: seg.rows})}
+                              title={`${s.label || '—'}: ${fmt(seg.value)}`}
+                              className={cn(
+                                'flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors',
+                                hoverKey === sk ? 'bg-accent text-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-accent hover:text-foreground',
+                              )}
+                            >
+                              <span className="h-2 w-2 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si)}} />
+                              <span className="max-w-[7rem] truncate">{s.label || '—'}</span>
+                              <span className="tabular-nums">{fmt(seg.value)}</span>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
