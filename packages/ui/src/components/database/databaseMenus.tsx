@@ -27,6 +27,7 @@ import {
   Trash2,
   Upload,
   Workflow,
+  X,
 } from 'lucide-react';
 import {
   isFilterGroup,
@@ -1176,6 +1177,64 @@ export const MetricsBar: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db,
 export function addFirstMetric(db: UseDatabase, view: DatabaseView): void {
   void db.updateView(view.id, {metrics: [...(view.metrics ?? []), {id: shortId('metric'), propertyId: TITLE_PROPERTY_ID, type: 'count_all'}]});
 }
+
+/** A human label for a filter condition, e.g. "Status is Done". */
+function filterChipText(filter: DatabaseFilter, properties: DatabaseProperty[]): string {
+  const name = filter.propertyId === TITLE_PROPERTY_ID ? 'Name' : properties.find((p) => p.id === filter.propertyId)?.name ?? 'Property';
+  const op = OPERATOR_LABEL[filter.operator] ?? filter.operator;
+  if (VALUELESS.has(filter.operator)) return `${name} ${op}`;
+  const prop = properties.find((p) => p.id === filter.propertyId);
+  let value: unknown = filter.value;
+  if (prop && (prop.type === 'select' || prop.type === 'status' || prop.type === 'multi_select')) {
+    value = prop.options?.find((o) => o.id === value)?.label ?? value;
+  }
+  return `${name} ${op} ${value ?? ''}`.trim();
+}
+
+/**
+ * Active-filter chips: each top-level condition of the view's filter as a small
+ * removable pill, so the filters added from the toolbar or a cell's right-click
+ * menu are visible at a glance and one click to drop. Nested filter groups stay
+ * managed in the Filter menu (a single "advanced" pill stands in for them).
+ */
+export const FilterChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const properties = db.database!.schema.properties;
+  const root = view.filterRoot ?? {id: 'root', conjunction: 'and' as const, filters: view.filters ?? []};
+  const leaves = root.filters.filter((n): n is DatabaseFilter => !isFilterGroup(n));
+  const groups = root.filters.length - leaves.length;
+  if (leaves.length === 0 && groups === 0) return null;
+
+  const removeLeaf = (id: string): void =>
+    void db.updateView(view.id, {filterRoot: {...root, filters: root.filters.filter((n) => isFilterGroup(n) || n.id !== id)}, filters: []});
+  const clearAll = (): void => void db.updateView(view.id, {filterRoot: {...root, filters: []}, filters: []});
+
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+      {leaves.map((f, i) => (
+        <React.Fragment key={f.id}>
+          {i > 0 && <span className="text-[11px] uppercase text-muted-foreground/60">{root.conjunction}</span>}
+          <span className="flex items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-2 pr-1 text-xs">
+            <Filter className="h-3 w-3 shrink-0 text-muted-foreground" />
+            <span className="max-w-[16rem] truncate text-muted-foreground" title={filterChipText(f, properties)}>
+              {filterChipText(f, properties)}
+            </span>
+            <button onClick={() => removeLeaf(f.id)} aria-label="Remove filter" className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground">
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        </React.Fragment>
+      ))}
+      {groups > 0 && (
+        <span className="rounded-full border border-dashed border-border px-2 py-0.5 text-xs text-muted-foreground">+{groups} advanced</span>
+      )}
+      {leaves.length + groups > 1 && (
+        <button onClick={clearAll} className="ml-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground">
+          Clear all
+        </button>
+      )}
+    </div>
+  );
+};
 
 /** The `+` next to the view tabs: add a new view of a chosen layout. */
 export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = ({onAdd}) => (

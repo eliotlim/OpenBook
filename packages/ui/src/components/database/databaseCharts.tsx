@@ -138,12 +138,23 @@ const DrillPanel: React.FC<{db: UseDatabase; drill: NonNullable<Drill>; onClose:
 export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
   const [drill, setDrill] = useState<Drill>(null);
   const [hover, setHover] = useState<Hover>(null);
+  // The hovered bar/segment, and (from the legend) the hovered series — together
+  // they decide which bars stay lit while the rest dim.
+  const [hoverKey, setHoverKey] = useState<string | null>(null);
+  const [hoverSeries, setHoverSeries] = useState<string | null>(null);
   if (!view.groupByPropertyId) return <NeedsGrouping />;
 
   const {groups, series} = aggregateMatrix(db.visibleRows, view, properties);
   const stacked = series[0]?.key !== CHART_TOTAL_SERIES;
   const max = Math.max(1, ...groups.map((g) => g.total));
   const total = groups.reduce((sum, g) => sum + g.total, 0);
+  const anyHover = hoverKey !== null || hoverSeries !== null;
+  const dimOpacity = (lit: boolean): number => (anyHover && !lit ? 0.35 : 1);
+  const clear = (): void => {
+    setHoverKey(null);
+    setHoverSeries(null);
+    setHover(null);
+  };
 
   return (
     <div>
@@ -163,28 +174,36 @@ export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
                     const si = series.findIndex((s) => s.key === seg.seriesKey);
                     const s = series[si];
                     const label = `${g.label || '—'} · ${s.label || '—'}`;
+                    const key = `${g.key}:${seg.seriesKey}`;
+                    const lit = hoverKey === key || hoverSeries === seg.seriesKey;
                     return (
                       <button
                         key={seg.seriesKey}
-                        onMouseEnter={() => setHover({label, value: seg.value})}
-                        onMouseLeave={() => setHover(null)}
+                        onMouseEnter={() => {
+                          setHoverKey(key);
+                          setHover({label, value: seg.value});
+                        }}
+                        onMouseLeave={clear}
                         onClick={() => setDrill({title: label, rows: seg.rows})}
                         title={`${s.label || '—'}: ${fmt(seg.value)}`}
                         aria-label={`${label}: ${fmt(seg.value)}`}
-                        className="h-full cursor-pointer transition-all first:rounded-l last:rounded-r hover:brightness-110"
-                        style={{width: `${(seg.value / max) * 100}%`, backgroundColor: chartColor(s, si)}}
+                        className="h-full cursor-pointer transition-all first:rounded-l last:rounded-r"
+                        style={{width: `${(seg.value / max) * 100}%`, backgroundColor: chartColor(s, si), opacity: dimOpacity(lit)}}
                       />
                     );
                   })
                   : (
                     <button
-                      onMouseEnter={() => setHover({label: g.label || '—', value: g.total})}
-                      onMouseLeave={() => setHover(null)}
+                      onMouseEnter={() => {
+                        setHoverKey(g.key);
+                        setHover({label: g.label || '—', value: g.total});
+                      }}
+                      onMouseLeave={clear}
                       onClick={() => setDrill({title: g.label || '—', rows: g.rows})}
                       title={fmt(g.total)}
                       aria-label={`${g.label || 'No value'}: ${fmt(g.total)}`}
-                      className="h-full cursor-pointer rounded transition-all hover:brightness-110"
-                      style={{width: `${Math.max(2, (g.total / max) * 100)}%`, backgroundColor: chartColor(g, gi)}}
+                      className="h-full cursor-pointer rounded transition-all"
+                      style={{width: `${Math.max(2, (g.total / max) * 100)}%`, backgroundColor: chartColor(g, gi), opacity: dimOpacity(hoverKey === g.key)}}
                     />
                   )}
               </div>
@@ -193,7 +212,17 @@ export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
           ))}
         </div>
         {stacked && groups.length > 0 && (
-          <SeriesLegend series={series} groups={groups} setHover={setHover} onPick={(title, rows) => setDrill({title, rows})} />
+          <SeriesLegend
+            series={series}
+            groups={groups}
+            hoverSeries={hoverSeries}
+            onHover={(key, h) => {
+              setHoverSeries(key);
+              setHover(h);
+            }}
+            onLeave={clear}
+            onPick={(title, rows) => setDrill({title, rows})}
+          />
         )}
       </div>
       {drill && <DrillPanel db={db} drill={drill} onClose={() => setDrill(null)} />}
@@ -201,13 +230,16 @@ export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
   );
 };
 
-/** Breakdown legend: a swatch per series, clickable to drill all its rows. */
+/** Breakdown legend: a swatch per series. Hovering lights that series across all
+ *  bars (dimming the rest); clicking drills into all its rows. */
 const SeriesLegend: React.FC<{
   series: ChartSeries[];
   groups: ChartGroup[];
-  setHover: (h: Hover) => void;
+  hoverSeries: string | null;
+  onHover: (key: string, h: Hover) => void;
+  onLeave: () => void;
   onPick: (title: string, rows: DatabaseRow[]) => void;
-}> = ({series, groups, setHover, onPick}) => (
+}> = ({series, groups, hoverSeries, onHover, onLeave, onPick}) => (
   <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 border-t border-border/60 pt-2.5">
     {series.map((s, si) => {
       const rows = groups.flatMap((g) => g.segments.find((seg) => seg.seriesKey === s.key)?.rows ?? []);
@@ -215,10 +247,13 @@ const SeriesLegend: React.FC<{
       return (
         <button
           key={s.key}
-          onMouseEnter={() => setHover({label: s.label || '—', value})}
-          onMouseLeave={() => setHover(null)}
+          onMouseEnter={() => onHover(s.key, {label: s.label || '—', value})}
+          onMouseLeave={onLeave}
           onClick={() => onPick(s.label || '—', rows)}
-          className="flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          className={cn(
+            'flex cursor-pointer items-center gap-1.5 text-xs transition-colors hover:text-foreground',
+            hoverSeries === s.key ? 'text-foreground' : 'text-muted-foreground',
+          )}
         >
           <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si)}} />
           <span className="max-w-[10rem] truncate">{s.label || '—'}</span>

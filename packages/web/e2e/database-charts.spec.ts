@@ -35,7 +35,8 @@ async function seed(request: APIRequestContext): Promise<string> {
   const pageId = ((await p.json()) as {id: string}).id;
   const d = await request.post(`${SERVER}/api/databases`, {data: {pageId, name: 'Work', schema}});
   const dbId = ((await d.json()) as {id: string}).id;
-  for (const r of rows) await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: r});
+  const tag = dbId.slice(0, 8); // page names are globally unique — keep row names distinct
+  for (const r of rows) await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {...r, name: `${r.name} ${tag}`}});
   return pageId;
 }
 
