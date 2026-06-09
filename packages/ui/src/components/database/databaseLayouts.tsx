@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ChevronLeft, ChevronRight, PanelRightOpen, Plus} from 'lucide-react';
+import {ChevronLeft, ChevronRight, Copy, PanelRightOpen, Plus, Trash2} from 'lucide-react';
 import {
   dateEnd,
   dateStart,
@@ -11,6 +11,13 @@ import {
   type DatabaseRow,
   type DatabaseView as DbView,
 } from '@open-book/sdk';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import {cn} from '@/lib/utils';
 import {readPageIcon} from '@/lib/pageIcon';
 import {pageLinks} from '@/lib/pageLinks';
@@ -66,6 +73,31 @@ export const RowChips: React.FC<{row: DatabaseRow; properties: DatabaseProperty[
   </div>
 );
 
+/**
+ * Right-click any card (board / gallery) for the same quick row actions as the
+ * table — open, insert below, duplicate, delete — without opening the row first.
+ */
+export const RowContextMenu: React.FC<{db: UseDatabase; rowId: string; children: React.ReactNode}> = ({db, rowId, children}) => (
+  <ContextMenu>
+    <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+    <ContextMenuContent className="w-48">
+      <ContextMenuItem onSelect={() => db.openRow(rowId)}>
+        <PanelRightOpen className="mr-2 h-3.5 w-3.5" /> Open
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void db.addRowAfter(rowId)}>
+        <Plus className="mr-2 h-3.5 w-3.5" /> Insert below
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => void db.duplicateRow(rowId)}>
+        <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
+      </ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={() => void db.deleteRow(rowId)} className="text-destructive focus:text-destructive">
+        <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+      </ContextMenuItem>
+    </ContextMenuContent>
+  </ContextMenu>
+);
+
 const NewRowButton: React.FC<{onClick: () => void; label?: string; className?: string}> = ({onClick, label, className}) => (
   <button
     onClick={onClick}
@@ -95,21 +127,22 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
         {db.visibleRows.map((row) => {
           const cover = view.coverPropertyId ? firstImageUrl(row.properties[view.coverPropertyId]) : null;
           return (
-            <button
-              key={row.id}
-              onClick={() => db.openRow(row.id)}
-              className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20 hover:bg-accent/30"
-            >
-              {cover ? (
-                <img src={cover} alt="" className={cn('w-full object-cover', GALLERY_COVER[size])} />
-              ) : (
-                <div className="flex h-16 items-center justify-center bg-muted/40 text-3xl">{readPageIcon(row.id)}</div>
-              )}
-              <div className="flex flex-col gap-2 px-3 pb-3">
-                <div className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</div>
-                <RowChips row={row} properties={properties} rows={db.rows} />
-              </div>
-            </button>
+            <RowContextMenu key={row.id} db={db} rowId={row.id}>
+              <button
+                onClick={() => db.openRow(row.id)}
+                className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20 hover:bg-accent/30"
+              >
+                {cover ? (
+                  <img src={cover} alt="" className={cn('w-full object-cover', GALLERY_COVER[size])} />
+                ) : (
+                  <div className="flex h-16 items-center justify-center bg-muted/40 text-3xl">{readPageIcon(row.id)}</div>
+                )}
+                <div className="flex flex-col gap-2 px-3 pb-3">
+                  <div className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</div>
+                  <RowChips row={row} properties={properties} rows={db.rows} />
+                </div>
+              </button>
+            </RowContextMenu>
           );
         })}
       </div>
@@ -252,24 +285,25 @@ export const BoardView: React.FC<{
                 </div>
                 <div className="flex flex-col gap-2">
                   {group.rows.map((row) => (
-                    <div
-                      key={row.id}
-                      draggable={canMove}
-                      onDragStart={() => setDragRow(row.id)}
-                      onDragEnd={() => setDragRow(null)}
-                      onClick={() => db.openRow(row.id)}
-                      className={cn(
-                        'group cursor-pointer rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
-                        dragRow === row.id && 'opacity-50',
-                      )}
-                    >
-                      <div className="mb-1 flex items-center gap-1.5">
-                        <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
-                        <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-                        <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
+                    <RowContextMenu key={row.id} db={db} rowId={row.id}>
+                      <div
+                        draggable={canMove}
+                        onDragStart={() => setDragRow(row.id)}
+                        onDragEnd={() => setDragRow(null)}
+                        onClick={() => db.openRow(row.id)}
+                        className={cn(
+                          'group cursor-pointer rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
+                          dragRow === row.id && 'opacity-50',
+                        )}
+                      >
+                        <div className="mb-1 flex items-center gap-1.5">
+                          <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+                          <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
+                          <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
+                        </div>
+                        <RowChips row={row} properties={cardProps} rows={db.rows} />
                       </div>
-                      <RowChips row={row} properties={cardProps} rows={db.rows} />
-                    </div>
+                    </RowContextMenu>
                   ))}
                 </div>
                 {sumProp && group.rows.length > 0 && (

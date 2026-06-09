@@ -10,7 +10,10 @@ const schema = {
       {id: 's_done', label: 'Done', color: 'green'},
     ]},
   ],
-  views: [{id: 'v_tbl', name: 'Table', type: 'table', filters: [], sorts: []}],
+  views: [
+    {id: 'v_tbl', name: 'Table', type: 'table', filters: [], sorts: []},
+    {id: 'v_board', name: 'Board', type: 'board', filters: [], sorts: [], groupByPropertyId: 'p_status'},
+  ],
 };
 
 async function seed(request: APIRequestContext): Promise<string> {
@@ -48,4 +51,19 @@ test('cell context menu: filter by value and row actions', async ({page, request
   await page.getByRole('table').getByText('Done').first().click({button: 'right'});
   await page.getByRole('menuitem', {name: 'Duplicate'}).click();
   await expect(titles).toHaveCount(3);
+});
+
+// Board (and gallery) cards get the same right-click row actions.
+test('board card context menu: duplicate via right-click', async ({page, request}) => {
+  const pageId = await seed(request);
+  await page.goto(`/?page=${pageId}`);
+  await page.getByRole('button', {name: 'Add column'}).waitFor();
+  await page.getByRole('button', {name: 'Board', exact: true}).click();
+
+  // Each kanban card shows the row title; right-click → Duplicate adds a card.
+  const cards = page.locator('[draggable="true"]').filter({hasText: /Alpha|Beta|Gamma/});
+  const before = await cards.count();
+  await page.getByText('Beta', {exact: false}).first().click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Duplicate'}).click();
+  await expect(cards).toHaveCount(before + 1);
 });
