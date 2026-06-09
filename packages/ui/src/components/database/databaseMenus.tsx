@@ -717,6 +717,21 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
           </div>
         )}
 
+        {property.type === 'rating' && (
+          <label className="block">
+            <span className={sectionLabel}>Max stars</span>
+            <input
+              type="number"
+              min={1}
+              max={10}
+              defaultValue={property.numberTarget ?? 5}
+              onBlur={(e) => void db.updateProperty(property.id, {numberTarget: Math.min(10, Math.max(1, Number(e.target.value) || 5))})}
+              className={cn(fieldClass, 'mt-1 w-full')}
+              aria-label="Max stars"
+            />
+          </label>
+        )}
+
         {property.type === 'dependency' &&
           (property.syncedPropertyId ? (
             <p className="flex items-center gap-1.5 rounded-md bg-muted/60 px-2 py-1.5 text-xs text-muted-foreground">
