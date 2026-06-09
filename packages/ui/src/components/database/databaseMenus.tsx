@@ -1120,7 +1120,13 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
   const dependencyProps = properties.filter((p) => p.type === 'dependency');
   const showCover = view.type === 'gallery';
   const coverProps = properties.filter((p) => p.type === 'files' || p.type === 'url');
-  const showColumns = view.type === 'table' || view.type === 'list' || view.type === 'gallery';
+  const showColumns =
+    view.type === 'table' ||
+    view.type === 'list' ||
+    view.type === 'gallery' ||
+    view.type === 'board' ||
+    view.type === 'calendar' ||
+    view.type === 'timeline';
 
   return (
     <Popover>
@@ -1222,6 +1228,26 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
               </label>
             )}
           </div>
+        )}
+
+        {showChart && (
+          <label className="block">
+            <span className={sectionLabel}>Break down by</span>
+            <select
+              value={view.breakdownPropertyId ?? ''}
+              onChange={(e) => db.updateView(view.id, {breakdownPropertyId: e.target.value || undefined})}
+              className={cn(fieldClass, 'mt-1 w-full')}
+            >
+              <option value="">None</option>
+              {groupable
+                .filter((p) => p.id !== view.groupByPropertyId)
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+            </select>
+          </label>
         )}
 
         {showDate && (

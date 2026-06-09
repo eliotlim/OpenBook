@@ -10,6 +10,7 @@ import {
 import {readPageIcon} from '@/lib/pageIcon';
 import type {UseDatabase} from './useDatabase';
 import {SWATCH_HEX} from './databaseColors';
+import {RowChips} from './databaseLayouts';
 
 const DAY_MS = 86_400_000;
 const ROW_H = 34;
@@ -69,8 +70,9 @@ const TimelineBody: React.FC<{
   endProp: DatabaseProperty | undefined;
   canResize: boolean;
   barColor: (row: DatabaseRow) => string;
+  rowH: number;
   db: UseDatabase;
-}> = ({laid, dayW, min, bodyW, bodyH, months, todayX, depProp, startProp, endProp, canResize, barColor, db}) => {
+}> = ({laid, dayW, min, bodyW, bodyH, months, todayX, depProp, startProp, endProp, canResize, barColor, rowH, db}) => {
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
@@ -150,9 +152,9 @@ const TimelineBody: React.FC<{
         if (!pred) continue;
         arrows.push({
           x1: xOf(addDays(pred.span.end, 1)),
-          y1: pred.index * ROW_H + ROW_H / 2,
+          y1: pred.index * rowH + rowH / 2,
           x2: xOf(l.span.start),
-          y2: l.index * ROW_H + ROW_H / 2,
+          y2: l.index * rowH + rowH / 2,
         });
       }
     }
@@ -198,8 +200,8 @@ const TimelineBody: React.FC<{
             style={{
               left,
               width,
-              top: l.index * ROW_H + BAR_PAD,
-              height: ROW_H - BAR_PAD * 2,
+              top: l.index * rowH + BAR_PAD,
+              height: rowH - BAR_PAD * 2,
               backgroundColor: barColor(l.row),
               touchAction: 'none',
             }}
@@ -262,15 +264,20 @@ const cnBar = (dragging: boolean): string =>
  * names a `dependency` property, arrows link each predecessor's bar end to the
  * dependent's bar start.
  */
-export const TimelineView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({
-  db,
-  view,
-  properties,
-}) => {
+export const TimelineView: React.FC<{
+  db: UseDatabase;
+  view: DbView;
+  properties: DatabaseProperty[];
+  /** Properties to show as chips under each rail label (the dates drive placement). */
+  cardProperties?: DatabaseProperty[];
+}> = ({db, view, properties, cardProperties}) => {
   const selectProp = properties.find((p) => p.type === 'select');
   const depProp = view.dependencyPropertyId ? properties.find((p) => p.id === view.dependencyPropertyId) : undefined;
   const startProp = view.datePropertyId ? properties.find((p) => p.id === view.datePropertyId) : undefined;
   const endProp = view.endDatePropertyId ? properties.find((p) => p.id === view.endDatePropertyId) : undefined;
+  const railProps = (cardProperties ?? []).filter((p) => p.id !== view.datePropertyId && p.id !== view.endDatePropertyId);
+  // Taller rows when chips are shown so the title + a chip line both fit.
+  const rowH = railProps.length > 0 ? 52 : ROW_H;
 
   if (!startProp) {
     return <Hint>Choose a start date property in the view options to lay rows out on a timeline.</Hint>;
@@ -306,7 +313,7 @@ export const TimelineView: React.FC<{db: UseDatabase; view: DbView; properties: 
   const totalDays = diffDays(min, max) + 1;
   const dayW = dayWidthFor(totalDays);
   const bodyW = totalDays * dayW;
-  const bodyH = laid.length * ROW_H;
+  const bodyH = laid.length * rowH;
   const canResize = !!endProp || !!startProp.dateRange;
 
   const xOf = (d: Date): number => diffDays(min, d) * dayW;
@@ -345,11 +352,18 @@ export const TimelineView: React.FC<{db: UseDatabase; view: DbView; properties: 
           <button
             key={l.row.id}
             onClick={() => db.openRow(l.row.id)}
-            className="flex w-full items-center gap-1.5 border-b border-border/60 px-2 text-left text-sm last:border-0 hover:bg-accent/30"
-            style={{height: ROW_H}}
+            className="flex w-full flex-col justify-center gap-0.5 border-b border-border/60 px-2 text-left text-sm last:border-0 hover:bg-accent/30"
+            style={{height: rowH}}
           >
-            <span className="shrink-0 text-sm leading-none">{readPageIcon(l.row.id)}</span>
-            <span className="truncate">{l.row.name?.trim() || 'Untitled'}</span>
+            <span className="flex w-full items-center gap-1.5">
+              <span className="shrink-0 text-sm leading-none">{readPageIcon(l.row.id)}</span>
+              <span className="truncate">{l.row.name?.trim() || 'Untitled'}</span>
+            </span>
+            {railProps.length > 0 && (
+              <span className="flex h-[18px] items-center overflow-hidden">
+                <RowChips row={l.row} properties={railProps} rows={db.rows} />
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -383,6 +397,7 @@ export const TimelineView: React.FC<{db: UseDatabase; view: DbView; properties: 
             endProp={endProp}
             canResize={canResize}
             barColor={barColor}
+            rowH={rowH}
             db={db}
           />
         </div>

@@ -664,17 +664,20 @@ const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProper
   columns,
   schema,
 }) => {
+  // The dense date layouts only show property chips once the user opts in (picks
+  // properties); the card layouts show the visible set by default.
+  const explicitCols = view.visiblePropertyIds && view.visiblePropertyIds.length > 0 ? columns : [];
   switch (view.type) {
   case 'list':
     return <ListView db={db} columns={columns} schema={schema} view={view} />;
   case 'gallery':
     return <GalleryView db={db} view={view} properties={columns} />;
   case 'board':
-    return <BoardView db={db} view={view} properties={schema} />;
+    return <BoardView db={db} view={view} properties={schema} cardProperties={columns} />;
   case 'calendar':
-    return <CalendarView db={db} view={view} properties={schema} />;
+    return <CalendarView db={db} view={view} properties={schema} cardProperties={explicitCols} />;
   case 'timeline':
-    return <TimelineView db={db} view={view} properties={schema} />;
+    return <TimelineView db={db} view={view} properties={schema} cardProperties={explicitCols} />;
   case 'graph':
     return <GraphView db={db} view={view} properties={schema} />;
   case 'bar':

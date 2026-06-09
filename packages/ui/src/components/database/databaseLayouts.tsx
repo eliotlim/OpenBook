@@ -128,11 +128,13 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
  * columns to change their group value (when grouping on a `select`). A per-column
  * "+ New" creates a row already set to that column.
  */
-export const BoardView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({
-  db,
-  view,
-  properties,
-}) => {
+export const BoardView: React.FC<{
+  db: UseDatabase;
+  view: DbView;
+  properties: DatabaseProperty[];
+  /** The view's visible property set, shown as card chips (defaults to all). */
+  cardProperties?: DatabaseProperty[];
+}> = ({db, view, properties, cardProperties}) => {
   const groupProp = properties.find((p) => p.id === view.groupByPropertyId);
   const [dragRow, setDragRow] = useState<string | null>(null);
   const [dragCol, setDragCol] = useState<string | null>(null);
@@ -151,7 +153,7 @@ export const BoardView: React.FC<{db: UseDatabase; view: DbView; properties: Dat
   // Columns backed by a real option (not the trailing "No value") can be reordered.
   const isOption = (key: string): boolean => canMove && key !== '__none__' && key !== '__all__';
   // Properties shown on a card exclude the grouping one (it's the column itself).
-  const cardProps = properties.filter((p) => p.id !== groupProp?.id);
+  const cardProps = (cardProperties ?? properties).filter((p) => p.id !== groupProp?.id);
   // A numeric property (if any) gets summed in each column footer.
   const sumProp = properties.find((p) => p.type === 'number' || p.type === 'rollup' || p.type === 'formula' || p.type === 'expr');
 
@@ -306,12 +308,15 @@ const ymd = (y: number, m: number, d: number): string =>
   `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
 /** Calendar: rows laid out on a month grid by a date property. */
-export const CalendarView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({
-  db,
-  view,
-  properties,
-}) => {
+export const CalendarView: React.FC<{
+  db: UseDatabase;
+  view: DbView;
+  properties: DatabaseProperty[];
+  /** Properties to show as chips under each tile's title (the date drives placement). */
+  cardProperties?: DatabaseProperty[];
+}> = ({db, view, properties, cardProperties}) => {
   const dateProp = properties.find((p) => p.id === view.datePropertyId);
+  const tileProps = (cardProperties ?? []).filter((p) => p.id !== view.datePropertyId);
   const today = new Date();
   const [cursor, setCursor] = useState({year: today.getFullYear(), month: today.getMonth()});
   const [dragRow, setDragRow] = useState<string | null>(null);
@@ -453,14 +458,17 @@ export const CalendarView: React.FC<{db: UseDatabase; view: DbView; properties: 
                     onDragEnd={() => setDragRow(null)}
                     onClick={() => db.openRow(row.id)}
                     className={cn(
-                      'flex items-center gap-1 truncate rounded bg-brand/10 px-1 py-0.5 text-left text-[11px] text-foreground/80 transition-colors hover:bg-brand/20',
+                      'flex flex-col gap-0.5 rounded bg-brand/10 px-1 py-0.5 text-left text-[11px] text-foreground/80 transition-colors hover:bg-brand/20',
                       editable && 'cursor-grab active:cursor-grabbing',
                       dragRow === row.id && 'opacity-40',
                     )}
                     title={row.name ?? 'Untitled'}
                   >
-                    <span className="shrink-0 leading-none">{readPageIcon(row.id)}</span>
-                    <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
+                    <span className="flex items-center gap-1 truncate">
+                      <span className="shrink-0 leading-none">{readPageIcon(row.id)}</span>
+                      <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
+                    </span>
+                    {tileProps.length > 0 && <RowChips row={row} properties={tileProps} rows={db.rows} />}
                   </button>
                 ))}
               </div>

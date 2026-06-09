@@ -323,6 +323,12 @@ export interface DatabaseView {
   groupByPropertyId?: string;
   /** Chart aggregation (`bar`/`pie`). Defaults to counting rows per group. */
   aggregate?: ChartAggregate;
+  /**
+   * Chart second-level group (`bar`/`pie`). Splits each `groupByPropertyId`
+   * category into stacked bar segments (or a breakdown ring on the pie). Ignored
+   * when unset or equal to `groupByPropertyId`.
+   */
+  breakdownPropertyId?: string;
   /** Date property positioning rows on the month grid (`calendar`) or the bar
    *  start on the `timeline`. A `dateRange` property supplies both ends at once. */
   datePropertyId?: string;
@@ -1290,6 +1296,98 @@ export function aggregateRows(rows: DatabaseRow[], view: DatabaseView, propertie
     color: g.color,
     value: foldAggregate(g.rows, agg, properties),
   }));
+}
+
+/** Synthetic series used when a chart has no breakdown (a single full-height bar). */
+export const CHART_TOTAL_SERIES = '__total__';
+
+/** A breakdown series — the second-level group shared across every chart group. */
+export interface ChartSeries {
+  /** Stable key (breakdown option id, or its displayed value). */
+  key: string;
+  label: string;
+  /** Swatch color when the series is a select option. */
+  color?: string;
+}
+
+/** One series' slice of a {@link ChartGroup}: its rows and aggregated value. */
+export interface ChartSegment {
+  seriesKey: string;
+  value: number;
+  /** The rows behind this segment (powers click-to-drill). */
+  rows: DatabaseRow[];
+}
+
+/** One primary chart category, split across the shared {@link ChartMatrix.series}. */
+export interface ChartGroup {
+  key: string;
+  label: string;
+  color?: string;
+  /** The group's bar height / slice size (sum of its segment values). */
+  total: number;
+  /** Per-series contributions, in {@link ChartMatrix.series} order (zero-filled). */
+  segments: ChartSegment[];
+  rows: DatabaseRow[];
+}
+
+/** A chart's full data: primary groups, each split across a shared series set. */
+export interface ChartMatrix {
+  groups: ChartGroup[];
+  series: ChartSeries[];
+}
+
+/**
+ * Aggregate rows into a {@link ChartMatrix}: one group per value of the view's
+ * `groupByPropertyId`, each split into segments by `breakdownPropertyId` (the
+ * second-level group). The series are derived once across all rows so every group
+ * shares the same ordered, coloured set — a group with no rows for a series gets a
+ * zero segment, keeping stacked bars aligned. Without a breakdown each group has a
+ * single {@link CHART_TOTAL_SERIES} segment equal to its total. Pure — drives the
+ * bar and pie charts and their drill-downs.
+ */
+export function aggregateMatrix(rows: DatabaseRow[], view: DatabaseView, properties: DatabaseProperty[]): ChartMatrix {
+  const groupProp = properties.find((p) => p.id === view.groupByPropertyId);
+  const agg: ChartAggregate = view.aggregate ?? {type: 'count'};
+  const groups = groupRows(rows, groupProp, properties);
+  const breakdownProp =
+    view.breakdownPropertyId && view.breakdownPropertyId !== view.groupByPropertyId
+      ? properties.find((p) => p.id === view.breakdownPropertyId)
+      : undefined;
+
+  if (!breakdownProp) {
+    return {
+      series: [{key: CHART_TOTAL_SERIES, label: ''}],
+      groups: groups.map((g) => {
+        const total = foldAggregate(g.rows, agg, properties);
+        return {
+          key: g.key,
+          label: g.label,
+          color: g.color,
+          total,
+          rows: g.rows,
+          segments: [{seriesKey: CHART_TOTAL_SERIES, value: total, rows: g.rows}],
+        };
+      }),
+    };
+  }
+
+  // Derive the shared series from the breakdown across every row (stable order).
+  const series: ChartSeries[] = groupRows(rows, breakdownProp, properties).map((s) => ({
+    key: s.key,
+    label: s.label,
+    color: s.color,
+  }));
+  return {
+    series,
+    groups: groups.map((g) => {
+      const subRows = new Map(groupRows(g.rows, breakdownProp, properties).map((s) => [s.key, s.rows]));
+      const segments: ChartSegment[] = series.map((s) => {
+        const segRows = subRows.get(s.key) ?? [];
+        return {seriesKey: s.key, value: foldAggregate(segRows, agg, properties), rows: segRows};
+      });
+      return {key: g.key, label: g.label, color: g.color, total: foldAggregate(g.rows, agg, properties), rows: g.rows, segments};
+    }),
+  };
 }
 
 // ── Column summaries (table footers) ─────────────────────────────────────────

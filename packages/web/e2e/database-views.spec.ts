@@ -64,6 +64,37 @@ test('database views: board, gallery, and bar chart layouts render', async ({pag
   await expect(page.getByText('No value', {exact: true})).toBeVisible();
 });
 
+// The bar chart is interactive: a readout, click-to-drill into a bar's rows, and
+// a second-level "Break down by" control in the view options.
+test('database bar chart: drill-down and breakdown control', async ({page}, testInfo) => {
+  await newDatabase(page);
+
+  // A named row so it's identifiable once we drill into the chart.
+  await page.getByRole('button', {name: 'New row'}).click();
+  const title = page.getByRole('table').getByPlaceholder('Untitled').first();
+  await title.fill('Alpha');
+  await title.blur();
+
+  // Switch to a Bar chart (groups by Status; the row has none → a "No value" bar).
+  await page.getByRole('button', {name: 'Add view'}).click();
+  await page.getByRole('menuitem', {name: 'Bar chart'}).click();
+  await expect(page.getByText('No value', {exact: true})).toBeVisible();
+
+  // The readout strip shows the measure and the grand total.
+  await expect(page.getByText('Count', {exact: true})).toBeVisible();
+  await expect(page.getByText('Total 1')).toBeVisible();
+
+  // Clicking the bar drills into its rows; the panel lists the underlying row.
+  await page.getByRole('button', {name: /No value: 1/}).click();
+  await expect(page.getByRole('button', {name: 'Close drill-down'})).toBeVisible();
+  await expect(page.getByRole('button', {name: /Alpha/})).toBeVisible();
+  await takeSnapshot(page, testInfo); // visual: interactive bar chart + drill-down
+
+  // The view options expose the second-level breakdown control.
+  await page.getByRole('button', {name: 'View options'}).click();
+  await expect(page.getByText('Break down by')).toBeVisible();
+});
+
 // A table column footer can summarise its values (here, a row count).
 test('database summaries: a column footer calculation renders', async ({page}) => {
   await newDatabase(page);

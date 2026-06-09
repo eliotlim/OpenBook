@@ -1,6 +1,7 @@
 import {describe, it, expect} from 'vitest';
 import {parseCsv, rowsToCsv} from '@/components/database/databaseCells';
 import {
+  aggregateMatrix,
   aggregateRows,
   applyView,
   buildRowTree,
@@ -177,6 +178,99 @@ describe('aggregateRows', () => {
       ['Todo', 15],
       ['Done', 20],
     ]);
+  });
+});
+
+describe('aggregateMatrix', () => {
+  const status: DatabaseProperty = {
+    id: 's',
+    name: 'Status',
+    type: 'select',
+    options: [
+      {id: 'todo', label: 'Todo'},
+      {id: 'done', label: 'Done'},
+    ],
+  };
+  const team: DatabaseProperty = {
+    id: 't',
+    name: 'Team',
+    type: 'select',
+    options: [
+      {id: 'eng', label: 'Eng'},
+      {id: 'design', label: 'Design'},
+    ],
+  };
+  const cost: DatabaseProperty = {id: 'c', name: 'Cost', type: 'number'};
+  const props = [status, team, cost];
+  const rows = [
+    row({id: 'a', properties: {s: 'todo', t: 'eng', c: 10}}),
+    row({id: 'b', properties: {s: 'todo', t: 'design', c: 5}}),
+    row({id: 'c', properties: {s: 'done', t: 'eng', c: 20}}),
+  ];
+
+  it('returns a single synthetic series with no breakdown', () => {
+    const view: DatabaseView = {id: 'v', name: 'V', type: 'bar', filters: [], sorts: [], groupByPropertyId: 's'};
+    const {groups, series} = aggregateMatrix(rows, view, props);
+    expect(series.map((s) => s.key)).toEqual(['__total__']);
+    expect(groups.map((g) => [g.label, g.total])).toEqual([
+      ['Todo', 2],
+      ['Done', 1],
+    ]);
+    // The single segment carries every row behind the bar (for drill-down).
+    expect(groups[0].segments[0].rows.map((r) => r.id)).toEqual(['a', 'b']);
+  });
+
+  it('splits each group into shared, zero-filled breakdown segments', () => {
+    const view: DatabaseView = {
+      id: 'v',
+      name: 'V',
+      type: 'bar',
+      filters: [],
+      sorts: [],
+      groupByPropertyId: 's',
+      breakdownPropertyId: 't',
+    };
+    const {groups, series} = aggregateMatrix(rows, view, props);
+    expect(series.map((s) => s.label)).toEqual(['Eng', 'Design']);
+    // Every group exposes the same ordered series, zero-filled where empty.
+    expect(groups.map((g) => g.segments.map((seg) => seg.value))).toEqual([
+      [1, 1], // Todo: 1 Eng, 1 Design
+      [1, 0], // Done: 1 Eng, 0 Design
+    ]);
+    // Segment rows back the drill-down for one (group, series) cell.
+    const todoEng = groups[0].segments[0];
+    expect(todoEng.rows.map((r) => r.id)).toEqual(['a']);
+  });
+
+  it('folds a numeric measure within each breakdown segment', () => {
+    const view: DatabaseView = {
+      id: 'v',
+      name: 'V',
+      type: 'bar',
+      filters: [],
+      sorts: [],
+      groupByPropertyId: 's',
+      breakdownPropertyId: 't',
+      aggregate: {type: 'sum', propertyId: 'c'},
+    };
+    const {groups} = aggregateMatrix(rows, view, props);
+    expect(groups.map((g) => [g.label, g.total, g.segments.map((s) => s.value)])).toEqual([
+      ['Todo', 15, [10, 5]],
+      ['Done', 20, [20, 0]],
+    ]);
+  });
+
+  it('ignores a breakdown equal to the group property', () => {
+    const view: DatabaseView = {
+      id: 'v',
+      name: 'V',
+      type: 'bar',
+      filters: [],
+      sorts: [],
+      groupByPropertyId: 's',
+      breakdownPropertyId: 's',
+    };
+    expect(aggregateMatrix(rows, view, props).series.map((s) => s.key)).toEqual(['__total__']);
   });
 });
 
