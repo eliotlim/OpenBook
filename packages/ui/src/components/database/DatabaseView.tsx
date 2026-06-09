@@ -35,7 +35,7 @@ import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {cellValue, PropertyValueCell} from './databaseCells';
 import {AddPropertyMenu, AddViewMenu, FilterChips, FilterMenu, MetricsBar, PropertyMenu, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon} from './databaseMenus';
-import {BoardView, CalendarView, GalleryView, RowChips} from './databaseLayouts';
+import {BoardView, CalendarView, GalleryView, RowChips, RowContextMenu} from './databaseLayouts';
 import {BarChartView, PieChartView} from './databaseCharts';
 import {TimelineView} from './databaseTimeline';
 import {GraphView} from './databaseGraph';
@@ -692,24 +692,26 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
 
 /** One list-view row: icon, title, property chips, and the row menu. */
 const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: DatabaseRow}> = ({db, columns, row}) => (
-  <div
-    className="group flex cursor-pointer items-center justify-between gap-2 border-b border-border/70 px-3 py-2 last:border-0 hover:bg-accent/30"
-    onClick={() => db.openRow(row.id)}
-  >
-    <div className="flex min-w-0 flex-1 items-center gap-2">
-      <span className="shrink-0 text-base leading-none">{readPageIcon(row.id)}</span>
-      <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-      <RowChips row={row} properties={columns} rows={db.rows} labelled />
+  <RowContextMenu db={db} rowId={row.id}>
+    <div
+      className="group flex cursor-pointer items-center justify-between gap-2 border-b border-border/70 px-3 py-2 last:border-0 hover:bg-accent/30"
+      onClick={() => db.openRow(row.id)}
+    >
+      <div className="flex min-w-0 flex-1 items-center gap-2">
+        <span className="shrink-0 text-base leading-none">{readPageIcon(row.id)}</span>
+        <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
+        <RowChips row={row} properties={columns} rows={db.rows} labelled />
+      </div>
+      <div onClick={(e) => e.stopPropagation()}>
+        <RowMenu
+          onOpen={() => db.openRow(row.id)}
+          onDuplicate={() => void db.duplicateRow(row.id)}
+          onSaveTemplate={() => void db.saveAsTemplate(row.id)}
+          onDelete={() => void db.deleteRow(row.id)}
+        />
+      </div>
     </div>
-    <div onClick={(e) => e.stopPropagation()}>
-      <RowMenu
-        onOpen={() => db.openRow(row.id)}
-        onDuplicate={() => void db.duplicateRow(row.id)}
-        onSaveTemplate={() => void db.saveAsTemplate(row.id)}
-        onDelete={() => void db.deleteRow(row.id)}
-      />
-    </div>
-  </div>
+  </RowContextMenu>
 );
 
 const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, view}) => {
