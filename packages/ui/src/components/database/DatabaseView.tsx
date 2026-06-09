@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, ChevronDown, ChevronRight, Copy, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Plus, Save, Search, Trash2, X} from 'lucide-react';
+import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, ChevronDown, ChevronRight, Copy, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Plus, Rows3, Save, Search, Trash2, X} from 'lucide-react';
 import {
   buildRowTree,
   dateStart,
@@ -250,6 +250,15 @@ const CellContextMenu: React.FC<{
             <ContextMenuItem onSelect={() => void db.updateView(view.id, {sorts: [{propertyId: property.id, direction: 'desc'}]})}>
               <ArrowUpAZ className="mr-2 h-3.5 w-3.5" /> Sort descending
             </ContextMenuItem>
+            {view.groupByPropertyId === property.id ? (
+              <ContextMenuItem onSelect={() => void db.updateView(view.id, {groupByPropertyId: undefined})}>
+                <Rows3 className="mr-2 h-3.5 w-3.5" /> Ungroup
+              </ContextMenuItem>
+            ) : (
+              <ContextMenuItem onSelect={() => void db.updateView(view.id, {groupByPropertyId: property.id})}>
+                <Rows3 className="mr-2 h-3.5 w-3.5" /> Group by {property.name}
+              </ContextMenuItem>
+            )}
             <ContextMenuSeparator />
           </>
         )}

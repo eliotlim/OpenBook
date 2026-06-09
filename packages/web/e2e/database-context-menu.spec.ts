@@ -67,3 +67,15 @@ test('board card context menu: duplicate via right-click', async ({page, request
   await page.getByRole('menuitem', {name: 'Duplicate'}).click();
   await expect(cards).toHaveCount(before + 1);
 });
+
+// "Group by this column" from the cell context menu groups the table.
+test('cell context menu: group by column', async ({page, request}) => {
+  const pageId = await seed(request);
+  await page.goto(`/?page=${pageId}`);
+  await page.getByRole('button', {name: 'Add column'}).waitFor();
+
+  // Right-click a Status cell → Group by Status → the grouped "Collapse all" appears.
+  await page.getByRole('table').getByText('Done').first().click({button: 'right'});
+  await page.getByRole('menuitem', {name: /Group by Status/}).click();
+  await expect(page.getByRole('button', {name: 'Collapse all'})).toBeVisible();
+});
