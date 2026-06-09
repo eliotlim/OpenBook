@@ -327,105 +327,120 @@ export const BoardView: React.FC<{
     void db.addRow(initial);
   };
 
+  const allCollapsed = groups.length > 0 && groups.every((g) => collapsedCols.has(g.key));
+
   return (
-    <div className="flex gap-3 overflow-x-auto pb-2">
-      {groups.map((group) => {
-        const isCollapsed = collapsedCols.has(group.key);
-        return (
-          <div
-            key={group.key}
-            onDragOver={(e) => {
-              if ((dragRow && canMove) || (dragCol && isOption(group.key))) {
-                e.preventDefault();
-                setOverKey(group.key);
-              }
-            }}
-            onDrop={() => (dragCol ? reorderColumn(dragCol, group.key) : drop(group.key))}
-            className={cn(
-              'flex shrink-0 flex-col gap-2 rounded-lg bg-muted/30 p-2 transition-colors',
-              isCollapsed ? 'w-11 items-center' : 'w-64',
-              overKey === group.key && 'bg-accent/50 ring-1 ring-brand/40',
-            )}
+    <div>
+      {groups.length > 1 && (
+        <div className="mb-2 flex justify-end">
+          <button
+            onClick={() => setCollapsedCols(allCollapsed ? new Set() : new Set(groups.map((g) => g.key)))}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
-            {isCollapsed ? (
-              <button
-                data-col-key={group.key}
-                onClick={() => toggleCol(group.key)}
-                aria-label={`Expand ${group.label} column`}
-                className="flex flex-1 flex-col items-center gap-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                {group.color && (
-                  <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
-                )}
-                <span className="text-muted-foreground/60">{group.rows.length}</span>
-                <span className="truncate [writing-mode:vertical-rl]">{group.label}</span>
-              </button>
-            ) : (
-              <>
-                <div
+            <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !allCollapsed && 'rotate-90')} />
+            {allCollapsed ? 'Expand all' : 'Collapse all'}
+          </button>
+        </div>
+      )}
+      <div className="flex gap-3 overflow-x-auto pb-2">
+        {groups.map((group) => {
+          const isCollapsed = collapsedCols.has(group.key);
+          return (
+            <div
+              key={group.key}
+              onDragOver={(e) => {
+                if ((dragRow && canMove) || (dragCol && isOption(group.key))) {
+                  e.preventDefault();
+                  setOverKey(group.key);
+                }
+              }}
+              onDrop={() => (dragCol ? reorderColumn(dragCol, group.key) : drop(group.key))}
+              className={cn(
+                'flex shrink-0 flex-col gap-2 rounded-lg bg-muted/30 p-2 transition-colors',
+                isCollapsed ? 'w-11 items-center' : 'w-64',
+                overKey === group.key && 'bg-accent/50 ring-1 ring-brand/40',
+              )}
+            >
+              {isCollapsed ? (
+                <button
                   data-col-key={group.key}
-                  draggable={isOption(group.key)}
-                  onDragStart={(e) => {
-                    e.stopPropagation();
-                    setDragCol(group.key);
-                  }}
-                  onDragEnd={() => {
-                    setDragCol(null);
-                    setOverKey(null);
-                  }}
-                  className={cn(
-                    'flex items-center gap-1.5 px-1 text-xs font-medium',
-                    isOption(group.key) && 'cursor-grab active:cursor-grabbing',
-                  )}
+                  onClick={() => toggleCol(group.key)}
+                  aria-label={`Expand ${group.label} column`}
+                  className="flex flex-1 flex-col items-center gap-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                   {group.color && (
                     <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
                   )}
-                  <span className="truncate">{group.label}</span>
                   <span className="text-muted-foreground/60">{group.rows.length}</span>
-                  <button
-                    onClick={() => toggleCol(group.key)}
-                    aria-label={`Collapse ${group.label} column`}
-                    className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
+                  <span className="truncate [writing-mode:vertical-rl]">{group.label}</span>
+                </button>
+              ) : (
+                <>
+                  <div
+                    data-col-key={group.key}
+                    draggable={isOption(group.key)}
+                    onDragStart={(e) => {
+                      e.stopPropagation();
+                      setDragCol(group.key);
+                    }}
+                    onDragEnd={() => {
+                      setDragCol(null);
+                      setOverKey(null);
+                    }}
+                    className={cn(
+                      'flex items-center gap-1.5 px-1 text-xs font-medium',
+                      isOption(group.key) && 'cursor-grab active:cursor-grabbing',
+                    )}
                   >
-                    <ChevronLeft className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {group.rows.map((row) => {
-                    const accent = rowColor(row, view, properties, db.rows);
-                    return (
-                      <RowContextMenu key={row.id} db={db} rowId={row.id}>
-                        <div
-                          draggable={canMove}
-                          onDragStart={() => setDragRow(row.id)}
-                          onDragEnd={() => setDragRow(null)}
-                          onClick={() => db.openRow(row.id)}
-                          style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
-                          className={cn(
-                            'group cursor-pointer rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
-                            dragRow === row.id && 'opacity-50',
-                          )}
-                        >
-                          <div className="mb-1 flex items-center gap-1.5">
-                            <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
-                            <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-                            <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
+                    {group.color && (
+                      <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
+                    )}
+                    <span className="truncate">{group.label}</span>
+                    <span className="text-muted-foreground/60">{group.rows.length}</span>
+                    <button
+                      onClick={() => toggleCol(group.key)}
+                      aria-label={`Collapse ${group.label} column`}
+                      className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {group.rows.map((row) => {
+                      const accent = rowColor(row, view, properties, db.rows);
+                      return (
+                        <RowContextMenu key={row.id} db={db} rowId={row.id}>
+                          <div
+                            draggable={canMove}
+                            onDragStart={() => setDragRow(row.id)}
+                            onDragEnd={() => setDragRow(null)}
+                            onClick={() => db.openRow(row.id)}
+                            style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
+                            className={cn(
+                              'group cursor-pointer rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
+                              dragRow === row.id && 'opacity-50',
+                            )}
+                          >
+                            <div className="mb-1 flex items-center gap-1.5">
+                              <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+                              <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
+                              <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
+                            </div>
+                            <RowChips row={row} properties={cardProps} rows={db.rows} />
                           </div>
-                          <RowChips row={row} properties={cardProps} rows={db.rows} />
-                        </div>
-                      </RowContextMenu>
-                    );
-                  })}
-                </div>
-                {group.rows.length > 0 && <BoardColumnFooter db={db} view={view} properties={properties} rows={group.rows} />}
-                <NewRowButton onClick={() => newInColumn(group.key)} label="New" className="px-1 py-1" />
-              </>
-            )}
-          </div>
-        );
-      })}
+                        </RowContextMenu>
+                      );
+                    })}
+                  </div>
+                  {group.rows.length > 0 && <BoardColumnFooter db={db} view={view} properties={properties} rows={group.rows} />}
+                  <NewRowButton onClick={() => newInColumn(group.key)} label="New" className="px-1 py-1" />
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

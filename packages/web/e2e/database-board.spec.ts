@@ -40,3 +40,19 @@ test('board column footer: configurable calculation', async ({page, request}) =>
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', {name: /Count.*Cost.*2/})).toBeVisible();
 });
+
+// The board has a collapse-all / expand-all toggle (parity with table & list).
+test('board: collapse all and expand all columns', async ({page, request}) => {
+  const pageId = await seed(request);
+  await page.goto(`/?page=${pageId}`);
+  const card = page.locator('[draggable="true"]').filter({hasText: /A |B |C /});
+  await expect(card.first()).toBeVisible();
+
+  // Collapse all → every column folds (cards hidden).
+  await page.getByRole('button', {name: 'Collapse all'}).click();
+  await expect(card).toHaveCount(0);
+
+  // Expand all → the cards come back.
+  await page.getByRole('button', {name: 'Expand all'}).click();
+  await expect(card.first()).toBeVisible();
+});
