@@ -35,7 +35,7 @@ import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {cellValue, PropertyValueCell} from './databaseCells';
 import {AddPropertyMenu, AddViewMenu, FilterChips, FilterMenu, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon} from './databaseMenus';
-import {BoardView, CalendarView, GalleryView, RowChips, RowContextMenu} from './databaseLayouts';
+import {BoardView, CalendarView, cardAccent, GalleryView, RowChips, RowContextMenu} from './databaseLayouts';
 import {BarChartView, PieChartView} from './databaseCharts';
 import {TimelineView} from './databaseTimeline';
 import {GraphView} from './databaseGraph';
@@ -272,6 +272,8 @@ const CellContextMenu: React.FC<{
 };
 
 const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: RowTreeInfo; selection?: {selected: boolean; onToggle: () => void}}> = ({db, columns, schema, row, drag, tree, selection}) => {
+  const colorPropId = db.activeView?.cardColorPropertyId;
+  const accent = colorPropId ? cardAccent(row, schema.find((p) => p.id === colorPropId)) : undefined;
   const hasDependency = columns.some((c) => c.type === 'dependency');
   const rowOptions = hasDependency
     ? db.rows.filter((r) => r.id !== row.id).map((r) => ({id: r.id, label: r.name?.trim() || 'Untitled', icon: readPageIcon(r.id)}))
@@ -305,6 +307,7 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
       )}
     >
       <td
+        style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
         className={cn(
           'sticky left-0 z-10 border-r border-border px-2 py-0.5 align-middle',
           selection?.selected ? 'bg-accent/40' : 'bg-card',
@@ -691,28 +694,33 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
 };
 
 /** One list-view row: icon, title, property chips, and the row menu. */
-const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: DatabaseRow}> = ({db, columns, row}) => (
-  <RowContextMenu db={db} rowId={row.id}>
-    <div
-      className="group flex cursor-pointer items-center justify-between gap-2 border-b border-border/70 px-3 py-2 last:border-0 hover:bg-accent/30"
-      onClick={() => db.openRow(row.id)}
-    >
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="shrink-0 text-base leading-none">{readPageIcon(row.id)}</span>
-        <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-        <RowChips row={row} properties={columns} rows={db.rows} labelled />
+const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: DatabaseRow}> = ({db, columns, row}) => {
+  const colorPropId = db.activeView?.cardColorPropertyId;
+  const accent = colorPropId ? cardAccent(row, db.database?.schema.properties.find((p) => p.id === colorPropId)) : undefined;
+  return (
+    <RowContextMenu db={db} rowId={row.id}>
+      <div
+        style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
+        className="group flex cursor-pointer items-center justify-between gap-2 border-b border-border/70 px-3 py-2 last:border-0 hover:bg-accent/30"
+        onClick={() => db.openRow(row.id)}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="shrink-0 text-base leading-none">{readPageIcon(row.id)}</span>
+          <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
+          <RowChips row={row} properties={columns} rows={db.rows} labelled />
+        </div>
+        <div onClick={(e) => e.stopPropagation()}>
+          <RowMenu
+            onOpen={() => db.openRow(row.id)}
+            onDuplicate={() => void db.duplicateRow(row.id)}
+            onSaveTemplate={() => void db.saveAsTemplate(row.id)}
+            onDelete={() => void db.deleteRow(row.id)}
+          />
+        </div>
       </div>
-      <div onClick={(e) => e.stopPropagation()}>
-        <RowMenu
-          onOpen={() => db.openRow(row.id)}
-          onDuplicate={() => void db.duplicateRow(row.id)}
-          onSaveTemplate={() => void db.saveAsTemplate(row.id)}
-          onDelete={() => void db.deleteRow(row.id)}
-        />
-      </div>
-    </div>
-  </RowContextMenu>
-);
+    </RowContextMenu>
+  );
+};
 
 const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, view}) => {
   const groupProp = view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;

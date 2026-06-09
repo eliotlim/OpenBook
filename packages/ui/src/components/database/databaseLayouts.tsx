@@ -77,7 +77,7 @@ export const RowChips: React.FC<{row: DatabaseRow; properties: DatabaseProperty[
 );
 
 /** The card-edge tint for a row from a `select`/`status` colour property, or undefined. */
-function cardAccent(row: DatabaseRow, colorProperty: DatabaseProperty | undefined): string | undefined {
+export function cardAccent(row: DatabaseRow, colorProperty: DatabaseProperty | undefined): string | undefined {
   if (!colorProperty || (colorProperty.type !== 'select' && colorProperty.type !== 'status')) return undefined;
   const optId = row.properties[colorProperty.id];
   const color = colorProperty.options?.find((o) => o.id === optId)?.color;

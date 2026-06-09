@@ -1351,7 +1351,13 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
   const dependencyProps = properties.filter((p) => p.type === 'dependency');
   const showCover = view.type === 'gallery';
   const coverProps = properties.filter((p) => p.type === 'files' || p.type === 'url');
-  const showCardColor = view.type === 'gallery' || view.type === 'board' || view.type === 'calendar' || view.type === 'timeline';
+  const showCardColor =
+    view.type === 'gallery' ||
+    view.type === 'board' ||
+    view.type === 'calendar' ||
+    view.type === 'timeline' ||
+    view.type === 'table' ||
+    view.type === 'list';
   const colorProps = properties.filter((p) => p.type === 'select' || p.type === 'status');
   const showColumns =
     view.type === 'table' ||
@@ -1575,7 +1581,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
 
         {showCardColor && colorProps.length > 0 && (
           <label className="block">
-            <span className={sectionLabel}>Color cards by</span>
+            <span className={sectionLabel}>Color by</span>
             <select
               value={view.cardColorPropertyId ?? ''}
               onChange={(e) => db.updateView(view.id, {cardColorPropertyId: e.target.value || undefined})}
