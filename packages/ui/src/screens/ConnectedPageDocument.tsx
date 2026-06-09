@@ -163,6 +163,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
       onLoad={onLoad}
       onSave={onSave}
       pageId={pageId}
+      hasDatabase={!!databaseIdHint}
       footer={<DatabaseView pageId={pageId} databaseIdHint={databaseIdHint} />}
     />
   );

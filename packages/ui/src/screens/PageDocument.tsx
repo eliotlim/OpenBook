@@ -95,6 +95,7 @@ import {EmojiSuggestController} from '@/editor/emojiSuggest';
 import {EmojiSuggestPopover} from '@/components/EmojiSuggestPopover';
 import {pageLinks} from '@/lib/pageLinks';
 import {store} from '@/reactive/ReactiveStore';
+import {useData} from '@/data';
 import type {PageSnapshot} from '@open-book/sdk';
 
 // The document save format (`PageSnapshot`) is defined in `@open-book/sdk` so
@@ -122,6 +123,10 @@ export interface PageDocumentProps {
   footer?: React.ReactNode;
   /** The page being edited — passed to the subpage block so new children nest here. */
   pageId?: string;
+  /** True when this page hosts a database (its view renders as the {@link footer}).
+   *  The empty editor then drops its tall min-height so the database sits directly
+   *  under the header instead of being pushed down by a big gap. */
+  hasDatabase?: boolean;
 }
 
 const isSSR = () => typeof window === 'undefined';
@@ -188,10 +193,12 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   onTitleActiveChange,
   footer,
   pageId,
+  hasDatabase = false,
 }) => {
   'use client';
   const {hud} = useHud();
   const {t} = useTranslation();
+  const client = useData();
   const {preferences} = usePreferences();
   const spellcheck = preferences.general.spellcheck;
 
@@ -499,14 +506,19 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         } else if (kind === 'pdf-continuous') {
           downloadBlob(`${base}.pdf`, await toPdf(buildDocumentModel({title, icon, snapshot}), 'continuous'));
         } else if (kind === 'html') {
-          const {toHtml} = await import('@/export/toHtml');
-          downloadText(`${base}.html`, toHtml(snapshot, title, icon), 'text/html');
+          const [{toHtmlSite}, {gatherSite}] = await Promise.all([import('@/export/toHtml'), import('@/export/exportSite')]);
+          // Crawl the page's reachable subtree (subpages, hosted databases and
+          // their row pages) into one navigable, self-contained file.
+          const bundle = pageId
+            ? await gatherSite(client, pageId, {snapshot, title, icon})
+            : {rootId: '', pages: [{id: '', title, icon, snapshot}]};
+          downloadText(`${base}.html`, toHtmlSite(bundle), 'text/html');
         }
       } catch (e) {
         console.error('PageDocument: export failed:', e);
       }
     },
-    [title, icon],
+    [title, icon, pageId, client],
   );
 
   // The title lives in a centered column; the editor is full-width and centers
@@ -583,7 +595,10 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           the full-width title/database sections (the editor centers its blocks
           via a max-width in index.css, which this overrides). */}
       {!isSSR() && (
-        <div ref={holderRef} className={cn('min-h-[40vh]', hud.viewMode.fullWidth && 'ob-editor-full')} />
+        <div
+          ref={holderRef}
+          className={cn(hasDatabase ? 'min-h-0 ob-editor-compact' : 'min-h-[40vh]', hud.viewMode.fullWidth && 'ob-editor-full')}
+        />
       )}
 
       {/* Inline databases: a live DatabaseView portaled into each database

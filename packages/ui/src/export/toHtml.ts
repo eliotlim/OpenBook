@@ -1,13 +1,16 @@
 /**
- * Render a page to a **self-contained, interactive** HTML document: prose,
- * lists, code, mentions and links are styled static HTML; the reactive blocks
- * stay *live* — sliders recompute their dependent expressions and redraw charts,
- * exactly like in the app — via a small inlined runtime that reuses the saved
- * `__C__{cellId}__` reference tokens and Observable Plot (loaded from a CDN).
+ * Render a page — or a whole reachable mini-site — to a **self-contained,
+ * interactive** HTML document. Prose, lists, code, mentions and links are styled
+ * static HTML; reactive blocks stay *live* (sliders recompute their dependent
+ * expressions and redraw charts) via a small inlined runtime; and nested pages,
+ * subpages and database rows are **navigable** — clicking one swaps the document
+ * to that page, all inside the single file.
  *
- * A page with no reactive blocks produces a purely static document.
+ * - {@link toHtml} renders one page snapshot (the Markdown/PDF-parity baseline).
+ * - {@link toHtmlSite} renders a {@link SiteBundle}: every page as a section, a
+ *   client-side router, and databases drawn as tables of navigable rows.
  */
-import type {PageSnapshot} from '@open-book/sdk';
+import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@open-book/sdk';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
 // then Plot's UMD (which expects a global d3) sets `window.Plot`. Inlined only
 // when the document actually has a chart, and code-split (this module is a
@@ -16,6 +19,9 @@ import d3Umd from './vendor/d3.min.js?raw';
 import plotUmd from './vendor/plot.umd.min.js?raw';
 import {parseInline, type InlineRun, type ListItem} from './documentModel';
 import {formatValue} from './format';
+import {cellValue, formatCellValue} from '@/components/database/databaseCells';
+import {SWATCH_HEX} from '@/components/database/databaseColors';
+import type {SiteBundle, SiteDatabase} from './exportSite';
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]!);
@@ -26,11 +32,52 @@ function escapeScript(js: string): string {
   return js.replace(/<\/script>/gi, '<\\/script>');
 }
 
-function runToHtml(r: InlineRun): string {
+const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+function num(v: unknown, fallback: number): number {
+  const n = typeof v === 'string' ? Number(v) : (v as number);
+  return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
+}
+
+interface SliderSpec {cell: string; min: number; max: number; step: number; name: string}
+interface ExprSpec {cell: string; source: string}
+interface ChartSpec {id: string; cells: string[]}
+
+/**
+ * Per-render context shared across a page's blocks (and, for a site, accumulated
+ * across pages — cell ids are globally unique so the reactive runtime stays
+ * correct even with many pages embedded at once).
+ */
+interface RenderCtx {
+  values: Map<string, unknown>;
+  nameByCell: Map<string, string>;
+  sliders: SliderSpec[];
+  exprs: ExprSpec[];
+  charts: ChartSpec[];
+  initialValues: Record<string, unknown>;
+  /** Global chart counter (chart ids must be unique across the whole document). */
+  chartSeq: {n: number};
+  /** Prefix making this page's heading anchors unique within the document. */
+  anchorPrefix: string;
+  /** True when a referenced page is in the bundle (so the link can navigate). */
+  pageExists: (id: string) => boolean;
+  titleOf: (id: string) => string;
+  iconOf: (id: string) => string;
+  /** The database hosted by a page id, when that page is in the bundle. */
+  databaseOf: (hostPageId: string) => SiteDatabase | undefined;
+}
+
+function runToHtml(r: InlineRun, ctx: RenderCtx): string {
   if (r.text === '\n') return '<br>';
   let html = escapeHtml(r.text);
   if (r.code) return `<code>${html}</code>`;
-  if (r.mention) return `<a class="mention" data-page-id="${escapeHtml(r.mention.pageId)}">${html}</a>`;
+  if (r.mention) {
+    const id = r.mention.pageId;
+    const label = escapeHtml(ctx.titleOf(id) || r.mention.label || id);
+    return ctx.pageExists(id)
+      ? `<a class="mention" href="#${escapeHtml(id)}" data-page-id="${escapeHtml(id)}">${label}</a>`
+      : `<span class="mention">${label}</span>`;
+  }
   if (r.bold) html = `<strong>${html}</strong>`;
   if (r.italic) html = `<em>${html}</em>`;
   if (r.marker) html = `<mark>${html}</mark>`;
@@ -38,49 +85,110 @@ function runToHtml(r: InlineRun): string {
   return html;
 }
 
-const inlineToHtml = (runs: InlineRun[]): string => runs.map(runToHtml).join('');
+const inlineToHtml = (runs: InlineRun[], ctx: RenderCtx): string => runs.map((r) => runToHtml(r, ctx)).join('');
 
-function listToHtml(items: ListItem[], ordered: boolean): string {
+function listToHtml(items: ListItem[], ordered: boolean, ctx: RenderCtx): string {
   const tag = ordered ? 'ol' : 'ul';
   const lis = items
-    .map((it) => `<li>${inlineToHtml(it.runs)}${it.items.length ? listToHtml(it.items, ordered) : ''}</li>`)
+    .map((it) => `<li>${inlineToHtml(it.runs, ctx)}${it.items.length ? listToHtml(it.items, ordered, ctx) : ''}</li>`)
     .join('');
   return `<${tag}>${lis}</${tag}>`;
 }
 
-const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+function toListItems(items: unknown): ListItem[] {
+  if (!Array.isArray(items)) return [];
+  return items.map((it): ListItem => {
+    if (typeof it === 'string') return {runs: parseInline(it), items: []};
+    const o = (it ?? {}) as {content?: unknown; items?: unknown};
+    return {runs: parseInline(str(o.content)), items: toListItems(o.items)};
+  });
+}
 
-interface SliderSpec {cell: string; min: number; max: number; step: number; name: string}
-interface ExprSpec {cell: string; source: string}
-interface ChartSpec {id: string; cells: string[]}
+/** A subpage card: an icon + title that navigates to the nested page. */
+function subpageLink(pageId: string, ctx: RenderCtx): string {
+  const label = escapeHtml(ctx.titleOf(pageId) || 'Untitled');
+  const icon = escapeHtml(ctx.iconOf(pageId));
+  return ctx.pageExists(pageId)
+    ? `<a class="subpage" href="#${escapeHtml(pageId)}" data-page-id="${escapeHtml(pageId)}"><span class="subpage__icon">${icon}</span><span>${label}</span></a>`
+    : `<span class="subpage is-missing"><span class="subpage__icon">${icon}</span><span>${label}</span></span>`;
+}
 
-/** Build the interactive HTML for a page snapshot. */
-export function toHtml(snapshot: PageSnapshot, title: string, icon: string): string {
-  const blocks = ((snapshot.editorjs as {blocks?: Array<{id?: string; type?: string; data?: Record<string, unknown>}>})?.blocks ?? []);
-  const values = new Map<string, unknown>(snapshot.values as Array<[string, unknown]>);
-  const nameByCell = new Map<string, string>();
-  for (const [name, cell] of snapshot.names as Array<[string, string]>) nameByCell.set(cell, name);
+// ── Database table ───────────────────────────────────────────────────────────
 
-  const sliders: SliderSpec[] = [];
-  const exprs: ExprSpec[] = [];
-  const charts: ChartSpec[] = [];
-  const initialValues: Record<string, unknown> = {};
+/** The properties a database shows, honouring its first view's chosen columns. */
+function visibleProps(schema: DatabaseSchema): DatabaseProperty[] {
+  const ids = schema.views[0]?.visiblePropertyIds;
+  const chosen = ids && ids.length > 0
+    ? (ids.map((id) => schema.properties.find((p) => p.id === id)).filter(Boolean) as DatabaseProperty[])
+    : schema.properties;
+  // Drop columns that don't render as text (files, backlinks are chip-only).
+  return chosen.filter((p) => p.type !== 'files' && p.type !== 'backlinks');
+}
 
-  // Pre-pass: assign each heading a stable anchor id (in document order) so a
-  // table-of-contents block can link to headings that appear after it.
+const tag = (label: string, color?: string): string =>
+  `<span class="tag" style="background:${SWATCH_HEX[color ?? 'gray'] ?? SWATCH_HEX.gray}33">${escapeHtml(label)}</span>`;
+
+function cellHtml(row: DatabaseRow, prop: DatabaseProperty, props: DatabaseProperty[], rows: DatabaseRow[], ctx: RenderCtx): string {
+  const raw = cellValue(row, prop, props, rows);
+  if (prop.type === 'select' || prop.type === 'status') {
+    const opt = prop.options?.find((o) => o.id === raw);
+    return opt ? tag(opt.label, opt.color) : '';
+  }
+  if (prop.type === 'multi_select') {
+    const ids = Array.isArray(raw) ? (raw as string[]) : [];
+    return (prop.options ?? []).filter((o) => ids.includes(o.id)).map((o) => tag(o.label, o.color)).join(' ');
+  }
+  if (prop.type === 'relation' || prop.type === 'dependency') {
+    const ids = Array.isArray(raw) ? (raw as string[]) : [];
+    return ids
+      .map((id) =>
+        ctx.pageExists(id)
+          ? `<a class="mention" href="#${escapeHtml(id)}" data-page-id="${escapeHtml(id)}">${escapeHtml(ctx.titleOf(id))}</a>`
+          : escapeHtml(ctx.titleOf(id) || id),
+      )
+      .join(', ');
+  }
+  return escapeHtml(formatCellValue(prop, raw));
+}
+
+/** A database rendered as a table: a row per record, the title linking to it. */
+function renderDatabaseTable(db: SiteDatabase, ctx: RenderCtx): string {
+  const props = visibleProps(db.schema);
+  const head = `<tr><th>Name</th>${props.map((p) => `<th>${escapeHtml(p.name)}</th>`).join('')}</tr>`;
+  const body = db.rows
+    .map((row) => {
+      const title = (row.name ?? '').trim() || 'Untitled';
+      const icon = escapeHtml(ctx.iconOf(row.id));
+      const titleCell = ctx.pageExists(row.id)
+        ? `<td><a class="db-row" href="#${escapeHtml(row.id)}" data-page-id="${escapeHtml(row.id)}"><span class="subpage__icon">${icon}</span>${escapeHtml(title)}</a></td>`
+        : `<td><span class="subpage__icon">${icon}</span>${escapeHtml(title)}</td>`;
+      const cells = props.map((p) => `<td>${cellHtml(row, p, db.schema.properties, db.rows, ctx)}</td>`).join('');
+      return `<tr>${titleCell}${cells}</tr>`;
+    })
+    .join('');
+  const empty = db.rows.length === 0 ? '<p class="db-empty">No rows.</p>' : '';
+  return `<div class="db"><table class="db-table"><thead>${head}</thead><tbody>${body}</tbody></table>${empty}</div>`;
+}
+
+// ── Block rendering ──────────────────────────────────────────────────────────
+
+interface RawBlock {id?: string; type?: string; data?: Record<string, unknown>}
+
+/** Render a page's blocks to HTML, collecting reactive specs into the context. */
+function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
+  // Pre-pass: stable, document-unique anchor per heading (for table-of-contents).
   const headerList: {anchor: string; level: number; text: string}[] = [];
   for (const block of blocks) {
     if (block.type !== 'header') continue;
     const runs = parseInline(str(block.data?.text));
     headerList.push({
-      anchor: `h-${headerList.length}`,
+      anchor: `${ctx.anchorPrefix}h-${headerList.length}`,
       level: typeof block.data?.level === 'number' ? Math.min(6, Math.max(1, block.data.level as number)) : 2,
       text: runs.map((r) => r.text).join(''),
     });
   }
 
   const html: string[] = [];
-  let chartSeq = 0;
   let headerSeq = 0;
   for (const block of blocks) {
     const d = block.data ?? {};
@@ -89,17 +197,17 @@ export function toHtml(snapshot: PageSnapshot, title: string, icon: string): str
     case 'header': {
       const level = typeof d.level === 'number' ? Math.min(6, Math.max(1, d.level)) : 2;
       const anchor = headerList[headerSeq++]?.anchor ?? '';
-      html.push(`<h${level} id="${anchor}">${inlineToHtml(parseInline(str(d.text)))}</h${level}>`);
+      html.push(`<h${level} id="${anchor}">${inlineToHtml(parseInline(str(d.text)), ctx)}</h${level}>`);
       break;
     }
     case 'paragraph':
-      html.push(`<p>${inlineToHtml(parseInline(str(d.text)))}</p>`);
+      html.push(`<p>${inlineToHtml(parseInline(str(d.text)), ctx)}</p>`);
       break;
     case 'list':
-      html.push(listToHtml(toListItems(d.items), d.style === 'ordered'));
+      html.push(listToHtml(toListItems(d.items), d.style === 'ordered', ctx));
       break;
     case 'quote':
-      html.push(`<blockquote>${inlineToHtml(parseInline(str(d.text)))}</blockquote>`);
+      html.push(`<blockquote>${inlineToHtml(parseInline(str(d.text)), ctx)}</blockquote>`);
       break;
     case 'code':
       html.push(`<pre><code>${escapeHtml(str(d.code))}</code></pre>`);
@@ -109,10 +217,10 @@ export function toHtml(snapshot: PageSnapshot, title: string, icon: string): str
       break;
     case 'table': {
       const content = Array.isArray(d.content) ? (d.content as unknown[][]) : [];
-      const cellHtml = (cell: unknown) => inlineToHtml(parseInline(str(cell)));
+      const cell = (c: unknown) => inlineToHtml(parseInline(str(c)), ctx);
       const rowsHtml = content.map((row, ri) => {
         const cells = (Array.isArray(row) ? row : [])
-          .map((c) => (ri === 0 && d.withHeadings === true ? `<th>${cellHtml(c)}</th>` : `<td>${cellHtml(c)}</td>`))
+          .map((c) => (ri === 0 && d.withHeadings === true ? `<th>${cell(c)}</th>` : `<td>${cell(c)}</td>`))
           .join('');
         return `<tr>${cells}</tr>`;
       });
@@ -121,12 +229,12 @@ export function toHtml(snapshot: PageSnapshot, title: string, icon: string): str
     }
     case 'callout':
       html.push(
-        `<div class="callout" data-variant="${escapeHtml(str(d.variant) || 'info')}"><div class="callout__body">${inlineToHtml(parseInline(str(d.text)))}</div></div>`,
+        `<div class="callout" data-variant="${escapeHtml(str(d.variant) || 'info')}"><div class="callout__body">${inlineToHtml(parseInline(str(d.text)), ctx)}</div></div>`,
       );
       break;
     case 'accordion':
       html.push(
-        `<details class="accordion"${d.open === false ? '' : ' open'}><summary>${inlineToHtml(parseInline(str(d.title)))}</summary><div class="accordion__content">${inlineToHtml(parseInline(str(d.content)))}</div></details>`,
+        `<details class="accordion"${d.open === false ? '' : ' open'}><summary>${inlineToHtml(parseInline(str(d.title)), ctx)}</summary><div class="accordion__content">${inlineToHtml(parseInline(str(d.content)), ctx)}</div></details>`,
       );
       break;
     case 'checklist': {
@@ -134,7 +242,7 @@ export function toHtml(snapshot: PageSnapshot, title: string, icon: string): str
       const lis = items
         .map(
           (it) =>
-            `<li><label><input type="checkbox"${it.checked === true ? ' checked' : ''}> ${inlineToHtml(parseInline(str(it.text)))}</label></li>`,
+            `<li><label><input type="checkbox"${it.checked === true ? ' checked' : ''}> ${inlineToHtml(parseInline(str(it.text)), ctx)}</label></li>`,
         )
         .join('');
       html.push(`<ul class="checklist">${lis}</ul>`);
@@ -166,31 +274,44 @@ export function toHtml(snapshot: PageSnapshot, title: string, icon: string): str
       );
       break;
     }
+    case 'subpage': {
+      const pid = str(d.pageId);
+      const db = d.kind === 'database' ? ctx.databaseOf(pid) : undefined;
+      html.push(db ? renderDatabaseTable(db, ctx) : subpageLink(pid, ctx));
+      break;
+    }
+    case 'database': {
+      const pid = str(d.pageId);
+      const db = ctx.databaseOf(pid);
+      html.push(db ? renderDatabaseTable(db, ctx) : subpageLink(pid, ctx));
+      break;
+    }
     case 'slider': {
       const min = num(d.min, 0);
       const max = num(d.max, 100);
       const step = num(d.step, 1);
-      const val = num(values.get(id), num(d.initial, min));
-      initialValues[id] = val;
-      sliders.push({cell: id, min, max, step, name: str(d.name) || nameByCell.get(id) || 'value'});
+      const val = num(ctx.values.get(id), num(d.initial, min));
+      ctx.initialValues[id] = val;
+      const name = str(d.name) || ctx.nameByCell.get(id) || 'value';
+      ctx.sliders.push({cell: id, min, max, step, name});
       html.push(
-        `<div class="reactive slider" data-cell="${id}"><label>${escapeHtml(str(d.name) || nameByCell.get(id) || 'value')} ` +
-            `<input type="range" min="${min}" max="${max}" step="${step}" value="${val}"> <output>${val}</output></label></div>`,
+        `<div class="reactive slider" data-cell="${id}"><label>${escapeHtml(name)} ` +
+          `<input type="range" min="${min}" max="${max}" step="${step}" value="${val}"> <output>${val}</output></label></div>`,
       );
       break;
     }
     case 'expr':
-      exprs.push({cell: id, source: str(d.source)});
-      if (values.has(id)) initialValues[id] = values.get(id);
+      ctx.exprs.push({cell: id, source: str(d.source)});
+      if (ctx.values.has(id)) ctx.initialValues[id] = ctx.values.get(id);
       html.push(
-        `<p class="reactive expr" data-cell="${id}"><code>${escapeHtml(str(d.name) || nameByCell.get(id) || 'expr')} = <span data-val>${escapeHtml(formatValue(values.get(id)))}</span></code></p>`,
+        `<p class="reactive expr" data-cell="${id}"><code>${escapeHtml(str(d.name) || ctx.nameByCell.get(id) || 'expr')} = <span data-val>${escapeHtml(formatValue(ctx.values.get(id)))}</span></code></p>`,
       );
       break;
     case 'chart': {
-      const cid = `chart-${chartSeq++}`;
+      const cid = `chart-${ctx.chartSeq.n++}`;
       const cells = Array.isArray(d.refCellIds) ? (d.refCellIds as string[]) : d.refCellId ? [String(d.refCellId)] : [];
-      for (const cell of cells) if (values.has(cell)) initialValues[cell] = values.get(cell);
-      charts.push({id: cid, cells});
+      for (const cell of cells) if (ctx.values.has(cell)) ctx.initialValues[cell] = ctx.values.get(cell);
+      ctx.charts.push({id: cid, cells});
       html.push(`<figure class="chart" data-chart="${cid}"></figure>`);
       break;
     }
@@ -198,46 +319,107 @@ export function toHtml(snapshot: PageSnapshot, title: string, icon: string): str
       break;
     }
   }
+  return html.join('\n');
+}
 
-  const live = sliders.length > 0 || exprs.length > 0 || charts.length > 0;
-  const data = {values: initialValues, sliders, exprs, charts};
-  // Classic scripts run before the deferred module, so window.d3/window.Plot
-  // exist when the runtime executes — fully offline, no CDN.
-  const libs = charts.length > 0 ? `<script>${escapeScript(d3Umd)}</script>\n<script>${escapeScript(plotUmd)}</script>\n` : '';
-  const scripts = live
-    ? `${libs}<script type="application/json" id="ob-data">${JSON.stringify(data)}</script>\n<script type="module">${RUNTIME}</script>`
+/** Seed a context's reactive lookups from a page snapshot's persisted cell data. */
+function loadSnapshot(snapshot: PageSnapshot, values: Map<string, unknown>, nameByCell: Map<string, string>): void {
+  for (const [cell, value] of snapshot.values as Array<[string, unknown]>) values.set(cell, value);
+  for (const [name, cell] of snapshot.names as Array<[string, string]>) nameByCell.set(cell, name);
+}
+
+/** Assemble the final HTML document from rendered body markup + collected specs. */
+function document_(bodyHtml: string, headTitle: string, ctx: RenderCtx, rootId?: string): string {
+  const live = ctx.sliders.length > 0 || ctx.exprs.length > 0 || ctx.charts.length > 0;
+  const data = {values: ctx.initialValues, sliders: ctx.sliders, exprs: ctx.exprs, charts: ctx.charts};
+  const libs = ctx.charts.length > 0 ? `<script>${escapeScript(d3Umd)}</script>\n<script>${escapeScript(plotUmd)}</script>\n` : '';
+  const reactive = live
+    ? `${libs}<script type="application/json" id="ob-data">${JSON.stringify(data)}</script>\n<script type="module">${RUNTIME}</script>\n`
     : '';
+  const nav = rootId ? `<script>${NAV.replace('__ROOT__', JSON.stringify(rootId))}</script>` : '';
 
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)}</title>
+<title>${escapeHtml(headTitle)}</title>
 <style>${STYLES}</style>
 </head>
-<body>
-<main>
-<h1 class="doc-title">${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1>
-${html.join('\n')}
-</main>
-${scripts}
+<body${rootId ? ` data-root="${escapeHtml(rootId)}"` : ''}>
+${rootId ? '<header class="ob-nav"><button id="ob-back" hidden>← Back</button></header>\n' : ''}${bodyHtml}
+${reactive}${nav}
 </body>
 </html>`;
 }
 
-function num(v: unknown, fallback: number): number {
-  const n = typeof v === 'string' ? Number(v) : (v as number);
-  return typeof n === 'number' && Number.isFinite(n) ? n : fallback;
+/** Build the interactive HTML for a single page snapshot (Markdown/PDF parity). */
+export function toHtml(snapshot: PageSnapshot, title: string, icon: string): string {
+  const values = new Map<string, unknown>();
+  const nameByCell = new Map<string, string>();
+  loadSnapshot(snapshot, values, nameByCell);
+  const ctx: RenderCtx = {
+    values,
+    nameByCell,
+    sliders: [],
+    exprs: [],
+    charts: [],
+    initialValues: {},
+    chartSeq: {n: 0},
+    anchorPrefix: '',
+    pageExists: () => false,
+    titleOf: (id) => id,
+    iconOf: () => '',
+    databaseOf: () => undefined,
+  };
+  const blocks = (snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? [];
+  const body = `<main>\n<h1 class="doc-title">${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1>\n${renderBlocks(blocks, ctx)}\n</main>`;
+  return document_(body, title, ctx);
 }
 
-function toListItems(items: unknown): ListItem[] {
-  if (!Array.isArray(items)) return [];
-  return items.map((it): ListItem => {
-    if (typeof it === 'string') return {runs: parseInline(it), items: []};
-    const o = (it ?? {}) as {content?: unknown; items?: unknown};
-    return {runs: parseInline(str(o.content)), items: toListItems(o.items)};
-  });
+/**
+ * Build one interactive HTML file for a whole {@link SiteBundle}: every page as a
+ * navigable section, databases as tables of navigable rows, and a client-side
+ * router that swaps the visible page on link clicks (with browser back/forward).
+ */
+export function toHtmlSite(bundle: SiteBundle): string {
+  const byId = new Map(bundle.pages.map((p) => [p.id, p]));
+  const values = new Map<string, unknown>();
+  const nameByCell = new Map<string, string>();
+  for (const page of bundle.pages) loadSnapshot(page.snapshot, values, nameByCell);
+
+  const ctx: RenderCtx = {
+    values,
+    nameByCell,
+    sliders: [],
+    exprs: [],
+    charts: [],
+    initialValues: {},
+    chartSeq: {n: 0},
+    anchorPrefix: '',
+    pageExists: (id) => byId.has(id),
+    titleOf: (id) => byId.get(id)?.title ?? '',
+    iconOf: (id) => byId.get(id)?.icon ?? '',
+    databaseOf: (hostId) => byId.get(hostId)?.database,
+  };
+
+  const sections = bundle.pages
+    .map((page, i) => {
+      ctx.anchorPrefix = `p${i}-`;
+      const blocks = (page.snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? [];
+      const bodyHtml = renderBlocks(blocks, ctx);
+      const dbHtml = page.database ? renderDatabaseTable(page.database, ctx) : '';
+      const hidden = page.id === bundle.rootId ? '' : ' hidden';
+      return (
+        `<section class="page" data-page="${escapeHtml(page.id)}"${hidden}>\n` +
+        `<h1 class="doc-title">${page.icon ? `${escapeHtml(page.icon)} ` : ''}${escapeHtml(page.title)}</h1>\n` +
+        `${bodyHtml}\n${dbHtml}\n</section>`
+      );
+    })
+    .join('\n');
+
+  const rootTitle = byId.get(bundle.rootId)?.title ?? 'Export';
+  return document_(`<main>\n${sections}\n</main>`, rootTitle, ctx, bundle.rootId);
 }
 
 const STYLES = `
@@ -246,6 +428,10 @@ const STYLES = `
 body { margin: 0; background: #fff; color: #1a1a1a; font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 @media (prefers-color-scheme: dark) { body { background: #18181b; color: #e7e7ea; } }
 main { max-width: 720px; margin: 0 auto; padding: 48px 24px 120px; }
+section.page[hidden] { display: none; }
+.ob-nav { position: sticky; top: 0; z-index: 10; padding: 8px 24px; backdrop-filter: blur(8px); background: rgba(127,127,127,.06); border-bottom: 1px solid rgba(127,127,127,.18); }
+.ob-nav button { font: inherit; font-size: .9rem; cursor: pointer; border: 1px solid rgba(127,127,127,.3); background: transparent; color: inherit; border-radius: 6px; padding: 4px 12px; }
+.ob-nav button:hover { background: rgba(127,127,127,.12); }
 h1.doc-title { font-size: 2.4rem; font-weight: 800; letter-spacing: -.02em; margin: 0 0 1.2rem; }
 h1,h2,h3,h4 { font-weight: 700; line-height: 1.25; margin: 1.6em 0 .4em; }
 p { margin: .6em 0; }
@@ -255,15 +441,24 @@ pre { background: rgba(127,127,127,.12); padding: 12px 14px; border-radius: 8px;
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
 mark { background: #fde68a; color: inherit; padding: 0 .1em; }
 hr { border: none; border-top: 1px solid rgba(127,127,127,.3); width: 30%; margin: 2em auto; }
-a.mention { font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+a.mention { font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; color: inherit; }
+span.mention { font-weight: 600; opacity: .7; }
+a.subpage, span.subpage { display: flex; align-items: center; gap: 8px; margin: .4em 0; padding: 8px 12px; border: 1px solid rgba(127,127,127,.22); border-radius: 8px; text-decoration: none; color: inherit; font-weight: 600; cursor: pointer; }
+a.subpage:hover { background: rgba(127,127,127,.08); }
+.subpage.is-missing { opacity: .55; cursor: default; }
+.subpage__icon { font-size: 1.1em; line-height: 1; }
 .reactive { background: rgba(127,127,127,.06); border: 1px solid rgba(127,127,127,.16); border-radius: 8px; padding: 10px 12px; margin: 1em 0; }
 .slider input[type=range] { vertical-align: middle; width: 60%; }
 .expr code { color: #4f46e5; }
 figure.chart { margin: 1.2em 0; }
 figure.chart svg { max-width: 100%; height: auto; }
-table.block-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
-table.block-table th, table.block-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; }
-table.block-table th { background: rgba(127,127,127,.08); font-weight: 600; }
+table.block-table, table.db-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
+table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; vertical-align: top; }
+table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; }
+table.db-table a.db-row { display: inline-flex; align-items: center; gap: 6px; color: inherit; text-decoration: none; font-weight: 600; cursor: pointer; }
+table.db-table a.db-row:hover { text-decoration: underline; }
+.db-empty { opacity: .6; font-size: .9em; }
+.tag { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: .82em; margin: 1px 2px 1px 0; }
 .callout { display: flex; gap: 10px; margin: 1em 0; padding: 12px 14px; border-radius: 8px; border: 1px solid; }
 .callout::before { content: "💡"; }
 .callout[data-variant=warning]::before { content: "⚠️"; }
@@ -295,7 +490,7 @@ hr.divider[data-style=thick] { border-top-width: 3px; }
 `;
 
 // Inlined live runtime: recomputes expressions from slider values and redraws
-// charts. Reuses the saved `__C__{cellId}__` reference tokens. Observable Plot
+// charts. Reuses the saved \`__C__{cellId}__\` reference tokens. Observable Plot
 // (and d3) are inlined as classic scripts above, so this works offline.
 const RUNTIME = `
 const Plot = (typeof window !== "undefined" && window.Plot) || null;
@@ -322,4 +517,31 @@ for (const s of D.sliders){
   input.addEventListener("input", () => { out.textContent = input.value; store.set(s.cell, Number(input.value)); recompute(); });
 }
 recompute();
+`;
+
+// Inlined navigation runtime: shows one page section at a time, swapping on clicks
+// of any in-bundle link (mentions, subpages, database rows) via the URL hash, so
+// browser back/forward work for free.
+const NAV = `
+(function(){
+  var root = __ROOT__;
+  var sections = {};
+  document.querySelectorAll("section.page").forEach(function(s){ sections[s.dataset.page] = s; });
+  var back = document.getElementById("ob-back");
+  function show(id){
+    var target = sections[id] ? id : root;
+    Object.keys(sections).forEach(function(k){ sections[k].hidden = k !== target; });
+    if (back) back.hidden = target === root;
+    window.scrollTo(0, 0);
+  }
+  document.addEventListener("click", function(e){
+    var a = e.target.closest("[data-page-id]");
+    if (!a) return;
+    var id = a.getAttribute("data-page-id");
+    if (sections[id]) { e.preventDefault(); if (location.hash.slice(1) === id) show(id); else location.hash = id; }
+  });
+  if (back) back.addEventListener("click", function(){ if (history.length > 1) history.back(); else location.hash = ""; });
+  window.addEventListener("hashchange", function(){ show(location.hash.slice(1) || root); });
+  show(location.hash.slice(1) || root);
+})();
 `;

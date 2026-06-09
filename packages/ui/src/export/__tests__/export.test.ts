@@ -2,7 +2,8 @@ import {describe, it, expect} from 'vitest';
 import type {PageSnapshot} from '@open-book/sdk';
 import {buildDocumentModel, parseInline, runsToText} from '../documentModel';
 import {toMarkdown} from '../toMarkdown';
-import {toHtml} from '../toHtml';
+import {toHtml, toHtmlSite} from '../toHtml';
+import {referencedPageIds, type SiteBundle} from '../exportSite';
 
 const snapshot = (blocks: unknown[], values: Array<[string, unknown]> = [], names: Array<[string, string]> = []): PageSnapshot => ({
   editorjs: {blocks},
@@ -154,5 +155,77 @@ describe('new block types', () => {
     expect(html).toContain('<nav class="toc">');
     expect(html).toContain('href="#h-0"'); // ToC links to the first heading anchor
     expect(html).toContain('id="h-0"');
+  });
+});
+
+describe('referencedPageIds', () => {
+  it('collects subpage/database block targets and inline mentions', () => {
+    const ids = referencedPageIds(
+      snapshot([
+        {type: 'subpage', data: {kind: 'page', pageId: 'a'}},
+        {type: 'database', data: {pageId: 'b'}},
+        {type: 'paragraph', data: {text: 'x <a class="ob-mention" data-page-id="c">C</a> y'}},
+      ]),
+    );
+    expect(ids.sort()).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('toHtmlSite', () => {
+  const bundle: SiteBundle = {
+    rootId: 'root',
+    pages: [
+      {
+        id: 'root',
+        title: 'Home',
+        icon: '🏠',
+        snapshot: snapshot([
+          {type: 'paragraph', data: {text: 'See <a class="ob-mention" data-page-id="child">📄 Child</a>'}},
+          {type: 'subpage', data: {kind: 'page', pageId: 'child'}},
+          {type: 'database', data: {pageId: 'dbhost'}},
+        ]),
+      },
+      {id: 'child', title: 'Child', icon: '📄', snapshot: snapshot([{type: 'paragraph', data: {text: 'child body'}}])},
+      {
+        id: 'dbhost',
+        title: 'Tasks',
+        icon: '🗃️',
+        snapshot: snapshot([]),
+        database: {
+          schema: {
+            properties: [{id: 'p_status', name: 'Status', type: 'select', options: [{id: 's_done', label: 'Done', color: 'green'}]}],
+            views: [{id: 'v', name: 'V', type: 'table', filters: [], sorts: []}],
+          },
+          rows: [{id: 'r1', name: 'Task one', properties: {p_status: 's_done'}, exports: {}, parentId: null, createdAt: '', updatedAt: ''}],
+        },
+      },
+      {id: 'r1', title: 'Task one', icon: '📄', snapshot: snapshot([{type: 'paragraph', data: {text: 'row body'}}])},
+    ],
+  };
+  const html = toHtmlSite(bundle);
+
+  it('renders every page as a section, root visible and the rest hidden', () => {
+    expect(html).toContain('data-root="root"');
+    expect(html).toContain('<section class="page" data-page="root">');
+    expect(html).toContain('<section class="page" data-page="child" hidden>');
+    expect(html).toContain('<section class="page" data-page="r1" hidden>');
+    expect(html).toContain('child body');
+  });
+
+  it('makes mentions and subpages navigate to their page', () => {
+    expect(html).toContain('<a class="mention" href="#child" data-page-id="child">Child</a>');
+    expect(html).toContain('class="subpage" href="#child" data-page-id="child"');
+  });
+
+  it('renders an inline/hosted database as a table of navigable rows', () => {
+    expect(html).toContain('<table class="db-table">');
+    expect(html).toContain('class="db-row" href="#r1" data-page-id="r1"');
+    expect(html).toContain('Task one');
+    expect(html).toContain('Done'); // the select option label as a tag
+  });
+
+  it('embeds the navigation runtime', () => {
+    expect(html).toContain('hashchange');
+    expect(html).toContain('id="ob-back"');
   });
 });

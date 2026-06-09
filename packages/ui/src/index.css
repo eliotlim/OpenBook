@@ -244,6 +244,12 @@
 .ob-editor-full .ce-toolbar__content {
   max-width: none;
 }
+/* On a page that hosts a database, collapse EditorJS's tall default bottom
+   padding (~300px, set inline so it needs !important) so the database sits right
+   under the content — the breathing room belongs below the database, not above. */
+.ob-editor-compact .codex-editor__redactor {
+  padding-bottom: 0.25rem !important;
+}
 .ce-paragraph {
   line-height: 1.6;
   font-size: 0.9375rem; /* 15px — comfortable reading body */
