@@ -161,6 +161,10 @@ export function formatCellValue(property: DatabaseProperty, value: unknown): str
       .filter(Boolean)
       .join(', ');
   }
+  if (property.type === 'rating') {
+    const n = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(n) && n > 0 ? '★'.repeat(Math.round(n)) : '';
+  }
   if (value === undefined || value === null || value === '') return '';
   if (property.type === 'checkbox') return value ? '✓' : '';
   if (property.type === 'select' || property.type === 'status') return findOption(property, value)?.label ?? '';
@@ -338,6 +342,8 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
     );
   case 'number':
     return <NumberCell property={property} value={value} onChange={onChange} />;
+  case 'rating':
+    return <RatingCell property={property} value={value} onChange={onChange} />;
   case 'date':
     return <DateCell property={property} value={value} onChange={onChange} />;
   case 'select':
@@ -460,6 +466,29 @@ const NumberCell: React.FC<Pick<PropertyValueCellProps, 'property' | 'value' | '
       {property.numberDisplay === 'ring' && <span className="pl-2">{<ProgressRing frac={frac} />}</span>}
       {input}
       {property.numberDisplay === 'bar' && <ProgressBar frac={frac} />}
+    </div>
+  );
+};
+
+/** Rating cell: a row of clickable stars (0..max, default 5). Clicking the
+ *  current value clears it; the stored value is a plain number. */
+const RatingCell: React.FC<Pick<PropertyValueCellProps, 'property' | 'value' | 'onChange'>> = ({property, value, onChange}) => {
+  const max = property.numberTarget && property.numberTarget > 0 ? Math.min(10, Math.round(property.numberTarget)) : 5;
+  const current = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : 0;
+  return (
+    <div className="flex items-center gap-0.5 px-2 py-1" role="group" aria-label={property.name}>
+      {Array.from({length: max}, (_, i) => i + 1).map((n) => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange(current === n ? null : n)}
+          className={cn('text-base leading-none transition-colors', n <= current ? 'text-amber-400' : 'text-muted-foreground/30 hover:text-amber-400/60')}
+          aria-label={`${n} ${n === 1 ? 'star' : 'stars'}`}
+          aria-pressed={n <= current}
+        >
+          ★
+        </button>
+      ))}
     </div>
   );
 };

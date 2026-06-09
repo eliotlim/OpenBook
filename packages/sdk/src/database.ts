@@ -44,6 +44,7 @@ import {evaluateFormula, FormulaError, type FormulaResolver} from './formula';
 export type DatabasePropertyType =
   | 'text'
   | 'number'
+  | 'rating'
   | 'select'
   | 'multi_select'
   | 'status'

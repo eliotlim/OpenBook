@@ -73,6 +73,7 @@ import type {NewPropertyInput, UseDatabase} from './useDatabase';
 const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
   {value: 'text', label: 'Text'},
   {value: 'number', label: 'Number'},
+  {value: 'rating', label: 'Rating'},
   {value: 'select', label: 'Select'},
   {value: 'multi_select', label: 'Multi-select'},
   {value: 'status', label: 'Status'},
@@ -169,6 +170,7 @@ function operatorsFor(type: DatabasePropertyType | undefined): FilterOperator[] 
   case 'verification':
     return ['is_checked', 'is_unchecked'];
   case 'number':
+  case 'rating':
   case 'formula':
   case 'rollup':
   case 'expr':
