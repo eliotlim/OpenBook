@@ -1,14 +1,18 @@
 import React, {useState} from 'react';
-import {ArrowDown, ArrowUp, ChevronDown, ChevronRight, Copy, GripVertical, MoreHorizontal, PanelRightOpen, Plus, Save, Search, Trash2, X} from 'lucide-react';
+import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, ChevronDown, ChevronRight, Copy, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Plus, Save, Search, Trash2, X} from 'lucide-react';
 import {
   buildRowTree,
+  dateStart,
   flattenRowTree,
   groupRows,
+  shortId,
   summarizeColumn,
   TITLE_PROPERTY_ID,
+  type DatabaseFilter,
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseView as DbView,
+  type FilterOperator,
   type SummaryType,
 } from '@open-book/sdk';
 import {
@@ -18,6 +22,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import {IconButton} from '@/components/ui/icon-button';
 import {readPageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';
@@ -165,6 +176,101 @@ interface DragApi {
 }
 
 /** One table row, optionally drag-reorderable and/or a sub-item tree node. */
+/** A one-click "filter by this value" condition for a cell, or null if the
+ *  property type isn't sensibly filterable by an exact value. */
+function quickFilter(property: DatabaseProperty, value: unknown): {operator: FilterOperator; value?: unknown; label: string} | null {
+  const empty = value === undefined || value === null || value === '' || (Array.isArray(value) && value.length === 0);
+  if (property.type === 'checkbox') return value ? {operator: 'is_checked', label: 'is checked'} : {operator: 'is_unchecked', label: 'is unchecked'};
+  if (empty) return {operator: 'is_empty', label: 'is empty'};
+  switch (property.type) {
+  case 'select':
+  case 'status': {
+    const opt = property.options?.find((o) => o.id === value);
+    return {operator: 'equals', value, label: `is ${opt?.label ?? String(value)}`};
+  }
+  case 'multi_select': {
+    const first = Array.isArray(value) ? (value[0] as string) : undefined;
+    if (!first) return null;
+    const opt = property.options?.find((o) => o.id === first);
+    return {operator: 'contains', value: first, label: `has ${opt?.label ?? first}`};
+  }
+  case 'number':
+    return {operator: 'equals', value, label: `is ${String(value)}`};
+  case 'text':
+  case 'url':
+  case 'email':
+  case 'phone':
+    return {operator: 'equals', value, label: `is "${String(value)}"`};
+  case 'date': {
+    const s = dateStart(value);
+    return s ? {operator: 'equals', value: s, label: `is ${s}`} : null;
+  }
+  default:
+    return null;
+  }
+}
+
+/** Append a leaf condition to the active view's filter tree (clearing the legacy flat list). */
+function addQuickFilter(db: UseDatabase, view: DbView, propertyId: string, operator: FilterOperator, value: unknown): void {
+  const root = view.filterRoot ?? {id: 'root', conjunction: 'and' as const, filters: view.filters ?? []};
+  const condition: DatabaseFilter = {id: shortId('filter'), propertyId, operator, value};
+  void db.updateView(view.id, {filterRoot: {...root, filters: [...root.filters, condition]}, filters: []});
+}
+
+/**
+ * Right-click any row cell for quick actions: filter the view by the cell's value,
+ * sort by its column, or act on the row (open / insert / duplicate / delete).
+ * `property` is omitted for the title cell (row actions only).
+ */
+const CellContextMenu: React.FC<{
+  db: UseDatabase;
+  view?: DbView | null;
+  row: DatabaseRow;
+  property?: DatabaseProperty;
+  value?: unknown;
+  children: React.ReactNode;
+}> = ({db, view, row, property, value, children}) => {
+  const filter = property && view ? quickFilter(property, value) : null;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className="flex min-h-[1.75rem] w-full items-center">{children}</div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-56">
+        {property && view && filter && (
+          <ContextMenuItem onSelect={() => addQuickFilter(db, view, property.id, filter.operator, filter.value)}>
+            <FilterIcon className="mr-2 h-3.5 w-3.5" /> Filter: {property.name} {filter.label}
+          </ContextMenuItem>
+        )}
+        {property && view && (
+          <>
+            <ContextMenuItem onSelect={() => void db.updateView(view.id, {sorts: [{propertyId: property.id, direction: 'asc'}]})}>
+              <ArrowDownAZ className="mr-2 h-3.5 w-3.5" /> Sort ascending
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void db.updateView(view.id, {sorts: [{propertyId: property.id, direction: 'desc'}]})}>
+              <ArrowUpAZ className="mr-2 h-3.5 w-3.5" /> Sort descending
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+          </>
+        )}
+        <ContextMenuItem onSelect={() => db.openRow(row.id)}>
+          <PanelRightOpen className="mr-2 h-3.5 w-3.5" /> Open
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void db.addRowAfter(row.id)}>
+          <Plus className="mr-2 h-3.5 w-3.5" /> Insert below
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void db.duplicateRow(row.id)}>
+          <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => void db.deleteRow(row.id)} className="text-destructive focus:text-destructive">
+          <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};
+
 const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: RowTreeInfo; selection?: {selected: boolean; onToggle: () => void}}> = ({db, columns, schema, row, drag, tree, selection}) => {
   const hasDependency = columns.some((c) => c.type === 'dependency');
   const rowOptions = hasDependency
@@ -233,18 +339,23 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
           />
         </div>
       </td>
-      {columns.map((property) => (
-        <td key={property.id} className="border-l border-border/70 align-middle">
-          <PropertyValueCell
-            property={property}
-            value={cellValue(row, property, schema, db.rows)}
-            exprValue={exprValueOf(row, property)}
-            onChange={(value) => void db.setRowProperty(row.id, property.id, value)}
-            onAddOption={(label) => db.addSelectOption(property.id, label)}
-            rowOptions={rowOptions}
-          />
-        </td>
-      ))}
+      {columns.map((property) => {
+        const value = cellValue(row, property, schema, db.rows);
+        return (
+          <td key={property.id} className="border-l border-border/70 align-middle">
+            <CellContextMenu db={db} view={db.activeView} row={row} property={property} value={value}>
+              <PropertyValueCell
+                property={property}
+                value={value}
+                exprValue={exprValueOf(row, property)}
+                onChange={(next) => void db.setRowProperty(row.id, property.id, next)}
+                onAddOption={(label) => db.addSelectOption(property.id, label)}
+                rowOptions={rowOptions}
+              />
+            </CellContextMenu>
+          </td>
+        );
+      })}
       <td className="border-l border-border/70" />
     </tr>
   );
