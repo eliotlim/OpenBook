@@ -146,6 +146,7 @@ export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
 
   const {groups, series} = aggregateMatrix(db.visibleRows, view, properties);
   const stacked = series[0]?.key !== CHART_TOTAL_SERIES;
+  const percent = stacked && !!view.chartStacked100; // 100%-stacked: bars fill the track
   const max = Math.max(1, ...groups.map((g) => g.total));
   const total = groups.reduce((sum, g) => sum + g.total, 0);
   const anyHover = hoverKey !== null || hoverSeries !== null;
@@ -188,7 +189,7 @@ export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
                         title={`${s.label || '—'}: ${fmt(seg.value)}`}
                         aria-label={`${label}: ${fmt(seg.value)}`}
                         className="h-full cursor-pointer transition-all first:rounded-l last:rounded-r"
-                        style={{width: `${(seg.value / max) * 100}%`, backgroundColor: chartColor(s, si), opacity: dimOpacity(lit)}}
+                        style={{width: `${(seg.value / (percent ? g.total || 1 : max)) * 100}%`, backgroundColor: chartColor(s, si), opacity: dimOpacity(lit)}}
                       />
                     );
                   })

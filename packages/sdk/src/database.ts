@@ -345,6 +345,9 @@ export interface DatabaseView {
    * when unset or equal to `groupByPropertyId`.
    */
   breakdownPropertyId?: string;
+  /** Bar chart with a breakdown: stretch every bar to 100% and show each segment
+   *  as its share of the group total (proportions rather than absolute lengths). */
+  chartStacked100?: boolean;
   /** Date property positioning rows on the month grid (`calendar`) or the bar
    *  start on the `timeline`. A `dateRange` property supplies both ends at once. */
   datePropertyId?: string;

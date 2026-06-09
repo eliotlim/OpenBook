@@ -1492,6 +1492,18 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
           </label>
         )}
 
+        {view.type === 'bar' && view.breakdownPropertyId && (
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={!!view.chartStacked100}
+              onChange={(e) => db.updateView(view.id, {chartStacked100: e.target.checked})}
+              className="h-3.5 w-3.5 accent-primary"
+            />
+            100% stacked
+          </label>
+        )}
+
         {showDate && (
           <label className="block">
             <span className={sectionLabel}>{showTimeline ? 'Start date' : 'Date property'}</span>
