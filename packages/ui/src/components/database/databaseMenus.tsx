@@ -1236,6 +1236,37 @@ export const FilterChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db
   );
 };
 
+/**
+ * Active-sort chips: each sort key as a removable pill — click the label to flip
+ * its direction, the × to drop it. Mirrors {@link FilterChips} so the otherwise
+ * hidden sort state is visible and editable at a glance.
+ */
+export const SortChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const properties = db.database!.schema.properties;
+  const sorts = view.sorts ?? [];
+  if (sorts.length === 0) return null;
+  const name = (id: string): string => (id === TITLE_PROPERTY_ID ? 'Name' : properties.find((p) => p.id === id)?.name ?? 'Property');
+  const flip = (i: number): void =>
+    void db.updateView(view.id, {sorts: sorts.map((s, j) => (j === i ? {...s, direction: s.direction === 'asc' ? 'desc' : 'asc'} : s))});
+  const remove = (i: number): void => void db.updateView(view.id, {sorts: sorts.filter((_, j) => j !== i)});
+
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+      {sorts.map((sort, i) => (
+        <span key={i} className="flex items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-1.5 pr-1 text-xs text-muted-foreground">
+          <button onClick={() => flip(i)} className="flex items-center gap-1 transition-colors hover:text-foreground" title="Flip sort direction">
+            <span className="max-w-[12rem] truncate">{name(sort.propertyId)}</span>
+            {sort.direction === 'asc' ? <ArrowDownAZ className="h-3 w-3 shrink-0" /> : <ArrowUpAZ className="h-3 w-3 shrink-0" />}
+          </button>
+          <button onClick={() => remove(i)} aria-label="Remove sort" className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground">
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+};
+
 /** The `+` next to the view tabs: add a new view of a chosen layout. */
 export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = ({onAdd}) => (
   <DropdownMenu>

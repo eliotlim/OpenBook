@@ -34,7 +34,7 @@ import {readPageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {cellValue, PropertyValueCell} from './databaseCells';
-import {AddPropertyMenu, AddViewMenu, FilterChips, FilterMenu, MetricsBar, PropertyMenu, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon} from './databaseMenus';
+import {AddPropertyMenu, AddViewMenu, FilterChips, FilterMenu, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon} from './databaseMenus';
 import {BoardView, CalendarView, GalleryView, RowChips, RowContextMenu} from './databaseLayouts';
 import {BarChartView, PieChartView} from './databaseCharts';
 import {TimelineView} from './databaseTimeline';
@@ -999,7 +999,10 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
         />
       )}
       <Toolbar db={db} view={view} />
-      <FilterChips db={db} view={view} />
+      <div className="flex flex-wrap items-center gap-x-3">
+        <FilterChips db={db} view={view} />
+        <SortChips db={db} view={view} />
+      </div>
       <MetricsBar db={db} view={view} />
       <ViewBody db={db} view={view} columns={columns} schema={schema} />
     </div>

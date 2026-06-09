@@ -6,7 +6,7 @@ const schema = {
   properties: [{id: 'p_status', name: 'Status', type: 'select', options: [
     {id: 's_todo', label: 'Todo', color: 'gray'}, {id: 's_done', label: 'Done', color: 'green'},
   ]}],
-  views: [{id: 'v_tbl', name: 'Table', type: 'table', filters: [], sorts: []}],
+  views: [{id: 'v_tbl', name: 'Table', type: 'table', filters: [], sorts: [{propertyId: 'p_status', direction: 'asc'}]}],
 };
 async function seed(request: APIRequestContext): Promise<string> {
   const p = await request.post(`${SERVER}/api/pages`, {data: {name: `Filt ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}}});
@@ -38,4 +38,16 @@ test('filter chips show and remove active filters', async ({page, request}) => {
   await page.getByRole('button', {name: 'Remove filter'}).click();
   await expect(page.getByText('Status is Done', {exact: true})).toHaveCount(0);
   await expect(titles).toHaveCount(3);
+});
+
+// Active sorts also show as removable chips below the toolbar.
+test('sort chips show and remove active sorts', async ({page, request}) => {
+  const pageId = await seed(request);
+  await page.goto(`/?page=${pageId}`);
+  await page.getByRole('button', {name: 'Add column'}).waitFor();
+
+  // The seeded ascending Status sort renders a removable chip.
+  await expect(page.getByRole('button', {name: 'Remove sort'})).toBeVisible();
+  await page.getByRole('button', {name: 'Remove sort'}).click();
+  await expect(page.getByRole('button', {name: 'Remove sort'})).toHaveCount(0);
 });
