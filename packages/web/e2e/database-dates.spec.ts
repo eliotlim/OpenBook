@@ -32,3 +32,18 @@ test('relative date display', async ({page, request}) => {
   await expect(page.getByText('In 3 days', {exact: true})).toBeVisible();
   await expect(page.getByText('Yesterday', {exact: true})).toBeVisible();
 });
+
+// Right-clicking a date cell offers relative "Filter by date" presets.
+test('date cell context menu: relative date filter presets', async ({page, request}) => {
+  const pageId = await seed(request);
+  await page.goto(`/?page=${pageId}`);
+  await page.getByRole('button', {name: 'Add column'}).waitFor();
+  const titles = page.getByRole('table').getByPlaceholder('Untitled');
+  await expect(titles).toHaveCount(3);
+
+  // Right-click a date cell → Filter by date → Today → only today's row remains.
+  await page.getByText('In 3 days', {exact: true}).click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Filter by date'}).click();
+  await page.getByRole('menuitem', {name: 'Today', exact: true}).click();
+  await expect(titles).toHaveCount(1);
+});

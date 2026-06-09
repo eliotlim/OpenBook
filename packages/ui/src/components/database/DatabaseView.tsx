@@ -27,6 +27,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {IconButton} from '@/components/ui/icon-button';
@@ -210,6 +213,15 @@ function quickFilter(property: DatabaseProperty, value: unknown): {operator: Fil
   }
 }
 
+/** Relative date filter presets offered on a date cell's context menu. */
+const DATE_FILTER_PRESETS: {operator: FilterOperator; label: string}[] = [
+  {operator: 'is_today', label: 'Today'},
+  {operator: 'is_this_week', label: 'This week'},
+  {operator: 'is_this_month', label: 'This month'},
+  {operator: 'is_past_week', label: 'Past week'},
+  {operator: 'is_next_week', label: 'Next week'},
+];
+
 /** Append a leaf condition to the active view's filter tree (clearing the legacy flat list). */
 function addQuickFilter(db: UseDatabase, view: DbView, propertyId: string, operator: FilterOperator, value: unknown): void {
   const root = view.filterRoot ?? {id: 'root', conjunction: 'and' as const, filters: view.filters ?? []};
@@ -241,6 +253,20 @@ const CellContextMenu: React.FC<{
           <ContextMenuItem onSelect={() => addQuickFilter(db, view, property.id, filter.operator, filter.value)}>
             <FilterIcon className="mr-2 h-3.5 w-3.5" /> Filter: {property.name} {filter.label}
           </ContextMenuItem>
+        )}
+        {property && view && property.type === 'date' && (
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>
+              <FilterIcon className="mr-2 h-3.5 w-3.5" /> Filter by date
+            </ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-44">
+              {DATE_FILTER_PRESETS.map((preset) => (
+                <ContextMenuItem key={preset.operator} onSelect={() => addQuickFilter(db, view, property.id, preset.operator, undefined)}>
+                  {preset.label}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
         )}
         {property && view && (
           <>
