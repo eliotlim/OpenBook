@@ -1343,7 +1343,8 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
     db.updateView(view.id, {visiblePropertyIds: next});
   };
 
-  const showGroup = view.type === 'board' || view.type === 'bar' || view.type === 'pie' || view.type === 'table' || view.type === 'list';
+  const showGroup =
+    view.type === 'board' || view.type === 'bar' || view.type === 'pie' || view.type === 'table' || view.type === 'list' || view.type === 'gallery';
   const showChart = view.type === 'bar' || view.type === 'pie';
   const showDate = view.type === 'calendar' || view.type === 'timeline';
   const showTimeline = view.type === 'timeline';

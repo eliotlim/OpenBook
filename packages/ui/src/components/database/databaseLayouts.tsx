@@ -129,7 +129,8 @@ const GALLERY_GRID = {
 } as const;
 const GALLERY_COVER = {small: 'h-20', medium: 'h-28', large: 'h-44'} as const;
 
-/** Gallery: a responsive grid of cards, one per row, with optional cover images. */
+/** Gallery: a responsive grid of cards, one per row, with optional cover images.
+ *  When the view names a `groupByPropertyId`, cards split into titled sections. */
 export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]; colorProperty?: DatabaseProperty}> = ({
   db,
   view,
@@ -137,33 +138,57 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
   colorProperty,
 }) => {
   const size = view.cardSize ?? 'medium';
+  const schema = db.database?.schema.properties ?? properties;
+  const groupProp = view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
+
+  const card = (row: DatabaseRow): React.ReactNode => {
+    const cover = view.coverPropertyId ? firstImageUrl(row.properties[view.coverPropertyId]) : null;
+    const accent = cardAccent(row, colorProperty);
+    return (
+      <RowContextMenu key={row.id} db={db} rowId={row.id}>
+        <button
+          onClick={() => db.openRow(row.id)}
+          style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
+          className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20 hover:bg-accent/30"
+        >
+          {cover ? (
+            <img src={cover} alt="" className={cn('w-full object-cover', GALLERY_COVER[size])} />
+          ) : (
+            <div className="flex h-16 items-center justify-center bg-muted/40 text-3xl">{readPageIcon(row.id)}</div>
+          )}
+          <div className="flex flex-col gap-2 px-3 pb-3">
+            <div className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</div>
+            <RowChips row={row} properties={properties} rows={db.rows} />
+          </div>
+        </button>
+      </RowContextMenu>
+    );
+  };
+  const grid = (rows: DatabaseRow[]): React.ReactNode => <div className={cn('grid gap-3', GALLERY_GRID[size])}>{rows.map(card)}</div>;
+
+  if (groupProp) {
+    const all = groupRows(db.visibleRows, groupProp, schema);
+    const groups = view.hideEmptyGroups ? all.filter((g) => g.rows.length > 0) : all;
+    return (
+      <div className="space-y-5">
+        {groups.map((group) => (
+          <section key={group.key} data-group={group.key}>
+            <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
+              {group.color && <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />}
+              <span>{group.label}</span>
+              <span className="text-muted-foreground/60">{group.rows.length}</span>
+            </div>
+            {grid(group.rows)}
+          </section>
+        ))}
+        <NewRowButton onClick={() => void db.addRow()} label="New card" className="mt-3" />
+      </div>
+    );
+  }
+
   return (
     <div>
-      <div className={cn('grid gap-3', GALLERY_GRID[size])}>
-        {db.visibleRows.map((row) => {
-          const cover = view.coverPropertyId ? firstImageUrl(row.properties[view.coverPropertyId]) : null;
-          const accent = cardAccent(row, colorProperty);
-          return (
-            <RowContextMenu key={row.id} db={db} rowId={row.id}>
-              <button
-                onClick={() => db.openRow(row.id)}
-                style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
-                className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20 hover:bg-accent/30"
-              >
-                {cover ? (
-                  <img src={cover} alt="" className={cn('w-full object-cover', GALLERY_COVER[size])} />
-                ) : (
-                  <div className="flex h-16 items-center justify-center bg-muted/40 text-3xl">{readPageIcon(row.id)}</div>
-                )}
-                <div className="flex flex-col gap-2 px-3 pb-3">
-                  <div className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</div>
-                  <RowChips row={row} properties={properties} rows={db.rows} />
-                </div>
-              </button>
-            </RowContextMenu>
-          );
-        })}
-      </div>
+      {grid(db.visibleRows)}
       {db.visibleRows.length === 0 && (
         <div className="rounded-md border border-dashed border-border px-3 py-10 text-center text-sm text-muted-foreground">
         No rows{db.rows.length > 0 ? ' match the current filters' : ' yet'}.
