@@ -485,25 +485,26 @@ export const CalendarView: React.FC<{
               )}
               <div className="flex flex-col gap-0.5">
                 {rows.map((row) => (
-                  <button
-                    key={row.id}
-                    draggable={editable}
-                    onDragStart={() => setDragRow(row.id)}
-                    onDragEnd={() => setDragRow(null)}
-                    onClick={() => db.openRow(row.id)}
-                    className={cn(
-                      'flex flex-col gap-0.5 rounded bg-brand/10 px-1 py-0.5 text-left text-[11px] text-foreground/80 transition-colors hover:bg-brand/20',
-                      editable && 'cursor-grab active:cursor-grabbing',
-                      dragRow === row.id && 'opacity-40',
-                    )}
-                    title={row.name ?? 'Untitled'}
-                  >
-                    <span className="flex items-center gap-1 truncate">
-                      <span className="shrink-0 leading-none">{readPageIcon(row.id)}</span>
-                      <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
-                    </span>
-                    {tileProps.length > 0 && <RowChips row={row} properties={tileProps} rows={db.rows} />}
-                  </button>
+                  <RowContextMenu key={row.id} db={db} rowId={row.id}>
+                    <button
+                      draggable={editable}
+                      onDragStart={() => setDragRow(row.id)}
+                      onDragEnd={() => setDragRow(null)}
+                      onClick={() => db.openRow(row.id)}
+                      className={cn(
+                        'flex flex-col gap-0.5 rounded bg-brand/10 px-1 py-0.5 text-left text-[11px] text-foreground/80 transition-colors hover:bg-brand/20',
+                        editable && 'cursor-grab active:cursor-grabbing',
+                        dragRow === row.id && 'opacity-40',
+                      )}
+                      title={row.name ?? 'Untitled'}
+                    >
+                      <span className="flex items-center gap-1 truncate">
+                        <span className="shrink-0 leading-none">{readPageIcon(row.id)}</span>
+                        <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
+                      </span>
+                      {tileProps.length > 0 && <RowChips row={row} properties={tileProps} rows={db.rows} />}
+                    </button>
+                  </RowContextMenu>
                 ))}
               </div>
             </div>

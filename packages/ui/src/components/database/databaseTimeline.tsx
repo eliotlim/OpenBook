@@ -10,7 +10,7 @@ import {
 import {readPageIcon} from '@/lib/pageIcon';
 import type {UseDatabase} from './useDatabase';
 import {SWATCH_HEX} from './databaseColors';
-import {RowChips} from './databaseLayouts';
+import {RowChips, RowContextMenu} from './databaseLayouts';
 
 const DAY_MS = 86_400_000;
 const ROW_H = 34;
@@ -349,22 +349,23 @@ export const TimelineView: React.FC<{
       <div className="shrink-0 border-r border-border" style={{width: LABEL_W}}>
         <div className="border-b border-border bg-muted/30" style={{height: HEADER_H}} />
         {laid.map((l) => (
-          <button
-            key={l.row.id}
-            onClick={() => db.openRow(l.row.id)}
-            className="flex w-full flex-col justify-center gap-0.5 border-b border-border/60 px-2 text-left text-sm last:border-0 hover:bg-accent/30"
-            style={{height: rowH}}
-          >
-            <span className="flex w-full items-center gap-1.5">
-              <span className="shrink-0 text-sm leading-none">{readPageIcon(l.row.id)}</span>
-              <span className="truncate">{l.row.name?.trim() || 'Untitled'}</span>
-            </span>
-            {railProps.length > 0 && (
-              <span className="flex h-[18px] items-center overflow-hidden">
-                <RowChips row={l.row} properties={railProps} rows={db.rows} />
+          <RowContextMenu key={l.row.id} db={db} rowId={l.row.id}>
+            <button
+              onClick={() => db.openRow(l.row.id)}
+              className="flex w-full flex-col justify-center gap-0.5 border-b border-border/60 px-2 text-left text-sm last:border-0 hover:bg-accent/30"
+              style={{height: rowH}}
+            >
+              <span className="flex w-full items-center gap-1.5">
+                <span className="shrink-0 text-sm leading-none">{readPageIcon(l.row.id)}</span>
+                <span className="truncate">{l.row.name?.trim() || 'Untitled'}</span>
               </span>
-            )}
-          </button>
+              {railProps.length > 0 && (
+                <span className="flex h-[18px] items-center overflow-hidden">
+                  <RowChips row={l.row} properties={railProps} rows={db.rows} />
+                </span>
+              )}
+            </button>
+          </RowContextMenu>
         ))}
       </div>
 
