@@ -41,7 +41,7 @@ import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {cellValue, PropertyValueCell} from './databaseCells';
 import {AddPropertyMenu, AddViewMenu, FilterChips, FilterMenu, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon} from './databaseMenus';
-import {BoardView, CalendarView, cardAccent, GalleryView, RowChips, RowContextMenu} from './databaseLayouts';
+import {BoardView, CalendarView, GalleryView, rowColor, RowChips, RowContextMenu} from './databaseLayouts';
 import {BarChartView, PieChartView} from './databaseCharts';
 import {TimelineView} from './databaseTimeline';
 import {GraphView} from './databaseGraph';
@@ -356,8 +356,7 @@ const ColumnContextMenu: React.FC<{db: UseDatabase; view: DbView; property: Data
 };
 
 const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: RowTreeInfo; selection?: {selected: boolean; onToggle: () => void}}> = ({db, columns, schema, row, drag, tree, selection}) => {
-  const colorPropId = db.activeView?.cardColorPropertyId;
-  const accent = colorPropId ? cardAccent(row, schema.find((p) => p.id === colorPropId)) : undefined;
+  const accent = db.activeView ? rowColor(row, db.activeView, schema, db.rows) : undefined;
   const hasDependency = columns.some((c) => c.type === 'dependency');
   const rowOptions = hasDependency
     ? db.rows.filter((r) => r.id !== row.id).map((r) => ({id: r.id, label: r.name?.trim() || 'Untitled', icon: readPageIcon(r.id)}))
@@ -788,8 +787,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
 
 /** One list-view row: icon, title, property chips, and the row menu. */
 const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: DatabaseRow}> = ({db, columns, row}) => {
-  const colorPropId = db.activeView?.cardColorPropertyId;
-  const accent = colorPropId ? cardAccent(row, db.database?.schema.properties.find((p) => p.id === colorPropId)) : undefined;
+  const accent = db.activeView ? rowColor(row, db.activeView, db.database?.schema.properties ?? [], db.rows) : undefined;
   return (
     <RowContextMenu db={db} rowId={row.id}>
       <div
@@ -881,14 +879,13 @@ const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProper
   // The dense date layouts only show property chips once the user opts in (picks
   // properties); the card layouts show the visible set by default.
   const explicitCols = view.visiblePropertyIds && view.visiblePropertyIds.length > 0 ? columns : [];
-  const colorProperty = view.cardColorPropertyId ? schema.find((p) => p.id === view.cardColorPropertyId) : undefined;
   switch (view.type) {
   case 'list':
     return <ListView db={db} columns={columns} schema={schema} view={view} />;
   case 'gallery':
-    return <GalleryView db={db} view={view} properties={columns} colorProperty={colorProperty} />;
+    return <GalleryView db={db} view={view} properties={columns} />;
   case 'board':
-    return <BoardView db={db} view={view} properties={schema} cardProperties={columns} colorProperty={colorProperty} />;
+    return <BoardView db={db} view={view} properties={schema} cardProperties={columns} />;
   case 'calendar':
     return <CalendarView db={db} view={view} properties={schema} cardProperties={explicitCols} />;
   case 'timeline':

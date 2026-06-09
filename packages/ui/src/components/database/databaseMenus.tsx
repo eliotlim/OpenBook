@@ -38,6 +38,7 @@ import {
   shortId,
   summarizeColumn,
   type ChartAggregate,
+  type ColorRule,
   type DatabaseMetric,
   type DatabaseFilter,
   type DatabaseFilterGroup,
@@ -1107,6 +1108,97 @@ export const SummaryPicker: React.FC<{current: SummaryType; display: string; onC
 
 const METRIC_TYPES = SUMMARY_TYPES.filter((s) => s.value !== 'none');
 
+/** One conditional-formatting rule row: property + operator + value + colour. */
+const ColorRuleRow: React.FC<{db: UseDatabase; view: DatabaseView; rule: ColorRule; properties: DatabaseProperty[]}> = ({db, view, rule, properties}) => {
+  const prop = properties.find((p) => p.id === rule.propertyId);
+  const ops = operatorsFor(prop?.type);
+  const update = (patch: Partial<ColorRule>): void =>
+    void db.updateView(view.id, {colorRules: (view.colorRules ?? []).map((r) => (r.id === rule.id ? {...r, ...patch} : r))});
+  const remove = (): void => void db.updateView(view.id, {colorRules: (view.colorRules ?? []).filter((r) => r.id !== rule.id)});
+  const isSelect = prop?.type === 'select' || prop?.type === 'status';
+
+  return (
+    <div className="flex items-center gap-1">
+      <span className="h-4 w-1.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[rule.color] ?? '#9ca3af'}} />
+      <select
+        value={rule.propertyId}
+        onChange={(e) => {
+          const next = properties.find((p) => p.id === e.target.value);
+          update({propertyId: e.target.value, operator: operatorsFor(next?.type)[0], value: undefined});
+        }}
+        className={cn(fieldClass, 'min-w-0 flex-1')}
+        aria-label="Rule property"
+      >
+        {properties.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </select>
+      <select value={rule.operator} onChange={(e) => update({operator: e.target.value as FilterOperator})} className={cn(fieldClass, 'min-w-0')} aria-label="Rule operator">
+        {ops.map((o) => (
+          <option key={o} value={o}>
+            {OPERATOR_LABEL[o]}
+          </option>
+        ))}
+      </select>
+      {!VALUELESS.has(rule.operator) &&
+        (isSelect ? (
+          <select value={typeof rule.value === 'string' ? rule.value : ''} onChange={(e) => update({value: e.target.value})} className={cn(fieldClass, 'min-w-0 flex-1')} aria-label="Rule value">
+            <option value="">—</option>
+            {(prop?.options ?? []).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            value={typeof rule.value === 'string' || typeof rule.value === 'number' ? String(rule.value) : ''}
+            onChange={(e) => update({value: prop?.type === 'number' || prop?.type === 'rating' ? Number(e.target.value) : e.target.value})}
+            className={cn(fieldClass, 'min-w-0 flex-1')}
+            placeholder="value"
+            aria-label="Rule value"
+          />
+        ))}
+      <select value={rule.color} onChange={(e) => update({color: e.target.value})} className={cn(fieldClass, 'w-16')} aria-label="Rule colour">
+        {SELECT_COLORS.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </select>
+      <button onClick={remove} aria-label="Remove rule" className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground">
+        <X className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+};
+
+/** Conditional-formatting editor: rules that tint each row/card edge. */
+export const ColorRulesEditor: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const properties = db.database!.schema.properties;
+  const rules = view.colorRules ?? [];
+  const add = (): void => {
+    const prop = properties[0];
+    if (!prop) return;
+    void db.updateView(view.id, {
+      colorRules: [...rules, {id: shortId('rule'), propertyId: prop.id, operator: operatorsFor(prop.type)[0], value: undefined, color: SELECT_COLORS[rules.length % SELECT_COLORS.length]}],
+    });
+  };
+  return (
+    <div className="space-y-1.5">
+      <div className={sectionLabel}>Color rules</div>
+      {rules.map((rule) => (
+        <ColorRuleRow key={rule.id} db={db} view={view} rule={rule} properties={properties} />
+      ))}
+      <button onClick={add} className={cn(toolButtonClass, 'w-full justify-center')}>
+        <Plus className="h-3.5 w-3.5" /> Add rule
+      </button>
+    </div>
+  );
+};
+
 /** The label shown above a metric card (a custom label, or "<property> · <summary>"). */
 function metricLabel(metric: DatabaseMetric, properties: DatabaseProperty[]): string {
   if (metric.label?.trim()) return metric.label;
@@ -1626,6 +1718,8 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
             </select>
           </label>
         )}
+
+        {showCardColor && <ColorRulesEditor db={db} view={view} />}
 
         {showColumns && properties.length > 0 && (
           <div>

@@ -304,6 +304,17 @@ export interface DatabaseSort {
   direction: SortDirection;
 }
 
+/** A conditional-formatting rule: when its condition holds for a row, the row's
+ *  edge is tinted `color`. The first matching rule wins. */
+export interface ColorRule {
+  id: string;
+  propertyId: string;
+  operator: FilterOperator;
+  value?: unknown;
+  /** A swatch palette token (see `SELECT_COLORS`). */
+  color: string;
+}
+
 /** A dashboard metric card: a single aggregate over the view's filtered rows. */
 export interface DatabaseMetric {
   id: string;
@@ -361,6 +372,8 @@ export interface DatabaseView {
   cardSize?: 'small' | 'medium' | 'large';
   /** Gallery/board: a `select`/`status` property whose option colour tints each card's edge. */
   cardColorPropertyId?: string;
+  /** Conditional formatting: rules that tint a row/card edge when their condition holds. */
+  colorRules?: ColorRule[];
   /** Per-column footer summaries (table), keyed by property id (or {@link TITLE_PROPERTY_ID}). */
   summaries?: Record<string, SummaryType>;
   /** Dashboard metric cards shown above the view (count/sum/avg/… over the filtered rows). */
@@ -991,6 +1004,22 @@ export function viewFilterRoot(view: DatabaseView): DatabaseFilterGroup {
  * applied in order (first sort is primary). Pure and side-effect free so it can
  * run identically on the server or in the table UI.
  */
+/**
+ * True when a single leaf condition holds for a row — the same per-row test
+ * {@link applyView} uses for filtering, exposed for conditional formatting
+ * (color rules). Returns false when the condition's property no longer exists.
+ */
+export function rowMatchesCondition(
+  row: DatabaseRow,
+  condition: {propertyId: string; operator: FilterOperator; value?: unknown},
+  properties: DatabaseProperty[],
+  rows?: DatabaseRow[],
+): boolean {
+  const prop = properties.find((p) => p.id === condition.propertyId);
+  if (!prop) return false;
+  return matchesFilter(condition.operator, rowValue(row, prop, properties, rows), condition.value);
+}
+
 export function applyView(rows: DatabaseRow[], view: DatabaseView, properties: DatabaseProperty[]): DatabaseRow[] {
   const root = viewFilterRoot(view);
   const evalNode = (node: FilterNode, row: DatabaseRow): boolean => {

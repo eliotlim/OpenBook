@@ -6,6 +6,7 @@ import {
   firstImageUrl,
   groupRows,
   parseDay,
+  rowMatchesCondition,
   summarizeColumn,
   TITLE_PROPERTY_ID,
   type DatabaseProperty,
@@ -85,6 +86,18 @@ export function cardAccent(row: DatabaseRow, colorProperty: DatabaseProperty | u
 }
 
 /**
+ * The row/card edge tint for a row under a view's conditional formatting: the
+ * first matching {@link ColorRule}'s colour, else the `cardColorPropertyId`
+ * select-option colour. The single source of row colouring across every layout.
+ */
+export function rowColor(row: DatabaseRow, view: DbView, properties: DatabaseProperty[], rows?: DatabaseRow[]): string | undefined {
+  for (const rule of view.colorRules ?? []) {
+    if (rowMatchesCondition(row, rule, properties, rows)) return SWATCH_HEX[rule.color] ?? rule.color;
+  }
+  return view.cardColorPropertyId ? cardAccent(row, properties.find((p) => p.id === view.cardColorPropertyId)) : undefined;
+}
+
+/**
  * Right-click any card (board / gallery) for the same quick row actions as the
  * table — open, insert below, duplicate, delete — without opening the row first.
  */
@@ -131,19 +144,14 @@ const GALLERY_COVER = {small: 'h-20', medium: 'h-28', large: 'h-44'} as const;
 
 /** Gallery: a responsive grid of cards, one per row, with optional cover images.
  *  When the view names a `groupByPropertyId`, cards split into titled sections. */
-export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]; colorProperty?: DatabaseProperty}> = ({
-  db,
-  view,
-  properties,
-  colorProperty,
-}) => {
+export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
   const size = view.cardSize ?? 'medium';
   const schema = db.database?.schema.properties ?? properties;
   const groupProp = view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
 
   const card = (row: DatabaseRow): React.ReactNode => {
     const cover = view.coverPropertyId ? firstImageUrl(row.properties[view.coverPropertyId]) : null;
-    const accent = cardAccent(row, colorProperty);
+    const accent = rowColor(row, view, schema, db.rows);
     return (
       <RowContextMenu key={row.id} db={db} rowId={row.id}>
         <button
@@ -270,8 +278,7 @@ export const BoardView: React.FC<{
   properties: DatabaseProperty[];
   /** The view's visible property set, shown as card chips (defaults to all). */
   cardProperties?: DatabaseProperty[];
-  colorProperty?: DatabaseProperty;
-}> = ({db, view, properties, cardProperties, colorProperty}) => {
+}> = ({db, view, properties, cardProperties}) => {
   const groupProp = properties.find((p) => p.id === view.groupByPropertyId);
   const [dragRow, setDragRow] = useState<string | null>(null);
   const [dragCol, setDragCol] = useState<string | null>(null);
@@ -387,7 +394,7 @@ export const BoardView: React.FC<{
                 </div>
                 <div className="flex flex-col gap-2">
                   {group.rows.map((row) => {
-                    const accent = cardAccent(row, colorProperty);
+                    const accent = rowColor(row, view, properties, db.rows);
                     return (
                       <RowContextMenu key={row.id} db={db} rowId={row.id}>
                         <div
@@ -450,7 +457,6 @@ export const CalendarView: React.FC<{
 }> = ({db, view, properties, cardProperties}) => {
   const dateProp = properties.find((p) => p.id === view.datePropertyId);
   const tileProps = (cardProperties ?? []).filter((p) => p.id !== view.datePropertyId);
-  const colorProp = view.cardColorPropertyId ? properties.find((p) => p.id === view.cardColorPropertyId) : undefined;
   const today = new Date();
   const [cursor, setCursor] = useState({year: today.getFullYear(), month: today.getMonth()});
   const [dragRow, setDragRow] = useState<string | null>(null);
@@ -585,7 +591,7 @@ export const CalendarView: React.FC<{
               )}
               <div className="flex flex-col gap-0.5">
                 {rows.map((row) => {
-                  const accent = cardAccent(row, colorProp);
+                  const accent = rowColor(row, view, properties, db.rows);
                   return (
                     <RowContextMenu key={row.id} db={db} rowId={row.id}>
                       <button
