@@ -110,6 +110,34 @@ export const SelectChip: React.FC<{option: DatabaseSelectOption}> = ({option}) =
 );
 
 /** Read-only text of a cell value (for list-view chips and expr columns). */
+/** A stored day string (`YYYY-MM-DD` or `…THH:mm`) as a locale date (+ time when present). */
+function absoluteDay(d: string): string {
+  const hasTime = d.includes('T');
+  const dt = new Date(hasTime ? d : `${d}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return d;
+  return hasTime ? dt.toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}) : dt.toLocaleDateString();
+}
+
+/** A day string as a friendly relative phrase ("Today", "In 3 days", "Yesterday"),
+ *  falling back to {@link absoluteDay} beyond a week. */
+function relativeDay(d: string): string {
+  const hasTime = d.includes('T');
+  const dt = new Date(hasTime ? d : `${d}T00:00:00`);
+  if (Number.isNaN(dt.getTime())) return d;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfTarget = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).getTime();
+  const diff = Math.round((startOfTarget - startOfToday) / 86_400_000);
+  let label: string;
+  if (diff === 0) label = 'Today';
+  else if (diff === 1) label = 'Tomorrow';
+  else if (diff === -1) label = 'Yesterday';
+  else if (diff > 1 && diff < 7) label = `In ${diff} days`;
+  else if (diff < -1 && diff > -7) label = `${-diff} days ago`;
+  else return absoluteDay(d);
+  return hasTime ? `${label}, ${dt.toLocaleTimeString(undefined, {hour: 'numeric', minute: '2-digit'})}` : label;
+}
+
 export function formatCellValue(property: DatabaseProperty, value: unknown): string {
   if (property.type === 'verification') return isVerified(value) ? 'Verified' : '';
   if (property.type === 'backlinks' || property.type === 'relation' || property.type === 'dependency' || property.type === 'files') return ''; // chips
@@ -120,13 +148,7 @@ export function formatCellValue(property: DatabaseProperty, value: unknown): str
     const s = dateStart(value);
     if (!s) return '';
     const e = dateEnd(value);
-    // Show the time too when the stored value carries one (YYYY-MM-DDTHH:mm).
-    const day = (d: string) => {
-      const hasTime = d.includes('T');
-      const dt = new Date(hasTime ? d : `${d}T00:00:00`);
-      if (Number.isNaN(dt.getTime())) return d;
-      return hasTime ? dt.toLocaleString(undefined, {dateStyle: 'medium', timeStyle: 'short'}) : dt.toLocaleDateString();
-    };
+    const day = (d: string) => (property.dateDisplay === 'relative' ? relativeDay(d) : absoluteDay(d));
     return e ? `${day(s)} → ${day(e)}` : day(s);
   }
   if (property.type === 'unique_id') return formatUniqueId(value, property.idPrefix);
@@ -478,12 +500,33 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
   onChange,
 }) => {
   const inputType = property.includeTime ? 'datetime-local' : 'date';
+  const relative = property.dateDisplay === 'relative';
+  const [editing, setEditing] = useState(false);
+
+  // Relative dates read as friendly text ("Today", "In 3 days") until clicked,
+  // then reveal the native picker to edit.
+  if (relative && !editing) {
+    const text = formatCellValue(property, value);
+    return (
+      <button
+        onClick={() => setEditing(true)}
+        className="flex w-full items-center px-2 py-1 text-left text-sm outline-hidden hover:bg-accent/30"
+        aria-label={property.name}
+      >
+        {text || <span className="text-muted-foreground/50">Empty</span>}
+      </button>
+    );
+  }
+  const exit = relative ? () => setEditing(false) : undefined;
+
   if (!property.dateRange) {
     return (
       <input
         type={inputType}
+        autoFocus={relative}
         defaultValue={dateStart(value) ?? ''}
         onChange={(e) => onChange(e.target.value || null)}
+        onBlur={exit}
         className={inputClass}
         aria-label={property.name}
       />
@@ -493,9 +536,13 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
   const end = dateEnd(value);
   const emit = (next: DateRange) => onChange(next.start || next.end ? next : null);
   return (
-    <div className="flex items-center gap-1 px-1 text-sm">
+    <div
+      className="flex items-center gap-1 px-1 text-sm"
+      onBlur={exit ? (e) => !e.currentTarget.contains(e.relatedTarget as Node) && exit() : undefined}
+    >
       <input
         type={inputType}
+        autoFocus={relative}
         defaultValue={start ?? ''}
         onChange={(e) => emit({start: e.target.value || null, end})}
         className="bg-transparent py-1 outline-hidden focus:bg-accent/40"

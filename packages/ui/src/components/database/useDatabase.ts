@@ -59,6 +59,7 @@ export interface PropertyPatch {
   idPrefix?: string;
   dateRange?: boolean;
   includeTime?: boolean;
+  dateDisplay?: 'absolute' | 'relative';
   description?: string;
   groupId?: string | null;
   pageHidden?: boolean;

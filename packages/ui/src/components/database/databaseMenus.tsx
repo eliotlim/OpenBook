@@ -649,6 +649,18 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
               />
               Include time
             </label>
+            <label className="block">
+              <span className={sectionLabel}>Display</span>
+              <select
+                value={property.dateDisplay ?? 'absolute'}
+                onChange={(e) => void db.updateProperty(property.id, {dateDisplay: e.target.value as 'absolute' | 'relative'})}
+                className={cn(fieldClass, 'mt-1 w-full')}
+                aria-label="Date display"
+              >
+                <option value="absolute">Absolute (Jun 12, 2026)</option>
+                <option value="relative">Relative (In 3 days)</option>
+              </select>
+            </label>
           </>
         )}
 

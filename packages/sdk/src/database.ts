@@ -139,6 +139,9 @@ export interface DatabaseProperty {
   dateRange?: boolean;
   /** `date` only: when true the cell stores a time too (`YYYY-MM-DDTHH:mm`). */
   includeTime?: boolean;
+  /** `date` only: show dates relative to today ("Today", "In 3 days") near the present,
+   *  falling back to an absolute date further out. Defaults to absolute. */
+  dateDisplay?: 'absolute' | 'relative';
   /** A short helper description, shown beneath the field in the page-view panel. */
   description?: string;
   /** The {@link PropertyGroup} this property belongs to (page-view organisation). */
