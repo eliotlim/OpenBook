@@ -51,3 +51,17 @@ test('sort chips show and remove active sorts', async ({page, request}) => {
   await page.getByRole('button', {name: 'Remove sort'}).click();
   await expect(page.getByRole('button', {name: 'Remove sort'})).toHaveCount(0);
 });
+
+// "Clear filters & sorts" in the view options resets the view in one click.
+test('view options: clear filters and sorts', async ({page, request}) => {
+  const pageId = await seed(request);
+  await page.goto(`/?page=${pageId}`);
+  await page.getByRole('button', {name: 'Add column'}).waitFor();
+
+  // The seeded sort chip is present; Clear filters & sorts removes it.
+  await expect(page.getByRole('button', {name: 'Remove sort'})).toBeVisible();
+  await page.getByRole('button', {name: 'View options'}).click();
+  await page.getByRole('button', {name: 'Clear filters & sorts'}).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', {name: 'Remove sort'})).toHaveCount(0);
+});

@@ -1735,10 +1735,18 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
           </div>
         )}
 
-        <div className="border-t border-border pt-2">
+        <div className="space-y-1.5 border-t border-border pt-2">
           <button onClick={() => addFirstMetric(db, view)} className={cn(toolButtonClass, 'w-full justify-center')}>
             <Sigma className="h-3.5 w-3.5" /> Add metric card
           </button>
+          {((view.sorts?.length ?? 0) > 0 || (view.filters?.length ?? 0) > 0 || (view.filterRoot?.filters.length ?? 0) > 0) && (
+            <button
+              onClick={() => void db.updateView(view.id, {filterRoot: undefined, filters: [], sorts: []})}
+              className={cn(toolButtonClass, 'w-full justify-center')}
+            >
+              <ListFilter className="h-3.5 w-3.5" /> Clear filters & sorts
+            </button>
+          )}
         </div>
 
         <div className="flex items-center gap-1 border-t border-border pt-2">
