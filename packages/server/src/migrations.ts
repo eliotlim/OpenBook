@@ -26,7 +26,7 @@ const MIGRATIONS: Migration[] = [
     ],
   },
   {
-    // Notion-style databases. A database is owned by a host page (1:1) and its
+    // Full-featured databases. A database is owned by a host page (1:1) and its
     // rows are ordinary pages tagged with `database_id`. Manual property values
     // live in `pages.properties`; `expr` columns are projected from the row
     // page's reactive snapshot at read time (see sdk `projectExports`).

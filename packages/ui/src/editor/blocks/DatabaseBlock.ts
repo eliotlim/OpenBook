@@ -11,17 +11,27 @@ import {pageLinks} from '@/lib/pageLinks';
  * tree (so hooks like `useData` resolve). Same singleton-bridge idea as
  * {@link pageLinks}, but per-editor and carrying a DOM mount point.
  */
+/** What a registered inline-database block needs the host to render for it. */
+export interface InlineDatabaseEntry {
+  /** The host page of the database to show; null until created/linked (chooser). */
+  pageId: string | null;
+  /** Create a fresh child database for this block. */
+  onCreate: () => void;
+  /** Link an existing database (its host page id) to this block. */
+  onPick: (pageId: string) => void;
+}
+
 export interface InlineDatabaseRegistry {
-  /** A block mounted its node (and may already know its child database page). */
-  register(blockId: string, el: HTMLElement, pageId: string | null): void;
-  /** The block finished creating its child database page. */
+  /** A block mounted its node and described what to render (view, or a chooser). */
+  register(blockId: string, el: HTMLElement, entry: InlineDatabaseEntry): void;
+  /** The block resolved its database page (created or linked). */
   setPageId(blockId: string, pageId: string): void;
   /** The block was destroyed (removed / editor torn down). */
   unregister(blockId: string): void;
 }
 
 interface DatabaseBlockData extends BlockToolData {
-  /** The child page that hosts this inline database. Created once, then persisted. */
+  /** The host page of this inline database. Created or linked once, then persisted. */
   pageId?: string;
 }
 
@@ -92,11 +102,23 @@ export class DatabaseBlock implements BlockTool {
     return this.creating;
   }
 
+  /** Persist a linked database choice (an existing database's host page). */
+  private link(pageId: string): void {
+    this.data.pageId = pageId;
+    this.block?.dispatchChange();
+    this.registry?.setPageId(this.blockId, pageId);
+  }
+
   render(): HTMLElement {
     this.dom = document.createElement('div');
     this.dom.className = 'block-database';
-    this.registry?.register(this.blockId, this.dom, this.data.pageId ?? null);
-    if (!this.data.pageId && this.hostPageId) void this.ensureCreated().catch(() => undefined);
+    // A fresh block has no database yet — the host renders a chooser ("new" vs
+    // "link existing"); we don't auto-create, so the choice is the user's.
+    this.registry?.register(this.blockId, this.dom, {
+      pageId: this.data.pageId ?? null,
+      onCreate: () => void this.ensureCreated().catch(() => undefined),
+      onPick: (id) => this.link(id),
+    });
     return this.dom;
   }
 

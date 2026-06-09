@@ -6,6 +6,7 @@ const row = (over: Partial<DatabaseRow> = {}): DatabaseRow => ({
   name: 'Row',
   properties: {},
   exports: {},
+  parentId: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-02-02T00:00:00.000Z',
   ...over,

@@ -82,8 +82,10 @@ import {
   TableOfContentsBlock,
   DatabaseBlock,
   type InlineDatabaseRegistry,
+  type InlineDatabaseEntry,
 } from '@/editor/blocks';
 import {DatabaseView} from '@/components/database/DatabaseView';
+import {InlineDatabaseChooser} from '@/components/database/DatabasePicker';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
 import {installEditorChrome} from '@/lib/editorChrome';
@@ -220,10 +222,10 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   // into each from inside the provider tree (see InlineDatabaseRegistry). Updates
   // are deferred to a microtask so a block's render/destroy never sets state
   // synchronously during an EditorJS operation that runs amid a React commit.
-  const [dbBlocks, setDbBlocks] = useState<Map<string, {el: HTMLElement; pageId: string | null}>>(new Map());
+  const [dbBlocks, setDbBlocks] = useState<Map<string, {el: HTMLElement} & InlineDatabaseEntry>>(new Map());
   const dbRegistry = useRef<InlineDatabaseRegistry>({
-    register: (id, el, pageId) =>
-      queueMicrotask(() => setDbBlocks((prev) => new Map(prev).set(id, {el, pageId}))),
+    register: (id, el, entry) =>
+      queueMicrotask(() => setDbBlocks((prev) => new Map(prev).set(id, {el, ...entry}))),
     setPageId: (id, pageId) =>
       queueMicrotask(() =>
         setDbBlocks((prev) => {
@@ -586,8 +588,10 @@ const PageDocument: React.FC<PageDocumentProps> = ({
 
       {/* Inline databases: a live DatabaseView portaled into each database
           block's DOM node, so the view runs inside the document's providers. */}
-      {[...dbBlocks].map(([id, {el, pageId: dbPageId}]) =>
-        dbPageId ? createPortal(<DatabaseView pageId={dbPageId} inline />, el, id) : null,
+      {[...dbBlocks].map(([id, {el, pageId: dbPageId, onCreate, onPick}]) =>
+        dbPageId
+          ? createPortal(<DatabaseView pageId={dbPageId} inline />, el, id)
+          : createPortal(<InlineDatabaseChooser onCreate={onCreate} onPick={onPick} />, el, id),
       )}
 
       {!isSSR() && mentionRef.current && <MentionPopover controller={mentionRef.current} />}

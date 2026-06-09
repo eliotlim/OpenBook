@@ -1,6 +1,8 @@
 import React, {useState} from 'react';
-import {ChevronRight, GripVertical, MoreHorizontal, PanelRightOpen, Plus, Search, Trash2, X} from 'lucide-react';
+import {ArrowDown, ArrowUp, ChevronDown, ChevronRight, Copy, GripVertical, MoreHorizontal, PanelRightOpen, Plus, Save, Search, Trash2, X} from 'lucide-react';
 import {
+  buildRowTree,
+  flattenRowTree,
   groupRows,
   summarizeColumn,
   TITLE_PROPERTY_ID,
@@ -13,6 +15,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
@@ -24,13 +27,21 @@ import {AddPropertyMenu, AddViewMenu, FilterMenu, PropertyMenu, SortMenu, Summar
 import {BoardView, CalendarView, GalleryView, RowChips} from './databaseLayouts';
 import {BarChartView, PieChartView} from './databaseCharts';
 import {TimelineView} from './databaseTimeline';
+import {GraphView} from './databaseGraph';
 import {SWATCH_HEX} from './databaseColors';
 
 const exprValueOf = (row: DatabaseRow, property: DatabaseProperty): unknown =>
   row.exports[property.cellName ?? property.name];
 
-/** Per-row overflow menu: open in split, delete. */
-const RowMenu: React.FC<{onOpen: () => void; onDelete: () => void}> = ({onOpen, onDelete}) => (
+/** Per-row overflow menu: open in split, insert below, duplicate, delete. */
+const RowMenu: React.FC<{
+  onOpen: () => void;
+  onDuplicate: () => void;
+  onDelete: () => void;
+  onSaveTemplate: () => void;
+  onInsertBelow?: () => void;
+  onInsertAbove?: () => void;
+}> = ({onOpen, onDuplicate, onDelete, onSaveTemplate, onInsertBelow, onInsertAbove}) => (
   <DropdownMenu>
     <DropdownMenuTrigger asChild>
       <IconButton
@@ -46,6 +57,26 @@ const RowMenu: React.FC<{onOpen: () => void; onDelete: () => void}> = ({onOpen, 
         <PanelRightOpen className="mr-2 h-4 w-4" />
         Open in split
       </DropdownMenuItem>
+      {onInsertAbove && (
+        <DropdownMenuItem onClick={onInsertAbove}>
+          <Plus className="mr-2 h-4 w-4" />
+          Insert above
+        </DropdownMenuItem>
+      )}
+      {onInsertBelow && (
+        <DropdownMenuItem onClick={onInsertBelow}>
+          <Plus className="mr-2 h-4 w-4" />
+          Insert below
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem onClick={onDuplicate}>
+        <Copy className="mr-2 h-4 w-4" />
+        Duplicate
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={onSaveTemplate}>
+        <Save className="mr-2 h-4 w-4" />
+        Save as template
+      </DropdownMenuItem>
       <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
         <Trash2 className="mr-2 h-4 w-4" />
         Delete
@@ -54,10 +85,35 @@ const RowMenu: React.FC<{onOpen: () => void; onDelete: () => void}> = ({onOpen, 
   </DropdownMenu>
 );
 
-/** The title cell: a drag handle, an open-in-split affordance + inline-editable name. */
-const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React.ReactNode}> = ({row, db, dragHandle}) => (
-  <div className="group/title flex items-center gap-1">
+/** Sub-item (nested-row) info for a title cell: indent, expand toggle, add. */
+interface RowTreeInfo {
+  depth: number;
+  hasChildren: boolean;
+  collapsed: boolean;
+  onToggle: () => void;
+  onAddSub: () => void;
+}
+
+/** The title cell: indent + expand toggle (sub-items), drag handle, open + add-sub. */
+const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React.ReactNode; tree?: RowTreeInfo}> = ({
+  row,
+  db,
+  dragHandle,
+  tree,
+}) => (
+  <div className="group/title flex items-center gap-1" style={tree ? {paddingLeft: tree.depth * 16} : undefined}>
     {dragHandle}
+    {tree?.hasChildren ? (
+      <button
+        onClick={tree.onToggle}
+        className="shrink-0 rounded p-0.5 text-muted-foreground/60 transition hover:bg-accent hover:text-foreground"
+        aria-label={tree.collapsed ? 'Expand sub-items' : 'Collapse sub-items'}
+      >
+        <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !tree.collapsed && 'rotate-90')} />
+      </button>
+    ) : (
+      tree && <span className="w-4 shrink-0" />
+    )}
     <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
     <input
       defaultValue={row.name ?? ''}
@@ -68,6 +124,17 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React
       placeholder="Untitled"
       className="w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/40"
     />
+    {tree && (
+      <IconButton
+        size="sm"
+        onClick={tree.onAddSub}
+        className="text-muted-foreground/60 opacity-0 transition group-hover/title:opacity-100"
+        aria-label="Add sub-item"
+        title="Add sub-item"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </IconButton>
+    )}
     <IconButton
       size="sm"
       onClick={() => db.openRow(row.id)}
@@ -97,8 +164,8 @@ interface DragApi {
   end: () => void;
 }
 
-/** One table row, optionally drag-reorderable. */
-const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi}> = ({db, columns, schema, row, drag}) => {
+/** One table row, optionally drag-reorderable and/or a sub-item tree node. */
+const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: RowTreeInfo; selection?: {selected: boolean; onToggle: () => void}}> = ({db, columns, schema, row, drag, tree, selection}) => {
   const hasDependency = columns.some((c) => c.type === 'dependency');
   const rowOptions = hasDependency
     ? db.rows.filter((r) => r.id !== row.id).map((r) => ({id: r.id, label: r.name?.trim() || 'Untitled', icon: readPageIcon(r.id)}))
@@ -131,19 +198,46 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi}> = ({db, c
         drag.overRow === row.id && drag.dragRow !== row.id && 'border-t-2 border-t-brand/60',
       )}
     >
-      <td className="px-2 py-0.5 align-middle">
+      <td
+        className={cn(
+          'sticky left-0 z-10 border-r border-border px-2 py-0.5 align-middle',
+          selection?.selected ? 'bg-accent/40' : 'bg-card',
+        )}
+      >
         <div className="flex items-center justify-between gap-1">
-          <div className="min-w-0 flex-1">
-            <TitleCell row={row} db={db} dragHandle={handle} />
+          <div className="flex min-w-0 flex-1 items-center gap-1.5">
+            {selection && (
+              <input
+                type="checkbox"
+                checked={selection.selected}
+                onChange={selection.onToggle}
+                onClick={(e) => e.stopPropagation()}
+                className={cn(
+                  'h-3.5 w-3.5 shrink-0 cursor-pointer accent-primary transition-opacity',
+                  !selection.selected && 'opacity-0 group-hover:opacity-100',
+                )}
+                aria-label="Select row"
+              />
+            )}
+            <div className="min-w-0 flex-1">
+              <TitleCell row={row} db={db} dragHandle={handle} tree={tree} />
+            </div>
           </div>
-          <RowMenu onOpen={() => db.openRow(row.id)} onDelete={() => void db.deleteRow(row.id)} />
+          <RowMenu
+            onOpen={() => db.openRow(row.id)}
+            onInsertAbove={() => void db.addRowBefore(row.id)}
+            onInsertBelow={() => void db.addRowAfter(row.id)}
+            onDuplicate={() => void db.duplicateRow(row.id)}
+            onSaveTemplate={() => void db.saveAsTemplate(row.id)}
+            onDelete={() => void db.deleteRow(row.id)}
+          />
         </div>
       </td>
       {columns.map((property) => (
         <td key={property.id} className="border-l border-border/70 align-middle">
           <PropertyValueCell
             property={property}
-            value={cellValue(row, property, schema)}
+            value={cellValue(row, property, schema, db.rows)}
             exprValue={exprValueOf(row, property)}
             onChange={(value) => void db.setRowProperty(row.id, property.id, value)}
             onAddOption={(label) => db.addSelectOption(property.id, label)}
@@ -169,16 +263,76 @@ const NewRowRow: React.FC<{colSpan: number; onClick: () => void; label?: string}
   </tr>
 );
 
+/**
+ * A per-group calculation row: applies the view's column summary config (the
+ * same one the table footer uses) to just this group's rows, so a grouped table
+ * shows each group's own sum/average/count.
+ */
+const GroupSummaryRow: React.FC<{
+  columns: DatabaseProperty[];
+  schema: DatabaseProperty[];
+  rows: DatabaseRow[];
+  summaryOf: (key: string) => SummaryType;
+}> = ({columns, schema, rows, summaryOf}) => (
+  <tr className="bg-muted/10 text-xs text-muted-foreground/80">
+    <td className="px-2 py-1 align-middle tabular-nums">
+      {summarizeColumn(rows, TITLE_PROPERTY_ID, summaryOf(TITLE_PROPERTY_ID), schema)}
+    </td>
+    {columns.map((property) => (
+      <td key={property.id} className="border-l border-border/60 px-2 py-1 align-middle tabular-nums">
+        {summarizeColumn(rows, property, summaryOf(property.id), schema)}
+      </td>
+    ))}
+    <td className="border-l border-border/60" />
+  </tr>
+);
+
 const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, view}) => {
   const [dragRow, setDragRow] = useState<string | null>(null);
   const [overRow, setOverRow] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set());
+  const [dragCol, setDragCol] = useState<string | null>(null);
+  const [overCol, setOverCol] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const toggleSelect = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const visibleIds = db.visibleRows.map((r) => r.id);
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(visibleIds));
+  const bulkDelete = () => {
+    selected.forEach((id) => void db.deleteRow(id));
+    setSelected(new Set());
+  };
+  const bulkDuplicate = () => {
+    selected.forEach((id) => void db.duplicateRow(id));
+    setSelected(new Set());
+  };
+  const bulkSet = (propertyId: string, value: unknown) => {
+    selected.forEach((id) => void db.setRowProperty(id, propertyId, value));
+    setSelected(new Set());
+  };
+  // The first select/status column, offered as a one-shot bulk edit.
+  const bulkSetProp = schema.find((p) => p.type === 'select' || p.type === 'status');
+  const selectionOf = (id: string) => ({selected: selected.has(id), onToggle: () => toggleSelect(id)});
 
   const groupProp = view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
+  const hasSubItems = db.visibleRows.some((r) => r.parentId);
   // Manual drag-reorder is only well-defined over the full, unfiltered, unsorted,
-  // ungrouped list (otherwise "where does it land?" is ambiguous).
+  // ungrouped, flat list (otherwise "where does it land?" is ambiguous).
   const canReorder =
-    !groupProp && (view.sorts?.length ?? 0) === 0 && (view.filters?.length ?? 0) === 0 && !db.search.trim();
+    !groupProp &&
+    !hasSubItems &&
+    (view.sorts?.length ?? 0) === 0 &&
+    (view.filters?.length ?? 0) === 0 &&
+    !view.filterRoot &&
+    !db.search.trim();
 
   const drag: DragApi = {
     canReorder,
@@ -210,6 +364,8 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
   const setSummary = (key: string, type: SummaryType) =>
     void db.updateView(view.id, {summaries: {...(view.summaries ?? {}), [key]: type}});
   const summaryOf = (key: string): SummaryType => view.summaries?.[key] ?? 'none';
+  // Whether any column has a calculation configured (drives the per-group footer).
+  const hasSummaries = Object.values(view.summaries ?? {}).some((t) => t && t !== 'none');
 
   const toggleGroup = (key: string) =>
     setCollapsed((prev) => {
@@ -218,129 +374,288 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
       else next.add(key);
       return next;
     });
+  const toggleRow = (id: string) =>
+    setCollapsedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
-  const groups = groupProp ? groupRows(db.visibleRows, groupProp, schema) : null;
+  const allGroups = groupProp ? groupRows(db.visibleRows, groupProp, schema) : null;
+  const groups = allGroups && view.hideEmptyGroups ? allGroups.filter((g) => g.rows.length > 0) : allGroups;
+  const allCollapsed = !!groups && groups.length > 0 && groups.every((g) => collapsed.has(g.key));
+  // Flat (ungrouped) view arranges rows into a sub-item tree.
+  const treeRows = flattenRowTree(buildRowTree(db.visibleRows), collapsedRows);
+  const treeInfo = (node: (typeof treeRows)[number]): RowTreeInfo => ({
+    depth: node.depth,
+    hasChildren: node.children.length > 0,
+    collapsed: collapsedRows.has(node.row.id),
+    onToggle: () => toggleRow(node.row.id),
+    onAddSub: () => void db.addSubItem(node.row.id),
+  });
 
   return (
-    <div className="overflow-x-auto rounded-md border border-border">
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-border bg-muted/30 text-left text-xs font-medium text-muted-foreground">
-            <th className="min-w-[220px] px-2 py-1.5 font-medium">Name</th>
-            {columns.map((property, i) => (
-              <th key={property.id} className="group min-w-[140px] border-l border-border px-2 py-1.5 font-medium">
-                <span className="flex items-center justify-between gap-1">
-                  <span className="truncate">{property.name}</span>
-                  <PropertyMenu property={property} db={db} index={i} count={columns.length} />
+    <div>
+      {selected.size > 0 && (
+        <div className="mb-2 flex items-center gap-3 rounded-md border border-border bg-accent/30 px-3 py-1.5 text-sm">
+          <span className="font-medium">{selected.size} selected</span>
+          {bulkSetProp && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-1 text-muted-foreground transition-colors hover:text-foreground">
+                  Set {bulkSetProp.name} <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-44">
+                {(bulkSetProp.options ?? []).map((o) => (
+                  <DropdownMenuItem key={o.id} onClick={() => bulkSet(bulkSetProp.id, o.id)} className="gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[o.color ?? 'gray'] ?? SWATCH_HEX.gray}} />
+                    {o.label}
+                  </DropdownMenuItem>
+                ))}
+                <DropdownMenuItem onClick={() => bulkSet(bulkSetProp.id, null)} className="text-muted-foreground">
+                  Clear value
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <button onClick={bulkDuplicate} className="flex items-center gap-1 text-muted-foreground transition-colors hover:text-foreground">
+            <Copy className="h-3.5 w-3.5" /> Duplicate
+          </button>
+          <button onClick={bulkDelete} className="flex items-center gap-1 text-destructive transition-colors hover:text-destructive/80">
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
+          <button onClick={() => setSelected(new Set())} className="text-muted-foreground transition-colors hover:text-foreground">
+            Clear
+          </button>
+        </div>
+      )}
+      {groups && groups.length > 0 && (
+        <div className="mb-2 flex justify-end">
+          <button
+            onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(groups.map((g) => g.key)))}
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !allCollapsed && 'rotate-90')} />
+            {allCollapsed ? 'Expand all' : 'Collapse all'}
+          </button>
+        </div>
+      )}
+      <div className="overflow-x-auto rounded-md border border-border">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="border-b border-border bg-muted/30 text-left text-xs font-medium text-muted-foreground">
+              <th className="sticky left-0 z-20 min-w-[220px] border-r border-border bg-card px-2 py-1.5 font-medium">
+                <span className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    className="h-3.5 w-3.5 cursor-pointer accent-primary"
+                    aria-label="Select all rows"
+                  />
+                  Name
                 </span>
               </th>
-            ))}
-            <th className="w-10 border-l border-border">
-              <AddPropertyMenu onAdd={(input) => void db.addProperty(input)} />
-            </th>
-          </tr>
-        </thead>
+              {columns.map((property, i) => {
+                const sortDir = view.sorts?.find((s) => s.propertyId === property.id)?.direction;
+                return (
+                  <th
+                    key={property.id}
+                    draggable
+                    data-sort={sortDir ?? ''}
+                    onDragStart={() => setDragCol(property.id)}
+                    onDragEnd={() => {
+                      setDragCol(null);
+                      setOverCol(null);
+                    }}
+                    onDragOver={(e) => {
+                      if (dragCol && dragCol !== property.id) {
+                        e.preventDefault();
+                        setOverCol(property.id);
+                      }
+                    }}
+                    onDrop={() => {
+                      if (dragCol && dragCol !== property.id) void db.reorderProperty(dragCol, property.id);
+                      setDragCol(null);
+                      setOverCol(null);
+                    }}
+                    className={cn(
+                      'group min-w-[140px] cursor-grab border-l border-border px-2 py-1.5 font-medium active:cursor-grabbing',
+                      dragCol === property.id && 'opacity-40',
+                      overCol === property.id && dragCol !== property.id && 'border-l-2 border-l-brand/60',
+                    )}
+                  >
+                    <span className="flex items-center justify-between gap-1">
+                      <span className="flex min-w-0 items-center gap-1">
+                        <span className="truncate">{property.name}</span>
+                        {sortDir === 'asc' && <ArrowUp className="h-3 w-3 shrink-0 text-muted-foreground/60" />}
+                        {sortDir === 'desc' && <ArrowDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />}
+                      </span>
+                      <PropertyMenu property={property} db={db} index={i} count={columns.length} />
+                    </span>
+                  </th>
+                );
+              })}
+              <th className="w-10 border-l border-border">
+                <AddPropertyMenu onAdd={(input) => void db.addProperty(input)} />
+              </th>
+            </tr>
+          </thead>
 
-        {groups ? (
-          groups.map((group) => {
-            const isCollapsed = collapsed.has(group.key);
-            const initial =
+          {groups ? (
+            groups.map((group) => {
+              const isCollapsed = collapsed.has(group.key);
+              const initial =
               groupProp?.type === 'select' && group.key !== '__none__' && group.key !== '__all__'
                 ? {[groupProp.id]: group.key}
                 : undefined;
-            return (
-              <tbody key={group.key} className="border-b border-border">
-                <tr className="bg-muted/20">
-                  <td colSpan={colSpan} className="px-2 py-1">
-                    <button onClick={() => toggleGroup(group.key)} className="flex items-center gap-1.5 text-xs font-medium">
-                      <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
-                      {group.color && (
-                        <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
-                      )}
-                      <span>{group.label}</span>
-                      <span className="text-muted-foreground/60">{group.rows.length}</span>
-                    </button>
+              return (
+                <tbody key={group.key} className="border-b border-border">
+                  <tr className="bg-muted/20">
+                    <td colSpan={colSpan} className="px-2 py-1">
+                      <button onClick={() => toggleGroup(group.key)} className="flex items-center gap-1.5 text-xs font-medium">
+                        <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
+                        {group.color && (
+                          <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
+                        )}
+                        <span>{group.label}</span>
+                        <span className="text-muted-foreground/60">{group.rows.length}</span>
+                      </button>
+                    </td>
+                  </tr>
+                  {!isCollapsed &&
+                  group.rows.map((row) => (
+                    <DataRow key={row.id} db={db} columns={columns} schema={schema} row={row} drag={drag} selection={selectionOf(row.id)} />
+                  ))}
+                  {!isCollapsed && <NewRowRow colSpan={colSpan} onClick={() => void db.addRow(initial)} label="New" />}
+                  {!isCollapsed && hasSummaries && (
+                    <GroupSummaryRow columns={columns} schema={schema} rows={group.rows} summaryOf={summaryOf} />
+                  )}
+                </tbody>
+              );
+            })
+          ) : (
+            <tbody>
+              {treeRows.map((node) => (
+                <DataRow key={node.row.id} db={db} columns={columns} schema={schema} row={node.row} drag={drag} tree={treeInfo(node)} selection={selectionOf(node.row.id)} />
+              ))}
+              {db.visibleRows.length === 0 && (
+                <tr>
+                  <td colSpan={colSpan} className="px-2 py-3 text-center text-sm text-muted-foreground">
+                  No rows{db.rows.length > 0 ? ' match the current view' : ' yet'}.
                   </td>
                 </tr>
-                {!isCollapsed &&
-                  group.rows.map((row) => <DataRow key={row.id} db={db} columns={columns} schema={schema} row={row} drag={drag} />)}
-                {!isCollapsed && <NewRowRow colSpan={colSpan} onClick={() => void db.addRow(initial)} label="New" />}
-              </tbody>
-            );
-          })
-        ) : (
-          <tbody>
-            {db.visibleRows.map((row) => (
-              <DataRow key={row.id} db={db} columns={columns} schema={schema} row={row} drag={drag} />
-            ))}
-            {db.visibleRows.length === 0 && (
-              <tr>
-                <td colSpan={colSpan} className="px-2 py-3 text-center text-sm text-muted-foreground">
-                  No rows{db.rows.length > 0 ? ' match the current view' : ' yet'}.
-                </td>
-              </tr>
-            )}
-            <NewRowRow colSpan={colSpan} onClick={() => void db.addRow()} />
-          </tbody>
-        )}
+              )}
+              <NewRowRow colSpan={colSpan} onClick={() => void db.addRow()} />
+            </tbody>
+          )}
 
-        <tfoot>
-          <tr className="border-t border-border bg-muted/10 text-xs">
-            <td className="align-middle">
-              <SummaryPicker
-                current={summaryOf(TITLE_PROPERTY_ID)}
-                display={summarizeColumn(db.visibleRows, TITLE_PROPERTY_ID, summaryOf(TITLE_PROPERTY_ID), schema)}
-                onChange={(t) => setSummary(TITLE_PROPERTY_ID, t)}
-              />
-            </td>
-            {columns.map((property) => (
-              <td key={property.id} className="border-l border-border/60 align-middle">
+          <tfoot>
+            <tr className="border-t border-border bg-muted/10 text-xs">
+              <td className="sticky left-0 z-10 border-r border-border bg-card align-middle">
                 <SummaryPicker
-                  current={summaryOf(property.id)}
-                  display={summarizeColumn(db.visibleRows, property, summaryOf(property.id), schema)}
-                  onChange={(t) => setSummary(property.id, t)}
+                  current={summaryOf(TITLE_PROPERTY_ID)}
+                  display={summarizeColumn(db.visibleRows, TITLE_PROPERTY_ID, summaryOf(TITLE_PROPERTY_ID), schema)}
+                  onChange={(t) => setSummary(TITLE_PROPERTY_ID, t)}
                 />
               </td>
-            ))}
-            <td className="border-l border-border/60" />
-          </tr>
-        </tfoot>
-      </table>
+              {columns.map((property) => (
+                <td key={property.id} className="border-l border-border/60 align-middle">
+                  <SummaryPicker
+                    current={summaryOf(property.id)}
+                    display={summarizeColumn(db.visibleRows, property, summaryOf(property.id), schema)}
+                    onChange={(t) => setSummary(property.id, t)}
+                  />
+                </td>
+              ))}
+              <td className="border-l border-border/60" />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
     </div>
   );
 };
 
-const ListView: React.FC<ViewProps> = ({db, columns}) => (
-  <div className="overflow-hidden rounded-md border border-border">
-    {db.visibleRows.map((row) => (
-      <div
-        key={row.id}
-        className="group flex cursor-pointer items-center justify-between gap-2 border-b border-border/70 px-3 py-2 last:border-0 hover:bg-accent/30"
-        onClick={() => db.openRow(row.id)}
-      >
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 text-base leading-none">{readPageIcon(row.id)}</span>
-          <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-          <RowChips row={row} properties={columns} labelled />
-        </div>
-        <div onClick={(e) => e.stopPropagation()}>
-          <RowMenu onOpen={() => db.openRow(row.id)} onDelete={() => void db.deleteRow(row.id)} />
-        </div>
-      </div>
-    ))}
-    {db.visibleRows.length === 0 && (
-      <div className="px-3 py-3 text-center text-sm text-muted-foreground">
-        No rows{db.rows.length > 0 ? ' match the current filters' : ' yet'}.
-      </div>
-    )}
-    <button
-      onClick={() => void db.addRow()}
-      className="flex w-full items-center gap-1 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-    >
-      <Plus className="h-4 w-4" /> New row
-    </button>
+/** One list-view row: icon, title, property chips, and the row menu. */
+const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: DatabaseRow}> = ({db, columns, row}) => (
+  <div
+    className="group flex cursor-pointer items-center justify-between gap-2 border-b border-border/70 px-3 py-2 last:border-0 hover:bg-accent/30"
+    onClick={() => db.openRow(row.id)}
+  >
+    <div className="flex min-w-0 flex-1 items-center gap-2">
+      <span className="shrink-0 text-base leading-none">{readPageIcon(row.id)}</span>
+      <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
+      <RowChips row={row} properties={columns} rows={db.rows} labelled />
+    </div>
+    <div onClick={(e) => e.stopPropagation()}>
+      <RowMenu
+        onOpen={() => db.openRow(row.id)}
+        onDuplicate={() => void db.duplicateRow(row.id)}
+        onSaveTemplate={() => void db.saveAsTemplate(row.id)}
+        onDelete={() => void db.deleteRow(row.id)}
+      />
+    </div>
   </div>
 );
+
+const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, view}) => {
+  const groupProp = view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggle = (key: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
+  if (groupProp) {
+    const all = groupRows(db.visibleRows, groupProp, schema);
+    const groups = view.hideEmptyGroups ? all.filter((g) => g.rows.length > 0) : all;
+    return (
+      <div className="space-y-3">
+        {groups.map((group) => {
+          const isCollapsed = collapsed.has(group.key);
+          return (
+            <div key={group.key} className="overflow-hidden rounded-md border border-border">
+              <button onClick={() => toggle(group.key)} className="flex w-full items-center gap-1.5 bg-muted/20 px-3 py-1.5 text-xs font-medium">
+                <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
+                {group.color && (
+                  <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
+                )}
+                <span>{group.label}</span>
+                <span className="text-muted-foreground/60">{group.rows.length}</span>
+              </button>
+              {!isCollapsed && group.rows.map((row) => <ListRow key={row.id} db={db} columns={columns} row={row} />)}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-md border border-border">
+      {db.visibleRows.map((row) => (
+        <ListRow key={row.id} db={db} columns={columns} row={row} />
+      ))}
+      {db.visibleRows.length === 0 && (
+        <div className="px-3 py-3 text-center text-sm text-muted-foreground">
+          No rows{db.rows.length > 0 ? ' match the current filters' : ' yet'}.
+        </div>
+      )}
+      <button
+        onClick={() => void db.addRow()}
+        className="flex w-full items-center gap-1 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <Plus className="h-4 w-4" /> New row
+      </button>
+    </div>
+  );
+};
 
 /** Render the active view's body for its layout type. */
 const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProperty[]; schema: DatabaseProperty[]}> = ({
@@ -351,15 +666,17 @@ const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProper
 }) => {
   switch (view.type) {
   case 'list':
-    return <ListView db={db} columns={columns} schema={schema} />;
+    return <ListView db={db} columns={columns} schema={schema} view={view} />;
   case 'gallery':
-    return <GalleryView db={db} properties={columns} />;
+    return <GalleryView db={db} view={view} properties={columns} />;
   case 'board':
     return <BoardView db={db} view={view} properties={schema} />;
   case 'calendar':
     return <CalendarView db={db} view={view} properties={schema} />;
   case 'timeline':
     return <TimelineView db={db} view={view} properties={schema} />;
+  case 'graph':
+    return <GraphView db={db} view={view} properties={schema} />;
   case 'bar':
     return <BarChartView db={db} view={view} properties={schema} />;
   case 'pie':
@@ -388,47 +705,154 @@ const SearchBox: React.FC<{db: UseDatabase}> = ({db}) => (
   </div>
 );
 
-const Toolbar: React.FC<{db: UseDatabase; view: DbView}> = ({db, view}) => (
-  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-    <div className="flex items-center gap-0.5">
-      {db.database!.schema.views.map((v) => {
-        const Icon = viewIcon(v.type);
-        const active = v.id === view.id;
-        return (
+/**
+ * A split "New ▾" control offering the database's row templates. Only rendered
+ * when at least one template exists; the primary button still creates a blank
+ * row, and the caret lists templates (and lets you delete them).
+ */
+const NewRowMenu: React.FC<{db: UseDatabase}> = ({db}) => {
+  if (db.templates.length === 0) return null;
+  return (
+    <div className="flex items-center overflow-hidden rounded-md border border-border">
+      <button
+        onClick={() => void db.addRow()}
+        className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <Plus className="h-3.5 w-3.5" /> New
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
           <button
-            key={v.id}
-            onClick={() => db.setActiveViewId(v.id)}
-            className={cn(
-              'flex items-center gap-1 rounded px-2 py-1 text-sm transition-colors',
-              active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
-            )}
+            className="border-l border-border px-1 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="New from template"
           >
-            <Icon className="h-3.5 w-3.5" />
-            {v.name}
+            <ChevronDown className="h-3.5 w-3.5" />
           </button>
-        );
-      })}
-      <AddViewMenu onAdd={(type) => void db.addView(type)} />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem onClick={() => void db.addRow()}>
+            <Plus className="mr-2 h-4 w-4" /> Blank row
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          {db.templates.map((t) => (
+            <DropdownMenuItem
+              key={t.id}
+              onClick={() => void db.addRowFromTemplate(t.id)}
+              className="group/tmpl justify-between gap-2"
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <Save className="h-4 w-4 shrink-0" />
+                <span className="truncate">{t.name}</span>
+              </span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void db.deleteTemplate(t.id);
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                className="shrink-0 text-muted-foreground/60 opacity-0 transition hover:text-destructive group-hover/tmpl:opacity-100"
+                aria-label={`Delete template ${t.name}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
-    <div className="flex items-center gap-1">
-      <SearchBox db={db} />
-      <FilterMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
-      <SortMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
-      <ViewOptionsMenu db={db} view={view} />
-      <span className="px-1 text-xs text-muted-foreground/70">
-        {db.visibleRows.length} row{db.visibleRows.length === 1 ? '' : 's'}
-      </span>
+  );
+};
+
+const Toolbar: React.FC<{db: UseDatabase; view: DbView}> = ({db, view}) => {
+  const [dragView, setDragView] = useState<string | null>(null);
+  const [overView, setOverView] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  return (
+    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="flex items-center gap-0.5">
+        {db.database!.schema.views.map((v) => {
+          const Icon = viewIcon(v.type);
+          const active = v.id === view.id;
+          if (renamingId === v.id) {
+            return (
+              <input
+                key={v.id}
+                autoFocus
+                defaultValue={v.name}
+                onBlur={(e) => {
+                  void db.renameView(v.id, e.target.value);
+                  setRenamingId(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.currentTarget.blur();
+                  else if (e.key === 'Escape') setRenamingId(null);
+                }}
+                className="w-24 rounded bg-accent px-2 py-1 text-sm outline-hidden"
+                aria-label="Rename view"
+              />
+            );
+          }
+          return (
+            <button
+              key={v.id}
+              data-view-tab={v.id}
+              draggable
+              onDoubleClick={() => setRenamingId(v.id)}
+              onDragStart={() => setDragView(v.id)}
+              onDragEnd={() => {
+                setDragView(null);
+                setOverView(null);
+              }}
+              onDragOver={(e) => {
+                if (dragView && dragView !== v.id) {
+                  e.preventDefault();
+                  setOverView(v.id);
+                }
+              }}
+              onDrop={() => {
+                if (dragView && dragView !== v.id) void db.reorderView(dragView, v.id);
+                setDragView(null);
+                setOverView(null);
+              }}
+              onClick={() => db.setActiveViewId(v.id)}
+              className={cn(
+                'flex items-center gap-1 rounded px-2 py-1 text-sm transition-colors',
+                active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                dragView === v.id && 'opacity-40',
+                overView === v.id && dragView !== v.id && 'ring-1 ring-brand/50',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {v.name}
+            </button>
+          );
+        })}
+        <AddViewMenu onAdd={(type) => void db.addView(type)} />
+      </div>
+      <div className="flex items-center gap-1">
+        <NewRowMenu db={db} />
+        <SearchBox db={db} />
+        <FilterMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
+        <SortMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
+        <ViewOptionsMenu db={db} view={view} />
+        <span className="px-1 text-xs text-muted-foreground/70">
+          {db.visibleRows.length === db.rows.length
+            ? `${db.visibleRows.length} row${db.visibleRows.length === 1 ? '' : 's'}`
+            : `${db.visibleRows.length} of ${db.rows.length}`}
+        </span>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 /**
  * The database section: a collection of row pages presented through the active
- * view (table, board, gallery, calendar, timeline, list, or a bar/pie chart),
- * with live `expr` + `formula` columns, dependencies, manual row ordering,
- * inline editing, filtering, sorting, search, configurable views, and
- * add/remove/edit of properties. Used both beneath a host page's own content (a
- * full-page database) and embedded inline via the database block.
+ * view (table, board, gallery, calendar, timeline, dependency graph, list, or a
+ * bar/pie chart), with live `expr` + `formula` columns, dependencies,
+ * drag-to-reschedule timelines, manual row ordering, inline editing, filtering,
+ * sorting, search, configurable views, and add/remove/edit of properties. Used
+ * both beneath a host page's own content (a full-page database) and embedded
+ * inline via the database block.
  */
 export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | null; inline?: boolean}> = ({
   pageId,

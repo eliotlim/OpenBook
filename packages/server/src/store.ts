@@ -104,6 +104,7 @@ const rowFromPage = (row: PageRow): DatabaseRow => {
     name: row.name,
     properties: parseJson<Record<string, unknown>>(row.properties, {}),
     exports: projectExports(data),
+    parentId: row.parent_id ?? null,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -636,20 +637,23 @@ export class PageStore {
    */
   async listRows(databaseId: string): Promise<DatabaseRow[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT id, name, data, properties, created_at, updated_at
+      `SELECT id, name, data, properties, parent_id, created_at, updated_at
        FROM pages WHERE database_id = $1 AND deleted_at IS NULL ORDER BY position ASC, created_at ASC`,
       [databaseId],
     );
     return rows.map(rowFromPage);
   }
 
-  /** Create a row: a fresh page tagged with `database_id`, appended at the
-   *  bottom of the database's manual order. Returns the page. */
+  /**
+   * Create a row: a fresh page tagged with `database_id`, appended at the bottom
+   * of the database's manual order. `input.parentId` nests it under another row
+   * as a sub-item. Returns the page.
+   */
   async createRow(databaseId: string, input: RowInput = {}): Promise<StoredPage> {
     const id = randomUUID();
     const rows = await this.db.query<PageRow>(
-      `INSERT INTO pages (id, name, data, database_id, properties, position, updated_at)
-       VALUES ($1, $2, $3::jsonb, $4, $5::jsonb,
+      `INSERT INTO pages (id, name, data, database_id, parent_id, properties, position, updated_at)
+       VALUES ($1, $2, $3::jsonb, $4, $6, $5::jsonb,
          (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE database_id = $4), now())
        RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at, NULL AS hosted_database_id`,
       [
@@ -658,6 +662,7 @@ export class PageStore {
         JSON.stringify(input.data ?? emptyPageSnapshot()),
         databaseId,
         JSON.stringify(input.properties ?? {}),
+        input.parentId ?? null,
       ],
     );
     return pageFromRow(rows[0]);

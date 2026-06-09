@@ -1,6 +1,6 @@
 # OpenBook architecture
 
-OpenBook is a local-first, Notion-style document workspace: a block editor with
+OpenBook is a local-first, block-based document workspace: a block editor with
 nested pages, databases, and **reactive blocks** (spreadsheet-like cells, formulas
 and charts that recompute live). It ships as a Tauri desktop app and a Next.js web
 app over the same UI and the same server.
@@ -98,7 +98,45 @@ PageSnapshot = {
   so a content save never detaches a page from its parent.
 - **Databases**: a database is owned 1:1 by a host page. Its **rows are pages**
   tagged with `database_id` (excluded from the sidebar list, listed via the
-  database APIs). Reactive cell values are projected into row columns (`exports`).
+  database APIs). Reactive cell values are projected into row columns (`exports`);
+  a row's `parent_id` can point at another row, giving **sub-items**.
+
+#### Database feature surface
+
+The database is full-featured. The pure model + evaluation lives in
+`packages/sdk/src/database.ts` (and the formula engine in `formula.ts`); the UI is
+`packages/ui/src/components/database/*` plus the page-view panel
+(`DatabaseRowProperties.tsx`) and the inline editor block (`editor/blocks/DatabaseBlock.ts`).
+
+- **Property types** — text, number (formats incl. $/€/£/¥/₹ and **show-as
+  bar/ring** scaled to a target), select, multi-select, **status** (lifecycle
+  groups), checkbox, date (single, **start–end range**, or **with time**), url,
+  email, phone, **files & media** (URLs/images), relation, **dependency** (links
+  rows in the same DB, optionally **two-way/synced**), **rollup** (folds a target
+  across a relation), created/last-edited time, **unique ID** (auto-incrementing,
+  optional prefix), person, verification, backlinks, plus two computed kinds:
+  `expr` (reads a reactive cell from the row's document) and `formula`
+  (`prop("Price") * prop("Qty")`).
+- **Views** — table (with a **frozen Name column**), board (**collapsible
+  columns**), gallery (**card size S/M/L**), calendar (**click-a-day to add**),
+  **timeline** (Gantt with drag-to-reschedule + dependency arrows), **dependency
+  graph**, list, and bar/pie charts. Per-view config: filters (a nested **AND/OR
+  tree**, `filterRoot`), sorts, visible/ordered columns, group-by (table **and
+  list**, with **hide-empty** + collapse/expand-all), chart aggregate,
+  date/cover/dependency properties, and column summary footers (**per-group** too).
+- **Interactions** — drag to reorder rows (and sub-items), columns, board columns,
+  calendar items, **select options**, and **view tabs**; quick sort + hide +
+  duplicate from a column menu; **multi-row select** with bulk delete / duplicate /
+  set-value; insert-row-below; **row templates**; double-click a tab to rename;
+  quick search with an "X of Y" count; CSV import/export; full-page **and**
+  inline/linked databases (a block portals a live `DatabaseView` from inside the
+  providers). Optimistic mutations revert gracefully on a server rejection.
+- **Purity** — `rowValue` / `applyView` / `matchesFilter` / `groupRows` /
+  `aggregateRows` / `summarizeColumn` / `rowDateSpan` / `dependencyGraph` /
+  `syncInverseUpdates` / `buildRowTree` / `removeProperty` / `numberProgress` /
+  `formatUniqueId` are pure and unit-tested, so the same logic runs in the table
+  UI, the server, and tests. Behaviour is covered end-to-end by
+  `packages/web/e2e/database-parity.spec.ts`.
 
 ### Trash / soft delete
 

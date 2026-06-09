@@ -1,6 +1,16 @@
 import React, {useState} from 'react';
 import {ChevronLeft, ChevronRight, PanelRightOpen, Plus} from 'lucide-react';
-import {groupRows, type DatabaseProperty, type DatabaseRow, type DatabaseView as DbView} from '@open-book/sdk';
+import {
+  dateEnd,
+  dateStart,
+  firstImageUrl,
+  groupRows,
+  parseDay,
+  summarizeColumn,
+  type DatabaseProperty,
+  type DatabaseRow,
+  type DatabaseView as DbView,
+} from '@open-book/sdk';
 import {cn} from '@/lib/utils';
 import {readPageIcon} from '@/lib/pageIcon';
 import {pageLinks} from '@/lib/pageLinks';
@@ -12,15 +22,16 @@ import {SWATCH_HEX} from './databaseColors';
  * Compact, read-only chips summarising a row's property values. Shared by the
  * list, gallery, and board layouts so a row reads the same wherever it appears.
  */
-export const RowChips: React.FC<{row: DatabaseRow; properties: DatabaseProperty[]; labelled?: boolean}> = ({
+export const RowChips: React.FC<{row: DatabaseRow; properties: DatabaseProperty[]; rows?: DatabaseRow[]; labelled?: boolean}> = ({
   row,
   properties,
+  rows,
   labelled,
 }) => (
   <div className="flex min-w-0 flex-wrap items-center gap-1">
     {properties.map((property) => {
-      const value = cellValue(row, property, properties);
-      if (property.type === 'select') {
+      const value = cellValue(row, property, properties, rows);
+      if (property.type === 'select' || property.type === 'status') {
         const option = property.options?.find((o) => o.id === value);
         return option ? <SelectChip key={property.id} option={option} /> : null;
       }
@@ -67,30 +78,50 @@ const NewRowButton: React.FC<{onClick: () => void; label?: string; className?: s
   </button>
 );
 
-/** Gallery: a responsive grid of cards, one per row. */
-export const GalleryView: React.FC<{db: UseDatabase; properties: DatabaseProperty[]}> = ({db, properties}) => (
-  <div>
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
-      {db.visibleRows.map((row) => (
-        <button
-          key={row.id}
-          onClick={() => db.openRow(row.id)}
-          className="group flex flex-col gap-2 rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-foreground/20 hover:bg-accent/30"
-        >
-          <div className="flex h-16 items-center justify-center rounded-md bg-muted/40 text-3xl">{readPageIcon(row.id)}</div>
-          <div className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</div>
-          <RowChips row={row} properties={properties} />
-        </button>
-      ))}
-    </div>
-    {db.visibleRows.length === 0 && (
-      <div className="rounded-md border border-dashed border-border px-3 py-10 text-center text-sm text-muted-foreground">
-        No rows{db.rows.length > 0 ? ' match the current filters' : ' yet'}.
+// Full class strings (not interpolated) so Tailwind keeps them at build time.
+const GALLERY_GRID = {
+  small: 'grid-cols-[repeat(auto-fill,minmax(150px,1fr))]',
+  medium: 'grid-cols-[repeat(auto-fill,minmax(210px,1fr))]',
+  large: 'grid-cols-[repeat(auto-fill,minmax(300px,1fr))]',
+} as const;
+const GALLERY_COVER = {small: 'h-20', medium: 'h-28', large: 'h-44'} as const;
+
+/** Gallery: a responsive grid of cards, one per row, with optional cover images. */
+export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
+  const size = view.cardSize ?? 'medium';
+  return (
+    <div>
+      <div className={cn('grid gap-3', GALLERY_GRID[size])}>
+        {db.visibleRows.map((row) => {
+          const cover = view.coverPropertyId ? firstImageUrl(row.properties[view.coverPropertyId]) : null;
+          return (
+            <button
+              key={row.id}
+              onClick={() => db.openRow(row.id)}
+              className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20 hover:bg-accent/30"
+            >
+              {cover ? (
+                <img src={cover} alt="" className={cn('w-full object-cover', GALLERY_COVER[size])} />
+              ) : (
+                <div className="flex h-16 items-center justify-center bg-muted/40 text-3xl">{readPageIcon(row.id)}</div>
+              )}
+              <div className="flex flex-col gap-2 px-3 pb-3">
+                <div className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</div>
+                <RowChips row={row} properties={properties} rows={db.rows} />
+              </div>
+            </button>
+          );
+        })}
       </div>
-    )}
-    <NewRowButton onClick={() => void db.addRow()} label="New card" className="mt-3" />
-  </div>
-);
+      {db.visibleRows.length === 0 && (
+        <div className="rounded-md border border-dashed border-border px-3 py-10 text-center text-sm text-muted-foreground">
+        No rows{db.rows.length > 0 ? ' match the current filters' : ' yet'}.
+        </div>
+      )}
+      <NewRowButton onClick={() => void db.addRow()} label="New card" className="mt-3" />
+    </div>
+  );
+};
 
 /**
  * Board (kanban): columns from the view's group-by property. Cards drag between
@@ -104,17 +135,46 @@ export const BoardView: React.FC<{db: UseDatabase; view: DbView; properties: Dat
 }) => {
   const groupProp = properties.find((p) => p.id === view.groupByPropertyId);
   const [dragRow, setDragRow] = useState<string | null>(null);
+  const [dragCol, setDragCol] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
-  const groups = groupRows(db.visibleRows, groupProp, properties);
-  const canMove = groupProp?.type === 'select';
+  const [collapsedCols, setCollapsedCols] = useState<Set<string>>(new Set());
+  const toggleCol = (key: string): void =>
+    setCollapsedCols((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const allGroups = groupRows(db.visibleRows, groupProp, properties);
+  const groups = view.hideEmptyGroups ? allGroups.filter((g) => g.rows.length > 0) : allGroups;
+  const canMove = groupProp?.type === 'select' || groupProp?.type === 'status';
+  // Columns backed by a real option (not the trailing "No value") can be reordered.
+  const isOption = (key: string): boolean => canMove && key !== '__none__' && key !== '__all__';
   // Properties shown on a card exclude the grouping one (it's the column itself).
   const cardProps = properties.filter((p) => p.id !== groupProp?.id);
+  // A numeric property (if any) gets summed in each column footer.
+  const sumProp = properties.find((p) => p.type === 'number' || p.type === 'rollup' || p.type === 'formula' || p.type === 'expr');
 
   const drop = (key: string): void => {
     if (!dragRow || !groupProp || !canMove) return;
     const value = key === '__none__' ? null : key;
     void db.setRowProperty(dragRow, groupProp.id, value);
     setDragRow(null);
+    setOverKey(null);
+  };
+
+  // Drop a column header on another → reorder the group property's options.
+  const reorderColumn = (fromKey: string, toKey: string): void => {
+    if (!groupProp || !canMove) return;
+    const opts = [...(groupProp.options ?? [])];
+    const from = opts.findIndex((o) => o.id === fromKey);
+    const to = opts.findIndex((o) => o.id === toKey);
+    if (from >= 0 && to >= 0 && from !== to) {
+      const [moved] = opts.splice(from, 1);
+      opts.splice(to, 0, moved);
+      void db.updateProperty(groupProp.id, {options: opts});
+    }
+    setDragCol(null);
     setOverKey(null);
   };
 
@@ -125,53 +185,105 @@ export const BoardView: React.FC<{db: UseDatabase; view: DbView; properties: Dat
 
   return (
     <div className="flex gap-3 overflow-x-auto pb-2">
-      {groups.map((group) => (
-        <div
-          key={group.key}
-          onDragOver={(e) => {
-            if (canMove) {
-              e.preventDefault();
-              setOverKey(group.key);
-            }
-          }}
-          onDrop={() => drop(group.key)}
-          className={cn(
-            'flex w-64 shrink-0 flex-col gap-2 rounded-lg bg-muted/30 p-2 transition-colors',
-            overKey === group.key && 'bg-accent/50 ring-1 ring-brand/40',
-          )}
-        >
-          <div className="flex items-center gap-1.5 px-1 text-xs font-medium">
-            {group.color && (
-              <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
+      {groups.map((group) => {
+        const isCollapsed = collapsedCols.has(group.key);
+        return (
+          <div
+            key={group.key}
+            onDragOver={(e) => {
+              if ((dragRow && canMove) || (dragCol && isOption(group.key))) {
+                e.preventDefault();
+                setOverKey(group.key);
+              }
+            }}
+            onDrop={() => (dragCol ? reorderColumn(dragCol, group.key) : drop(group.key))}
+            className={cn(
+              'flex shrink-0 flex-col gap-2 rounded-lg bg-muted/30 p-2 transition-colors',
+              isCollapsed ? 'w-11 items-center' : 'w-64',
+              overKey === group.key && 'bg-accent/50 ring-1 ring-brand/40',
             )}
-            <span className="truncate">{group.label}</span>
-            <span className="text-muted-foreground/60">{group.rows.length}</span>
-          </div>
-          <div className="flex flex-col gap-2">
-            {group.rows.map((row) => (
-              <div
-                key={row.id}
-                draggable={canMove}
-                onDragStart={() => setDragRow(row.id)}
-                onDragEnd={() => setDragRow(null)}
-                onClick={() => db.openRow(row.id)}
-                className={cn(
-                  'group cursor-pointer rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
-                  dragRow === row.id && 'opacity-50',
-                )}
+          >
+            {isCollapsed ? (
+              <button
+                data-col-key={group.key}
+                onClick={() => toggleCol(group.key)}
+                aria-label={`Expand ${group.label} column`}
+                className="flex flex-1 flex-col items-center gap-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
               >
-                <div className="mb-1 flex items-center gap-1.5">
-                  <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
-                  <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-                  <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
+                <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                {group.color && (
+                  <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
+                )}
+                <span className="text-muted-foreground/60">{group.rows.length}</span>
+                <span className="truncate [writing-mode:vertical-rl]">{group.label}</span>
+              </button>
+            ) : (
+              <>
+                <div
+                  data-col-key={group.key}
+                  draggable={isOption(group.key)}
+                  onDragStart={(e) => {
+                    e.stopPropagation();
+                    setDragCol(group.key);
+                  }}
+                  onDragEnd={() => {
+                    setDragCol(null);
+                    setOverKey(null);
+                  }}
+                  className={cn(
+                    'flex items-center gap-1.5 px-1 text-xs font-medium',
+                    isOption(group.key) && 'cursor-grab active:cursor-grabbing',
+                  )}
+                >
+                  {group.color && (
+                    <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
+                  )}
+                  <span className="truncate">{group.label}</span>
+                  <span className="text-muted-foreground/60">{group.rows.length}</span>
+                  <button
+                    onClick={() => toggleCol(group.key)}
+                    aria-label={`Collapse ${group.label} column`}
+                    className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-                <RowChips row={row} properties={cardProps} />
-              </div>
-            ))}
+                <div className="flex flex-col gap-2">
+                  {group.rows.map((row) => (
+                    <div
+                      key={row.id}
+                      draggable={canMove}
+                      onDragStart={() => setDragRow(row.id)}
+                      onDragEnd={() => setDragRow(null)}
+                      onClick={() => db.openRow(row.id)}
+                      className={cn(
+                        'group cursor-pointer rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
+                        dragRow === row.id && 'opacity-50',
+                      )}
+                    >
+                      <div className="mb-1 flex items-center gap-1.5">
+                        <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+                        <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
+                        <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
+                      </div>
+                      <RowChips row={row} properties={cardProps} rows={db.rows} />
+                    </div>
+                  ))}
+                </div>
+                {sumProp && group.rows.length > 0 && (
+                  <div className="flex items-center justify-between border-t border-border/50 px-1 pt-1 text-[11px] text-muted-foreground/70">
+                    <span className="truncate">Σ {sumProp.name}</span>
+                    <span className="font-medium tabular-nums text-foreground/70">
+                      {summarizeColumn(group.rows, sumProp, 'sum', properties)}
+                    </span>
+                  </div>
+                )}
+                <NewRowButton onClick={() => newInColumn(group.key)} label="New" className="px-1 py-1" />
+              </>
+            )}
           </div>
-          <NewRowButton onClick={() => newInColumn(group.key)} label="New" className="px-1 py-1" />
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 };
@@ -202,6 +314,40 @@ export const CalendarView: React.FC<{db: UseDatabase; view: DbView; properties: 
   const dateProp = properties.find((p) => p.id === view.datePropertyId);
   const today = new Date();
   const [cursor, setCursor] = useState({year: today.getFullYear(), month: today.getMonth()});
+  const [dragRow, setDragRow] = useState<string | null>(null);
+  const [overKey, setOverKey] = useState<string | null>(null);
+
+  // Only manual `date` properties are reschedulable (timestamps are derived).
+  const editable = dateProp?.type === 'date';
+
+  /** Drop a row on a day: set its date (shifting a range's end by the same delta). */
+  const reschedule = (rowId: string, key: string): void => {
+    if (!dateProp || !editable) return;
+    const row = db.visibleRows.find((r) => r.id === rowId);
+    if (!row) return;
+    const raw = row.properties[dateProp.id];
+    if (dateProp.dateRange) {
+      const oldStart = parseDay(dateStart(raw));
+      const oldEnd = parseDay(dateEnd(raw));
+      const newStart = parseDay(key);
+      if (oldStart && oldEnd && newStart) {
+        const shifted = new Date(oldEnd.getTime() + (newStart.getTime() - oldStart.getTime()));
+        void db.setRowProperty(rowId, dateProp.id, {start: key, end: ymd(shifted.getFullYear(), shifted.getMonth(), shifted.getDate())});
+      } else {
+        void db.setRowProperty(rowId, dateProp.id, {start: key, end: null});
+      }
+    } else {
+      void db.setRowProperty(rowId, dateProp.id, key);
+    }
+    setDragRow(null);
+    setOverKey(null);
+  };
+
+  /** Create a row dated to a clicked day (a range starts and ends that day). */
+  const createOn = (key: string): void => {
+    if (!dateProp || !editable) return;
+    void db.addRow({[dateProp.id]: dateProp.dateRange ? {start: key, end: null} : key});
+  };
 
   if (!dateProp) {
     return (
@@ -268,22 +414,49 @@ export const CalendarView: React.FC<{db: UseDatabase; view: DbView; properties: 
           return (
             <div
               key={i}
+              data-day-key={key ?? undefined}
+              onDragOver={(e) => {
+                if (key && editable && dragRow) {
+                  e.preventDefault();
+                  setOverKey(key);
+                }
+              }}
+              onDrop={() => key && reschedule(dragRow!, key)}
               className={cn(
-                'min-h-[88px] border-b border-r border-border/60 p-1 last:border-r-0 [&:nth-child(7n)]:border-r-0',
+                'group/day min-h-[88px] border-b border-r border-border/60 p-1 last:border-r-0 [&:nth-child(7n)]:border-r-0',
                 !day && 'bg-muted/10',
+                overKey === key && key && 'bg-accent/50 ring-1 ring-inset ring-brand/40',
               )}
             >
               {day && (
-                <div className={cn('mb-1 text-right text-xs', key === todayKey ? 'font-semibold text-brand' : 'text-muted-foreground/70')}>
-                  {day}
+                <div className="mb-1 flex items-center justify-between">
+                  {editable ? (
+                    <button
+                      onClick={() => createOn(key!)}
+                      aria-label={`Add on ${key}`}
+                      className="rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-accent hover:text-foreground group-hover/day:opacity-100"
+                    >
+                      <Plus className="h-3 w-3" />
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                  <span className={cn('text-xs', key === todayKey ? 'font-semibold text-brand' : 'text-muted-foreground/70')}>{day}</span>
                 </div>
               )}
               <div className="flex flex-col gap-0.5">
                 {rows.map((row) => (
                   <button
                     key={row.id}
+                    draggable={editable}
+                    onDragStart={() => setDragRow(row.id)}
+                    onDragEnd={() => setDragRow(null)}
                     onClick={() => db.openRow(row.id)}
-                    className="flex items-center gap-1 truncate rounded bg-brand/10 px-1 py-0.5 text-left text-[11px] text-foreground/80 transition-colors hover:bg-brand/20"
+                    className={cn(
+                      'flex items-center gap-1 truncate rounded bg-brand/10 px-1 py-0.5 text-left text-[11px] text-foreground/80 transition-colors hover:bg-brand/20',
+                      editable && 'cursor-grab active:cursor-grabbing',
+                      dragRow === row.id && 'opacity-40',
+                    )}
                     title={row.name ?? 'Untitled'}
                   >
                     <span className="shrink-0 leading-none">{readPageIcon(row.id)}</span>

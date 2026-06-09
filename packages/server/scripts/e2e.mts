@@ -243,7 +243,7 @@ async function exerciseTrash(client: HttpDataClient, mode: string): Promise<void
 }
 
 async function exerciseDatabase(client: HttpDataClient, mode: string): Promise<void> {
-  console.log(`\n[${mode}] Notion-style database via HttpDataClient`);
+  console.log(`\n[${mode}] Database via HttpDataClient`);
 
   // Host page (a regular page that will point at a database).
   const host = await client.savePage({name: `db-host-${mode}`, data: sampleSnapshot(0)});
@@ -295,6 +295,14 @@ async function exerciseDatabase(client: HttpDataClient, mode: string): Promise<v
   await client.deletePage(r3.id);
   await client.purgePage(r3.id); // remove fully so later row/trash counts are unaffected
   await client.reorderRows(db.id, [r1.id, r2.id]); // restore creation order
+
+  // Sub-items: a row nested under another carries its parentId in listRows.
+  const sub = await client.createRow(db.id, {name: 'Alpha sub', parentId: r1.id});
+  const withSub = await client.listRows(db.id);
+  check('sub-item carries its parentId', withSub.find((r) => r.id === sub.id)?.parentId === r1.id);
+  check('top-level rows have a null parentId', withSub.find((r) => r.id === r1.id)?.parentId === null);
+  await client.deletePage(sub.id);
+  await client.purgePage(sub.id); // keep later row/trash counts unaffected
 
   // Editing a row's content (a page write) updates its projected exports.
   await client.savePage({id: r1.id, name: 'Alpha', data: rowSnapshot(99)});

@@ -29,7 +29,7 @@ const FieldRow: React.FC<{
       <div className="min-w-0 flex-1">
         <PropertyValueCell
           property={property}
-          value={cellValue(row, property, schema)}
+          value={cellValue(row, property, schema, db.rows)}
           exprValue={row.exports[property.cellName ?? property.name]}
           onChange={(value) => void db.setRowProperty(pageId, property.id, value)}
           onAddOption={(label) => db.addSelectOption(property.id, label)}

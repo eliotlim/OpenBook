@@ -106,7 +106,10 @@ test('inline database block: embeds a database view in a page', async ({page, re
   await expect(page.locator('.ce-popover--opened .ce-popover-item--focused')).toBeVisible();
   await page.keyboard.press('Enter');
 
-  // The block creates a child database and the host portals its view in — the
-  // database toolbar (with "Add column") appears inline (child creation is async).
+  // The block shows a chooser; pick "New database" to mint one inline.
+  await page.locator('.block-database').getByText('New database').click();
+
+  // The host portals the new database's view in — its toolbar ("Add column")
+  // appears inline (child creation is async).
   await expect(page.getByRole('button', {name: 'Add column'})).toBeVisible({timeout: 15000});
 });

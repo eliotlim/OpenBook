@@ -1,5 +1,5 @@
 /**
- * Notion-style databases — the second unit of storage layered over {@link
+ * Full-featured databases — the second unit of storage layered over {@link
  * StoredPage}. A **database** is a collection of pages (its *rows*) managed by
  * typed *properties* and presented through one or more configurable *views*
  * (table, board, gallery, calendar, list, or a bar/pie chart).
@@ -32,11 +32,12 @@ import {evaluateFormula, FormulaError, type FormulaResolver} from './formula';
 
 /**
  * The value kinds a property can hold. The manual kinds
- * (`text`/`number`/`select`/`checkbox`/`date`/`person`/`verification`) store
- * their value per row in `page.properties[id]`. `expr` projects a named reactive
- * cell from the row page's document; `formula` computes from the row's *other*
- * properties (`prop("Price") * prop("Qty")`); `backlinks` is computed from the
- * link graph (never stored). The last three
+ * (`text`/`number`/`select`/`status`/`checkbox`/`date`/`person`/`verification`)
+ * store their value per row in `page.properties[id]`. `expr` projects a named
+ * reactive cell from the row page's document; `formula` computes from the row's
+ * *other* properties (`prop("Price") * prop("Qty")`); `rollup` folds a target
+ * property across the rows a `relation`/`dependency` points to; `backlinks` is
+ * computed from the link graph (never stored). The last three
  * (`person`/`verification`/`backlinks`) double as the built-in page properties —
  * see {@link ./pageProperties}.
  */
@@ -45,15 +46,19 @@ export type DatabasePropertyType =
   | 'number'
   | 'select'
   | 'multi_select'
+  | 'status'
   | 'checkbox'
   | 'date'
   | 'url'
   | 'email'
   | 'phone'
+  | 'files'
   | 'relation'
   | 'dependency'
+  | 'rollup'
   | 'created_time'
   | 'last_edited_time'
+  | 'unique_id'
   | 'expr'
   | 'formula'
   | 'person'
@@ -61,14 +66,46 @@ export type DatabasePropertyType =
   | 'backlinks';
 
 /** Display formatting for `number`/`formula`/`expr` numeric values. */
-export type NumberFormat = 'plain' | 'integer' | 'decimal' | 'percent' | 'dollar' | 'euro';
+export type NumberFormat = 'plain' | 'integer' | 'decimal' | 'percent' | 'dollar' | 'euro' | 'pound' | 'yen' | 'rupee';
 
-/** One choice in a `select` property. */
+/** How a number cell is visualised: as text, a horizontal bar, or a ring. */
+export type NumberDisplay = 'number' | 'bar' | 'ring';
+
+/** The lifecycle bucket a `status` option belongs to. */
+export type StatusGroup = 'todo' | 'in_progress' | 'complete';
+
+/** One choice in a `select` / `multi_select` / `status` property. */
 export interface DatabaseSelectOption {
   id: string;
   label: string;
   /** A token from the shared swatch palette (see `SELECT_COLORS`). */
   color?: string;
+  /** For `status` options: which lifecycle bucket the option sits in. */
+  group?: StatusGroup;
+}
+
+/** How a {@link DatabaseProperty.rollup} folds the related rows' target values. */
+export type RollupFunction =
+  | 'show_original'
+  | 'count'
+  | 'count_values'
+  | 'count_unique'
+  | 'sum'
+  | 'avg'
+  | 'min'
+  | 'max'
+  | 'range'
+  | 'median'
+  | 'checked'
+  | 'percent_checked';
+
+/** Rollup configuration: aggregate a related set's target property. */
+export interface RollupConfig {
+  /** A `relation` / `dependency` property on this row holding the related ids. */
+  relationPropertyId: string;
+  /** The property on the related rows to fold ({@link TITLE_PROPERTY_ID} for the title). */
+  targetPropertyId: string;
+  function: RollupFunction;
 }
 
 /**
@@ -89,17 +126,32 @@ export interface DatabaseProperty {
   formula?: string;
   /** Numeric display format, for `number` / `formula` / `expr` properties. */
   numberFormat?: NumberFormat;
+  /** How a `number` cell is visualised: plain text (default), a `bar`, or a `ring`. */
+  numberDisplay?: NumberDisplay;
+  /** The 100%-of-the-bar value for `bar`/`ring` display (defaults to 100). */
+  numberTarget?: number;
+  /** Optional prefix for a `unique_id` property, e.g. `TASK` → `TASK-1`. */
+  idPrefix?: string;
   /**
    * `date` only: when true the cell holds a `{start, end}` range (a `DateRange`)
    * instead of a single `YYYY-MM-DD` string. Drives the timeline's bar length.
    */
   dateRange?: boolean;
+  /** `date` only: when true the cell stores a time too (`YYYY-MM-DDTHH:mm`). */
+  includeTime?: boolean;
   /** A short helper description, shown beneath the field in the page-view panel. */
   description?: string;
   /** The {@link PropertyGroup} this property belongs to (page-view organisation). */
   groupId?: string;
   /** Hidden in the page-view properties panel (still available as a table column). */
   pageHidden?: boolean;
+  /** Rollup configuration, for `rollup` properties. */
+  rollup?: RollupConfig;
+  /**
+   * For a two-way `dependency`: the id of the paired inverse `dependency` property
+   * (same database). Linking A→B via this property also lists A on B's inverse.
+   */
+  syncedPropertyId?: string;
 }
 
 /** The stored value of a `date` property configured as a range. */
@@ -123,12 +175,33 @@ export interface PropertyGroup {
 }
 
 /**
+ * A reusable new-row preset: a named set of property values applied when a row
+ * is created "from template". Captured from an existing row and stored on the
+ * schema so every view can offer it from the New-row control.
+ */
+export interface RowTemplate {
+  id: string;
+  name: string;
+  /** Property values to seed onto the new row (keyed by property id). */
+  properties: Record<string, unknown>;
+}
+
+/**
  * The presentations the database screen supports. `table`/`list` are the
  * row-oriented layouts; `gallery` shows cards; `board` is a kanban grouped by a
  * select property; `calendar` lays rows out on a month grid by a date property;
  * `bar`/`pie` are charts that aggregate rows by a category property.
  */
-export type DatabaseViewType = 'table' | 'list' | 'gallery' | 'board' | 'calendar' | 'timeline' | 'bar' | 'pie';
+export type DatabaseViewType =
+  | 'table'
+  | 'list'
+  | 'gallery'
+  | 'board'
+  | 'calendar'
+  | 'timeline'
+  | 'graph'
+  | 'bar'
+  | 'pie';
 
 /** How a chart (or a board column footer) aggregates a group of rows. */
 export interface ChartAggregate {
@@ -138,7 +211,7 @@ export interface ChartAggregate {
   propertyId?: string;
 }
 
-/** A per-column footer calculation (Notion-style table summaries). */
+/** A per-column footer calculation (table summary aggregations). */
 export type SummaryType =
   | 'none'
   | 'count_all'
@@ -161,14 +234,34 @@ export type FilterOperator =
   | 'not_equals'
   | 'contains'
   | 'not_contains'
+  | 'starts_with'
+  | 'ends_with'
   | 'gt'
   | 'lt'
   | 'gte'
   | 'lte'
+  | 'before'
+  | 'after'
+  | 'on_or_before'
+  | 'on_or_after'
+  | 'is_today'
+  | 'is_this_week'
+  | 'is_past_week'
+  | 'is_next_week'
+  | 'is_this_month'
   | 'is_empty'
   | 'is_not_empty'
   | 'is_checked'
   | 'is_unchecked';
+
+/** The value-less, relative-to-today date operators. */
+export const RELATIVE_DATE_OPS: FilterOperator[] = [
+  'is_today',
+  'is_this_week',
+  'is_past_week',
+  'is_next_week',
+  'is_this_month',
+];
 
 export interface DatabaseFilter {
   id: string;
@@ -176,6 +269,28 @@ export interface DatabaseFilter {
   propertyId: string;
   operator: FilterOperator;
   value?: unknown;
+}
+
+/** How a {@link DatabaseFilterGroup}'s children combine. */
+export type FilterConjunction = 'and' | 'or';
+
+/**
+ * A nested filter group: a set of conditions and/or sub-groups combined with a
+ * single conjunction (all `and`, or any `or`). This is the nested filter
+ * tree — `view.filterRoot` is the root group; an empty group matches everything.
+ */
+export interface DatabaseFilterGroup {
+  id: string;
+  conjunction: FilterConjunction;
+  filters: Array<DatabaseFilter | DatabaseFilterGroup>;
+}
+
+/** A filter node is either a leaf condition or a nested group. */
+export type FilterNode = DatabaseFilter | DatabaseFilterGroup;
+
+/** True when a filter node is a group (vs. a leaf condition). */
+export function isFilterGroup(node: FilterNode): node is DatabaseFilterGroup {
+  return (node as DatabaseFilterGroup).conjunction !== undefined;
 }
 
 export type SortDirection = 'asc' | 'desc';
@@ -190,7 +305,10 @@ export interface DatabaseView {
   id: string;
   name: string;
   type: DatabaseViewType;
+  /** Legacy flat (all-AND) filters. Superseded by {@link filterRoot} when present. */
   filters: DatabaseFilter[];
+  /** The nested filter tree (and/or groups). Falls back to ANDing {@link filters}. */
+  filterRoot?: DatabaseFilterGroup;
   sorts: DatabaseSort[];
   /**
    * Property ids to show, in order. Empty/undefined shows every property. The
@@ -212,8 +330,14 @@ export interface DatabaseView {
   endDatePropertyId?: string;
   /** Timeline only: the `dependency` property whose links draw arrows between bars. */
   dependencyPropertyId?: string;
+  /** Gallery only: a `files`/`url` property whose first image is the card cover. */
+  coverPropertyId?: string;
+  /** Gallery only: card preview size. Defaults to `medium`. */
+  cardSize?: 'small' | 'medium' | 'large';
   /** Per-column footer summaries (table), keyed by property id (or {@link TITLE_PROPERTY_ID}). */
   summaries?: Record<string, SummaryType>;
+  /** When grouped, hide groups/columns that currently have no rows (table + board). */
+  hideEmptyGroups?: boolean;
 }
 
 /** The full editable definition of a database: its columns, views, and the
@@ -223,6 +347,8 @@ export interface DatabaseSchema {
   views: DatabaseView[];
   /** Named groups organising the properties in the page-view panel. */
   propertyGroups?: PropertyGroup[];
+  /** Reusable new-row presets offered by the New-row control. */
+  templates?: RowTemplate[];
 }
 
 /** A database as returned by the store. */
@@ -265,6 +391,8 @@ export interface DatabaseRow {
   properties: Record<string, unknown>;
   /** Exported reactive cell values, keyed by cell name. */
   exports: Record<string, unknown>;
+  /** The row this row is a *sub-item* of (another row of the same database), or null. */
+  parentId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -274,6 +402,46 @@ export interface RowInput {
   name?: string | null;
   properties?: Record<string, unknown>;
   data?: PageSnapshot;
+  /** Nest the new row under this row as a sub-item (same database). */
+  parentId?: string | null;
+}
+
+/**
+ * Arrange a flat row list into a parent→children forest by `parentId` (rows
+ * whose parent isn't in the set become roots), preserving the input order within
+ * each sibling group. Used to render sub-items as an expandable tree.
+ */
+export interface RowTreeNode {
+  row: DatabaseRow;
+  depth: number;
+  children: RowTreeNode[];
+}
+
+export function buildRowTree(rows: DatabaseRow[]): RowTreeNode[] {
+  const byParent = new Map<string | null, DatabaseRow[]>();
+  const ids = new Set(rows.map((r) => r.id));
+  for (const row of rows) {
+    const parent = row.parentId && ids.has(row.parentId) ? row.parentId : null;
+    const list = byParent.get(parent) ?? [];
+    list.push(row);
+    byParent.set(parent, list);
+  }
+  const build = (parent: string | null, depth: number): RowTreeNode[] =>
+    (byParent.get(parent) ?? []).map((row) => ({row, depth, children: build(row.id, depth + 1)}));
+  return build(null, 0);
+}
+
+/** Flatten a row tree to a list (depth-first), dropping the children of collapsed rows. */
+export function flattenRowTree(nodes: RowTreeNode[], collapsed: Set<string>): RowTreeNode[] {
+  const out: RowTreeNode[] = [];
+  const walk = (list: RowTreeNode[]): void => {
+    for (const node of list) {
+      out.push(node);
+      if (node.children.length > 0 && !collapsed.has(node.row.id)) walk(node.children);
+    }
+  };
+  walk(nodes);
+  return out;
 }
 
 /** Payload for editing a row's title and/or manual property values. */
@@ -317,6 +485,20 @@ export function projectExports(snapshot: Pick<PageSnapshot, 'values' | 'names'>)
   return out;
 }
 
+/** True when a URL looks like an image (by extension), for thumbnail rendering. */
+export function isImageUrl(url: string): boolean {
+  return /\.(png|jpe?g|gif|webp|avif|svg|bmp)(\?.*)?$/i.test(url.trim());
+}
+
+/** The first image URL in a `files`/`url` cell value (a string or string[]), or null. */
+export function firstImageUrl(value: unknown): string | null {
+  const urls = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+  for (const u of urls) {
+    if (typeof u === 'string' && isImageUrl(u)) return u;
+  }
+  return null;
+}
+
 /**
  * The friendly value a `formula` reads when it references another property by
  * name: a `select` resolves to its option *label* (not the opaque id), a
@@ -325,7 +507,8 @@ export function projectExports(snapshot: Pick<PageSnapshot, 'values' | 'names'>)
  */
 function formulaFacingValue(row: DatabaseRow, property: DatabaseProperty): unknown {
   switch (property.type) {
-  case 'select': {
+  case 'select':
+  case 'status': {
     const opt = property.options?.find((o) => o.id === row.properties[property.id]);
     return opt ? opt.label : '';
   }
@@ -358,7 +541,7 @@ function formulaFacingValue(row: DatabaseRow, property: DatabaseProperty): unkno
  * guards against reference cycles (a cyclic ref yields a {@link FormulaError}).
  * The reserved names `Name`/`Title` map to the row's page title.
  */
-function rowFormulaResolver(row: DatabaseRow, properties: DatabaseProperty[]): FormulaResolver {
+function rowFormulaResolver(row: DatabaseRow, properties: DatabaseProperty[], rows?: DatabaseRow[]): FormulaResolver {
   const byName = new Map(properties.map((p) => [p.name.toLowerCase(), p]));
   const visiting = new Set<string>();
   const resolve: FormulaResolver = (name) => {
@@ -377,6 +560,8 @@ function rowFormulaResolver(row: DatabaseRow, properties: DatabaseProperty[]): F
         visiting.delete(property.id);
       }
     }
+    // A `rollup` resolves to its computed value so formulas can build on rollups.
+    if (property.type === 'rollup') return rowValue(row, property, properties, rows);
     return formulaFacingValue(row, property);
   };
   return resolve;
@@ -392,12 +577,18 @@ export function rowValue(
   row: DatabaseRow,
   property: DatabaseProperty | typeof TITLE_PROPERTY_ID,
   properties?: DatabaseProperty[],
+  rows?: DatabaseRow[],
 ): unknown {
   if (property === TITLE_PROPERTY_ID) return row.name ?? '';
   if (property.type === 'expr') return row.exports[property.cellName ?? property.name];
   if (property.type === 'formula') {
     if (!properties) return undefined;
-    return evaluateFormula(property.formula ?? '', rowFormulaResolver(row, properties));
+    return evaluateFormula(property.formula ?? '', rowFormulaResolver(row, properties, rows));
+  }
+  // A `rollup` folds a target property across the rows a relation points to.
+  if (property.type === 'rollup') {
+    if (!properties || !rows || !property.rollup) return undefined;
+    return computeRollup(row, property.rollup, properties, rows);
   }
   // Timestamps are derived from the row page, not stored in `properties`.
   if (property.type === 'created_time') return row.createdAt;
@@ -411,6 +602,60 @@ export function rowValue(
   // A `date` may hold a `{start, end}` range; filters/sorts compare the start.
   if (property.type === 'date') return dateStart(row.properties[property.id]) ?? '';
   return row.properties[property.id];
+}
+
+/** Numeric folds shared by rollups, chart aggregates and summaries. */
+const numericFold = (nums: number[], fn: 'sum' | 'avg' | 'min' | 'max' | 'range' | 'median'): number => {
+  if (nums.length === 0) return 0;
+  const sorted = [...nums].sort((a, b) => a - b);
+  switch (fn) {
+  case 'sum':
+    return sorted.reduce((a, b) => a + b, 0);
+  case 'avg':
+    return sorted.reduce((a, b) => a + b, 0) / sorted.length;
+  case 'min':
+    return sorted[0];
+  case 'max':
+    return sorted[sorted.length - 1];
+  case 'range':
+    return sorted[sorted.length - 1] - sorted[0];
+  case 'median': {
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  }
+};
+
+/** Compute a rollup value: gather the related rows, fold the target property. */
+function computeRollup(row: DatabaseRow, cfg: RollupConfig, properties: DatabaseProperty[], rows: DatabaseRow[]): unknown {
+  const relProp = properties.find((p) => p.id === cfg.relationPropertyId);
+  const raw = relProp ? row.properties[relProp.id] : undefined;
+  const ids = Array.isArray(raw) ? (raw as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const related = ids.map((id) => byId.get(id)).filter((r): r is DatabaseRow => !!r);
+  if (cfg.function === 'count') return related.length;
+
+  const target =
+    cfg.targetPropertyId === TITLE_PROPERTY_ID ? TITLE_PROPERTY_ID : properties.find((p) => p.id === cfg.targetPropertyId);
+  if (!target) return undefined;
+  const values = related.map((r) => rowValue(r, target, properties, rows));
+
+  switch (cfg.function) {
+  case 'show_original':
+    return values;
+  case 'count_values':
+    return values.filter((v) => !isEmpty(v)).length;
+  case 'count_unique':
+    return new Set(values.filter((v) => !isEmpty(v)).map((v) => (Array.isArray(v) ? JSON.stringify(v) : String(v)))).size;
+  case 'checked':
+    return values.filter((v) => v === true).length;
+  case 'percent_checked':
+    return values.length ? Math.round((values.filter((v) => v === true).length / values.length) * 100) : 0;
+  default: {
+    const nums = values.map(asNumber).filter((n) => !Number.isNaN(n));
+    return numericFold(nums, cfg.function);
+  }
+  }
 }
 
 // ── Dates & timeline spans ───────────────────────────────────────────────────
@@ -468,6 +713,117 @@ export function rowDateSpan(row: DatabaseRow, view: DatabaseView, properties: Da
   return {start, end: end && end >= start ? end : start};
 }
 
+// ── Dependency graph ─────────────────────────────────────────────────────────
+
+/** A node in the dependency graph, placed in a layer (column) at an order (row). */
+export interface GraphNode {
+  id: string;
+  /** Longest-path depth from a root (a row with no predecessors). */
+  layer: number;
+  /** Position within the layer (stable: source-row order). */
+  order: number;
+}
+
+/** A directed edge `from` a predecessor `to` the row that depends on it. */
+export interface GraphEdge {
+  from: string;
+  to: string;
+}
+
+export interface DependencyGraph {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  /** Number of layers (the graph's depth); at least 1. */
+  layerCount: number;
+  /** The most nodes in any one layer (the graph's height). */
+  maxLayerSize: number;
+}
+
+/**
+ * Lay a database's rows out as a dependency DAG: each row is a node, and its
+ * `dependency` property lists the predecessors it points back to (edge
+ * predecessor → dependent). Nodes are assigned a **layer** by longest path from a
+ * root (a row with no predecessors) so dependents always sit to the right of
+ * everything they depend on, and an **order** within the layer (stable, by row
+ * order). Pure and cycle-safe — a back-edge simply doesn't deepen the layer — so
+ * it can drive the graph view and be unit-tested directly.
+ */
+export function dependencyGraph(rows: DatabaseRow[], dependencyPropertyId: string | undefined): DependencyGraph {
+  const ids = new Set(rows.map((r) => r.id));
+  const predsOf = new Map<string, string[]>();
+  for (const r of rows) {
+    const raw = dependencyPropertyId ? r.properties[dependencyPropertyId] : undefined;
+    const deps = Array.isArray(raw) ? (raw as unknown[]).filter((d): d is string => typeof d === 'string') : [];
+    predsOf.set(r.id, deps.filter((id) => ids.has(id) && id !== r.id));
+  }
+
+  const layerCache = new Map<string, number>();
+  const computing = new Set<string>();
+  const layerOf = (id: string): number => {
+    const cached = layerCache.get(id);
+    if (cached !== undefined) return cached;
+    if (computing.has(id)) return 0; // cycle — break without deepening
+    computing.add(id);
+    const preds = predsOf.get(id) ?? [];
+    const layer = preds.length === 0 ? 0 : Math.max(...preds.map(layerOf)) + 1;
+    computing.delete(id);
+    layerCache.set(id, layer);
+    return layer;
+  };
+
+  const perLayer = new Map<number, number>();
+  const nodes: GraphNode[] = rows.map((r) => {
+    const layer = layerOf(r.id);
+    const order = perLayer.get(layer) ?? 0;
+    perLayer.set(layer, order + 1);
+    return {id: r.id, layer, order};
+  });
+
+  const edges: GraphEdge[] = [];
+  for (const r of rows) for (const p of predsOf.get(r.id) ?? []) edges.push({from: p, to: r.id});
+
+  return {
+    nodes,
+    edges,
+    layerCount: Math.max(0, ...nodes.map((n) => n.layer)) + 1,
+    maxLayerSize: Math.max(1, ...[...perLayer.values()]),
+  };
+}
+
+/** A related row's inverse-property value to write when syncing a two-way link. */
+export interface InverseUpdate {
+  rowId: string;
+  value: string[];
+}
+
+/**
+ * Compute the inverse-property writes for a two-way `dependency` change: when
+ * `rowId`'s links go from `oldIds` to `newIds`, each newly-added related row gains
+ * `rowId` in its `inversePropertyId`, and each removed one loses it. Pure — the
+ * hook applies the returned updates — so the sync logic is unit-tested directly.
+ */
+export function syncInverseUpdates(
+  rowId: string,
+  oldIds: string[],
+  newIds: string[],
+  relatedRows: DatabaseRow[],
+  inversePropertyId: string,
+): InverseUpdate[] {
+  const byId = new Map(relatedRows.map((r) => [r.id, r]));
+  const inverseOf = (r: DatabaseRow): string[] =>
+    Array.isArray(r.properties[inversePropertyId]) ? (r.properties[inversePropertyId] as string[]) : [];
+  const updates: InverseUpdate[] = [];
+  for (const id of newIds.filter((x) => !oldIds.includes(x))) {
+    const r = byId.get(id);
+    if (r && !inverseOf(r).includes(rowId)) updates.push({rowId: id, value: [...inverseOf(r), rowId]});
+  }
+  for (const id of oldIds.filter((x) => !newIds.includes(x))) {
+    const r = byId.get(id);
+    if (r && inverseOf(r).includes(rowId)) updates.push({rowId: id, value: inverseOf(r).filter((x) => x !== rowId)});
+  }
+  return updates;
+}
+
 const isEmpty = (v: unknown): boolean =>
   v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0);
 
@@ -477,8 +833,39 @@ const asNumber = (v: unknown): number => {
   return NaN;
 };
 
-/** Evaluate a single filter against a resolved value. */
-export function matchesFilter(operator: FilterOperator, cell: unknown, target: unknown): boolean {
+const startOfDay = (d: Date): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const shiftDays = (d: Date, n: number): Date => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
+
+/** Evaluate a relative-to-`now` date operator against a cell's day value. */
+function matchesRelativeDate(operator: FilterOperator, cell: unknown, now: Date): boolean {
+  const day = parseDay(typeof cell === 'string' ? cell : '');
+  if (!day) return false;
+  const today = startOfDay(now);
+  switch (operator) {
+  case 'is_today':
+    return day.getTime() === today.getTime();
+  case 'is_this_week': {
+    const start = shiftDays(today, -today.getDay()); // week starts Sunday
+    return day >= start && day < shiftDays(start, 7);
+  }
+  case 'is_past_week':
+    return day >= shiftDays(today, -7) && day <= today;
+  case 'is_next_week':
+    return day > today && day <= shiftDays(today, 7);
+  case 'is_this_month':
+    return day.getFullYear() === today.getFullYear() && day.getMonth() === today.getMonth();
+  default:
+    return false;
+  }
+}
+
+/**
+ * Evaluate a single filter against a resolved value. The optional `now`
+ * (defaulting to the current date) anchors the relative date operators
+ * (`is_today`, `is_this_week`, …) — pass it explicitly to keep tests deterministic.
+ */
+export function matchesFilter(operator: FilterOperator, cell: unknown, target: unknown, now?: Date): boolean {
+  if (RELATIVE_DATE_OPS.includes(operator)) return matchesRelativeDate(operator, cell, now ?? new Date());
   // Array cells (multi-select / relation) test membership / emptiness.
   if (Array.isArray(cell)) {
     const needle = String(target ?? '').toLowerCase();
@@ -505,6 +892,10 @@ export function matchesFilter(operator: FilterOperator, cell: unknown, target: u
     return String(cell ?? '').toLowerCase().includes(String(target ?? '').toLowerCase());
   case 'not_contains':
     return !String(cell ?? '').toLowerCase().includes(String(target ?? '').toLowerCase());
+  case 'starts_with':
+    return String(cell ?? '').toLowerCase().startsWith(String(target ?? '').toLowerCase());
+  case 'ends_with':
+    return String(cell ?? '').toLowerCase().endsWith(String(target ?? '').toLowerCase());
   case 'gt':
     return asNumber(cell) > asNumber(target);
   case 'lt':
@@ -513,6 +904,16 @@ export function matchesFilter(operator: FilterOperator, cell: unknown, target: u
     return asNumber(cell) >= asNumber(target);
   case 'lte':
     return asNumber(cell) <= asNumber(target);
+  case 'before':
+  case 'after':
+  case 'on_or_before':
+  case 'on_or_after': {
+    const c = parseDay(String(cell ?? ''));
+    const t = parseDay(String(target ?? ''));
+    if (!c || !t) return false;
+    const d = c.getTime() - t.getTime();
+    return operator === 'before' ? d < 0 : operator === 'after' ? d > 0 : operator === 'on_or_before' ? d <= 0 : d >= 0;
+  }
   case 'is_empty':
     return isEmpty(cell);
   case 'is_not_empty':
@@ -544,18 +945,33 @@ function compareValues(a: unknown, b: unknown): number {
 }
 
 /**
+ * The effective filter tree for a view: its `filterRoot`, or a synthesised
+ * all-`and` group wrapping the legacy flat `filters`. Lets the UI always edit a
+ * single tree while old views keep working.
+ */
+export function viewFilterRoot(view: DatabaseView): DatabaseFilterGroup {
+  return view.filterRoot ?? {id: 'root', conjunction: 'and', filters: view.filters ?? []};
+}
+
+/**
  * Apply a view's filters and sorts to a row set, returning a new array. Filters
- * are ANDed; sorts are applied in order (first sort is primary). Pure and
- * side-effect free so it can run identically on the server or in the table UI.
+ * are evaluated as a nested and/or tree ({@link viewFilterRoot}); sorts are
+ * applied in order (first sort is primary). Pure and side-effect free so it can
+ * run identically on the server or in the table UI.
  */
 export function applyView(rows: DatabaseRow[], view: DatabaseView, properties: DatabaseProperty[]): DatabaseRow[] {
-  const filtered = rows.filter((row) =>
-    (view.filters ?? []).every((filter) => {
-      const prop = propertyById(properties, filter.propertyId);
-      if (!prop) return true;
-      return matchesFilter(filter.operator, rowValue(row, prop, properties), filter.value);
-    }),
-  );
+  const root = viewFilterRoot(view);
+  const evalNode = (node: FilterNode, row: DatabaseRow): boolean => {
+    if (isFilterGroup(node)) {
+      if (node.filters.length === 0) return true; // empty group matches everything
+      const results = node.filters.map((child) => evalNode(child, row));
+      return node.conjunction === 'or' ? results.some(Boolean) : results.every(Boolean);
+    }
+    const prop = propertyById(properties, node.propertyId);
+    if (!prop) return true;
+    return matchesFilter(node.operator, rowValue(row, prop, properties, rows), node.value);
+  };
+  const filtered = rows.filter((row) => evalNode(root, row));
 
   const sorts = view.sorts ?? [];
   if (sorts.length === 0) return filtered;
@@ -567,7 +983,7 @@ export function applyView(rows: DatabaseRow[], view: DatabaseView, properties: D
       for (const sort of sorts) {
         const prop = propertyById(properties, sort.propertyId);
         if (!prop) continue;
-        const cmp = compareValues(rowValue(a.row, prop, properties), rowValue(b.row, prop, properties));
+        const cmp = compareValues(rowValue(a.row, prop, properties, rows), rowValue(b.row, prop, properties, rows));
         if (cmp !== 0) return sort.direction === 'desc' ? -cmp : cmp;
       }
       return a.index - b.index;
@@ -616,9 +1032,9 @@ export function defaultDatabaseSchema(): DatabaseSchema {
 export function defaultView(type: DatabaseViewType, name: string, properties: DatabaseProperty[]): DatabaseView {
   const view: DatabaseView = {id: shortId('view'), name, type, filters: [], sorts: []};
   if (type === 'board' || type === 'bar' || type === 'pie') {
-    // Default the grouping to the first select property (kanban columns / chart
-    // categories read best off a select), falling back to any property.
-    const select = properties.find((p) => p.type === 'select');
+    // Default the grouping to the first select/status property (kanban columns /
+    // chart categories read best off one), falling back to any property.
+    const select = properties.find((p) => p.type === 'select' || p.type === 'status');
     view.groupByPropertyId = (select ?? properties[0])?.id;
   }
   if (type === 'calendar' || type === 'timeline') {
@@ -632,12 +1048,87 @@ export function defaultView(type: DatabaseViewType, name: string, properties: Da
     if (dates.length >= 2 && !dates[0].dateRange) view.endDatePropertyId = dates[1].id;
     view.dependencyPropertyId = properties.find((p) => p.type === 'dependency')?.id;
   }
+  if (type === 'graph') {
+    view.dependencyPropertyId = properties.find((p) => p.type === 'dependency')?.id;
+  }
   return view;
+}
+
+/** The starting options for a `status` property: one per lifecycle bucket. */
+export function defaultStatusOptions(): DatabaseSelectOption[] {
+  return [
+    {id: shortId('opt'), label: 'Not started', color: 'gray', group: 'todo'},
+    {id: shortId('opt'), label: 'In progress', color: 'blue', group: 'in_progress'},
+    {id: shortId('opt'), label: 'Done', color: 'green', group: 'complete'},
+  ];
+}
+
+/** The lifecycle buckets a `status` property groups its options under, in order. */
+export const STATUS_GROUPS: {id: StatusGroup; label: string}[] = [
+  {id: 'todo', label: 'To-do'},
+  {id: 'in_progress', label: 'In progress'},
+  {id: 'complete', label: 'Complete'},
+];
+
+/**
+ * Remove a property from a schema and scrub **every** dangling reference to it:
+ * each view's filters (flat list *and* the nested {@link filterRoot} tree),
+ * sorts, visible columns, summaries, and the group-by / date / cover config; plus
+ * any `rollup` on another property that aggregated through or over it. Pure —
+ * returns a fresh schema — so it can be unit-tested and shared by the delete
+ * action. (Renders already tolerate stale refs; this keeps the schema clean.)
+ */
+export function removeProperty(schema: DatabaseSchema, propertyId: string): DatabaseSchema {
+  const pruneNode = (node: FilterNode): FilterNode | null => {
+    if (isFilterGroup(node)) {
+      return {...node, filters: node.filters.map(pruneNode).filter((n): n is FilterNode => n !== null)};
+    }
+    return node.propertyId === propertyId ? null : node;
+  };
+
+  return {
+    ...schema,
+    properties: schema.properties
+      .filter((p) => p.id !== propertyId)
+      .map((p) => {
+        let next = p;
+        if (p.rollup && (p.rollup.relationPropertyId === propertyId || p.rollup.targetPropertyId === propertyId)) {
+          next = {...next, rollup: undefined};
+        }
+        // Break a two-way dependency pairing when its partner is removed.
+        if (p.syncedPropertyId === propertyId) next = {...next, syncedPropertyId: undefined};
+        return next;
+      }),
+    views: schema.views.map((v) => {
+      const summaries = v.summaries
+        ? Object.fromEntries(Object.entries(v.summaries).filter(([k]) => k !== propertyId))
+        : undefined;
+      return {
+        ...v,
+        filters: (v.filters ?? []).filter((f) => f.propertyId !== propertyId),
+        filterRoot: v.filterRoot ? (pruneNode(v.filterRoot) as DatabaseFilterGroup) : undefined,
+        sorts: (v.sorts ?? []).filter((s) => s.propertyId !== propertyId),
+        visiblePropertyIds: v.visiblePropertyIds?.filter((id) => id !== propertyId),
+        summaries,
+        groupByPropertyId: v.groupByPropertyId === propertyId ? undefined : v.groupByPropertyId,
+        datePropertyId: v.datePropertyId === propertyId ? undefined : v.datePropertyId,
+        endDatePropertyId: v.endDatePropertyId === propertyId ? undefined : v.endDatePropertyId,
+        dependencyPropertyId: v.dependencyPropertyId === propertyId ? undefined : v.dependencyPropertyId,
+        coverPropertyId: v.coverPropertyId === propertyId ? undefined : v.coverPropertyId,
+      };
+    }),
+    // Drop the removed property's seed value from every row template.
+    templates: schema.templates?.map((t) =>
+      propertyId in t.properties
+        ? {...t, properties: Object.fromEntries(Object.entries(t.properties).filter(([k]) => k !== propertyId))}
+        : t,
+    ),
+  };
 }
 
 // ── Number formatting ────────────────────────────────────────────────────────
 
-const FORMAT_PREFIX: Partial<Record<NumberFormat, string>> = {dollar: '$', euro: '€'};
+const FORMAT_PREFIX: Partial<Record<NumberFormat, string>> = {dollar: '$', euro: '€', pound: '£', rupee: '₹'};
 
 /** Format a numeric value for display per a {@link NumberFormat}. Non-numbers pass through as text. */
 export function formatNumber(value: unknown, format: NumberFormat | undefined): string {
@@ -650,12 +1141,38 @@ export function formatNumber(value: unknown, format: NumberFormat | undefined): 
     return n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
   case 'percent':
     return `${(n * 100).toLocaleString(undefined, {maximumFractionDigits: 2})}%`;
+  case 'yen':
+    return `¥${Math.round(n).toLocaleString()}`; // yen is conventionally whole-number
   case 'dollar':
   case 'euro':
+  case 'pound':
+  case 'rupee':
     return `${FORMAT_PREFIX[format]}${n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
   default:
     return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(4)));
   }
+}
+
+/**
+ * Format a `unique_id` value for display: an integer, optionally prefixed
+ * (`TASK` → `TASK-3`). Empty for unassigned (non-numeric) values. Pure.
+ */
+export function formatUniqueId(value: unknown, prefix?: string): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+  const p = prefix?.trim();
+  return p ? `${p}-${value}` : String(value);
+}
+
+/**
+ * The clamped 0..1 fraction of a number cell relative to its `target` (the
+ * value that fills a `bar`/`ring`). Non-numbers and a non-positive target read
+ * as 0; the target defaults to 100. Pure — drives the bar/ring cell and tests.
+ */
+export function numberProgress(value: unknown, target?: number): number {
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  const max = typeof target === 'number' && target > 0 ? target : 100;
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n / max));
 }
 
 // ── Grouping + aggregation (board columns, charts) ───────────────────────────
@@ -677,7 +1194,7 @@ export interface RowGroup {
 /** Display string for a row's value of a property (option labels, joined lists). */
 function displayValue(row: DatabaseRow, property: DatabaseProperty, properties: DatabaseProperty[]): string {
   const v = rowValue(row, property, properties);
-  if (property.type === 'select') {
+  if (property.type === 'select' || property.type === 'status') {
     return property.options?.find((o) => o.id === row.properties[property.id])?.label ?? '';
   }
   if (v instanceof FormulaError) return v.message;
@@ -700,7 +1217,7 @@ export function groupRows(
 ): RowGroup[] {
   if (!property) return [{key: '__all__', label: 'All', rows}];
 
-  if (property.type === 'select') {
+  if (property.type === 'select' || property.type === 'status') {
     const groups: RowGroup[] = (property.options ?? []).map((o) => ({key: o.id, label: o.label, color: o.color, rows: []}));
     const byId = new Map(groups.map((g) => [g.key, g]));
     const none: RowGroup = {key: '__none__', label: NO_VALUE_GROUP, rows: []};
@@ -741,7 +1258,7 @@ const foldAggregate = (rows: DatabaseRow[], agg: ChartAggregate, properties: Dat
   const prop = properties.find((p) => p.id === agg.propertyId);
   if (!prop) return rows.length;
   const nums = rows
-    .map((r) => rowValue(r, prop, properties))
+    .map((r) => rowValue(r, prop, properties, rows))
     .map((v) => (typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' ? Number(v) : NaN))
     .filter((n) => !Number.isNaN(n));
   if (nums.length === 0) return 0;
@@ -796,7 +1313,7 @@ export function summarizeColumn(
   if (type === 'none') return '';
   if (type === 'count_all') return String(rows.length);
 
-  const values = rows.map((r) => rowValue(r, property, properties));
+  const values = rows.map((r) => rowValue(r, property, properties, rows));
   const filled = values.filter((v) => !isEmpty(v));
   const total = rows.length || 1;
 
