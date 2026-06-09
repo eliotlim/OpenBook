@@ -109,34 +109,47 @@ The database is full-featured. The pure model + evaluation lives in
 (`DatabaseRowProperties.tsx`) and the inline editor block (`editor/blocks/DatabaseBlock.ts`).
 
 - **Property types** — text, number (formats incl. $/€/£/¥/₹ and **show-as
-  bar/ring** scaled to a target), select, multi-select, **status** (lifecycle
-  groups), checkbox, date (single, **start–end range**, or **with time**), url,
-  email, phone, **files & media** (URLs/images), relation, **dependency** (links
-  rows in the same DB, optionally **two-way/synced**), **rollup** (folds a target
-  across a relation), created/last-edited time, **unique ID** (auto-incrementing,
-  optional prefix), person, verification, backlinks, plus two computed kinds:
-  `expr` (reads a reactive cell from the row's document) and `formula`
-  (`prop("Price") * prop("Qty")`).
+  bar/ring** scaled to a target), **rating** (clickable stars), select, multi-select,
+  **status** (lifecycle groups), checkbox, date (single, **start–end range**, **with
+  time**, and **absolute/relative display** — "In 3 days"), url, email, phone,
+  **files & media** (URLs/images), relation, **dependency** (links rows in the same
+  DB, optionally **two-way/synced**), **rollup** (folds a target across a relation),
+  created/last-edited time, **unique ID** (auto-incrementing, optional prefix),
+  person, verification, backlinks, plus two computed kinds: `expr` (reads a reactive
+  cell from the row's document) and `formula` (`prop("Price") * prop("Qty")`).
 - **Views** — table (with a **frozen Name column**), board (**collapsible
-  columns**), gallery (**card size S/M/L**), calendar (**click-a-day to add**),
-  **timeline** (Gantt with drag-to-reschedule + dependency arrows), **dependency
-  graph**, list, and bar/pie charts. Per-view config: filters (a nested **AND/OR
-  tree**, `filterRoot`), sorts, visible/ordered columns, group-by (table **and
-  list**, with **hide-empty** + collapse/expand-all), chart aggregate,
+  columns**, configurable footer **calculation**), gallery (**card size S/M/L**,
+  **grouped sections**), calendar (**click-a-day to add**), **timeline** (Gantt with
+  drag-to-reschedule + dependency arrows), **dependency graph**, list, and
+  **interactive** bar/pie charts. Per-view config: filters (a nested **AND/OR tree**,
+  `filterRoot`), sorts, visible/ordered columns, group-by (table/list/**gallery**,
+  with **hide-empty** + collapse/expand-all), chart aggregate + second-level
+  **breakdown**, **dashboard metric cards** (count/sum/avg/… with optional target +
+  progress bar), **colour-by** a select property (tints every layout's row/card edge),
   date/cover/dependency properties, and column summary footers (**per-group** too).
-- **Interactions** — drag to reorder rows (and sub-items), columns, board columns,
-  calendar items, **select options**, and **view tabs**; quick sort + hide +
-  duplicate from a column menu; **multi-row select** with bulk delete / duplicate /
-  set-value; insert-row-below; **row templates**; double-click a tab to rename;
-  quick search with an "X of Y" count; CSV import/export; full-page **and**
-  inline/linked databases (a block portals a live `DatabaseView` from inside the
-  providers). Optimistic mutations revert gracefully on a server rejection.
+- **Charts** — bar and pie are SVG, interactive, and dependency-free: hovering a
+  bar/slice (or its legend) highlights it and dims the rest with a live readout;
+  clicking drills into the underlying rows. A `breakdownPropertyId` turns them into
+  **stacked bars** / a **two-ring sunburst** (donut with a centre total), with an
+  optional **100%-stacked** mode. `aggregateMatrix` (pure) powers both.
+- **Interactions** — **right-click context menus** everywhere — a cell (filter by
+  its value, sort, group-by, relative-date presets, row actions), a row / board /
+  gallery / list / calendar / timeline card (open / insert / duplicate / delete), and
+  a column header (sort / group / hide / duplicate / delete); **active filter & sort
+  chips** below the toolbar (removable, click a sort to flip it); drag to reorder rows
+  (and sub-items), columns, board columns, calendar items, **select options**, and
+  **view tabs**; **multi-row select** with bulk delete / duplicate / **set any select
+  property**; insert-row-below; **row templates**; double-click a tab to rename; quick
+  search with an "X of Y" count; CSV import/export; **interactive multi-page HTML
+  export** (the page's whole reachable subtree — subpages, databases, and row pages —
+  as one navigable file, see `export/exportSite.ts` + `toHtml.ts`); full-page **and**
+  inline/linked databases. Optimistic mutations revert gracefully on a server rejection.
 - **Purity** — `rowValue` / `applyView` / `matchesFilter` / `groupRows` /
-  `aggregateRows` / `summarizeColumn` / `rowDateSpan` / `dependencyGraph` /
-  `syncInverseUpdates` / `buildRowTree` / `removeProperty` / `numberProgress` /
-  `formatUniqueId` are pure and unit-tested, so the same logic runs in the table
-  UI, the server, and tests. Behaviour is covered end-to-end by
-  `packages/web/e2e/database-parity.spec.ts`.
+  `aggregateRows` / `aggregateMatrix` / `summarizeColumn` / `rowDateSpan` /
+  `dependencyGraph` / `syncInverseUpdates` / `buildRowTree` / `removeProperty` /
+  `numberProgress` / `formatUniqueId` are pure and unit-tested, so the same logic
+  runs in the table UI, the server, and tests. Behaviour is covered end-to-end by
+  `packages/web/e2e/database-parity.spec.ts` and the `database-*.spec.ts` suite.
 
 ### Trash / soft delete
 
