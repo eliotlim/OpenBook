@@ -300,6 +300,16 @@ export interface DatabaseSort {
   direction: SortDirection;
 }
 
+/** A dashboard metric card: a single aggregate over the view's filtered rows. */
+export interface DatabaseMetric {
+  id: string;
+  /** Property to summarise; the reserved {@link TITLE_PROPERTY_ID} counts rows. */
+  propertyId: string;
+  type: SummaryType;
+  /** Optional custom label (defaults to "<property> · <summary>"). */
+  label?: string;
+}
+
 /** A saved presentation of the database: a layout plus its filters and sorts. */
 export interface DatabaseView {
   id: string;
@@ -342,6 +352,8 @@ export interface DatabaseView {
   cardSize?: 'small' | 'medium' | 'large';
   /** Per-column footer summaries (table), keyed by property id (or {@link TITLE_PROPERTY_ID}). */
   summaries?: Record<string, SummaryType>;
+  /** Dashboard metric cards shown above the view (count/sum/avg/… over the filtered rows). */
+  metrics?: DatabaseMetric[];
   /** When grouped, hide groups/columns that currently have no rows (table + board). */
   hideEmptyGroups?: boolean;
 }

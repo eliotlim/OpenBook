@@ -26,6 +26,7 @@ export type {
   SortDirection,
   DatabaseSort,
   DatabaseView,
+  DatabaseMetric,
   DatabaseSchema,
   StoredDatabase,
   DatabaseInput,

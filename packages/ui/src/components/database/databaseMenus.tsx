@@ -35,7 +35,9 @@ import {
   STATUS_GROUPS,
   TITLE_PROPERTY_ID,
   shortId,
+  summarizeColumn,
   type ChartAggregate,
+  type DatabaseMetric,
   type DatabaseFilter,
   type DatabaseFilterGroup,
   type FilterNode,
@@ -1073,6 +1075,108 @@ export const SummaryPicker: React.FC<{current: SummaryType; display: string; onC
   </DropdownMenu>
 );
 
+const METRIC_TYPES = SUMMARY_TYPES.filter((s) => s.value !== 'none');
+
+/** The label shown above a metric card (a custom label, or "<property> · <summary>"). */
+function metricLabel(metric: DatabaseMetric, properties: DatabaseProperty[]): string {
+  if (metric.label?.trim()) return metric.label;
+  const name = metric.propertyId === TITLE_PROPERTY_ID ? 'Rows' : properties.find((p) => p.id === metric.propertyId)?.name ?? 'Rows';
+  return `${name} · ${METRIC_TYPES.find((t) => t.value === metric.type)?.label ?? metric.type}`;
+}
+
+/** One dashboard metric card: its live value, click to reconfigure or remove. */
+const MetricCard: React.FC<{db: UseDatabase; view: DatabaseView; metric: DatabaseMetric}> = ({db, view, metric}) => {
+  const properties = db.database!.schema.properties;
+  const prop = metric.propertyId === TITLE_PROPERTY_ID ? TITLE_PROPERTY_ID : properties.find((p) => p.id === metric.propertyId);
+  const value = prop ? summarizeColumn(db.visibleRows, prop, metric.type, properties) : '—';
+  const patch = (changes: Partial<DatabaseMetric>): void =>
+    void db.updateView(view.id, {metrics: (view.metrics ?? []).map((m) => (m.id === metric.id ? {...m, ...changes} : m))});
+  const remove = (): void => void db.updateView(view.id, {metrics: (view.metrics ?? []).filter((m) => m.id !== metric.id)});
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className="min-w-[110px] rounded-lg border border-border bg-card px-3 py-2 text-left transition-colors hover:border-foreground/25">
+          <div className="truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={metricLabel(metric, properties)}>
+            {metricLabel(metric, properties)}
+          </div>
+          <div className="text-xl font-semibold tabular-nums">{value || '—'}</div>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 space-y-2 p-2.5">
+        <label className="block">
+          <span className={sectionLabel}>Property</span>
+          <select
+            value={metric.propertyId}
+            onChange={(e) => patch({propertyId: e.target.value})}
+            className={cn(fieldClass, 'mt-1 w-full')}
+          >
+            <option value={TITLE_PROPERTY_ID}>Rows (count)</option>
+            {properties.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className={sectionLabel}>Calculate</span>
+          <select value={metric.type} onChange={(e) => patch({type: e.target.value as SummaryType})} className={cn(fieldClass, 'mt-1 w-full')}>
+            {METRIC_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <input
+          defaultValue={metric.label ?? ''}
+          onBlur={(e) => e.target.value !== (metric.label ?? '') && patch({label: e.target.value || undefined})}
+          placeholder="Custom label (optional)"
+          className={cn(fieldClass, 'w-full')}
+          aria-label="Metric label"
+        />
+        <button onClick={remove} className={cn(toolButtonClass, 'w-full justify-center text-destructive hover:text-destructive')}>
+          <Trash2 className="h-3.5 w-3.5" /> Remove metric
+        </button>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+/**
+ * Dashboard metric cards above a database view: each is an aggregate (count, sum,
+ * average, …) over the view's *filtered* rows, so they update live as filters and
+ * data change. Rendered only when the view defines metrics; a trailing "+" adds
+ * another (defaulting to a row count — a sensible first metric).
+ */
+export const MetricsBar: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const metrics = view.metrics ?? [];
+  if (metrics.length === 0) return null;
+  const add = (): void =>
+    void db.updateView(view.id, {metrics: [...metrics, {id: shortId('metric'), propertyId: TITLE_PROPERTY_ID, type: 'count_all'}]});
+  return (
+    <div className="mb-3 flex flex-wrap items-stretch gap-2">
+      {metrics.map((m) => (
+        <MetricCard key={m.id} db={db} view={view} metric={m} />
+      ))}
+      <button
+        onClick={add}
+        className="flex min-w-[40px] items-center justify-center rounded-lg border border-dashed border-border text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground"
+        aria-label="Add metric"
+        title="Add metric"
+      >
+        <Plus className="h-4 w-4" />
+      </button>
+    </div>
+  );
+};
+
+/** Add the first metric card to a view (a row count) — the dashboard entry point. */
+export function addFirstMetric(db: UseDatabase, view: DatabaseView): void {
+  void db.updateView(view.id, {metrics: [...(view.metrics ?? []), {id: shortId('metric'), propertyId: TITLE_PROPERTY_ID, type: 'count_all'}]});
+}
+
 /** The `+` next to the view tabs: add a new view of a chosen layout. */
 export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = ({onAdd}) => (
   <DropdownMenu>
@@ -1353,6 +1457,12 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
             </div>
           </div>
         )}
+
+        <div className="border-t border-border pt-2">
+          <button onClick={() => addFirstMetric(db, view)} className={cn(toolButtonClass, 'w-full justify-center')}>
+            <Sigma className="h-3.5 w-3.5" /> Add metric card
+          </button>
+        </div>
 
         <div className="flex items-center gap-1 border-t border-border pt-2">
           <button
