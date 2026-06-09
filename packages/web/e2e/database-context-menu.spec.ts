@@ -79,3 +79,17 @@ test('cell context menu: group by column', async ({page, request}) => {
   await page.getByRole('menuitem', {name: /Group by Status/}).click();
   await expect(page.getByRole('button', {name: 'Collapse all'})).toBeVisible();
 });
+
+// Right-clicking a column header offers column actions (hide, sort, group, …).
+test('column header context menu: hide column', async ({page, request}) => {
+  const pageId = await seed(request);
+  await page.goto(`/?page=${pageId}`);
+  await page.getByRole('button', {name: 'Add column'}).waitFor();
+  const header = page.getByRole('table').getByText('Status', {exact: true});
+  await expect(header).toBeVisible();
+
+  // Right-click the Status header → Hide in view → the column disappears.
+  await header.click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Hide in view'}).click();
+  await expect(page.getByRole('table').getByText('Status', {exact: true})).toHaveCount(0);
+});

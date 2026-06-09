@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, ChevronDown, ChevronRight, Copy, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Plus, Rows3, Save, Search, Trash2, X} from 'lucide-react';
+import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, ChevronDown, ChevronRight, Copy, EyeOff, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Plus, Rows3, Save, Search, Trash2, X} from 'lucide-react';
 import {
   buildRowTree,
   dateStart,
@@ -299,6 +299,52 @@ const CellContextMenu: React.FC<{
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => void db.deleteRow(row.id)} className="text-destructive focus:text-destructive">
+          <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};
+
+/**
+ * Right-click a column header for quick column actions — sort, group by, hide,
+ * duplicate, delete — without opening the property "⋯" menu (which stays for
+ * detailed editing: name, type, options, format).
+ */
+const ColumnContextMenu: React.FC<{db: UseDatabase; view: DbView; property: DatabaseProperty; children: React.ReactNode}> = ({db, view, property, children}) => {
+  const hide = (): void => {
+    const all = db.database!.schema.properties.map((p) => p.id);
+    const current = view.visiblePropertyIds?.length ? view.visiblePropertyIds : all;
+    void db.updateView(view.id, {visiblePropertyIds: current.filter((id) => id !== property.id)});
+  };
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-52">
+        <ContextMenuItem onSelect={() => void db.updateView(view.id, {sorts: [{propertyId: property.id, direction: 'asc'}]})}>
+          <ArrowDownAZ className="mr-2 h-3.5 w-3.5" /> Sort ascending
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void db.updateView(view.id, {sorts: [{propertyId: property.id, direction: 'desc'}]})}>
+          <ArrowUpAZ className="mr-2 h-3.5 w-3.5" /> Sort descending
+        </ContextMenuItem>
+        {view.groupByPropertyId === property.id ? (
+          <ContextMenuItem onSelect={() => void db.updateView(view.id, {groupByPropertyId: undefined})}>
+            <Rows3 className="mr-2 h-3.5 w-3.5" /> Ungroup
+          </ContextMenuItem>
+        ) : (
+          <ContextMenuItem onSelect={() => void db.updateView(view.id, {groupByPropertyId: property.id})}>
+            <Rows3 className="mr-2 h-3.5 w-3.5" /> Group by {property.name}
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={hide}>
+          <EyeOff className="mr-2 h-3.5 w-3.5" /> Hide in view
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void db.duplicateProperty(property.id)}>
+          <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => void db.deleteProperty(property.id)} className="text-destructive focus:text-destructive">
           <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
         </ContextMenuItem>
       </ContextMenuContent>
@@ -636,14 +682,16 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                       overCol === property.id && dragCol !== property.id && 'border-l-2 border-l-brand/60',
                     )}
                   >
-                    <span className="flex items-center justify-between gap-1">
-                      <span className="flex min-w-0 items-center gap-1">
-                        <span className="truncate">{property.name}</span>
-                        {sortDir === 'asc' && <ArrowUp className="h-3 w-3 shrink-0 text-muted-foreground/60" />}
-                        {sortDir === 'desc' && <ArrowDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />}
+                    <ColumnContextMenu db={db} view={view} property={property}>
+                      <span className="flex items-center justify-between gap-1">
+                        <span className="flex min-w-0 items-center gap-1">
+                          <span className="truncate">{property.name}</span>
+                          {sortDir === 'asc' && <ArrowUp className="h-3 w-3 shrink-0 text-muted-foreground/60" />}
+                          {sortDir === 'desc' && <ArrowDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />}
+                        </span>
+                        <PropertyMenu property={property} db={db} index={i} count={columns.length} />
                       </span>
-                      <PropertyMenu property={property} db={db} index={i} count={columns.length} />
-                    </span>
+                    </ColumnContextMenu>
                   </th>
                 );
               })}
