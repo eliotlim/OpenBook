@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
 import {PersonChip, useIdentity} from '@/components/database/databaseCells';
+import {DatabaseRowProperties} from '@/components/database/DatabaseRowProperties';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 
 /** One labelled property row in the panel. */
@@ -43,17 +44,21 @@ export const PageProperties: React.FC<{pageId: string}> = ({pageId}) => {
   const {t} = useTranslation();
 
   const [properties, setProperties] = React.useState<Record<string, unknown>>({});
+  const [databaseId, setDatabaseId] = React.useState<string | null>(null);
   const [backlinks, setBacklinks] = React.useState<PageMeta[]>([]);
   // Page icons live in localStorage; re-render backlink chips when one changes.
   const [, bumpIcon] = React.useReducer((x: number) => x + 1, 0);
   React.useEffect(() => subscribePageIcon(bumpIcon), []);
 
   // Load the page's stored properties and keep them live (e.g. edited from a
-  // database column elsewhere).
+  // database column elsewhere). Also note whether the page is a database row.
   React.useEffect(() => {
     let cancelled = false;
+    setDatabaseId(null);
     void client.getPage(pageId).then((p) => {
-      if (!cancelled && p) setProperties(p.properties ?? {});
+      if (cancelled || !p) return;
+      setProperties(p.properties ?? {});
+      setDatabaseId(p.databaseId ?? null);
     });
     const unsub = client.subscribePage(pageId, {onPage: (p) => setProperties(p.properties ?? {})});
     return () => {
@@ -86,6 +91,8 @@ export const PageProperties: React.FC<{pageId: string}> = ({pageId}) => {
 
   return (
     <div className="mb-2 flex flex-col gap-0.5 border-b border-border/50 pb-3 pt-1">
+      {/* Database rows surface their columns here as editable, groupable fields. */}
+      {databaseId && <DatabaseRowProperties pageId={pageId} databaseId={databaseId} />}
       <PropRow icon={<User className="h-3.5 w-3.5" />} label={t('properties.owner')}>
         <OwnerEditor owner={owner} onChange={(v) => setProperty(OWNER_PROPERTY_ID, v)} />
       </PropRow>

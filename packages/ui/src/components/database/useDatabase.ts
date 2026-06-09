@@ -13,6 +13,7 @@ import {
   type DatabaseView,
   type DatabaseViewType,
   type NumberFormat,
+  type PropertyGroup,
   type StoredDatabase,
 } from '@open-book/sdk';
 import {useData} from '@/data';
@@ -31,6 +32,10 @@ export interface NewPropertyInput {
   formula?: string;
   /** For `number`/`formula`: the display format. */
   numberFormat?: NumberFormat;
+  /** For `date`: store a start→end range. */
+  dateRange?: boolean;
+  /** A short helper description. */
+  description?: string;
 }
 
 /** Fields editable on an existing property (any subset). */
@@ -41,6 +46,10 @@ export interface PropertyPatch {
   cellName?: string;
   formula?: string;
   numberFormat?: NumberFormat;
+  dateRange?: boolean;
+  description?: string;
+  groupId?: string | null;
+  pageHidden?: boolean;
 }
 
 export interface UseDatabase {
@@ -74,6 +83,11 @@ export interface UseDatabase {
   moveProperty: (propertyId: string, delta: number) => Promise<void>;
   deleteProperty: (propertyId: string) => Promise<void>;
   addSelectOption: (propertyId: string, label: string) => Promise<DatabaseSelectOption | null>;
+
+  // Schema mutations — property groups (page-view organisation)
+  addPropertyGroup: (name?: string) => Promise<string | undefined>;
+  updatePropertyGroup: (groupId: string, patch: Partial<PropertyGroup>) => Promise<void>;
+  deletePropertyGroup: (groupId: string) => Promise<void>;
 
   // Schema mutations — views
   updateView: (viewId: string, patch: Partial<DatabaseView>) => Promise<void>;
@@ -275,6 +289,8 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
       if (input.type === 'expr') property.cellName = input.cellName?.trim() || input.name.trim();
       if (input.type === 'formula') property.formula = input.formula?.trim() ?? '';
       if (input.numberFormat) property.numberFormat = input.numberFormat;
+      if (input.dateRange) property.dateRange = true;
+      if (input.description) property.description = input.description;
       await saveSchema({...database.schema, properties: [...database.schema.properties, property]});
     },
     [database, saveSchema],
@@ -287,8 +303,11 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
         ...database.schema,
         properties: database.schema.properties.map((p) => {
           if (p.id !== propertyId) return p;
-          const next: DatabaseProperty = {...p, ...patch};
+          // `groupId: null` clears membership; spread otherwise merges the patch.
+          const {groupId, ...rest} = patch;
+          const next: DatabaseProperty = {...p, ...rest};
           if (patch.name !== undefined) next.name = patch.name.trim() || p.name;
+          if (groupId !== undefined) next.groupId = groupId ?? undefined;
           return next;
         }),
       });
@@ -350,6 +369,40 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
         ),
       });
       return option;
+    },
+    [database, saveSchema],
+  );
+
+  const addPropertyGroup = useCallback(
+    async (name?: string): Promise<string | undefined> => {
+      if (!database) return undefined;
+      const group: PropertyGroup = {id: shortId('grp'), name: name?.trim() || 'New group'};
+      await saveSchema({...database.schema, propertyGroups: [...(database.schema.propertyGroups ?? []), group]});
+      return group.id;
+    },
+    [database, saveSchema],
+  );
+
+  const updatePropertyGroup = useCallback(
+    async (groupId: string, patch: Partial<PropertyGroup>): Promise<void> => {
+      if (!database) return;
+      await saveSchema({
+        ...database.schema,
+        propertyGroups: (database.schema.propertyGroups ?? []).map((g) => (g.id === groupId ? {...g, ...patch} : g)),
+      });
+    },
+    [database, saveSchema],
+  );
+
+  const deletePropertyGroup = useCallback(
+    async (groupId: string): Promise<void> => {
+      if (!database) return;
+      await saveSchema({
+        ...database.schema,
+        propertyGroups: (database.schema.propertyGroups ?? []).filter((g) => g.id !== groupId),
+        // Orphaned properties fall back to "ungrouped".
+        properties: database.schema.properties.map((p) => (p.groupId === groupId ? {...p, groupId: undefined} : p)),
+      });
     },
     [database, saveSchema],
   );
@@ -433,6 +486,9 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     moveProperty,
     deleteProperty,
     addSelectOption,
+    addPropertyGroup,
+    updatePropertyGroup,
+    deletePropertyGroup,
     updateView,
     addView,
     renameView,
@@ -470,6 +526,7 @@ const VIEW_TYPE_LABEL: Record<DatabaseViewType, string> = {
   gallery: 'Gallery',
   board: 'Board',
   calendar: 'Calendar',
+  timeline: 'Timeline',
   bar: 'Bar chart',
   pie: 'Pie chart',
 };

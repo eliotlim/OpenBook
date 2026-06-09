@@ -23,6 +23,7 @@ import {cellValue, PropertyValueCell} from './databaseCells';
 import {AddPropertyMenu, AddViewMenu, FilterMenu, PropertyMenu, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon} from './databaseMenus';
 import {BoardView, CalendarView, GalleryView, RowChips} from './databaseLayouts';
 import {BarChartView, PieChartView} from './databaseCharts';
+import {TimelineView} from './databaseTimeline';
 import {SWATCH_HEX} from './databaseColors';
 
 const exprValueOf = (row: DatabaseRow, property: DatabaseProperty): unknown =>
@@ -98,6 +99,10 @@ interface DragApi {
 
 /** One table row, optionally drag-reorderable. */
 const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi}> = ({db, columns, schema, row, drag}) => {
+  const hasDependency = columns.some((c) => c.type === 'dependency');
+  const rowOptions = hasDependency
+    ? db.rows.filter((r) => r.id !== row.id).map((r) => ({id: r.id, label: r.name?.trim() || 'Untitled', icon: readPageIcon(r.id)}))
+    : undefined;
   const handle = drag.canReorder ? (
     <span
       draggable
@@ -142,6 +147,7 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi}> = ({db, c
             exprValue={exprValueOf(row, property)}
             onChange={(value) => void db.setRowProperty(row.id, property.id, value)}
             onAddOption={(label) => db.addSelectOption(property.id, label)}
+            rowOptions={rowOptions}
           />
         </td>
       ))}
@@ -352,6 +358,8 @@ const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProper
     return <BoardView db={db} view={view} properties={schema} />;
   case 'calendar':
     return <CalendarView db={db} view={view} properties={schema} />;
+  case 'timeline':
+    return <TimelineView db={db} view={view} properties={schema} />;
   case 'bar':
     return <BarChartView db={db} view={view} properties={schema} />;
   case 'pie':
@@ -416,10 +424,11 @@ const Toolbar: React.FC<{db: UseDatabase; view: DbView}> = ({db, view}) => (
 
 /**
  * The database section: a collection of row pages presented through the active
- * view (table, board, gallery, calendar, list, or a bar/pie chart), with live
- * `expr` + `formula` columns, inline editing, filtering, sorting, configurable
- * views, and add/remove/edit of properties. Used both beneath a host page's own
- * content (a full-page database) and embedded inline via the database block.
+ * view (table, board, gallery, calendar, timeline, list, or a bar/pie chart),
+ * with live `expr` + `formula` columns, dependencies, manual row ordering,
+ * inline editing, filtering, sorting, search, configurable views, and
+ * add/remove/edit of properties. Used both beneath a host page's own content (a
+ * full-page database) and embedded inline via the database block.
  */
 export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | null; inline?: boolean}> = ({
   pageId,

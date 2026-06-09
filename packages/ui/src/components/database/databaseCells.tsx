@@ -1,6 +1,8 @@
 import React, {useState} from 'react';
 import {BadgeCheck, Check, ChevronDown, ExternalLink, Plus, X} from 'lucide-react';
 import {
+  dateEnd,
+  dateStart,
   formatNumber,
   FormulaError,
   isVerified,
@@ -9,6 +11,7 @@ import {
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseSelectOption,
+  type DateRange,
   type VerificationValue,
 } from '@open-book/sdk';
 import {
@@ -98,9 +101,16 @@ export const SelectChip: React.FC<{option: DatabaseSelectOption}> = ({option}) =
 /** Read-only text of a cell value (for list-view chips and expr columns). */
 export function formatCellValue(property: DatabaseProperty, value: unknown): string {
   if (property.type === 'verification') return isVerified(value) ? 'Verified' : '';
-  if (property.type === 'backlinks' || property.type === 'relation') return ''; // rendered as chips
+  if (property.type === 'backlinks' || property.type === 'relation' || property.type === 'dependency') return ''; // chips
   if (property.type === 'created_time' || property.type === 'last_edited_time') {
     return value ? new Date(String(value)).toLocaleDateString() : '';
+  }
+  if (property.type === 'date') {
+    const s = dateStart(value);
+    if (!s) return '';
+    const e = dateEnd(value);
+    const day = (d: string) => new Date(`${d}T00:00:00`).toLocaleDateString();
+    return e ? `${day(s)} → ${day(e)}` : day(s);
   }
   if (property.type === 'formula') return formatFormulaValue(value, property.numberFormat);
   if (property.type === 'multi_select') {
@@ -152,6 +162,8 @@ export interface PropertyValueCellProps {
   onChange: (value: unknown) => void;
   /** Create a new select option (returns it), used by the select editor. */
   onAddOption?: (label: string) => Promise<DatabaseSelectOption | null>;
+  /** Candidate rows for a `dependency` cell (the database's own rows, sans self). */
+  rowOptions?: {id: string; label: string; icon?: string}[];
 }
 
 /**
@@ -165,6 +177,7 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
   exprValue,
   onChange,
   onAddOption,
+  rowOptions,
 }) => {
   switch (property.type) {
   case 'expr':
@@ -208,20 +221,15 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
       />
     );
   case 'date':
-    return (
-      <input
-        type="date"
-        defaultValue={typeof value === 'string' ? value : ''}
-        onChange={(e) => onChange(e.target.value || null)}
-        className={inputClass}
-      />
-    );
+    return <DateCell property={property} value={value} onChange={onChange} />;
   case 'select':
     return <SelectCell property={property} value={value} onChange={onChange} onAddOption={onAddOption} />;
   case 'multi_select':
     return <MultiSelectCell property={property} value={value} onChange={onChange} onAddOption={onAddOption} />;
   case 'relation':
     return <RelationCell value={value} onChange={onChange} />;
+  case 'dependency':
+    return <DependencyCell value={value} onChange={onChange} rowOptions={rowOptions ?? []} />;
   case 'url':
   case 'email':
   case 'phone':
@@ -291,6 +299,120 @@ const LINK_HREF = {
   email: (v: string) => `mailto:${v}`,
   phone: (v: string) => `tel:${v}`,
 } as const;
+
+/** Date cell — a single day, or a start→end range when the property is `dateRange`. */
+const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: (value: unknown) => void}> = ({
+  property,
+  value,
+  onChange,
+}) => {
+  if (!property.dateRange) {
+    return (
+      <input
+        type="date"
+        defaultValue={dateStart(value) ?? ''}
+        onChange={(e) => onChange(e.target.value || null)}
+        className={inputClass}
+        aria-label={property.name}
+      />
+    );
+  }
+  const start = dateStart(value);
+  const end = dateEnd(value);
+  const emit = (next: DateRange) => onChange(next.start || next.end ? next : null);
+  return (
+    <div className="flex items-center gap-1 px-1 text-sm">
+      <input
+        type="date"
+        defaultValue={start ?? ''}
+        onChange={(e) => emit({start: e.target.value || null, end})}
+        className="bg-transparent py-1 outline-hidden focus:bg-accent/40"
+        aria-label={`${property.name} start`}
+      />
+      <span className="text-muted-foreground/50">→</span>
+      <input
+        type="date"
+        defaultValue={end ?? ''}
+        onChange={(e) => emit({start, end: e.target.value || null})}
+        className="bg-transparent py-1 outline-hidden focus:bg-accent/40"
+        aria-label={`${property.name} end`}
+      />
+    </div>
+  );
+};
+
+/**
+ * Dependency cell — links a row to other rows of the *same* database (e.g. a
+ * task's predecessors). Like {@link RelationCell} but its candidates are the
+ * supplied `rowOptions` (the database's rows) rather than every page.
+ */
+const DependencyCell: React.FC<{
+  value: unknown;
+  onChange: (value: unknown) => void;
+  rowOptions: {id: string; label: string; icon?: string}[];
+}> = ({value, onChange, rowOptions}) => {
+  const ids = Array.isArray(value) ? (value as string[]) : [];
+  const [query, setQuery] = useState('');
+  const labelOf = (id: string) => rowOptions.find((o) => o.id === id)?.label ?? 'Untitled';
+  const candidates = rowOptions
+    .filter((o) => !ids.includes(o.id))
+    .filter((o) => (query ? o.label.toLowerCase().includes(query.toLowerCase()) : true));
+
+  return (
+    <div className="flex min-h-[28px] flex-wrap items-center gap-1 px-2 py-1">
+      {ids.map((id) => (
+        <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs">
+          <span className="max-w-[120px] truncate">{labelOf(id)}</span>
+          <button
+            type="button"
+            onClick={() => onChange(ids.filter((x) => x !== id))}
+            className="text-muted-foreground/70 transition-colors hover:text-destructive"
+            aria-label="Remove dependency"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            aria-label="Add dependency"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-60 p-1">
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Depends on…"
+            className="mb-1 w-full rounded bg-accent/40 px-1.5 py-1 text-sm outline-hidden"
+          />
+          <div className="max-h-52 overflow-y-auto">
+            {candidates.length === 0 && <div className="px-1.5 py-1.5 text-xs text-muted-foreground">No other rows</div>}
+            {candidates.map((o) => (
+              <button
+                key={o.id}
+                type="button"
+                onClick={() => {
+                  onChange([...ids, o.id]);
+                  setQuery('');
+                }}
+                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-accent"
+              >
+                {o.icon && <span className="leading-none">{o.icon}</span>}
+                <span className="truncate">{o.label}</span>
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+};
 
 /** Editable url / email / phone cell with an "open" affordance when filled. */
 const LinkCell: React.FC<{kind: 'url' | 'email' | 'phone'; value: unknown; onChange: (value: unknown) => void}> = ({

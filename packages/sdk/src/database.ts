@@ -51,6 +51,7 @@ export type DatabasePropertyType =
   | 'email'
   | 'phone'
   | 'relation'
+  | 'dependency'
   | 'created_time'
   | 'last_edited_time'
   | 'expr'
@@ -88,6 +89,37 @@ export interface DatabaseProperty {
   formula?: string;
   /** Numeric display format, for `number` / `formula` / `expr` properties. */
   numberFormat?: NumberFormat;
+  /**
+   * `date` only: when true the cell holds a `{start, end}` range (a `DateRange`)
+   * instead of a single `YYYY-MM-DD` string. Drives the timeline's bar length.
+   */
+  dateRange?: boolean;
+  /** A short helper description, shown beneath the field in the page-view panel. */
+  description?: string;
+  /** The {@link PropertyGroup} this property belongs to (page-view organisation). */
+  groupId?: string;
+  /** Hidden in the page-view properties panel (still available as a table column). */
+  pageHidden?: boolean;
+}
+
+/** The stored value of a `date` property configured as a range. */
+export interface DateRange {
+  start: string | null;
+  end?: string | null;
+}
+
+/**
+ * A named, collapsible/toggleable cluster of properties in the **page-view
+ * properties panel** (open a database row → its fields, organised). Hiding a
+ * group hides all its properties at once; collapsing just folds them away.
+ */
+export interface PropertyGroup {
+  id: string;
+  name: string;
+  /** When true, the group's properties are hidden from the page-view panel. */
+  hidden?: boolean;
+  /** When true, the group renders folded (a header you can expand). */
+  collapsed?: boolean;
 }
 
 /**
@@ -96,7 +128,7 @@ export interface DatabaseProperty {
  * select property; `calendar` lays rows out on a month grid by a date property;
  * `bar`/`pie` are charts that aggregate rows by a category property.
  */
-export type DatabaseViewType = 'table' | 'list' | 'gallery' | 'board' | 'calendar' | 'bar' | 'pie';
+export type DatabaseViewType = 'table' | 'list' | 'gallery' | 'board' | 'calendar' | 'timeline' | 'bar' | 'pie';
 
 /** How a chart (or a board column footer) aggregates a group of rows. */
 export interface ChartAggregate {
@@ -173,16 +205,24 @@ export interface DatabaseView {
   groupByPropertyId?: string;
   /** Chart aggregation (`bar`/`pie`). Defaults to counting rows per group. */
   aggregate?: ChartAggregate;
-  /** Date property positioning rows on the month grid (`calendar`). */
+  /** Date property positioning rows on the month grid (`calendar`) or the bar
+   *  start on the `timeline`. A `dateRange` property supplies both ends at once. */
   datePropertyId?: string;
+  /** Timeline only: the property giving each bar's end (when not a range date). */
+  endDatePropertyId?: string;
+  /** Timeline only: the `dependency` property whose links draw arrows between bars. */
+  dependencyPropertyId?: string;
   /** Per-column footer summaries (table), keyed by property id (or {@link TITLE_PROPERTY_ID}). */
   summaries?: Record<string, SummaryType>;
 }
 
-/** The full editable definition of a database: its columns and its views. */
+/** The full editable definition of a database: its columns, views, and the
+ *  page-view property groups. */
 export interface DatabaseSchema {
   properties: DatabaseProperty[];
   views: DatabaseView[];
+  /** Named groups organising the properties in the page-view panel. */
+  propertyGroups?: PropertyGroup[];
 }
 
 /** A database as returned by the store. */
@@ -305,6 +345,8 @@ function formulaFacingValue(row: DatabaseRow, property: DatabaseProperty): unkno
     const v = row.properties[property.id];
     return !!(v && typeof v === 'object' && (v as {verified?: boolean}).verified);
   }
+  case 'date':
+    return dateStart(row.properties[property.id]) ?? '';
   default:
     return row.properties[property.id];
   }
@@ -366,7 +408,64 @@ export function rowValue(
     const v = row.properties[property.id];
     return !!(v && typeof v === 'object' && (v as {verified?: boolean}).verified);
   }
+  // A `date` may hold a `{start, end}` range; filters/sorts compare the start.
+  if (property.type === 'date') return dateStart(row.properties[property.id]) ?? '';
   return row.properties[property.id];
+}
+
+// ── Dates & timeline spans ───────────────────────────────────────────────────
+
+/** The `start` day of a date value (a plain `YYYY-MM-DD` string or a {@link DateRange}). */
+export function dateStart(value: unknown): string | null {
+  if (typeof value === 'string') return value.trim() ? value : null;
+  if (value && typeof value === 'object') {
+    const s = (value as DateRange).start;
+    return typeof s === 'string' && s.trim() ? s : null;
+  }
+  return null;
+}
+
+/** The `end` day of a {@link DateRange} value (null for a single-day date). */
+export function dateEnd(value: unknown): string | null {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const e = (value as DateRange).end;
+    return typeof e === 'string' && e.trim() ? e : null;
+  }
+  return null;
+}
+
+/** Parse a `YYYY-MM-DD` (or any Date-parseable) string to a *local* midnight Date. */
+export function parseDay(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** An inclusive day span for a timeline bar. */
+export interface DateSpan {
+  start: Date;
+  end: Date;
+}
+
+/**
+ * The timeline bar span for a row: `[start, end]` resolved from the view's date
+ * configuration — a `dateRange` property (start+end in one), or a start date
+ * property plus an optional `endDatePropertyId`. Returns `null` when the row has
+ * no start date. A missing/earlier end collapses to a single-day bar.
+ */
+export function rowDateSpan(row: DatabaseRow, view: DatabaseView, properties: DatabaseProperty[]): DateSpan | null {
+  const startProp = properties.find((p) => p.id === view.datePropertyId);
+  if (!startProp) return null;
+  const raw = row.properties[startProp.id];
+  const start = parseDay(dateStart(raw));
+  if (!start) return null;
+
+  const endProp = view.endDatePropertyId ? properties.find((p) => p.id === view.endDatePropertyId) : undefined;
+  const endStr = endProp ? dateStart(row.properties[endProp.id]) : dateEnd(raw);
+  const end = parseDay(endStr);
+  return {start, end: end && end >= start ? end : start};
 }
 
 const isEmpty = (v: unknown): boolean =>
@@ -522,9 +621,16 @@ export function defaultView(type: DatabaseViewType, name: string, properties: Da
     const select = properties.find((p) => p.type === 'select');
     view.groupByPropertyId = (select ?? properties[0])?.id;
   }
-  if (type === 'calendar') {
+  if (type === 'calendar' || type === 'timeline') {
     const date = properties.find((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time');
     view.datePropertyId = date?.id;
+  }
+  if (type === 'timeline') {
+    // A non-range start date pairs with a second date property for the bar end;
+    // a `dependency` property (if any) draws the arrows between bars.
+    const dates = properties.filter((p) => p.type === 'date');
+    if (dates.length >= 2 && !dates[0].dateRange) view.endDatePropertyId = dates[1].id;
+    view.dependencyPropertyId = properties.find((p) => p.type === 'dependency')?.id;
   }
   return view;
 }

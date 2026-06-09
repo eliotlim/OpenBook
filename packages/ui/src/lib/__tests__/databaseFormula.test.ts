@@ -2,10 +2,13 @@ import {describe, it, expect} from 'vitest';
 import {
   aggregateRows,
   applyView,
+  dateEnd,
+  dateStart,
   evaluateFormula,
   formatNumber,
   FormulaError,
   groupRows,
+  rowDateSpan,
   rowValue,
   summarizeColumn,
   NO_VALUE_GROUP,
@@ -194,6 +197,48 @@ describe('summarizeColumn', () => {
   it('summarises the title column and returns empty for none', () => {
     expect(summarizeColumn(rows, TITLE_PROPERTY_ID, 'count_filled', props)).toBe('2');
     expect(summarizeColumn(rows, cost, 'none', props)).toBe('');
+  });
+});
+
+describe('dates & timeline spans', () => {
+  const start: DatabaseProperty = {id: 's', name: 'Start', type: 'date'};
+  const end: DatabaseProperty = {id: 'e', name: 'End', type: 'date'};
+  const span: DatabaseProperty = {id: 'sp', name: 'When', type: 'date', dateRange: true};
+
+  it('dateStart/dateEnd read plain strings and ranges', () => {
+    expect(dateStart('2026-03-01')).toBe('2026-03-01');
+    expect(dateEnd('2026-03-01')).toBe(null);
+    expect(dateStart({start: '2026-03-01', end: '2026-03-05'})).toBe('2026-03-01');
+    expect(dateEnd({start: '2026-03-01', end: '2026-03-05'})).toBe('2026-03-05');
+    expect(dateStart('')).toBe(null);
+  });
+
+  it('rowValue compares a date on its start', () => {
+    const r = row({properties: {s: {start: '2026-03-01', end: '2026-03-09'}}});
+    expect(rowValue(r, start, [start])).toBe('2026-03-01');
+  });
+
+  it('rowDateSpan from a start + end property', () => {
+    const view: DatabaseView = {id: 'v', name: 'V', type: 'timeline', filters: [], sorts: [], datePropertyId: 's', endDatePropertyId: 'e'};
+    const r = row({properties: {s: '2026-03-01', e: '2026-03-10'}});
+    const sp = rowDateSpan(r, view, [start, end])!;
+    expect(sp.start.getFullYear()).toBe(2026);
+    expect(sp.end.getDate()).toBe(10);
+  });
+
+  it('rowDateSpan from a single range property', () => {
+    const view: DatabaseView = {id: 'v', name: 'V', type: 'timeline', filters: [], sorts: [], datePropertyId: 'sp'};
+    const r = row({properties: {sp: {start: '2026-03-02', end: '2026-03-04'}}});
+    const sp = rowDateSpan(r, view, [span])!;
+    expect(sp.start.getDate()).toBe(2);
+    expect(sp.end.getDate()).toBe(4);
+  });
+
+  it('rowDateSpan is null without a start, single-day when end is missing/earlier', () => {
+    const view: DatabaseView = {id: 'v', name: 'V', type: 'timeline', filters: [], sorts: [], datePropertyId: 's', endDatePropertyId: 'e'};
+    expect(rowDateSpan(row({properties: {}}), view, [start, end])).toBe(null);
+    const sameDay = rowDateSpan(row({properties: {s: '2026-03-05', e: '2026-03-01'}}), view, [start, end])!;
+    expect(sameDay.start.getTime()).toBe(sameDay.end.getTime());
   });
 });
 

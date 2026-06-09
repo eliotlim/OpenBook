@@ -9,6 +9,7 @@ import {
   ChevronDown,
   Columns3,
   Filter,
+  GanttChartSquare,
   LayoutGrid,
   List,
   ListFilter,
@@ -59,6 +60,7 @@ const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
   {value: 'email', label: 'Email'},
   {value: 'phone', label: 'Phone'},
   {value: 'relation', label: 'Relation (link pages)'},
+  {value: 'dependency', label: 'Dependency (link rows)'},
   {value: 'person', label: 'Person'},
   {value: 'verification', label: 'Verification'},
   {value: 'created_time', label: 'Created time'},
@@ -100,6 +102,7 @@ export const VIEW_TYPES: {value: DatabaseViewType; label: string; Icon: React.Co
   {value: 'gallery', label: 'Gallery', Icon: LayoutGrid},
   {value: 'list', label: 'List', Icon: List},
   {value: 'calendar', label: 'Calendar', Icon: Calendar},
+  {value: 'timeline', label: 'Timeline', Icon: GanttChartSquare},
   {value: 'bar', label: 'Bar chart', Icon: BarChart3},
   {value: 'pie', label: 'Pie chart', Icon: PieChart},
 ];
@@ -121,6 +124,8 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
   const [cellName, setCellName] = useState('');
   const [formula, setFormula] = useState('');
   const [numberFormat, setNumberFormat] = useState<NumberFormat>('plain');
+  const [dateRange, setDateRange] = useState(false);
+  const [description, setDescription] = useState('');
 
   const numeric = type === 'number' || type === 'formula' || type === 'expr';
 
@@ -133,12 +138,16 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
       cellName: type === 'expr' ? cellName : undefined,
       formula: type === 'formula' ? formula : undefined,
       numberFormat: numeric && numberFormat !== 'plain' ? numberFormat : undefined,
+      dateRange: type === 'date' && dateRange ? true : undefined,
+      description: description.trim() || undefined,
     });
     setName('');
     setOptions('');
     setCellName('');
     setFormula('');
     setNumberFormat('plain');
+    setDateRange(false);
+    setDescription('');
     setType('text');
     setOpen(false);
   };
@@ -208,6 +217,18 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
             ))}
           </select>
         )}
+        {type === 'date' && (
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input type="checkbox" checked={dateRange} onChange={(e) => setDateRange(e.target.checked)} className="h-3.5 w-3.5 accent-primary" />
+            End date (range)
+          </label>
+        )}
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Description (optional)"
+          className={cn(fieldClass, 'w-full')}
+        />
         <button
           onClick={submit}
           className="w-full rounded bg-primary px-2 py-1.5 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
@@ -375,6 +396,18 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
           />
         )}
 
+        {property.type === 'date' && (
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={!!property.dateRange}
+              onChange={(e) => void db.updateProperty(property.id, {dateRange: e.target.checked})}
+              className="h-3.5 w-3.5 accent-primary"
+            />
+            End date (range)
+          </label>
+        )}
+
         {numeric && (
           <select
             value={property.numberFormat ?? 'plain'}
@@ -388,6 +421,13 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
             ))}
           </select>
         )}
+
+        <input
+          defaultValue={property.description ?? ''}
+          onBlur={(e) => e.target.value !== (property.description ?? '') && db.updateProperty(property.id, {description: e.target.value})}
+          placeholder="Description"
+          className={cn(fieldClass, 'w-full text-xs')}
+        />
 
         <div className="flex items-center gap-1 border-t border-border pt-2">
           <button
@@ -634,7 +674,9 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
 
   const showGroup = view.type === 'board' || view.type === 'bar' || view.type === 'pie' || view.type === 'table';
   const showChart = view.type === 'bar' || view.type === 'pie';
-  const showDate = view.type === 'calendar';
+  const showDate = view.type === 'calendar' || view.type === 'timeline';
+  const showTimeline = view.type === 'timeline';
+  const dependencyProps = properties.filter((p) => p.type === 'dependency');
   const showColumns = view.type === 'table' || view.type === 'list' || view.type === 'gallery';
 
   return (
@@ -729,7 +771,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
 
         {showDate && (
           <label className="block">
-            <span className={sectionLabel}>Date property</span>
+            <span className={sectionLabel}>{showTimeline ? 'Start date' : 'Date property'}</span>
             <select
               value={view.datePropertyId ?? ''}
               onChange={(e) => db.updateView(view.id, {datePropertyId: e.target.value || undefined})}
@@ -743,6 +785,43 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
               ))}
             </select>
           </label>
+        )}
+
+        {showTimeline && (
+          <>
+            <label className="block">
+              <span className={sectionLabel}>End date</span>
+              <select
+                value={view.endDatePropertyId ?? ''}
+                onChange={(e) => db.updateView(view.id, {endDatePropertyId: e.target.value || undefined})}
+                className={cn(fieldClass, 'mt-1 w-full')}
+              >
+                <option value="">Same as start (or range end)</option>
+                {dateProps
+                  .filter((p) => p.id !== view.datePropertyId)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className={sectionLabel}>Dependencies</span>
+              <select
+                value={view.dependencyPropertyId ?? ''}
+                onChange={(e) => db.updateView(view.id, {dependencyPropertyId: e.target.value || undefined})}
+                className={cn(fieldClass, 'mt-1 w-full')}
+              >
+                <option value="">—</option>
+                {dependencyProps.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
         )}
 
         {showColumns && properties.length > 0 && (
@@ -783,8 +862,13 @@ function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: D
     const select = properties.find((p) => p.type === 'select');
     patch.groupByPropertyId = (select ?? properties[0])?.id;
   }
-  if (type === 'calendar' && !view.datePropertyId) {
+  if ((type === 'calendar' || type === 'timeline') && !view.datePropertyId) {
     patch.datePropertyId = properties.find((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time')?.id;
+  }
+  if (type === 'timeline') {
+    const dates = properties.filter((p) => p.type === 'date');
+    if (!view.endDatePropertyId && dates.length >= 2 && !dates[0].dateRange) patch.endDatePropertyId = dates[1].id;
+    if (!view.dependencyPropertyId) patch.dependencyPropertyId = properties.find((p) => p.type === 'dependency')?.id;
   }
   return patch;
 }

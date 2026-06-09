@@ -8,6 +8,8 @@ export type {
   NumberFormat,
   DatabaseSelectOption,
   DatabaseProperty,
+  DateRange,
+  PropertyGroup,
   DatabaseViewType,
   ChartAggregate,
   SummaryType,
@@ -25,6 +27,7 @@ export type {
   RowUpdate,
   RowGroup,
   ChartDatum,
+  DateSpan,
 } from './database';
 export {
   TITLE_PROPERTY_ID,
@@ -41,6 +44,10 @@ export {
   groupRows,
   aggregateRows,
   summarizeColumn,
+  dateStart,
+  dateEnd,
+  parseDay,
+  rowDateSpan,
 } from './database';
 export {
   evaluateFormula,
