@@ -20,6 +20,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -514,7 +517,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
     setSelected(new Set());
   };
   // The first select/status column, offered as a one-shot bulk edit.
-  const bulkSetProp = schema.find((p) => p.type === 'select' || p.type === 'status');
+  const bulkSetProps = schema.filter((p) => p.type === 'select' || p.type === 'status');
   const selectionOf = (id: string) => ({selected: selected.has(id), onToggle: () => toggleSelect(id)});
 
   const groupProp = view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
@@ -595,23 +598,30 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
       {selected.size > 0 && (
         <div className="mb-2 flex items-center gap-3 rounded-md border border-border bg-accent/30 px-3 py-1.5 text-sm">
           <span className="font-medium">{selected.size} selected</span>
-          {bulkSetProp && (
+          {bulkSetProps.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="flex items-center gap-1 text-muted-foreground transition-colors hover:text-foreground">
-                  Set {bulkSetProp.name} <ChevronDown className="h-3.5 w-3.5" />
+                  Set property <ChevronDown className="h-3.5 w-3.5" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-44">
-                {(bulkSetProp.options ?? []).map((o) => (
-                  <DropdownMenuItem key={o.id} onClick={() => bulkSet(bulkSetProp.id, o.id)} className="gap-2">
-                    <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[o.color ?? 'gray'] ?? SWATCH_HEX.gray}} />
-                    {o.label}
-                  </DropdownMenuItem>
+                {bulkSetProps.map((prop) => (
+                  <DropdownMenuSub key={prop.id}>
+                    <DropdownMenuSubTrigger className="gap-2">{prop.name}</DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-44">
+                      {(prop.options ?? []).map((o) => (
+                        <DropdownMenuItem key={o.id} onClick={() => bulkSet(prop.id, o.id)} className="gap-2">
+                          <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[o.color ?? 'gray'] ?? SWATCH_HEX.gray}} />
+                          {o.label}
+                        </DropdownMenuItem>
+                      ))}
+                      <DropdownMenuItem onClick={() => bulkSet(prop.id, null)} className="text-muted-foreground">
+                        Clear value
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
                 ))}
-                <DropdownMenuItem onClick={() => bulkSet(bulkSetProp.id, null)} className="text-muted-foreground">
-                  Clear value
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
