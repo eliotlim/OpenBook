@@ -17,6 +17,7 @@ import {
   FormulaError,
   groupRows,
   matchesFilter,
+  rowMatchesCondition,
   numberProgress,
   parseDay,
   removeProperty,
@@ -727,5 +728,34 @@ describe('syncInverseUpdates (two-way dependencies)', () => {
 
   it('ignores ids that do not resolve to a known row', () => {
     expect(syncInverseUpdates('r1', [], ['ghost'], related, 'inv')).toEqual([]);
+  });
+});
+
+describe('rowMatchesCondition (conditional formatting)', () => {
+  const status: DatabaseProperty = {
+    id: 's',
+    name: 'Status',
+    type: 'select',
+    options: [
+      {id: 'todo', label: 'Todo'},
+      {id: 'done', label: 'Done'},
+    ],
+  };
+  const cost: DatabaseProperty = {id: 'c', name: 'Cost', type: 'number'};
+  const props = [status, cost];
+
+  it('matches a select option by equals', () => {
+    expect(rowMatchesCondition(row({properties: {s: 'done'}}), {propertyId: 's', operator: 'equals', value: 'done'}, props)).toBe(true);
+    expect(rowMatchesCondition(row({properties: {s: 'todo'}}), {propertyId: 's', operator: 'equals', value: 'done'}, props)).toBe(false);
+  });
+
+  it('matches a numeric comparison', () => {
+    expect(rowMatchesCondition(row({properties: {c: 1500}}), {propertyId: 'c', operator: 'gt', value: 1000}, props)).toBe(true);
+    expect(rowMatchesCondition(row({properties: {c: 500}}), {propertyId: 'c', operator: 'gt', value: 1000}, props)).toBe(false);
+  });
+
+  it('matches emptiness and returns false for an unknown property', () => {
+    expect(rowMatchesCondition(row({properties: {}}), {propertyId: 'c', operator: 'is_empty'}, props)).toBe(true);
+    expect(rowMatchesCondition(row({properties: {c: 5}}), {propertyId: 'gone', operator: 'is_empty'}, props)).toBe(false);
   });
 });
