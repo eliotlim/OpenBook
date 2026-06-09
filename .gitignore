@@ -147,3 +147,6 @@ packages/web/test-results/
 packages/web/playwright-report/
 packages/web/blob-report/
 packages/web/.last-run.json
+
+# Claude Code local runtime state
+.claude/scheduled_tasks.lock
