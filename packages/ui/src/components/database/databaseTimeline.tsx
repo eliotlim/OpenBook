@@ -271,7 +271,10 @@ export const TimelineView: React.FC<{
   /** Properties to show as chips under each rail label (the dates drive placement). */
   cardProperties?: DatabaseProperty[];
 }> = ({db, view, properties, cardProperties}) => {
-  const selectProp = properties.find((p) => p.type === 'select');
+  // Bars colour by the view's chosen colour property (a select/status), falling
+  // back to the first select property.
+  const configuredColor = view.cardColorPropertyId ? properties.find((p) => p.id === view.cardColorPropertyId) : undefined;
+  const selectProp = configuredColor ?? properties.find((p) => p.type === 'select');
   const depProp = view.dependencyPropertyId ? properties.find((p) => p.id === view.dependencyPropertyId) : undefined;
   const startProp = view.datePropertyId ? properties.find((p) => p.id === view.datePropertyId) : undefined;
   const endProp = view.endDatePropertyId ? properties.find((p) => p.id === view.endDatePropertyId) : undefined;

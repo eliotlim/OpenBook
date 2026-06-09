@@ -425,6 +425,7 @@ export const CalendarView: React.FC<{
 }> = ({db, view, properties, cardProperties}) => {
   const dateProp = properties.find((p) => p.id === view.datePropertyId);
   const tileProps = (cardProperties ?? []).filter((p) => p.id !== view.datePropertyId);
+  const colorProp = view.cardColorPropertyId ? properties.find((p) => p.id === view.cardColorPropertyId) : undefined;
   const today = new Date();
   const [cursor, setCursor] = useState({year: today.getFullYear(), month: today.getMonth()});
   const [dragRow, setDragRow] = useState<string | null>(null);
@@ -558,28 +559,32 @@ export const CalendarView: React.FC<{
                 </div>
               )}
               <div className="flex flex-col gap-0.5">
-                {rows.map((row) => (
-                  <RowContextMenu key={row.id} db={db} rowId={row.id}>
-                    <button
-                      draggable={editable}
-                      onDragStart={() => setDragRow(row.id)}
-                      onDragEnd={() => setDragRow(null)}
-                      onClick={() => db.openRow(row.id)}
-                      className={cn(
-                        'flex flex-col gap-0.5 rounded bg-brand/10 px-1 py-0.5 text-left text-[11px] text-foreground/80 transition-colors hover:bg-brand/20',
-                        editable && 'cursor-grab active:cursor-grabbing',
-                        dragRow === row.id && 'opacity-40',
-                      )}
-                      title={row.name ?? 'Untitled'}
-                    >
-                      <span className="flex items-center gap-1 truncate">
-                        <span className="shrink-0 leading-none">{readPageIcon(row.id)}</span>
-                        <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
-                      </span>
-                      {tileProps.length > 0 && <RowChips row={row} properties={tileProps} rows={db.rows} />}
-                    </button>
-                  </RowContextMenu>
-                ))}
+                {rows.map((row) => {
+                  const accent = cardAccent(row, colorProp);
+                  return (
+                    <RowContextMenu key={row.id} db={db} rowId={row.id}>
+                      <button
+                        draggable={editable}
+                        onDragStart={() => setDragRow(row.id)}
+                        onDragEnd={() => setDragRow(null)}
+                        onClick={() => db.openRow(row.id)}
+                        style={accent ? {backgroundColor: `${accent}24`, borderLeft: `3px solid ${accent}`} : undefined}
+                        className={cn(
+                          'flex flex-col gap-0.5 rounded bg-brand/10 px-1 py-0.5 text-left text-[11px] text-foreground/80 transition-colors hover:bg-brand/20',
+                          editable && 'cursor-grab active:cursor-grabbing',
+                          dragRow === row.id && 'opacity-40',
+                        )}
+                        title={row.name ?? 'Untitled'}
+                      >
+                        <span className="flex items-center gap-1 truncate">
+                          <span className="shrink-0 leading-none">{readPageIcon(row.id)}</span>
+                          <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
+                        </span>
+                        {tileProps.length > 0 && <RowChips row={row} properties={tileProps} rows={db.rows} />}
+                      </button>
+                    </RowContextMenu>
+                  );
+                })}
               </div>
             </div>
           );

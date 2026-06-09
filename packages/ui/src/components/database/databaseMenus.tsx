@@ -1283,7 +1283,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
   const dependencyProps = properties.filter((p) => p.type === 'dependency');
   const showCover = view.type === 'gallery';
   const coverProps = properties.filter((p) => p.type === 'files' || p.type === 'url');
-  const showCardColor = view.type === 'gallery' || view.type === 'board';
+  const showCardColor = view.type === 'gallery' || view.type === 'board' || view.type === 'calendar' || view.type === 'timeline';
   const colorProps = properties.filter((p) => p.type === 'select' || p.type === 'status');
   const showColumns =
     view.type === 'table' ||
