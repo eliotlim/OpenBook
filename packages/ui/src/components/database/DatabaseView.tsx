@@ -249,7 +249,9 @@ const CellContextMenu: React.FC<{
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="flex min-h-[1.75rem] w-full items-center">{children}</div>
+        {/* Block + w-full so cell content (e.g. a number's flex-1 progress bar)
+            fills the cell rather than collapsing to content width. */}
+        <div className="min-h-[1.75rem] w-full [&>*]:w-full">{children}</div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-56">
         {property && view && filter && (

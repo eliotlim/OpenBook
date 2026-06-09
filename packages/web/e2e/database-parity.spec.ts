@@ -739,9 +739,10 @@ test('bulk set status: applies a value to selected rows', async ({page}) => {
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('button', {name: 'New row'}).click();
 
-  // Select both rows, then set Status → Done from the bar.
+  // Select both rows, then set Status → Done from the bar (Set property ▸ Status ▸ Done).
   await page.getByRole('table').getByLabel('Select all rows').check();
-  await page.getByRole('button', {name: 'Set Status'}).click();
+  await page.getByRole('button', {name: 'Set property'}).click();
+  await page.getByRole('menuitem', {name: 'Status'}).click();
   await page.getByRole('menuitem', {name: 'Done'}).click();
 
   // Both Status cells now show Done.
