@@ -354,6 +354,9 @@ export interface DatabaseView {
   summaries?: Record<string, SummaryType>;
   /** Dashboard metric cards shown above the view (count/sum/avg/… over the filtered rows). */
   metrics?: DatabaseMetric[];
+  /** Board only: the per-column footer calculation (a property + summary). Defaults
+   *  to summing the first numeric property, or counting rows. */
+  boardSummary?: {propertyId: string; type: SummaryType};
   /** When grouped, hide groups/columns that currently have no rows (table + board). */
   hideEmptyGroups?: boolean;
 }

@@ -7,9 +7,11 @@ import {
   groupRows,
   parseDay,
   summarizeColumn,
+  TITLE_PROPERTY_ID,
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseView as DbView,
+  type SummaryType,
 } from '@open-book/sdk';
 import {
   ContextMenu,
@@ -18,6 +20,7 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {cn} from '@/lib/utils';
 import {readPageIcon} from '@/lib/pageIcon';
 import {pageLinks} from '@/lib/pageLinks';
@@ -156,6 +159,66 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
   );
 };
 
+const fieldClass = 'w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden';
+const BOARD_CALCS: {value: SummaryType; label: string}[] = [
+  {value: 'count_all', label: 'Count'},
+  {value: 'count_values', label: 'Count values'},
+  {value: 'count_unique', label: 'Count unique'},
+  {value: 'sum', label: 'Sum'},
+  {value: 'avg', label: 'Average'},
+  {value: 'min', label: 'Min'},
+  {value: 'max', label: 'Max'},
+  {value: 'range', label: 'Range'},
+  {value: 'median', label: 'Median'},
+];
+
+/** A board column's footer calculation: shows the value, click to pick property + calc
+ *  (shared by every column via the view's `boardSummary`). */
+const BoardColumnFooter: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]; rows: DatabaseRow[]}> = ({db, view, properties, rows}) => {
+  const numeric = properties.find((p) => p.type === 'number' || p.type === 'rollup' || p.type === 'formula' || p.type === 'expr');
+  const summary = view.boardSummary ?? (numeric ? {propertyId: numeric.id, type: 'sum' as SummaryType} : {propertyId: TITLE_PROPERTY_ID, type: 'count_all' as SummaryType});
+  const prop = summary.propertyId === TITLE_PROPERTY_ID ? TITLE_PROPERTY_ID : properties.find((p) => p.id === summary.propertyId);
+  if (!prop) return null;
+  const value = summarizeColumn(rows, prop, summary.type, properties);
+  const calc = BOARD_CALCS.find((c) => c.value === summary.type)?.label ?? summary.type;
+  const label = summary.propertyId === TITLE_PROPERTY_ID ? 'Count' : `${calc} · ${(prop as DatabaseProperty).name}`;
+  const update = (patch: Partial<typeof summary>): void => void db.updateView(view.id, {boardSummary: {...summary, ...patch}});
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className="flex w-full items-center justify-between gap-1 border-t border-border/50 px-1 pt-1 text-[11px] text-muted-foreground/70 transition-colors hover:text-foreground">
+          <span className="truncate">{label}</span>
+          <span className="font-medium tabular-nums text-foreground/70">{value || '—'}</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-48 space-y-2 p-2.5">
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Property</span>
+          <select value={summary.propertyId} onChange={(e) => update({propertyId: e.target.value})} className={cn(fieldClass, 'mt-1')}>
+            <option value={TITLE_PROPERTY_ID}>Rows (count)</option>
+            {properties.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Calculate</span>
+          <select value={summary.type} onChange={(e) => update({type: e.target.value as SummaryType})} className={cn(fieldClass, 'mt-1')}>
+            {BOARD_CALCS.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
 /**
  * Board (kanban): columns from the view's group-by property. Cards drag between
  * columns to change their group value (when grouping on a `select`). A per-column
@@ -187,8 +250,6 @@ export const BoardView: React.FC<{
   const isOption = (key: string): boolean => canMove && key !== '__none__' && key !== '__all__';
   // Properties shown on a card exclude the grouping one (it's the column itself).
   const cardProps = (cardProperties ?? properties).filter((p) => p.id !== groupProp?.id);
-  // A numeric property (if any) gets summed in each column footer.
-  const sumProp = properties.find((p) => p.type === 'number' || p.type === 'rollup' || p.type === 'formula' || p.type === 'expr');
 
   const drop = (key: string): void => {
     if (!dragRow || !groupProp || !canMove) return;
@@ -306,14 +367,7 @@ export const BoardView: React.FC<{
                     </RowContextMenu>
                   ))}
                 </div>
-                {sumProp && group.rows.length > 0 && (
-                  <div className="flex items-center justify-between border-t border-border/50 px-1 pt-1 text-[11px] text-muted-foreground/70">
-                    <span className="truncate">Σ {sumProp.name}</span>
-                    <span className="font-medium tabular-nums text-foreground/70">
-                      {summarizeColumn(group.rows, sumProp, 'sum', properties)}
-                    </span>
-                  </div>
-                )}
+                {group.rows.length > 0 && <BoardColumnFooter db={db} view={view} properties={properties} rows={group.rows} />}
                 <NewRowButton onClick={() => newInColumn(group.key)} label="New" className="px-1 py-1" />
               </>
             )}
