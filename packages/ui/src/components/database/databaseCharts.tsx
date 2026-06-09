@@ -352,6 +352,16 @@ export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
               <path key={sl.key} d={arcPath(CX, CY, sl.rInner, sl.rOuter, sl.a0, sl.a1)} {...common} />
             );
           })}
+          {stacked && (
+            <g style={{pointerEvents: 'none'}}>
+              <text x={CX} y={CY - 1} textAnchor="middle" style={{fill: 'hsl(var(--foreground))', fontSize: 11, fontWeight: 700}}>
+                {fmt(hover ? hover.value : total)}
+              </text>
+              <text x={CX} y={CY + 7} textAnchor="middle" style={{fill: 'hsl(var(--muted-foreground))', fontSize: 4.5, letterSpacing: 0.3}}>
+                {hover ? 'SELECTED' : 'TOTAL'}
+              </text>
+            </g>
+          )}
         </svg>
         <div className="min-w-[12rem] flex-1 space-y-2">
           <ChartReadout view={view} properties={properties} hover={hover} total={total} />
