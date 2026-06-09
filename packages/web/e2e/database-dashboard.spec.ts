@@ -15,7 +15,7 @@ const schema = {
     id: 'v_tbl', name: 'Table', type: 'table', filters: [], sorts: [],
     metrics: [
       {id: 'm_count', propertyId: 'title', type: 'count_all'},
-      {id: 'm_sum', propertyId: 'p_cost', type: 'sum'},
+      {id: 'm_sum', propertyId: 'p_cost', type: 'sum', target: 100},
     ],
   }],
 };
@@ -44,6 +44,8 @@ test('dashboard metric cards: compute, recompute on filter, and add', async ({pa
   const sum = page.locator('button', {hasText: 'Cost · Sum'});
   await expect(count).toContainText('3');
   await expect(sum).toContainText('60');
+  // The Cost sum has a target of 100 → shows progress (60/100 = 60%).
+  await expect(sum).toContainText('60%');
 
   // Filtering (via the cell context menu) recomputes the cards over Done rows.
   await page.getByRole('table').getByText('Done').first().click({button: 'right'});

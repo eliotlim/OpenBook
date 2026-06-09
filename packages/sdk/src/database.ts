@@ -311,6 +311,8 @@ export interface DatabaseMetric {
   type: SummaryType;
   /** Optional custom label (defaults to "<property> · <summary>"). */
   label?: string;
+  /** Optional goal — when set, the card shows a progress bar of value/target. */
+  target?: number;
 }
 
 /** A saved presentation of the database: a layout plus its filters and sorts. */

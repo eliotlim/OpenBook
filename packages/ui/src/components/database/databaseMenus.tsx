@@ -1102,6 +1102,12 @@ const MetricCard: React.FC<{db: UseDatabase; view: DatabaseView; metric: Databas
   const properties = db.database!.schema.properties;
   const prop = metric.propertyId === TITLE_PROPERTY_ID ? TITLE_PROPERTY_ID : properties.find((p) => p.id === metric.propertyId);
   const value = prop ? summarizeColumn(db.visibleRows, prop, metric.type, properties) : '—';
+  // Parse the formatted value back to a number for the optional progress bar
+  // (tolerates thousands separators, currency symbols and a trailing %).
+  const numeric = Number(value.replace(/[^0-9.-]/g, ''));
+  const pct = metric.target && metric.target > 0 && Number.isFinite(numeric)
+    ? Math.max(0, Math.min(100, Math.round((numeric / metric.target) * 100)))
+    : null;
   const patch = (changes: Partial<DatabaseMetric>): void =>
     void db.updateView(view.id, {metrics: (view.metrics ?? []).map((m) => (m.id === metric.id ? {...m, ...changes} : m))});
   const remove = (): void => void db.updateView(view.id, {metrics: (view.metrics ?? []).filter((m) => m.id !== metric.id)});
@@ -1113,7 +1119,15 @@ const MetricCard: React.FC<{db: UseDatabase; view: DatabaseView; metric: Databas
           <div className="truncate text-[10px] font-medium uppercase tracking-wide text-muted-foreground" title={metricLabel(metric, properties)}>
             {metricLabel(metric, properties)}
           </div>
-          <div className="text-xl font-semibold tabular-nums">{value || '—'}</div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xl font-semibold tabular-nums">{value || '—'}</span>
+            {pct !== null && <span className="text-xs tabular-nums text-muted-foreground">/ {metric.target} · {pct}%</span>}
+          </div>
+          {pct !== null && (
+            <div className="mt-1 h-1 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-full rounded-full bg-brand transition-all" style={{width: `${pct}%`}} />
+            </div>
+          )}
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-56 space-y-2 p-2.5">
@@ -1148,6 +1162,17 @@ const MetricCard: React.FC<{db: UseDatabase; view: DatabaseView; metric: Databas
           placeholder="Custom label (optional)"
           className={cn(fieldClass, 'w-full')}
           aria-label="Metric label"
+        />
+        <input
+          type="number"
+          defaultValue={metric.target ?? ''}
+          onBlur={(e) => {
+            const next = e.target.value === '' ? undefined : Number(e.target.value);
+            if (next !== metric.target) patch({target: Number.isFinite(next as number) ? next : undefined});
+          }}
+          placeholder="Target / goal (optional)"
+          className={cn(fieldClass, 'w-full')}
+          aria-label="Metric target"
         />
         <button onClick={remove} className={cn(toolButtonClass, 'w-full justify-center text-destructive hover:text-destructive')}>
           <Trash2 className="h-3.5 w-3.5" /> Remove metric
