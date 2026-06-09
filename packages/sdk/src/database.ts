@@ -350,6 +350,8 @@ export interface DatabaseView {
   coverPropertyId?: string;
   /** Gallery only: card preview size. Defaults to `medium`. */
   cardSize?: 'small' | 'medium' | 'large';
+  /** Gallery/board: a `select`/`status` property whose option colour tints each card's edge. */
+  cardColorPropertyId?: string;
   /** Per-column footer summaries (table), keyed by property id (or {@link TITLE_PROPERTY_ID}). */
   summaries?: Record<string, SummaryType>;
   /** Dashboard metric cards shown above the view (count/sum/avg/… over the filtered rows). */

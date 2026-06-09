@@ -76,6 +76,14 @@ export const RowChips: React.FC<{row: DatabaseRow; properties: DatabaseProperty[
   </div>
 );
 
+/** The card-edge tint for a row from a `select`/`status` colour property, or undefined. */
+function cardAccent(row: DatabaseRow, colorProperty: DatabaseProperty | undefined): string | undefined {
+  if (!colorProperty || (colorProperty.type !== 'select' && colorProperty.type !== 'status')) return undefined;
+  const optId = row.properties[colorProperty.id];
+  const color = colorProperty.options?.find((o) => o.id === optId)?.color;
+  return color ? SWATCH_HEX[color] ?? undefined : undefined;
+}
+
 /**
  * Right-click any card (board / gallery) for the same quick row actions as the
  * table — open, insert below, duplicate, delete — without opening the row first.
@@ -122,17 +130,24 @@ const GALLERY_GRID = {
 const GALLERY_COVER = {small: 'h-20', medium: 'h-28', large: 'h-44'} as const;
 
 /** Gallery: a responsive grid of cards, one per row, with optional cover images. */
-export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
+export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]; colorProperty?: DatabaseProperty}> = ({
+  db,
+  view,
+  properties,
+  colorProperty,
+}) => {
   const size = view.cardSize ?? 'medium';
   return (
     <div>
       <div className={cn('grid gap-3', GALLERY_GRID[size])}>
         {db.visibleRows.map((row) => {
           const cover = view.coverPropertyId ? firstImageUrl(row.properties[view.coverPropertyId]) : null;
+          const accent = cardAccent(row, colorProperty);
           return (
             <RowContextMenu key={row.id} db={db} rowId={row.id}>
               <button
                 onClick={() => db.openRow(row.id)}
+                style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
                 className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20 hover:bg-accent/30"
               >
                 {cover ? (
@@ -230,7 +245,8 @@ export const BoardView: React.FC<{
   properties: DatabaseProperty[];
   /** The view's visible property set, shown as card chips (defaults to all). */
   cardProperties?: DatabaseProperty[];
-}> = ({db, view, properties, cardProperties}) => {
+  colorProperty?: DatabaseProperty;
+}> = ({db, view, properties, cardProperties, colorProperty}) => {
   const groupProp = properties.find((p) => p.id === view.groupByPropertyId);
   const [dragRow, setDragRow] = useState<string | null>(null);
   const [dragCol, setDragCol] = useState<string | null>(null);
@@ -345,27 +361,31 @@ export const BoardView: React.FC<{
                   </button>
                 </div>
                 <div className="flex flex-col gap-2">
-                  {group.rows.map((row) => (
-                    <RowContextMenu key={row.id} db={db} rowId={row.id}>
-                      <div
-                        draggable={canMove}
-                        onDragStart={() => setDragRow(row.id)}
-                        onDragEnd={() => setDragRow(null)}
-                        onClick={() => db.openRow(row.id)}
-                        className={cn(
-                          'group cursor-pointer rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
-                          dragRow === row.id && 'opacity-50',
-                        )}
-                      >
-                        <div className="mb-1 flex items-center gap-1.5">
-                          <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
-                          <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-                          <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
+                  {group.rows.map((row) => {
+                    const accent = cardAccent(row, colorProperty);
+                    return (
+                      <RowContextMenu key={row.id} db={db} rowId={row.id}>
+                        <div
+                          draggable={canMove}
+                          onDragStart={() => setDragRow(row.id)}
+                          onDragEnd={() => setDragRow(null)}
+                          onClick={() => db.openRow(row.id)}
+                          style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
+                          className={cn(
+                            'group cursor-pointer rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
+                            dragRow === row.id && 'opacity-50',
+                          )}
+                        >
+                          <div className="mb-1 flex items-center gap-1.5">
+                            <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+                            <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
+                            <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
+                          </div>
+                          <RowChips row={row} properties={cardProps} rows={db.rows} />
                         </div>
-                        <RowChips row={row} properties={cardProps} rows={db.rows} />
-                      </div>
-                    </RowContextMenu>
-                  ))}
+                      </RowContextMenu>
+                    );
+                  })}
                 </div>
                 {group.rows.length > 0 && <BoardColumnFooter db={db} view={view} properties={properties} rows={group.rows} />}
                 <NewRowButton onClick={() => newInColumn(group.key)} label="New" className="px-1 py-1" />

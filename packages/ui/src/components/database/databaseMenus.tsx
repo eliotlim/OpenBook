@@ -1283,6 +1283,8 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
   const dependencyProps = properties.filter((p) => p.type === 'dependency');
   const showCover = view.type === 'gallery';
   const coverProps = properties.filter((p) => p.type === 'files' || p.type === 'url');
+  const showCardColor = view.type === 'gallery' || view.type === 'board';
+  const colorProps = properties.filter((p) => p.type === 'select' || p.type === 'status');
   const showColumns =
     view.type === 'table' ||
     view.type === 'list' ||
@@ -1499,6 +1501,24 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
               <option value="small">Small</option>
               <option value="medium">Medium</option>
               <option value="large">Large</option>
+            </select>
+          </label>
+        )}
+
+        {showCardColor && colorProps.length > 0 && (
+          <label className="block">
+            <span className={sectionLabel}>Color cards by</span>
+            <select
+              value={view.cardColorPropertyId ?? ''}
+              onChange={(e) => db.updateView(view.id, {cardColorPropertyId: e.target.value || undefined})}
+              className={cn(fieldClass, 'mt-1 w-full')}
+            >
+              <option value="">None</option>
+              {colorProps.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
             </select>
           </label>
         )}
