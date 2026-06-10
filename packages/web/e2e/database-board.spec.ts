@@ -56,3 +56,18 @@ test('board: collapse all and expand all columns', async ({page, request}) => {
   await page.getByRole('button', {name: 'Expand all'}).click();
   await expect(card.first()).toBeVisible();
 });
+
+// The trailing ghost column mints a new group (select option) without leaving
+// the board.
+test('board: add a group from the trailing ghost column', async ({page, request}) => {
+  const pageId = await seed(request);
+  await page.goto(`/?page=${pageId}`);
+
+  await page.getByRole('button', {name: 'New group'}).click();
+  const label = `Blocked ${Date.now()}`;
+  await page.getByLabel('New group name').fill(label);
+  await page.keyboard.press('Enter');
+
+  // The new (empty) column appears with its own quick-add.
+  await expect(page.getByText(label, {exact: true})).toBeVisible();
+});
