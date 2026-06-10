@@ -180,6 +180,7 @@ export const ja: PartialMessages = {
     expression: '式',
     chart: 'チャート',
     slider: 'スライダー',
+    sliderEdit: 'スライダーを編集',
     creating: '{kind}を作成中…',
     referenceHint: 'セルの参照',
     chartPick: 'プロットするセルを 1 つ以上選択',

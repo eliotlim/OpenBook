@@ -180,6 +180,7 @@ export const de: PartialMessages = {
     expression: 'Ausdruck',
     chart: 'Diagramm',
     slider: 'Schieberegler',
+    sliderEdit: 'Slider bearbeiten',
     creating: '{kind} wird erstellt…',
     referenceHint: 'Zellen referenzieren mit',
     chartPick: 'Wähle mindestens eine Zelle zum Plotten',

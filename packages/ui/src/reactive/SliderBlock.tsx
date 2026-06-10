@@ -27,6 +27,10 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
   const [min, setMin] = useState(initialData.min ?? 0);
   const [max, setMax] = useState(initialData.max ?? 100);
   const [step, setStep] = useState(initialData.step ?? 1);
+  // A freshly-inserted block (no stored name) opens with its settings showing;
+  // a block loaded from a saved document reads as just "name — slider — value"
+  // until the name chip is clicked.
+  const [editing, setEditing] = useState(initialData.name === undefined);
   const [value, setValue] = useState(() => {
     // Restore from store if hydrated; otherwise use initial.
     const v = store.getByCellId(cellId);
@@ -46,22 +50,22 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
   }, [name, min, max, step, value, onChange]);
 
   return (
-    <ReactiveCard className="group/block">
-      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
-        <FieldRow label="name">
-          <Input inputSize="sm" value={name} onChange={(e) => setName(e.target.value)} className="w-28 font-mono" />
-        </FieldRow>
-        <FieldRow label="min">
-          <Input inputSize="sm" type="number" value={min} onChange={(e) => setMin(Number(e.target.value))} className="w-16 tabular-nums" />
-        </FieldRow>
-        <FieldRow label="max">
-          <Input inputSize="sm" type="number" value={max} onChange={(e) => setMax(Number(e.target.value))} className="w-16 tabular-nums" />
-        </FieldRow>
-        <FieldRow label="step">
-          <Input inputSize="sm" type="number" value={step} onChange={(e) => setStep(Number(e.target.value))} className="w-16 tabular-nums" />
-        </FieldRow>
-      </div>
+    <ReactiveCard
+      className="group/block"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) setEditing(false);
+      }}
+    >
       <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setEditing((on) => !on)}
+          title={t('blocks.sliderEdit')}
+          aria-label={t('blocks.sliderEdit')}
+          className="shrink-0 rounded-md px-1.5 py-0.5 font-mono text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          {name}
+        </button>
         <input
           type="range"
           min={min}
@@ -76,6 +80,22 @@ const SliderComponent: React.FC<SliderComponentProps> = ({cellId, initialData, o
           {value}
         </code>
       </div>
+      {editing && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+          <FieldRow label="name">
+            <Input inputSize="sm" autoFocus value={name} onChange={(e) => setName(e.target.value)} className="w-28 font-mono" />
+          </FieldRow>
+          <FieldRow label="min">
+            <Input inputSize="sm" type="number" value={min} onChange={(e) => setMin(Number(e.target.value))} className="w-16 tabular-nums" />
+          </FieldRow>
+          <FieldRow label="max">
+            <Input inputSize="sm" type="number" value={max} onChange={(e) => setMax(Number(e.target.value))} className="w-16 tabular-nums" />
+          </FieldRow>
+          <FieldRow label="step">
+            <Input inputSize="sm" type="number" value={step} onChange={(e) => setStep(Number(e.target.value))} className="w-16 tabular-nums" />
+          </FieldRow>
+        </div>
+      )}
     </ReactiveCard>
   );
 };

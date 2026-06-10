@@ -180,6 +180,7 @@ export const zh: PartialMessages = {
     expression: '表达式',
     chart: '图表',
     slider: '滑块',
+    sliderEdit: '编辑滑块',
     creating: '正在创建{kind}…',
     referenceHint: '引用单元格使用',
     chartPick: '至少选择一个单元格进行绘制',

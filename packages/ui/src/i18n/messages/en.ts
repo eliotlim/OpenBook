@@ -228,6 +228,7 @@ export const en = {
     expression: 'Expression',
     chart: 'Chart',
     slider: 'Slider',
+    sliderEdit: 'Edit slider',
     creating: 'Creating {kind}…',
     referenceHint: 'reference cells with',
     chartPick: 'Pick at least one cell to plot',
