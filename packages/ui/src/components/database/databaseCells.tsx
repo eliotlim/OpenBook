@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useRef, useState} from 'react';
 import {BadgeCheck, Check, ChevronDown, ExternalLink, Plus, X} from 'lucide-react';
 import {
   dateEnd,
@@ -622,6 +622,7 @@ const DependencyCell: React.FC<{
 }> = ({value, onChange, rowOptions}) => {
   const ids = Array.isArray(value) ? (value as string[]) : [];
   const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
   const labelOf = (id: string) => rowOptions.find((o) => o.id === id)?.label ?? 'Untitled';
   const candidates = rowOptions
     .filter((o) => !ids.includes(o.id))
@@ -652,9 +653,20 @@ const DependencyCell: React.FC<{
             <Plus className="h-3.5 w-3.5" />
           </button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-60 p-1">
+        <PopoverContent
+          align="start"
+          className="w-60 p-1"
+          onOpenAutoFocus={(e) => {
+            // Focus the search field WITHOUT scrolling: native autofocus can
+            // scroll the pane, the popper then repositions, and the two
+            // oscillate — the popover visibly jumps (and Playwright's
+            // stability check never settles).
+            e.preventDefault();
+            searchRef.current?.focus({preventScroll: true});
+          }}
+        >
           <input
-            autoFocus
+            ref={searchRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Depends on…"

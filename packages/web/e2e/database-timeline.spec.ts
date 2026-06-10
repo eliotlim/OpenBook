@@ -87,9 +87,16 @@ test('dependency graph: shows rows as connected nodes', async ({page}) => {
 
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('button', {name: 'New row'}).click();
+  // Let the create→refetch churn settle before anchoring a popover to a row:
+  // opening it mid-churn remounts the candidate buttons under the click
+  // ("element is not stable" until the 30s timeout — the long-standing flake).
+  await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(2);
+  await expect(page.getByRole('button', {name: 'Add dependency'})).toHaveCount(2);
   await page.getByRole('button', {name: 'Add dependency'}).nth(1).click();
   await expect(page.getByPlaceholder('Depends on…')).toBeVisible();
-  await page.locator('[data-radix-popper-content-wrapper] button').first().click();
+  const candidate = page.locator('[data-radix-popper-content-wrapper] button').first();
+  await expect(candidate).toBeVisible();
+  await candidate.click();
 
   // Switch to the Graph view; the dependent node reports its link count.
   await page.getByRole('button', {name: 'Add view'}).click();

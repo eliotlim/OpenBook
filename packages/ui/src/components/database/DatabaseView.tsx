@@ -468,6 +468,18 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
 
 /** Focus a (possibly not-yet-rendered) row's title input, retrying briefly. */
 export function focusRowTitle(rowId: string, attempt = 0): void {
+  // The row may land asynchronously (create → refetch), so this retries — but
+  // it must never STEAL focus: if the user has since moved into another field
+  // or an open popover (e.g. the dependency picker, which closes on focus
+  // loss), give up instead of yanking the caret away.
+  const active = document.activeElement;
+  const userMovedOn =
+    active instanceof HTMLElement &&
+    (active.isContentEditable ||
+      active.tagName === 'INPUT' ||
+      active.tagName === 'TEXTAREA' ||
+      active.closest('[data-radix-popper-content-wrapper]') !== null);
+  if (userMovedOn) return;
   const el = document.querySelector<HTMLInputElement>(`[data-row-title="${rowId}"]`);
   if (el) {
     el.focus();
