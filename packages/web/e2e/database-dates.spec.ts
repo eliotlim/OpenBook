@@ -47,3 +47,26 @@ test('date cell context menu: relative date filter presets', async ({page, reque
   await page.getByRole('menuitem', {name: 'Today', exact: true}).click();
   await expect(titles).toHaveCount(1);
 });
+
+// Regression: rows whose date property is a {start, end} *range* must appear on
+// the calendar (they once bucketed to null and the month rendered empty).
+test('calendar shows rows dated with a start–end range', async ({page, request}) => {
+  const p = await request.post(`${SERVER}/api/pages`, {data: {name: `RangeCal ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}}});
+  const pageId = ((await p.json()) as {id: string}).id;
+  const rangeSchema = {
+    properties: [{id: 'p_span', name: 'Span', type: 'date', dateRange: true}],
+    views: [
+      {id: 'v_tbl', name: 'Table', type: 'table', filters: [], sorts: []},
+      {id: 'v_cal', name: 'Calendar', type: 'calendar', filters: [], sorts: [], datePropertyId: 'p_span'},
+    ],
+  };
+  const d = await request.post(`${SERVER}/api/databases`, {data: {pageId, name: 'T', schema: rangeSchema}});
+  const dbId = ((await d.json()) as {id: string}).id;
+  const name = `Ranged ${dbId.slice(0, 8)}`;
+  await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {name, properties: {p_span: {start: ymd(0), end: ymd(2)}}}});
+
+  await page.goto(`/?page=${pageId}`);
+  await page.getByRole('button', {name: 'Calendar'}).click();
+  // The pill renders on the range's start day (today).
+  await expect(page.locator(`[data-day-key="${ymd(0)}"]`).getByText(name)).toBeVisible();
+});
