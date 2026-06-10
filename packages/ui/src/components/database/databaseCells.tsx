@@ -623,11 +623,7 @@ const DependencyCell: React.FC<{
   const ids = Array.isArray(value) ? (value as string[]) : [];
   const [query, setQuery] = useState('');
   const labelOf = (id: string) => rowOptions.find((o) => o.id === id)?.label ?? 'Untitled';
-  // Snapshotted when the picker opens so live row updates don't re-render the
-  // candidate buttons mid-pick (see RelationCell).
-  const [open, setOpen] = useState(false);
-  const [pool, setPool] = useState(rowOptions);
-  const candidates = pool
+  const candidates = rowOptions
     .filter((o) => !ids.includes(o.id))
     .filter((o) => (query ? o.label.toLowerCase().includes(query.toLowerCase()) : true));
 
@@ -646,13 +642,7 @@ const DependencyCell: React.FC<{
           </button>
         </span>
       ))}
-      <Popover
-        open={open}
-        onOpenChange={(next) => {
-          if (next) setPool(rowOptions);
-          setOpen(next);
-        }}
-      >
+      <Popover>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -886,14 +876,7 @@ const RelationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
   const [, bump] = React.useReducer((x: number) => x + 1, 0);
   React.useEffect(() => subscribePageLinks(bump), []);
 
-  // The candidate pool is snapshotted when the picker opens: live page-list
-  // events otherwise re-render the result buttons mid-pick, and the list
-  // jumps under the pointer. (Chips above still resolve labels live.)
-  const [open, setOpen] = useState(false);
-  const [pool, setPool] = useState<ReturnType<typeof pageLinks.searchPages>>([]);
-  const results = pool.filter(
-    (r) => !ids.includes(r.id) && (query ? r.label.toLowerCase().includes(query.toLowerCase()) : true),
-  );
+  const results = pageLinks.searchPages(query).filter((r) => !ids.includes(r.id));
   const add = (id: string) => {
     onChange([...ids, id]);
     setQuery('');
@@ -916,13 +899,7 @@ const RelationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
           </button>
         </span>
       ))}
-      <Popover
-        open={open}
-        onOpenChange={(next) => {
-          if (next) setPool(pageLinks.searchPages(''));
-          setOpen(next);
-        }}
-      >
+      <Popover>
         <PopoverTrigger asChild>
           <button
             type="button"
