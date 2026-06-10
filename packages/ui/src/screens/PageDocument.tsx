@@ -131,7 +131,7 @@ export interface PageDocumentProps {
 
 const isSSR = () => typeof window === 'undefined';
 
-const PageHeader: React.FC<{
+export const PageHeader: React.FC<{
   title: string;
   icon: string;
   pageId?: string;

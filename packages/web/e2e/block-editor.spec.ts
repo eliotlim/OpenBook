@@ -181,6 +181,58 @@ test('CRDT: edits in one tab appear live in another', async ({page, context}) =>
   await other.close();
 });
 
+test('real page: legacy EditorJS content migrates, saves, and reopens in the block editor', async ({page, request}) => {
+  // Seed a legacy page through the API (run-tagged name — workspace-unique).
+  const res = await request.post('http://127.0.0.1:4319/api/pages', {
+    data: {
+      name: `BlockNext ${Date.now()}`,
+      data: {
+        editorjs: {
+          blocks: [
+            {id: 'l1', type: 'header', data: {text: 'Migrated heading', level: 2}},
+            {id: 'l2', type: 'paragraph', data: {text: 'Legacy <b>bold</b> text.'}},
+          ],
+        },
+        values: [],
+        names: [],
+      },
+    },
+  });
+  const {id} = (await res.json()) as {id: string};
+
+  // Opt in via the query flag: the legacy document migrates into the editor.
+  await page.goto(`/?page=${id}&editor=next`);
+  await expect(page.locator('.obe-root')).toBeVisible();
+  await expect(page.locator('.obe-h2 .obe-text')).toHaveText('Migrated heading');
+  await expect(page.locator('.obe-text strong')).toHaveText('bold');
+
+  // Edit → autosave stamps the page `editor: 'blocks'`.
+  await page.evaluate(() => {
+    const el = [...document.querySelectorAll('.obe-text')][1] as HTMLElement;
+    el.focus();
+    const sel = getSelection()!;
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
+  await page.keyboard.type(' Now ours.');
+  await expect
+    .poll(async () => {
+      const stored = (await (await request.get(`http://127.0.0.1:4319/api/pages/${id}`)).json()) as {
+        data: {editor?: string};
+      };
+      return stored.data.editor;
+    })
+    .toBe('blocks');
+
+  // Reopening WITHOUT the flag stays in the block editor with the edit intact.
+  await page.goto(`/?page=${id}`);
+  await expect(page.locator('.obe-root')).toBeVisible();
+  await expect(page.locator('.obe-text').nth(1)).toContainText('Now ours.');
+});
+
 test('table editing: type in cells, add a row and a column', async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);

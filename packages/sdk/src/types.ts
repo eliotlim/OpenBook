@@ -19,6 +19,10 @@ export interface PageSnapshot {
   editorjs: unknown;
   values: Array<[string, unknown]>;
   names: Array<[string, string]>;
+  /** Which editor owns this document ('blocks' = the CRDT block editor). */
+  editor?: string;
+  /** CRDT block-editor document (opaque here; shaped by the ui package). */
+  blockdoc?: unknown;
 }
 
 /** An empty snapshot, for initializing a brand-new page. */

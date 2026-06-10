@@ -5,6 +5,7 @@ import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/provi
 import {DEFAULT_PAGE_ICON, readPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {DatabaseView} from '@/components/database/DatabaseView';
 import PageDocument from './PageDocument';
+import BlockPageDocument from './BlockPageDocument';
 
 export interface ConnectedPageDocumentProps {
   /** Stable page id (UUID) this editor reads from and writes to. */
@@ -28,6 +29,10 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   const [title, setTitle] = useState('');
   const [icon, setIcon] = useState(DEFAULT_PAGE_ICON);
   const [incoming, setIncoming] = useState<{data: PageSnapshot; version: number} | undefined>(undefined);
+  // Which editor renders this page: pages stamped `editor: 'blocks'` (or any
+  // page opened with `?editor=next`) get the CRDT block editor; everything
+  // else keeps EditorJS. Resolved from the stored snapshot before first render.
+  const [editorKind, setEditorKind] = useState<'editorjs' | 'blocks' | null>(null);
 
   const nameRef = useRef<string | null>(null);
   const renameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,6 +74,25 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
       if (renameTimer.current) clearTimeout(renameTimer.current);
     };
   }, [pageId]);
+
+  // Resolve which editor owns this page before mounting either one.
+  useEffect(() => {
+    let cancelled = false;
+    setEditorKind(null);
+    void client
+      .getPage(pageId)
+      .then((page) => {
+        if (cancelled) return;
+        const wantNext = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('editor') === 'next';
+        setEditorKind(page?.data?.editor === 'blocks' || wantNext ? 'blocks' : 'editorjs');
+      })
+      .catch(() => {
+        if (!cancelled) setEditorKind('editorjs');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, pageId]);
 
   const onLoad = useCallback(async (): Promise<PageSnapshot | null> => {
     const page = await client.getPage(pageId);
@@ -150,9 +174,11 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   const meta = pages.find((p) => p.id === pageId);
   const databaseIdHint = meta ? meta.hostedDatabaseId : undefined;
 
+  if (editorKind === null) return null;
+  const Document = editorKind === 'blocks' ? BlockPageDocument : PageDocument;
   return (
-    <PageDocument
-      key={pageId}
+    <Document
+      key={`${pageId}:${editorKind}`}
       title={title}
       icon={icon}
       incoming={incoming}
