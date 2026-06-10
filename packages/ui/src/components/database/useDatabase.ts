@@ -86,6 +86,8 @@ export interface UseDatabase {
   addSubItem: (parentId: string) => Promise<string | undefined>;
   renameRow: (rowId: string, name: string) => Promise<void>;
   setRowProperty: (rowId: string, propertyId: string, value: unknown) => Promise<void>;
+  /** Set several properties of one row atomically (single optimistic update + PATCH). */
+  setRowProperties: (rowId: string, patch: Record<string, unknown>) => Promise<void>;
   /** Duplicate a row (its title, properties, and document), at the same nesting level. */
   duplicateRow: (rowId: string) => Promise<void>;
   /** Import CSV text: first column → title, others map to (or create) columns. Returns the row count. */
@@ -450,6 +452,23 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
           }
         }
       }
+    },
+    [client, database],
+  );
+
+  // Several properties of one row in a single optimistic update + PATCH.
+  // Two sequential setRowProperty calls each build their payload from the
+  // pre-update snapshot (rowsRef only advances after a render), so the second
+  // write silently reverts the first — a timeline drag over separate Start/End
+  // columns moved only one edge. One bag, one write.
+  const setRowProperties = useCallback(
+    async (rowId: string, patch: Record<string, unknown>): Promise<void> => {
+      if (!database) return;
+      const row = rowsRef.current.find((r) => r.id === rowId);
+      const properties = {...(row?.properties ?? {}), ...patch};
+      rowsMutationVersion.current += 1;
+      setRows((prev) => prev.map((r) => (r.id === rowId ? {...r, properties} : r)));
+      await client.updateRow(database.id, rowId, {properties});
     },
     [client, database],
   );
@@ -823,6 +842,7 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     addSubItem,
     renameRow,
     setRowProperty,
+    setRowProperties,
     duplicateRow,
     importCsv,
     reorderRows,

@@ -102,8 +102,10 @@ const TimelineBody: React.FC<{
     const startStr = fmtDay(ns);
     const endStr = fmtDay(ne);
     if (endProp) {
-      void db.setRowProperty(d.rowId, startProp.id, startStr);
-      void db.setRowProperty(d.rowId, endProp.id, endStr);
+      // One atomic write: two sequential single-property writes raced — the
+      // second's payload was built before the first's optimistic update landed,
+      // reverting it server-side (a drag moved only one edge of the bar).
+      void db.setRowProperties(d.rowId, {[startProp.id]: startStr, [endProp.id]: endStr});
     } else if (startProp.dateRange) {
       void db.setRowProperty(d.rowId, startProp.id, {start: startStr, end: ne.getTime() !== ns.getTime() ? endStr : null});
     } else {

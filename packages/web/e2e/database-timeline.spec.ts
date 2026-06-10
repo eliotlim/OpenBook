@@ -1,5 +1,7 @@
 import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
 
+const SERVER = 'http://127.0.0.1:4319';
+
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
@@ -113,4 +115,43 @@ test('page-view properties: configure visibility and groups', async ({page}) => 
   await expect(page.getByText('Groups', {exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Add', exact: true}).click();
   await expect(page.getByRole('textbox', {name: 'Group name'})).toHaveValue('New group');
+});
+
+// Regression: a timeline over *separate* Start/End columns must move both
+// edges in one drag — two sequential single-property writes raced and the
+// second reverted the first (only one edge moved).
+test('timeline drag with separate start/end columns moves both dates', async ({page, request}) => {
+  const schema = {
+    properties: [
+      {id: 'p_start', name: 'Start', type: 'date'},
+      {id: 'p_end', name: 'End', type: 'date'},
+    ],
+    views: [
+      {id: 'v_tl', name: 'Timeline', type: 'timeline', filters: [], sorts: [], datePropertyId: 'p_start', endDatePropertyId: 'p_end'},
+    ],
+  };
+  const p = await request.post(`${SERVER}/api/pages`, {data: {name: `TwoProp ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}}});
+  const pageId = ((await p.json()) as {id: string}).id;
+  const d = await request.post(`${SERVER}/api/databases`, {data: {pageId, name: 'T', schema}});
+  const dbId = ((await d.json()) as {id: string}).id;
+  await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {name: `Span ${dbId.slice(0, 8)}`, properties: {p_start: '2026-03-02', p_end: '2026-03-16'}}});
+
+  await page.goto(`/?page=${pageId}`);
+  const bar = page.getByTitle(/drag to reschedule/);
+  await expect(bar).toBeVisible();
+  const box = (await bar.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + 150, box.y + box.height / 2, {steps: 10});
+  await page.mouse.up();
+
+  // Both dates moved by the same delta — the 14-day span is preserved.
+  await expect
+    .poll(async () => {
+      const rows = (await (await request.get(`${SERVER}/api/databases/${dbId}/rows`)).json()) as Array<{properties: Record<string, string>}>;
+      const {p_start, p_end} = rows[0].properties;
+      const days = (Date.parse(p_end) - Date.parse(p_start)) / 86_400_000;
+      return {days, moved: p_start !== '2026-03-02'};
+    })
+    .toEqual({days: 14, moved: true});
 });
