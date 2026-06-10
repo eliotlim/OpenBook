@@ -189,9 +189,15 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
     [doc],
   );
 
-  // ── Block-selection keyboard (root level) ────────────────────────────────
-  const onRootKeyDown = (e: React.KeyboardEvent): void => {
+  // ── Block-selection keyboard ─────────────────────────────────────────────
+  // Bound at the document level while a selection exists: selecting a block
+  // blurs the text caret, so key events land on <body>, never on this tree.
+  const onRootKeyDown = (e: KeyboardEvent): void => {
     if (editor.selection.size === 0) return;
+    // The keydown that *created* the selection (Escape in a text block —
+    // already preventDefaulted) reaches this listener on the same dispatch,
+    // because React flushes the attaching effect synchronously mid-bubble.
+    if (e.defaultPrevented) return;
     const ids = topLevelIds(doc);
     const selectedTop = ids.filter((id) => editor.selection.has(id));
     if (e.key === 'Backspace' || e.key === 'Delete') {
@@ -237,6 +243,16 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
     }
   };
 
+  const onRootKeyDownRef = useRef(onRootKeyDown);
+  onRootKeyDownRef.current = onRootKeyDown;
+  const hasSelection = editor.selection.size > 0;
+  React.useEffect(() => {
+    if (!hasSelection) return;
+    const listener = (e: KeyboardEvent): void => onRootKeyDownRef.current(e);
+    document.addEventListener('keydown', listener);
+    return () => document.removeEventListener('keydown', listener);
+  }, [hasSelection]);
+
   // Cmd+A escalation: from full-block text selection to all blocks.
   const onRootKeyDownCapture = (e: React.KeyboardEvent): void => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'a' && editor.focusedId) {
@@ -261,7 +277,6 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
       className="obe-root"
       role="region"
       aria-label={ariaLabel ?? 'Page content'}
-      onKeyDown={onRootKeyDown}
       onKeyDownCapture={onRootKeyDownCapture}
       onMouseDown={(e) => {
         if (e.target === rootRef.current) editor.clearSelection();
