@@ -79,7 +79,9 @@ export const zh: PartialMessages = {
     viewOptions: '视图选项',
     fullWidth: '全宽',
     favourite: '收藏',
+    sectionPage: '页面',
     block: {
+      sectionBlock: '块',
       moveUp: '上移',
       moveDown: '下移',
       duplicate: '复制',
@@ -189,6 +191,8 @@ export const zh: PartialMessages = {
     chartPickCell: '— 选择单元格 —',
     table: '表格',
     todo: '待办清单',
+    listUnordered: '无序列表',
+    listOrdered: '有序列表',
     callout: '标注',
     calloutInfo: '信息',
     calloutWarning: '警告',

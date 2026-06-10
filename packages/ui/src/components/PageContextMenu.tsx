@@ -20,6 +20,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
@@ -193,6 +194,7 @@ export function PageContextMenu({
   children: React.ReactNode;
 }) {
   const [blockId, setBlockId] = useState<string | null>(null);
+  const {t} = useTranslation();
 
   const onContextMenu = (e: React.MouseEvent) => {
     if (!editorRef) {
@@ -211,10 +213,18 @@ export function PageContextMenu({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
+        {/* With both groups present, "Duplicate"/"Delete" would be ambiguous —
+            label each section so block actions read apart from page actions. */}
         {editorRef && blockId && (
           <>
+            <ContextMenuLabel className="text-xs font-medium text-muted-foreground">
+              {t('menu.block.sectionBlock')}
+            </ContextMenuLabel>
             <BlockMenuItems editorRef={editorRef} blockId={blockId} />
             <ContextMenuSeparator />
+            <ContextMenuLabel className="text-xs font-medium text-muted-foreground">
+              {t('menu.sectionPage')}
+            </ContextMenuLabel>
           </>
         )}
         <PageMenuItems pageId={pageId} />

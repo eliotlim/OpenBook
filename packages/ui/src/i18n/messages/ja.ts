@@ -79,7 +79,9 @@ export const ja: PartialMessages = {
     viewOptions: '表示オプション',
     fullWidth: '全幅',
     favourite: 'お気に入り',
+    sectionPage: 'ページ',
     block: {
+      sectionBlock: 'ブロック',
       moveUp: '上へ移動',
       moveDown: '下へ移動',
       duplicate: '複製',
@@ -189,6 +191,8 @@ export const ja: PartialMessages = {
     chartPickCell: '— セルを選択 —',
     table: 'テーブル',
     todo: 'To-Do リスト',
+    listUnordered: '箇条書きリスト',
+    listOrdered: '番号付きリスト',
     callout: 'コールアウト',
     calloutInfo: '情報',
     calloutWarning: '警告',

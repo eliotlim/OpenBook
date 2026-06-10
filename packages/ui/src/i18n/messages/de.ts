@@ -79,7 +79,9 @@ export const de: PartialMessages = {
     viewOptions: 'Ansichtsoptionen',
     fullWidth: 'Volle Breite',
     favourite: 'Favorit',
+    sectionPage: 'Seite',
     block: {
+      sectionBlock: 'Block',
       moveUp: 'Nach oben',
       moveDown: 'Nach unten',
       duplicate: 'Duplizieren',
@@ -189,6 +191,8 @@ export const de: PartialMessages = {
     chartPickCell: '— Zelle wählen —',
     table: 'Tabelle',
     todo: 'To-do-Liste',
+    listUnordered: 'Aufzählungsliste',
+    listOrdered: 'Nummerierte Liste',
     callout: 'Hinweis',
     calloutInfo: 'Info',
     calloutWarning: 'Warnung',

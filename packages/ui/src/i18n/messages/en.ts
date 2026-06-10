@@ -91,7 +91,9 @@ export const en = {
     viewOptions: 'View options',
     fullWidth: 'Full width',
     favourite: 'Favourite',
+    sectionPage: 'Page',
     block: {
+      sectionBlock: 'Block',
       moveUp: 'Move up',
       moveDown: 'Move down',
       duplicate: 'Duplicate',
@@ -237,6 +239,8 @@ export const en = {
     chartPickCell: '— pick a cell —',
     table: 'Table',
     todo: 'To-do list',
+    listUnordered: 'Bulleted list',
+    listOrdered: 'Numbered list',
     callout: 'Callout',
     calloutInfo: 'Info',
     calloutWarning: 'Warning',

@@ -337,6 +337,20 @@ const PageDocument: React.FC<PageDocumentProps> = ({
           return {...(Checklist as {toolbox: object}).toolbox, title: bareT('blocks.todo')};
         }
       };
+      // The List tool also offers its own "Checklist" toolbox entry, which would
+      // sit beside the To-do tool as a confusing duplicate — drop it and localize
+      // the two list flavors.
+      const LocalList = class extends (List as new (...a: never[]) => object) {
+        static get toolbox() {
+          const entries = (List as {toolbox: Array<{title: string; data?: {style?: string}}>}).toolbox;
+          return entries
+            .filter((e) => e.data?.style !== 'checklist')
+            .map((e) => ({
+              ...e,
+              title: e.data?.style === 'ordered' ? bareT('blocks.listOrdered') : bareT('blocks.listUnordered'),
+            }));
+        }
+      };
 
       const editorJs = new EditorJSCtor({
         holder: holderRef.current,
@@ -350,7 +364,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
             shortcut: 'CMD+SHIFT+H',
             config: {placeholder: 'Heading', levels: [1, 2, 3], defaultLevel: 2},
           },
-          list: {class: List as unknown as never, inlineToolbar: true, config: {defaultStyle: 'unordered'}},
+          list: {class: LocalList as unknown as never, inlineToolbar: true, config: {defaultStyle: 'unordered'}},
           quote: {class: Quote as unknown as never, inlineToolbar: true},
           code: CodeTool as unknown as never,
           delimiter: Delimiter as unknown as never,
