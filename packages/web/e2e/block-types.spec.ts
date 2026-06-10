@@ -1,31 +1,24 @@
 import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
-
-const SERVER = 'http://127.0.0.1:4319';
+import {newPage} from './seed';
 
 // A page seeded with one of each new block type.
 async function seedPage(request: import('@playwright/test').APIRequestContext): Promise<string> {
-  const res = await request.post(`${SERVER}/api/pages`, {
-    data: {
-      name: 'New Blocks E2E',
-      data: {
-        editorjs: {
-          blocks: [
-            {id: 'hdrone', type: 'header', data: {text: 'Section One', level: 2}},
-            {id: 'tocblk', type: 'toc', data: {}},
-            {id: 'callbk', type: 'callout', data: {variant: 'info', text: 'Heads up'}},
-            {id: 'accbk', type: 'accordion', data: {title: 'Details', content: 'Hidden body', open: true}},
-            {id: 'chkbk', type: 'checklist', data: {items: [{text: 'First item', checked: false}, {text: 'Second item', checked: true}]}},
-            {id: 'tblbk', type: 'table', data: {withHeadings: true, content: [['Col A', 'Col B'], ['cell one', 'cell two']]}},
-            {id: 'btnbk', type: 'button', data: {label: 'Visit', url: 'https://example.com'}},
-            {id: 'divbk', type: 'divider', data: {style: 'dashed'}},
-          ],
-        },
-        values: [],
-        names: [],
-      },
+  return newPage(request, 'New Blocks E2E', {
+    editorjs: {
+      blocks: [
+        {id: 'hdrone', type: 'header', data: {text: 'Section One', level: 2}},
+        {id: 'tocblk', type: 'toc', data: {}},
+        {id: 'callbk', type: 'callout', data: {variant: 'info', text: 'Heads up'}},
+        {id: 'accbk', type: 'accordion', data: {title: 'Details', content: 'Hidden body', open: true}},
+        {id: 'chkbk', type: 'checklist', data: {items: [{text: 'First item', checked: false}, {text: 'Second item', checked: true}]}},
+        {id: 'tblbk', type: 'table', data: {withHeadings: true, content: [['Col A', 'Col B'], ['cell one', 'cell two']]}},
+        {id: 'btnbk', type: 'button', data: {label: 'Visit', url: 'https://example.com'}},
+        {id: 'divbk', type: 'divider', data: {style: 'dashed'}},
+      ],
     },
+    values: [],
+    names: [],
   });
-  return ((await res.json()) as {id: string}).id;
 }
 
 test('new block types render, the accordion toggles, and the collapse persists', async ({page, request}, testInfo) => {

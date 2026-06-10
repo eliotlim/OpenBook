@@ -1,7 +1,7 @@
 import {test, expect} from '@playwright/test';
 import type {APIRequestContext} from '@playwright/test';
 
-const SERVER = 'http://127.0.0.1:4319';
+import {reclaimNames, SERVER} from './seed';
 
 const schema = {
   properties: [
@@ -21,6 +21,8 @@ async function api(request: APIRequestContext, method: 'post' | 'put', path: str
 
 /** Seed a root page that links a subpage and hosts a database with row pages. */
 async function seed(request: APIRequestContext): Promise<string> {
+  // All four names are workspace-unique (rows are pages too) — free them for reruns.
+  await reclaimNames(request, 'Child Notes', 'Project Root', 'Ship the export', 'Write the tests');
   const child = await api(request, 'post', '/api/pages', {
     name: 'Child Notes',
     data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'Hello from the child page.'}}]}, values: [], names: []},

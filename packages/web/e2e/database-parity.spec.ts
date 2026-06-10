@@ -2,8 +2,7 @@
 // per-test snapshot (its archive helper is flaky in headless CI runs).
 import {test, expect} from '@playwright/test';
 import {readFileSync} from 'node:fs';
-
-const SERVER = 'http://127.0.0.1:4319';
+import {reclaimNames, SERVER} from './seed';
 const emptySnapshot = {editorjs: {blocks: []}, values: [], names: []};
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
@@ -63,7 +62,8 @@ test('rollup property: counts related rows', async ({page}) => {
 });
 
 // Dragging a row between days on the calendar reschedules its date.
-test('calendar drag: reschedule a row by dragging to another day', async ({page}) => {
+test('calendar drag: reschedule a row by dragging to another day', async ({page, request}) => {
+  await reclaimNames(request, 'Event'); // typed row titles are workspace-unique; free them for reruns
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
   await page.getByRole('button', {name: 'New row'}).click();
@@ -132,7 +132,8 @@ test('column reorder: drag a column header', async ({page}) => {
 });
 
 // Exporting a view downloads its rows as CSV.
-test('export CSV: downloads the view rows', async ({page}) => {
+test('export CSV: downloads the view rows', async ({page, request}) => {
+  await reclaimNames(request, 'CsvRow');
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
@@ -151,7 +152,8 @@ test('export CSV: downloads the view rows', async ({page}) => {
 });
 
 // Importing a CSV creates rows, mapping columns by name (here the default Notes).
-test('import CSV: creates rows from a file', async ({page}) => {
+test('import CSV: creates rows from a file', async ({page, request}) => {
+  await reclaimNames(request, 'Alpha', 'Beta'); // the CSV names rows; creation 409s if they're taken
   await newDatabase(page);
 
   await page.getByRole('button', {name: 'View options'}).click();
@@ -172,7 +174,8 @@ test('import CSV: creates rows from a file', async ({page}) => {
 });
 
 // The row menu can duplicate a row (title + properties + content).
-test('duplicate row: copies a row', async ({page}) => {
+test('duplicate row: copies a row', async ({page, request}) => {
+  await reclaimNames(request, 'Original', 'Original (copy)');
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
@@ -247,7 +250,8 @@ test('files property: add a file URL', async ({page}) => {
 });
 
 // Filters combine as an OR group across two conditions.
-test('filter groups: OR across two conditions', async ({page}) => {
+test('filter groups: OR across two conditions', async ({page, request}) => {
+  await reclaimNames(request, 'Apple', 'Banana');
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('button', {name: 'New row'}).click();
@@ -279,7 +283,8 @@ test('filter groups: OR across two conditions', async ({page}) => {
 
 // A two-way dependency mirrors links onto a generated partner property:
 // linking A → B from A's column auto-populates B's "(related)" column.
-test('two-way dependency: linking one side populates the inverse', async ({page}) => {
+test('two-way dependency: linking one side populates the inverse', async ({page, request}) => {
+  await reclaimNames(request, 'Task A', 'Task B');
   await newDatabase(page);
   await addColumn(page, 'Blocks', 'dependency');
 
@@ -332,7 +337,8 @@ test('number show-as-bar: renders a progress fill scaled to the value', async ({
 });
 
 // Saving a row as a template lets a later "New ▾" recreate its property values.
-test('row templates: save a row as a template and create from it', async ({page}) => {
+test('row templates: save a row as a template and create from it', async ({page, request}) => {
+  await reclaimNames(request, 'Bug report');
   await newDatabase(page);
   await addColumn(page, 'Priority', 'number');
 
@@ -556,7 +562,8 @@ test('frozen name column: the Name header and cells are sticky', async ({page}) 
 });
 
 // The list view can be grouped, like the table — rows fall under group headers.
-test('list view grouping: group a list by Status', async ({page}) => {
+test('list view grouping: group a list by Status', async ({page, request}) => {
+  await reclaimNames(request, 'ListGroupRow');
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
@@ -579,7 +586,8 @@ test('list view grouping: group a list by Status', async ({page}) => {
 
 // Renaming a row to a name that already exists (workspace names are unique) is
 // handled gracefully — the title reverts instead of crashing the app.
-test('duplicate rename: reverts instead of crashing', async ({page}) => {
+test('duplicate rename: reverts instead of crashing', async ({page, request}) => {
+  await reclaimNames(request, 'UniqueTitleX'); // row 0 must be able to claim it; row 1's clash is the test
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('button', {name: 'New row'}).click();
@@ -756,7 +764,8 @@ test('bulk set status: applies a value to selected rows', async ({page}) => {
 });
 
 // The toolbar count shows "X of Y" when a search/filter narrows the rows.
-test('filtered row count: shows X of Y', async ({page}) => {
+test('filtered row count: shows X of Y', async ({page, request}) => {
+  await reclaimNames(request, 'Findme');
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('button', {name: 'New row'}).click();
@@ -791,7 +800,8 @@ test('collapse all groups: folds and unfolds every group', async ({page}) => {
 });
 
 // "Insert below" from the row menu adds a row right after the chosen one.
-test('insert row below: positions the new row after the source', async ({page}) => {
+test('insert row below: positions the new row after the source', async ({page, request}) => {
+  await reclaimNames(request, 'RowOne', 'RowTwo');
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('button', {name: 'New row'}).click();

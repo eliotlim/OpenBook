@@ -1,12 +1,10 @@
 import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
 import type {APIRequestContext, Page} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
-
-const SERVER = 'http://127.0.0.1:4319';
+import {newPage as seedPage, SERVER} from './seed';
 
 async function newPage(request: APIRequestContext, name: string, blocks: unknown[], values: unknown[] = [], names: unknown[] = []): Promise<string> {
-  const res = await request.post(`${SERVER}/api/pages`, {data: {name, data: {editorjs: {blocks}, values, names}}});
-  return ((await res.json()) as {id: string}).id;
+  return seedPage(request, name, {editorjs: {blocks}, values, names});
 }
 
 async function exportFromMenu(page: Page, item: string) {
@@ -89,13 +87,24 @@ test('backup: export downloads a bundle and restore brings pages back', async ({
   await expect(dialog.getByText('Restore backup')).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: restore dialog
 
-  const before = ((await (await request.get(`${SERVER}/api/pages`)).json()) as unknown[]).length;
+  const beforePages = (await (await request.get(`${SERVER}/api/pages`)).json()) as {id: string}[];
   await dialog.getByRole('button', {name: /^Restore/}).click();
   await expect
     .poll(async () => ((await (await request.get(`${SERVER}/api/pages`)).json()) as unknown[]).length)
-    .toBeGreaterThan(before);
+    .toBeGreaterThan(beforePages.length);
   // Copy mode suffixes the clashing name.
   await expect
     .poll(async () => ((await (await request.get(`${SERVER}/api/pages`)).json()) as {name: string}[]).some((p) => /\(imported\)/.test(p.name)))
     .toBe(true);
+
+  // The restore just copied the WHOLE workspace. Against a long-lived dev
+  // server that doubles the page count every run (and the "X (imported)"
+  // twins then shadow other specs' fixed names), so trash the copies and
+  // purge the trash to keep the workspace lean. CI never notices (fresh DB).
+  const beforeIds = new Set(beforePages.map((p) => p.id));
+  const after = (await (await request.get(`${SERVER}/api/pages`)).json()) as {id: string}[];
+  for (const p of after.filter((p) => !beforeIds.has(p.id))) {
+    await request.delete(`${SERVER}/api/pages/${p.id}`);
+  }
+  await request.delete(`${SERVER}/api/trash`);
 });

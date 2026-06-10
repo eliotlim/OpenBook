@@ -1,6 +1,5 @@
 import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
-
-const SERVER = 'http://127.0.0.1:4319';
+import {reclaimNames, SERVER} from './seed';
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
@@ -100,7 +99,8 @@ test('dependency graph: shows rows as connected nodes', async ({page}) => {
 
 // Opening a database row shows its columns in the page-view properties panel,
 // with a config menu to show/hide and to organise them into groups.
-test('page-view properties: configure visibility and groups', async ({page}) => {
+test('page-view properties: configure visibility and groups', async ({page, request}) => {
+  await reclaimNames(request, 'Row X'); // row titles are workspace-unique; free it for reruns
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();

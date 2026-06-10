@@ -1,8 +1,8 @@
 import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
 
-// The OpenBook data server (Playwright boots it on :4319); used to seed a
-// linking page directly so the backlink test is deterministic.
-const SERVER = 'http://127.0.0.1:4319';
+// The OpenBook data server is used to seed a linking page directly so the
+// backlink test is deterministic.
+import {reclaimNames, SERVER} from './seed';
 
 // Always work on a brand-new page (⌘N) so stored owner/verification from a
 // previous run on the shared backend can't make these flaky.
@@ -37,12 +37,8 @@ test('page properties: set an owner and verify the page', async ({page}, testInf
 });
 
 test('page properties: backlinks list the pages that link here', async ({page, request}) => {
-  // Page names are workspace-unique: trash any prior run's pages so reruns
-  // against a long-lived dev server don't 409 (a trashed name is freed).
-  const pages = (await (await request.get(`${SERVER}/api/pages`)).json()) as {id: string; name: string | null}[];
-  for (const stale of pages.filter((p) => p.name === 'Backlink target' || p.name === 'Linking page')) {
-    await request.delete(`${SERVER}/api/pages/${stale.id}`);
-  }
+  // Page names are workspace-unique: free any prior run's names first.
+  await reclaimNames(request, 'Backlink target', 'Linking page');
 
   // Create a fresh target page on the server and open it directly (avoids any
   // ⌘N navigation race, and a brand-new id has no prior backlinks).

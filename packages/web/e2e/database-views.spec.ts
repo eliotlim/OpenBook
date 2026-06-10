@@ -1,14 +1,5 @@
 import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
-import type {APIRequestContext} from '@playwright/test';
-
-const SERVER = 'http://127.0.0.1:4319';
-
-async function newPage(request: APIRequestContext, name: string): Promise<string> {
-  const res = await request.post(`${SERVER}/api/pages`, {
-    data: {name, data: {editorjs: {blocks: []}, values: [], names: []}},
-  });
-  return ((await res.json()) as {id: string}).id;
-}
+import {newPage, reclaimNames} from './seed';
 
 /** Create a fresh database via the command palette and wait for its view. */
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
@@ -22,7 +13,8 @@ async function newDatabase(page: import('@playwright/test').Page): Promise<void>
 
 // A formula column computes from another property (here the row title) — the
 // headline "simple expression formula" feature, end to end.
-test('database formula: a formula column computes from other properties', async ({page}, testInfo) => {
+test('database formula: a formula column computes from other properties', async ({page, request}, testInfo) => {
+  await reclaimNames(request, 'World'); // row titles are workspace-unique; free it for reruns
   await newDatabase(page);
 
   // Add a formula column that greets the row's title.

@@ -319,10 +319,14 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       const matches = pages
         .map((p) => ({id: p.id, label: pageLabel(p.id), icon: readPageIcon(p.id)}))
         .filter((r) => q === '' || r.label.toLowerCase().includes(q));
-      // Prefer prefix matches, then by position; cap the list for the popover.
-      return matches
-        .sort((a, b) => Number(b.label.toLowerCase().startsWith(q)) - Number(a.label.toLowerCase().startsWith(q)))
-        .slice(0, 8);
+      // Exact title match first, then prefix matches, then by position; cap
+      // the list for the popover. Exact-first matters in big workspaces where
+      // lookalikes ("Plan", "Plan (imported)", "Plan 2") share a prefix.
+      const rank = (label: string): number => {
+        const l = label.toLowerCase();
+        return l === q ? 2 : l.startsWith(q) ? 1 : 0;
+      };
+      return matches.sort((a, b) => rank(b.label) - rank(a.label)).slice(0, 8);
     },
     [pages, pageLabel],
   );

@@ -1,6 +1,5 @@
 import {test, expect} from '@chromatic-com/playwright';
-
-const SERVER = 'http://127.0.0.1:4319';
+import {newPage} from './seed';
 
 // Verbatim inputs must not autocorrect/autocapitalize/spellcheck — they'd mangle
 // commands and code.
@@ -15,13 +14,11 @@ test('command palette input disables autocorrect', async ({page}) => {
 });
 
 test('code block textarea disables autocorrect', async ({page, request}) => {
-  const res = await request.post(`${SERVER}/api/pages`, {
-    data: {
-      name: 'Verbatim Code',
-      data: {editorjs: {blocks: [{type: 'code', data: {code: 'const x = 1'}}]}, values: [], names: []},
-    },
+  const id = await newPage(request, 'Verbatim Code', {
+    editorjs: {blocks: [{type: 'code', data: {code: 'const x = 1'}}]},
+    values: [],
+    names: [],
   });
-  const {id} = (await res.json()) as {id: string};
   await page.goto(`/?page=${id}`);
 
   // Scoped to the editor: the page title is also a textarea now.

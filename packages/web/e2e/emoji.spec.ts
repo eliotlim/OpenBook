@@ -1,19 +1,16 @@
 import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
-import type {APIRequestContext} from '@playwright/test';
-
-const SERVER = 'http://127.0.0.1:4319';
-
-async function newPage(request: APIRequestContext, name: string): Promise<string> {
-  const res = await request.post(`${SERVER}/api/pages`, {
-    data: {name, data: {editorjs: {blocks: []}, values: [], names: []}},
-  });
-  return ((await res.json()) as {id: string}).id;
-}
+import {newPage} from './seed';
 
 async function openEditor(page: import('@playwright/test').Page, pageId: string): Promise<void> {
   await page.goto(`/?page=${pageId}`);
   await page.locator('.ce-block').first().waitFor({state: 'visible'});
-  await page.locator('.ce-paragraph').first().click();
+  // Clicking before EditorJS finishes wiring focus silently drops the caret
+  // (typed text then goes nowhere) — retry until the paragraph holds focus.
+  const para = page.locator('.ce-paragraph').first();
+  await expect(async () => {
+    await para.click();
+    await expect(para).toBeFocused({timeout: 500});
+  }).toPass({timeout: 10_000});
 }
 
 test('inline `:` shortcode inserts an emoji that persists', async ({page, request}, testInfo) => {
