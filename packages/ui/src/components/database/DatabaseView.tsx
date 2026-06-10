@@ -140,8 +140,13 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React
     <input
       defaultValue={row.name ?? ''}
       key={`${row.id}:${row.name ?? ''}`}
+      data-row-title={row.id}
       onBlur={(e) => {
         if ((e.target.value || '') !== (row.name ?? '')) void db.renameRow(row.id, e.target.value);
+      }}
+      onKeyDown={(e) => {
+        // Enter commits the title (rename happens on blur), like a form field.
+        if (e.key === 'Enter') e.currentTarget.blur();
       }}
       placeholder="Untitled"
       className="w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/40"
@@ -460,6 +465,16 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
   );
 };
 
+/** Focus a (possibly not-yet-rendered) row's title input, retrying briefly. */
+export function focusRowTitle(rowId: string, attempt = 0): void {
+  const el = document.querySelector<HTMLInputElement>(`[data-row-title="${rowId}"]`);
+  if (el) {
+    el.focus();
+    return;
+  }
+  if (attempt < 10) setTimeout(() => focusRowTitle(rowId, attempt + 1), 50);
+}
+
 const NewRowRow: React.FC<{colSpan: number; onClick: () => void; label?: string}> = ({colSpan, onClick, label}) => (
   <tr>
     <td colSpan={colSpan} className="p-0">
@@ -757,7 +772,15 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                   group.rows.map((row) => (
                     <DataRow key={row.id} db={db} columns={columns} schema={schema} row={row} drag={drag} selection={selectionOf(row.id)} />
                   ))}
-                  {!isCollapsed && <NewRowRow colSpan={colSpan} onClick={() => void db.addRow(initial)} label="New" />}
+                  {!isCollapsed && (
+                    <NewRowRow
+                      colSpan={colSpan}
+                      label="New"
+                      onClick={() =>
+                        void db.addRow(initial).then((id) => id && focusRowTitle(id))
+                      }
+                    />
+                  )}
                   {!isCollapsed && hasSummaries && (
                     <GroupSummaryRow columns={columns} schema={schema} rows={group.rows} summaryOf={summaryOf} />
                   )}
@@ -776,7 +799,8 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                   </td>
                 </tr>
               )}
-              <NewRowRow colSpan={colSpan} onClick={() => void db.addRow()} />
+              {/* A fresh row drops the caret straight into its title. */}
+              <NewRowRow colSpan={colSpan} onClick={() => void db.addRow().then((id) => id && focusRowTitle(id))} />
             </tbody>
           )}
 
@@ -930,6 +954,9 @@ const SearchBox: React.FC<{db: UseDatabase}> = ({db}) => (
     <input
       value={db.search}
       onChange={(e) => db.setSearch(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') db.setSearch('');
+      }}
       placeholder="Search"
       className="w-24 bg-transparent py-1 text-xs outline-hidden placeholder:text-muted-foreground/60 focus:w-36"
       aria-label="Search rows"
