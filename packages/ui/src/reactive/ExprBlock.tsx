@@ -9,6 +9,7 @@ import {compile} from './compile';
 import {Skeleton} from '@/components/ui/skeleton';
 import {Input} from '@/components/ui/input';
 import {ReactiveCard} from './blockChrome';
+import {cn} from '@/lib/utils';
 import {t} from '@/i18n';
 
 interface ExprBlockData extends ReactiveBlockData {
@@ -220,7 +221,7 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
   }, []);
 
   return (
-    <ReactiveCard>
+    <ReactiveCard className="group/expr">
       <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
         <label className="inline-flex items-center gap-1.5">
           <span className="font-mono text-muted-foreground/60">ƒ</span>
@@ -234,7 +235,14 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
             className="w-28 font-mono"
           />
         </label>
-        <span className="text-muted-foreground/60">
+        {/* The @name hint earns its keep while writing a formula; once one
+            exists it fades out until the block is focused again. */}
+        <span
+          className={cn(
+            'text-muted-foreground/60',
+            source.trim() !== '' && 'opacity-0 transition-opacity group-focus-within/expr:opacity-100',
+          )}
+        >
           {t('blocks.referenceHint')}{' '}
           <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground/70">@name</code>
         </span>
