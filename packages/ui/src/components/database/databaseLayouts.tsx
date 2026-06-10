@@ -443,7 +443,51 @@ export const BoardView: React.FC<{
             </div>
           );
         })}
+        {/* New group: mint a select option without leaving the board. */}
+        {canMove && groupProp && <NewGroupColumn onAdd={(label) => void db.addSelectOption(groupProp.id, label)} />}
       </div>
+    </div>
+  );
+};
+
+/** The trailing ghost column on a board: click to name a new group (select option). */
+const NewGroupColumn: React.FC<{onAdd: (label: string) => void}> = ({onAdd}) => {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState('');
+  const commit = (): void => {
+    const label = draft.trim();
+    if (label) onAdd(label);
+    setDraft('');
+    setAdding(false);
+  };
+  if (!adding) {
+    return (
+      <button
+        onClick={() => setAdding(true)}
+        className="flex h-9 w-44 shrink-0 items-center gap-1 rounded-lg border border-dashed border-border/70 px-3 text-sm text-muted-foreground/70 transition-colors hover:border-border hover:bg-muted/30 hover:text-foreground"
+      >
+        <Plus className="h-4 w-4" /> New group
+      </button>
+    );
+  }
+  return (
+    <div className="h-9 w-44 shrink-0 rounded-lg border border-border bg-muted/30 px-2 py-1">
+      <input
+        autoFocus
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') {
+            setDraft('');
+            setAdding(false);
+          }
+        }}
+        onBlur={commit}
+        placeholder="Group name…"
+        aria-label="New group name"
+        className="w-full bg-transparent py-0.5 text-sm outline-hidden placeholder:text-muted-foreground/50"
+      />
     </div>
   );
 };
