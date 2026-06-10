@@ -307,6 +307,8 @@ export const en = {
     confirmTrashHint: 'Ask before moving a page to the trash.',
     spellcheck: 'Spellcheck while typing',
     spellcheckHint: 'Underline misspelled words in the editor.',
+    blockEditor: 'Block editor (beta)',
+    blockEditorHint: 'Open new pages in the next-generation collaborative editor. Pages keep whichever editor wrote them.',
   },
   profile: {
     title: 'Profile',

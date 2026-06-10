@@ -288,6 +288,8 @@ export const ja: PartialMessages = {
     confirmTrashHint: 'ページをゴミ箱へ移動する前に確認します。',
     spellcheck: '入力中にスペルチェック',
     spellcheckHint: 'エディターでスペルミスの単語に下線を引きます。',
+    blockEditor: 'ブロックエディタ（ベータ）',
+    blockEditorHint: '新しいページを次世代の共同編集エディタで開きます。既存のページは元のエディタを維持します。',
   },
   profile: {
     title: 'プロフィール',

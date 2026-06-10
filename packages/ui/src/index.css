@@ -1142,3 +1142,22 @@ a.obe-mention {
   border-radius: 8px;
   padding: 0.4rem 0.6rem;
 }
+
+/* Column resize divider: a slim grab zone in the column gap */
+.obe-column { position: relative; }
+.obe-col-divider {
+  position: absolute;
+  left: -0.85rem;
+  top: 0;
+  bottom: 0;
+  width: 0.6rem;
+  cursor: col-resize;
+  border-radius: 3px;
+}
+.obe-col-divider:hover,
+.obe-col-divider:active {
+  background: hsl(var(--ring) / 0.35);
+}
+@media (max-width: 640px) {
+  .obe-col-divider { display: none; }
+}

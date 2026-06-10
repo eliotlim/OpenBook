@@ -288,6 +288,8 @@ export const de: PartialMessages = {
     confirmTrashHint: 'Vor dem Verschieben einer Seite in den Papierkorb nachfragen.',
     spellcheck: 'Rechtschreibprüfung beim Tippen',
     spellcheckHint: 'Falsch geschriebene Wörter im Editor unterstreichen.',
+    blockEditor: 'Block-Editor (Beta)',
+    blockEditorHint: 'Neue Seiten im kollaborativen Editor der nächsten Generation öffnen. Bestehende Seiten behalten ihren Editor.',
   },
   profile: {
     title: 'Profil',

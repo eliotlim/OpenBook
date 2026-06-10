@@ -41,6 +41,12 @@ export default function GeneralSettings() {
           checked={preferences.general.spellcheck}
           onCheckedChange={(spellcheck) => update({general: {spellcheck}})}
         />
+        <SettingsToggle
+          label={t('general.blockEditor')}
+          hint={t('general.blockEditorHint')}
+          checked={preferences.general.blockEditor}
+          onCheckedChange={(blockEditor) => update({general: {blockEditor}})}
+        />
       </SettingsSection>
     </SettingsScreen>
   );

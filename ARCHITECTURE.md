@@ -207,6 +207,49 @@ and unit-tested** (`liveSync.test.ts`):
   reactive blocks fire them constantly as they recompute, and treating those as
   edits is the other half of the save loop.
 
+### The block editor (`packages/ui/src/blockeditor/`) — the successor
+
+A fully custom, CRDT-native block editor being introduced **in parallel** with
+the EditorJS surface (per-page dispatch in `ConnectedPageDocument`):
+
+- **Model** (`model.ts`) — a Y.Doc holding one uniform recursive tree:
+  `Y.Array` of block `Y.Map`s (`id`, `type`, `text: Y.Text` with attribute
+  runs, `props: Y.Map`, `children: Y.Array`). Columns (2–4 on a 12-col grid,
+  resizable spans), tables (rows → rich-text cells), and nesting all recurse
+  through the same shape. Two serializations live in the page snapshot:
+  the base64 CRDT update (what collaboration merges) and a JSON projection
+  (what exports/tests/the server read). `migrateEditorJs` converts legacy
+  documents; `createSeededDoc` writes seeds as a fixed replica so racing
+  clients converge instead of duplicating content.
+- **Engine** (`TextBlockView.tsx`) — per-block contenteditable driven by
+  **native** `beforeinput` (React's `onBeforeInput` is a keypress polyfill
+  whose `preventDefault` can't cancel the real event). Every edit applies to
+  Y.Text and re-renders from the model; IME composition lets the browser own
+  the DOM, then diffs back on `compositionend`. Yjs gotchas encoded here:
+  detached `Y.Map`s can't be read (settle ids before construction), inserts
+  without explicit attrs inherit the previous run's formatting, and the
+  UndoManager must be created in an effect (StrictMode's mount-cycle cleanup
+  destroys a useMemo-created one).
+- **Editing surface** — slash menu, markdown shortcuts, floating format
+  toolbar, block selection (document-level key handling — a selected block
+  has no DOM focus), drag handles with drop-beside-to-create-columns, touch
+  drag via pointer events, aria-live move announcements.
+- **Extensibility** (`registry.tsx`) — `registerCustomBlock({type, render,
+  slash})`: custom blocks render inside the standard row, store state as CRDT
+  props, and join the slash menu. `reactiveBlocks.tsx` ships slider + live
+  formula plugins (code over slider values, recomputed per keystroke/drag,
+  collaborative because props are CRDT state).
+- **Collaboration** — `provider.ts` syncs tabs via BroadcastChannel
+  (hello/state/update + presence); cross-client sync rides the existing SSE
+  page stream — `BlockPageDocument` merges pushed snapshots with
+  `Y.applyUpdate` (idempotent), so no server changes were needed. A websocket
+  relay can later speak the same three messages for live remote cursors.
+- **Rollout** — pages stamped `data.editor === 'blocks'` always use the new
+  editor; `?editor=next` forces it (and migrates legacy content); the
+  Settings → General toggle opts *empty* pages in. The sandbox lives at
+  `/editor-lab` (localStorage-persisted, cross-tab sync); e2e in
+  `packages/web/e2e/block-editor.spec.ts`.
+
 ---
 
 ## 5. UI structure

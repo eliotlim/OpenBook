@@ -472,22 +472,8 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   case 'divider':
     return <hr className="obe-divider" aria-label="Divider" />;
 
-  case 'columns': {
-    const cols = blockChildren(block)!;
-    const styleFor = (col: BlockMap): React.CSSProperties => {
-      const span = blockProp<number>(col, 'span');
-      return span ? {gridColumn: `span ${Math.max(1, Math.min(12, span))}`} : {gridColumn: `span ${Math.floor(12 / Math.max(1, cols.length))}`};
-    };
-    return (
-      <div className="obe-columns" data-cols={cols.length} role="group" aria-label={`${cols.length} columns`}>
-        {cols.map((col) => (
-          <div key={blockId(col)} className="obe-column" style={styleFor(col)} data-block-row={blockId(col)}>
-            <BlockList list={blockChildren(col)!} {...shared} depth={shared.depth + 1} />
-          </div>
-        ))}
-      </div>
-    );
-  }
+  case 'columns':
+    return <ColumnsView block={block} {...shared} />;
 
   case 'table':
     return <TableView block={block} {...shared} />;
@@ -603,6 +589,71 @@ function listNumber(doc: Y.Doc, block: BlockMap): number {
   }
   return n;
 }
+
+// ── Columns ──────────────────────────────────────────────────────────────────
+
+/** A columns layout on the 12-col grid, with draggable dividers between
+ *  columns that redistribute the adjacent pair's spans. */
+const ColumnsView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
+  const {editor} = shared;
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const cols = blockChildren(block)!;
+  const fallback = Math.floor(12 / Math.max(1, cols.length));
+  const spanOf = (col: BlockMap): number => Math.max(1, Math.min(12, blockProp<number>(col, 'span') ?? fallback));
+  const styleFor = (col: BlockMap): React.CSSProperties => ({gridColumn: `span ${spanOf(col)}`});
+
+  /** Drag the divider between columns i and i+1: shift grid units between them. */
+  const onDividerDown = (e: React.PointerEvent, i: number): void => {
+    if (editor.readOnly) return;
+    e.preventDefault();
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const unit = wrap.getBoundingClientRect().width / 12;
+    const left = cols.get(i);
+    const right = cols.get(i + 1);
+    const startLeft = spanOf(left);
+    const startRight = spanOf(right);
+    const startX = e.clientX;
+    const move = (ev: PointerEvent): void => {
+      const delta = Math.round((ev.clientX - startX) / unit);
+      const nextLeft = Math.max(1, Math.min(startLeft + startRight - 1, startLeft + delta));
+      const nextRight = startLeft + startRight - nextLeft;
+      if (nextLeft !== spanOf(left) || nextRight !== spanOf(right)) {
+        editor.doc.transact(() => {
+          setBlockProp(left, 'span', nextLeft);
+          setBlockProp(right, 'span', nextRight);
+        }, 'local');
+      }
+    };
+    const up = (): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <div ref={wrapRef} className="obe-columns" data-cols={cols.length} role="group" aria-label={`${cols.length} columns`}>
+      {cols.map((col, i) => (
+        <React.Fragment key={blockId(col)}>
+          <div className="obe-column" style={styleFor(col)} data-block-row={blockId(col)}>
+            {i > 0 && !editor.readOnly && (
+              <div
+                className="obe-col-divider"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize columns"
+                onPointerDown={(e) => onDividerDown(e, i - 1)}
+              />
+            )}
+            <BlockList list={blockChildren(col)!} {...shared} depth={shared.depth + 1} />
+          </div>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+};
 
 // ── Table ─────────────────────────────────────────────────────────────────────
 

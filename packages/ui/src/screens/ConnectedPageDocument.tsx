@@ -12,6 +12,17 @@ export interface ConnectedPageDocumentProps {
   pageId: string;
 }
 
+/** True when no editor has written meaningful content to this page yet
+ *  (empty/absent EditorJS doc and no block doc) — the only case where the
+ *  "use the block editor" preference may switch a page's editor. Legacy
+ *  pages with content stay in EditorJS unless opened with ?editor=next. */
+function isUnstamped(data: PageSnapshot | undefined): boolean {
+  if (!data) return true;
+  if (data.editor === 'blocks' || data.blockdoc) return false;
+  const blocks = (data.editorjs as {blocks?: unknown[]} | undefined)?.blocks;
+  return !blocks || blocks.length === 0;
+}
+
 /**
  * A {@link PageDocument} wired to the data client + {@link NavigationProvider}.
  * Loads content + name, autosaves edits, renames from the title field, and —
@@ -83,8 +94,12 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
       .getPage(pageId)
       .then((page) => {
         if (cancelled) return;
-        const wantNext = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('editor') === 'next';
-        setEditorKind(page?.data?.editor === 'blocks' || wantNext ? 'blocks' : 'editorjs');
+        // ?editor=next forces the block editor (including migrating a legacy
+        // document); the Settings preference is gentler — it only applies to
+        // pages no editor has written content to yet.
+        const forced = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('editor') === 'next';
+        const preferred = preferences.general.blockEditor && isUnstamped(page?.data);
+        setEditorKind(page?.data?.editor === 'blocks' || forced || preferred ? 'blocks' : 'editorjs');
       })
       .catch(() => {
         if (!cancelled) setEditorKind('editorjs');
@@ -92,7 +107,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     return () => {
       cancelled = true;
     };
-  }, [client, pageId]);
+  }, [client, pageId, preferences.general.blockEditor]);
 
   const onLoad = useCallback(async (): Promise<PageSnapshot | null> => {
     const page = await client.getPage(pageId);
