@@ -114,14 +114,16 @@ interface RowTreeInfo {
   onAddSub: () => void;
 }
 
-/** The title cell: indent + expand toggle (sub-items), drag handle, open + add-sub. */
+/** The title cell: indent + expand toggle (sub-items), drag handle, icon + name.
+ *  Row actions (add-sub / open / menu) live in {@link DataRow}'s hover overlay so
+ *  they don't steal width from the name. */
 const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React.ReactNode; tree?: RowTreeInfo}> = ({
   row,
   db,
   dragHandle,
   tree,
 }) => (
-  <div className="group/title flex items-center gap-1" style={tree ? {paddingLeft: tree.depth * 16} : undefined}>
+  <div className="flex items-center gap-1" style={tree ? {paddingLeft: tree.depth * 16} : undefined}>
     {dragHandle}
     {tree?.hasChildren ? (
       <button
@@ -144,26 +146,6 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React
       placeholder="Untitled"
       className="w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground/40"
     />
-    {tree && (
-      <IconButton
-        size="sm"
-        onClick={tree.onAddSub}
-        className="text-muted-foreground/60 opacity-0 transition group-hover/title:opacity-100"
-        aria-label="Add sub-item"
-        title="Add sub-item"
-      >
-        <Plus className="h-3.5 w-3.5" />
-      </IconButton>
-    )}
-    <IconButton
-      size="sm"
-      onClick={() => db.openRow(row.id)}
-      className="text-muted-foreground/60 opacity-0 transition group-hover/title:opacity-100"
-      aria-label="Open row"
-      title="Open in split"
-    >
-      <PanelRightOpen className="h-3.5 w-3.5" />
-    </IconButton>
   </div>
 );
 
@@ -401,7 +383,7 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
           selection?.selected ? 'bg-accent/40' : 'bg-card',
         )}
       >
-        <div className="flex items-center justify-between gap-1">
+        <div className="relative flex items-center">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {selection && (
               <input
@@ -420,14 +402,40 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
               <TitleCell row={row} db={db} dragHandle={handle} tree={tree} />
             </div>
           </div>
-          <RowMenu
-            onOpen={() => db.openRow(row.id)}
-            onInsertAbove={() => void db.addRowBefore(row.id)}
-            onInsertBelow={() => void db.addRowAfter(row.id)}
-            onDuplicate={() => void db.duplicateRow(row.id)}
-            onSaveTemplate={() => void db.saveAsTemplate(row.id)}
-            onDelete={() => void db.deleteRow(row.id)}
-          />
+          {/* Row actions float over the cell's tail on hover instead of
+              reserving permanent width — the name keeps the full column.
+              (Centered via inset-y + items-center, not translate: the desktop
+              WKWebView doesn't apply Tailwind v4's `translate` property.) */}
+          <div className="absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 rounded-md bg-card pl-0.5 opacity-0 shadow-sm ring-1 ring-border/60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            {tree && (
+              <IconButton
+                size="sm"
+                onClick={tree.onAddSub}
+                className="text-muted-foreground/60"
+                aria-label="Add sub-item"
+                title="Add sub-item"
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </IconButton>
+            )}
+            <IconButton
+              size="sm"
+              onClick={() => db.openRow(row.id)}
+              className="text-muted-foreground/60"
+              aria-label="Open row"
+              title="Open in split"
+            >
+              <PanelRightOpen className="h-3.5 w-3.5" />
+            </IconButton>
+            <RowMenu
+              onOpen={() => db.openRow(row.id)}
+              onInsertAbove={() => void db.addRowBefore(row.id)}
+              onInsertBelow={() => void db.addRowAfter(row.id)}
+              onDuplicate={() => void db.duplicateRow(row.id)}
+              onSaveTemplate={() => void db.saveAsTemplate(row.id)}
+              onDelete={() => void db.deleteRow(row.id)}
+            />
+          </div>
         </div>
       </td>
       {columns.map((property) => {
