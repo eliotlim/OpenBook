@@ -554,15 +554,20 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
   }
   const exit = relative ? () => setEditing(false) : undefined;
 
+  // `required` marks an *empty* native date input :invalid, which the CSS uses
+  // to hide its dd/mm/yyyy scaffold until the row is hovered or it's focused
+  // (date inputs have no placeholder to restyle). See `.ob-date-empty` rules.
   if (!property.dateRange) {
+    const start = dateStart(value);
     return (
       <input
         type={inputType}
         autoFocus={relative}
-        defaultValue={dateStart(value) ?? ''}
+        required={!start}
+        defaultValue={start ?? ''}
         onChange={(e) => onChange(e.target.value || null)}
         onBlur={exit}
-        className={inputClass}
+        className={cn(inputClass, 'ob-date-empty')}
         aria-label={property.name}
       />
     );
@@ -572,23 +577,26 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
   const emit = (next: DateRange) => onChange(next.start || next.end ? next : null);
   return (
     <div
-      className="flex items-center gap-1 px-1 text-sm"
+      className="group/dates flex items-center gap-1 px-1 text-sm"
       onBlur={exit ? (e) => !e.currentTarget.contains(e.relatedTarget as Node) && exit() : undefined}
     >
       <input
         type={inputType}
         autoFocus={relative}
+        required={!start}
         defaultValue={start ?? ''}
         onChange={(e) => emit({start: e.target.value || null, end})}
-        className="bg-transparent py-1 outline-hidden focus:bg-accent/40"
+        className="ob-date-empty bg-transparent py-1 outline-hidden focus:bg-accent/40"
         aria-label={`${property.name} start`}
       />
-      <span className="text-muted-foreground/50">→</span>
+      {/* Visible whenever either end has a value, otherwise only on hover/edit. */}
+      <span className={cn('text-muted-foreground/50', !start && !end && 'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within/dates:opacity-100')}>→</span>
       <input
         type={inputType}
+        required={!end}
         defaultValue={end ?? ''}
         onChange={(e) => emit({start, end: e.target.value || null})}
-        className="bg-transparent py-1 outline-hidden focus:bg-accent/40"
+        className="ob-date-empty bg-transparent py-1 outline-hidden focus:bg-accent/40"
         aria-label={`${property.name} end`}
       />
     </div>

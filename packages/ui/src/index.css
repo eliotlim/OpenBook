@@ -200,6 +200,25 @@
   }
 }
 
+/* ── Empty date cells ────────────────────────────────────────────────────── */
+/* Native date inputs paint a dd/mm/yyyy scaffold + picker icon even when
+   empty, which makes a sparse table read as a grid of format hints. They get
+   `required` only while empty (so :invalid means "no value"); hide the
+   scaffold until the row is hovered or the field focused, matching the
+   hover-revealed "Empty" placeholder of the other cell types. */
+.ob-date-empty:required:invalid:not(:focus) {
+  color: transparent;
+}
+.ob-date-empty:required:invalid:not(:focus)::-webkit-calendar-picker-indicator {
+  opacity: 0;
+}
+.group:hover .ob-date-empty:required:invalid {
+  color: hsl(var(--muted-foreground) / 0.5);
+}
+.group:hover .ob-date-empty:required:invalid::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+}
+
 /* ── Thin, unobtrusive scrollbars ───────────────────────────────────────── */
 * {
   scrollbar-width: thin;
