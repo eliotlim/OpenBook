@@ -79,3 +79,17 @@ Post-v0 follow-ups surfaced during `/office-hours` (2026-05-27) and `/plan-eng-r
 **Context:** Approach C from the original alternatives — the cold-read second opinion's preferred direction (artifact-as-product). Deferred from v0 to keep the weekend bounded.
 
 **Depends on / blocked by:** v0 ships and is dogfooded for at least 1 week on a real interactive report; only then commit to v1.
+
+---
+
+## T6 — Editor undo/redo (block-level)
+
+**What:** ⌘Z/⇧⌘Z across block operations (delete/move/insert/convert). Today only the browser's native per-block contenteditable undo exists; deleting or moving a block is irreversible.
+
+**Why:** Undo is a baseline editor trust feature — its absence is the largest remaining interaction gap after the 2026-06-10 polish pass.
+
+**Pros:** `editorjs-undo` exists and pairs with the already-used `editorjs-drag-drop`.
+
+**Cons / landmines:** The plugin restores snapshots via a full `editor.render()` — exactly the remount-everything path `liveSync`'s diff renderer was built to avoid (reactive blocks re-run side effects → save-loop risk, ARCHITECTURE §4). It also restores state programmatically, so `userEditedRef` (which gates autosave on genuine `input`/`beforeinput` events) would treat the undone state as not-an-edit and never persist it. A correct integration likely means a custom history stack that replays through `planBlockSync` instead of `render`, and an explicit "undo counts as a user edit" hook into the autosave gate.
+
+**Depends on / blocked by:** Nothing external; needs a focused session with the reactive save-loop e2e (`reactive.spec.ts`) as the regression gate.
