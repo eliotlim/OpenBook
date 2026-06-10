@@ -6,6 +6,7 @@
  * exported file carries a whole navigable mini-site.
  */
 import type {DataClient, DatabaseRow, DatabaseSchema, PageSnapshot} from '@open-book/sdk';
+import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 import {readPageIcon} from '@/lib/pageIcon';
 
 /** A database hosted by a page, projected for static rendering. */
@@ -34,7 +35,8 @@ export interface SiteBundle {
 const MAX_PAGES = 400;
 
 /** Page ids a snapshot references: subpage/database blocks and inline `@`-mentions. */
-export function referencedPageIds(snapshot: PageSnapshot): string[] {
+export function referencedPageIds(rawSnapshot: PageSnapshot): string[] {
+  const snapshot = blockSnapshotToEditorJs(rawSnapshot);
   const ids = new Set<string>();
   const blocks = (snapshot.editorjs as {blocks?: Array<{type?: string; data?: Record<string, unknown>}>} | undefined)?.blocks ?? [];
   const fromStrings = (v: unknown): void => {
@@ -77,7 +79,7 @@ export async function gatherSite(
     const isRoot = id === rootId;
     if (!stored && !isRoot) continue;
 
-    const snapshot = isRoot ? root.snapshot : stored!.data;
+    const snapshot = blockSnapshotToEditorJs(isRoot ? root.snapshot : stored!.data);
     const title = (isRoot ? root.title : stored!.name ?? '').trim() || 'Untitled';
     const page: SitePage = {id, title, icon: isRoot ? root.icon : readPageIcon(id), snapshot};
     pages.set(id, page);

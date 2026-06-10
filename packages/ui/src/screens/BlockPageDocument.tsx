@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import * as Y from 'yjs';
-import {Download, FileCode, FileText as FileTextIcon, MoreHorizontal, Trash2} from 'lucide-react';
+import {Download, FileCode, FileText as FileTextIcon, FileType, MoreHorizontal, Trash2} from 'lucide-react';
 import type {PageSnapshot} from '@open-book/sdk';
 import {
   DropdownMenu,
@@ -16,12 +16,15 @@ import {BlockEditor} from '@/blockeditor/BlockEditor';
 import {
   createSeededDoc,
   decodeSnapshot,
-  docToJSON,
   encodeSnapshot,
   migrateEditorJs,
   type BlockDocSnapshot,
 } from '@/blockeditor/model';
-import {blocksToHtml, blocksToMarkdown} from '@/blockeditor/exportBlocks';
+import {blockSnapshotToEditorJs} from '@/blockeditor/exportBlocks';
+import {buildDocumentModel} from '@/export/documentModel';
+import {toMarkdown} from '@/export/toMarkdown';
+import {downloadBlob} from '@/lib/download';
+import {useData} from '@/data';
 import {connectBroadcast} from '@/blockeditor/provider';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {PageProperties} from '@/components/PageProperties';
@@ -62,6 +65,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
 }) => {
   const {hud} = useHud();
   const {t} = useTranslation();
+  const client = useData();
   const [doc, setDoc] = useState<Y.Doc | null>(null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'save failed'>('idle');
   const lastSnapshot = useRef<PageSnapshot | null>(null);
@@ -79,7 +83,9 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         return;
       }
       const legacy = (snap?.editorjs as {blocks?: {type: string; data: Record<string, unknown>}[]} | undefined)?.blocks;
-      setDoc(createSeededDoc(migrateEditorJs(legacy ?? []), `mig-${pageId ?? 'page'}`));
+      // The reactive context (cell values + the name index) rides along so
+      // sliders keep their live values and expr sources resolve to names.
+      setDoc(createSeededDoc(migrateEditorJs(legacy ?? [], {values: snap?.values, names: snap?.names}), `mig-${pageId ?? 'page'}`));
     })();
     return () => {
       cancelled = true;
@@ -140,15 +146,34 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   }, [doc, pageId]);
 
   // ── Export ────────────────────────────────────────────────────────────────
-  const handleExport = (kind: 'md' | 'html'): void => {
+  // The block document projects into the EditorJS shape, then rides the same
+  // pipeline as classic pages — markdown, paged/continuous PDF, and the
+  // interactive HTML site (live sliders/formulas, navigable subtree).
+  const handleExport = async (kind: 'md' | 'pdf-paged' | 'pdf-continuous' | 'html'): Promise<void> => {
     if (!doc) return;
-    const blocks = docToJSON(doc);
-    const name = safeFilename(title || 'untitled');
-    if (kind === 'md') {
-      downloadText(`${name}.md`, `# ${title}\n\n${blocksToMarkdown(blocks)}`, 'text/markdown');
-    } else {
-      const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body><h1>${title}</h1>\n${blocksToHtml(blocks)}</body></html>`;
-      downloadText(`${name}.html`, html, 'text/html');
+    const snapshot = blockSnapshotToEditorJs({
+      editorjs: {blocks: []},
+      values: [],
+      names: [],
+      editor: 'blocks',
+      blockdoc: encodeSnapshot(doc),
+    });
+    const base = safeFilename(title);
+    try {
+      if (kind === 'md') {
+        downloadText(`${base}.md`, toMarkdown(buildDocumentModel({title, icon, snapshot})), 'text/markdown');
+      } else if (kind === 'pdf-paged' || kind === 'pdf-continuous') {
+        const {toPdf} = await import('@/export/toPdf');
+        downloadBlob(`${base}.pdf`, await toPdf(buildDocumentModel({title, icon, snapshot}), kind === 'pdf-paged' ? 'paged' : 'continuous'));
+      } else {
+        const [{toHtmlSite}, {gatherSite}] = await Promise.all([import('@/export/toHtml'), import('@/export/exportSite')]);
+        const bundle = pageId
+          ? await gatherSite(client, pageId, {snapshot, title, icon})
+          : {rootId: '', pages: [{id: '', title, icon, snapshot}]};
+        downloadText(`${base}.html`, toHtmlSite(bundle), 'text/html');
+      }
+    } catch (e) {
+      console.error('BlockPageDocument: export failed:', e);
     }
   };
 
@@ -174,13 +199,21 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
                     {t('page.export')}
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
-                    <DropdownMenuItem onClick={() => handleExport('md')}>
+                    <DropdownMenuItem onClick={() => void handleExport('md')}>
                       <FileTextIcon className="mr-2 h-4 w-4" />
                       {t('page.exportMarkdown')}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => handleExport('html')}>
+                    <DropdownMenuItem onClick={() => void handleExport('html')}>
                       <FileCode className="mr-2 h-4 w-4" />
                       {t('page.exportHtml')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void handleExport('pdf-paged')}>
+                      <FileType className="mr-2 h-4 w-4" />
+                      {t('page.exportPdfPaged')}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => void handleExport('pdf-continuous')}>
+                      <FileType className="mr-2 h-4 w-4" />
+                      {t('page.exportPdfContinuous')}
                     </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>

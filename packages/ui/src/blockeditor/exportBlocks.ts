@@ -18,7 +18,8 @@ function runToHtml(run: TextRun): string {
   if (a.i) out = `<em>${out}</em>`;
   if (a.u) out = `<u>${out}</u>`;
   if (a.s) out = `<s>${out}</s>`;
-  if (a.a) out = `<a href="${escapeHtml(a.a)}">${out}</a>`;
+  if (a.m) out = `<a class="ob-mention" data-page-id="${escapeHtml(a.m)}">${out}</a>`;
+  else if (a.a) out = `<a href="${escapeHtml(a.a)}">${out}</a>`;
   return out;
 }
 
@@ -172,4 +173,138 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
     }
   }
   return out.join('\n\n');
+}
+
+// ── EditorJS adapter (the bridge into the app's export pipeline) ─────────────
+
+interface EditorJsOut {
+  blocks: Array<{id?: string; type: string; data: Record<string, unknown>}>;
+  values: Array<[string, unknown]>;
+  names: Array<[string, string]>;
+}
+
+const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Project a block document into the EditorJS shape the export pipeline
+ * (markdown / PDF / the interactive HTML site) consumes — so block pages get
+ * every exporter, including the live reactive runtime, without a second
+ * pipeline. Sliders/formulas become reactive blocks keyed by their block id
+ * (formula sources have slider names re-tokenized to `__C__{id}__`, the
+ * format the export runtime evaluates); columns flatten in reading order.
+ */
+export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
+  const out: EditorJsOut = {blocks: [], values: [], names: []};
+
+  // First pass: slider names → block ids (for formula re-tokenizing).
+  const sliders: Array<{id: string; name: string}> = [];
+  const collect = (list: BlockJSON[]): void => {
+    for (const b of list) {
+      if (b.type === 'slider') sliders.push({id: b.id, name: String(b.props?.name ?? 'x')});
+      if (b.children) for (const child of b.children) collect([child, ...(child.children ?? [])]);
+    }
+  };
+  collect(blocks);
+  sliders.sort((a, b) => b.name.length - a.name.length); // longest names first
+
+  const tokenize = (source: string): string => {
+    let s = source;
+    for (const {id, name} of sliders) {
+      s = s.replace(new RegExp(`\\b${escapeRe(name)}\\b`, 'g'), `__C__{${id}}__`);
+    }
+    return s;
+  };
+
+  const emit = (list: BlockJSON[]): void => {
+    let i = 0;
+    while (i < list.length) {
+      const b = list[i];
+      switch (b.type) {
+      case 'heading':
+        out.blocks.push({id: b.id, type: 'header', data: {text: textHtml(b.text), level: Number(b.props?.level ?? 2)}});
+        i += 1;
+        break;
+      case 'list': {
+        const kind = (b.props?.kind as string) ?? 'bullet';
+        const items: string[] = [];
+        while (i < list.length && list[i].type === 'list' && ((list[i].props?.kind as string) ?? 'bullet') === kind) {
+          items.push(textHtml(list[i].text));
+          i += 1;
+        }
+        out.blocks.push({type: 'list', data: {style: kind === 'number' ? 'ordered' : 'unordered', items}});
+        break;
+      }
+      case 'todo': {
+        const items: Array<{text: string; checked: boolean}> = [];
+        while (i < list.length && list[i].type === 'todo') {
+          items.push({text: textHtml(list[i].text), checked: Boolean(list[i].props?.checked)});
+          i += 1;
+        }
+        out.blocks.push({type: 'checklist', data: {items}});
+        break;
+      }
+      case 'quote':
+        out.blocks.push({id: b.id, type: 'quote', data: {text: textHtml(b.text)}});
+        i += 1;
+        break;
+      case 'callout':
+        out.blocks.push({id: b.id, type: 'callout', data: {variant: (b.props?.variant as string) ?? 'info', text: textHtml(b.text)}});
+        i += 1;
+        break;
+      case 'code':
+        out.blocks.push({id: b.id, type: 'code', data: {code: (b.text ?? []).map((r) => r.t).join(''), language: b.props?.language}});
+        i += 1;
+        break;
+      case 'divider':
+        out.blocks.push({id: b.id, type: 'divider', data: {style: 'line'}});
+        i += 1;
+        break;
+      case 'table': {
+        const content = (b.children ?? []).map((row) => (row.children ?? []).map((cell) => textHtml(cell.text)));
+        out.blocks.push({id: b.id, type: 'table', data: {withHeadings: Boolean(b.props?.header), content}});
+        i += 1;
+        break;
+      }
+      case 'columns':
+        // The export model is single-column: flatten in reading order.
+        for (const col of b.children ?? []) emit(col.children ?? []);
+        i += 1;
+        break;
+      case 'slider': {
+        const name = String(b.props?.name ?? 'x');
+        const value = Number(b.props?.value ?? 50);
+        out.blocks.push({
+          id: b.id,
+          type: 'slider',
+          data: {name, min: Number(b.props?.min ?? 0), max: Number(b.props?.max ?? 100), step: 1, initial: value},
+        });
+        out.values.push([b.id, value]);
+        out.names.push([name, b.id]);
+        i += 1;
+        break;
+      }
+      case 'formula': {
+        out.blocks.push({id: b.id, type: 'expr', data: {name: '', source: tokenize(String(b.props?.source ?? ''))}});
+        i += 1;
+        break;
+      }
+      default:
+        out.blocks.push({id: b.id, type: 'paragraph', data: {text: textHtml(b.text)}});
+        i += 1;
+      }
+    }
+  };
+  emit(blocks);
+  return out;
+}
+
+/** Snapshot-level normalization: pages written by the block editor project
+ *  into the EditorJS shape; everything else passes through untouched. Export
+ *  entry points call this so mixed trees (an EditorJS parent linking block
+ *  subpages, or vice versa) export every page faithfully. */
+export function blockSnapshotToEditorJs<T extends {editor?: string; blockdoc?: unknown}>(snapshot: T): T {
+  if (!snapshot || snapshot.editor !== 'blocks' || !snapshot.blockdoc) return snapshot;
+  const blocks = ((snapshot.blockdoc as {blocks?: BlockJSON[]}).blocks ?? []) as BlockJSON[];
+  const projected = blocksToEditorJs(blocks);
+  return {...snapshot, editorjs: {blocks: projected.blocks}, values: projected.values, names: projected.names};
 }

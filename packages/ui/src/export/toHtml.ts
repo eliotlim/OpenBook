@@ -11,6 +11,7 @@
  *   client-side router, and databases drawn as tables of navigable rows.
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@open-book/sdk';
+import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
 // then Plot's UMD (which expects a global d3) sets `window.Plot`. Inlined only
 // when the document actually has a chart, and code-split (this module is a
@@ -354,7 +355,8 @@ ${reactive}${nav}
 }
 
 /** Build the interactive HTML for a single page snapshot (Markdown/PDF parity). */
-export function toHtml(snapshot: PageSnapshot, title: string, icon: string): string {
+export function toHtml(rawSnapshot: PageSnapshot, title: string, icon: string): string {
+  const snapshot = blockSnapshotToEditorJs(rawSnapshot);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
   loadSnapshot(snapshot, values, nameByCell);

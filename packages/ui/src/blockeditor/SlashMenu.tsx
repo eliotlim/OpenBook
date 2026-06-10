@@ -78,7 +78,7 @@ export const SlashMenu: React.FC<{
   onClose: () => void;
 }> = ({state, editor, anchorEl, rootEl, onClose}) => {
   const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{left: number; top: number}>({left: 0, top: 0});
+  const [pos, setPos] = useState<{left: number; top: number; maxHeight: number} | null>(null);
   const [index, setIndex] = useState(0);
 
   const items = useMemo(() => {
@@ -93,16 +93,32 @@ export const SlashMenu: React.FC<{
     return [...SLASH_ITEMS, ...custom].filter((item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q));
   }, [state.query]);
 
+  // Fixed (viewport) positioning: anchored to the caret, measured after
+  // render, flipped above the line when there's no room below, clamped to the
+  // viewport edges. `pos === null` renders the menu invisibly for measuring
+  // (the anchor block can mount a frame later than the menu — e.g. the “+”
+  // gutter button inserts a block and opens the menu in the same action).
   useLayoutEffect(() => {
-    if (!anchorEl || !rootEl) return;
     const sel = document.getSelection();
     const rect =
-      sel && sel.rangeCount > 0 && anchorEl.contains(sel.anchorNode)
+      sel && sel.rangeCount > 0 && anchorEl?.contains(sel.anchorNode)
         ? sel.getRangeAt(0).getBoundingClientRect()
-        : anchorEl.getBoundingClientRect();
-    const host = rootEl.getBoundingClientRect();
-    setPos({left: Math.min(rect.left - host.left, host.width - 280), top: rect.bottom - host.top + 6});
-  }, [anchorEl, rootEl, state.anchorOffset]);
+        : anchorEl?.getBoundingClientRect();
+    if (!rect || (rect.width === 0 && rect.height === 0 && rect.x === 0 && rect.y === 0)) return;
+    const menu = ref.current;
+    const menuH = menu?.offsetHeight ?? 304;
+    const menuW = menu?.offsetWidth ?? 272;
+    // Open into whichever side of the caret line has more room, and never
+    // cover the line itself: the menu's height caps to the chosen side.
+    const below = window.innerHeight - rect.bottom - 14;
+    const above = rect.top - 14;
+    const flip = menuH > below && above > below;
+    const maxHeight = Math.max(120, Math.min(304, flip ? above : below));
+    const shownH = Math.min(menuH, maxHeight);
+    const top = flip ? Math.max(8, rect.top - 6 - shownH) : rect.bottom + 6;
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuW - 8));
+    setPos({left, top, maxHeight});
+  }, [anchorEl, rootEl, state.anchorOffset, items.length]);
 
   useEffect(() => setIndex(0), [state.query]);
 
@@ -143,7 +159,7 @@ export const SlashMenu: React.FC<{
     <div
       ref={ref}
       className="obe-slash"
-      style={{left: pos.left, top: pos.top}}
+      style={pos ? {left: pos.left, top: pos.top, maxHeight: pos.maxHeight} : {left: 0, top: 0, visibility: 'hidden'}}
       role="listbox"
       aria-label="Insert a block"
     >

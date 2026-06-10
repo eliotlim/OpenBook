@@ -12,16 +12,6 @@ export interface ConnectedPageDocumentProps {
   pageId: string;
 }
 
-/** True when no editor has written meaningful content to this page yet
- *  (empty/absent EditorJS doc and no block doc) — the only case where the
- *  "use the block editor" preference may switch a page's editor. Legacy
- *  pages with content stay in EditorJS unless opened with ?editor=next. */
-function isUnstamped(data: PageSnapshot | undefined): boolean {
-  if (!data) return true;
-  if (data.editor === 'blocks' || data.blockdoc) return false;
-  const blocks = (data.editorjs as {blocks?: unknown[]} | undefined)?.blocks;
-  return !blocks || blocks.length === 0;
-}
 
 /**
  * A {@link PageDocument} wired to the data client + {@link NavigationProvider}.
@@ -94,12 +84,13 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
       .getPage(pageId)
       .then((page) => {
         if (cancelled) return;
-        // ?editor=next forces the block editor (including migrating a legacy
-        // document); the Settings preference is gentler — it only applies to
-        // pages no editor has written content to yet.
+        // The block editor wins when: the page was written by it, the URL
+        // forces it (?editor=next), or the Settings preference is on — the
+        // preference migrates legacy documents too (the EditorJS payload
+        // stays in the snapshot, so switching back loses nothing written
+        // before the migration).
         const forced = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('editor') === 'next';
-        const preferred = preferences.general.blockEditor && isUnstamped(page?.data);
-        setEditorKind(page?.data?.editor === 'blocks' || forced || preferred ? 'blocks' : 'editorjs');
+        setEditorKind(page?.data?.editor === 'blocks' || forced || preferences.general.blockEditor ? 'blocks' : 'editorjs');
       })
       .catch(() => {
         if (!cancelled) setEditorKind('editorjs');

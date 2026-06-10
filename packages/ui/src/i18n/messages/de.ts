@@ -289,7 +289,7 @@ export const de: PartialMessages = {
     spellcheck: 'Rechtschreibprüfung beim Tippen',
     spellcheckHint: 'Falsch geschriebene Wörter im Editor unterstreichen.',
     blockEditor: 'Block-Editor (Beta)',
-    blockEditorHint: 'Neue Seiten im kollaborativen Editor der nächsten Generation öffnen. Bestehende Seiten behalten ihren Editor.',
+    blockEditorHint: 'Dokumente im kollaborativen Editor der nächsten Generation öffnen. Bestehende Seiten werden beim Öffnen migriert.',
   },
   profile: {
     title: 'Profil',

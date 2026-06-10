@@ -105,14 +105,15 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
         return;
       }
       const rect = domSel.getRangeAt(0).getBoundingClientRect();
-      const host = rootRef.current!.getBoundingClientRect();
       const found = findBlock(doc, id);
       const text = found && blockText(found.block);
-      // Clamp so the (centered, ~220px wide) toolbar never clips at the edges.
-      const half = 120;
+      // Viewport (fixed) coords: centered over the selection, clamped at the
+      // edges, dropped below the selection when the line sits near the top.
+      const half = 124;
+      const nearTop = rect.top < 56;
       setToolbar({
-        left: Math.max(half, Math.min(rect.left - host.left + rect.width / 2, host.width - half)),
-        top: Math.max(34, rect.top - host.top),
+        left: Math.max(half, Math.min(rect.left + rect.width / 2, window.innerWidth - half)),
+        top: nearTop ? rect.bottom + 44 : rect.top,
         active: text
           ? {
             b: rangeHasAttr(text, sel.start, sel.end, 'b'),
@@ -283,6 +284,21 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
       onKeyDownCapture={onRootKeyDownCapture}
       onMouseDown={(e) => {
         if (e.target === rootRef.current) editor.clearSelection();
+      }}
+      onClick={(e) => {
+        // Clicking the open space below the last block continues the page:
+        // focus a trailing empty paragraph, creating one if needed.
+        if (e.target !== rootRef.current || readOnly) return;
+        const rows = rootRef.current.querySelectorAll(':scope > [data-block-row]');
+        const lastRow = rows[rows.length - 1] as HTMLElement | undefined;
+        if (lastRow && e.clientY <= lastRow.getBoundingClientRect().bottom) return;
+        const root = rootBlocks(doc);
+        const last = root.length > 0 ? root.get(root.length - 1) : null;
+        if (last && blockType(last) === 'paragraph' && (blockText(last)?.length ?? 0) === 0) {
+          editor.requestCaret({blockId: blockId(last), offset: 0});
+        } else {
+          editor.insertAfter(last ? blockId(last) : null, {type: 'paragraph'});
+        }
       }}
     >
       <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} />

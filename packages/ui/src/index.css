@@ -1002,7 +1002,7 @@ a.obe-mention {
 
 /* Slash menu */
 .obe-slash {
-  position: absolute;
+  position: fixed;
   z-index: 50;
   width: 17rem;
   max-height: 19rem;
@@ -1010,7 +1010,10 @@ a.obe-mention {
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
   border-radius: 10px;
-  box-shadow: 0 10px 30px -8px hsl(var(--foreground) / 0.18);
+  /* Quiet elevation: a hairline ring + a soft, tight shadow. */
+  box-shadow:
+    0 0 0 1px hsl(var(--foreground) / 0.03),
+    0 3px 10px -3px hsl(var(--foreground) / 0.1);
   padding: 0.3rem;
 }
 .obe-slash-item {
@@ -1030,7 +1033,7 @@ a.obe-mention {
 
 /* Inline toolbar */
 .obe-toolbar {
-  position: absolute;
+  position: fixed;
   z-index: 50;
   transform: translate(-50%, calc(-100% - 8px));
   display: flex;
@@ -1039,7 +1042,9 @@ a.obe-mention {
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
   border-radius: 9px;
-  box-shadow: 0 8px 24px -6px hsl(var(--foreground) / 0.18);
+  box-shadow:
+    0 0 0 1px hsl(var(--foreground) / 0.03),
+    0 3px 10px -3px hsl(var(--foreground) / 0.1);
   padding: 3px;
 }
 .obe-tb-btn {

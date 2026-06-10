@@ -241,3 +241,35 @@ describe('editorjs migration', () => {
     expect(migrateEditorJs([])).toEqual([{type: 'paragraph'}]);
   });
 });
+
+describe('editorjs migration — full app coverage', () => {
+  it('migrates reactive, navigation, and layout-adjacent blocks', () => {
+    const blocks = migrateEditorJs(
+      [
+        {type: 'toc', data: {}},
+        {type: 'accordion', data: {title: 'More', content: 'Hidden <b>body</b>'}},
+        {type: 'button', data: {label: 'Visit', url: 'https://x.y'}},
+        {type: 'subpage', data: {kind: 'page', pageId: 'pg-1'}},
+        {type: 'database', data: {pageId: 'pg-db'}},
+        {type: 'slider', data: {cellId: 'c1', name: 'speed', min: 0, max: 10, initial: 3}},
+        {type: 'expr', data: {name: 'out', source: '__C__{c1}__ * 2 + @speed'}},
+        {type: 'chart', data: {refCellIds: ['c9']}},
+      ],
+      {values: [['c1', 7]], names: [['speed', 'c1']]},
+    );
+    const types = blocks.map((b) => b.type);
+    expect(types).toEqual(['heading', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'slider', 'formula', 'callout']);
+    // toc skipped; accordion → heading + paragraph with formatting kept
+    expect(blocks[1].text).toEqual([{t: 'Hidden '}, {t: 'body', a: {b: true}}]);
+    // button keeps its link; subpage/database survive as mention runs
+    expect(blocks[2].text).toEqual([{t: 'Visit', a: {a: 'https://x.y'}}]);
+    expect((blocks[3].text as {a?: {m?: string}}[])[0].a?.m).toBe('pg-1');
+    expect((blocks[4].text as {a?: {m?: string}}[])[0].a?.m).toBe('pg-db');
+    // slider carries the LIVE value (7), not the stale initial (3)
+    expect(blocks[5].props).toMatchObject({name: 'speed', min: 0, max: 10, value: 7});
+    // expr tokens and @refs resolve to plain names
+    expect(blocks[6].props).toEqual({source: 'speed * 2 + speed'});
+    // chart leaves an honest marker
+    expect(blocks[7].props).toMatchObject({variant: 'warn'});
+  });
+});

@@ -9,6 +9,7 @@
  * browser and happy-dom) so it is unit-tested directly.
  */
 import type {PageSnapshot} from '@open-book/sdk';
+import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 import {normalizeChartInput, type NormalizedSeries} from '@/reactive/chartNormalize';
 
 export interface InlineRun {
@@ -121,7 +122,10 @@ export interface BuildModelOptions {
   snapshot: PageSnapshot;
 }
 
-export function buildDocumentModel({title, icon, snapshot}: BuildModelOptions): DocModel {
+export function buildDocumentModel({title, icon, snapshot: rawSnapshot}: BuildModelOptions): DocModel {
+  // Pages written by the CRDT block editor project into the EditorJS shape
+  // first, so every exporter below works on one block dialect.
+  const snapshot = blockSnapshotToEditorJs(rawSnapshot);
   const blocks = ((snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? []) as RawBlock[];
   const values = new Map<string, unknown>(snapshot.values as Array<[string, unknown]>);
   const nameByCell = new Map<string, string>();

@@ -308,7 +308,7 @@ export const en = {
     spellcheck: 'Spellcheck while typing',
     spellcheckHint: 'Underline misspelled words in the editor.',
     blockEditor: 'Block editor (beta)',
-    blockEditorHint: 'Open new pages in the next-generation collaborative editor. Pages keep whichever editor wrote them.',
+    blockEditorHint: 'Open documents in the next-generation collaborative editor. Legacy pages are migrated on open; turning this off returns un-migrated pages to the classic editor.',
   },
   profile: {
     title: 'Profile',

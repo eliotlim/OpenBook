@@ -640,12 +640,32 @@ export function htmlToRuns(html: string): TextRun[] {
   return runs;
 }
 
+/** Reactive context for migration: cell values + the name index, straight
+ *  from the page snapshot (`values` / `names`). */
+export interface MigrationContext {
+  values?: Array<[string, unknown]>;
+  names?: Array<[string, string]>;
+}
+
+/** Rewrite an ExprBlock source: `__C__{cellId}__` tokens (and `@name` refs)
+ *  become plain variable names, which is what the formula block evaluates. */
+function rewriteExprSource(source: string, nameOf: Map<string, string>): string {
+  return source
+    .replace(/__C__\{([^}]+)\}__/g, (_, cellId: string) => nameOf.get(cellId) ?? `missing_${String(cellId).replace(/\W/g, '_')}`)
+    .replace(/@([A-Za-z_][\w]*)/g, '$1');
+}
+
 /**
- * One-way migration of an EditorJS document into the block model. Unknown
- * block types degrade to a paragraph carrying their text (nothing is lost
- * silently — the original snapshot stays on the page for rollback).
+ * One-way migration of an EditorJS document into the block model. Every block
+ * type the app ships maps to something — reactive blocks (slider/expr) become
+ * the editor's reactive plugins, links to nested pages survive as mention
+ * runs, derived blocks (toc) are skipped, and the rest degrade to readable
+ * text. Nothing is lost silently — the original snapshot stays on the page.
  */
-export function migrateEditorJs(blocks: EditorJsBlock[]): NewBlock[] {
+export function migrateEditorJs(blocks: EditorJsBlock[], ctx: MigrationContext = {}): NewBlock[] {
+  const values = new Map(ctx.values ?? []);
+  // names is [name, cellId][] — invert to cellId → name for token rewriting.
+  const nameOf = new Map((ctx.names ?? []).map(([name, cellId]) => [cellId, name] as const));
   const out: NewBlock[] = [];
   for (const block of blocks) {
     const d = block.data ?? {};
@@ -697,6 +717,59 @@ export function migrateEditorJs(blocks: EditorJsBlock[]): NewBlock[] {
           })),
         });
       }
+      break;
+    }
+    case 'toc':
+      break; // derived from headings — nothing to migrate
+    case 'accordion': {
+      // No toggle block (yet): keep both halves readable.
+      if (d.title) out.push({type: 'heading', text: htmlToRuns(String(d.title)), props: {level: 3}});
+      if (d.content) out.push({type: 'paragraph', text: htmlToRuns(String(d.content))});
+      break;
+    }
+    case 'button': {
+      const url = String(d.url ?? '');
+      const label = String(d.label ?? '') || url;
+      if (url || label) out.push({type: 'paragraph', text: [{t: label, ...(url ? {a: {a: url}} : {})}]});
+      break;
+    }
+    case 'subpage': {
+      const pageId = typeof d.pageId === 'string' ? d.pageId : '';
+      if (pageId) {
+        out.push({
+          type: 'paragraph',
+          text: [{t: d.kind === 'database' ? '🗃 Sub-database' : '📄 Sub-page', a: {m: pageId}}],
+        });
+      }
+      break;
+    }
+    case 'database': {
+      const pageId = typeof d.pageId === 'string' ? d.pageId : '';
+      if (pageId) out.push({type: 'paragraph', text: [{t: '🗃 Inline database', a: {m: pageId}}]});
+      break;
+    }
+    case 'slider': {
+      const cellId = typeof d.cellId === 'string' ? d.cellId : '';
+      const live = values.get(cellId);
+      out.push({
+        type: 'slider',
+        props: {
+          name: String(d.name ?? nameOf.get(cellId) ?? 'x'),
+          min: Number(d.min ?? 0),
+          max: Number(d.max ?? 100),
+          value: typeof live === 'number' ? live : Number(d.initial ?? 50),
+        },
+      });
+      break;
+    }
+    case 'expr': {
+      out.push({type: 'formula', props: {source: rewriteExprSource(String(d.source ?? ''), nameOf)}});
+      break;
+    }
+    case 'chart': {
+      // No chart block yet — leave an honest, visible marker instead of
+      // silently dropping it.
+      out.push({type: 'callout', text: 'Chart block — not yet supported in the new editor.', props: {variant: 'warn'}});
       break;
     }
     default: {

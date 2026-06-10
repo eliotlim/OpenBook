@@ -266,6 +266,53 @@ test('reactive plugins: a slider drives a live formula', async ({page}) => {
   await expect(page.locator('.obe-formula-out')).toHaveText('21');
 });
 
+test('block page: interactive HTML export stays live offline', async ({page, request, context}) => {
+  // A legacy reactive page, migrated into the block editor on open.
+  const res = await request.post('http://127.0.0.1:4319/api/pages', {
+    data: {
+      name: `BlockExport ${Date.now()}`,
+      data: {
+        editorjs: {
+          blocks: [
+            {id: 'h', type: 'header', data: {text: 'Live export', level: 2}},
+            {id: 'm1', type: 'slider', data: {cellId: 'm1', name: 'n', min: 0, max: 10, initial: 3}},
+            {id: 'e1', type: 'expr', data: {name: 'doubled', source: '__C__{m1}__ * 2'}},
+          ],
+        },
+        values: [['m1', 3]],
+        names: [['n', 'm1']],
+      },
+    },
+  });
+  const {id} = (await res.json()) as {id: string};
+  await page.goto(`/?page=${id}&editor=next`);
+  await expect(page.locator('.obe-root')).toBeVisible();
+  await expect(page.locator('.obe-formula-out')).toHaveText('6'); // migrated and computing
+
+  // Export Interactive HTML from the block page's menu.
+  await page.getByRole('button', {name: 'Page actions'}).click();
+  await page.getByRole('menuitem', {name: 'Export'}).click();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('menuitem', {name: 'Interactive HTML'}).click(),
+  ]);
+  const {readFile} = await import('node:fs/promises');
+  const html = await readFile((await download.path())!, 'utf8');
+
+  // The exported file is fully offline-interactive: move the slider, the
+  // formula recomputes.
+  const viewer = await context.newPage();
+  await viewer.route('**/*', (route) => route.abort());
+  await viewer.setContent(html, {waitUntil: 'load'});
+  const out = viewer.locator('.expr [data-val]').first();
+  await expect(out).toHaveText('6');
+  const input = viewer.locator('.slider input').first();
+  await input.fill('9');
+  await input.dispatchEvent('input');
+  await expect(out).toHaveText('18');
+  await viewer.close();
+});
+
 test('table editing: type in cells, add a row and a column', async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);

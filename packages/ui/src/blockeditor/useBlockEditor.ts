@@ -130,6 +130,14 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
       return ids;
     };
 
+    const orderedTextIds = (): string[] => {
+      const ids: string[] = [];
+      for (const {block} of walkBlocks(rootBlocks(doc))) {
+        if (TEXT_BLOCKS.has(blockType(block)) && blockText(block)) ids.push(block.get('id') as string);
+      }
+      return ids;
+    };
+
     return {
       doc,
       version,
@@ -160,7 +168,23 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
           return;
         }
         const merged = mergeWithPrevious(doc, blockId);
-        if (merged) requestCaret({blockId: merged.id, offset: merged.offset});
+        if (merged) {
+          requestCaret({blockId: merged.id, offset: merged.offset});
+          return;
+        }
+        // No text merge possible (first in its list, or the previous sibling
+        // is a divider/table/layout). An EMPTY block still deletes: caret
+        // lands on the previous text block, or the non-text neighbour gets
+        // block-selected — never strand the user.
+        const empty = (blockText(found.block)?.length ?? 0) === 0;
+        const onlyBlock = found.parent === rootBlocks(doc) && found.parent.length === 1;
+        if (!empty || onlyBlock || type === 'cell') return;
+        const order = orderedTextIds();
+        const prevText = order[order.indexOf(blockId) - 1];
+        const prevSibling = found.index > 0 ? found.parent.get(found.index - 1) : null;
+        removeBlock(doc, blockId);
+        if (prevText) requestCaret({blockId: prevText, offset: 'end'});
+        else if (prevSibling) setSelection([prevSibling.get('id') as string]);
       },
 
       insertAfter(blockId, block) {
@@ -220,13 +244,7 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
         moveWithin(doc, id, delta === 1 ? found.index + 1 : found.index - 1);
       },
 
-      textBlockIds() {
-        const ids: string[] = [];
-        for (const {block} of walkBlocks(rootBlocks(doc))) {
-          if (TEXT_BLOCKS.has(blockType(block)) && blockText(block)) ids.push(block.get('id') as string);
-        }
-        return ids;
-      },
+      textBlockIds: orderedTextIds,
     };
   }, [doc, version, undo, readOnly, selection, focusedId]);
 }
