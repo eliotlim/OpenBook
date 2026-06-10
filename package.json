@@ -78,6 +78,9 @@
         "use-resize-observer>react": "19",
         "use-resize-observer>react-dom": "19"
       }
+    },
+    "patchedDependencies": {
+      "@chromatic-com/playwright@0.14.5": "patches/@chromatic-com__playwright@0.14.5.patch"
     }
   }
 }

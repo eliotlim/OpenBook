@@ -1,0 +1,17 @@
+diff --git a/dist/index.js b/dist/index.js
+index 9988ae7a925ddafa5010d8566d2aa5f0ab44b2e4..8cc3fa0cc8c320005526755d4dca579a866c52e4 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -4140,6 +4140,12 @@ async function executeSnapshotScript(context) {
+     path: __require.resolve("@chromatic-com/playwright/browser")
+   });
+   const snapshot = await context.evaluate(async () => {
++    // The injected script tag is a *module*, which executes asynchronously —
++    // under load this evaluate can run before it has defined the global.
++    // Poll briefly so the snapshot doesn't crash with "not a function".
++    for (let i = 0; i < 200 && typeof window.__chromatic_takeSnapshot !== "function"; i += 1) {
++      await new Promise((resolve) => setTimeout(resolve, 25));
++    }
+     return JSON.stringify(await window.__chromatic_takeSnapshot());
+   });
+   return JSON.parse(snapshot);
