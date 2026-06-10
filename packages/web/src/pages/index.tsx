@@ -52,8 +52,10 @@ export default function Home() {
     <>
       <Head>
         <title>OpenBook</title>
-        <meta name="description" content="OpenBook" />
+        <meta name="description" content="OpenBook — a local-first block workspace" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {/* SVG mark first (modern browsers); .ico stays as the fallback. */}
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
       <PlatformLibraryProvider value={platform}>
