@@ -1,10 +1,14 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {useNavigation, useWorkspace} from '@/providers';
-import {readPageIcon} from '@/lib/pageIcon';
+import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 
 export default function BreadcrumbCluster() {
   const {workspace} = useWorkspace();
   const {pages, currentPageId, pageLabel, selectPage} = useNavigation();
+  // Icons live in localStorage; re-render when one changes so the crumb
+  // updates the moment the user picks a new page icon.
+  const [, setIconVersion] = useState(0);
+  useEffect(() => subscribePageIcon(() => setIconVersion((v) => v + 1)), []);
 
   // Walk parent links up from the current page to build the ancestor path.
   const chain: string[] = [];

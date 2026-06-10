@@ -1,6 +1,7 @@
+import {useEffect, useState} from 'react';
 import {Plus, X} from 'lucide-react';
 import {useNavigation, useTranslation} from '@/providers';
-import {readPageIcon} from '@/lib/pageIcon';
+import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
 import SideNavToggle from '@/components/SideNavToggle';
@@ -18,6 +19,10 @@ import BackForwardCluster from '@/components/BackForwardCluster';
 export default function TitlebarTabs() {
   const {inWindowTabs, tabs, activeTabId, selectTab, closeTab, newPageIn, pageLabel} = useNavigation();
   const {t} = useTranslation();
+  // Icons live in localStorage; re-render when one changes so tab icons stay
+  // in sync the moment the user picks a new page icon.
+  const [, setIconVersion] = useState(0);
+  useEffect(() => subscribePageIcon(() => setIconVersion((v) => v + 1)), []);
 
   if (!inWindowTabs) {
     return <div data-tauri-drag-region className="h-full w-full" />;
