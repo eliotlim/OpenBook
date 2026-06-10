@@ -295,6 +295,12 @@ h3.ce-header {
   padding: 0.1rem 0 !important;
   border-radius: 0 !important;
 }
+/* @editorjs/quote reserves a 158px-tall text area — a one-line quote floats in
+   a sea of dead space. Let it hug its content (the extra selector outranks the
+   plugin's own rule regardless of stylesheet order). */
+.cdx-quote .cdx-quote__text {
+  min-height: 0;
+}
 .cdx-quote__text {
   font-size: 1.05rem;
   line-height: 1.6;
@@ -352,7 +358,9 @@ h3.ce-header {
   border: 1px solid hsl(var(--border));
   color: hsl(var(--foreground));
 }
-.ce-inline-toolbar {
+/* Theme only the *shown* toolbar: the bare element keeps a border/background
+   even while hidden, which painted as a stray 2px speck in the left gutter. */
+.ce-inline-toolbar--showed {
   background-color: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
   border: 1px solid hsl(var(--border));
@@ -422,6 +430,13 @@ h3.ce-header {
 .reactive-block figure > div {
   color: hsl(var(--muted-foreground));
   font-size: 0.75rem;
+}
+/* EditorJS ships `.codex-editor path { stroke: currentColor }` for its icons,
+   which clobbers Observable Plot's per-series stroke attributes — every chart
+   line rendered foreground-black while the legend kept its colors. revert-layer
+   skips the (unlayered) EditorJS rule so the SVG attribute wins again. */
+.codex-editor .reactive-block figure path {
+  stroke: revert-layer;
 }
 
 /* ── New block types ──────────────────────────────────────────────────────── */
