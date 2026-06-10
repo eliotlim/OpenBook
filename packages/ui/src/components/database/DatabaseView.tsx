@@ -406,7 +406,7 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
               reserving permanent width — the name keeps the full column.
               (Centered via inset-y + items-center, not translate: the desktop
               WKWebView doesn't apply Tailwind v4's `translate` property.) */}
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 rounded-md bg-card pl-0.5 opacity-0 shadow-sm ring-1 ring-border/60 transition-opacity focus-within:pointer-events-auto focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100">
+          <div className="absolute inset-y-0 right-0 z-10 flex items-center gap-0.5 rounded-md bg-card pl-0.5 opacity-0 shadow-sm ring-1 ring-border/60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
             {tree && (
               <IconButton
                 size="sm"
