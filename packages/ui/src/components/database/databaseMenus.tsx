@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import {
   isFilterGroup,
+  PARENT_GROUP_ID,
   RELATIVE_DATE_OPS,
   SELECT_COLORS,
   STATUS_GROUPS,
@@ -1522,6 +1523,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
               className={cn(fieldClass, 'mt-1 w-full')}
             >
               <option value="">—</option>
+              <option value={PARENT_GROUP_ID}>Sub-items (parent)</option>
               {groupable.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -1588,6 +1590,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
               className={cn(fieldClass, 'mt-1 w-full')}
             >
               <option value="">None</option>
+              {view.groupByPropertyId !== PARENT_GROUP_ID && <option value={PARENT_GROUP_ID}>Sub-items (parent)</option>}
               {groupable
                 .filter((p) => p.id !== view.groupByPropertyId)
                 .map((p) => (

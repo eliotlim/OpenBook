@@ -84,6 +84,8 @@ export interface UseDatabase {
   addRow: (initial?: Record<string, unknown>) => Promise<string | undefined>;
   /** Create a sub-item nested under `parentId`. Returns the new row id. */
   addSubItem: (parentId: string) => Promise<string | undefined>;
+  /** Re-parent a row (`null` = top level). Reverts if the server refuses (e.g. a cycle). */
+  setRowParent: (rowId: string, parentId: string | null) => Promise<void>;
   renameRow: (rowId: string, name: string) => Promise<void>;
   setRowProperty: (rowId: string, propertyId: string, value: unknown) => Promise<void>;
   /** Set several properties of one row atomically (single optimistic update + PATCH). */
@@ -309,6 +311,23 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
       const fresh = await client.listRows(database.id);
       setRows((prev) => (rowsMutationVersion.current === before ? fresh : prev));
       return page.id;
+    },
+    [client, database],
+  );
+
+  const setRowParent = useCallback(
+    async (rowId: string, parentId: string | null): Promise<void> => {
+      if (!database || rowId === parentId) return;
+      const prev = rowsRef.current.find((r) => r.id === rowId)?.parentId ?? null;
+      if (prev === parentId) return;
+      rowsMutationVersion.current += 1;
+      setRows((rows) => rows.map((r) => (r.id === rowId ? {...r, parentId} : r)));
+      try {
+        await client.movePage(rowId, {parentId, orderedIds: []});
+      } catch {
+        // The server refused (e.g. the move would create a cycle) — restore.
+        setRows((rows) => rows.map((r) => (r.id === rowId ? {...r, parentId: prev} : r)));
+      }
     },
     [client, database],
   );
@@ -840,6 +859,7 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     setSearch,
     addRow,
     addSubItem,
+    setRowParent,
     renameRow,
     setRowProperty,
     setRowProperties,

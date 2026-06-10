@@ -37,6 +37,13 @@ test('page properties: set an owner and verify the page', async ({page}, testInf
 });
 
 test('page properties: backlinks list the pages that link here', async ({page, request}) => {
+  // Page names are workspace-unique: trash any prior run's pages so reruns
+  // against a long-lived dev server don't 409 (a trashed name is freed).
+  const pages = (await (await request.get(`${SERVER}/api/pages`)).json()) as {id: string; name: string | null}[];
+  for (const stale of pages.filter((p) => p.name === 'Backlink target' || p.name === 'Linking page')) {
+    await request.delete(`${SERVER}/api/pages/${stale.id}`);
+  }
+
   // Create a fresh target page on the server and open it directly (avoids any
   // ⌘N navigation race, and a brand-new id has no prior backlinks).
   const targetRes = await request.post(`${SERVER}/api/pages`, {

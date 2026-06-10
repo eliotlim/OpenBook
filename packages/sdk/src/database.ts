@@ -1318,6 +1318,55 @@ export function groupRows(
   return order.map((label) => byLabel.get(label)!);
 }
 
+/**
+ * Sentinel `groupByPropertyId` meaning "group by parent item" (sub-items).
+ * Not a real property id — {@link groupRowsBy} dispatches on it.
+ */
+export const PARENT_GROUP_ID = '__parent__';
+
+/** The label of the trailing group for rows that are nobody's sub-item. */
+export const NO_PARENT_GROUP = 'No parent';
+
+/**
+ * Group rows by their parent row (sub-items): one group per row with at least
+ * one direct child in the set (key = the parent's row id, in row order), plus a
+ * trailing {@link NO_PARENT_GROUP} group for loose rows — rows that neither
+ * have a parent in the set nor children of their own. A row that is both a
+ * parent and a sub-item appears in its parent's group *and* heads its own.
+ * Parents outside the set (filtered out, or the host page) don't count.
+ */
+export function groupRowsByParent(rows: DatabaseRow[]): RowGroup[] {
+  const ids = new Set(rows.map((r) => r.id));
+  const children = new Map<string, DatabaseRow[]>();
+  for (const row of rows) {
+    if (row.parentId && ids.has(row.parentId)) {
+      const list = children.get(row.parentId);
+      if (list) list.push(row);
+      else children.set(row.parentId, [row]);
+    }
+  }
+  const groups: RowGroup[] = [];
+  const none: RowGroup = {key: '__none__', label: NO_PARENT_GROUP, rows: []};
+  for (const row of rows) {
+    const kids = children.get(row.id);
+    if (kids) groups.push({key: row.id, label: row.name?.trim() || 'Untitled', rows: kids});
+    else if (!(row.parentId && ids.has(row.parentId))) none.rows.push(row);
+  }
+  return none.rows.length ? [...groups, none] : groups;
+}
+
+/**
+ * Group rows by a view's `groupByPropertyId`: the {@link PARENT_GROUP_ID}
+ * sentinel groups by parent item ({@link groupRowsByParent}); anything else
+ * resolves to a property and falls through to {@link groupRows} (an unset or
+ * unknown id yields the single "All" group). The one dispatch shared by the
+ * board, table, list, gallery, and the chart aggregations.
+ */
+export function groupRowsBy(rows: DatabaseRow[], groupByPropertyId: string | undefined, properties: DatabaseProperty[]): RowGroup[] {
+  if (groupByPropertyId === PARENT_GROUP_ID) return groupRowsByParent(rows);
+  return groupRows(rows, properties.find((p) => p.id === groupByPropertyId), properties);
+}
+
 /** One category of a chart: a label, its aggregated value, and an optional color. */
 export interface ChartDatum {
   key: string;
@@ -1355,9 +1404,8 @@ const foldAggregate = (rows: DatabaseRow[], agg: ChartAggregate, properties: Dat
  * `aggregate` (count by default, else sum/avg/min/max of a numeric property).
  */
 export function aggregateRows(rows: DatabaseRow[], view: DatabaseView, properties: DatabaseProperty[]): ChartDatum[] {
-  const group = properties.find((p) => p.id === view.groupByPropertyId);
   const agg: ChartAggregate = view.aggregate ?? {type: 'count'};
-  return groupRows(rows, group, properties).map((g) => ({
+  return groupRowsBy(rows, view.groupByPropertyId, properties).map((g) => ({
     key: g.key,
     label: g.label,
     color: g.color,
@@ -1413,15 +1461,18 @@ export interface ChartMatrix {
  * bar and pie charts and their drill-downs.
  */
 export function aggregateMatrix(rows: DatabaseRow[], view: DatabaseView, properties: DatabaseProperty[]): ChartMatrix {
-  const groupProp = properties.find((p) => p.id === view.groupByPropertyId);
   const agg: ChartAggregate = view.aggregate ?? {type: 'count'};
-  const groups = groupRows(rows, groupProp, properties);
-  const breakdownProp =
-    view.breakdownPropertyId && view.breakdownPropertyId !== view.groupByPropertyId
-      ? properties.find((p) => p.id === view.breakdownPropertyId)
+  const groups = groupRowsBy(rows, view.groupByPropertyId, properties);
+  // A breakdown id is honoured when it differs from the primary grouping and
+  // resolves to something real (a property, or the parent-item sentinel).
+  const breakdownId =
+    view.breakdownPropertyId &&
+    view.breakdownPropertyId !== view.groupByPropertyId &&
+    (view.breakdownPropertyId === PARENT_GROUP_ID || properties.some((p) => p.id === view.breakdownPropertyId))
+      ? view.breakdownPropertyId
       : undefined;
 
-  if (!breakdownProp) {
+  if (!breakdownId) {
     return {
       series: [{key: CHART_TOTAL_SERIES, label: ''}],
       groups: groups.map((g) => {
@@ -1439,17 +1490,18 @@ export function aggregateMatrix(rows: DatabaseRow[], view: DatabaseView, propert
   }
 
   // Derive the shared series from the breakdown across every row (stable order).
-  const series: ChartSeries[] = groupRows(rows, breakdownProp, properties).map((s) => ({
-    key: s.key,
-    label: s.label,
-    color: s.color,
-  }));
+  // Segments intersect a series' full-set rows with the group's rows rather than
+  // re-grouping the subset: for property breakdowns the two are equivalent, but a
+  // parent-item breakdown needs the full set (a subset loses the parents that
+  // anchor its groups).
+  const seriesGroups = groupRowsBy(rows, breakdownId, properties);
+  const series: ChartSeries[] = seriesGroups.map((s) => ({key: s.key, label: s.label, color: s.color}));
   return {
     series,
     groups: groups.map((g) => {
-      const subRows = new Map(groupRows(g.rows, breakdownProp, properties).map((s) => [s.key, s.rows]));
-      const segments: ChartSegment[] = series.map((s) => {
-        const segRows = subRows.get(s.key) ?? [];
+      const inGroup = new Set(g.rows.map((r) => r.id));
+      const segments: ChartSegment[] = seriesGroups.map((s) => {
+        const segRows = s.rows.filter((r) => inGroup.has(r.id));
         return {seriesKey: s.key, value: foldAggregate(segRows, agg, properties), rows: segRows};
       });
       return {key: g.key, label: g.label, color: g.color, total: foldAggregate(g.rows, agg, properties), rows: g.rows, segments};

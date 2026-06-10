@@ -4,7 +4,8 @@ import {
   dateEnd,
   dateStart,
   coverImageUrl,
-  groupRows,
+  groupRowsBy,
+  PARENT_GROUP_ID,
   parseDay,
   rowMatchesCondition,
   summarizeColumn,
@@ -158,7 +159,8 @@ const CardCover: React.FC<{src: string | null; heightClass: string; icon: string
 export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
   const size = view.cardSize ?? 'medium';
   const schema = db.database?.schema.properties ?? properties;
-  const groupProp = view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
+  const groupByParent = view.groupByPropertyId === PARENT_GROUP_ID;
+  const groupProp = !groupByParent && view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
   // Grouped sections already announce the group value in their header — repeating
   // it as a chip on every card underneath is noise (the board does the same).
   const cardProps = properties.filter((p) => p.id !== groupProp?.id);
@@ -184,8 +186,8 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
   };
   const grid = (rows: DatabaseRow[]): React.ReactNode => <div className={cn('grid gap-3', GALLERY_GRID[size])}>{rows.map(card)}</div>;
 
-  if (groupProp) {
-    const all = groupRows(db.visibleRows, groupProp, schema);
+  if (groupProp || groupByParent) {
+    const all = groupRowsBy(db.visibleRows, view.groupByPropertyId, schema);
     const groups = view.hideEmptyGroups ? all.filter((g) => g.rows.length > 0) : all;
     return (
       <div className="space-y-5">
@@ -193,6 +195,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
           <section key={group.key} data-group={group.key}>
             <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
               {group.color && <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />}
+              {groupByParent && group.key !== '__none__' && <span className="text-base leading-none">{readPageIcon(group.key)}</span>}
               <span>{group.label}</span>
               <span className="text-muted-foreground/60">{group.rows.length}</span>
             </div>
@@ -289,7 +292,8 @@ export const BoardView: React.FC<{
   /** The view's visible property set, shown as card chips (defaults to all). */
   cardProperties?: DatabaseProperty[];
 }> = ({db, view, properties, cardProperties}) => {
-  const groupProp = properties.find((p) => p.id === view.groupByPropertyId);
+  const groupByParent = view.groupByPropertyId === PARENT_GROUP_ID;
+  const groupProp = groupByParent ? undefined : properties.find((p) => p.id === view.groupByPropertyId);
   const [dragRow, setDragRow] = useState<string | null>(null);
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
@@ -301,18 +305,25 @@ export const BoardView: React.FC<{
       else next.add(key);
       return next;
     });
-  const allGroups = groupRows(db.visibleRows, groupProp, properties);
+  const allGroups = groupRowsBy(db.visibleRows, view.groupByPropertyId, properties);
   const groups = view.hideEmptyGroups ? allGroups.filter((g) => g.rows.length > 0) : allGroups;
-  const canMove = groupProp?.type === 'select' || groupProp?.type === 'status';
-  // Columns backed by a real option (not the trailing "No value") can be reordered.
-  const isOption = (key: string): boolean => canMove && key !== '__none__' && key !== '__all__';
+  const canMove = groupProp?.type === 'select' || groupProp?.type === 'status' || groupByParent;
+  // Columns backed by a real option (not the trailing "No value") can be reordered;
+  // parent-item columns follow row order and aren't.
+  const isOption = (key: string): boolean => !groupByParent && canMove && key !== '__none__' && key !== '__all__';
   // Properties shown on a card exclude the grouping one (it's the column itself).
   const cardProps = (cardProperties ?? properties).filter((p) => p.id !== groupProp?.id);
 
   const drop = (key: string): void => {
-    if (!dragRow || !groupProp || !canMove) return;
-    const value = key === '__none__' ? null : key;
-    void db.setRowProperty(dragRow, groupProp.id, value);
+    if (dragRow && canMove) {
+      if (groupByParent) {
+        // Dropping on a parent column nests the card under that row ("No parent"
+        // un-nests it). The hook ignores self-drops; the server rejects cycles.
+        void db.setRowParent(dragRow, key === '__none__' ? null : key);
+      } else if (groupProp) {
+        void db.setRowProperty(dragRow, groupProp.id, key === '__none__' ? null : key);
+      }
+    }
     setDragRow(null);
     setOverKey(null);
   };
@@ -333,6 +344,11 @@ export const BoardView: React.FC<{
   };
 
   const newInColumn = (key: string): void => {
+    if (groupByParent) {
+      // A new card in a parent's column is a sub-item of that row.
+      void (key === '__none__' ? db.addRow() : db.addSubItem(key));
+      return;
+    }
     const initial = canMove && key !== '__none__' && key !== '__all__' ? {[groupProp!.id]: key} : undefined;
     void db.addRow(initial);
   };
@@ -382,6 +398,7 @@ export const BoardView: React.FC<{
                   {group.color && (
                     <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
                   )}
+                  {groupByParent && group.key !== '__none__' && <span className="text-sm leading-none">{readPageIcon(group.key)}</span>}
                   <span className="text-muted-foreground/60">{group.rows.length}</span>
                   <span className="truncate [writing-mode:vertical-rl]">{group.label}</span>
                 </button>
@@ -406,6 +423,7 @@ export const BoardView: React.FC<{
                     {group.color && (
                       <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
                     )}
+                    {groupByParent && group.key !== '__none__' && <span className="shrink-0 text-sm leading-none">{readPageIcon(group.key)}</span>}
                     <span className="truncate">{group.label}</span>
                     <span className="text-muted-foreground/60">{group.rows.length}</span>
                     <button

@@ -4,10 +4,20 @@ import type {APIRequestContext} from '@playwright/test';
 const SERVER = 'http://127.0.0.1:4319';
 
 async function newPage(request: APIRequestContext, name: string): Promise<string> {
+  // Page names are workspace-unique and these are fixed (the visual baseline
+  // depends on them), so reclaim the name first — reruns against a long-lived
+  // dev server would otherwise 409 (trashing a page frees its name).
+  await reclaimName(request, name);
   const res = await request.post(`${SERVER}/api/pages`, {
     data: {name, data: {editorjs: {blocks: []}, values: [], names: []}},
   });
   return ((await res.json()) as {id: string}).id;
+}
+
+async function reclaimName(request: APIRequestContext, name: string): Promise<void> {
+  const pages = (await (await request.get(`${SERVER}/api/pages`)).json()) as {id: string; name: string | null}[];
+  const taken = pages.find((p) => p.name === name);
+  if (taken) await request.delete(`${SERVER}/api/pages/${taken.id}`);
 }
 
 async function openEditor(page: import('@playwright/test').Page, pageId: string): Promise<void> {
@@ -50,6 +60,7 @@ test('@ menu creates a new page and links it', async ({page, request}) => {
   await openEditor(page, hostId);
 
   const novel = 'Quokka Notes E2E';
+  await reclaimName(request, novel); // the @-create flow makes this page; free the name for reruns
   await page.keyboard.type(`Link @${novel}`);
   await expect(page.getByRole('listbox', {name: 'Link to page'}).getByText('Create page')).toBeVisible();
   await page.keyboard.press('Enter');

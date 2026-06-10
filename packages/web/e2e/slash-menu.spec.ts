@@ -4,6 +4,11 @@ import type {APIRequestContext} from '@playwright/test';
 const SERVER = 'http://127.0.0.1:4319';
 
 async function newPage(request: APIRequestContext, name: string): Promise<string> {
+  // Page names are workspace-unique; trash any prior run's page so reruns
+  // against a long-lived dev server don't 409 (a trashed name is freed).
+  const pages = (await (await request.get(`${SERVER}/api/pages`)).json()) as {id: string; name: string | null}[];
+  const taken = pages.find((p) => p.name === name);
+  if (taken) await request.delete(`${SERVER}/api/pages/${taken.id}`);
   const res = await request.post(`${SERVER}/api/pages`, {
     data: {name, data: {editorjs: {blocks: []}, values: [], names: []}},
   });

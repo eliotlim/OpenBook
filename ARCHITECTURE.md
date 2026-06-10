@@ -127,7 +127,10 @@ The database is full-featured. The pure model + evaluation lives in
   **dependency graph**, list, and
   **interactive** bar/pie charts. Per-view config: filters (a nested **AND/OR tree**,
   `filterRoot`), sorts, visible/ordered columns, group-by (table/list/**gallery**,
-  with **hide-empty** + collapse/expand-all), chart aggregate + second-level
+  with **hide-empty** + collapse/expand-all; **group by sub-items** — the
+  `'__parent__'` sentinel makes each parent row a board column / table group /
+  chart slice of its direct children, with drag-to-re-parent and per-column
+  sub-item creation), chart aggregate + second-level
   **breakdown**, **dashboard metric cards** (count/sum/avg/… with optional target +
   progress bar), **colour-by** a select property (tints every layout's row/card edge),
   date/cover/dependency properties, and column summary footers (**per-group** too).

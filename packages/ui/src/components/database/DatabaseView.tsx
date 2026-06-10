@@ -4,7 +4,8 @@ import {
   buildRowTree,
   dateStart,
   flattenRowTree,
-  groupRows,
+  groupRowsBy,
+  PARENT_GROUP_ID,
   shortId,
   summarizeColumn,
   TITLE_PROPERTY_ID,
@@ -549,12 +550,14 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
   const bulkSetProps = schema.filter((p) => p.type === 'select' || p.type === 'status');
   const selectionOf = (id: string) => ({selected: selected.has(id), onToggle: () => toggleSelect(id)});
 
-  const groupProp = view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
+  const groupByParent = view.groupByPropertyId === PARENT_GROUP_ID;
+  const groupProp = !groupByParent && view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
   const hasSubItems = db.visibleRows.some((r) => r.parentId);
   // Manual drag-reorder is only well-defined over the full, unfiltered, unsorted,
   // ungrouped, flat list (otherwise "where does it land?" is ambiguous).
   const canReorder =
     !groupProp &&
+    !groupByParent &&
     !hasSubItems &&
     (view.sorts?.length ?? 0) === 0 &&
     (view.filters?.length ?? 0) === 0 &&
@@ -609,7 +612,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
       return next;
     });
 
-  const allGroups = groupProp ? groupRows(db.visibleRows, groupProp, schema) : null;
+  const allGroups = groupProp || groupByParent ? groupRowsBy(db.visibleRows, view.groupByPropertyId, schema) : null;
   const groups = allGroups && view.hideEmptyGroups ? allGroups.filter((g) => g.rows.length > 0) : allGroups;
   const allCollapsed = !!groups && groups.length > 0 && groups.every((g) => collapsed.has(g.key));
   // Flat (ungrouped) view arranges rows into a sub-item tree.
@@ -754,6 +757,9 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
               groupProp?.type === 'select' && group.key !== '__none__' && group.key !== '__all__'
                 ? {[groupProp.id]: group.key}
                 : undefined;
+              // In a parent-grouped table, "New" inside a group creates a sub-item.
+              const addInGroup = (): Promise<string | undefined> =>
+                groupByParent && group.key !== '__none__' ? db.addSubItem(group.key) : db.addRow(initial);
               return (
                 <tbody key={group.key} className="border-b border-border">
                   <tr className="bg-muted/20">
@@ -763,6 +769,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                         {group.color && (
                           <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
                         )}
+                        {groupByParent && group.key !== '__none__' && <span className="text-sm leading-none">{readPageIcon(group.key)}</span>}
                         <span>{group.label}</span>
                         <span className="text-muted-foreground/60">{group.rows.length}</span>
                       </button>
@@ -777,7 +784,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                       colSpan={colSpan}
                       label="New"
                       onClick={() =>
-                        void db.addRow(initial).then((id) => id && focusRowTitle(id))
+                        void addInGroup().then((id) => id && focusRowTitle(id))
                       }
                     />
                   )}
@@ -860,7 +867,8 @@ const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: Data
 };
 
 const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, view}) => {
-  const groupProp = view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
+  const groupByParent = view.groupByPropertyId === PARENT_GROUP_ID;
+  const groupProp = !groupByParent && view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggle = (key: string) =>
     setCollapsed((prev) => {
@@ -870,8 +878,8 @@ const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, vi
       return next;
     });
 
-  if (groupProp) {
-    const all = groupRows(db.visibleRows, groupProp, schema);
+  if (groupProp || groupByParent) {
+    const all = groupRowsBy(db.visibleRows, view.groupByPropertyId, schema);
     const groups = view.hideEmptyGroups ? all.filter((g) => g.rows.length > 0) : all;
     return (
       <div className="space-y-3">
@@ -884,6 +892,7 @@ const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, vi
                 {group.color && (
                   <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
                 )}
+                {groupByParent && group.key !== '__none__' && <span className="text-sm leading-none">{readPageIcon(group.key)}</span>}
                 <span>{group.label}</span>
                 <span className="text-muted-foreground/60">{group.rows.length}</span>
               </button>
