@@ -9,6 +9,7 @@ import {
   dateStart,
   dependencyGraph,
   firstImageUrl,
+  coverImageUrl,
   flattenRowTree,
   isImageUrl,
   evaluateFormula,
@@ -642,6 +643,13 @@ describe('files & media helpers', () => {
     expect(isImageUrl('https://x.com/doc.pdf')).toBe(false);
     expect(isImageUrl('https://x.com/no-ext')).toBe(false);
   });
+  it('coverImageUrl falls back to extension-less http URLs (CDN images)', () => {
+    expect(coverImageUrl(['https://picsum.photos/seed/a/400'])).toBe('https://picsum.photos/seed/a/400');
+    expect(coverImageUrl(['https://x.com/doc.pdf', 'https://x.com/pic.webp'])).toBe('https://x.com/pic.webp');
+    expect(coverImageUrl('not a url')).toBe(null);
+    expect(coverImageUrl(undefined)).toBe(null);
+  });
+
   it('firstImageUrl returns the first image among a list', () => {
     expect(firstImageUrl(['https://x.com/doc.pdf', 'https://x.com/pic.webp'])).toBe('https://x.com/pic.webp');
     expect(firstImageUrl('https://x.com/pic.gif')).toBe('https://x.com/pic.gif');

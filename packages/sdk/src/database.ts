@@ -545,6 +545,18 @@ export function firstImageUrl(value: unknown): string | null {
 }
 
 /**
+ * The URL a gallery cover should try: the first extension-detected image, else
+ * the first http(s) URL — CDN/signed image URLs often carry no extension, and
+ * the property was explicitly chosen as the cover, so any URL in it is worth
+ * attempting (the UI falls back to the placeholder if it fails to load).
+ */
+export function coverImageUrl(value: unknown): string | null {
+  const urls = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+  const strings = urls.filter((u): u is string => typeof u === 'string');
+  return strings.find(isImageUrl) ?? strings.find((u) => /^https?:\/\//i.test(u.trim())) ?? null;
+}
+
+/**
  * The friendly value a `formula` reads when it references another property by
  * name: a `select` resolves to its option *label* (not the opaque id), a
  * verification to its boolean flag, multi-selects/relations to a comma list. So

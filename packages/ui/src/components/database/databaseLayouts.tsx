@@ -3,7 +3,7 @@ import {ChevronLeft, ChevronRight, Copy, PanelRightOpen, Plus, Trash2} from 'luc
 import {
   dateEnd,
   dateStart,
-  firstImageUrl,
+  coverImageUrl,
   groupRows,
   parseDay,
   rowMatchesCondition,
@@ -142,6 +142,17 @@ const GALLERY_GRID = {
 } as const;
 const GALLERY_COVER = {small: 'h-20', medium: 'h-28', large: 'h-44'} as const;
 
+
+/** A gallery card's cover: tries the URL and falls back to the page-icon strip
+ *  when it isn't a loadable image (extension-less URLs are attempted on faith). */
+const CardCover: React.FC<{src: string | null; heightClass: string; icon: string}> = ({src, heightClass, icon}) => {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) {
+    return <div className="flex h-16 items-center justify-center bg-muted/40 text-3xl">{icon}</div>;
+  }
+  return <img src={src} alt="" onError={() => setFailed(true)} className={cn('w-full object-cover', heightClass)} />;
+};
+
 /** Gallery: a responsive grid of cards, one per row, with optional cover images.
  *  When the view names a `groupByPropertyId`, cards split into titled sections. */
 export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
@@ -153,7 +164,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
   const cardProps = properties.filter((p) => p.id !== groupProp?.id);
 
   const card = (row: DatabaseRow): React.ReactNode => {
-    const cover = view.coverPropertyId ? firstImageUrl(row.properties[view.coverPropertyId]) : null;
+    const cover = view.coverPropertyId ? coverImageUrl(row.properties[view.coverPropertyId]) : null;
     const accent = rowColor(row, view, schema, db.rows);
     return (
       <RowContextMenu key={row.id} db={db} rowId={row.id}>
@@ -162,11 +173,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
           style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
           className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20 hover:bg-accent/30"
         >
-          {cover ? (
-            <img src={cover} alt="" className={cn('w-full object-cover', GALLERY_COVER[size])} />
-          ) : (
-            <div className="flex h-16 items-center justify-center bg-muted/40 text-3xl">{readPageIcon(row.id)}</div>
-          )}
+          <CardCover src={cover} heightClass={GALLERY_COVER[size]} icon={readPageIcon(row.id)} />
           <div className="flex flex-col gap-2 px-3 pb-3">
             <div className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</div>
             <RowChips row={row} properties={cardProps} rows={db.rows} />

@@ -84,6 +84,7 @@ export {
   flattenRowTree,
   isImageUrl,
   firstImageUrl,
+  coverImageUrl,
 } from './database';
 export {
   evaluateFormula,
