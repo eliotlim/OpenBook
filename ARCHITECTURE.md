@@ -111,7 +111,8 @@ The database is full-featured. The pure model + evaluation lives in
 - **Property types** — text, number (formats incl. $/€/£/¥/₹ and **show-as
   bar/ring** scaled to a target), **rating** (clickable stars), select, multi-select,
   **status** (lifecycle groups), checkbox, date (single, **start–end range**, **with
-  time**, and **absolute/relative display** — "In 3 days"), url, email, phone,
+  time**, and **absolute/relative display** — "In 3 days"; dated cells render as
+  text and reveal the native picker on click), url, email, phone,
   **files & media** (URLs/images), relation, **dependency** (links rows in the same
   DB, optionally **two-way/synced**), **rollup** (folds a target across a relation),
   created/last-edited time, **unique ID** (auto-incrementing, optional prefix),
