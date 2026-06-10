@@ -93,3 +93,17 @@ Post-v0 follow-ups surfaced during `/office-hours` (2026-05-27) and `/plan-eng-r
 **Cons / landmines:** The plugin restores snapshots via a full `editor.render()` — exactly the remount-everything path `liveSync`'s diff renderer was built to avoid (reactive blocks re-run side effects → save-loop risk, ARCHITECTURE §4). It also restores state programmatically, so `userEditedRef` (which gates autosave on genuine `input`/`beforeinput` events) would treat the undone state as not-an-edit and never persist it. A correct integration likely means a custom history stack that replays through `planBlockSync` instead of `render`, and an explicit "undo counts as a user edit" hook into the autosave gate.
 
 **Depends on / blocked by:** Nothing external; needs a focused session with the reactive save-loop e2e (`reactive.spec.ts`) as the regression gate.
+
+---
+
+## T7 — Localize the database UI strings
+
+**What:** The database surface (toolbar Search/Filter/Sort/View, property type names, summary labels, menu items in `DatabaseView.tsx` / `databaseMenus.tsx` / `databaseCells.tsx` / `databaseLayouts.tsx`) is hardcoded English; only the app chrome goes through the `t()` catalogs.
+
+**Why:** With the chrome catalogs now complete (de/ja/zh filled 2026-06-10), a German UI is consistent until you touch a database — then every control flips to English.
+
+**Pros:** Mechanical extraction; the i18n plumbing already exists.
+
+**Cons:** Several hundred strings across four large files; e2e specs assert many of these literals (`getByRole('button', {name: 'Filter'})` etc.) and would need `t()`-aware fixtures or English-locale test runs.
+
+**Depends on / blocked by:** Nothing; best done as one focused mechanical PR with the Playwright suite pinned to English.
