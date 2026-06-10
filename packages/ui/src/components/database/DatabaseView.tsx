@@ -1006,7 +1006,9 @@ const Toolbar: React.FC<{db: UseDatabase; view: DbView}> = ({db, view}) => {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   return (
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-      <div className="flex items-center gap-0.5">
+      {/* Both clusters wrap so the toolbar degrades to stacked rows on narrow
+          screens instead of clipping the trailing controls. */}
+      <div className="flex flex-wrap items-center gap-0.5">
         {db.database!.schema.views.map((v) => {
           const Icon = viewIcon(v.type);
           const active = v.id === view.id;
@@ -1066,7 +1068,7 @@ const Toolbar: React.FC<{db: UseDatabase; view: DbView}> = ({db, view}) => {
         })}
         <AddViewMenu onAdd={(type) => void db.addView(type)} />
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         <NewRowMenu db={db} />
         <SearchBox db={db} />
         <FilterMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
