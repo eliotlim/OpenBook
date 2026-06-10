@@ -265,9 +265,11 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
             <Skeleton className="h-4 w-16" />
           </span>
         ) : (
-          <span className="inline-flex items-baseline gap-1.5 text-muted-foreground">
+          <span className="flex items-baseline gap-1.5 text-muted-foreground">
             <span aria-hidden className="font-mono text-muted-foreground/50">=</span>
-            <code className="font-mono text-sm font-medium text-brand">{formatResult(result)}</code>
+            {/* break-all + min-w-0: even a single long token wraps inside the
+                card instead of pushing the document sideways. */}
+            <code className="min-w-0 break-all font-mono text-sm font-medium text-brand">{formatResult(result)}</code>
           </span>
         )}
       </div>
@@ -275,10 +277,31 @@ const ExprComponent: React.FC<ExprComponentProps> = ({cellId, initialData, onCha
   );
 };
 
-function formatResult(r: unknown): string {
+// A calm, readable preview of the computed value. Deep structures are
+// summarized (a few items per level, "+N more" for the rest) and floats are
+// trimmed to a sane precision, so a 360-point series reads as a one-line
+// summary instead of a wall of JSON.
+const formatNumber = (n: number): string =>
+  Number.isInteger(n) ? String(n) : String(Number(n.toPrecision(5)));
+
+function formatResult(r: unknown, depth = 0): string {
   if (r === undefined) return 'undefined';
-  if (Array.isArray(r)) return r.length > 6 ? `[${r.slice(0, 6).join(', ')}, ... (${r.length} items)]` : `[${r.join(', ')}]`;
-  if (typeof r === 'object' && r !== null) return JSON.stringify(r);
+  if (r === null) return 'null';
+  if (typeof r === 'number') return formatNumber(r);
+  if (typeof r === 'string') return depth === 0 ? r : JSON.stringify(r);
+  if (Array.isArray(r)) {
+    const max = depth === 0 ? 6 : 4;
+    const items = r.slice(0, max).map((x) => formatResult(x, depth + 1));
+    const rest = r.length - max;
+    return `[${items.join(', ')}${rest > 0 ? `, … +${rest}` : ''}]`;
+  }
+  if (typeof r === 'object') {
+    const entries = Object.entries(r as Record<string, unknown>);
+    const max = depth === 0 ? 4 : 3;
+    const shown = entries.slice(0, max).map(([k, v]) => `${k}: ${formatResult(v, depth + 1)}`);
+    const rest = entries.length - max;
+    return `{${shown.join(', ')}${rest > 0 ? `, … +${rest}` : ''}}`;
+  }
   return String(r);
 }
 
