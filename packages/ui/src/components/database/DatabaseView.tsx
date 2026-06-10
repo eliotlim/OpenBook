@@ -505,6 +505,8 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // True once the table is horizontally scrolled (drives the frozen-column shadow).
+  const [hScrolled, setHScrolled] = useState(false);
 
   const toggleSelect = (id: string) =>
     setSelected((prev) => {
@@ -661,7 +663,12 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
           </button>
         </div>
       )}
-      <div className="overflow-x-auto rounded-md border border-border">
+      {/* `ob-table-scrolled` makes the frozen Name column cast an edge shadow
+          while columns slide beneath it (see index.css). */}
+      <div
+        className={cn('overflow-x-auto rounded-md border border-border', hScrolled && 'ob-table-scrolled')}
+        onScroll={(e) => setHScrolled(e.currentTarget.scrollLeft > 0)}
+      >
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/30 text-left text-xs font-medium text-muted-foreground">

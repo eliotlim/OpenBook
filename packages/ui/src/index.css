@@ -219,6 +219,24 @@
   opacity: 0.5;
 }
 
+/* ── Frozen-column scroll shadow ─────────────────────────────────────────── */
+/* While a database table is horizontally scrolled, the sticky Name column
+   casts a soft edge so columns visibly slide beneath it. The ::after strip
+   sits just past the cell's right border and fades out. */
+.ob-table-scrolled tr > [class~='sticky'] {
+  position: sticky; /* (already sticky — restated so ::after anchors reliably) */
+}
+.ob-table-scrolled tr > [class~='sticky']::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -10px;
+  width: 10px;
+  pointer-events: none;
+  background: linear-gradient(to right, hsl(var(--foreground) / 0.08), transparent);
+}
+
 /* ── Thin, unobtrusive scrollbars ───────────────────────────────────────── */
 * {
   scrollbar-width: thin;
