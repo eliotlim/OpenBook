@@ -20,6 +20,7 @@ import {
   type BlockMap,
 } from './model';
 import {rangeHasAttr, readSelection, writeSelection} from './richtext';
+import {getCustomBlock} from './registry';
 import {TextBlockView} from './TextBlockView';
 import {SlashMenu, type SlashState} from './SlashMenu';
 import {InlineToolbar, type ToolbarState} from './InlineToolbar';
@@ -107,9 +108,11 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
       const host = rootRef.current!.getBoundingClientRect();
       const found = findBlock(doc, id);
       const text = found && blockText(found.block);
+      // Clamp so the (centered, ~220px wide) toolbar never clips at the edges.
+      const half = 120;
       setToolbar({
-        left: rect.left - host.left + rect.width / 2,
-        top: rect.top - host.top,
+        left: Math.max(half, Math.min(rect.left - host.left + rect.width / 2, host.width - half)),
+        top: Math.max(34, rect.top - host.top),
         active: text
           ? {
             b: rangeHasAttr(text, sel.start, sel.end, 'b'),
@@ -414,6 +417,41 @@ const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) =
                 editor.setSelection([id]);
               }
             }}
+            onPointerDown={(e) => {
+              // Touch drag: HTML5 DnD doesn't exist on touch screens, so the
+              // handle drives a pointer-based drag (move ≥6px to engage).
+              if (e.pointerType !== 'touch' || editor.readOnly) return;
+              e.preventDefault();
+              const startY = e.clientY;
+              let engaged = false;
+              let lastOver: {id: string; region: DropRegion} | null = null;
+              const move = (ev: PointerEvent): void => {
+                if (!engaged && Math.abs(ev.clientY - startY) < 6) return;
+                engaged = true;
+                ev.preventDefault();
+                const under = document
+                  .elementsFromPoint(ev.clientX, ev.clientY)
+                  .find((el) => el instanceof HTMLElement && el.dataset.blockRow && el.dataset.blockRow !== id) as
+                  | HTMLElement
+                  | undefined;
+                if (!under) return;
+                const region = computeRegion(
+                  {clientX: ev.clientX, clientY: ev.clientY} as React.PointerEvent,
+                  under,
+                  under.parentElement?.closest('[data-block-row]') === null,
+                );
+                lastOver = {id: under.dataset.blockRow!, region};
+                setDrag({id, over: lastOver});
+              };
+              const up = (): void => {
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', up);
+                if (engaged && lastOver) performDrop(id, lastOver.id, lastOver.region);
+                setDrag(null);
+              };
+              window.addEventListener('pointermove', move, {passive: false});
+              window.addEventListener('pointerup', up);
+            }}
           >
             ⠿
           </button>
@@ -529,8 +567,25 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
     );
   }
 
-  default:
-    return <TextBlockView block={block} editor={editor} ui={ui} />;
+  default: {
+    const custom = getCustomBlock(type);
+    if (custom) {
+      const Custom = custom.render;
+      return (
+        <div className="obe-custom" data-custom-type={type}>
+          <Custom block={block} editor={editor} />
+        </div>
+      );
+    }
+    // A text-carrying unknown type still edits as text; anything else shows
+    // a quiet placeholder instead of crashing (forward compatibility).
+    if (blockText(block)) return <TextBlockView block={block} editor={editor} ui={ui} />;
+    return (
+      <div className="obe-unknown" contentEditable={false}>
+        Unsupported block “{type}”
+      </div>
+    );
+  }
   }
 
   void id;

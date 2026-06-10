@@ -2,6 +2,7 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {
   BlockEditor,
   connectBroadcast,
+  registerReactiveBlocks,
   createSeededBlockDoc,
   decodeBlockDoc,
   encodeBlockDoc,
@@ -10,6 +11,8 @@ import {
 } from '@open-book/ui';
 
 const STORAGE_KEY = 'obe-lab-doc';
+
+registerReactiveBlocks();
 
 /** The sandbox shell around the block editor (localStorage + tab sync). */
 export default function EditorLab() {

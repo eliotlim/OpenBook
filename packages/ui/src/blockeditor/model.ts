@@ -64,7 +64,7 @@ export interface TextRun {
 /** The JSON projection of a block (exports, server, tests). */
 export interface BlockJSON {
   id: string;
-  type: BlockType;
+  type: AnyBlockType;
   text?: TextRun[];
   props?: Record<string, unknown>;
   children?: BlockJSON[];
@@ -89,8 +89,11 @@ export type BlockMap = Y.Map<unknown>;
 
 // ── Construction ─────────────────────────────────────────────────────────────
 
+/** Core types plus registered custom types (registry.tsx). */
+export type AnyBlockType = BlockType | (string & {});
+
 export interface NewBlock {
-  type: BlockType;
+  type: AnyBlockType;
   text?: string | TextRun[];
   props?: Record<string, unknown>;
   children?: NewBlock[];
@@ -102,7 +105,7 @@ export function makeBlock(input: NewBlock): BlockMap {
   const block = new Y.Map<unknown>();
   block.set('id', input.id ?? shortId('b'));
   block.set('type', input.type);
-  if (TEXT_BLOCKS.has(input.type)) {
+  if (TEXT_BLOCKS.has(input.type as BlockType)) {
     const text = new Y.Text();
     if (typeof input.text === 'string') {
       if (input.text) text.insert(0, input.text);
@@ -122,7 +125,7 @@ export function makeBlock(input: NewBlock): BlockMap {
     for (const [k, v] of Object.entries(input.props)) props.set(k, v);
     block.set('props', props);
   }
-  if (CONTAINER_BLOCKS.has(input.type)) {
+  if (CONTAINER_BLOCKS.has(input.type as BlockType)) {
     const children = new Y.Array<BlockMap>();
     if (input.children) children.push(input.children.map(makeBlock));
     block.set('children', children);

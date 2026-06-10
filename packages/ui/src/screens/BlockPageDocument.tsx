@@ -23,6 +23,7 @@ import {
 } from '@/blockeditor/model';
 import {blocksToHtml, blocksToMarkdown} from '@/blockeditor/exportBlocks';
 import {connectBroadcast} from '@/blockeditor/provider';
+import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {PageProperties} from '@/components/PageProperties';
 import {useHud, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
@@ -43,6 +44,8 @@ import {PageHeader, type PageDocumentProps} from './PageDocument';
  *    is idempotent and order-tolerant; same-browser tabs additionally sync
  *    instantly over the BroadcastChannel provider.
  */
+registerReactiveBlocks(); // built-in reactive plugins (slider + formula)
+
 const BlockPageDocument: React.FC<PageDocumentProps> = ({
   onSave,
   onLoad,

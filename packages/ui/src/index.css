@@ -1068,3 +1068,77 @@ a.obe-mention {
   .obe-gutter { left: -2.1rem; }
   .obe-table-add { opacity: 0.7; }
 }
+
+/* Block editor: keyboard focus visibility (a11y) */
+.obe-gutter-btn:focus-visible,
+.obe-tb-btn:focus-visible,
+.obe-table-add:focus-visible,
+.obe-table-tools button:focus-visible,
+.obe-callout-icon:focus-visible,
+.obe-todo-box:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+  opacity: 1;
+}
+.obe-row:has(.obe-gutter-btn:focus-visible) > .obe-gutter {
+  opacity: 1;
+}
+
+/* Block editor: reactive custom blocks (slider + formula) */
+.obe-custom { flex: 1; min-width: 0; }
+.obe-slider {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.2rem;
+}
+.obe-slider-name {
+  width: 5.5rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--card));
+  padding: 0.15rem 0.5rem;
+  font-size: 0.8rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.obe-slider input[type='range'] { flex: 1; accent-color: hsl(var(--primary)); }
+.obe-slider-value {
+  min-width: 2.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.85rem;
+  color: hsl(var(--muted-foreground));
+}
+.obe-formula {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: hsl(var(--muted) / 0.5);
+  border: 1px solid hsl(var(--border) / 0.7);
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+}
+.obe-formula-src {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  outline: none;
+}
+.obe-formula-eq { color: hsl(var(--muted-foreground) / 0.7); }
+.obe-formula-out {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: hsl(var(--primary));
+  white-space: nowrap;
+}
+.obe-unknown {
+  flex: 1;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.85rem;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 8px;
+  padding: 0.4rem 0.6rem;
+}

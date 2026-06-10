@@ -1,5 +1,6 @@
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {blockText, blockType, findBlock, makeTable, type BlockType, type NewBlock} from './model';
+import {customSlashItems} from './registry';
 import type {BlockEditorController} from './useBlockEditor';
 
 /**
@@ -82,7 +83,14 @@ export const SlashMenu: React.FC<{
 
   const items = useMemo(() => {
     const q = state.query.toLowerCase();
-    return SLASH_ITEMS.filter((item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q));
+    const custom: SlashItem[] = customSlashItems().map((def) => ({
+      id: `custom-${def.type}`,
+      label: def.slash!.label,
+      hint: def.slash!.hint,
+      keywords: def.slash!.keywords,
+      apply: insertAfterOrReplace(() => def.slash!.make()),
+    }));
+    return [...SLASH_ITEMS, ...custom].filter((item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q));
   }, [state.query]);
 
   useLayoutEffect(() => {

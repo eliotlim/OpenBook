@@ -13,3 +13,6 @@ export {
   type BlockJSON,
   type BlockType,
 } from './model';
+export {registerCustomBlock, getCustomBlock, type CustomBlockDef, type CustomBlockProps} from './registry';
+export {registerReactiveBlocks} from './reactiveBlocks';
+export {blocksToHtml, blocksToMarkdown} from './exportBlocks';

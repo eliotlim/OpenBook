@@ -233,6 +233,39 @@ test('real page: legacy EditorJS content migrates, saves, and reopens in the blo
   await expect(page.locator('.obe-text').nth(1)).toContainText('Now ours.');
 });
 
+test('reactive plugins: a slider drives a live formula', async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/slider');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.obe-slider')).toBeVisible();
+
+  // Insert a formula below the slider and wire it to the slider's name.
+  await page.evaluate(() => {
+    const blocks = [...document.querySelectorAll('.obe-text')];
+    const last = blocks[blocks.length - 1] as HTMLElement;
+    last.focus();
+    const sel = getSelection()!;
+    const range = document.createRange();
+    range.selectNodeContents(last);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/formula');
+  await page.keyboard.press('Enter');
+  await page.locator('.obe-formula-src').fill('x * 2 + 1');
+
+  // Move the slider → the formula recomputes live.
+  await page.locator('.obe-slider input[type=range]').fill('80');
+  await expect(page.locator('.obe-formula-out')).toHaveText('161');
+  await page.locator('.obe-slider input[type=range]').fill('10');
+  await expect(page.locator('.obe-formula-out')).toHaveText('21');
+});
+
 test('table editing: type in cells, add a row and a column', async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);
