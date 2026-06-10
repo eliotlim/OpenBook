@@ -9,7 +9,7 @@ export interface DrawerProps {
 
 export default function Drawer({children, ...props}: DrawerProps) {
   const classes = cn(
-    'z-50 flex w-64 shrink-0 flex-col bg-sheet-1 text-sheet-1-foreground transition-transform duration-300 ease-out',
+    'z-50 flex w-64 shrink-0 flex-col bg-sheet-1 text-sheet-1-foreground transition-transform duration-300 ease-out print:hidden',
     props.docked
       ? 'order-first h-full border-r border-border'
       : 'fixed left-0 top-14 h-[calc(100vh-3.5rem)] -translate-x-full rounded-r-xl border border-l-0 border-border shadow-2xl',

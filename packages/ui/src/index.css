@@ -219,6 +219,39 @@
   opacity: 0.5;
 }
 
+/* ── Motion, touch & print ───────────────────────────────────────────────── */
+/* Honour the OS "reduce motion" preference: collapse every animation and
+   transition to a frame. Token-driven UI keeps working; it just stops moving. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Touch devices have no hover, so hover-revealed affordances would be
+   invisible yet still tappable. Show them at rest instead. */
+@media (hover: none) {
+  .group-hover\:opacity-100 {
+    opacity: 1;
+  }
+}
+
+/* Printing (and "Save as PDF" from the browser): the document only — no app
+   chrome. Components tag chrome with `print:hidden`; the content column drops
+   its width cap so the page uses the paper. */
+@media print {
+  .max-w-content,
+  .ce-block__content,
+  .ce-toolbar__content {
+    max-width: none !important;
+  }
+}
+
 /* ── Frozen-column scroll shadow ─────────────────────────────────────────── */
 /* While a database table is horizontally scrolled, the sticky Name column
    casts a soft edge so columns visibly slide beneath it. The ::after strip

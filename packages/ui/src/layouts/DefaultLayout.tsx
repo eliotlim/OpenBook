@@ -1,6 +1,7 @@
 import {NavBar, SideNav} from '@/components';
 import {CommandMenu} from '@/components/CommandMenu';
 import GlobalShortcuts from '@/components/GlobalShortcuts';
+import WindowTitle from '@/components/WindowTitle';
 import Settings from '@/components/Settings';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
 import TitlebarTabs from '@/components/TitlebarTabs';
@@ -19,7 +20,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
             window controls on the right (Windows/Linux). Its height comes from
             `--ob-titlebar-height`, which the desktop shell sets; it is unset (0)
             on the web, so the web layout is unchanged. */}
-        <div className="flex shrink-0 bg-sheet-1" style={{height: 'var(--ob-titlebar-height, 0px)'}}>
+        <div className="flex shrink-0 bg-sheet-1 print:hidden" style={{height: 'var(--ob-titlebar-height, 0px)'}}>
           <div className="min-w-0 flex-1">
             <TitlebarTabs />
           </div>
@@ -27,6 +28,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
         </div>
         <div className="flex min-h-0 flex-1 flex-row items-stretch overflow-hidden">
           <GlobalShortcuts/>
+          <WindowTitle/>
           <CommandMenu/>
           <Settings/>
           <EmojiPickerHost/>

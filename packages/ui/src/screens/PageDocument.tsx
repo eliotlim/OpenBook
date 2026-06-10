@@ -544,7 +544,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
     <div className="w-full px-6 pb-40 pt-6 md:px-10">
       <div className={columnClass}>
         {/* Page action bar: subtle save status + overflow menu. */}
-        <div className="flex h-8 items-center justify-end gap-2 text-xs text-muted-foreground">
+        <div className="flex h-8 items-center justify-end gap-2 text-xs text-muted-foreground print:hidden">
           <span className={cn('transition-opacity', status === 'save failed' && 'text-destructive')}>
             {statusLabel}
           </span>

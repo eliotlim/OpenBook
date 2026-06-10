@@ -9,7 +9,7 @@ export default function NavBar() {
   // On desktop the sidebar toggle and back/forward live in the titlebar instead.
   const {inWindowTabs} = useNavigation();
   return (
-    <nav className="sticky top-0 z-40 flex h-12 items-center justify-between gap-2 border-b border-border bg-background/80 px-2 backdrop-blur-md">
+    <nav className="sticky top-0 z-40 flex h-12 items-center justify-between gap-2 border-b border-border bg-background/80 px-2 backdrop-blur-md print:hidden">
       <div className="flex min-w-0 items-center gap-1">
         {!inWindowTabs && <SideNavToggle />}
         {!inWindowTabs && <BackForwardCluster />}
