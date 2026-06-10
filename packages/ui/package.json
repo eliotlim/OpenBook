@@ -67,7 +67,8 @@
     "tailwind-merge": "^3.6.0",
     "tailwindcss-animate": "^1.0.7",
     "use-immer": "^0.11.0",
-    "use-resize-observer": "^9.1.0"
+    "use-resize-observer": "^9.1.0",
+    "yjs": "^13.6.31"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.0",
