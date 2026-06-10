@@ -282,7 +282,7 @@ const inputClass =
   'w-full bg-transparent px-2 py-1 text-sm outline-hidden placeholder:text-muted-foreground/40 placeholder:opacity-0 placeholder:transition-opacity group-hover:placeholder:opacity-100 focus:placeholder:opacity-100 focus:bg-accent/40';
 
 /** The hover-revealed "Empty" label for button-style cells (select, date…). */
-const emptyHint = 'text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100';
+const emptyHint = 'text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100';
 
 export interface PropertyValueCellProps {
   property: DatabaseProperty;
@@ -411,9 +411,10 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
   }
 };
 
-/** A slim horizontal progress track filled to `frac` (0..1). */
+/** A slim horizontal progress track filled to `frac` (0..1). The min-width
+ *  keeps it legible in squeezed columns (e.g. an inline database in a doc). */
 const ProgressBar: React.FC<{frac: number}> = ({frac}) => (
-  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden>
+  <div className="h-1.5 min-w-10 flex-1 overflow-hidden rounded-full bg-muted" aria-hidden>
     <div className="h-full rounded-full bg-primary transition-[width]" style={{width: `${frac * 100}%`}} />
   </div>
 );
@@ -951,7 +952,7 @@ const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange
       <DropdownMenuTrigger asChild>
         <button className="flex w-full items-center justify-between gap-1 px-2 py-1 text-left text-sm hover:bg-accent/40">
           {selected ? <SelectChip option={selected} /> : <span className={emptyHint}>Empty</span>}
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100" />
+          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
@@ -1026,7 +1027,7 @@ const StatusCell: React.FC<{property: DatabaseProperty; value: unknown; onChange
           ) : (
             <span className={emptyHint}>Empty</span>
           )}
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100" />
+          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
