@@ -2,6 +2,7 @@ import {NavBar, SideNav} from '@/components';
 import {CommandMenu} from '@/components/CommandMenu';
 import GlobalShortcuts from '@/components/GlobalShortcuts';
 import WindowTitle from '@/components/WindowTitle';
+import TemplateGallery from '@/components/TemplateGallery';
 import Settings from '@/components/Settings';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
 import TitlebarTabs from '@/components/TitlebarTabs';
@@ -31,6 +32,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <WindowTitle/>
           <CommandMenu/>
           <Settings/>
+          <TemplateGallery/>
           <EmojiPickerHost/>
           <SideNav/>
           <div className="flex min-h-0 w-full min-w-0 flex-col">

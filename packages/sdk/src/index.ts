@@ -106,6 +106,7 @@ export {
 } from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride} from './connection';
 export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';
+export {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from './templates';
 export {
   BACKUP_VERSION,
   remapBundle,

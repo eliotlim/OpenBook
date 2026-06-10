@@ -57,6 +57,7 @@ export const ja: PartialMessages = {
   },
   nav: {
     favorites: 'お気に入り',
+    templates: 'テンプレート',
     more: 'その他の操作',
     pages: 'ページ',
     newPage: '新規ページ',
@@ -125,6 +126,7 @@ export const ja: PartialMessages = {
     actions: 'アクション',
     createPage: '新規ページを作成',
     insertSample: 'サンプル文書を挿入',
+    newFromTemplate: 'テンプレートから作成',
     openSettings: '設定を開く',
     current: '現在',
   },
@@ -202,6 +204,31 @@ export const ja: PartialMessages = {
     urlInvalid: '有効な URL ではないようです。',
     removeWorkspace: '{name} を削除',
     thisDevice: 'このデバイス',
+  },
+  templates: {
+    title: 'テンプレートから始める',
+    description: '構成済みのページ — 選んで自分用に編集できます。',
+    creating: '作成中…',
+    tasks: {
+      name: 'タスクトラッカー',
+      description: 'ステータス・優先度・期限をテーブルとボードで。',
+    },
+    roadmap: {
+      name: 'プロダクトロードマップ',
+      description: 'タイムライン・ボード・テーブルで計画を管理。',
+    },
+    readingList: {
+      name: '読書リスト',
+      description: '本棚・著者・評価つきのギャラリー。',
+    },
+    meetingNotes: {
+      name: '議事録',
+      description: 'アジェンダ・メモ・アクションアイテムのひな形。',
+    },
+    weeklyPlanner: {
+      name: '週間プランナー',
+      description: '平日ごとのチェックリストと今週のフォーカス。',
+    },
   },
   blocks: {
     subpagePage: 'ページ',

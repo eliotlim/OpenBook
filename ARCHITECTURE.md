@@ -214,6 +214,11 @@ and unit-tested** (`liveSync.test.ts`):
   `WorkspaceProvider`, and `ConfirmProvider` (promise-based confirm dialog).
 - **`windowModel.ts`** — pure tab/split-pane navigation model (history, reconcile);
   unit-tested.
+- **Template gallery** (`components/TemplateGallery.tsx` over `sdk/templates.ts`):
+  ready-made pages — documents and databases with sample rows — instantiated
+  client-side through the normal data APIs; page *and* sample-row names are
+  suffixed past the workspace-unique name constraint so a template can be
+  instantiated repeatedly.
 - **Design primitives** (`packages/ui/src/components/ui/`): Radix-based `dialog`,
   `dropdown-menu`, `context-menu`, `tree`, `skeleton`, `button`, etc. Tailwind v4
   tokens live in `index.css`.

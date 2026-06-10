@@ -57,6 +57,7 @@ export const de: PartialMessages = {
   },
   nav: {
     favorites: 'Favoriten',
+    templates: 'Vorlagen',
     more: 'Weitere Aktionen',
     pages: 'Seiten',
     newPage: 'Neue Seite',
@@ -125,6 +126,7 @@ export const de: PartialMessages = {
     actions: 'Aktionen',
     createPage: 'Neue Seite erstellen',
     insertSample: 'Beispieldokument einfügen',
+    newFromTemplate: 'Neu aus Vorlage',
     openSettings: 'Einstellungen öffnen',
     current: 'aktuell',
   },
@@ -202,6 +204,31 @@ export const de: PartialMessages = {
     urlInvalid: 'Das sieht nicht nach einer gültigen URL aus.',
     removeWorkspace: '{name} entfernen',
     thisDevice: 'Dieses Gerät',
+  },
+  templates: {
+    title: 'Mit einer Vorlage starten',
+    description: 'Fertige Seiten mit sinnvoller Struktur — auswählen und anpassen.',
+    creating: 'Wird erstellt…',
+    tasks: {
+      name: 'Aufgaben-Tracker',
+      description: 'Status, Prioritäten und Fälligkeiten — als Tabelle und Board.',
+    },
+    roadmap: {
+      name: 'Produkt-Roadmap',
+      description: 'Vorhaben auf Timeline, Board und Tabelle.',
+    },
+    readingList: {
+      name: 'Leseliste',
+      description: 'Eine Galerie von Büchern mit Regalen, Autoren und Bewertungen.',
+    },
+    meetingNotes: {
+      name: 'Meeting-Notizen',
+      description: 'Agenda, Notizen und Aufgaben — bereit zum Ausfüllen.',
+    },
+    weeklyPlanner: {
+      name: 'Wochenplaner',
+      description: 'Eine Checkliste je Wochentag plus Wochenfokus.',
+    },
   },
   blocks: {
     subpagePage: 'Seite',

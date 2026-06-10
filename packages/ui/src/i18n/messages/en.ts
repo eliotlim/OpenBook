@@ -71,6 +71,7 @@ export const en = {
     trash: 'Trash',
     more: 'More actions',
     favorites: 'Favorites',
+    templates: 'Templates',
   },
   tabs: {
     new: 'New tab',
@@ -120,6 +121,7 @@ export const en = {
     createPage: 'Create new page',
     newDatabase: 'New database',
     insertSample: 'Insert sample document',
+    newFromTemplate: 'New from template',
     openSettings: 'Open settings',
     openTrash: 'Open trash',
     toggleSidebar: 'Toggle sidebar',
@@ -221,6 +223,31 @@ export const en = {
     urlInvalid: 'That doesn’t look like a valid URL.',
     removeWorkspace: 'Remove {name}',
     thisDevice: 'This device',
+  },
+  templates: {
+    title: 'Start with a template',
+    description: 'Ready-made pages with sensible structure — pick one and make it yours.',
+    creating: 'Creating…',
+    tasks: {
+      name: 'Task tracker',
+      description: 'Statuses, priorities and due dates — as a table and a board.',
+    },
+    roadmap: {
+      name: 'Product roadmap',
+      description: 'Initiatives on a timeline, a board, and a table.',
+    },
+    readingList: {
+      name: 'Reading list',
+      description: 'A gallery of books with shelves, authors, and ratings.',
+    },
+    meetingNotes: {
+      name: 'Meeting notes',
+      description: 'Agenda, notes, and action items, ready to fill in.',
+    },
+    weeklyPlanner: {
+      name: 'Weekly planner',
+      description: 'A checklist for every weekday plus a weekly focus.',
+    },
   },
   blocks: {
     subpagePage: 'Page',

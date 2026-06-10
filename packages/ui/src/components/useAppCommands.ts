@@ -1,6 +1,6 @@
 import React from 'react';
 import type {LucideIcon} from 'lucide-react';
-import {
+import {LayoutTemplate, 
   ArrowLeft,
   ArrowRight,
   Columns2,
@@ -97,6 +97,14 @@ export function useAppCommands(): AppCommand[] {
         keywords: 'new database table grid create',
         icon: Table2,
         run: () => void createDatabasePage(),
+      },
+      {
+        id: 'new-from-template',
+        group: 'create',
+        title: t('command.newFromTemplate'),
+        keywords: 'template gallery starter tasks roadmap reading meeting planner create',
+        icon: LayoutTemplate,
+        run: () => setHud((draft) => {draft.templates.open = true; return draft;}),
       },
       {
         id: 'insert-sample',

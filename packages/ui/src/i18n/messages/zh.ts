@@ -57,6 +57,7 @@ export const zh: PartialMessages = {
   },
   nav: {
     favorites: '收藏',
+    templates: '模板',
     more: '更多操作',
     pages: '页面',
     newPage: '新建页面',
@@ -125,6 +126,7 @@ export const zh: PartialMessages = {
     actions: '操作',
     createPage: '新建页面',
     insertSample: '插入示例文档',
+    newFromTemplate: '从模板新建',
     openSettings: '打开设置',
     current: '当前',
   },
@@ -202,6 +204,31 @@ export const zh: PartialMessages = {
     urlInvalid: '这看起来不是有效的 URL。',
     removeWorkspace: '移除 {name}',
     thisDevice: '本设备',
+  },
+  templates: {
+    title: '从模板开始',
+    description: '结构合理的现成页面 — 选一个，改成你的。',
+    creating: '创建中…',
+    tasks: {
+      name: '任务追踪',
+      description: '状态、优先级和截止日期 — 表格与看板视图。',
+    },
+    roadmap: {
+      name: '产品路线图',
+      description: '在时间线、看板和表格中规划事项。',
+    },
+    readingList: {
+      name: '阅读清单',
+      description: '带书架、作者和评分的画廊。',
+    },
+    meetingNotes: {
+      name: '会议记录',
+      description: '议程、笔记和行动项，开箱即用。',
+    },
+    weeklyPlanner: {
+      name: '每周计划',
+      description: '每个工作日的清单加本周重点。',
+    },
   },
   blocks: {
     subpagePage: '页面',

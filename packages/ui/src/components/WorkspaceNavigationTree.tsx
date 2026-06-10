@@ -3,10 +3,10 @@ import type {PageMeta} from '@open-book/sdk';
 import {Tree, TreeDataItem} from '@/components/ui/tree';
 import {IconButton} from '@/components/ui/icon-button';
 import {PageMenuItems} from '@/components/PageContextMenu';
-import {useNavigation, useTranslation} from '@/providers';
+import {useHud, useNavigation, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {planTreeMove, type DropWhere} from '@/lib/treeMove';
-import {MoreHorizontal, Plus, Table2} from 'lucide-react';
+import {LayoutTemplate, MoreHorizontal, Plus, Table2} from 'lucide-react';
 import {t} from '@/i18n';
 
 const displayName = (name: string | null): string =>
@@ -43,6 +43,7 @@ export function buildTree(pages: PageMeta[]): TreeDataItem[] {
 
 export default function WorkspaceNavigationTree() {
   const {pages, currentPageId, selectPage, createPage, createDatabasePage, createSubpage, movePage} = useNavigation();
+  const {setHud} = useHud();
   const {t} = useTranslation();
 
   // Icons live in localStorage; re-render the tree when one changes so a freshly
@@ -62,6 +63,14 @@ export default function WorkspaceNavigationTree() {
       <div className="flex items-center justify-between px-3 pb-1 pt-1">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">{t('nav.pages')}</span>
         <div className="flex items-center gap-0.5">
+          <IconButton
+            size="sm"
+            onClick={() => setHud((draft) => {draft.templates.open = true; return draft;})}
+            aria-label={t('nav.templates')}
+            title={t('nav.templates')}
+          >
+            <LayoutTemplate className="h-4 w-4" />
+          </IconButton>
           <IconButton size="sm" onClick={() => void createDatabasePage()} aria-label={t('nav.newDatabase')} title={t('nav.newDatabase')}>
             <Table2 className="h-4 w-4" />
           </IconButton>

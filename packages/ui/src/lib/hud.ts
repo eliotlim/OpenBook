@@ -55,6 +55,9 @@ export interface HudProps {
   trash: {
     open: boolean;
   };
+  templates: {
+    open: boolean;
+  };
   viewMode: {
     fullWidth: boolean;
   }
@@ -74,6 +77,9 @@ export const HudDefault: HudProps = {
     docked: true,
   },
   trash: {
+    open: false,
+  },
+  templates: {
     open: false,
   },
   viewMode: {
@@ -96,8 +102,9 @@ export const loadHudStorage = (): HudProps => {
     // Resolve a possibly-legacy persisted tab to a current one.
     settings: {...settings, tab: normalizeTab(settings.tab)},
     sideNav: {...HudDefault.sideNav, ...stored.sideNav},
-    // Never restore the trash open (a transient overlay, like settings).
+    // Never restore transient overlays open (the trash, the template gallery).
     trash: {open: false},
+    templates: {open: false},
     viewMode: {...HudDefault.viewMode, ...stored.viewMode},
   };
 };
@@ -110,6 +117,7 @@ export const saveHudStorage = (hud: HudProps) => {
     ...hud,
     settings: {...hud.settings, open: false},
     trash: {open: false},
+    templates: {open: false},
   };
   localStorage.setItem(HUD_STORAGE_KEY, JSON.stringify(persisted));
 };
