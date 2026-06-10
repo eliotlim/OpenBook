@@ -21,7 +21,8 @@ const FieldRow: React.FC<{
   const row = db.rows.find((r) => r.id === pageId);
   if (!row) return null;
   return (
-    <div className={cn('flex min-h-[28px] items-start gap-2', dim && 'opacity-50')}>
+    // `group`: property cells reveal their "Empty" placeholder on row hover.
+    <div className={cn('group flex min-h-[28px] items-start gap-2', dim && 'opacity-50')}>
       <span className="flex w-28 shrink-0 select-none flex-col pt-1.5 text-sm text-muted-foreground" title={property.description}>
         <span className="truncate">{property.name}</span>
         {property.description && <span className="truncate text-[10px] text-muted-foreground/60">{property.description}</span>}

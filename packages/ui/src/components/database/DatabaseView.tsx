@@ -106,6 +106,9 @@ const RowMenu: React.FC<{
 interface RowTreeInfo {
   depth: number;
   hasChildren: boolean;
+  /** True when *any* row in the table is expandable — only then do leaf rows
+   *  reserve chevron width, so a flat database doesn't indent every name. */
+  anyExpandable: boolean;
   collapsed: boolean;
   onToggle: () => void;
   onAddSub: () => void;
@@ -129,7 +132,7 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React
         <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !tree.collapsed && 'rotate-90')} />
       </button>
     ) : (
-      tree && <span className="w-4 shrink-0" />
+      tree?.anyExpandable && <span className="w-4 shrink-0" />
     )}
     <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
     <input
@@ -586,9 +589,11 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
   const allCollapsed = !!groups && groups.length > 0 && groups.every((g) => collapsed.has(g.key));
   // Flat (ungrouped) view arranges rows into a sub-item tree.
   const treeRows = flattenRowTree(buildRowTree(db.visibleRows), collapsedRows);
+  const anyExpandable = treeRows.some((n) => n.children.length > 0);
   const treeInfo = (node: (typeof treeRows)[number]): RowTreeInfo => ({
     depth: node.depth,
     hasChildren: node.children.length > 0,
+    anyExpandable,
     collapsed: collapsedRows.has(node.row.id),
     onToggle: () => toggleRow(node.row.id),
     onAddSub: () => void db.addSubItem(node.row.id),

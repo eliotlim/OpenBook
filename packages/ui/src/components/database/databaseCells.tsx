@@ -275,8 +275,14 @@ export function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((cell) => cell !== ''));
 }
 
+/* Placeholders ("Empty") stay invisible until the row is hovered or the field
+   focused — a table of mostly-empty cells reads as calm whitespace, not a grid
+   of grey "Empty" labels. Rows (and the page property panel) carry `group`. */
 const inputClass =
-  'w-full bg-transparent px-2 py-1 text-sm outline-hidden placeholder:text-muted-foreground/40 focus:bg-accent/40';
+  'w-full bg-transparent px-2 py-1 text-sm outline-hidden placeholder:text-muted-foreground/40 placeholder:opacity-0 placeholder:transition-opacity group-hover:placeholder:opacity-100 focus:placeholder:opacity-100 focus:bg-accent/40';
+
+/** The hover-revealed "Empty" label for button-style cells (select, date…). */
+const emptyHint = 'text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100';
 
 export interface PropertyValueCellProps {
   property: DatabaseProperty;
@@ -542,7 +548,7 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
         className="flex w-full items-center px-2 py-1 text-left text-sm outline-hidden hover:bg-accent/30"
         aria-label={property.name}
       >
-        {text || <span className="text-muted-foreground/50">Empty</span>}
+        {text || <span className={emptyHint}>Empty</span>}
       </button>
     );
   }
@@ -799,7 +805,7 @@ const MultiSelectCell: React.FC<PropertyValueCellProps> = ({property, value, onC
           {selected.length > 0 ? (
             selected.map((o) => <SelectChip key={o.id} option={o} />)
           ) : (
-            <span className="text-muted-foreground/40">Empty</span>
+            <span className={emptyHint}>Empty</span>
           )}
         </button>
       </DropdownMenuTrigger>
@@ -930,8 +936,8 @@ const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex w-full items-center justify-between gap-1 px-2 py-1 text-left text-sm hover:bg-accent/40">
-          {selected ? <SelectChip option={selected} /> : <span className="text-muted-foreground/40">Empty</span>}
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+          {selected ? <SelectChip option={selected} /> : <span className={emptyHint}>Empty</span>}
+          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
@@ -1004,9 +1010,9 @@ const StatusCell: React.FC<{property: DatabaseProperty; value: unknown; onChange
               {selected.label}
             </span>
           ) : (
-            <span className="text-muted-foreground/40">Empty</span>
+            <span className={emptyHint}>Empty</span>
           )}
-          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
