@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useState} from 'react';
 import {
   BlockEditor,
   connectBroadcast,
-  createBlockDoc,
+  createSeededBlockDoc,
   decodeBlockDoc,
   encodeBlockDoc,
   type BlockDocSnapshot,
@@ -20,7 +20,9 @@ export default function EditorLab() {
     } catch {
       // corrupted sandbox state — start fresh
     }
-    return createBlockDoc([
+    // Seeded deterministically: two tabs racing to initialize merge into one
+    // copy of the demo content instead of duplicating it.
+    return createSeededBlockDoc([
       {type: 'heading', text: 'Editor lab', props: {level: 1}},
       {type: 'paragraph', text: 'A scratch document for the new editor. Type “/” for blocks, select text to format, drag the ⠿ handle — drop a block beside another to make columns.'},
       {type: 'todo', text: 'Open this page in a second window to watch live sync'},

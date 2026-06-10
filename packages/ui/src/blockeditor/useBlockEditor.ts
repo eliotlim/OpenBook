@@ -38,7 +38,8 @@ export interface CaretRequest {
 export interface BlockEditorController {
   doc: Y.Doc;
   version: number;
-  undo: Y.UndoManager;
+  /** Undo/redo over local edits (a live wrapper — see useBlockEditor). */
+  undo: {undo(): void; redo(): void};
   readOnly: boolean;
 
   /** Set by structural ops; consumed by the focused block after render. */
@@ -87,15 +88,29 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
     () => versionRef.current,
   );
 
+  // The UndoManager lives in an effect: StrictMode's mount-cycle cleanup
+  // would otherwise destroy a useMemo-created instance and leave the editor
+  // holding a dead manager (undoStack frozen at 0). The controller exposes a
+  // stable wrapper that always talks to the live instance.
+  const undoRef = useRef<Y.UndoManager | null>(null);
+  useEffect(() => {
+    const manager = new Y.UndoManager(rootBlocks(doc), {
+      trackedOrigins: new Set(['local']),
+      captureTimeout: 400,
+    });
+    undoRef.current = manager;
+    return () => {
+      manager.destroy();
+      if (undoRef.current === manager) undoRef.current = null;
+    };
+  }, [doc]);
   const undo = useMemo(
-    () =>
-      new Y.UndoManager(rootBlocks(doc), {
-        trackedOrigins: new Set(['local']),
-        captureTimeout: 400,
-      }),
-    [doc],
+    () => ({
+      undo: () => undoRef.current?.undo(),
+      redo: () => undoRef.current?.redo(),
+    }),
+    [],
   );
-  useEffect(() => () => undo.destroy(), [undo]);
 
   const pendingCaret = useRef<CaretRequest | null>(null);
   const [selection, setSelectionState] = useState<ReadonlySet<string>>(new Set());

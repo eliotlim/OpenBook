@@ -3,6 +3,7 @@ export {useBlockEditor} from './useBlockEditor';
 export {connectBroadcast, type BroadcastConnection, type PresencePeer} from './provider';
 export {
   createDoc,
+  createSeededDoc,
   decodeSnapshot,
   docToJSON,
   encodeSnapshot,

@@ -144,6 +144,30 @@ export function rootBlocks(doc: Y.Doc): Y.Array<BlockMap> {
   return doc.getArray<BlockMap>('blocks');
 }
 
+/**
+ * A doc seeded *deterministically*: the seed content is written by a fixed
+ * replica (clientID 1) with caller-supplied block ids, so every client that
+ * seeds the same template produces byte-identical CRDT state. Two tabs that
+ * race to initialize then merge into ONE copy of the content instead of two.
+ * Blocks without explicit ids would defeat the purpose — they get stable ids
+ * derived from their position instead of random ones.
+ */
+export function createSeededDoc(blocks: NewBlock[], seedTag = 'seed'): Y.Doc {
+  const withIds = (list: NewBlock[], prefix: string): NewBlock[] =>
+    list.map((b, i) => ({
+      ...b,
+      id: b.id ?? `${prefix}-${i}`,
+      children: b.children ? withIds(b.children, `${prefix}-${i}`) : undefined,
+    }));
+  const seed = new Y.Doc();
+  seed.clientID = 1;
+  rootBlocks(seed).push(withIds(blocks.length > 0 ? blocks : [{type: 'paragraph'}], seedTag).map(makeBlock));
+  const doc = new Y.Doc();
+  Y.applyUpdate(doc, Y.encodeStateAsUpdate(seed));
+  seed.destroy();
+  return doc;
+}
+
 // ── Accessors ────────────────────────────────────────────────────────────────
 
 export const blockId = (b: BlockMap): string => b.get('id') as string;
