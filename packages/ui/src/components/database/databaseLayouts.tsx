@@ -428,10 +428,16 @@ export const BoardView: React.FC<{
                             onClick={() => db.openRow(row.id)}
                             style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
                             className={cn(
-                              'group cursor-pointer rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
+                              'group cursor-pointer overflow-hidden rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
                               dragRow === row.id && 'opacity-50',
                             )}
                           >
+                            {/* Board cards honour the view's cover like gallery cards. */}
+                            {view.coverPropertyId && coverImageUrl(row.properties[view.coverPropertyId]) && (
+                              <div className="-mx-2.5 -mt-2.5 mb-2">
+                                <CardCover src={coverImageUrl(row.properties[view.coverPropertyId])} heightClass="h-20" icon={readPageIcon(row.id)} />
+                              </div>
+                            )}
                             <div className="mb-1 flex items-center gap-1.5">
                               <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
                               <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
