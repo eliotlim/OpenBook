@@ -24,7 +24,8 @@ test('code block textarea disables autocorrect', async ({page, request}) => {
   const {id} = (await res.json()) as {id: string};
   await page.goto(`/?page=${id}`);
 
-  const ta = page.locator('.ce-code__textarea, textarea').first();
+  // Scoped to the editor: the page title is also a textarea now.
+  const ta = page.locator('.codex-editor').locator('.ce-code__textarea, textarea').first();
   await expect(ta).toBeVisible();
   await expect(ta).toHaveAttribute('spellcheck', 'false');
   await expect(ta).toHaveAttribute('autocorrect', 'off');

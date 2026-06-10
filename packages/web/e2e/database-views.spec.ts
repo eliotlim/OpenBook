@@ -29,7 +29,8 @@ test('database formula: a formula column computes from other properties', async 
   await page.getByRole('button', {name: 'Add column'}).click();
   await page.getByPlaceholder('Property name').fill('Greeting');
   await page.locator('select').first().selectOption('formula');
-  await page.locator('textarea').fill('concat("Hi ", Name)');
+  // The page title is also a textarea now — target the formula source field.
+  await page.getByPlaceholder(/prop\(/).fill('concat("Hi ", Name)');
   await page.getByRole('button', {name: 'Add property'}).click();
   await expect(page.getByText('Greeting', {exact: true})).toBeVisible();
 
