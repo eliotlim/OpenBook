@@ -165,6 +165,11 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
   // Latest rows for read-modify-write of a single row's properties.
   const rowsRef = useRef<DatabaseRow[]>(rows);
   rowsRef.current = rows;
+  // Bumped on every optimistic row mutation. The add-row fallback refetch only
+  // applies its (possibly stale) snapshot when nothing changed while it was in
+  // flight — otherwise naming a row right after creating it gets clobbered back
+  // to "Untitled" by a list fetched before the rename landed.
+  const rowsMutationVersion = useRef(0);
 
   // Resolve the database for this page.
   useEffect(() => {
@@ -284,8 +289,11 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
       const page = await client.createRow(database.id, {name: null, properties: initial});
       // The live row stream normally pushes the new list; refetch as a fallback so
       // the row appears immediately even if that event is missed (e.g. a stream
-      // reconnect gap, or an environment where SSE is unavailable).
-      setRows(await client.listRows(database.id));
+      // reconnect gap, or an environment where SSE is unavailable). Apply it only
+      // if no local mutation raced it (see rowsMutationVersion).
+      const before = rowsMutationVersion.current;
+      const fresh = await client.listRows(database.id);
+      setRows((prev) => (rowsMutationVersion.current === before ? fresh : prev));
       return page.id;
     },
     [client, database],
@@ -295,7 +303,9 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     async (parentId: string): Promise<string | undefined> => {
       if (!database) return undefined;
       const page = await client.createRow(database.id, {name: null, parentId});
-      setRows(await client.listRows(database.id));
+      const before = rowsMutationVersion.current;
+      const fresh = await client.listRows(database.id);
+      setRows((prev) => (rowsMutationVersion.current === before ? fresh : prev));
       return page.id;
     },
     [client, database],
@@ -393,6 +403,7 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
       setPageHint(rowId, name);
       // Optimistic: reflect the new title at once so a `formula`/`title` column
       // recomputes immediately (the row stream then confirms it).
+      rowsMutationVersion.current += 1;
       setRows((prev) => prev.map((r) => (r.id === rowId ? {...r, name: next} : r)));
       try {
         await client.updateRow(database.id, rowId, {name: next});
@@ -414,6 +425,7 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
       const row = snapshot.find((r) => r.id === rowId);
       const properties = {...(row?.properties ?? {}), [propertyId]: value};
       // Optimistic: reflect the edit immediately, the stream confirms it.
+      rowsMutationVersion.current += 1;
       setRows((prev) => prev.map((r) => (r.id === rowId ? {...r, properties} : r)));
       await client.updateRow(database.id, rowId, {properties});
 
