@@ -354,7 +354,11 @@ const PageDocument: React.FC<PageDocumentProps> = ({
 
       const editorJs = new EditorJSCtor({
         holder: holderRef.current,
-        autofocus: true,
+        // Autofocus is applied manually in onReady: EditorJS's own autofocus
+        // fires whenever init completes — on a slow load that's *after* the
+        // user has reached other UI, and the focus steal closes any menu or
+        // popover they just opened.
+        autofocus: false,
         data: initialData,
         placeholder: bareT('page.editorPlaceholder'),
         tools: {
@@ -391,6 +395,9 @@ const PageDocument: React.FC<PageDocumentProps> = ({
         },
         onReady: () => {
           editorJsInstance.current = editorJs;
+          // Focus the editor only if the user hasn't focused anything yet.
+          const active = document.activeElement;
+          if (!active || active === document.body) editorJs.focus();
           // Enable block drag-and-drop (reorder blocks by dragging the settings
           // handle). Tauri's `dragDropEnabled: false` keeps the OS file-drop
           // handler from intercepting these drags in the desktop WKWebView.
