@@ -562,7 +562,12 @@ h3.ce-header {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  margin-top: 0.5rem;
+}
+/* Once a URL is set, the document shows just the CTA — the label/URL fields
+   fold away until "Edit button" (block settings) or until the URL is cleared. */
+.block-button--configured:not(.block-button--editing) .block-button__fields {
+  display: none;
 }
 .block-button__input {
   flex: 1;
@@ -578,7 +583,9 @@ h3.ce-header {
 .block-button__input:focus {
   border-color: hsl(var(--ring));
 }
-.block-button__cta {
+/* Doubled class: EditorJS's `.ce-block a { text-decoration: underline }` is
+   more specific than a single class, and a CTA button must not read as a link. */
+.block-button__cta.block-button__cta {
   display: inline-block;
   background: hsl(var(--primary));
   color: hsl(var(--primary-foreground));

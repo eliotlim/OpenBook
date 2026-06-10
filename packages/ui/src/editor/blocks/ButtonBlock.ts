@@ -17,6 +17,7 @@ const isExternal = (url: string): boolean => /^https?:\/\//i.test(url);
  */
 export class ButtonBlock implements BlockTool {
   private data: ButtonData;
+  private wrapper: HTMLDivElement | null = null;
   private labelInput: HTMLInputElement | null = null;
   private urlInput: HTMLInputElement | null = null;
   private preview: HTMLAnchorElement | null = null;
@@ -43,12 +44,22 @@ export class ButtonBlock implements BlockTool {
     this.preview.textContent = label;
     this.preview.href = url || '#';
     this.preview.classList.toggle('is-empty', !url);
+    this.wrapper?.classList.toggle('block-button--configured', !!url);
     if (url && isExternal(url)) {
       this.preview.target = '_blank';
       this.preview.rel = 'noreferrer noopener';
     } else {
       this.preview.removeAttribute('target');
       this.preview.removeAttribute('rel');
+    }
+  }
+
+  /** Show/hide the label + URL fields (a configured button reads as just the CTA). */
+  private setEditing(on: boolean): void {
+    this.wrapper?.classList.toggle('block-button--editing', on);
+    if (on) {
+      this.labelInput?.focus();
+      this.labelInput?.select();
     }
   }
 
@@ -88,13 +99,37 @@ export class ButtonBlock implements BlockTool {
     url.addEventListener('input', () => this.syncPreview());
 
     fields.append(label, url);
-    wrapper.append(fields, preview);
+    // CTA first: the fields tuck in *below* it while editing, so the button
+    // itself never jumps as they appear.
+    wrapper.append(preview, fields);
 
+    // Once configured, leaving the block folds the fields away; the block
+    // settings menu ("Edit button") brings them back.
+    wrapper.addEventListener('focusout', (e) => {
+      if (!wrapper.contains(e.relatedTarget as Node) && this.urlInput?.value.trim()) {
+        this.setEditing(false);
+      }
+    });
+
+    this.wrapper = wrapper;
     this.labelInput = label;
     this.urlInput = url;
     this.preview = preview;
     this.syncPreview();
+    // A fresh / unconfigured button opens ready to edit.
+    if (!(this.data.url ?? '').trim()) wrapper.classList.add('block-button--editing');
     return wrapper;
+  }
+
+  renderSettings() {
+    return [
+      {
+        icon: icon('<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>'),
+        title: t('blocks.buttonEdit'),
+        onActivate: () => this.setEditing(true),
+        closeOnActivate: true,
+      },
+    ];
   }
 
   save(): ButtonData {

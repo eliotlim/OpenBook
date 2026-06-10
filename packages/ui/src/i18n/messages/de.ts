@@ -214,6 +214,7 @@ export const de: PartialMessages = {
     button: 'Schaltfläche',
     buttonDefault: 'Schaltfläche',
     buttonLabelPlaceholder: 'Beschriftung',
+    buttonEdit: 'Button bearbeiten',
     buttonUrlPlaceholder: 'https://… oder /seite',
     toc: 'Inhaltsverzeichnis',
     tocTitle: 'Auf dieser Seite',

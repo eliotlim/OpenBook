@@ -214,6 +214,7 @@ export const zh: PartialMessages = {
     button: '按钮',
     buttonDefault: '按钮',
     buttonLabelPlaceholder: '按钮文字',
+    buttonEdit: '编辑按钮',
     buttonUrlPlaceholder: 'https://… 或 /page',
     toc: '目录',
     tocTitle: '本页内容',

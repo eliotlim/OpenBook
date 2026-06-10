@@ -214,6 +214,7 @@ export const ja: PartialMessages = {
     button: 'ボタン',
     buttonDefault: 'ボタン',
     buttonLabelPlaceholder: 'ボタンのラベル',
+    buttonEdit: 'ボタンを編集',
     buttonUrlPlaceholder: 'https://… または /page',
     toc: '目次',
     tocTitle: 'このページの内容',

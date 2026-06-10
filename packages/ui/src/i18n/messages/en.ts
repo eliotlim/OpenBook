@@ -262,6 +262,7 @@ export const en = {
     button: 'Button',
     buttonDefault: 'Button',
     buttonLabelPlaceholder: 'Button label',
+    buttonEdit: 'Edit button',
     buttonUrlPlaceholder: 'https://… or /page',
     toc: 'Table of contents',
     tocTitle: 'On this page',
