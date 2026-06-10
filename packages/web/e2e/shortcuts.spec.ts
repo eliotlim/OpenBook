@@ -14,10 +14,12 @@ test('command palette: opens with ⌘K, groups commands, and runs one', async ({
   await page.keyboard.press('ControlOrMeta+k');
   await expect(page.getByPlaceholder(/Search pages or run a command/)).toBeVisible();
 
-  // Grouped action headings (not the page list).
-  await expect(page.getByText('Create', {exact: true})).toBeVisible();
-  await expect(page.getByText('View', {exact: true})).toBeVisible();
-  await expect(page.getByText('Navigation', {exact: true})).toBeVisible();
+  // Grouped action headings, scoped to the palette listbox — a database page
+  // behind the dialog also has a toolbar button whose text is exactly "View".
+  const palette = page.getByRole('listbox');
+  await expect(palette.getByText('Create', {exact: true})).toBeVisible();
+  await expect(palette.getByText('View', {exact: true})).toBeVisible();
+  await expect(palette.getByText('Navigation', {exact: true})).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: command palette with grouped commands
 
   // Filter to a command and run it with Enter (the top match auto-highlights).
