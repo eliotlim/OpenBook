@@ -389,7 +389,9 @@ test('per-group summaries: each group footer shows its own sum', async ({page}) 
   await page.getByRole('menuitem', {name: 'Sum', exact: true}).click();
 
   // Each group footer sums only its own rows (10 and 5); the table total is 15.
-  await expect(page.getByRole('table').getByText('10', {exact: true})).toBeVisible();
+  // Both the group footer and the table footer can show the sum — assert
+  // the per-group cell specifically.
+  await expect(page.getByRole('table').locator('td').filter({hasText: /^10$/})).toBeVisible();
   await expect(page.getByRole('table').getByText('5', {exact: true})).toBeVisible();
   await expect(page.locator('tfoot').getByText('15', {exact: true})).toBeVisible();
 });
