@@ -145,7 +145,7 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
   const removeRow = (idx: number) => setRows((prev) => prev.filter((_, i) => i !== idx));
 
   return (
-    <ReactiveCard>
+    <ReactiveCard className="group/chart">
       <div className="mb-3 flex flex-col gap-1.5 text-xs text-muted-foreground">
         {rows.map((row, idx) => (
           <div key={row.rowKey} className="flex items-center gap-2">
@@ -176,10 +176,12 @@ const ChartComponent: React.FC<ChartComponentProps> = ({initialData, onChange}) 
             )}
           </div>
         ))}
+        {/* Quiet until the block is hovered or focused — like the expr hint,
+            it's configuration chrome, not content. */}
         <button
           type="button"
           onClick={addRow}
-          className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground opacity-0 transition-all hover:bg-accent hover:text-foreground group-focus-within/chart:opacity-100 group-hover/chart:opacity-100"
         >
           {`+ ${t('blocks.chartAddSeries')}`}
         </button>
