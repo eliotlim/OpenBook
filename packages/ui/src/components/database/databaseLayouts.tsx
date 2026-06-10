@@ -148,6 +148,9 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
   const size = view.cardSize ?? 'medium';
   const schema = db.database?.schema.properties ?? properties;
   const groupProp = view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
+  // Grouped sections already announce the group value in their header — repeating
+  // it as a chip on every card underneath is noise (the board does the same).
+  const cardProps = properties.filter((p) => p.id !== groupProp?.id);
 
   const card = (row: DatabaseRow): React.ReactNode => {
     const cover = view.coverPropertyId ? firstImageUrl(row.properties[view.coverPropertyId]) : null;
@@ -166,7 +169,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
           )}
           <div className="flex flex-col gap-2 px-3 pb-3">
             <div className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</div>
-            <RowChips row={row} properties={properties} rows={db.rows} />
+            <RowChips row={row} properties={cardProps} rows={db.rows} />
           </div>
         </button>
       </RowContextMenu>
@@ -452,10 +455,13 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /** Normalise a cell value to a local `YYYY-MM-DD` day key, or null if undated. */
 const dayKey = (value: unknown): string | null => {
-  if (typeof value !== 'string' || !value.trim()) return null;
+  // dateStart unwraps both plain day strings and {start, end} range values —
+  // ranges previously bucketed to null, leaving the calendar silently empty.
+  const start = dateStart(value);
+  if (!start) return null;
   // `date` properties are already `YYYY-MM-DD`; timestamps are full ISO strings.
-  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
-  const d = new Date(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(start)) return start.slice(0, 10);
+  const d = new Date(start);
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 };
 
