@@ -829,10 +829,13 @@ test('insert row above: positions the new row before the source', async ({page})
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('button', {name: 'New row'}).click();
+  // Run-tagged: page names are globally unique, so bare names 409 when the
+  // suite reuses a dev server whose earlier runs created them.
+  const tag = Date.now();
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
-  await titles.nth(0).fill('First');
+  await titles.nth(0).fill(`First ${tag}`);
   await titles.nth(0).blur();
-  await titles.nth(1).fill('Second');
+  await titles.nth(1).fill(`Second ${tag}`);
   await titles.nth(1).blur();
 
   // Insert above the second row (its menu = nth(1) actions).
@@ -841,7 +844,7 @@ test('insert row above: positions the new row before the source', async ({page})
 
   // Order is now First, (new untitled), Second.
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(3);
-  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(0)).toHaveValue('First');
+  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(0)).toHaveValue(`First ${tag}`);
   await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(1)).toHaveValue('');
-  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(2)).toHaveValue('Second');
+  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(2)).toHaveValue(`Second ${tag}`);
 });
