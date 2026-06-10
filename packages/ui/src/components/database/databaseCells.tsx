@@ -535,12 +535,15 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
   onChange,
 }) => {
   const inputType = property.includeTime ? 'datetime-local' : 'date';
-  const relative = property.dateDisplay === 'relative';
   const [editing, setEditing] = useState(false);
+  const start = dateStart(value);
+  const end = dateEnd(value);
+  const hasValue = Boolean(start ?? end);
 
-  // Relative dates read as friendly text ("Today", "In 3 days") until clicked,
-  // then reveal the native picker to edit.
-  if (relative && !editing) {
+  // A dated cell reads as text — "12/06/2026", "In 3 days", "Jun 10 → Jun 13" —
+  // until clicked, when the native picker(s) appear. Empty cells go straight to
+  // the input so a date can be typed without an extra click.
+  if (hasValue && !editing) {
     const text = formatCellValue(property, value);
     return (
       <button
@@ -552,19 +555,23 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
       </button>
     );
   }
-  const exit = relative ? () => setEditing(false) : undefined;
+  // Focusing the empty-state input also counts as editing (so a range being
+  // filled in doesn't flip to text the moment its first half gets a value);
+  // leaving the cell returns it to the text rendering.
+  const enter = () => setEditing(true);
+  const exit = () => setEditing(false);
 
   // `required` marks an *empty* native date input :invalid, which the CSS uses
   // to hide its dd/mm/yyyy scaffold until the row is hovered or it's focused
   // (date inputs have no placeholder to restyle). See `.ob-date-empty` rules.
   if (!property.dateRange) {
-    const start = dateStart(value);
     return (
       <input
         type={inputType}
-        autoFocus={relative}
+        autoFocus={editing}
         required={!start}
         defaultValue={start ?? ''}
+        onFocus={enter}
         onChange={(e) => onChange(e.target.value || null)}
         onBlur={exit}
         className={cn(inputClass, 'ob-date-empty')}
@@ -572,17 +579,16 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
       />
     );
   }
-  const start = dateStart(value);
-  const end = dateEnd(value);
   const emit = (next: DateRange) => onChange(next.start || next.end ? next : null);
   return (
     <div
       className="group/dates flex items-center gap-1 px-1 text-sm"
-      onBlur={exit ? (e) => !e.currentTarget.contains(e.relatedTarget as Node) && exit() : undefined}
+      onFocus={enter}
+      onBlur={(e) => !e.currentTarget.contains(e.relatedTarget as Node) && exit()}
     >
       <input
         type={inputType}
-        autoFocus={relative}
+        autoFocus={editing}
         required={!start}
         defaultValue={start ?? ''}
         onChange={(e) => emit({start: e.target.value || null, end})}

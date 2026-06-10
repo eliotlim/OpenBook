@@ -89,8 +89,10 @@ test('calendar drag: reschedule a row by dragging to another day', async ({page}
   await page.locator(`[data-day-key="${onDay(15)}"]`).dispatchEvent('drop');
   await pill.dispatchEvent('dragend');
 
-  // Back in the table, the date moved to the 15th.
+  // Back in the table, the date moved to the 15th (dated cells render as
+  // text; click to reveal the native input).
   await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await page.getByLabel('Due').first().click();
   await expect(page.getByLabel('Due').first()).toHaveValue(onDay(15));
 });
 
@@ -530,8 +532,10 @@ test('calendar quick-add: click a day to create a dated row', async ({page}) => 
   const onDay = (d: number) => `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   await page.getByRole('button', {name: `Add on ${onDay(12)}`}).click();
 
-  // Back in the table, the new row carries that date.
+  // Back in the table, the new row carries that date (dated cells render as
+  // text; click to reveal the native input).
   await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await page.getByRole('table').getByLabel('Due').click();
   await expect(page.getByRole('table').getByLabel('Due')).toHaveValue(onDay(12));
 });
 

@@ -72,8 +72,10 @@ test('timeline drag: dragging a bar reschedules the row', async ({page}) => {
   await page.mouse.move(box.x + box.width / 2 + 170, box.y + box.height / 2, {steps: 12});
   await page.mouse.up();
 
-  // Back in the table, the date has moved off its original value.
+  // Back in the table, the date has moved off its original value (dated cells
+  // render as text; click to reveal the native input).
   await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await page.getByLabel('When').first().click();
   await expect(page.getByLabel('When').first()).not.toHaveValue('2026-03-15');
 });
 
