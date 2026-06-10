@@ -73,5 +73,5 @@ test('page menu: rename, copy link, duplicate, split — and rename focuses the 
   await takeSnapshot(page, testInfo); // visual: enriched page context menu
 
   await page.getByRole('menuitem', {name: 'Rename'}).click();
-  await expect(page.locator('input[aria-label="Page title"]')).toBeFocused();
+  await expect(page.getByLabel('Page title')).toBeFocused();
 });

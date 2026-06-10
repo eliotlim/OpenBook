@@ -140,11 +140,19 @@ const PageHeader: React.FC<{
   onTitleActiveChange?: (active: boolean) => void;
 }> = ({title, icon, pageId, onTitleChange, onIconChange, onTitleActiveChange}) => {
   const {t} = useTranslation();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // "Rename" from a menu focuses + selects this title field. Handle both a
   // request fired while we're already mounted, and one queued just before a
   // page switch mounted this header (claimed via consumePendingRename).
+  // Auto-grow the title textarea to its content (it never scrolls).
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [title]);
+
   useEffect(() => {
     if (!pageId) return;
     const focusTitle = () => {
@@ -167,12 +175,21 @@ const PageHeader: React.FC<{
         ariaLabel={t('page.changeIcon')}
         className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-accent"
       />
-      <input
+      {/* A textarea (not an input) so long titles wrap instead of clipping;
+          auto-grown to fit, Enter commits rather than inserting a newline. */}
+      <textarea
         ref={inputRef}
-        className="w-full bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-muted-foreground/35"
+        rows={1}
+        className="w-full resize-none overflow-hidden bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-muted-foreground/35"
         value={title}
         placeholder={t('common.untitled')}
         onChange={(e) => onTitleChange?.(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+        }}
         onFocus={() => onTitleActiveChange?.(true)}
         onBlur={() => onTitleActiveChange?.(false)}
         aria-label={t('page.titleLabel')}
