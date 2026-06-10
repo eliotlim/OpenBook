@@ -69,10 +69,13 @@ test('database views: board, gallery, and bar chart layouts render', async ({pag
 test('database bar chart: drill-down and breakdown control', async ({page}, testInfo) => {
   await newDatabase(page);
 
-  // A named row so it's identifiable once we drill into the chart.
+  // A named row so it's identifiable once we drill into the chart. The name is
+  // run-tagged: page names are globally unique, so a bare 'Alpha' 409s against
+  // the row database-context-menu.spec seeds earlier in the suite.
+  const alpha = `Alpha ${Date.now()}`;
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
-  await title.fill('Alpha');
+  await title.fill(alpha);
   await title.blur();
 
   // Switch to a Bar chart (groups by Status; the row has none → a "No value" bar).
@@ -87,7 +90,7 @@ test('database bar chart: drill-down and breakdown control', async ({page}, test
   // Clicking the bar drills into its rows; the panel lists the underlying row.
   await page.getByRole('button', {name: /No value: 1/}).click();
   await expect(page.getByRole('button', {name: 'Close drill-down'})).toBeVisible();
-  await expect(page.getByRole('button', {name: /Alpha/})).toBeVisible();
+  await expect(page.getByRole('button', {name: alpha})).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: interactive bar chart + drill-down
 
   // The view options expose the second-level breakdown control.
@@ -111,8 +114,10 @@ test('database summaries: a column footer calculation renders', async ({page}) =
 test('database quick search: filters rows by text', async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
+  // Run-tagged: a bare 'Findme' 409s against database-parity.spec's row.
+  const findme = `Findme ${Date.now()}`;
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
-  await title.fill('Findme');
+  await title.fill(findme);
   await title.blur();
 
   // A non-matching query empties the view.
@@ -121,7 +126,7 @@ test('database quick search: filters rows by text', async ({page}) => {
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(0);
 
   // A matching query brings the row back.
-  await page.getByRole('textbox', {name: 'Search rows'}).fill('Find');
+  await page.getByRole('textbox', {name: 'Search rows'}).fill('Findme ');
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(1);
 });
 
