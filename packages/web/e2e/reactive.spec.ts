@@ -9,7 +9,9 @@ const SERVER = 'http://127.0.0.1:4319';
 test('reactive page computes and does not save-loop', async ({page, request}, testInfo) => {
   const create = await request.post(`${SERVER}/api/pages`, {
     data: {
-      name: 'Reactive E2E',
+      // Run-tagged: page names are globally unique, so a bare name 409s when
+      // the suite reuses a dev server across runs.
+      name: `Reactive E2E ${Date.now()}`,
       data: {
         editorjs: {
           blocks: [
