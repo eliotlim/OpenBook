@@ -26,8 +26,10 @@ test('reactive page computes and does not save-loop', async ({page, request}, te
 
   await page.goto(`/?page=${created.id}`);
 
-  // The chained expression evaluates (x=5, y=50) — proves reactive recompute works.
-  await expect(page.getByText('50', {exact: false})).toBeVisible();
+  // The chained expression evaluates (x=5, y=50) — proves reactive recompute
+  // works. Scoped to the expr result readouts: a bare getByText('50') also
+  // matches sidebar page names whose timestamp tags contain '50'.
+  await expect(page.locator('.reactive-block code').getByText('50', {exact: true})).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: computed reactive blocks
 
   // No save loop: updatedAt must be stable once settled.
