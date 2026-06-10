@@ -118,10 +118,13 @@ The database is full-featured. The pure model + evaluation lives in
   created/last-edited time, **unique ID** (auto-incrementing, optional prefix),
   person, verification, backlinks, plus two computed kinds: `expr` (reads a reactive
   cell from the row's document) and `formula` (`prop("Price") * prop("Qty")`).
-- **Views** — table (with a **frozen Name column**), board (**collapsible
-  columns**, configurable footer **calculation**), gallery (**card size S/M/L**,
-  **grouped sections**), calendar (**click-a-day to add**), **timeline** (Gantt with
-  drag-to-reschedule + dependency arrows), **dependency graph**, list, and
+- **Views** — table (with a **frozen Name column** that casts an edge shadow
+  while scrolled), board (**collapsible columns**, configurable footer
+  **calculation**, **add-a-group in place**, card **covers**), gallery (**card
+  size S/M/L**, **grouped sections**, covers that tolerate extension-less CDN
+  URLs), calendar (**click-a-day to add**, range-dated rows on their start day),
+  **timeline** (Gantt with drag-to-reschedule + dependency arrows),
+  **dependency graph**, list, and
   **interactive** bar/pie charts. Per-view config: filters (a nested **AND/OR tree**,
   `filterRoot`), sorts, visible/ordered columns, group-by (table/list/**gallery**,
   with **hide-empty** + collapse/expand-all), chart aggregate + second-level
