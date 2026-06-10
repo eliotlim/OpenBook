@@ -66,7 +66,9 @@ test('page menu: rename, copy link, duplicate, split — and rename focuses the 
   const menu = page.getByRole('menu');
   await expect(menu.getByText('Rename')).toBeVisible();
   await expect(menu.getByText('Copy link')).toBeVisible();
-  await expect(menu.getByText('Duplicate')).toBeVisible();
+  // Both the Block and Page sections offer Duplicate when the right-click
+  // lands on a block — assert at least one is shown.
+  await expect(menu.getByText('Duplicate').first()).toBeVisible();
   await expect(menu.getByText('Open in split view')).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: enriched page context menu
 
