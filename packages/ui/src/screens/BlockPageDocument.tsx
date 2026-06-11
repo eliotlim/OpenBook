@@ -27,6 +27,7 @@ import {downloadBlob} from '@/lib/download';
 import {useData} from '@/data';
 import {connectBroadcast} from '@/blockeditor/provider';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
+import {registerArtifactKit} from '@/blockeditor/kit';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
 import {useHud, usePreferences, useTranslation} from '@/providers';
@@ -49,6 +50,7 @@ import {PageHeader, type PageDocumentProps} from './PageDocument';
  *    instantly over the BroadcastChannel provider.
  */
 registerReactiveBlocks(); // built-in reactive plugins (slider + formula)
+registerArtifactKit(); // interactive artifact blocks (inputs, charts, cards)
 
 const BlockPageDocument: React.FC<PageDocumentProps> = ({
   onSave,

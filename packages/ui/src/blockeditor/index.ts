@@ -15,4 +15,5 @@ export {
 } from './model';
 export {registerCustomBlock, getCustomBlock, type CustomBlockDef, type CustomBlockProps} from './registry';
 export {registerReactiveBlocks} from './reactiveBlocks';
+export {registerArtifactKit} from './kit';
 export {blocksToHtml, blocksToMarkdown} from './exportBlocks';

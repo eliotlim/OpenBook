@@ -3,6 +3,7 @@ import {
   BlockEditor,
   connectBroadcast,
   registerReactiveBlocks,
+  registerArtifactKit,
   createSeededBlockDoc,
   decodeBlockDoc,
   encodeBlockDoc,
@@ -13,6 +14,7 @@ import {
 const STORAGE_KEY = 'obe-lab-doc';
 
 registerReactiveBlocks();
+registerArtifactKit();
 
 /** The sandbox shell around the block editor (localStorage + tab sync). */
 export default function EditorLab() {

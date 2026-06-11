@@ -1,29 +1,19 @@
 import React from 'react';
-import {blockProp, blockType, rootBlocks, setBlockProp, walkBlocks} from './model';
+import {blockProp, setBlockProp} from './model';
+import {evalExpr, formatValue, inputScope} from './kit/scope';
 import {registerCustomBlock, type CustomBlockProps} from './registry';
 
 /**
  * Reactive blocks for the block editor: a named **slider** input and a live
- * **formula** that recomputes over every slider's value. Together they make
- * documents programmable — drag a slider and every formula reading it
- * updates, on every collaborator's screen (the values are ordinary CRDT
- * block props, so they sync like text does).
+ * **formula** that recomputes over every named input's value (sliders plus
+ * the whole artifact kit — steppers, text fields, radios, checklists…).
+ * Drag a slider and every formula reading it updates, on every
+ * collaborator's screen (the values are ordinary CRDT block props, so they
+ * sync like text does).
  *
  * Registered through the custom-block registry, i.e. these are plugins: the
  * core editor knows nothing about them.
  */
-
-/** All slider values in the doc, by name (the formula's input scope). */
-function sliderScope(editor: CustomBlockProps['editor']): Record<string, number> {
-  const scope: Record<string, number> = {};
-  for (const {block} of walkBlocks(rootBlocks(editor.doc))) {
-    if ((blockType(block) as string) === 'slider') {
-      const name = blockProp<string>(block, 'name');
-      if (name) scope[name] = Number(blockProp<number>(block, 'value') ?? 0);
-    }
-  }
-  return scope;
-}
 
 const SliderBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const name = blockProp<string>(block, 'name') ?? 'x';
@@ -56,22 +46,8 @@ const SliderBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
 
 const FormulaBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const source = blockProp<string>(block, 'source') ?? '';
-  const scope = sliderScope(editor);
-
-  let result: string;
-  try {
-    if (!source.trim()) {
-      result = '—';
-    } else {
-      // Same trust model as the app's expr blocks: the document's own code
-      // runs client-side with the slider values in scope.
-      const fn = new Function(...Object.keys(scope), `"use strict"; return (${source});`);
-      const value = fn(...Object.values(scope)) as unknown;
-      result = typeof value === 'number' && !Number.isInteger(value) ? String(Math.round(value * 1000) / 1000) : String(value);
-    }
-  } catch (err) {
-    result = `⚠ ${err instanceof Error ? err.message : String(err)}`;
-  }
+  const {value, error} = evalExpr(source, inputScope(editor.doc));
+  const result = error ? `⚠ ${error}` : formatValue(value);
 
   return (
     <div className="obe-formula" contentEditable={false}>
