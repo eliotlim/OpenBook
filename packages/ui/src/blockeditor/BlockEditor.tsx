@@ -10,6 +10,7 @@ import {
   findBlock,
   moveBlock,
   parentBlockOf,
+  blockToJSON,
   cloneBlock,
   removeBlock,
   rootBlocks,
@@ -22,6 +23,7 @@ import {
   type BlockMap,
 } from './model';
 import {rangeHasAttr, readSelection, writeSelection} from './richtext';
+import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
 import {getCustomBlock} from './registry';
 import {pageLinks} from '@/lib/pageLinks';
 import {
@@ -303,6 +305,27 @@ export const BlockEditor: React.FC<{
         editor.setSelection(ids);
       }
     };
+    const onClipboard = (e: ClipboardEvent, cut: boolean): void => {
+      if (editor.selection.size === 0 || !e.clipboardData) return;
+      e.preventDefault();
+      // Selected top-level blocks serialize three ways: markdown for text
+      // consumers, HTML for rich editors, and the block JSON for a lossless
+      // paste back into this (or any) OpenBook document.
+      const blocks = rootBlocks(doc)
+        .map((b) => b)
+        .filter((b) => editor.selection.has(blockId(b)))
+        .map((b) => blockToJSON(b));
+      if (blocks.length === 0) return;
+      e.clipboardData.setData('text/plain', blocksToMarkdown(blocks));
+      e.clipboardData.setData('text/html', blocksToHtml(blocks));
+      // Wrapped payload: paste always recreates BLOCKS (a copied paragraph
+      // must not splice inline like external single-line HTML does).
+      e.clipboardData.setData('application/x-obe-blocks', JSON.stringify({v: 1, blocks}));
+      if (cut) editor.removeSelected();
+      setLive(cut ? 'Cut' : 'Copied');
+    };
+    const onCopy = (e: ClipboardEvent): void => onClipboard(e, false);
+    const onCut = (e: ClipboardEvent): void => onClipboard(e, true);
     const onScroll = (): void => {
       // Fixed-position popups don't track the page — fold them on scroll.
       if (uiRef.current.slash.open) uiRef.current.closeSlash();
@@ -310,10 +333,14 @@ export const BlockEditor: React.FC<{
     };
     document.addEventListener('selectionchange', onSelectionChange);
     document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('copy', onCopy);
+    document.addEventListener('cut', onCut);
     window.addEventListener('scroll', onScroll, true);
     return () => {
       document.removeEventListener('selectionchange', onSelectionChange);
       document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('cut', onCut);
       window.removeEventListener('scroll', onScroll, true);
     };
   }, [editor, readOnly]);

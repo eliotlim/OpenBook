@@ -7,10 +7,13 @@ import {
   cellNeighbor,
   cellPosition,
   findBlock,
+  htmlToBlocks,
   setBlockProp,
   tableInsertRow,
   type BlockMap,
   type BlockType,
+  type NewBlock,
+  type TextRun,
 } from './model';
 import {attrsAt, diffText, readSelection, runsToHtml, writeSelection} from './richtext';
 import type {BlockEditorController} from './useBlockEditor';
@@ -82,7 +85,14 @@ export const TextBlockView: React.FC<{
   };
 
   const insertPlain = (at: number, data: string): void => {
-    text.insert(at, data, isCode ? {} : attrsAt(text, at));
+    const attrs = isCode ? {} : attrsAt(text, at);
+    // Bold/italic/etc continue when typing at a run's edge (expected), but
+    // links and mentions must not grow: keep them only when typing strictly
+    // INSIDE the run (the next character carries the same attribute).
+    const next = attrsAt(text, Math.min(at + 1, text.length));
+    if (attrs.a && next.a !== attrs.a) delete attrs.a;
+    if (attrs.m) delete attrs.m; // mention text is its label — never extend
+    text.insert(at, data, attrs);
   };
 
   /** Markdown prefixes: typed at the start of a block, space converts it. */
@@ -271,7 +281,59 @@ export const TextBlockView: React.FC<{
 
     case 'insertFromPaste': {
       ev.preventDefault();
-      const plain = ev.dataTransfer?.getData('text/plain') ?? '';
+      const dt = ev.dataTransfer;
+      if (!dt) return;
+      const blocksJson = dt.getData('application/x-obe-blocks');
+      const html = dt.getData('text/html');
+      const plain = dt.getData('text/plain') ?? '';
+
+      // Internal copy round-trips losslessly via the block payload; external
+      // rich content imports through the HTML parser; code blocks and bare
+      // text fall through to plain handling.
+      if (!isCode && (blocksJson || html)) {
+        let pasted: NewBlock[] = [];
+        let blockMode = false; // copied AS blocks → always paste as blocks
+        if (blocksJson) {
+          try {
+            const parsed = JSON.parse(blocksJson) as {v?: number; blocks?: NewBlock[]} | NewBlock[];
+            pasted = Array.isArray(parsed) ? parsed : (parsed.blocks ?? []);
+            blockMode = !Array.isArray(parsed);
+          } catch {
+            pasted = [];
+          }
+        }
+        if (pasted.length === 0 && html) pasted = htmlToBlocks(html);
+        pasted = pasted.filter((b) => b && typeof b === 'object');
+        if (!blockMode && pasted.length === 1 && pasted[0].type === 'paragraph' && !pasted[0].children) {
+          // Single rich line: splice its runs into the current text inline.
+          const runs = (Array.isArray(pasted[0].text) ? pasted[0].text : [{t: String(pasted[0].text ?? '')}]) as TextRun[];
+          apply(() => {
+            deleteSelection(sel);
+            let at = sel.start;
+            for (const run of runs) {
+              text.insert(at, run.t, run.a ?? {});
+              at += run.t.length;
+            }
+          });
+          editor.requestCaret({blockId: id, offset: sel.start + runs.reduce((n, r) => n + r.t.length, 0)});
+          return;
+        }
+        if (pasted.length > 0) {
+          apply(() => deleteSelection(sel));
+          // Pasting into an empty paragraph replaces it; otherwise insert below.
+          const replaceHost = type === 'paragraph' && text.length === 0;
+          let after: string | null = id;
+          for (const b of pasted) {
+            after = editor.insertAfter(after, {...b, id: undefined});
+          }
+          if (replaceHost) {
+            const host = findBlock(editor.doc, id);
+            if (host) editor.doc.transact(() => host.parent.delete(host.index, 1), 'local');
+          }
+          return;
+        }
+      }
+
       if (!plain) return;
       const lines = plain.replace(/\r\n?/g, '\n').split('\n');
       apply(() => {

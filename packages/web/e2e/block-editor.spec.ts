@@ -403,6 +403,90 @@ test('mention runs navigate to their page on click', async ({page, request}) => 
   await expect(page).toHaveURL(new RegExp(targetId));
 });
 
+test('clipboard: block selection copies three flavours and pastes back losslessly', async ({page}) => {
+  await freshLab(page);
+  // Select the paragraph as a block, copy via a synthetic clipboard event.
+  await caretAtEnd(page, 1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.obe-row-selected')).toHaveCount(1);
+  const payload = await page.evaluate(() => {
+    const dt = new DataTransfer();
+    document.dispatchEvent(new ClipboardEvent('copy', {clipboardData: dt, bubbles: true, cancelable: true}));
+    return {
+      md: dt.getData('text/plain'),
+      html: dt.getData('text/html'),
+      blocks: dt.getData('application/x-obe-blocks'),
+    };
+  });
+  expect(payload.md).toContain('A scratch document');
+  expect(payload.html).toContain('<p>');
+  expect(JSON.parse(payload.blocks).blocks[0].type).toBe('paragraph');
+
+  // Paste the block payload at the end of the todo → a new paragraph block.
+  await caretAtEnd(page, 2);
+  await page.evaluate((blocks) => {
+    const dt = new DataTransfer();
+    dt.setData('application/x-obe-blocks', blocks);
+    document.activeElement!.dispatchEvent(
+      new InputEvent('beforeinput', {inputType: 'insertFromPaste', dataTransfer: dt, bubbles: true, cancelable: true}),
+    );
+  }, payload.blocks);
+  await expect(page.locator('[data-block-type=paragraph]')).toHaveCount(2);
+  await expect(page.locator('.obe-text').nth(3)).toContainText('A scratch document');
+});
+
+test('clipboard: external rich HTML pastes as real blocks', async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.setData('text/html', '<h2>Imported</h2><ul><li>alpha <strong>bold</strong></li><li>beta</li></ul>');
+    dt.setData('text/plain', 'Imported\nalpha bold\nbeta');
+    document.activeElement!.dispatchEvent(
+      new InputEvent('beforeinput', {inputType: 'insertFromPaste', dataTransfer: dt, bubbles: true, cancelable: true}),
+    );
+  });
+  await expect(page.locator('.obe-h2 .obe-text')).toHaveText('Imported');
+  await expect(page.locator('.obe-list')).toHaveCount(2);
+  await expect(page.locator('.obe-list strong')).toHaveText('bold');
+});
+
+test('typing at a link\'s trailing edge does not extend the link', async ({page}) => {
+  await freshLab(page);
+  // Link the word "scratch" via the toolbar.
+  await page.evaluate(() => {
+    const p = [...document.querySelectorAll('.obe-text')][1] as HTMLElement;
+    const tn = p.firstChild as Text;
+    const idx = tn.textContent!.indexOf('scratch');
+    const sel = getSelection()!;
+    const range = document.createRange();
+    range.setStart(tn, idx);
+    range.setEnd(tn, idx + 7);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    p.focus();
+  });
+  await page.locator('.obe-text').nth(1).dispatchEvent('mouseup');
+  await expect(page.locator('.obe-toolbar')).toBeVisible();
+  await page.locator('.obe-tb-btn', {hasText: '⛓'}).dispatchEvent('mousedown');
+  await expect(page.locator('.obe-text a.obe-link')).toHaveText('scratch');
+
+  // Caret at the link's end, type — the text lands OUTSIDE the link.
+  await page.evaluate(() => {
+    const a = document.querySelector('.obe-text a.obe-link')!;
+    const sel = getSelection()!;
+    const range = document.createRange();
+    range.setStart(a.firstChild!, a.textContent!.length);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    (a.closest('.obe-text') as HTMLElement).focus({preventScroll: true});
+  });
+  await page.keyboard.type('XY');
+  await expect(page.locator('.obe-text a.obe-link')).toHaveText('scratch');
+  await expect(page.locator('.obe-text').nth(1)).toContainText('scratchXY');
+});
+
 test('table editing: type in cells, add a row and a column', async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);

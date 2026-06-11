@@ -273,3 +273,43 @@ describe('editorjs migration — full app coverage', () => {
     expect(blocks[7].props).toMatchObject({variant: 'warn'});
   });
 });
+
+describe('htmlToBlocks (clipboard import)', () => {
+  it('imports headings, lists, todos, quotes, code, tables, and inline marks', async () => {
+    const {htmlToBlocks} = await import('../../blockeditor/model');
+    const blocks = htmlToBlocks(
+      '<h2>Title</h2>' +
+        '<p>plain <strong>bold</strong> <a href="https://x.y">link</a></p>' +
+        '<ul><li>one</li><li><input type="checkbox" checked>done item</li></ul>' +
+        '<ol><li>first</li></ol>' +
+        '<blockquote>wise</blockquote>' +
+        '<pre>const x = 1;</pre>' +
+        '<hr>' +
+        '<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>',
+    );
+    expect(blocks.map((b) => b.type)).toEqual([
+      'heading',
+      'paragraph',
+      'list',
+      'todo',
+      'list',
+      'quote',
+      'code',
+      'divider',
+      'table',
+    ]);
+    expect(blocks[1].text).toEqual([{t: 'plain '}, {t: 'bold', a: {b: true}}, {t: ' '}, {t: 'link', a: {a: 'https://x.y'}}]);
+    expect(blocks[3].props).toEqual({checked: true});
+    expect(blocks[4].props).toEqual({kind: 'number'});
+    expect(blocks[8].props).toEqual({header: true});
+    expect((blocks[8].children?.[1].children?.[1] as {text: {t: string}[]}).text[0].t).toBe('2');
+  });
+
+  it('degrades unknown markup to paragraphs and skips scripts', async () => {
+    const {htmlToBlocks} = await import('../../blockeditor/model');
+    const blocks = htmlToBlocks('<script>evil()</script><span>loose <em>text</em></span>');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe('paragraph');
+    expect(blocks[0].text).toEqual([{t: 'loose '}, {t: 'text', a: {i: true}}]);
+  });
+});

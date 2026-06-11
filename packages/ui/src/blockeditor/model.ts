@@ -689,6 +689,103 @@ export function htmlToRuns(html: string): TextRun[] {
   return runs;
 }
 
+/**
+ * Parse clipboard/external HTML into blocks: top-level block elements map to
+ * block types, inline markup folds into rich runs (via {@link htmlToRuns}),
+ * lists flatten to one block per item, tables come across whole. Anything
+ * unrecognized degrades to a paragraph with its text — never dropped.
+ */
+export function htmlToBlocks(html: string): NewBlock[] {
+  if (typeof document === 'undefined') return [{type: 'paragraph', text: html.replace(/<[^>]+>/g, '')}];
+  const root = document.createElement('div');
+  root.innerHTML = html;
+  const out: NewBlock[] = [];
+
+  const pushListItems = (listEl: HTMLElement, kind: 'bullet' | 'number'): void => {
+    listEl.querySelectorAll(':scope > li').forEach((li) => {
+      const checkbox = li.querySelector(':scope > input[type="checkbox"]');
+      const clone = li.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('ul, ol, input').forEach((nested) => nested.remove());
+      const runs = htmlToRuns(clone.innerHTML);
+      if (checkbox) {
+        out.push({type: 'todo', text: runs, props: (checkbox as HTMLInputElement).checked ? {checked: true} : undefined});
+      } else {
+        out.push({type: 'list', text: runs, props: {kind}});
+      }
+      li.querySelectorAll(':scope > ul').forEach((ul) => pushListItems(ul as HTMLElement, 'bullet'));
+      li.querySelectorAll(':scope > ol').forEach((ol) => pushListItems(ol as HTMLElement, 'number'));
+    });
+  };
+
+  const visit = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const t = (node.textContent ?? '').trim();
+      if (t) out.push({type: 'paragraph', text: [{t}]});
+      return;
+    }
+    if (!(node instanceof HTMLElement)) return;
+    const tag = node.tagName.toLowerCase();
+    switch (tag) {
+    case 'h1':
+    case 'h2':
+    case 'h3':
+    case 'h4':
+    case 'h5':
+    case 'h6':
+      out.push({type: 'heading', text: htmlToRuns(node.innerHTML), props: {level: Math.min(3, Number(tag[1]))}});
+      return;
+    case 'p':
+      out.push({type: 'paragraph', text: htmlToRuns(node.innerHTML)});
+      return;
+    case 'ul':
+      pushListItems(node, 'bullet');
+      return;
+    case 'ol':
+      pushListItems(node, 'number');
+      return;
+    case 'blockquote':
+      out.push({type: 'quote', text: htmlToRuns(node.innerHTML)});
+      return;
+    case 'pre':
+      out.push({type: 'code', text: node.textContent ?? ''});
+      return;
+    case 'hr':
+      out.push({type: 'divider'});
+      return;
+    case 'table': {
+      const rows = [...node.querySelectorAll('tr')].map((tr) => [...tr.querySelectorAll('td, th')].map((cell) => htmlToRuns(cell.innerHTML)));
+      if (rows.length > 0) {
+        out.push({
+          type: 'table',
+          props: {header: node.querySelector('th') !== null},
+          children: rows.map((cells) => ({type: 'row' as const, children: cells.map((runs) => ({type: 'cell' as const, text: runs}))})),
+        });
+      }
+      return;
+    }
+    case 'div':
+    case 'section':
+    case 'article':
+    case 'body':
+      node.childNodes.forEach(visit);
+      return;
+    case 'br':
+    case 'style':
+    case 'script':
+    case 'meta':
+      return;
+    default: {
+      // Inline-ish element at the top level: fold it (and following inline
+      // siblings would each become paragraphs — acceptable for pastes).
+      const runs = htmlToRuns(node.outerHTML);
+      if (runs.some((r) => r.t.trim())) out.push({type: 'paragraph', text: runs});
+    }
+    }
+  };
+  root.childNodes.forEach(visit);
+  return out;
+}
+
 /** Reactive context for migration: cell values + the name index, straight
  *  from the page snapshot (`values` / `names`). */
 export interface MigrationContext {
