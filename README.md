@@ -42,6 +42,14 @@ own editable document — so a row opens in a split pane for editing. Columns ar
 typed properties, or `expr` columns that read a row page's live exported
 reactive value, and every view can filter and sort.
 
+**Documents are programmable.** The block editor ships an **artifact kit**:
+named inputs (sliders, number steppers, text fields, radio groups, checklists,
+toggles, locations, action buttons) publish values onto a shared reactive
+scope, and live blocks compute over it — formulas, charts (line, area, bar,
+pie, donut, scatter, funnel), and status lights. Assemble a calculator, a
+picker, or a tiny dashboard out of blocks — collaborative by default, and the
+interactive HTML export keeps the computation alive offline.
+
 **Pages nest.** A page can be a child of another (a `parent_id` link, cascading
 on delete), so the sidebar is a tree and the breadcrumb shows the full path.
 Inside the editor, a **Page** or **Database** block links a child inline — it

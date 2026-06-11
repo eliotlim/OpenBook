@@ -1,4 +1,5 @@
 import {test, expect, takeSnapshot} from './fixtures';
+import {SERVER} from './seed';
 
 // The block editor's artifact kit: named inputs publish onto a shared
 // reactive scope; charts, formulas, and status lights compute over it.
@@ -139,4 +140,37 @@ test('location block takes coordinates and links to a map', async ({page}) => {
   await page.getByLabel('Longitude').fill('-0.1278');
   const map = page.getByRole('link', {name: 'Open map'});
   await expect(map).toHaveAttribute('href', /openstreetmap\.org.*51\.5074.*-0\.1278/);
+});
+
+test('HTML export keeps a kit artifact computing offline', async ({page, request}, testInfo) => {
+  // A real page: a stepper feeding a status light and a formula.
+  const blockdoc = {
+    blocks: [
+      {id: 'n1', type: 'number', props: {name: 'done', label: 'Tasks done', value: 7, min: 0, max: 10, step: 1}},
+      {id: 's1', type: 'statuslight', props: {label: 'Readiness', source: 'done * 10', okAt: 50, warnAt: 20}},
+      {id: 'f1', type: 'formula', props: {source: 'done * 10'}},
+    ],
+  };
+  const res = await request.post(`${SERVER}/api/pages`, {
+    data: {name: `Kit Export ${Date.now()}`, data: {editor: 'blocks', blockdoc, editorjs: {blocks: []}, values: [], names: []}},
+  });
+  const {id} = (await res.json()) as {id: string};
+  await page.goto(`/?page=${id}`);
+  await expect(page.locator('.obe-kit-status')).toBeVisible();
+
+  await page.getByRole('button', {name: 'Page actions'}).click();
+  await page.getByRole('menuitem', {name: 'Export'}).hover();
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', {name: /HTML/}).click()]);
+
+  // Open the standalone file: the stepper rides as a range input, and moving
+  // it recomputes both expressions with no server anywhere. (Save under a
+  // .html name — the raw download path has no extension, and file:// then
+  // serves it as plain text.)
+  const file = testInfo.outputPath('kit-export.html');
+  await download.saveAs(file);
+  await page.goto(`file://${file}`);
+  const exprs = page.locator('.reactive.expr [data-val]');
+  await expect(exprs).toHaveText(['70', '70']);
+  await page.locator('.reactive.slider input[type=range]').fill('3');
+  await expect(exprs).toHaveText(['30', '30']);
 });

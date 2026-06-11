@@ -239,8 +239,22 @@ the EditorJS surface (per-page dispatch in `ConnectedPageDocument`):
 - **Extensibility** (`registry.tsx`) — `registerCustomBlock({type, render,
   slash})`: custom blocks render inside the standard row, store state as CRDT
   props, and join the slash menu. `reactiveBlocks.tsx` ships slider + live
-  formula plugins (code over slider values, recomputed per keystroke/drag,
+  formula plugins (code over input values, recomputed per keystroke/drag,
   collaborative because props are CRDT state).
+- **Artifact kit** (`kit/`) — reusable interactive components for building
+  small artifacts (calculators, pickers, dashboards) out of blocks instead of
+  hand-coding them. *Inputs* publish named values onto a shared reactive
+  scope (`kit/scope.ts`): number stepper, text field, radio group, choice
+  checklist, toggle, location, and an action button that sets/steps/flips
+  another input (or opens a link). *Consumers* evaluate expressions over the
+  scope: a chart block (line/area/bar/pie/donut/scatter/funnel, multi-series
+  via `{name: [..]}`, pure-SVG geometry in unit-tested `kit/chartMath.ts`),
+  a status light with ok/warn thresholds, a tooltip term, and a link card.
+  Every block leads with its control surface; config hides behind a ⚙
+  toggle. Exports (`exportBlocks.ts`): steppers stay interactive as sliders,
+  status/chart expressions stay live (tokenized over every named input),
+  text-ish inputs freeze to readable paragraphs but still publish values.
+  e2e in `packages/web/e2e/kit.spec.ts`.
 - **Collaboration** — `provider.ts` syncs tabs via BroadcastChannel
   (hello/state/update + presence); cross-client sync rides the existing SSE
   page stream — `BlockPageDocument` merges pushed snapshots with
