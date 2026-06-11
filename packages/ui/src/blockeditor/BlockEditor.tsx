@@ -10,6 +10,8 @@ import {
   findBlock,
   moveBlock,
   parentBlockOf,
+  cloneBlock,
+  removeBlock,
   rootBlocks,
   setBlockProp,
   tableDeleteColumn,
@@ -21,6 +23,17 @@ import {
 } from './model';
 import {rangeHasAttr, readSelection, writeSelection} from './richtext';
 import {getCustomBlock} from './registry';
+import {pageLinks} from '@/lib/pageLinks';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {TextBlockView} from './TextBlockView';
 import {SlashMenu, type SlashState} from './SlashMenu';
 import {InlineToolbar, type ToolbarState} from './InlineToolbar';
@@ -37,6 +50,7 @@ import type {InlineAttrs} from './model';
 /** Shared UI surface text blocks call into (menus, formatting, drag). */
 export interface EditorUI {
   slash: SlashState;
+  spellcheck: boolean;
   openSlash(blockId: string, anchorOffset: number): void;
   updateSlash(): void;
   closeSlash(): void;
@@ -51,7 +65,15 @@ interface DragState {
   over: {id: string; region: DropRegion} | null;
 }
 
-export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: string}> = ({doc, readOnly = false, ariaLabel}) => {
+export const BlockEditor: React.FC<{
+  doc: Y.Doc;
+  readOnly?: boolean;
+  ariaLabel?: string;
+  /** Widen the content column to the container (page "full width" mode). */
+  fullWidth?: boolean;
+  /** Spellcheck text blocks while typing (user preference). */
+  spellcheck?: boolean;
+}> = ({doc, readOnly = false, ariaLabel, fullWidth = false, spellcheck = true}) => {
   const editor = useBlockEditor(doc, readOnly);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -145,6 +167,7 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
     const closeSlash = (): void => setSlash((s) => ({...s, open: false, query: '', index: 0}));
     return {
       slash,
+      spellcheck,
       openSlash: (id, anchorOffset) => setSlash({open: true, blockId: id, anchorOffset, query: '', index: 0}),
       updateSlash: () =>
         setSlash((s) => {
@@ -163,7 +186,7 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
       toggleFormat,
       scheduleToolbar,
     };
-  }, [slash, doc, slashQuery, toggleFormat, scheduleToolbar]);
+  }, [slash, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck]);
 
   // ── Drag and drop ────────────────────────────────────────────────────────
   const computeRegion = (e: React.DragEvent | React.PointerEvent, el: HTMLElement, allowSides: boolean): DropRegion => {
@@ -247,6 +270,54 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
     }
   };
 
+  // Cross-block native selections convert to block selection: per-block
+  // contenteditables can't host a real multi-block text range (typing into
+  // one was a silent no-op), so spanning rows highlight as selected blocks
+  // instead; mouseup collapses the native range and the block-selection
+  // keyboard takes over.
+  const uiRef = useRef(ui);
+  uiRef.current = ui;
+  React.useEffect(() => {
+    if (readOnly) return;
+    const spannedRows = (): string[] => {
+      const sel = document.getSelection();
+      const root = rootRef.current;
+      if (!sel || sel.rangeCount === 0 || sel.isCollapsed || !root) return [];
+      const range = sel.getRangeAt(0);
+      if (!root.contains(range.commonAncestorContainer)) return [];
+      const ids: string[] = [];
+      root.querySelectorAll(':scope > [data-block-row]').forEach((row) => {
+        if (range.intersectsNode(row)) ids.push((row as HTMLElement).dataset.blockRow!);
+      });
+      return ids;
+    };
+    const onSelectionChange = (): void => {
+      const ids = spannedRows();
+      if (ids.length > 1) editor.setSelection(ids);
+    };
+    const onMouseUp = (): void => {
+      const ids = spannedRows();
+      if (ids.length > 1) {
+        document.getSelection()?.removeAllRanges();
+        (document.activeElement as HTMLElement | null)?.blur();
+        editor.setSelection(ids);
+      }
+    };
+    const onScroll = (): void => {
+      // Fixed-position popups don't track the page — fold them on scroll.
+      if (uiRef.current.slash.open) uiRef.current.closeSlash();
+      setToolbar(null);
+    };
+    document.addEventListener('selectionchange', onSelectionChange);
+    document.addEventListener('mouseup', onMouseUp);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange);
+      document.removeEventListener('mouseup', onMouseUp);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [editor, readOnly]);
+
   const onRootKeyDownRef = useRef(onRootKeyDown);
   onRootKeyDownRef.current = onRootKeyDown;
   const hasSelection = editor.selection.size > 0;
@@ -278,7 +349,7 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
   return (
     <div
       ref={rootRef}
-      className="obe-root"
+      className={fullWidth ? 'obe-root obe-full' : 'obe-root'}
       role="region"
       aria-label={ariaLabel ?? 'Page content'}
       onKeyDownCapture={onRootKeyDownCapture}
@@ -286,6 +357,23 @@ export const BlockEditor: React.FC<{doc: Y.Doc; readOnly?: boolean; ariaLabel?: 
         if (e.target === rootRef.current) editor.clearSelection();
       }}
       onClick={(e) => {
+        // Mentions navigate; links open in a new tab. (Mentions are
+        // contenteditable=false so a plain click is unambiguous; links keep
+        // the caret behavior on plain click only when editing is impossible.)
+        const anchor = (e.target as HTMLElement).closest?.('a.obe-mention, a.obe-link');
+        if (anchor instanceof HTMLElement) {
+          const pageRef = anchor.dataset.pageId;
+          if (pageRef) {
+            e.preventDefault();
+            pageLinks.openPage(pageRef);
+            return;
+          }
+          if (anchor.classList.contains('obe-link') && (readOnly || e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            window.open((anchor as HTMLAnchorElement).href, '_blank', 'noreferrer');
+            return;
+          }
+        }
         // Clicking the open space below the last block continues the page:
         // focus a trailing empty paragraph, creating one if needed.
         if (e.target !== rootRef.current || readOnly) return;
@@ -412,69 +500,128 @@ const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) =
           >
             +
           </button>
-          <button
-            type="button"
-            aria-label="Drag to move. Press Enter to select the block."
-            className="obe-gutter-btn obe-handle"
-            draggable
-            onDragStart={(e) => {
-              // dataTransfer is null on synthetic events (tests) — optional.
-              if (e.dataTransfer) {
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/plain', id);
-              }
-              setDrag({id, over: null});
-            }}
-            onDragEnd={() => setDrag(null)}
-            onClick={() => editor.setSelection([id])}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                editor.setSelection([id]);
-              }
-            }}
-            onPointerDown={(e) => {
-              // Touch drag: HTML5 DnD doesn't exist on touch screens, so the
-              // handle drives a pointer-based drag (move ≥6px to engage).
-              if (e.pointerType !== 'touch' || editor.readOnly) return;
-              e.preventDefault();
-              const startY = e.clientY;
-              let engaged = false;
-              let lastOver: {id: string; region: DropRegion} | null = null;
-              const move = (ev: PointerEvent): void => {
-                if (!engaged && Math.abs(ev.clientY - startY) < 6) return;
-                engaged = true;
-                ev.preventDefault();
-                const under = document
-                  .elementsFromPoint(ev.clientX, ev.clientY)
-                  .find((el) => el instanceof HTMLElement && el.dataset.blockRow && el.dataset.blockRow !== id) as
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="Drag to move, click for actions"
+                className="obe-gutter-btn obe-handle"
+                draggable
+                onDragStart={(e) => {
+                  // dataTransfer is null on synthetic events (tests) — optional.
+                  if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', id);
+                  }
+                  setDrag({id, over: null});
+                }}
+                onDragEnd={() => setDrag(null)}
+                onClick={() => editor.setSelection([id])}
+                onPointerDown={(e) => {
+                  // Touch drag: HTML5 DnD doesn't exist on touch screens, so the
+                  // handle drives a pointer-based drag (move ≥6px to engage).
+                  if (e.pointerType !== 'touch' || editor.readOnly) return;
+                  e.preventDefault();
+                  const startY = e.clientY;
+                  let engaged = false;
+                  let lastOver: {id: string; region: DropRegion} | null = null;
+                  const move = (ev: PointerEvent): void => {
+                    if (!engaged && Math.abs(ev.clientY - startY) < 6) return;
+                    engaged = true;
+                    ev.preventDefault();
+                    const under = document
+                      .elementsFromPoint(ev.clientX, ev.clientY)
+                      .find((el) => el instanceof HTMLElement && el.dataset.blockRow && el.dataset.blockRow !== id) as
                   | HTMLElement
                   | undefined;
-                if (!under) return;
-                const region = computeRegion(
+                    if (!under) return;
+                    const region = computeRegion(
                   {clientX: ev.clientX, clientY: ev.clientY} as React.PointerEvent,
                   under,
                   under.parentElement?.closest('[data-block-row]') === null,
-                );
-                lastOver = {id: under.dataset.blockRow!, region};
-                setDrag({id, over: lastOver});
-              };
-              const up = (): void => {
-                window.removeEventListener('pointermove', move);
-                window.removeEventListener('pointerup', up);
-                if (engaged && lastOver) performDrop(id, lastOver.id, lastOver.region);
-                setDrag(null);
-              };
-              window.addEventListener('pointermove', move, {passive: false});
-              window.addEventListener('pointerup', up);
-            }}
-          >
-            ⠿
-          </button>
+                    );
+                    lastOver = {id: under.dataset.blockRow!, region};
+                    setDrag({id, over: lastOver});
+                  };
+                  const up = (): void => {
+                    window.removeEventListener('pointermove', move);
+                    window.removeEventListener('pointerup', up);
+                    if (engaged && lastOver) performDrop(id, lastOver.id, lastOver.region);
+                    setDrag(null);
+                  };
+                  window.addEventListener('pointermove', move, {passive: false});
+                  window.addEventListener('pointerup', up);
+                }}
+              >
+                ⠿
+              </button>
+            </DropdownMenuTrigger>
+            <HandleMenu block={block} editor={editor} />
+          </DropdownMenu>
         </div>
       )}
       <BlockBody block={block} {...shared} />
     </div>
+  );
+};
+
+/** The drag handle's click menu: block actions without leaving the mouse. */
+const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => {
+  const id = blockId(block);
+  const isText = TEXT_BLOCKS.has(blockType(block));
+  const turn = (type: Parameters<BlockEditorController['turnInto']>[1], props?: Record<string, unknown>): void => {
+    editor.turnInto(id, type, props);
+  };
+  // Direct model ops (the selection-based controller ops would read a stale
+  // closure if we set the selection in the same tick).
+  const duplicate = (): void => {
+    const found = findBlock(editor.doc, id);
+    if (!found) return;
+    editor.doc.transact(() => found.parent.insert(found.index + 1, [cloneBlock(found.block, true)]), 'local');
+  };
+  const move = (delta: -1 | 1): void => {
+    const found = findBlock(editor.doc, id);
+    if (!found) return;
+    const parentBlock = parentBlockOf(editor.doc, found.parent);
+    moveBlock(editor.doc, id, parentBlock ? blockId(parentBlock) : null, found.index + delta);
+  };
+  const remove = (): void => {
+    removeBlock(editor.doc, id);
+    editor.clearSelection();
+  };
+  return (
+    <DropdownMenuContent align="start" side="bottom" className="w-44">
+      {isText && (
+        <>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Turn into</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-40">
+              <DropdownMenuItem onClick={() => turn('paragraph')}>Text</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => turn('heading', {level: 1})}>Heading 1</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => turn('heading', {level: 2})}>Heading 2</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => turn('heading', {level: 3})}>Heading 3</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => turn('list', {kind: 'bullet'})}>Bulleted list</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => turn('list', {kind: 'number'})}>Numbered list</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => turn('todo')}>To-do</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => turn('quote')}>Quote</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => turn('callout', {variant: 'info'})}>Callout</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => turn('code')}>Code</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
+        </>
+      )}
+      <DropdownMenuItem onClick={duplicate}>Duplicate</DropdownMenuItem>
+      <DropdownMenuItem onClick={() => move(-1)}>Move up</DropdownMenuItem>
+      <DropdownMenuItem onClick={() => move(1)}>Move down</DropdownMenuItem>
+      <DropdownMenuSeparator />
+      <DropdownMenuItem
+        className="text-destructive focus:text-destructive"
+        onClick={remove}
+      >
+        Delete
+      </DropdownMenuItem>
+    </DropdownMenuContent>
   );
 };
 

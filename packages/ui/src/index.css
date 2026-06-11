@@ -1166,3 +1166,6 @@ a.obe-mention {
 @media (max-width: 640px) {
   .obe-col-divider { display: none; }
 }
+
+/* Full-width page mode widens the editor column to its container. */
+.obe-root.obe-full { max-width: none; }

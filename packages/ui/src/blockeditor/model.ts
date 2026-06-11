@@ -517,6 +517,55 @@ export function tableDeleteColumn(doc: Y.Doc, tableId: string, colIndex: number)
   }, 'local');
 }
 
+/**
+ * Locate a cell within its table: row/column indices plus the table block.
+ * Powers cell navigation (Tab/Enter) — cells are blocks, but movement inside
+ * a table is grid-shaped, not list-shaped.
+ */
+export function cellPosition(doc: Y.Doc, cellId: string): {table: BlockMap; row: number; col: number; rows: number; cols: number} | null {
+  const cell = findBlock(doc, cellId);
+  if (!cell || blockType(cell.block) !== 'cell') return null;
+  const rowBlock = parentBlockOf(doc, cell.parent);
+  if (!rowBlock) return null;
+  const rowEntry = findBlock(doc, blockId(rowBlock));
+  if (!rowEntry) return null;
+  const table = parentBlockOf(doc, rowEntry.parent);
+  if (!table || blockType(table) !== 'table') return null;
+  const rows = blockChildren(table)!;
+  return {table, row: rowEntry.index, col: cell.index, rows: rows.length, cols: blockChildren(rowBlock)!.length};
+}
+
+/**
+ * The neighbouring cell id for grid navigation. `next`/`prev` move within
+ * the row and wrap across rows; `down`/`up` move within the column. Returns
+ * null at the table's edge (callers may grow the table and retry).
+ */
+export function cellNeighbor(doc: Y.Doc, cellId: string, dir: 'next' | 'prev' | 'down' | 'up'): string | null {
+  const pos = cellPosition(doc, cellId);
+  if (!pos) return null;
+  let {row, col} = pos;
+  if (dir === 'next') {
+    col += 1;
+    if (col >= pos.cols) {
+      col = 0;
+      row += 1;
+    }
+  } else if (dir === 'prev') {
+    col -= 1;
+    if (col < 0) {
+      col = pos.cols - 1;
+      row -= 1;
+    }
+  } else {
+    row += dir === 'down' ? 1 : -1;
+  }
+  if (row < 0 || row >= pos.rows) return null;
+  const rows = blockChildren(pos.table)!;
+  const cells = blockChildren(rows.get(row))!;
+  if (col < 0 || col >= cells.length) return null;
+  return blockId(cells.get(col));
+}
+
 function removeBlockInTx(doc: Y.Doc, id: string): void {
   const found = findBlock(doc, id);
   if (found) found.parent.delete(found.index, 1);
@@ -645,6 +694,8 @@ export function htmlToRuns(html: string): TextRun[] {
 export interface MigrationContext {
   values?: Array<[string, unknown]>;
   names?: Array<[string, string]>;
+  /** Page titles by id — gives subpage/database mentions their real names. */
+  pageLabels?: Map<string, string>;
 }
 
 /** Rewrite an ExprBlock source: `__C__{cellId}__` tokens (and `@name` refs)
@@ -736,16 +787,21 @@ export function migrateEditorJs(blocks: EditorJsBlock[], ctx: MigrationContext =
     case 'subpage': {
       const pageId = typeof d.pageId === 'string' ? d.pageId : '';
       if (pageId) {
+        const label = ctx.pageLabels?.get(pageId);
+        const icon = d.kind === 'database' ? '🗃' : '📄';
         out.push({
           type: 'paragraph',
-          text: [{t: d.kind === 'database' ? '🗃 Sub-database' : '📄 Sub-page', a: {m: pageId}}],
+          text: [{t: `${icon} ${label ?? (d.kind === 'database' ? 'Sub-database' : 'Sub-page')}`, a: {m: pageId}}],
         });
       }
       break;
     }
     case 'database': {
       const pageId = typeof d.pageId === 'string' ? d.pageId : '';
-      if (pageId) out.push({type: 'paragraph', text: [{t: '🗃 Inline database', a: {m: pageId}}]});
+      if (pageId) {
+        const label = ctx.pageLabels?.get(pageId);
+        out.push({type: 'paragraph', text: [{t: `🗃 ${label ?? 'Inline database'}`, a: {m: pageId}}]});
+      }
       break;
     }
     case 'slider': {

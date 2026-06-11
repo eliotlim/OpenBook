@@ -28,7 +28,7 @@ import {useData} from '@/data';
 import {connectBroadcast} from '@/blockeditor/provider';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {PageProperties} from '@/components/PageProperties';
-import {useHud, useTranslation} from '@/providers';
+import {useHud, usePreferences, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
 import {PageHeader, type PageDocumentProps} from './PageDocument';
@@ -65,6 +65,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
 }) => {
   const {hud} = useHud();
   const {t} = useTranslation();
+  const {preferences} = usePreferences();
   const client = useData();
   const [doc, setDoc] = useState<Y.Doc | null>(null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'save failed'>('idle');
@@ -82,10 +83,21 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         setDoc(decodeSnapshot(snap.blockdoc as BlockDocSnapshot));
         return;
       }
-      const legacy = (snap?.editorjs as {blocks?: {type: string; data: Record<string, unknown>}[]} | undefined)?.blocks;
+      const legacy = (snap?.editorjs as {blocks?: {type: string; data: Record<string, unknown>}[]} | undefined)?.blocks ?? [];
+      // Resolve linked-page titles first so subpage/database blocks migrate
+      // into mentions that carry their real names.
+      const linkedIds = [...new Set(legacy.filter((b) => b.type === 'subpage' || b.type === 'database').map((b) => b.data?.pageId).filter((v): v is string => typeof v === 'string'))];
+      const pageLabels = new Map<string, string>();
+      await Promise.all(
+        linkedIds.map(async (linkId) => {
+          const linked = await client.getPage(linkId).catch(() => null);
+          if (linked?.name) pageLabels.set(linkId, linked.name);
+        }),
+      );
+      if (cancelled) return;
       // The reactive context (cell values + the name index) rides along so
       // sliders keep their live values and expr sources resolve to names.
-      setDoc(createSeededDoc(migrateEditorJs(legacy ?? [], {values: snap?.values, names: snap?.names}), `mig-${pageId ?? 'page'}`));
+      setDoc(createSeededDoc(migrateEditorJs(legacy, {values: snap?.values, names: snap?.names, pageLabels}), `mig-${pageId ?? 'page'}`));
     })();
     return () => {
       cancelled = true;
@@ -239,7 +251,14 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         {pageId && <PageProperties pageId={pageId} />}
 
         <div className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'pt-2')}>
-          {doc && <BlockEditor doc={doc} ariaLabel={title || 'Page content'} />}
+          {doc && (
+            <BlockEditor
+              doc={doc}
+              ariaLabel={title || 'Page content'}
+              fullWidth={hud.viewMode.fullWidth}
+              spellcheck={preferences.general.spellcheck}
+            />
+          )}
         </div>
 
         {footer}

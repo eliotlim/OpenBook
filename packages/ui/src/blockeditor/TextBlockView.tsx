@@ -1,5 +1,17 @@
 import React, {useLayoutEffect, useRef} from 'react';
-import {blockId, blockProp, blockText, blockType, findBlock, setBlockProp, type BlockMap, type BlockType} from './model';
+import {
+  blockId,
+  blockProp,
+  blockText,
+  blockType,
+  cellNeighbor,
+  cellPosition,
+  findBlock,
+  setBlockProp,
+  tableInsertRow,
+  type BlockMap,
+  type BlockType,
+} from './model';
 import {attrsAt, diffText, readSelection, runsToHtml, writeSelection} from './richtext';
 import type {BlockEditorController} from './useBlockEditor';
 import type {EditorUI} from './BlockEditor';
@@ -114,7 +126,7 @@ export const TextBlockView: React.FC<{
       ev.preventDefault();
       const data = ev.data ?? '';
       // Slash menu: '/' at start or after whitespace opens it.
-      if (data === '/' && !isCode) {
+      if (data === '/' && !isCode && type !== 'cell') {
         const before = text.toString().slice(0, sel.start);
         if (before === '' || /\s$/.test(before)) {
           apply(() => {
@@ -150,6 +162,20 @@ export const TextBlockView: React.FC<{
     case 'insertParagraph': {
       ev.preventDefault();
       if (ui.slash.open) return; // Enter belongs to the menu
+      if (type === 'cell') {
+        // Tables are grids: Enter moves down the column, growing the table
+        // at the bottom edge — it never splits a cell.
+        let below = cellNeighbor(editor.doc, id, 'down');
+        if (!below) {
+          const pos = cellPosition(editor.doc, id);
+          if (pos) {
+            editor.doc.transact(() => tableInsertRow(editor.doc, blockId(pos.table), pos.rows), 'local');
+            below = cellNeighbor(editor.doc, id, 'down');
+          }
+        }
+        if (below) editor.requestCaret({blockId: below, offset: 'end'});
+        return;
+      }
       if (isCode) {
         apply(() => {
           deleteSelection(sel);
@@ -191,6 +217,8 @@ export const TextBlockView: React.FC<{
         apply(() => text.delete(sel.start - len, len));
         editor.requestCaret({blockId: id, offset: sel.start - len});
         if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash();
+      } else if (type === 'cell') {
+        // Never merge table cells — Backspace at a cell's start is a no-op.
       } else {
         const indent = blockProp<number>(block, 'indent') ?? 0;
         if (indent > 0) {
@@ -211,6 +239,8 @@ export const TextBlockView: React.FC<{
         const s = text.toString();
         const len = /[\uD800-\uDBFF]/.test(s[sel.start] ?? '') ? 2 : 1;
         apply(() => text.delete(sel.start, len));
+      } else if (type === 'cell') {
+        // Grid cells never merge — forward delete stops at the cell edge.
       } else {
         // Forward-delete at the end pulls the next block up into this one.
         const next = nextSiblingTextId(editor, id);
@@ -337,6 +367,20 @@ export const TextBlockView: React.FC<{
       return;
     }
 
+    if (e.key === 'Tab' && type === 'cell') {
+      e.preventDefault();
+      const dir = e.shiftKey ? 'prev' : 'next';
+      let target = cellNeighbor(editor.doc, id, dir);
+      if (!target && !e.shiftKey) {
+        const pos = cellPosition(editor.doc, id);
+        if (pos) {
+          editor.doc.transact(() => tableInsertRow(editor.doc, blockId(pos.table), pos.rows), 'local');
+          target = cellNeighbor(editor.doc, id, 'next');
+        }
+      }
+      if (target) editor.requestCaret({blockId: target, offset: 'end'});
+      return;
+    }
     if (e.key === 'Tab' && !isCode) {
       e.preventDefault();
       const indent = blockProp<number>(block, 'indent') ?? 0;
@@ -357,6 +401,19 @@ export const TextBlockView: React.FC<{
       });
       editor.requestCaret({blockId: id, offset: sel.start + 2});
       return;
+    }
+
+    // Shift+Arrow at a block edge escalates to block selection (a native
+    // range can't span per-block contenteditables).
+    if (e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+      const sel0 = readSelection(el);
+      const atEdge = e.key === 'ArrowDown' ? sel0?.end === text.length : sel0?.start === 0;
+      if (atEdge) {
+        e.preventDefault();
+        el.blur();
+        editor.setSelection([id]);
+        return;
+      }
     }
 
     // Edge navigation between blocks.
@@ -395,7 +452,7 @@ export const TextBlockView: React.FC<{
       data-block-text={id}
       data-placeholder={editor.focusedId === id && type === 'paragraph' ? 'Type “/” for commands…' : placeholder}
       className={`obe-text obe-text-${type}`}
-      spellCheck={!isCode}
+      spellCheck={ui.spellcheck && !isCode}
       onKeyDown={onKeyDown}
       onCompositionStart={() => {
         composing.current = true;

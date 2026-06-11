@@ -313,6 +313,96 @@ test('block page: interactive HTML export stays live offline', async ({page, req
   await viewer.close();
 });
 
+test('table cells are a grid: Enter moves down, Tab walks cells, Backspace never merges', async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/table');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.obe-table')).toBeVisible();
+
+  await page.locator('.obe-table .obe-text').first().click();
+  await page.keyboard.type('alpha');
+  await page.keyboard.press('Enter'); // down a row — never splits the cell
+  const cellCounts = () =>
+    page.evaluate(() => [...document.querySelectorAll('.obe-table tr')].map((tr) => tr.querySelectorAll('td').length));
+  expect(await cellCounts()).toEqual([3, 3, 3]);
+  await expect(page.locator('.obe-table .obe-text').nth(3)).toBeFocused();
+
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.obe-table .obe-text').nth(4)).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('.obe-table .obe-text').nth(3)).toBeFocused();
+
+  await page.keyboard.press('Backspace'); // at cell start: a no-op, not a merge
+  expect(await cellCounts()).toEqual([3, 3, 3]);
+
+  // Enter on the last row grows the table.
+  await page.locator('.obe-table .obe-text').nth(6).click();
+  await page.keyboard.press('Enter');
+  expect(await cellCounts()).toEqual([3, 3, 3, 3]);
+});
+
+test('cross-block selection becomes block selection and deletes cleanly', async ({page}) => {
+  await freshLab(page);
+  await page.evaluate(() => {
+    const blocks = [...document.querySelectorAll('.obe-text')];
+    const sel = getSelection()!;
+    const range = document.createRange();
+    range.setStart(blocks[1].firstChild!, 10);
+    range.setEnd(blocks[2].firstChild!, 8);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    document.dispatchEvent(new Event('selectionchange'));
+    document.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
+  });
+  await expect(page.locator('.obe-row-selected')).toHaveCount(2);
+  await page.keyboard.press('Backspace');
+  await expect(page.locator('[data-block-type=paragraph]')).toHaveCount(0);
+  await expect(page.locator('[data-block-type=todo]')).toHaveCount(0);
+  await expect(page.locator('[data-block-type=heading]')).toHaveCount(1);
+});
+
+test('handle menu: turn into a heading and delete from the menu', async ({page}) => {
+  await freshLab(page);
+  const row = page.locator('[data-block-row][data-block-type=paragraph]');
+  await row.locator('.obe-text').hover();
+  await row.locator('.obe-handle').click();
+  await page.getByRole('menuitem', {name: 'Turn into'}).hover();
+  await page.getByRole('menuitem', {name: 'Heading 2'}).click();
+  await expect(page.locator('.obe-h2 .obe-text')).toContainText('A scratch document');
+  // Wait out the first menu's teardown — a click during Radix's exit gets
+  // swallowed as an outside-dismiss instead of opening the next menu.
+  await expect(page.getByRole('menu')).toHaveCount(0);
+
+  const heading = page.locator('[data-block-row][data-block-type=heading]').nth(1);
+  await heading.locator('.obe-text').hover();
+  await expect(heading.locator('.obe-handle')).toBeVisible();
+  await heading.locator('.obe-handle').click();
+  await page.getByRole('menuitem', {name: 'Delete'}).click();
+  await expect(page.locator('.obe-h2')).toHaveCount(0);
+});
+
+test('mention runs navigate to their page on click', async ({page, request}) => {
+  const target = await request.post('http://127.0.0.1:4319/api/pages', {
+    data: {name: `MentionNav target ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}},
+  });
+  const targetId = ((await target.json()) as {id: string}).id;
+  const host = await request.post('http://127.0.0.1:4319/api/pages', {
+    data: {
+      name: `MentionNav host ${Date.now()}`,
+      data: {editorjs: {blocks: [{id: 's1', type: 'subpage', data: {kind: 'page', pageId: targetId}}]}, values: [], names: []},
+    },
+  });
+  const hostId = ((await host.json()) as {id: string}).id;
+
+  await page.goto(`/?page=${hostId}&editor=next`);
+  const mention = page.locator('a.obe-mention');
+  await expect(mention).toContainText('MentionNav target'); // live title, not a generic label
+  await mention.click();
+  await expect(page).toHaveURL(new RegExp(targetId));
+});
+
 test('table editing: type in cells, add a row and a column', async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);
