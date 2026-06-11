@@ -265,6 +265,13 @@ export const zh: PartialMessages = {
     close: '关闭助手',
     error: '出了点问题：{error}',
     notReady: '助手需要一个模型——请在 设置 → AI 中启用。',
+    openSettings: '打开 AI 设置',
+    send: '发送',
+    stop: '停止',
+    inputHint: 'Enter 发送 · Shift+Enter 换行',
+    suggestion1: '我有哪些页面？',
+    suggestion2: '查找我关于计划的笔记',
+    suggestion3: '创建一个今日计划页面',
     tool: {
       search_notes: '搜索笔记',
       read_page: '阅读页面',

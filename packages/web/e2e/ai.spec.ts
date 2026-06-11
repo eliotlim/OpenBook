@@ -133,13 +133,24 @@ test('assistant panel: ask a question, watch the tool run, get a grounded answer
   const panel = page.locator('[data-agent-panel]');
   await expect(panel).toBeVisible();
   const input = panel.locator('[data-agent-input]');
+  await expect(input).toBeFocused();
+
+  // Starter suggestions fill the input (without sending).
+  await expect(panel.locator('[data-agent-suggestion]')).toHaveCount(3);
+  await panel.locator('[data-agent-suggestion]').first().click();
+  await expect(input).toHaveValue('What pages do I have?');
+
   await input.fill('sprint retrospective blockers');
-  await input.press('Enter');
+  await panel.locator('[data-agent-send]').click();
 
   // The scripted mock agent searches first, then answers from the hits.
   await expect(panel.locator('[data-agent-item="user"]')).toHaveText('sprint retrospective blockers');
   await expect(panel.locator('[data-agent-tool="search_notes"]')).toBeVisible();
   await expect(panel.locator('[data-agent-item="assistant"]')).toContainText(/found \d+ relevant/);
+
+  // The finished tool chip expands to reveal what the tool returned.
+  await panel.locator('[data-agent-tool="search_notes"]').click();
+  await expect(panel.locator('[data-agent-tool-result]')).toContainText(name);
 
   // New conversation clears the thread; closing hides the panel.
   await panel.getByRole('button', {name: 'New conversation'}).click();

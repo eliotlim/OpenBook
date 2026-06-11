@@ -265,6 +265,13 @@ export const de: PartialMessages = {
     close: 'Assistent schließen',
     error: 'Etwas ist schiefgelaufen: {error}',
     notReady: 'Der Assistent braucht ein Modell — aktiviere eines unter Einstellungen → KI.',
+    openSettings: 'KI-Einstellungen öffnen',
+    send: 'Senden',
+    stop: 'Stopp',
+    inputHint: 'Enter zum Senden · Shift+Enter für neue Zeile',
+    suggestion1: 'Welche Seiten habe ich?',
+    suggestion2: 'Finde meine Notizen zur Planung',
+    suggestion3: 'Erstelle eine Seite mit einem Plan für heute',
     tool: {
       search_notes: 'Durchsucht Notizen',
       read_page: 'Liest eine Seite',

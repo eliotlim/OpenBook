@@ -265,6 +265,13 @@ export const ja: PartialMessages = {
     close: 'アシスタントを閉じる',
     error: '問題が発生しました: {error}',
     notReady: 'アシスタントにはモデルが必要です。設定 → AI で有効にしてください。',
+    openSettings: 'AI設定を開く',
+    send: '送信',
+    stop: '停止',
+    inputHint: 'Enterで送信 · Shift+Enterで改行',
+    suggestion1: 'どんなページがありますか？',
+    suggestion2: '計画に関するノートを探して',
+    suggestion3: '今日の計画ページを作成して',
     tool: {
       search_notes: 'ノートを検索',
       read_page: 'ページを読み取り',

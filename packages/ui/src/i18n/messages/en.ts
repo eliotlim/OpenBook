@@ -284,6 +284,13 @@ export const en = {
     close: 'Close assistant',
     error: 'Something went wrong: {error}',
     notReady: 'The assistant needs a model — enable one in Settings → AI.',
+    openSettings: 'Open AI settings',
+    send: 'Send',
+    stop: 'Stop',
+    inputHint: 'Enter to send · Shift+Enter for a new line',
+    suggestion1: 'What pages do I have?',
+    suggestion2: 'Find my notes about planning',
+    suggestion3: 'Create a page with a plan for today',
     tool: {
       search_notes: 'Searching notes',
       read_page: 'Reading a page',
