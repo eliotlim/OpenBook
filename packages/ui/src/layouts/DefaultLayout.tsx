@@ -5,6 +5,7 @@ import WindowTitle from '@/components/WindowTitle';
 import TemplateGallery from '@/components/TemplateGallery';
 import {AiSearchDialog} from '@/components/AiSearchDialog';
 import {AgentPanel} from '@/components/AgentPanel';
+import {SplitPane} from '@/components/SplitPane';
 import {AiBridgeHost} from '@/components/AiBridgeHost';
 import Settings from '@/components/Settings';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
@@ -48,6 +49,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
               {props.children}
             </main>
           </div>
+          <SplitPane/>
           <AgentPanel/>
         </div>
       </div>
