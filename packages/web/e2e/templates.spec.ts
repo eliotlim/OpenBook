@@ -26,7 +26,7 @@ test('gallery: lists every template with names and descriptions', async ({page},
   await hydrated(page);
   await openGallery(page);
 
-  for (const name of ['Task tracker', 'Product roadmap', 'Reading list', 'Meeting notes', 'Weekly planner']) {
+  for (const name of ['Task tracker', 'Product roadmap', 'Reading list', 'Meeting notes', 'Weekly planner', 'Project pulse']) {
     await expect(page.getByRole('button', {name: new RegExp(name)})).toBeVisible();
   }
   await takeSnapshot(page, testInfo); // visual: the template gallery
@@ -98,4 +98,21 @@ test('instantiating a template twice suffixes the page and row names (names are 
   await expect(page.getByLabel('Page title')).toHaveValue(/^Task tracker \d+$/);
   // The second copy carries all four sample rows despite the name collisions.
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(4);
+});
+
+test('project pulse template: a live kit artifact, ready to steer', async ({page}) => {
+  await hydrated(page);
+  await openGallery(page);
+  await page.locator('[data-template="interactive-dashboard"]').click();
+
+  // Lands on the created block page with the whole artifact wired up.
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Project pulse/);
+  await expect(page.locator('.obe-kit-chart')).toHaveCount(2);
+  const status = page.locator('.obe-kit-status');
+  await expect(status).toHaveAttribute('data-status', 'warn'); // done 7 − risk 35/10 = 3.5
+
+  // The action button steps `done` → the readiness crosses its ok threshold.
+  await page.getByRole('button', {name: 'Mark one done'}).click();
+  await expect(page.getByLabel('done value')).toHaveValue('8');
+  await expect(status).toHaveAttribute('data-status', 'ok');
 });

@@ -300,6 +300,10 @@ export const ja: PartialMessages = {
       name: '議事録',
       description: 'アジェンダ・メモ・アクションアイテムのひな形。',
     },
+    interactiveDashboard: {
+      name: 'プロジェクトパルス',
+      description: 'ライブのミニダッシュボード：入力がチャート・ステータスライト・数式を動かします。',
+    },
     weeklyPlanner: {
       name: '週間プランナー',
       description: '平日ごとのチェックリストと今週のフォーカス。',

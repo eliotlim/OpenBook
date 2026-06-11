@@ -300,6 +300,10 @@ export const zh: PartialMessages = {
       name: '会议记录',
       description: '议程、笔记和行动项，开箱即用。',
     },
+    interactiveDashboard: {
+      name: '项目脉搏',
+      description: '实时迷你仪表盘：输入驱动图表、状态灯和公式。',
+    },
     weeklyPlanner: {
       name: '每周计划',
       description: '每个工作日的清单加本周重点。',

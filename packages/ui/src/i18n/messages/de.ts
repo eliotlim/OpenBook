@@ -300,6 +300,10 @@ export const de: PartialMessages = {
       name: 'Meeting-Notizen',
       description: 'Agenda, Notizen und Aufgaben — bereit zum Ausfüllen.',
     },
+    interactiveDashboard: {
+      name: 'Projektpuls',
+      description: 'Ein lebendiges Mini-Dashboard: Eingaben speisen Diagramme, eine Statusleuchte und eine Formel.',
+    },
     weeklyPlanner: {
       name: 'Wochenplaner',
       description: 'Eine Checkliste je Wochentag plus Wochenfokus.',

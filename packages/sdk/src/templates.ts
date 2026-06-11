@@ -13,7 +13,7 @@ import type {DatabaseSchema} from './database';
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
-  id: 'tasks' | 'meeting-notes' | 'roadmap' | 'reading-list' | 'weekly-planner';
+  id: 'tasks' | 'meeting-notes' | 'roadmap' | 'reading-list' | 'weekly-planner' | 'interactive-dashboard';
   /** Emoji shown on the gallery card and applied to the created page. */
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
@@ -194,7 +194,30 @@ const WEEKLY_PLANNER_BLOCKS = [
   {id: 'wp-notes', type: 'paragraph', data: {text: 'Loose notes, wins, and anything to carry into next week.'}},
 ];
 
+// A live artifact built from the block editor's kit: inputs feed a shared
+// reactive scope; the charts, status light, and formula compute over it.
+// Plain JSON projection with stable ids — the block editor seeds a CRDT doc
+// from it on first open.
+const DASHBOARD_BLOCKS = [
+  {id: 'tpl-dash-h', type: 'heading', text: [{t: 'Project pulse'}], props: {level: 2}},
+  {id: 'tpl-dash-p', type: 'paragraph', text: [{t: 'Steer the inputs — everything below computes live. Open ⚙ on any block to rewire it.'}]},
+  {id: 'tpl-dash-done', type: 'number', props: {name: 'done', label: 'Tasks done', value: 7, min: 0, max: 20, step: 1}},
+  {id: 'tpl-dash-risk', type: 'slider', props: {name: 'risk', value: 35, min: 0, max: 100}},
+  {id: 'tpl-dash-phase', type: 'radio', props: {name: 'phase', label: 'Phase', options: 'Alpha, Beta, GA', value: 'Beta'}},
+  {id: 'tpl-dash-donut', type: 'kitchart', props: {kind: 'donut', title: 'Progress', source: '{Done: done, Left: 20 - done}'}},
+  {id: 'tpl-dash-line', type: 'kitchart', props: {kind: 'line', title: 'Risk trend', source: '[risk*0.6, risk*0.8, risk, risk*1.15, risk*0.9]'}},
+  {id: 'tpl-dash-status', type: 'statuslight', props: {label: 'Ship readiness', source: 'done - risk/10', okAt: 4, warnAt: 1}},
+  {id: 'tpl-dash-btn', type: 'actionbutton', props: {btnlabel: 'Mark one done', action: 'increment', target: 'done', amount: 1}},
+  {id: 'tpl-dash-rem', type: 'formula', props: {source: '20 - done'}},
+];
+
 // ── The gallery ──────────────────────────────────────────────────────────────
+
+/** Create a block-editor template page from a JSON block projection. */
+const createBlockDocPage =
+  (blocks: object[]) =>
+    (client: DataClient, name: string): Promise<StoredPage> =>
+      client.savePage({name, data: {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: {blocks}}});
 
 /** Create a document-only template page. */
 const createDocPage =
@@ -234,6 +257,7 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'reading-list', icon: '📚', pageName: 'Reading list', create: createDatabasePage(READING_SCHEMA, READING_ROWS)},
   {id: 'meeting-notes', icon: '📝', pageName: 'Meeting notes', create: createDocPage(MEETING_NOTES_BLOCKS)},
   {id: 'weekly-planner', icon: '🗓️', pageName: 'Weekly planner', create: createDocPage(WEEKLY_PLANNER_BLOCKS)},
+  {id: 'interactive-dashboard', icon: '📊', pageName: 'Project pulse', create: createBlockDocPage(DASHBOARD_BLOCKS)},
 ];
 
 /** Page names are unique among live pages — pick `name`, `name 2`, `name 3`… */

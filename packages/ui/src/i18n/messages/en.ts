@@ -319,6 +319,10 @@ export const en = {
       name: 'Meeting notes',
       description: 'Agenda, notes, and action items, ready to fill in.',
     },
+    interactiveDashboard: {
+      name: 'Project pulse',
+      description: 'A live mini-dashboard: steppers and sliders feeding charts, a status light, and a formula.',
+    },
     weeklyPlanner: {
       name: 'Weekly planner',
       description: 'A checklist for every weekday plus a weekly focus.',
