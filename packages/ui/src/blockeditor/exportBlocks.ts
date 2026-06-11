@@ -327,7 +327,11 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         // block draws that cell — so exported charts stay LIVE: moving an
         // exported slider recomputes the cell and the plot redraws.
         out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.title ?? 'chart'), source: tokenize(String(b.props?.source ?? ''))}});
-        out.blocks.push({id: `${b.id}-plot`, type: 'chart', data: {refCellIds: [b.id]}});
+        out.blocks.push({
+          id: `${b.id}-plot`,
+          type: 'chart',
+          data: {refCellIds: [b.id], kind: String(b.props?.kind ?? 'line'), labels: String(b.props?.labels ?? '')},
+        });
         i += 1;
         break;
       }

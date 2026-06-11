@@ -149,7 +149,7 @@ test('HTML export keeps a kit artifact computing offline', async ({page, request
       {id: 'n1', type: 'number', props: {name: 'done', label: 'Tasks done', value: 7, min: 0, max: 10, step: 1}},
       {id: 's1', type: 'statuslight', props: {label: 'Readiness', source: 'done * 10', okAt: 50, warnAt: 20}},
       {id: 'f1', type: 'formula', props: {source: 'done * 10'}},
-      {id: 'k1', type: 'kitchart', props: {kind: 'line', title: 'Trend', source: '[done, done*2, done*3]'}},
+      {id: 'k1', type: 'kitchart', props: {kind: 'bar', title: 'Trend', labels: 'a, b, c', source: '[done, done*2, done*3]'}},
     ],
   };
   const res = await request.post(`${SERVER}/api/pages`, {
@@ -173,10 +173,18 @@ test('HTML export keeps a kit artifact computing offline', async ({page, request
   const exprs = page.locator('.reactive.expr [data-val]');
   await expect(exprs.nth(0)).toHaveText('70');
   await expect(exprs.nth(1)).toHaveText('70');
-  // The kit chart exports as a DRAWN plot over its computed cell.
-  await expect(page.locator('figure[data-chart] svg')).toBeVisible();
+  // The kit chart exports as a DRAWN, kind-faithful plot over its cell:
+  // three bars with their x labels, redrawn when the input moves.
+  const fig = page.locator('figure[data-chart]');
+  await expect(fig.locator('svg rect')).toHaveCount(3);
+  await expect(fig.locator('svg text', {hasText: 'b'})).toBeVisible();
+  // y-axis ticks prove the redraw: data max 21 → a "20" tick…
+  await expect(fig.locator('svg text', {hasText: '20'})).toBeVisible();
   await page.locator('.reactive.slider input[type=range]').fill('3');
   await expect(exprs.nth(0)).toHaveText('30');
   await expect(exprs.nth(1)).toHaveText('30');
-  await expect(page.locator('figure[data-chart] svg')).toBeVisible();
+  // …data max 9 → the axis rescales to a "5" tick.
+  await expect(fig.locator('svg rect')).toHaveCount(3);
+  await expect(fig.locator('svg text', {hasText: '5'})).toBeVisible();
+  await expect(fig.locator('svg text', {hasText: '20'})).toHaveCount(0);
 });
