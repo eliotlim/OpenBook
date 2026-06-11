@@ -1,5 +1,13 @@
 import {API, type ApiError} from './routes';
-import type {AiConfig, AiSearchResponse, AiStatus, AiStreamEvent, AiTasksResponse} from './ai';
+import type {
+  AgentChatEvent,
+  AgentChatMessage,
+  AiConfig,
+  AiSearchResponse,
+  AiStatus,
+  AiStreamEvent,
+  AiTasksResponse,
+} from './ai';
 import type {PageInput, PageMeta, StoredPage} from './types';
 import type {ImportRequest, ImportResult} from './backup';
 import type {
@@ -62,6 +70,11 @@ export interface DataClient {
   aiDownloadModel(url?: string): Promise<AiStatus['download']>;
   aiComplete(text: string, onToken: (token: string) => void, opts?: {instruction?: string; signal?: AbortSignal}): Promise<string>;
   aiGenerate(prompt: string, onToken: (token: string) => void, opts?: {system?: string; maxTokens?: number; signal?: AbortSignal}): Promise<string>;
+  /**
+   * Run the workspace agent on a conversation. `onEvent` fires once per step
+   * (tool call, tool result, final answer, error); resolves when the run ends.
+   */
+  agentChat(messages: AgentChatMessage[], onEvent: (event: AgentChatEvent) => void, opts?: {signal?: AbortSignal}): Promise<void>;
   /**
    * Move a page (and its nested subtree) to the trash. Soft delete: the page is
    * recoverable via {@link restorePage} until the server's cleanup job purges
@@ -394,6 +407,44 @@ export class HttpDataClient implements DataClient {
     opts: {system?: string; maxTokens?: number; signal?: AbortSignal} = {},
   ): Promise<string> {
     return this.aiStream(API.aiGenerate, {prompt, system: opts.system, maxTokens: opts.maxTokens}, onToken, opts.signal);
+  }
+
+  /** Run the workspace agent, surfacing each streamed step via `onEvent`. */
+  async agentChat(
+    messages: AgentChatMessage[],
+    onEvent: (event: AgentChatEvent) => void,
+    opts: {signal?: AbortSignal} = {},
+  ): Promise<void> {
+    const res = await fetch(`${this.baseUrl}${API.agentChat}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({messages}),
+      cache: 'no-store',
+      signal: opts.signal,
+    });
+    await throwIfNotOk(res);
+    if (!res.body) return;
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        let event: AgentChatEvent & {done?: boolean};
+        try {
+          event = JSON.parse(line.slice(5)) as AgentChatEvent & {done?: boolean};
+        } catch {
+          continue; // partial frame
+        }
+        if (event.done) return;
+        onEvent(event);
+      }
+    }
   }
 
   /** POST a body and consume the SSE token stream the AI endpoints emit. */

@@ -68,3 +68,17 @@ export interface AiStreamEvent {
   done?: boolean;
   error?: string;
 }
+
+// ── Agent harness ─────────────────────────────────────────────────────────────
+
+export interface AgentChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** One streamed step of an agent run. */
+export type AgentChatEvent =
+  | {type: 'tool'; name: string; args: Record<string, unknown>}
+  | {type: 'tool_result'; name: string; result: string}
+  | {type: 'final'; text: string}
+  | {type: 'error'; error: string};

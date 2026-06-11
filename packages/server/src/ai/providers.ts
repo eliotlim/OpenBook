@@ -48,7 +48,16 @@ export class MockEngine implements AiEngine {
 
   async generate(prompt: string, opts: GenerateOptions): Promise<string> {
     let out: string;
-    if (/break.*down|task/i.test(opts.system ?? '')) {
+    if (/OpenBook assistant/i.test(opts.system ?? '')) {
+      // Scripted agent turn: search first, then answer from the result.
+      if (!prompt.includes('TOOL RESULT')) {
+        const lastUser = prompt.split('User:').pop()?.split('\n')[0]?.trim() ?? '';
+        out = JSON.stringify({tool: 'search_notes', args: {query: lastUser.slice(0, 60)}});
+      } else {
+        const hits = (prompt.match(/^- \[/gm) ?? []).length;
+        out = JSON.stringify({final: `I looked through your notes and found ${hits} relevant ${hits === 1 ? 'page' : 'pages'}.`});
+      }
+    } else if (/break.*down|task/i.test(opts.system ?? '')) {
       out = '1. Outline the goal\n2. Draft the first version\n3. Review and refine';
     } else if (/continue|complete/i.test(opts.system ?? '')) {
       out = ' This continues the document with a mock completion.';

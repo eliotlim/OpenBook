@@ -1,6 +1,8 @@
 import {Hono} from 'hono';
 import {streamSSE} from 'hono/streaming';
-import {API, type AiConfig} from '@open-book/sdk';
+import {API, type AgentChatMessage, type AiConfig} from '@open-book/sdk';
+import type {PageStore} from '../store';
+import {AgentRunner, type AgentMessage} from './agent';
 import type {AiService} from './service';
 
 /**
@@ -9,7 +11,7 @@ import type {AiService} from './service';
  * everything else is plain JSON. Engine failures return 503 with a
  * human-readable `error` so the UI can guide the user to Settings → AI.
  */
-export function mountAiRoutes(app: Hono, ai: AiService): void {
+export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore): void {
   app.get(API.aiStatus, async (c) => c.json(await ai.status()));
 
   app.put(API.aiConfig, async (c) => {
@@ -82,5 +84,25 @@ export function mountAiRoutes(app: Hono, ai: AiService): void {
   app.post(API.aiModelDownload, async (c) => {
     const {url} = (await c.req.json().catch(() => ({}))) as {url?: string};
     return c.json(await ai.startDownload(url));
+  });
+
+  // The agent harness: runs the tool loop against the workspace and streams
+  // each step (tool call, tool result, final answer) as its own SSE frame.
+  app.post(API.agentChat, async (c) => {
+    const {messages} = (await c.req.json().catch(() => ({}))) as {messages?: AgentChatMessage[]};
+    const turns = (messages ?? []).filter(
+      (m): m is AgentMessage => (m?.role === 'user' || m?.role === 'assistant') && typeof m?.content === 'string',
+    );
+    if (turns.length === 0) return c.json({error: 'messages are required'}, 400);
+    const runner = new AgentRunner(ai, store);
+    return streamSSE(c, async (stream) => {
+      const abort = new AbortController();
+      stream.onAbort(() => abort.abort());
+      await runner.run(turns, async (event) => {
+        if (abort.signal.aborted) return;
+        await stream.writeSSE({data: JSON.stringify(event)});
+      });
+      await stream.writeSSE({data: JSON.stringify({done: true})});
+    });
   });
 }

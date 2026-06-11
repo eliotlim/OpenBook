@@ -71,6 +71,8 @@ export const API = {
   aiComplete: '/api/ai/complete',
   /** Download a model file for the in-process engine: `POST` `{url?}`. */
   aiModelDownload: '/api/ai/models/download',
+  /** The agent harness: `POST` `{messages}` → SSE tool/final events. */
+  agentChat: '/api/agent/chat',
 } as const;
 
 /** Error body shape returned by the API for non-2xx responses. */

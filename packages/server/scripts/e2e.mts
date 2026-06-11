@@ -462,6 +462,26 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   });
   check('unknown provider rejected (400)', bad.status === 400);
 
+  // Agent harness: the scripted mock agent searches first, then answers.
+  // Exercised through the SDK client so its SSE parsing is covered too.
+  const agentEvents: Array<{type: string; name?: string; args?: Record<string, unknown>; result?: string; text?: string}> = [];
+  await client.agentChat([{role: 'user', content: 'budget forecast'}], (event) => agentEvents.push(event));
+  const toolCall = agentEvents.find((e) => e.type === 'tool');
+  const toolResult = agentEvents.find((e) => e.type === 'tool_result');
+  const final = agentEvents.find((e) => e.type === 'final');
+  check('agent calls search_notes first', toolCall?.name === 'search_notes' && String(toolCall.args?.query ?? '').includes('budget'));
+  check('agent streams the tool result', toolResult?.name === 'search_notes' && (toolResult.result ?? '').includes(`ai-note-${mode}`));
+  check('agent ends with a grounded final answer', /found \d+ relevant page/.test(final?.text ?? ''));
+  check('agent events arrive in order (tool → result → final)', agentEvents.indexOf(toolCall!) < agentEvents.indexOf(toolResult!) && agentEvents.indexOf(toolResult!) < agentEvents.indexOf(final!));
+
+  // Bad requests are rejected before any engine work.
+  const noMessages = await fetch(`${baseUrl}${API.agentChat}`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({messages: []}),
+  });
+  check('agent rejects an empty conversation (400)', noMessages.status === 400);
+
   // Back off for the rest of the suite.
   await fetch(`${baseUrl}${API.aiConfig}`, {
     method: 'PUT',

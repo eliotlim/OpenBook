@@ -119,4 +119,14 @@ export {
   type ImportRequest,
   type ImportResult,
 } from './backup';
-export type {AiProvider, AiConfig, AiStatus, AiSearchResult, AiSearchResponse, AiTasksResponse, AiStreamEvent} from './ai';
+export type {
+  AgentChatEvent,
+  AgentChatMessage,
+  AiProvider,
+  AiConfig,
+  AiStatus,
+  AiSearchResult,
+  AiSearchResponse,
+  AiTasksResponse,
+  AiStreamEvent,
+} from './ai';
