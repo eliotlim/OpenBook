@@ -107,10 +107,19 @@ export const BlockEditor: React.FC<{
         text.format(sel.start, sel.end - sel.start, {[key]: on ? null : (value ?? true)});
       }, 'local');
       editor.requestCaret({blockId: id, offset: sel.start});
-      // Restore the full range after the re-render so repeated toggles work.
+      // Restore the full range after the re-render so repeated toggles work —
+      // but ONLY if the selection is still where the apply left it (the
+      // collapsed caret at sel.start). If it moved meanwhile (a click, an
+      // arrow key, a programmatic caret), restoring the stale range would
+      // make the next keystroke REPLACE the whole formatted span — the
+      // type-at-a-link's-edge corruption.
       requestAnimationFrame(() => {
         const node = blockEl(id);
-        if (node) writeSelection(node, sel.start, sel.end);
+        if (!node) return;
+        const current = readSelection(node);
+        if (current && current.start === sel.start && current.end === sel.start) {
+          writeSelection(node, sel.start, sel.end);
+        }
       });
     },
     [editor, doc, blockEl],

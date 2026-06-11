@@ -457,11 +457,13 @@ test('clipboard: external rich HTML pastes as real blocks', async ({page}) => {
   await expect(page.locator('.obe-list strong')).toHaveText('bold');
 });
 
-// Wrapped with local retries: ~1-in-10 runs the link run is lost/emptied
-// after typing at its edge — a suspected real intermittent editor bug
-// (tracked separately); the retry keeps the guard without red suites.
+// Regression guard for a fixed selection-clobber bug: toggleFormat's
+// restore-selection rAF used to fire unconditionally, so a caret moved
+// within a frame of applying a format got replaced by the stale range and
+// the next keystroke wiped the formatted text. The apply-phase retry stays
+// (toolbar anchoring is inherently racy to script), with a safety retry.
 test.describe('link edge typing', () => {
-  test.describe.configure({retries: 2});
+  test.describe.configure({retries: 1});
 
   test('typing at a link\'s trailing edge does not extend the link', async ({page}) => {
     await freshLab(page);
