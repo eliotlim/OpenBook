@@ -161,7 +161,16 @@ export const PageHeader: React.FC<{
       el.focus();
       el.select();
     };
-    if (consumePendingRename(pageId)) focusTitle();
+    // The implicit new-page autofocus can land LATE (the document loads
+    // async): if the user is already typing somewhere — an input, the
+    // editor, an open dropdown's field — stealing focus would also dismiss
+    // whatever they had open. Yield to any text-entry surface; the explicit
+    // Rename request below stays unconditional (deliberate user intent).
+    if (consumePendingRename(pageId)) {
+      const active = document.activeElement as HTMLElement | null;
+      const busy = active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable);
+      if (!busy) focusTitle();
+    }
     return onRenamePageRequest((id) => {
       if (id === pageId) focusTitle();
     });

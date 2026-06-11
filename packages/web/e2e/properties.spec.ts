@@ -9,8 +9,19 @@ import {reclaimNames, SERVER} from './seed';
 async function freshPage(page: import('@playwright/test').Page): Promise<string> {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible(); // hydrated
+  // ⌘N creates asynchronously; the URL meanwhile already carries the
+  // auto-selected existing page. Waiting for just ANY ?page= grabbed that
+  // one — and when the slow create finally navigated, it unmounted the
+  // document under whatever the test had opened (the dropdown flake). Wait
+  // for the param to CHANGE to the page ⌘N made.
+  const before = new URL(page.url()).searchParams.get('page');
   await page.keyboard.press('ControlOrMeta+n');
-  await expect.poll(() => new URL(page.url()).searchParams.get('page')).toBeTruthy();
+  await expect
+    .poll(() => {
+      const id = new URL(page.url()).searchParams.get('page');
+      return id && id !== before ? id : null;
+    }, {timeout: 15_000})
+    .toBeTruthy();
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   return new URL(page.url()).searchParams.get('page') as string;
 }
