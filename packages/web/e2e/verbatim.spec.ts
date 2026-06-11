@@ -1,5 +1,12 @@
-import {test, expect} from '@chromatic-com/playwright';
-import {newPage} from './seed';
+import {test, expect} from './fixtures';
+import {newPage, useClassicEditor} from './seed';
+
+// This spec drives the classic EditorJS editor — still fully supported, but no
+// longer the default — so pin it before the app boots (see seed.ts).
+test.beforeEach(async ({page}) => {
+  await useClassicEditor(page);
+});
+
 
 // Verbatim inputs must not autocorrect/autocapitalize/spellcheck — they'd mangle
 // commands and code.

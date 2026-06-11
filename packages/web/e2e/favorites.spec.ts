@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
 
 // Pin a page from its menu → it appears in the sidebar Favourites section and
 // the command palette → unpin removes it. Favourites are device-local

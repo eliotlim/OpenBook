@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
 import {newPage} from './seed';
 
 // The desktop shell (simulated via `?shell=desktop`, which turns on in-window

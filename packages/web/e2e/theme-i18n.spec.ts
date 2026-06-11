@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
 
 const primary = (page: import('@playwright/test').Page) =>
   page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim());

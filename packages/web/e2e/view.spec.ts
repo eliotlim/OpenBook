@@ -1,4 +1,12 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
+import {useClassicEditor} from './seed';
+
+// This spec drives the classic EditorJS editor — still fully supported, but no
+// longer the default — so pin it before the app boots (see seed.ts).
+test.beforeEach(async ({page}) => {
+  await useClassicEditor(page);
+});
+
 
 // Regression for: the full-width toggle (a real menu checkbox item, not a dead
 // Switch) widens the EditorJS content column — not just the title/database.

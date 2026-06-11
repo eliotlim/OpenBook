@@ -1,7 +1,14 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
 import type {APIRequestContext, Page} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
-import {newPage as seedPage, SERVER} from './seed';
+import {newPage as seedPage, SERVER, useClassicEditor} from './seed';
+
+// This spec drives the classic EditorJS editor — still fully supported, but no
+// longer the default — so pin it before the app boots (see seed.ts).
+test.beforeEach(async ({page}) => {
+  await useClassicEditor(page);
+});
+
 
 async function newPage(request: APIRequestContext, name: string, blocks: unknown[], values: unknown[] = [], names: unknown[] = []): Promise<string> {
   return seedPage(request, name, {editorjs: {blocks}, values, names});

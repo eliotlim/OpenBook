@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
 
 // The OpenBook data server is used to seed a linking page directly so the
 // backlink test is deterministic.

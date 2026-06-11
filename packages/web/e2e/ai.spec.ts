@@ -1,11 +1,11 @@
-import {test, expect} from '@chromatic-com/playwright';
+import {test, expect} from './fixtures';
+import {SERVER} from './seed';
 
 // The optional local-AI subsystem, driven end-to-end against the server's
 // deterministic mock engine (no model download, instant responses). Config
 // persists server-side, so each test sets what it needs and the suite
 // resets to 'off' at the end.
 
-const SERVER = 'http://127.0.0.1:4319';
 
 const setProvider = async (request: import('@playwright/test').APIRequestContext, provider: string): Promise<void> => {
   const res = await request.put(`${SERVER}/api/ai/config`, {data: {provider}});

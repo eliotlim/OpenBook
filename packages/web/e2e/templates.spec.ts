@@ -1,4 +1,12 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
+import {useClassicEditor} from './seed';
+
+// This spec drives the classic EditorJS editor — still fully supported, but no
+// longer the default — so pin it before the app boots (see seed.ts).
+test.beforeEach(async ({page}) => {
+  await useClassicEditor(page);
+});
+
 
 // The template gallery: ready-made pages (documents and databases with sample
 // rows) created client-side. These tests drive it exactly as a user would —

@@ -363,8 +363,8 @@ export const zh: PartialMessages = {
     confirmTrashHint: '将页面移到回收站前先询问。',
     spellcheck: '输入时拼写检查',
     spellcheckHint: '在编辑器中为拼写错误的单词加下划线。',
-    blockEditor: '块编辑器（测试版）',
-    blockEditorHint: '使用新一代协作编辑器打开文档。旧页面在打开时迁移。',
+    blockEditor: '块编辑器',
+    blockEditorHint: '使用协作块编辑器打开文档（默认）。旧页面在打开时迁移；关闭后未迁移的页面将使用经典编辑器。',
   },
   profile: {
     title: '个人资料',

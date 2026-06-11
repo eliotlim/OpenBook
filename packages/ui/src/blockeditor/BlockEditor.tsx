@@ -73,9 +73,12 @@ export const BlockEditor: React.FC<{
   ariaLabel?: string;
   /** Widen the content column to the container (page "full width" mode). */
   fullWidth?: boolean;
+  /** Trim the tall click-to-append bottom padding (pages with content below
+   *  the editor, e.g. a hosted database view). */
+  compact?: boolean;
   /** Spellcheck text blocks while typing (user preference). */
   spellcheck?: boolean;
-}> = ({doc, readOnly = false, ariaLabel, fullWidth = false, spellcheck = true}) => {
+}> = ({doc, readOnly = false, ariaLabel, fullWidth = false, compact = false, spellcheck = true}) => {
   const editor = useBlockEditor(doc, readOnly);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -376,7 +379,7 @@ export const BlockEditor: React.FC<{
   return (
     <div
       ref={rootRef}
-      className={fullWidth ? 'obe-root obe-full' : 'obe-root'}
+      className={['obe-root', fullWidth && 'obe-full', compact && 'obe-compact'].filter(Boolean).join(' ')}
       role="region"
       aria-label={ariaLabel ?? 'Page content'}
       onKeyDownCapture={onRootKeyDownCapture}

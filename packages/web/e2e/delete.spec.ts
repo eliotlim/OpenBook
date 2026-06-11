@@ -1,9 +1,9 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
+import {SERVER} from './seed';
 
 // Regression for: delete uses an in-app confirm dialog (not window.confirm),
 // the dialog is centered (not top-left), and confirming soft-deletes the page
 // into the trash.
-const SERVER = 'http://127.0.0.1:4319';
 
 test('delete page: centered in-app confirm moves the page to the trash', async ({page, request}, testInfo) => {
   await page.goto('/');

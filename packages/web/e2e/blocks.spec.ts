@@ -1,5 +1,12 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
-import {newPage} from './seed';
+import {test, expect, takeSnapshot} from './fixtures';
+import {newPage, useClassicEditor} from './seed';
+
+// This spec drives the classic EditorJS editor — still fully supported, but no
+// longer the default — so pin it before the app boots (see seed.ts).
+test.beforeEach(async ({page}) => {
+  await useClassicEditor(page);
+});
+
 
 // Right-clicking an editor block opens a *block-aware* context menu: block
 // actions (delete/move/duplicate) above the page actions. Deleting removes that

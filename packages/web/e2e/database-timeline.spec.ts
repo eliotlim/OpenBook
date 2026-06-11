@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
 import {reclaimNames, SERVER} from './seed';
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
@@ -146,6 +146,9 @@ test('timeline drag with separate start/end columns moves both dates', async ({p
   await page.goto(`/?page=${pageId}`);
   const bar = page.getByTitle(/drag to reschedule/);
   await expect(bar).toBeVisible();
+  // The bar can sit below the fold (header + properties + editor above the
+  // view) — mouse coordinates only hit what's inside the viewport.
+  await bar.scrollIntoViewIfNeeded();
   const box = (await bar.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();

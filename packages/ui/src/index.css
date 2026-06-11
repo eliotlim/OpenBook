@@ -1169,3 +1169,7 @@ a.obe-mention {
 
 /* Full-width page mode widens the editor column to its container. */
 .obe-root.obe-full { max-width: none; }
+
+/* Pages with content below the editor (a hosted database view) don't reserve
+   the tall click-to-append zone — it would push that content below the fold. */
+.obe-root.obe-compact { padding-bottom: 0.75rem; }

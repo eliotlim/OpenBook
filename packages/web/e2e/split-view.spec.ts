@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
 import {newPage} from './seed';
 
 // The split view's secondary page renders as a full-height pane docked at the

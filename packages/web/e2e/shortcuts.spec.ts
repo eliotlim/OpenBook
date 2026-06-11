@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
 
 const hudFullWidth = (page: import('@playwright/test').Page) =>
   page.evaluate(() => JSON.parse(localStorage.getItem('hud') || '{}')?.viewMode?.fullWidth ?? false);

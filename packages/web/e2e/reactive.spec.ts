@@ -1,6 +1,13 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
+import {useClassicEditor, SERVER} from './seed';
 
-const SERVER = 'http://127.0.0.1:4319';
+// This spec drives the classic EditorJS editor — still fully supported, but no
+// longer the default — so pin it before the app boots (see seed.ts).
+test.beforeEach(async ({page}) => {
+  await useClassicEditor(page);
+});
+
+
 
 // Regression for the save loop: a page with reactive blocks must settle and stop
 // saving. We seed it via the API, let it compute, then assert `updatedAt` is

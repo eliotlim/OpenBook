@@ -1,5 +1,12 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
-import {newPage} from './seed';
+import {test, expect, takeSnapshot} from './fixtures';
+import {newPage, useClassicEditor} from './seed';
+
+// This spec drives the classic EditorJS block tools — still fully supported,
+// but no longer the default editor — so pin it before the app boots (the
+// block editor's own block types are covered by block-editor.spec.ts).
+test.beforeEach(async ({page}) => {
+  await useClassicEditor(page);
+});
 
 // A page seeded with one of each new block type.
 async function seedPage(request: import('@playwright/test').APIRequestContext): Promise<string> {

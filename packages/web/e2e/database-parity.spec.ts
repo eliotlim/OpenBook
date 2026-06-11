@@ -1,8 +1,15 @@
 // Behavioural (non-visual) tests — use plain Playwright to skip the Chromatic
 // per-test snapshot (its archive helper is flaky in headless CI runs).
-import {test, expect} from '@playwright/test';
+import {test, expect} from './fixtures';
 import {readFileSync} from 'node:fs';
-import {reclaimNames, SERVER} from './seed';
+import {reclaimNames, SERVER, useClassicEditor} from './seed';
+
+// This spec drives the classic EditorJS editor — still fully supported, but no
+// longer the default — so pin it before the app boots (see seed.ts).
+test.beforeEach(async ({page}) => {
+  await useClassicEditor(page);
+});
+
 const emptySnapshot = {editorjs: {blocks: []}, values: [], names: []};
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {

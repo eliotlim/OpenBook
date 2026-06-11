@@ -1,7 +1,7 @@
-import {test, expect} from '@playwright/test';
+import {test, expect} from './fixtures';
 import type {APIRequestContext} from '@playwright/test';
+import {SERVER} from './seed';
 
-const SERVER = 'http://127.0.0.1:4319';
 const schema = {
   properties: [{id: 'p_status', name: 'Status', type: 'select', options: [
     {id: 's_todo', label: 'Todo', color: 'gray'}, {id: 's_done', label: 'Done', color: 'green'},

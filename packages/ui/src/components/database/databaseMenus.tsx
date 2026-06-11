@@ -1486,7 +1486,9 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
           View
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-2.5 p-3">
+      {/* The panel can outgrow short windows (layout grid + grouping + colour
+          rules + metrics) — scroll inside rather than cutting off the tail. */}
+      <PopoverContent align="end" className="max-h-[min(34rem,80vh)] w-72 space-y-2.5 overflow-y-auto p-3">
         <input
           defaultValue={view.name}
           onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== view.name && db.renameView(view.id, e.target.value)}

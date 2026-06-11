@@ -382,8 +382,8 @@ export const en = {
     confirmTrashHint: 'Ask before moving a page to the trash.',
     spellcheck: 'Spellcheck while typing',
     spellcheckHint: 'Underline misspelled words in the editor.',
-    blockEditor: 'Block editor (beta)',
-    blockEditorHint: 'Open documents in the next-generation collaborative editor. Legacy pages are migrated on open; turning this off returns un-migrated pages to the classic editor.',
+    blockEditor: 'Block editor',
+    blockEditorHint: 'Open documents in the collaborative block editor (the default). Legacy pages are migrated on open; turning this off returns un-migrated pages to the classic editor.',
   },
   profile: {
     title: 'Profile',

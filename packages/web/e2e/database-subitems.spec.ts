@@ -1,4 +1,5 @@
-import {test, expect} from '@chromatic-com/playwright';
+import {test, expect} from './fixtures';
+import {SERVER} from './seed';
 
 // Sub-items as first-class groups: a view's group-by can be the parent item
 // itself ('__parent__'), turning each parent row into a board column / table
@@ -6,7 +7,6 @@ import {test, expect} from '@chromatic-com/playwright';
 // rows through the API (row names are workspace-unique, hence the tag) and
 // drive the grouping exactly as a user would.
 
-const SERVER = 'http://127.0.0.1:4319';
 
 type Seeded = {pageId: string; dbId: string; epicA: string; epicB: string; tag: string};
 

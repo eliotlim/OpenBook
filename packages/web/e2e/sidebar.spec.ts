@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
 
 // Regression for two sidebar fixes:
 //  - rows mirror the page icon (default 📄), matching the page header;

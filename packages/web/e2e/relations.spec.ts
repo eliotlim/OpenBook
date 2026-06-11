@@ -1,6 +1,6 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
+import {SERVER} from './seed';
 
-const SERVER = 'http://127.0.0.1:4319';
 
 // Add a relation column to a database and link a page through the row's cell.
 test('database relations: add a relation column and link a page', async ({page, request}, testInfo) => {

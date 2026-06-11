@@ -1,4 +1,5 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
+import {test, expect, takeSnapshot} from './fixtures';
+import {SERVER} from './seed';
 
 // The custom CRDT block editor, exercised through its sandbox (/editor-lab).
 // The lab persists to localStorage only — every test starts it blank, so
@@ -183,7 +184,7 @@ test('CRDT: edits in one tab appear live in another', async ({page, context}) =>
 
 test('real page: legacy EditorJS content migrates, saves, and reopens in the block editor', async ({page, request}) => {
   // Seed a legacy page through the API (run-tagged name — workspace-unique).
-  const res = await request.post('http://127.0.0.1:4319/api/pages', {
+  const res = await request.post(`${SERVER}/api/pages`, {
     data: {
       name: `BlockNext ${Date.now()}`,
       data: {
@@ -220,7 +221,7 @@ test('real page: legacy EditorJS content migrates, saves, and reopens in the blo
   await page.keyboard.type(' Now ours.');
   await expect
     .poll(async () => {
-      const stored = (await (await request.get(`http://127.0.0.1:4319/api/pages/${id}`)).json()) as {
+      const stored = (await (await request.get(`${SERVER}/api/pages/${id}`)).json()) as {
         data: {editor?: string};
       };
       return stored.data.editor;
@@ -268,7 +269,7 @@ test('reactive plugins: a slider drives a live formula', async ({page}) => {
 
 test('block page: interactive HTML export stays live offline', async ({page, request, context}) => {
   // A legacy reactive page, migrated into the block editor on open.
-  const res = await request.post('http://127.0.0.1:4319/api/pages', {
+  const res = await request.post(`${SERVER}/api/pages`, {
     data: {
       name: `BlockExport ${Date.now()}`,
       data: {
@@ -384,11 +385,11 @@ test('handle menu: turn into a heading and delete from the menu', async ({page})
 });
 
 test('mention runs navigate to their page on click', async ({page, request}) => {
-  const target = await request.post('http://127.0.0.1:4319/api/pages', {
+  const target = await request.post(`${SERVER}/api/pages`, {
     data: {name: `MentionNav target ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}},
   });
   const targetId = ((await target.json()) as {id: string}).id;
-  const host = await request.post('http://127.0.0.1:4319/api/pages', {
+  const host = await request.post(`${SERVER}/api/pages`, {
     data: {
       name: `MentionNav host ${Date.now()}`,
       data: {editorjs: {blocks: [{id: 's1', type: 'subpage', data: {kind: 'page', pageId: targetId}}]}, values: [], names: []},

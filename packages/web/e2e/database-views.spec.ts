@@ -1,5 +1,12 @@
-import {test, expect, takeSnapshot} from '@chromatic-com/playwright';
-import {newPage, reclaimNames} from './seed';
+import {test, expect, takeSnapshot} from './fixtures';
+import {newPage, reclaimNames, useClassicEditor} from './seed';
+
+// This spec drives the classic EditorJS editor — still fully supported, but no
+// longer the default — so pin it before the app boots (see seed.ts).
+test.beforeEach(async ({page}) => {
+  await useClassicEditor(page);
+});
+
 
 /** Create a fresh database via the command palette and wait for its view. */
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {

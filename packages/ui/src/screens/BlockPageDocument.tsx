@@ -27,6 +27,7 @@ import {downloadBlob} from '@/lib/download';
 import {useData} from '@/data';
 import {connectBroadcast} from '@/blockeditor/provider';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
+import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
 import {useHud, usePreferences, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
@@ -192,7 +193,9 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const statusLabel = status === 'saving' ? t('page.saving') : status === 'saved' ? t('page.saved') : status === 'save failed' ? t('page.saveFailed') : '';
   const columnClass = cn('mx-auto w-full', hud.viewMode.fullWidth ? 'max-w-none' : 'max-w-content');
 
-  return (
+  // Right-clicking the page body opens the shared page actions (favorite,
+  // open in split, rename, duplicate, trash, …) — same menu as classic pages.
+  const body = (
     <div className="w-full px-6 pb-40 pt-6 md:px-10">
       <div className={columnClass}>
         <div className="flex h-8 items-center justify-end gap-2 text-xs text-muted-foreground print:hidden">
@@ -256,6 +259,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
               doc={doc}
               ariaLabel={title || 'Page content'}
               fullWidth={hud.viewMode.fullWidth}
+              compact={hasDatabase}
               spellcheck={preferences.general.spellcheck}
             />
           )}
@@ -265,6 +269,8 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       </div>
     </div>
   );
+
+  return pageId ? <PageContextMenu pageId={pageId}>{body}</PageContextMenu> : body;
 };
 
 export default BlockPageDocument;
