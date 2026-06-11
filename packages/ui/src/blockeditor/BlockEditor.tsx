@@ -54,7 +54,7 @@ export interface EditorUI {
   slash: SlashState;
   spellcheck: boolean;
   openSlash(blockId: string, anchorOffset: number): void;
-  updateSlash(): void;
+  updateSlash(caret: number): void;
   closeSlash(): void;
   slashKey(key: string): void;
   toggleFormat(key: keyof InlineAttrs, value?: string): void;
@@ -166,13 +166,18 @@ export const BlockEditor: React.FC<{
 
   // ── Slash menu ───────────────────────────────────────────────────────────
   const slashQuery = useCallback(
-    (state: SlashState): string => {
+    (state: SlashState, caret: number): string => {
       const found = findBlock(doc, state.blockId);
       const text = found && blockText(found.block);
       if (!text) return '';
       const s = text.toString();
-      // The query is whatever follows the '/' that opened the menu.
-      return s.slice(state.anchorOffset + 1).split(/\s/)[0] ?? '';
+      // The query is what was typed after the '/', bounded by the CARET —
+      // not by the next whitespace. A '/' typed at the start of a non-empty
+      // block would otherwise swallow the trailing text into the query and
+      // close the menu on the first keystroke. The caller passes the
+      // post-edit caret (the DOM selection is a render behind here).
+      const after = s.slice(state.anchorOffset + 1);
+      return after.slice(0, Math.max(0, caret - state.anchorOffset - 1)).split(/\s/)[0] ?? '';
     },
     [doc],
   );
@@ -183,14 +188,14 @@ export const BlockEditor: React.FC<{
       slash,
       spellcheck,
       openSlash: (id, anchorOffset) => setSlash({open: true, blockId: id, anchorOffset, query: '', index: 0}),
-      updateSlash: () =>
+      updateSlash: (caret) =>
         setSlash((s) => {
           if (!s.open) return s;
           const found = findBlock(doc, s.blockId);
           const text = found && blockText(found.block);
           // '/' deleted → close.
           if (!text || text.toString()[s.anchorOffset] !== '/') return {...s, open: false};
-          return {...s, query: slashQuery(s), index: 0};
+          return {...s, query: slashQuery(s, caret), index: 0};
         }),
       closeSlash,
       slashKey: (key) => {

@@ -165,7 +165,7 @@ export const TextBlockView: React.FC<{
         insertPlain(sel.start, data);
       });
       editor.requestCaret({blockId: id, offset: sel.start + data.length});
-      if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash();
+      if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash(sel.start + data.length);
       return;
     }
 
@@ -226,7 +226,7 @@ export const TextBlockView: React.FC<{
         const len = sel.start >= 2 && /[\uD800-\uDBFF]/.test(s[sel.start - 2]) && /[\uDC00-\uDFFF]/.test(s[sel.start - 1]) ? 2 : 1;
         apply(() => text.delete(sel.start - len, len));
         editor.requestCaret({blockId: id, offset: sel.start - len});
-        if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash();
+        if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash(sel.start - len);
       } else if (type === 'cell') {
         // Never merge table cells — Backspace at a cell's start is a no-op.
       } else {
