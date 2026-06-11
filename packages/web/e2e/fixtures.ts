@@ -43,9 +43,18 @@ export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
         {cwd: serverPkg, stdio: 'ignore'},
       );
 
-      // Wait for the server to come up before any test runs in this worker.
+      // Wait for OUR server to come up before any test runs in this worker.
+      // If the child dies (e.g. the port is held by a leaked server from an
+      // interrupted run), fail loudly — a health check alone would silently
+      // adopt the squatter and its stale workspace.
       const deadline = Date.now() + 60_000;
       for (;;) {
+        if (child.exitCode !== null) {
+          throw new Error(
+            `worker ${workerInfo.workerIndex}: data server exited (code ${child.exitCode}) — ` +
+              `is :${port} held by a leaked server? (lsof -ti:${port} | xargs kill)`,
+          );
+        }
         try {
           const res = await fetch(`${url}/health`);
           if (res.ok) break;
@@ -54,7 +63,7 @@ export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
         }
         if (Date.now() > deadline) {
           child.kill('SIGKILL');
-          throw new Error(`worker ${workerInfo.parallelIndex}: data server on :${port} never became healthy`);
+          throw new Error(`worker ${workerInfo.workerIndex}: data server on :${port} never became healthy`);
         }
         await new Promise((r) => setTimeout(r, 250));
       }

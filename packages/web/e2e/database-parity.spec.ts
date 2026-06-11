@@ -301,10 +301,13 @@ test('two-way dependency: linking one side populates the inverse', async ({page,
   await page.keyboard.press('Escape'); // close the property menu
   await expect(page.getByRole('columnheader', {name: /Blocks \(related\)/})).toBeVisible();
 
-  // Two named rows.
+  // Two named rows. Let the create→refetch churn settle before typing into
+  // the second title — filling mid-churn waits on a remounting input until
+  // the timeout (the long-standing dependency-picker flake family).
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('button', {name: 'New row'}).click();
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
+  await expect(titles).toHaveCount(2);
   await titles.nth(0).fill('Task A');
   await titles.nth(0).blur();
   await titles.nth(1).fill('Task B');
