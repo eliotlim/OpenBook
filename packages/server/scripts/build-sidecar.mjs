@@ -40,10 +40,26 @@ const outfile = join(binariesDir, `openbook-server-${triple}${ext}`);
 // 1. Stage PGlite's WASM/data so Bun can embed them.
 execFileSync('node', [join(here, 'copy-pglite-assets.mjs')], {stdio: 'inherit'});
 
-// 2. Compile the Bun entrypoint into a single binary.
+// 2. Compile the Bun entrypoint into a single binary. The optional llama.cpp
+// engine stays external (mirroring tsup.config.ts): its per-platform binding
+// packages aren't installed, and the runtime import is try/caught — in the
+// sidecar the llama provider simply reports unavailable and the user is
+// pointed at the MLX/OpenAI-compatible providers.
 mkdirSync(binariesDir, {recursive: true});
 console.log(`Compiling OpenBook server sidecar -> ${outfile}`);
-execFileSync('bun', ['build', join(serverDir, 'src', 'bin.bun.ts'), '--compile', '--outfile', outfile], {
-  stdio: 'inherit',
-});
+execFileSync(
+  'bun',
+  [
+    'build',
+    join(serverDir, 'src', 'bin.bun.ts'),
+    '--compile',
+    '--external',
+    'node-llama-cpp',
+    '--external',
+    '@node-llama-cpp/*',
+    '--outfile',
+    outfile,
+  ],
+  {stdio: 'inherit'},
+);
 console.log('Done.');
