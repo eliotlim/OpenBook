@@ -323,9 +323,11 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         break;
       }
       case 'kitchart': {
-        // The kit chart's data expression stays live as a computed value (the
-        // export's cell-driven chart can't draw it; the numbers still react).
+        // The chart's data expression becomes a computed cell, and a chart
+        // block draws that cell — so exported charts stay LIVE: moving an
+        // exported slider recomputes the cell and the plot redraws.
         out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.title ?? 'chart'), source: tokenize(String(b.props?.source ?? ''))}});
+        out.blocks.push({id: `${b.id}-plot`, type: 'chart', data: {refCellIds: [b.id]}});
         i += 1;
         break;
       }

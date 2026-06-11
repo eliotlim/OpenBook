@@ -49,6 +49,12 @@ describe('kit export mappings', () => {
     expect((chart?.data as {source: string}).source).toBe('[__C__{n1}__, __C__{n1}__*__C__{n1}__]');
   });
 
+  it('draws charts in the export by referencing the computed cell', () => {
+    const out = blocksToEditorJs(kitDoc());
+    const plot = out.blocks.find((b) => b.type === 'chart');
+    expect(plot).toMatchObject({id: 'k1-plot', data: {refCellIds: ['k1']}});
+  });
+
   it('freezes text-ish inputs to readable paragraphs and links cards', () => {
     const out = blocksToEditorJs(kitDoc());
     const texts = out.blocks.filter((b) => b.type === 'paragraph').map((b) => (b.data as {text: string}).text);

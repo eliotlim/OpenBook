@@ -149,6 +149,7 @@ test('HTML export keeps a kit artifact computing offline', async ({page, request
       {id: 'n1', type: 'number', props: {name: 'done', label: 'Tasks done', value: 7, min: 0, max: 10, step: 1}},
       {id: 's1', type: 'statuslight', props: {label: 'Readiness', source: 'done * 10', okAt: 50, warnAt: 20}},
       {id: 'f1', type: 'formula', props: {source: 'done * 10'}},
+      {id: 'k1', type: 'kitchart', props: {kind: 'line', title: 'Trend', source: '[done, done*2, done*3]'}},
     ],
   };
   const res = await request.post(`${SERVER}/api/pages`, {
@@ -170,7 +171,12 @@ test('HTML export keeps a kit artifact computing offline', async ({page, request
   await download.saveAs(file);
   await page.goto(`file://${file}`);
   const exprs = page.locator('.reactive.expr [data-val]');
-  await expect(exprs).toHaveText(['70', '70']);
+  await expect(exprs.nth(0)).toHaveText('70');
+  await expect(exprs.nth(1)).toHaveText('70');
+  // The kit chart exports as a DRAWN plot over its computed cell.
+  await expect(page.locator('figure[data-chart] svg')).toBeVisible();
   await page.locator('.reactive.slider input[type=range]').fill('3');
-  await expect(exprs).toHaveText(['30', '30']);
+  await expect(exprs.nth(0)).toHaveText('30');
+  await expect(exprs.nth(1)).toHaveText('30');
+  await expect(page.locator('figure[data-chart] svg')).toBeVisible();
 });
