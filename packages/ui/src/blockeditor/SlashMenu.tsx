@@ -107,25 +107,38 @@ export const SlashMenu: React.FC<{
   // (the anchor block can mount a frame later than the menu — e.g. the “+”
   // gutter button inserts a block and opens the menu in the same action).
   useLayoutEffect(() => {
-    const sel = document.getSelection();
-    const rect =
-      sel && sel.rangeCount > 0 && anchorEl?.contains(sel.anchorNode)
-        ? sel.getRangeAt(0).getBoundingClientRect()
-        : anchorEl?.getBoundingClientRect();
-    if (!rect || (rect.width === 0 && rect.height === 0 && rect.x === 0 && rect.y === 0)) return;
-    const menu = ref.current;
-    const menuH = menu?.offsetHeight ?? 304;
-    const menuW = menu?.offsetWidth ?? 272;
-    // Open into whichever side of the caret line has more room, and never
-    // cover the line itself: the menu's height caps to the chosen side.
-    const below = window.innerHeight - rect.bottom - 14;
-    const above = rect.top - 14;
-    const flip = menuH > below && above > below;
-    const maxHeight = Math.max(120, Math.min(304, flip ? above : below));
-    const shownH = Math.min(menuH, maxHeight);
-    const top = flip ? Math.max(8, rect.top - 6 - shownH) : rect.bottom + 6;
-    const left = Math.max(8, Math.min(rect.left, window.innerWidth - menuW - 8));
-    setPos({left, top, maxHeight});
+    let raf = 0;
+    let attempts = 0;
+    const isZero = (r: DOMRect | undefined | null): boolean => !r || (r.width === 0 && r.height === 0 && r.x === 0 && r.y === 0);
+    const measure = (): void => {
+      const sel = document.getSelection();
+      // The caret rect is all-zero in a not-yet-painted empty block (the “+”
+      // gutter flow) — fall back to the block's own rect, and retry a few
+      // frames while the anchor finishes mounting; bailing silently left the
+      // menu invisible until the first query keystroke re-ran this effect.
+      const caretRect =
+        sel && sel.rangeCount > 0 && anchorEl?.contains(sel.anchorNode) ? sel.getRangeAt(0).getBoundingClientRect() : null;
+      const rect = !isZero(caretRect) ? caretRect! : anchorEl?.getBoundingClientRect();
+      if (isZero(rect)) {
+        if (attempts++ < 20) raf = requestAnimationFrame(measure);
+        return;
+      }
+      const menu = ref.current;
+      const menuH = menu?.offsetHeight ?? 304;
+      const menuW = menu?.offsetWidth ?? 272;
+      // Open into whichever side of the caret line has more room, and never
+      // cover the line itself: the menu's height caps to the chosen side.
+      const below = window.innerHeight - rect!.bottom - 14;
+      const above = rect!.top - 14;
+      const flip = menuH > below && above > below;
+      const maxHeight = Math.max(120, Math.min(304, flip ? above : below));
+      const shownH = Math.min(menuH, maxHeight);
+      const top = flip ? Math.max(8, rect!.top - 6 - shownH) : rect!.bottom + 6;
+      const left = Math.max(8, Math.min(rect!.left, window.innerWidth - menuW - 8));
+      setPos({left, top, maxHeight});
+    };
+    measure();
+    return () => cancelAnimationFrame(raf);
   }, [anchorEl, rootEl, state.anchorOffset, items.length]);
 
   useEffect(() => setIndex(0), [state.query]);
