@@ -61,6 +61,9 @@ export interface HudProps {
   ai: {
     open: boolean;
   };
+  agent: {
+    open: boolean;
+  };
   viewMode: {
     fullWidth: boolean;
   }
@@ -88,6 +91,9 @@ export const HudDefault: HudProps = {
   ai: {
     open: false,
   },
+  agent: {
+    open: false,
+  },
   viewMode: {
     fullWidth: false,
   },
@@ -112,6 +118,7 @@ export const loadHudStorage = (): HudProps => {
     trash: {open: false},
     templates: {open: false},
     ai: {open: false},
+    agent: {open: false},
     viewMode: {...HudDefault.viewMode, ...stored.viewMode},
   };
 };
@@ -126,6 +133,7 @@ export const saveHudStorage = (hud: HudProps) => {
     trash: {open: false},
     templates: {open: false},
     ai: {open: false},
+    agent: {open: false},
   };
   localStorage.setItem(HUD_STORAGE_KEY, JSON.stringify(persisted));
 };

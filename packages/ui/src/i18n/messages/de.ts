@@ -131,6 +131,7 @@ export const de: PartialMessages = {
     newFromTemplate: 'Neu aus Vorlage',
 
     aiSearch: 'Notizen mit KI durchsuchen',
+    askAssistant: 'Assistent fragen',
     openSettings: 'Einstellungen öffnen',
     current: 'aktuell',
   },
@@ -254,6 +255,23 @@ export const de: PartialMessages = {
     placeholder: 'Wonach suchst du?',
     empty: 'Keine passenden Notizen.',
     hint: 'Durchsucht alle Seiteninhalte — mit lokalem Modell werden die Ergebnisse besser.',
+  },
+  agent: {
+    title: 'Assistent',
+    hint: 'Frag zu deinen Notizen — der Assistent kann Seiten suchen, lesen und anlegen.',
+    placeholder: 'Frag etwas…',
+    thinking: 'Arbeitet…',
+    reset: 'Neue Unterhaltung',
+    close: 'Assistent schließen',
+    error: 'Etwas ist schiefgelaufen: {error}',
+    notReady: 'Der Assistent braucht ein Modell — aktiviere eines unter Einstellungen → KI.',
+    tool: {
+      search_notes: 'Durchsucht Notizen',
+      read_page: 'Liest eine Seite',
+      list_pages: 'Listet Seiten auf',
+      create_page: 'Erstellt eine Seite',
+      append_to_page: 'Ergänzt eine Seite',
+    },
   },
   templates: {
     title: 'Mit einer Vorlage starten',

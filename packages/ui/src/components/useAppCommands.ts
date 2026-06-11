@@ -1,8 +1,9 @@
 import React from 'react';
 import type {LucideIcon} from 'lucide-react';
-import {LayoutTemplate, 
+import {LayoutTemplate,
   ArrowLeft,
   ArrowRight,
+  Bot,
   Columns2,
   FilePlus2,
   FlaskConical,
@@ -114,6 +115,14 @@ export function useAppCommands(): AppCommand[] {
         keywords: 'ai search notes semantic ask find',
         icon: Sparkles,
         run: () => setHud((draft) => {draft.ai.open = true; return draft;}),
+      },
+      {
+        id: 'ask-assistant',
+        group: 'navigation',
+        title: t('command.askAssistant'),
+        keywords: 'ai assistant agent chat ask help workspace',
+        icon: Bot,
+        run: () => setHud((draft) => {draft.agent.open = !draft.agent.open; return draft;}),
       },
       {
         id: 'insert-sample',

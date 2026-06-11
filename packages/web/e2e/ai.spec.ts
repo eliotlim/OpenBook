@@ -110,6 +110,44 @@ test('editor: Break into tasks and Continue writing run through the engine', asy
   await expect(page.getByText('This continues the document with a mock completion.')).toBeVisible();
 });
 
+test('assistant panel: ask a question, watch the tool run, get a grounded answer', async ({page, request}) => {
+  await setProvider(request, 'mock');
+  const name = `Agent Note ${Date.now()}`;
+  await request.post(`${SERVER}/api/pages`, {
+    data: {
+      name,
+      data: {
+        editorjs: {blocks: [{type: 'paragraph', data: {text: 'The sprint retrospective surfaced three deployment blockers.'}}]},
+        values: [],
+        names: [],
+      },
+    },
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByPlaceholder(/Search pages or run a command/).fill('Ask the assistant');
+  await page.keyboard.press('Enter');
+
+  const panel = page.locator('[data-agent-panel]');
+  await expect(panel).toBeVisible();
+  const input = panel.locator('[data-agent-input]');
+  await input.fill('sprint retrospective blockers');
+  await input.press('Enter');
+
+  // The scripted mock agent searches first, then answers from the hits.
+  await expect(panel.locator('[data-agent-item="user"]')).toHaveText('sprint retrospective blockers');
+  await expect(panel.locator('[data-agent-tool="search_notes"]')).toBeVisible();
+  await expect(panel.locator('[data-agent-item="assistant"]')).toContainText(/found \d+ relevant/);
+
+  // New conversation clears the thread; closing hides the panel.
+  await panel.getByRole('button', {name: 'New conversation'}).click();
+  await expect(panel.locator('[data-agent-item]')).toHaveCount(0);
+  await panel.getByRole('button', {name: 'Close assistant'}).click();
+  await expect(panel).toHaveCount(0);
+});
+
 test('with AI off, the slash menu hides AI actions but search stays lexical', async ({page, request}) => {
   await setProvider(request, 'off');
   const search = await request.post(`${SERVER}/api/ai/search`, {data: {query: 'migration rollback'}});

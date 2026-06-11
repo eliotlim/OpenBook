@@ -126,6 +126,7 @@ export const en = {
     newFromTemplate: 'New from template',
 
     aiSearch: 'Search notes with AI',
+    askAssistant: 'Ask the assistant',
     openSettings: 'Open settings',
     openTrash: 'Open trash',
     toggleSidebar: 'Toggle sidebar',
@@ -273,6 +274,23 @@ export const en = {
     placeholder: 'What are you looking for?',
     empty: 'No matching notes.',
     hint: 'Searches every page’s content — results improve with a local model.',
+  },
+  agent: {
+    title: 'Assistant',
+    hint: 'Ask about your notes — the assistant can search, read, and create pages in this workspace.',
+    placeholder: 'Ask anything…',
+    thinking: 'Working…',
+    reset: 'New conversation',
+    close: 'Close assistant',
+    error: 'Something went wrong: {error}',
+    notReady: 'The assistant needs a model — enable one in Settings → AI.',
+    tool: {
+      search_notes: 'Searching notes',
+      read_page: 'Reading a page',
+      list_pages: 'Listing pages',
+      create_page: 'Creating a page',
+      append_to_page: 'Adding to a page',
+    },
   },
   templates: {
     title: 'Start with a template',

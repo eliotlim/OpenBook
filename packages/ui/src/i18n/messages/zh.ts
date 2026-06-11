@@ -131,6 +131,7 @@ export const zh: PartialMessages = {
     newFromTemplate: '从模板新建',
 
     aiSearch: '用 AI 搜索笔记',
+    askAssistant: '询问助手',
     openSettings: '打开设置',
     current: '当前',
   },
@@ -254,6 +255,23 @@ export const zh: PartialMessages = {
     placeholder: '你在找什么？',
     empty: '没有匹配的笔记。',
     hint: '搜索所有页面内容——使用本地模型可获得更好的结果。',
+  },
+  agent: {
+    title: '助手',
+    hint: '询问你的笔记——助手可以搜索、阅读和创建页面。',
+    placeholder: '随便问…',
+    thinking: '处理中…',
+    reset: '新对话',
+    close: '关闭助手',
+    error: '出了点问题：{error}',
+    notReady: '助手需要一个模型——请在 设置 → AI 中启用。',
+    tool: {
+      search_notes: '搜索笔记',
+      read_page: '阅读页面',
+      list_pages: '列出页面',
+      create_page: '创建页面',
+      append_to_page: '追加到页面',
+    },
   },
   templates: {
     title: '从模板开始',

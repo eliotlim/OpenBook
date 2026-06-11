@@ -131,6 +131,7 @@ export const ja: PartialMessages = {
     newFromTemplate: 'テンプレートから作成',
 
     aiSearch: 'AIでノートを検索',
+    askAssistant: 'アシスタントに質問',
     openSettings: '設定を開く',
     current: '現在',
   },
@@ -254,6 +255,23 @@ export const ja: PartialMessages = {
     placeholder: '何を探していますか？',
     empty: '一致するノートがありません。',
     hint: '全ページの内容を検索します。ローカルモデルで精度が向上します。',
+  },
+  agent: {
+    title: 'アシスタント',
+    hint: 'ノートについて質問できます。アシスタントはページの検索・閲覧・作成ができます。',
+    placeholder: '何でも聞いてください…',
+    thinking: '処理中…',
+    reset: '新しい会話',
+    close: 'アシスタントを閉じる',
+    error: '問題が発生しました: {error}',
+    notReady: 'アシスタントにはモデルが必要です。設定 → AI で有効にしてください。',
+    tool: {
+      search_notes: 'ノートを検索',
+      read_page: 'ページを読み取り',
+      list_pages: 'ページ一覧を取得',
+      create_page: 'ページを作成',
+      append_to_page: 'ページに追記',
+    },
   },
   templates: {
     title: 'テンプレートから始める',
