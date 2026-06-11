@@ -2,6 +2,7 @@ import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'reac
 import {blockText, blockType, findBlock, makeTable, type BlockType, type NewBlock} from './model';
 import {customSlashItems} from './registry';
 import {aiSlashItems} from './aiBlocks';
+import {t, type TKey} from '../i18n';
 import type {BlockEditorController} from './useBlockEditor';
 
 /**
@@ -82,23 +83,40 @@ export const SlashMenu: React.FC<{
   const [pos, setPos] = useState<{left: number; top: number; maxHeight: number} | null>(null);
   const [index, setIndex] = useState(0);
 
+  // Labels resolve through the catalog at open time (`slash.<id>` for core
+  // items, `slash.custom.<type>` for registered blocks), falling back to the
+  // registered English string — third-party blocks without catalog entries
+  // still read fine. Keyword search matches BOTH the registered keywords and
+  // the translated label, so /tabelle finds Table in German.
+  const tr = (key: string, fallback: string): string => {
+    const value = t(key as TKey);
+    return value === key ? fallback : value;
+  };
+
   const items = useMemo(() => {
     const q = state.query.toLowerCase();
+    const core: SlashItem[] = SLASH_ITEMS.map((item) => ({
+      ...item,
+      label: tr(`slash.${item.id}.label`, item.label),
+      hint: tr(`slash.${item.id}.hint`, item.hint),
+    }));
     const custom: SlashItem[] = customSlashItems().map((def) => ({
       id: `custom-${def.type}`,
-      label: def.slash!.label,
-      hint: def.slash!.hint,
+      label: tr(`slash.custom.${def.type}.label`, def.slash!.label),
+      hint: tr(`slash.custom.${def.type}.hint`, def.slash!.hint),
       keywords: def.slash!.keywords,
       apply: insertAfterOrReplace(() => def.slash!.make()),
     }));
     const ai: SlashItem[] = aiSlashItems().map((item) => ({
       id: item.id,
-      label: item.label,
-      hint: item.hint,
+      label: tr(`slash.${item.id}.label`, item.label),
+      hint: tr(`slash.${item.id}.hint`, item.hint),
       keywords: item.keywords,
       apply: item.apply,
     }));
-    return [...SLASH_ITEMS, ...custom, ...ai].filter((item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q));
+    return [...core, ...custom, ...ai].filter(
+      (item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q),
+    );
   }, [state.query]);
 
   // Fixed (viewport) positioning: anchored to the caret, measured after
