@@ -551,10 +551,16 @@ function drawKit(v,kind,labels){
   } else { // line / area
     const series=kitSeries(v); if(!series.length) return '';
     const d=kitExtent(series.flatMap(s=>s.values)), base=kitScale(Math.max(d.min,0),d,H-PAD,PAD);
-    body=grid(d)+series.map((s,i)=>{ const n=s.values.length; const pts=s.values.map((val,j)=>{ const x=n===1?W/2:PAD+(j/(n-1))*(W-PAD*2); return (Math.round(x*10)/10)+','+(Math.round(kitScale(val,d,H-PAD,PAD)*10)/10); }).join(' ');
+    const n=Math.max.apply(null,series.map(s=>s.values.length));
+    body=grid(d)+series.map((s,i)=>{ const len=s.values.length; const pts=s.values.map((val,j)=>{ const x=len===1?W/2:PAD+(j/(len-1))*(W-PAD*2); return (Math.round(x*10)/10)+','+(Math.round(kitScale(val,d,H-PAD,PAD)*10)/10); }).join(' ');
       const first=pts.split(' ')[0].split(',')[0], parts=pts.split(' '), last=parts[parts.length-1].split(',')[0];
       return (kind==='area'?'<polygon points="'+first+','+base+' '+pts+' '+last+','+base+'" fill="'+P[i%P.length]+'" opacity="0.15"/>':'')+'<polyline points="'+pts+'" fill="none" stroke="'+P[i%P.length]+'" stroke-width="2" stroke-linejoin="round"/>';
-    }).join('');
+    }).join('')+labels.slice(0,n).map((l,i)=>'<text x="'+(n===1?W/2:PAD+(i/(n-1))*(W-PAD*2))+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.55">'+l+'</text>').join('');
+  }
+  // Named multi-series → a compact top-right legend (line/area/bar).
+  if(kind!=='pie'&&kind!=='donut'&&kind!=='funnel'&&kind!=='scatter'){
+    const named=kitSeries(v).filter(s=>s.name);
+    if(named.length>1) body+=named.map((s,i)=>'<g transform="translate('+(W-PAD-90)+','+(16+i*18)+')"><rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/><text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+s.name+'</text></g>').join('');
   }
   return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto">'+body+'</svg>';
 }

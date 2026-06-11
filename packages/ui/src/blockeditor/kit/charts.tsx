@@ -46,7 +46,40 @@ const Grid: React.FC<{d: ReturnType<typeof extent>}> = ({d}) => (
   </g>
 );
 
-const LineArea: React.FC<{value: unknown; area: boolean}> = ({value, area}) => {
+/** Compact top-right legend for named multi-series data. */
+const SeriesLegend: React.FC<{series: Array<{name: string}>}> = ({series}) => {
+  const named = series.filter((s) => s.name);
+  if (named.length < 2) return null;
+  return (
+    <g className="obe-chart-legend">
+      {named.map((s, i) => (
+        <g key={s.name} transform={`translate(${W - PAD - 90}, ${16 + i * 18})`}>
+          <rect width={10} height={10} rx={2} fill={PALETTE[i % PALETTE.length]} />
+          <text x={16} y={9}>
+            {s.name}
+          </text>
+        </g>
+      ))}
+    </g>
+  );
+};
+
+/** X-axis labels under the plot, when the block provides them. */
+const XLabels: React.FC<{labels: string[]; n: number}> = ({labels, n}) => {
+  if (labels.length === 0 || n === 0) return null;
+  const span = W - PAD * 2;
+  return (
+    <g className="obe-chart-xlabels">
+      {labels.slice(0, n).map((l, i) => (
+        <text key={i} x={n === 1 ? W / 2 : PAD + (i / (n - 1)) * span} y={H - 8}>
+          {l}
+        </text>
+      ))}
+    </g>
+  );
+};
+
+const LineArea: React.FC<{value: unknown; area: boolean; labels: string[]}> = ({value, area, labels}) => {
   const series = toSeries(value);
   if (series.length === 0) return null;
   const d = extent(series.flatMap((s) => s.values));
@@ -66,6 +99,8 @@ const LineArea: React.FC<{value: unknown; area: boolean}> = ({value, area}) => {
           </g>
         );
       })}
+      <SeriesLegend series={series} />
+      <XLabels labels={labels} n={Math.max(...series.map((s) => s.values.length))} />
     </>
   );
 };
@@ -97,6 +132,7 @@ const Bars: React.FC<{value: unknown; labels: string[]}> = ({value, labels}) => 
           ))}
         </g>
       )}
+      <SeriesLegend series={series} />
     </>
   );
 };
@@ -177,7 +213,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
     }
     switch (kind) {
     case 'area':
-      return <LineArea value={value} area />;
+      return <LineArea value={value} area labels={labels} />;
     case 'bar':
       return <Bars value={value} labels={labels} />;
     case 'pie':
@@ -189,7 +225,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
     case 'funnel':
       return <Funnel value={value} labels={labels} />;
     default:
-      return <LineArea value={value} area={false} />;
+      return <LineArea value={value} area={false} labels={labels} />;
     }
   })();
 
