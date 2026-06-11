@@ -43,7 +43,7 @@ export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
       if (squatter) {
         throw new Error(
           `worker ${workerInfo.workerIndex}: something already serves :${port} — ` +
-            `kill leaked servers first: for p in $(seq 4400 4460); do lsof -ti:$p; done | xargs kill`,
+            'kill leaked servers first: for p in $(seq 4400 4460); do lsof -ti:$p; done | xargs kill',
         );
       }
 
