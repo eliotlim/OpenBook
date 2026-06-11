@@ -4,6 +4,9 @@
   "description": "",
   "main": "index.js",
   "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": "^22.14.0 || >=24.10.0"
+  },
   "scripts": {
     "build": "pnpm run build:libs && pnpm run build:web && pnpm run build:desktop",
     "build:libs": "pnpm --filter @open-book/sdk run build && pnpm --filter @open-book/ui run build && pnpm --filter @open-book/server run build",

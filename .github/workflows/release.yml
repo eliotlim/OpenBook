@@ -1,16 +1,74 @@
 name: Release
+
 on:
   push:
     branches:
       - main
+  # Manual kick (still passes through the same approval gate below).
+  workflow_dispatch:
 
 permissions:
   contents: read # for checkout
 
+# Serialize release runs; never cancel one mid-publish.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
-  release:
-    name: Release
+  # Ungated dry run: would the commits on main cut a release at all?
+  # Reviewers are only asked to approve when the answer is yes, so routine
+  # merges (docs, chores, refactors) don't ping anyone.
+  plan:
+    name: Plan (dry run)
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # semantic-release verifies push access even in --dry-run
+    outputs:
+      new_release: ${{ steps.dry_run.outputs.new_release }}
+      version: ${{ steps.dry_run.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Determine whether a release is due
+        id: dry_run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          output=$(pnpm exec semantic-release --dry-run 2>&1) || true
+          echo "$output" | tail -n 25
+          version=$(echo "$output" | grep -oE 'The next release version is [0-9]+\.[0-9]+\.[0-9]+([-.[:alnum:]]*)?' | awk '{print $NF}' | tail -n 1)
+          if [ -n "$version" ]; then
+            echo "new_release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo "Release due: v$version (awaiting approval)"
+          else
+            echo "new_release=false" >> "$GITHUB_OUTPUT"
+            echo "No release-worthy commits — nothing to approve."
+          fi
+
+  # The actual release. The `release` environment holds the approval gate:
+  # configure it once under Settings → Environments → release → "Required
+  # reviewers". Until approved there, this job (and everything after it)
+  # stays queued.
+  release:
+    name: Release v${{ needs.plan.outputs.version }} (on approval)
+    needs: plan
+    if: needs.plan.outputs.new_release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write # to be able to publish a GitHub release
       issues: write # to be able to comment on released issues
@@ -28,7 +86,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "lts/*"
+          node-version-file: ".nvmrc"
           cache: "pnpm"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -47,7 +105,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos-latest, ubuntu-20.04, windows-latest]
+        # ubuntu-20.04 runners were retired by GitHub; 22.04 also matches the
+        # Tauri v2 toolchain (webkit2gtk 4.1).
+        platform: [macos-latest, ubuntu-22.04, windows-latest]
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -59,17 +119,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version-file: ".nvmrc"
           cache: "pnpm"
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
       - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-20.04'
+        if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
