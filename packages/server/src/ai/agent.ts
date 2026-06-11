@@ -1,7 +1,6 @@
-import type {PageSnapshot} from '@open-book/sdk';
+import {appendTextToSnapshot, snapshotText, textSnapshot} from '@open-book/sdk';
 import type {PageStore} from '../store';
 import type {AiService} from './service';
-import {snapshotText} from './search';
 
 /**
  * A small agent harness over the configured AI engine: the model is given a
@@ -82,17 +81,8 @@ export class AgentRunner {
         run: async (args) => {
           const title = String(args.title ?? '').trim();
           if (!title) return 'A title is required.';
-          const lines = String(args.content ?? '')
-            .split('\n')
-            .map((l) => l.trim())
-            .filter(Boolean);
-          const data: PageSnapshot = {
-            editorjs: {blocks: lines.map((text, i) => ({id: `agent-${i}`, type: 'paragraph', data: {text}}))},
-            values: [],
-            names: [],
-          };
           try {
-            const page = await this.store.upsertPage({name: title, data});
+            const page = await this.store.upsertPage({name: title, data: textSnapshot(String(args.content ?? ''), 'agent')});
             return `Created page "${title}" with id ${page.id}.`;
           } catch (err) {
             return `Could not create the page: ${err instanceof Error ? err.message : String(err)}`;
@@ -106,20 +96,14 @@ export class AgentRunner {
         run: async (args) => {
           const page = await this.store.getPage(String(args.pageId ?? ''));
           if (!page) return 'Page not found.';
-          if (page.data?.editor === 'blocks') {
+          const content = String(args.content ?? '');
+          const data = appendTextToSnapshot(page.data, content, `agent-${Date.now().toString(36)}`);
+          if (!data) {
             return 'This page uses the collaborative editor and cannot be appended to from here — create a new page instead.';
           }
-          const lines = String(args.content ?? '')
-            .split('\n')
-            .map((l) => l.trim())
-            .filter(Boolean);
-          if (lines.length === 0) return 'Nothing to append.';
-          const editorjs = (page.data.editorjs as {blocks?: unknown[]} | undefined) ?? {blocks: []};
-          const blocks = [...(editorjs.blocks ?? [])];
-          const stamp = Date.now().toString(36);
-          lines.forEach((text, i) => blocks.push({id: `agent-${stamp}-${i}`, type: 'paragraph', data: {text}}));
-          await this.store.upsertPage({id: page.id, name: page.name, data: {...page.data, editorjs: {...editorjs, blocks}}});
-          return `Appended ${lines.length} paragraph(s) to "${page.name ?? 'Untitled'}".`;
+          if (data === page.data) return 'Nothing to append.';
+          await this.store.upsertPage({id: page.id, name: page.name, data});
+          return `Appended to "${page.name ?? 'Untitled'}".`;
         },
       },
     ];

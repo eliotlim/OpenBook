@@ -109,6 +109,7 @@ export {
   type VerificationValue,
 } from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride} from './connection';
+export {snapshotText, paragraphBlocks, textSnapshot, appendTextToSnapshot} from './content';
 export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';
 export {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from './templates';
 export {

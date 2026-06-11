@@ -4,6 +4,7 @@ packages:
   - packages/ui
   - packages/app
   - packages/web
+  - packages/mcp
 
 # ── Supply-chain hardening ────────────────────────────────────────────────
 # Don't install any package version published less than this many minutes ago.

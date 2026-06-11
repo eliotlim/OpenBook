@@ -20,15 +20,17 @@ app (Tauri)  ─┐
               ├─► ui ─► sdk
 web (Next.js)─┘        ▲
                 server ┘   (server also depends on sdk for the shared contract)
+                mcp ───┘   (the MCP server is another sdk client, over HTTP)
 ```
 
 | Package | Role |
 |---------|------|
-| **`@open-book/sdk`** | The contract: TypeScript types (`StoredPage`, `PageSnapshot`, `DatabaseSchema`, …), the route table (`API`), and `HttpDataClient` (the isomorphic `fetch` client). No React, no Node. |
+| **`@open-book/sdk`** | The contract: TypeScript types (`StoredPage`, `PageSnapshot`, `DatabaseSchema`, …), the route table (`API`), `HttpDataClient` (the isomorphic `fetch` client), and the shared content helpers (`snapshotText`, `textSnapshot`, …). No React, no Node. |
 | **`@open-book/server`** | `PageStore` (all SQL) + a Hono HTTP API + a `PageHub` (in-memory pub/sub for live updates). Runs over **embedded PGlite** (desktop/local) or **external Postgres** (headless). |
 | **`@open-book/ui`** | The React app: the EditorJS document, reactive blocks, the sidebar tree, providers, and the design primitives (`components/ui/*`). Consumed as a built library. |
 | **`@open-book/app`** | The Tauri desktop shell. Spawns the server as a sidecar and points the UI at it. |
 | **`@open-book/web`** | The Next.js web shell. Talks to a deployed server. Hosts the Playwright e2e + Chromatic config. |
+| **`@open-book/mcp`** | A stdio [MCP](https://modelcontextprotocol.io) server (`openbook-mcp`) exposing the workspace to external agents (Claude Desktop/Code) as tools, over `HttpDataClient`. See its README. |
 
 ---
 
@@ -274,6 +276,28 @@ engine readiness via the `aiBridge` singleton. The AI search dialog lives in
 the command palette ("Search notes with AI"). Config persists in the
 `settings` table; everything degrades gracefully — engine failures never
 touch the document APIs.
+
+### The agent surface — in-app harness + MCP
+
+Two ways for a model to *act on* the workspace, sharing one tool contract
+(search / read / list / create / append, all grounded in live pages):
+
+- **In-app agent** (`packages/server/src/ai/agent.ts`): `AgentRunner` wraps
+  the configured AI engine in a tool loop — the model answers each turn with
+  one JSON object (`{"tool", "args"}` or `{"final"}`), a deliberate
+  lowest-common-denominator protocol so small local GGUF/MLX models work
+  without native function calling. `POST /api/agent/chat` streams each step
+  (tool call → tool result → final answer) as SSE;
+  `HttpDataClient.agentChat()` consumes it, and the UI's `AgentPanel`
+  (command palette → "Ask the assistant") renders the steps live. The mock
+  engine scripts a search-then-answer run for tests.
+- **MCP server** (`packages/mcp`): the same capabilities (plus database
+  row tools) for *external* agents, as a stdio MCP server over
+  `HttpDataClient` (`OPENBOOK_URL`). Tool implementations share the SDK
+  content helpers with the agent, so both surfaces obey the same rules
+  (e.g. neither appends to collaborative-editor pages). Integration-tested
+  end-to-end via a real MCP client handshake
+  (`packages/mcp/scripts/e2e.mts`).
 
 ---
 

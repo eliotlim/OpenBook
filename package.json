@@ -21,7 +21,7 @@
     "typecheck": "pnpm -r --if-present run typecheck",
     "tauri": "pnpm --filter @open-book/app run tauri",
     "test": "pnpm -r --if-present run test",
-    "test:e2e": "pnpm --filter @open-book/server run test:e2e",
+    "test:e2e": "pnpm --filter @open-book/server run test:e2e && pnpm --filter @open-book/mcp run test:e2e",
     "test:e2e:web": "pnpm --filter @open-book/web run test:e2e",
     "verify": "pnpm run build:libs && pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run test:e2e",
     "chromatic": "pnpm --filter @open-book/web run chromatic",
