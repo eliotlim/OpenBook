@@ -193,26 +193,45 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * (formula sources have slider names re-tokenized to `__C__{id}__`, the
  * format the export runtime evaluates); columns flatten in reading order.
  */
+/** Kit input types and the value they publish (mirrors kit/scope.ts). */
+const KIT_INPUT_VALUE: Record<string, (props: Record<string, unknown>) => unknown> = {
+  slider: (p) => Number(p.value ?? 50),
+  number: (p) => Number(p.value ?? 0),
+  textfield: (p) => String(p.value ?? ''),
+  radio: (p) => p.value ?? null,
+  checklist: (p) => (Array.isArray(p.selected) ? p.selected : []),
+  toggle: (p) => Boolean(p.value ?? false),
+  location: (p) => ({lat: p.lat ?? null, lng: p.lng ?? null, label: p.labeltext ?? ''}),
+};
+
 export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
   const out: EditorJsOut = {blocks: [], values: [], names: []};
 
-  // First pass: slider names → block ids (for formula re-tokenizing).
-  const sliders: Array<{id: string; name: string}> = [];
+  // First pass: every named input → block id (for expression re-tokenizing).
+  const inputs: Array<{id: string; name: string}> = [];
   const collect = (list: BlockJSON[]): void => {
     for (const b of list) {
-      if (b.type === 'slider') sliders.push({id: b.id, name: String(b.props?.name ?? 'x')});
+      if (KIT_INPUT_VALUE[b.type] && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
       if (b.children) for (const child of b.children) collect([child, ...(child.children ?? [])]);
     }
   };
   collect(blocks);
-  sliders.sort((a, b) => b.name.length - a.name.length); // longest names first
+  inputs.sort((a, b) => b.name.length - a.name.length); // longest names first
 
   const tokenize = (source: string): string => {
     let s = source;
-    for (const {id, name} of sliders) {
+    for (const {id, name} of inputs) {
       s = s.replace(new RegExp(`\\b${escapeRe(name)}\\b`, 'g'), `__C__{${id}}__`);
     }
     return s;
+  };
+
+  /** Publish an input's value/name so tokenized expressions read it live. */
+  const publish = (b: BlockJSON): void => {
+    const read = KIT_INPUT_VALUE[b.type];
+    if (!read) return;
+    out.values.push([b.id, read(b.props ?? {})]);
+    if (b.props?.name) out.names.push([String(b.props.name), b.id]);
   };
 
   const emit = (list: BlockJSON[]): void => {
@@ -278,8 +297,18 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
           type: 'slider',
           data: {name, min: Number(b.props?.min ?? 0), max: Number(b.props?.max ?? 100), step: 1, initial: value},
         });
-        out.values.push([b.id, value]);
-        out.names.push([name, b.id]);
+        publish(b);
+        i += 1;
+        break;
+      }
+      case 'number': {
+        // Steppers stay interactive in the export as range inputs.
+        const name = String(b.props?.name ?? 'n');
+        const value = Number(b.props?.value ?? 0);
+        const min = Number(b.props?.min ?? Math.min(0, value));
+        const max = Number(b.props?.max ?? Math.max(100, value * 2 || 10));
+        out.blocks.push({id: b.id, type: 'slider', data: {name, min, max, step: Number(b.props?.step ?? 1), initial: value}});
+        publish(b);
         i += 1;
         break;
       }
@@ -288,6 +317,61 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         i += 1;
         break;
       }
+      case 'statuslight': {
+        out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.label ?? 'Status'), source: tokenize(String(b.props?.source ?? ''))}});
+        i += 1;
+        break;
+      }
+      case 'kitchart': {
+        // The kit chart's data expression stays live as a computed value (the
+        // export's cell-driven chart can't draw it; the numbers still react).
+        out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.title ?? 'chart'), source: tokenize(String(b.props?.source ?? ''))}});
+        i += 1;
+        break;
+      }
+      case 'textfield':
+      case 'radio':
+      case 'checklist':
+      case 'toggle': {
+        const read = KIT_INPUT_VALUE[b.type];
+        const value = read(b.props ?? {});
+        const shown = Array.isArray(value) ? value.join(', ') : String(value ?? '—');
+        out.blocks.push({
+          id: b.id,
+          type: 'paragraph',
+          data: {text: `<b>${String(b.props?.label ?? b.props?.name ?? b.type)}</b>: ${shown}`},
+        });
+        publish(b);
+        i += 1;
+        break;
+      }
+      case 'location': {
+        const lat = b.props?.lat;
+        const lng = b.props?.lng;
+        const place = String(b.props?.labeltext ?? '');
+        const coords = typeof lat === 'number' && typeof lng === 'number' ? `<a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}">${lat}, ${lng}</a>` : '';
+        out.blocks.push({id: b.id, type: 'paragraph', data: {text: [`<b>${String(b.props?.name ?? 'place')}</b>:`, place, coords].filter(Boolean).join(' ')}});
+        publish(b);
+        i += 1;
+        break;
+      }
+      case 'tooltipcard':
+        out.blocks.push({id: b.id, type: 'paragraph', data: {text: `<b>${String(b.props?.term ?? '')}</b> — ${String(b.props?.tip ?? '')}`}});
+        i += 1;
+        break;
+      case 'linkcard': {
+        const url = String(b.props?.url ?? '');
+        const href = url && (/^https?:\/\//.test(url) ? url : `https://${url}`);
+        const title = String(b.props?.title ?? 'Untitled');
+        const desc = String(b.props?.description ?? '');
+        out.blocks.push({id: b.id, type: 'paragraph', data: {text: [href ? `<a href="${href}">${title}</a>` : `<b>${title}</b>`, desc].filter(Boolean).join(' — ')}});
+        i += 1;
+        break;
+      }
+      case 'actionbutton':
+        // Buttons act on the live document; exports carry no equivalent action.
+        i += 1;
+        break;
       default:
         out.blocks.push({id: b.id, type: 'paragraph', data: {text: textHtml(b.text)}});
         i += 1;
