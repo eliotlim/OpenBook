@@ -36,10 +36,24 @@ export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
       const dataDir = `/tmp/openbook-web-e2e-data-w${workerInfo.workerIndex}`;
       rmSync(dataDir, {recursive: true, force: true});
 
+      // Nothing may be listening here already: a leaked server from an
+      // interrupted run would pass the health check below and get silently
+      // adopted, serving a stale workspace.
+      const squatter = await fetch(`${url}/health`).then((r) => r.ok, () => false);
+      if (squatter) {
+        throw new Error(
+          `worker ${workerInfo.workerIndex}: something already serves :${port} — ` +
+            `kill leaked servers first: for p in $(seq 4400 4460); do lsof -ti:$p; done | xargs kill`,
+        );
+      }
+
+      // Spawn node directly (tsx via --import). The .bin/tsx wrapper would
+      // re-spawn node as ITS child — SIGKILL on the wrapper then orphans the
+      // actual server, which is exactly how servers leaked between runs.
       const serverPkg = join(__dirname, '..', '..', 'server');
       const child = spawn(
-        join(serverPkg, 'node_modules', '.bin', 'tsx'),
-        ['src/bin.ts', '--data-dir', dataDir, '--port', String(port)],
+        process.execPath,
+        ['--import', 'tsx', 'src/bin.ts', '--data-dir', dataDir, '--port', String(port)],
         {cwd: serverPkg, stdio: 'ignore'},
       );
 

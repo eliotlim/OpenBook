@@ -10,6 +10,11 @@ test.beforeEach(async ({page}) => {
   await useClassicEditor(page);
 });
 
+// Every test creates its own database (newDatabase) or seeds under a
+// Date.now()-unique name, and fixed row names are reclaimed per test — so the
+// file (40 tests, the suite's longest by far) fans out across workers.
+test.describe.configure({mode: 'parallel'});
+
 const emptySnapshot = {editorjs: {blocks: []}, values: [], names: []};
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
@@ -19,6 +24,18 @@ async function newDatabase(page: import('@playwright/test').Page): Promise<void>
   await page.getByPlaceholder(/Search pages or run a command/).fill('New database');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button', {name: 'Add column'})).toBeVisible();
+}
+
+/** Click "New row" n times, letting the create→refetch churn settle between
+ *  clicks. Back-to-back clicks land while the table remounts and the second
+ *  one is swallowed — rows then never reach nth(1) (flaky under load). */
+async function addRows(page: import('@playwright/test').Page, n: number): Promise<void> {
+  const titles = page.getByRole('table').getByPlaceholder('Untitled');
+  const start = await titles.count();
+  for (let i = 1; i <= n; i += 1) {
+    await page.getByRole('button', {name: 'New row'}).click();
+    await expect(titles).toHaveCount(start + i);
+  }
 }
 
 async function addColumn(page: import('@playwright/test').Page, name: string, type: string): Promise<void> {
@@ -56,8 +73,7 @@ test('rollup property: counts related rows', async ({page}) => {
   await addColumn(page, 'Links', 'dependency');
   await addColumn(page, 'Count', 'rollup');
 
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
 
   // Link the second row to the first → its rollup count becomes 1.
   await page.getByRole('button', {name: 'Add dependency'}).nth(1).click();
@@ -260,8 +276,7 @@ test('files property: add a file URL', async ({page}) => {
 test('filter groups: OR across two conditions', async ({page, request}) => {
   await reclaimNames(request, 'Apple', 'Banana');
   await newDatabase(page);
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
   await titles.nth(0).fill('Apple');
   await titles.nth(0).blur();
@@ -304,8 +319,7 @@ test('two-way dependency: linking one side populates the inverse', async ({page,
   // Two named rows. Let the create→refetch churn settle before typing into
   // the second title — filling mid-churn waits on a remounting input until
   // the timeout (the long-standing dependency-picker flake family).
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
   await expect(titles).toHaveCount(2);
   await titles.nth(0).fill('Task A');
@@ -381,8 +395,7 @@ test('per-group summaries: each group footer shows its own sum', async ({page}) 
   await addColumn(page, 'Amount', 'number');
 
   // Two rows with amounts in two different Status groups (Todo / Done).
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
   const amounts = page.getByRole('table').getByLabel('Amount');
   await amounts.nth(0).fill('10');
   await amounts.nth(0).blur();
@@ -418,8 +431,7 @@ test('unique id: auto-numbers rows with a prefix', async ({page}) => {
   await newDatabase(page);
 
   // Two rows exist before the ID column is added.
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
 
   // Adding the unique_id column backfills both rows (1, 2).
   await addColumn(page, 'Ref', 'unique_id');
@@ -599,8 +611,7 @@ test('list view grouping: group a list by Status', async ({page, request}) => {
 test('duplicate rename: reverts instead of crashing', async ({page, request}) => {
   await reclaimNames(request, 'UniqueTitleX'); // row 0 must be able to claim it; row 1's clash is the test
   await newDatabase(page);
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
 
   // First row claims a unique name.
@@ -641,8 +652,7 @@ test('column header sort: sort ascending from the property menu', async ({page})
   await addColumn(page, 'Num', 'number');
 
   // Two rows out of order: 2 then 1.
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
   const nums = page.getByRole('table').getByLabel('Num');
   await nums.nth(0).fill('2');
   await nums.nth(0).blur();
@@ -696,9 +706,7 @@ test('hide column in view: removes the column header', async ({page}) => {
 // Rows can be multi-selected and deleted in bulk from the selection bar.
 test('bulk select: delete multiple rows at once', async ({page}) => {
   await newDatabase(page);
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 3);
   await expect(page.getByRole('table').getByLabel('Select row')).toHaveCount(3);
 
   // Select two rows → the selection bar appears.
@@ -728,8 +736,7 @@ test('duplicate property: clones a column next to it', async ({page}) => {
 // The selection bar can duplicate the selected rows in bulk.
 test('bulk duplicate: copies the selected rows', async ({page}) => {
   await newDatabase(page);
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
   await expect(page.getByRole('table').getByLabel('Select row')).toHaveCount(2);
 
   // Select both and duplicate → four rows total.
@@ -760,8 +767,7 @@ test('sort indicator: header reflects the active sort direction', async ({page})
 // The selection bar can set a select/status value on all selected rows at once.
 test('bulk set status: applies a value to selected rows', async ({page}) => {
   await newDatabase(page); // Status select: Todo / In progress / Done
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
 
   // Select both rows, then set Status → Done from the bar (Set property ▸ Status ▸ Done).
   await page.getByRole('table').getByLabel('Select all rows').check();
@@ -777,8 +783,7 @@ test('bulk set status: applies a value to selected rows', async ({page}) => {
 test('filtered row count: shows X of Y', async ({page, request}) => {
   await reclaimNames(request, 'Findme');
   await newDatabase(page);
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
   await titles.nth(0).fill('Findme');
   await titles.nth(0).blur();
@@ -813,8 +818,7 @@ test('collapse all groups: folds and unfolds every group', async ({page}) => {
 test('insert row below: positions the new row after the source', async ({page, request}) => {
   await reclaimNames(request, 'RowOne', 'RowTwo');
   await newDatabase(page);
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
   await titles.nth(0).fill('RowOne');
   await titles.nth(0).blur();
@@ -849,8 +853,7 @@ test('rename view tab: double-click to rename', async ({page}) => {
 // "Insert above" from the row menu adds a row right before the chosen one.
 test('insert row above: positions the new row before the source', async ({page}) => {
   await newDatabase(page);
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByRole('button', {name: 'New row'}).click();
+  await addRows(page, 2);
   // Run-tagged: page names are globally unique, so bare names 409 when the
   // suite reuses a dev server whose earlier runs created them.
   const tag = Date.now();
