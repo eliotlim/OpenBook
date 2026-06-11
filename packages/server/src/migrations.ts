@@ -92,6 +92,17 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS pages_parent_position_idx ON pages (parent_id, position)',
     ],
   },
+  {
+    // Key-value settings (first consumer: the optional local-AI config).
+    // JSONB values; identical SQL for embedded PGlite and Postgres.
+    name: '0006_settings',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS settings (
+        key    TEXT  PRIMARY KEY,
+        value  JSONB NOT NULL DEFAULT '{}'::jsonb
+      )`,
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

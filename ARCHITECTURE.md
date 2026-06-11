@@ -250,6 +250,31 @@ the EditorJS surface (per-page dispatch in `ConnectedPageDocument`):
   `/editor-lab` (localStorage-persisted, cross-tab sync); e2e in
   `packages/web/e2e/block-editor.spec.ts`.
 
+### Optional local AI (`packages/server/src/ai/`)
+
+An opt-in, local-only model subsystem (Settings → AI). Pluggable engines
+behind one interface (`providers.ts`):
+
+- **llama** — in-process llama.cpp via `node-llama-cpp` (an
+  `optionalDependency`, imported dynamically; GGUF models download into the
+  server's models dir from Settings). Cross-platform: Metal/CUDA/Vulkan/CPU.
+- **mlx** — Apple-Silicon MLX through `mlx_lm.server`'s OpenAI-compatible
+  API; the server auto-spawns it when installed (`pip install mlx-lm`).
+- **openai** — any OpenAI-compatible local endpoint (Ollama, LM Studio,
+  llama-server, vLLM…). Pure fetch.
+- **mock** — deterministic in-process engine powering tests/e2e.
+
+Capabilities (`/api/ai/*`, SSE for generation): **note search** — BM25 over
+every live page (works with AI off), upgraded to hybrid embedding rerank when
+the engine embeds; **task breakdown** (`aiTasks` → parsed list); **document
+completion** (`aiComplete`, streamed). The block editor surfaces these as
+slash actions ("Continue writing" streams tokens straight into Y.Text —
+collaborators watch it arrive; "Break into tasks" inserts to-dos), gated on
+engine readiness via the `aiBridge` singleton. The AI search dialog lives in
+the command palette ("Search notes with AI"). Config persists in the
+`settings` table; everything degrades gracefully — engine failures never
+touch the document APIs.
+
 ---
 
 ## 5. UI structure

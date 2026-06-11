@@ -14,6 +14,7 @@ import {LayoutTemplate,
   StretchHorizontal,
   Sun,
   Table2,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
 import {seedSampleDocument} from '@open-book/sdk';
@@ -105,6 +106,14 @@ export function useAppCommands(): AppCommand[] {
         keywords: 'template gallery starter tasks roadmap reading meeting planner create',
         icon: LayoutTemplate,
         run: () => setHud((draft) => {draft.templates.open = true; return draft;}),
+      },
+      {
+        id: 'ai-search',
+        group: 'navigation',
+        title: t('command.aiSearch'),
+        keywords: 'ai search notes semantic ask find',
+        icon: Sparkles,
+        run: () => setHud((draft) => {draft.ai.open = true; return draft;}),
       },
       {
         id: 'insert-sample',

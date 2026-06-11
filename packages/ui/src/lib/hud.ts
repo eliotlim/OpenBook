@@ -2,7 +2,7 @@
 export const SETTINGS_SECTIONS = [
   {id: 'preferences', tabs: ['general', 'profile', 'appearance', 'customisation']},
   {id: 'account', tabs: ['signup', 'signin', 'support']},
-  {id: 'workspace', tabs: ['connection', 'integrations', 'admin']},
+  {id: 'workspace', tabs: ['connection', 'integrations', 'ai', 'admin']},
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];
@@ -58,6 +58,9 @@ export interface HudProps {
   templates: {
     open: boolean;
   };
+  ai: {
+    open: boolean;
+  };
   viewMode: {
     fullWidth: boolean;
   }
@@ -80,6 +83,9 @@ export const HudDefault: HudProps = {
     open: false,
   },
   templates: {
+    open: false,
+  },
+  ai: {
     open: false,
   },
   viewMode: {
@@ -105,6 +111,7 @@ export const loadHudStorage = (): HudProps => {
     // Never restore transient overlays open (the trash, the template gallery).
     trash: {open: false},
     templates: {open: false},
+    ai: {open: false},
     viewMode: {...HudDefault.viewMode, ...stored.viewMode},
   };
 };
@@ -118,6 +125,7 @@ export const saveHudStorage = (hud: HudProps) => {
     settings: {...hud.settings, open: false},
     trash: {open: false},
     templates: {open: false},
+    ai: {open: false},
   };
   localStorage.setItem(HUD_STORAGE_KEY, JSON.stringify(persisted));
 };

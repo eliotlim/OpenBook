@@ -1,6 +1,7 @@
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {blockText, blockType, findBlock, makeTable, type BlockType, type NewBlock} from './model';
 import {customSlashItems} from './registry';
+import {aiSlashItems} from './aiBlocks';
 import type {BlockEditorController} from './useBlockEditor';
 
 /**
@@ -90,7 +91,14 @@ export const SlashMenu: React.FC<{
       keywords: def.slash!.keywords,
       apply: insertAfterOrReplace(() => def.slash!.make()),
     }));
-    return [...SLASH_ITEMS, ...custom].filter((item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q));
+    const ai: SlashItem[] = aiSlashItems().map((item) => ({
+      id: item.id,
+      label: item.label,
+      hint: item.hint,
+      keywords: item.keywords,
+      apply: item.apply,
+    }));
+    return [...SLASH_ITEMS, ...custom, ...ai].filter((item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q));
   }, [state.query]);
 
   // Fixed (viewport) positioning: anchored to the caret, measured after

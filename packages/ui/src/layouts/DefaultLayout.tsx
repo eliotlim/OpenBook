@@ -3,6 +3,8 @@ import {CommandMenu} from '@/components/CommandMenu';
 import GlobalShortcuts from '@/components/GlobalShortcuts';
 import WindowTitle from '@/components/WindowTitle';
 import TemplateGallery from '@/components/TemplateGallery';
+import {AiSearchDialog} from '@/components/AiSearchDialog';
+import {AiBridgeHost} from '@/components/AiBridgeHost';
 import Settings from '@/components/Settings';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
 import TitlebarTabs from '@/components/TitlebarTabs';
@@ -33,6 +35,8 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <CommandMenu/>
           <Settings/>
           <TemplateGallery/>
+          <AiSearchDialog/>
+          <AiBridgeHost/>
           <EmojiPickerHost/>
           <SideNav/>
           <div className="flex min-h-0 w-full min-w-0 flex-col">

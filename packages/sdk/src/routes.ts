@@ -53,6 +53,24 @@ export const API = {
     `/api/databases/${encodeURIComponent(id)}/rows/${encodeURIComponent(rowId)}`,
   /** SSE stream of a database's row list (any row created / edited / deleted). */
   databaseStream: (id: string): string => `/api/databases/${encodeURIComponent(id)}/stream`,
+
+  // ── Optional local AI ──────────────────────────────────────────────────────
+  /** Engine status (provider, readiness, index state, download progress): `GET`. */
+  aiStatus: '/api/ai/status',
+  /** Engine configuration: `PUT` `{provider, model?, baseUrl?, autoStart?}`. */
+  aiConfig: '/api/ai/config',
+  /** (Re)build the note-search index: `POST`. */
+  aiIndex: '/api/ai/index',
+  /** Search notes: `POST` `{query, limit?}` → ranked results + snippets. */
+  aiSearch: '/api/ai/search',
+  /** Stream a completion: `POST` `{prompt, system?, maxTokens?}` → SSE. */
+  aiGenerate: '/api/ai/generate',
+  /** Break a goal into actionable tasks: `POST` `{goal, context?}`. */
+  aiTasks: '/api/ai/tasks',
+  /** Continue/complete document text: `POST` `{text, instruction?}` → SSE. */
+  aiComplete: '/api/ai/complete',
+  /** Download a model file for the in-process engine: `POST` `{url?}`. */
+  aiModelDownload: '/api/ai/models/download',
 } as const;
 
 /** Error body shape returned by the API for non-2xx responses. */

@@ -4,6 +4,8 @@ import {streamSSE} from 'hono/streaming';
 import {API, type DatabaseInput, type DatabaseUpdate, type ImportRequest, type PageInput, type RowInput} from '@open-book/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
+import {mountAiRoutes} from './ai/routes';
+import type {AiService} from './ai/service';
 
 /**
  * Build the Hono app over a page store. Routes implement the shared
@@ -11,12 +13,13 @@ import {PageHub} from './hub';
  * and the SSE endpoints relay those events to connected clients — the
  * server-driven refresh loop that powers real-time collaboration.
  */
-export function createApp(store: PageStore): Hono {
+export function createApp(store: PageStore, ai?: AiService): Hono {
   const app = new Hono();
   const hub = new PageHub();
 
   // Push the latest page list to list subscribers (nav stays live).
   const broadcastList = async (): Promise<void> => {
+    ai?.invalidateIndex(); // any broadcast-worthy write staleness-marks search
     hub.publishList(await store.listPages());
   };
 
@@ -39,6 +42,10 @@ export function createApp(store: PageStore): Hono {
     c.header('Cache-Control', 'no-store');
     await next();
   });
+
+  // Optional local-AI subsystem (status/search/generate). Mounted only when
+  // the host passed a service; document APIs never depend on it.
+  if (ai) mountAiRoutes(app, ai);
 
   app.get(API.health, (c) => c.text('ok'));
 

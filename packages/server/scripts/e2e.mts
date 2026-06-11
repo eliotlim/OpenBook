@@ -394,6 +394,82 @@ async function exerciseCacheHeaders(baseUrl: string, mode: string): Promise<void
   }
 }
 
+async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string): Promise<void> {
+  console.log(`\n[${mode}] optional local AI (mock engine)`);
+
+  // Off by default — status reports it without breaking anything.
+  let status = await fetch(`${baseUrl}${API.aiStatus}`).then((r) => r.json());
+  check('ai defaults to off', status.config.provider === 'off' && status.ready === false);
+
+  // Lexical search works with NO engine at all.
+  await client.savePage({name: `ai-note-${mode}`, data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'The quarterly budget forecast needs revision'}}]}, values: [], names: []}});
+  await client.savePage({name: `ai-other-${mode}`, data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'Picnic plans for the weekend trip'}}]}, values: [], names: []}});
+  let search = await fetch(`${baseUrl}${API.aiSearch}`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({query: 'budget forecast'}),
+  }).then((r) => r.json());
+  check('lexical search works with AI off', search.mode === 'lexical' && search.results.length > 0);
+  check('lexical search ranks the budget note first', search.results[0].title === `ai-note-${mode}`);
+  check('search returns a snippet', search.results[0].snippet.toLowerCase().includes('budget'));
+
+  // Configure the mock engine; config persists in the settings table.
+  const put = await fetch(`${baseUrl}${API.aiConfig}`, {
+    method: 'PUT',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({provider: 'mock'}),
+  }).then((r) => r.json());
+  check('config accepts the mock provider', put.provider === 'mock');
+  status = await fetch(`${baseUrl}${API.aiStatus}`).then((r) => r.json());
+  check('mock engine reports ready + embeddings', status.ready === true && status.embeddings === true);
+
+  // Hybrid search engages once embeddings exist.
+  search = await fetch(`${baseUrl}${API.aiSearch}`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({query: 'budget forecast'}),
+  }).then((r) => r.json());
+  check('search upgrades to hybrid with an embedding engine', search.mode === 'hybrid');
+
+  // Task breakdown returns a clean list.
+  const tasks = await fetch(`${baseUrl}${API.aiTasks}`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({goal: 'Plan the launch'}),
+  }).then((r) => r.json());
+  check('task breakdown returns parsed tasks', Array.isArray(tasks.tasks) && tasks.tasks.length >= 3);
+  check('tasks are clean strings (no list markers)', tasks.tasks.every((t: string) => !/^\d+[.)]/.test(t)));
+
+  // Completion streams SSE tokens and finishes with done.
+  const completion = await fetch(`${baseUrl}${API.aiComplete}`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({text: 'Meeting notes:'}),
+  });
+  const sse = await completion.text();
+  const events = sse.split('\n').filter((l) => l.startsWith('data:')).map((l) => JSON.parse(l.slice(5)));
+  const streamed = events.filter((e) => e.token).map((e) => e.token).join('');
+  check('completion streams tokens over SSE', streamed.length > 0);
+  check('completion stream closes with done', events.some((e) => e.done === true));
+
+  // Reindex endpoint reports counts; unknown provider rejected.
+  const reindex = await fetch(`${baseUrl}${API.aiIndex}`, {method: 'POST'}).then((r) => r.json());
+  check('reindex counts pages', reindex.pages > 0);
+  const bad = await fetch(`${baseUrl}${API.aiConfig}`, {
+    method: 'PUT',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({provider: 'nonsense'}),
+  });
+  check('unknown provider rejected (400)', bad.status === 400);
+
+  // Back off for the rest of the suite.
+  await fetch(`${baseUrl}${API.aiConfig}`, {
+    method: 'PUT',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({provider: 'off'}),
+  });
+}
+
 async function main(): Promise<void> {
   rmSync(ROOT, {recursive: true, force: true});
 
@@ -414,6 +490,7 @@ async function main(): Promise<void> {
   await exerciseOrdering(embeddedClient, 'embedded');
   await exerciseBackup(embeddedClient, 'embedded');
   await exerciseTrash(embeddedClient, 'embedded');
+  await exerciseAi(server.url, embeddedClient, 'embedded');
 
   // ---- 2. Persistence across restart ----
   console.log('\n=== 2. PERSISTENCE ACROSS RESTART ===');

@@ -13,5 +13,8 @@ export default defineConfig({
   outDir: 'dist',
   clean: true,
   sourcemap: true,
+  // The optional native engine stays a runtime import — tsup treats
+  // `dependencies` as external automatically but not `optionalDependencies`.
+  external: ['node-llama-cpp', /^@node-llama-cpp\//],
   dts: {entry: {index: 'src/index.ts'}},
 });

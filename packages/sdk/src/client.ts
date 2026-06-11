@@ -1,4 +1,5 @@
 import {API, type ApiError} from './routes';
+import type {AiConfig, AiSearchResponse, AiStatus, AiStreamEvent, AiTasksResponse} from './ai';
 import type {PageInput, PageMeta, StoredPage} from './types';
 import type {ImportRequest, ImportResult} from './backup';
 import type {
@@ -51,6 +52,16 @@ export interface DataClient {
    * cycle (nesting a page under itself or a descendant).
    */
   movePage(id: string, move: {parentId: string | null; orderedIds: string[]}): Promise<StoredPage>;
+
+  // ── Optional local AI ──────────────────────────────────────────────────────
+  aiStatus(): Promise<AiStatus>;
+  aiSetConfig(config: AiConfig): Promise<AiConfig>;
+  aiIndex(): Promise<{pages: number; chunks: number}>;
+  aiSearch(query: string, limit?: number): Promise<AiSearchResponse>;
+  aiTasks(goal: string, context?: string): Promise<AiTasksResponse>;
+  aiDownloadModel(url?: string): Promise<AiStatus['download']>;
+  aiComplete(text: string, onToken: (token: string) => void, opts?: {instruction?: string; signal?: AbortSignal}): Promise<string>;
+  aiGenerate(prompt: string, onToken: (token: string) => void, opts?: {system?: string; maxTokens?: number; signal?: AbortSignal}): Promise<string>;
   /**
    * Move a page (and its nested subtree) to the trash. Soft delete: the page is
    * recoverable via {@link restorePage} until the server's cleanup job purges
@@ -336,6 +347,97 @@ export class HttpDataClient implements DataClient {
 
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void {
     return this.liveStream().onRows(databaseId, onRows);
+  }
+
+  // ── Optional local AI ───────────────────────────────────────────────────────
+
+  async aiStatus(): Promise<AiStatus> {
+    return this.request<AiStatus>('GET', API.aiStatus);
+  }
+
+  async aiSetConfig(config: AiConfig): Promise<AiConfig> {
+    return this.request<AiConfig>('PUT', API.aiConfig, config);
+  }
+
+  async aiIndex(): Promise<{pages: number; chunks: number}> {
+    return this.request<{pages: number; chunks: number}>('POST', API.aiIndex);
+  }
+
+  async aiSearch(query: string, limit?: number): Promise<AiSearchResponse> {
+    return this.request<AiSearchResponse>('POST', API.aiSearch, {query, limit});
+  }
+
+  async aiTasks(goal: string, context?: string): Promise<AiTasksResponse> {
+    return this.request<AiTasksResponse>('POST', API.aiTasks, {goal, context});
+  }
+
+  async aiDownloadModel(url?: string): Promise<AiStatus['download']> {
+    return this.request<AiStatus['download']>('POST', API.aiModelDownload, {url});
+  }
+
+  /**
+   * Stream a document completion. `onToken` fires per token; resolves with
+   * the full text. Abort via the optional signal.
+   */
+  async aiComplete(
+    text: string,
+    onToken: (token: string) => void,
+    opts: {instruction?: string; signal?: AbortSignal} = {},
+  ): Promise<string> {
+    return this.aiStream(API.aiComplete, {text, instruction: opts.instruction}, onToken, opts.signal);
+  }
+
+  /** Stream a raw generation (prompt + optional system). */
+  async aiGenerate(
+    prompt: string,
+    onToken: (token: string) => void,
+    opts: {system?: string; maxTokens?: number; signal?: AbortSignal} = {},
+  ): Promise<string> {
+    return this.aiStream(API.aiGenerate, {prompt, system: opts.system, maxTokens: opts.maxTokens}, onToken, opts.signal);
+  }
+
+  /** POST a body and consume the SSE token stream the AI endpoints emit. */
+  private async aiStream(
+    path: string,
+    body: unknown,
+    onToken: (token: string) => void,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+      cache: 'no-store',
+      signal,
+    });
+    await throwIfNotOk(res);
+    if (!res.body) return '';
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let full = '';
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue;
+        try {
+          const event = JSON.parse(line.slice(5)) as AiStreamEvent;
+          if (event.error) throw new Error(event.error);
+          if (event.token) {
+            full += event.token;
+            onToken(event.token);
+          }
+        } catch (err) {
+          if (err instanceof SyntaxError) continue; // partial frame
+          throw err;
+        }
+      }
+    }
+    return full;
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {

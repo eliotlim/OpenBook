@@ -3,6 +3,9 @@ import type {PGliteOptions} from '@electric-sql/pglite';
 import {createApp} from './app';
 import {type Db, PgliteDb, PostgresDb} from './db';
 import {PageStore} from './store';
+import {AiService} from './ai/service';
+import path from 'node:path';
+import os from 'node:os';
 
 export interface StartOptions {
   /** Connection string for an external Postgres (server mode). */
@@ -90,7 +93,13 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     cleanupTimer.unref?.();
   }
 
-  const app = createApp(store);
+  // Local-AI models live next to the data (desktop) or under the home dir
+  // (server mode). The subsystem is inert until configured via /api/ai.
+  const modelsDir = process.env.OPENBOOK_MODELS_DIR
+    || (opts.dataDir ? path.join(opts.dataDir, 'models') : path.join(os.homedir(), '.openbook', 'models'));
+  const ai = new AiService(db, modelsDir);
+
+  const app = createApp(store, ai);
   const host = opts.host ?? DEFAULT_HOST;
   const port = opts.port ?? DEFAULT_PORT;
 
@@ -106,6 +115,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     url,
     address: `${host}:${info.port}`,
     close: async () => {
+      await ai.dispose();
       if (cleanupTimer) clearInterval(cleanupTimer);
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await store.close();
