@@ -97,6 +97,18 @@ export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
     }, dataServer);
     await use(context);
   },
+
+  // Uncaught page errors crash React to a blank screen and the test then
+  // times out on some unrelated locator — attach them so the report shows
+  // the actual crash instead of a mute timeout.
+  page: async ({page}, use, testInfo) => {
+    const errors: string[] = [];
+    page.on('pageerror', (err) => errors.push(err.stack ?? err.message));
+    await use(page);
+    if (errors.length > 0) {
+      await testInfo.attach('pageerrors', {body: errors.join('\n\n---\n\n'), contentType: 'text/plain'});
+    }
+  },
 });
 
 export {expect, takeSnapshot} from '@chromatic-com/playwright';

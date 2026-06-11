@@ -27,7 +27,10 @@ export default defineConfig({
   fullyParallel: false,
   workers: process.env.CI ? 2 : 4,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // One local retry: a flaky test still SHOWS as flaky (never silently
+  // green), but full runs stay actionable and the retry leaves a trace +
+  // pageerror attachment to diagnose — see e2e/fixtures.ts.
+  retries: process.env.CI ? 2 : 1,
   reporter: process.env.CI ? [['github'], ['html', {open: 'never'}]] : [['list']],
   timeout: 30_000,
   expect: {timeout: 10_000},
