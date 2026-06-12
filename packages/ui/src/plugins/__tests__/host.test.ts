@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import type {DataClient, StoredPlugin} from '@open-book/sdk';
-import {syncPlugins, pluginStatuses} from '../host';
+import {OPENBOOK_REGISTRY, type DataClient, type StoredPlugin} from '@open-book/sdk';
+import {syncPlugins, pluginStatuses, trustedRegistryKeys, addTrustedRegistry, removeTrustedRegistry} from '../host';
 import {pluginCommands} from '../commandRegistry';
 import {getCustomBlock} from '../../blockeditor/registry';
 
@@ -60,5 +60,24 @@ describe('plugin host', () => {
     // …and its neighbour is unaffected.
     expect(pluginCommands().some((c) => c.id === 'acme.fine/ok')).toBe(true);
     await syncPlugins(clientWith([]));
+  });
+
+  it('manages the trusted-registry list around the pinned first-party key', () => {
+    expect(trustedRegistryKeys()).toEqual([OPENBOOK_REGISTRY]);
+
+    addTrustedRegistry('Acme Registry', 'a'.repeat(43) + '=');
+    expect(trustedRegistryKeys()).toHaveLength(2);
+    expect(trustedRegistryKeys()[1]).toEqual({name: 'Acme Registry', publicKey: 'a'.repeat(43) + '='});
+
+    // Re-adding the same key and re-adding the pinned key are both no-ops.
+    addTrustedRegistry('Acme Again', 'a'.repeat(43) + '=');
+    addTrustedRegistry('Sneaky', OPENBOOK_REGISTRY.publicKey);
+    expect(trustedRegistryKeys()).toHaveLength(2);
+
+    removeTrustedRegistry('a'.repeat(43) + '=');
+    expect(trustedRegistryKeys()).toEqual([OPENBOOK_REGISTRY]);
+    // The pinned key survives any removal attempt.
+    removeTrustedRegistry(OPENBOOK_REGISTRY.publicKey);
+    expect(trustedRegistryKeys()).toEqual([OPENBOOK_REGISTRY]);
   });
 });

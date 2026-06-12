@@ -67,9 +67,10 @@ unknown key, or content that doesn't match the signature) shows
 **Unverified** but installs fine.
 
 - The first-party **OpenBook Registry** key ships pinned in the app.
-- A third-party registry is just another trusted key
-  (`openbook.trustedRegistries` — Settings UI for managing these is on the
-  roadmap; today it's a localStorage list of `{name, publicKey}`).
+- A third-party registry is just another trusted key: add its name and
+  base64 Ed25519 public key under **Settings → Extensions → Trusted
+  registries**. Removing a key demotes its plugins to Unverified on the
+  next sync.
 - Pack and dev-sign locally:
   `node scripts/pack-plugin.mjs examples/plugins/hello-openbook out.zip --sign`
 

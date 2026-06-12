@@ -1,11 +1,23 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {BadgeCheck, Puzzle, ShieldAlert, Trash2, TriangleAlert, Upload} from 'lucide-react';
+import {BadgeCheck, KeyRound, Puzzle, ShieldAlert, Trash2, TriangleAlert, Upload, X} from 'lucide-react';
+import {OPENBOOK_REGISTRY} from '@open-book/sdk';
 import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
 import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
 import {Switch} from '@/components/ui/switch';
 import {useData} from '@/data';
 import {useTranslation} from '@/providers';
-import {parsePluginZip, pluginStatuses, subscribePlugins, syncPlugins, reloadPlugin, type PluginStatus} from '@/plugins';
+import {
+  addTrustedRegistry,
+  parsePluginZip,
+  pluginStatuses,
+  removeTrustedRegistry,
+  reloadPlugin,
+  subscribePlugins,
+  syncPlugins,
+  trustedRegistryKeys,
+  type PluginStatus,
+} from '@/plugins';
 import {cn} from '@/lib/utils';
 
 /**
@@ -105,10 +117,137 @@ export default function ExtensionsSettings() {
         </div>
       </SettingsSection>
 
+      <TrustedRegistries />
+
       <p className="text-xs text-muted-foreground/70">{t('extensions.trustNote')}</p>
     </SettingsScreen>
   );
 }
+
+/** Is this a plausible raw Ed25519 public key — 32 bytes of valid base64? */
+function isEd25519PublicKey(base64: string): boolean {
+  try {
+    return atob(base64).length === 32;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The registries whose signatures earn the Verified badge: the pinned
+ * first-party key plus any the user pastes in. Removing one demotes its
+ * plugins to Unverified on the next sync — trust stays the user's call.
+ */
+const TrustedRegistries: React.FC = () => {
+  const client = useData();
+  const {t} = useTranslation();
+  const [registries, setRegistries] = useState(() => trustedRegistryKeys());
+  const [name, setName] = useState('');
+  const [publicKey, setPublicKey] = useState('');
+  const [keyError, setKeyError] = useState(false);
+
+  const add = useCallback(() => {
+    const trimmedKey = publicKey.trim();
+    if (!name.trim() || !trimmedKey) return;
+    if (!isEd25519PublicKey(trimmedKey)) {
+      setKeyError(true);
+      return;
+    }
+    addTrustedRegistry(name, trimmedKey);
+    setName('');
+    setPublicKey('');
+    setKeyError(false);
+    setRegistries(trustedRegistryKeys());
+    void syncPlugins(client).catch(() => undefined);
+  }, [client, name, publicKey]);
+
+  const remove = useCallback(
+    (key: string) => {
+      removeTrustedRegistry(key);
+      setRegistries(trustedRegistryKeys());
+      void syncPlugins(client).catch(() => undefined);
+    },
+    [client],
+  );
+
+  return (
+    <SettingsSection title={t('extensions.registries')} description={t('extensions.registriesHint')}>
+      <div className="flex flex-col gap-1.5">
+        {registries.map((registry) => {
+          const builtIn = registry.publicKey === OPENBOOK_REGISTRY.publicKey;
+          return (
+            <div
+              key={registry.publicKey}
+              data-registry={registry.name}
+              className="flex items-center gap-3 rounded-md border border-border px-3 py-2"
+            >
+              <KeyRound className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{registry.name}</span>
+                  {builtIn && (
+                    <span className="rounded-full bg-accent px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      {t('extensions.builtIn')}
+                    </span>
+                  )}
+                </div>
+                <p className="truncate font-mono text-[11px] text-muted-foreground/70">{registry.publicKey}</p>
+              </div>
+              {!builtIn && (
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                  aria-label={t('extensions.removeRegistry', {name: registry.name})}
+                  onClick={() => remove(registry.publicKey)}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <form
+        className="flex flex-wrap items-start gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          add();
+        }}
+      >
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={t('extensions.registryName')}
+          aria-label={t('extensions.registryName')}
+          data-registry-name
+          className="h-8 w-44 text-sm"
+        />
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <Input
+            value={publicKey}
+            onChange={(e) => {
+              setPublicKey(e.target.value);
+              setKeyError(false);
+            }}
+            placeholder={t('extensions.registryKey')}
+            aria-label={t('extensions.registryKey')}
+            data-registry-key
+            className={cn('h-8 min-w-44 font-mono text-xs', keyError && 'border-destructive')}
+          />
+          {keyError && (
+            <p className="text-xs text-destructive" data-registry-key-error>
+              {t('extensions.registryKeyInvalid')}
+            </p>
+          )}
+        </div>
+        <Button type="submit" size="sm" variant="outline" disabled={!name.trim() || !publicKey.trim()} data-registry-add>
+          {t('extensions.addRegistry')}
+        </Button>
+      </form>
+    </SettingsSection>
+  );
+};
 
 const ExtensionCard: React.FC<{
   status: PluginStatus;

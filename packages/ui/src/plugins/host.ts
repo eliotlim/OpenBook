@@ -55,6 +55,20 @@ export function trustedRegistryKeys(): Array<{name: string; publicKey: string}> 
   return [OPENBOOK_REGISTRY, ...extra];
 }
 
+/** Persist a user-trusted registry key (and re-verify on next sync). */
+export function addTrustedRegistry(name: string, publicKey: string): void {
+  const key = publicKey.trim();
+  if (key === OPENBOOK_REGISTRY.publicKey) return;
+  const list = trustedRegistryKeys().filter((k) => k.publicKey !== OPENBOOK_REGISTRY.publicKey);
+  if (list.some((k) => k.publicKey === key)) return;
+  localStorage.setItem(TRUSTED_KEYS_STORAGE, JSON.stringify([...list, {name: name.trim(), publicKey: key}]));
+}
+
+export function removeTrustedRegistry(publicKey: string): void {
+  const list = trustedRegistryKeys().filter((k) => k.publicKey !== OPENBOOK_REGISTRY.publicKey && k.publicKey !== publicKey);
+  localStorage.setItem(TRUSTED_KEYS_STORAGE, JSON.stringify(list));
+}
+
 function activate(plugin: StoredPlugin, client: DataClient): {error?: string} {
   const disposables: Array<() => void> = [];
   try {

@@ -121,15 +121,28 @@ test('install an unsigned zip: block, command, badge, disable, remove', async ({
   await expect(page.getByText('No extensions installed')).toBeVisible();
 });
 
-test('a signed zip from a trusted registry shows Verified; tampering loses it', async ({page}) => {
+test('a signed zip from a trusted registry shows Verified; tampering or distrust loses it', async ({page}) => {
   const {signature, publicKey} = await signFixture();
 
-  // Trust the e2e registry key before the app boots (the third-party flow).
-  await page.addInitScript((key) => {
-    localStorage.setItem('openbook.trustedRegistries', JSON.stringify([{name: 'E2E Registry', publicKey: key}]));
-  }, publicKey);
-
   await openExtensions(page);
+
+  // The first-party key is pinned: shown as built-in, not removable.
+  const builtIn = page.locator('[data-registry="OpenBook Registry"]');
+  await expect(builtIn).toBeVisible();
+  await expect(builtIn.getByLabel(/Remove registry/)).toHaveCount(0);
+
+  // A garbage key is rejected before it ever lands in the trust list.
+  await page.locator('[data-registry-name]').fill('E2E Registry');
+  await page.locator('[data-registry-key]').fill('not a key');
+  await page.locator('[data-registry-add]').click();
+  await expect(page.locator('[data-registry-key-error]')).toBeVisible();
+
+  // Trust the e2e registry through the UI (the third-party flow).
+  await page.locator('[data-registry-key]').fill(publicKey);
+  await expect(page.locator('[data-registry-key-error]')).toHaveCount(0);
+  await page.locator('[data-registry-add]').click();
+  await expect(page.locator('[data-registry="E2E Registry"]')).toBeVisible();
+
   await page.locator('[data-extension-file]').setInputFiles({name: 'signed.zip', mimeType: 'application/zip', buffer: zipOf(signature)});
   const card = page.locator('[data-extension="acme.hello"]');
   await expect(card.locator('[data-extension-verified]')).toBeVisible();
@@ -139,6 +152,13 @@ test('a signed zip from a trusted registry shows Verified; tampering loses it', 
   const entries: Record<string, Uint8Array> = {'openbook.json': strToU8(JSON.stringify(MANIFEST)), 'signature.json': strToU8(JSON.stringify(signature))};
   for (const [p, s] of Object.entries(tampered)) entries[p] = strToU8(s);
   await page.locator('[data-extension-file]').setInputFiles({name: 'tampered.zip', mimeType: 'application/zip', buffer: Buffer.from(zipSync(entries))});
+  await expect(card.locator('[data-extension-unverified]')).toBeVisible();
+
+  // Restore the genuine package, then withdraw trust → Verified demotes.
+  await page.locator('[data-extension-file]').setInputFiles({name: 'signed.zip', mimeType: 'application/zip', buffer: zipOf(signature)});
+  await expect(card.locator('[data-extension-verified]')).toBeVisible();
+  await page.getByLabel('Remove registry E2E Registry').click();
+  await expect(page.locator('[data-registry="E2E Registry"]')).toHaveCount(0);
   await expect(card.locator('[data-extension-unverified]')).toBeVisible();
 
   await page.getByLabel('Remove Hello Test').click();
