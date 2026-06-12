@@ -6,6 +6,7 @@ import TemplateGallery from '@/components/TemplateGallery';
 import {AiSearchDialog} from '@/components/AiSearchDialog';
 import {AgentPanel} from '@/components/AgentPanel';
 import {SplitPane} from '@/components/SplitPane';
+import PluginBoot from '@/components/PluginBoot';
 import {AiBridgeHost} from '@/components/AiBridgeHost';
 import Settings from '@/components/Settings';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
@@ -33,6 +34,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
         </div>
         <div className="flex min-h-0 flex-1 flex-row items-stretch overflow-hidden">
           <GlobalShortcuts/>
+          <PluginBoot/>
           <WindowTitle/>
           <CommandMenu/>
           <Settings/>

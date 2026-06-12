@@ -9,6 +9,7 @@ import {LayoutTemplate,
   FlaskConical,
   Moon,
   PanelLeft,
+  Puzzle,
   Settings as SettingsIcon,
   Star,
   StarOff,
@@ -23,6 +24,7 @@ import {useData} from '@/data';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
 import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
+import {pluginCommands, subscribePluginCommands} from '@/plugins';
 
 /** A command's bucket in the palette (each renders as a labelled group). */
 export type CommandGroup = 'create' | 'view' | 'navigation' | 'app';
@@ -71,6 +73,9 @@ export function useAppCommands(): AppCommand[] {
   // Re-derive the favourite command's label/icon when the pin state changes.
   const [favVersion, setFavVersion] = React.useState(0);
   React.useEffect(() => subscribeFavorites(() => setFavVersion((v) => v + 1)), []);
+  // Plugin commands join the palette live as extensions (de)activate.
+  const [pluginVersion, setPluginVersion] = React.useState(0);
+  React.useEffect(() => subscribePluginCommands(() => setPluginVersion((v) => v + 1)), []);
 
   const insertSampleDocument = React.useCallback(async () => {
     const page = await seedSampleDocument(client);
@@ -224,6 +229,14 @@ export function useAppCommands(): AppCommand[] {
             return draft;
           }),
       },
+      ...pluginCommands().map((cmd) => ({
+        id: cmd.id,
+        group: 'app' as const,
+        title: cmd.title,
+        keywords: cmd.keywords,
+        icon: Puzzle,
+        run: cmd.run,
+      })),
       {
         id: 'open-trash',
         group: 'app',
@@ -244,6 +257,7 @@ export function useAppCommands(): AppCommand[] {
     splitOpen,
     currentPageId,
     favVersion,
+    pluginVersion,
     canGoBack,
     canGoForward,
     createPage,
