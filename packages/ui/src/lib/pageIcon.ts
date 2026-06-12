@@ -14,7 +14,11 @@ export const DEFAULT_PAGE_ICON = '📄';
 export const readStoredPageIcon = (pageId: string): string | null =>
   (typeof localStorage !== 'undefined' && localStorage.getItem(iconKey(pageId))) || null;
 
-export const readPageIcon = (pageId: string): string => readStoredPageIcon(pageId) ?? DEFAULT_PAGE_ICON;
+export const readPageIcon = (pageId: string): string => {
+  // The Home pseudo-page has a fixed identity everywhere it's named.
+  if (pageId === 'home') return '\u{1F3E0}';
+  return readStoredPageIcon(pageId) ?? DEFAULT_PAGE_ICON;
+};
 
 // Icons live in localStorage, which doesn't notify React on change within the
 // same tab. A small in-process listener registry lets views that render an icon
