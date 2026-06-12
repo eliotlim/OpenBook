@@ -59,6 +59,53 @@ test('dataflow view: graph renders, values follow edits, node click locates the 
   await expect(page.locator('[data-flow-node]')).toHaveCount(5);
 });
 
+test('dataflow composition: a row page shows its exports flowing into the parent', async ({page, request}) => {
+  const tag = `${Date.now()}`;
+  // A parent page hosting a database with an expr column reading `total`.
+  const host = await request.post(`${SERVER}/api/pages`, {
+    data: {name: `Projects ${tag}`, data: {editorjs: {blocks: []}, values: [], names: []}},
+  });
+  const hostId = ((await host.json()) as {id: string}).id;
+  const db = await request.post(`${SERVER}/api/databases`, {
+    data: {
+      pageId: hostId,
+      name: 'Projects',
+      schema: {
+        properties: [{id: 'p_total', name: 'Total', type: 'expr', cellName: 'total'}],
+        views: [{id: 'v_table', name: 'Table', type: 'table', filters: [], sorts: []}],
+      },
+    },
+  });
+  const dbId = ((await db.json()) as {id: string}).id;
+  const row = await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {name: `Row ${tag}`, properties: {}}});
+  const rowId = ((await row.json()) as {id: string}).id;
+  // The row's own document: a reactive model exporting `total`.
+  await request.put(`${SERVER}/api/pages/${rowId}`, {
+    data: {
+      name: `Row ${tag}`,
+      data: reactivePage(tag).data,
+    },
+  });
+
+  await page.goto(`/?page=${rowId}&split=flow`);
+  await expect(page.locator('[data-dataflow-view]')).toBeVisible();
+
+  // The outlet node: the parent's expr column, labeled with where it lands.
+  const outlet = page.locator('[data-flow-node="outlet"]');
+  await expect(outlet).toContainText('Total');
+  await expect(outlet.locator('[data-flow-outlet-page]')).toContainText(`Projects ${tag}`);
+
+  // Drive the model, let the save debounce flush the new exports…
+  await page.getByLabel('rate value').fill('8');
+  await expect(page.locator('[data-flow-node="code"] [data-flow-value]')).toHaveText('24');
+  await page.waitForTimeout(900);
+
+  // …then walk up via the outlet: the parent's expr cell carries the value.
+  await outlet.click();
+  await expect(page).toHaveURL(new RegExp(`page=${hostId}`));
+  await expect(page.getByRole('table')).toContainText('24');
+});
+
 test('dataflow view: a page with no reactive blocks shows the empty state', async ({page, request}) => {
   const res = await request.post(`${SERVER}/api/pages`, {
     data: {

@@ -1034,6 +1034,13 @@ a.obe-mention {
 .obe-slash-label { font-size: 0.9rem; font-weight: 500; }
 .obe-slash-hint { font-size: 0.75rem; color: hsl(var(--muted-foreground)); white-space: nowrap; }
 
+/* Dataflow view: a value chip pulses when its value changes (keyed remount). */
+@keyframes ob-flow-pulse {
+  0% { background: hsl(var(--primary) / 0.3); }
+  100% { background: hsl(var(--accent)); }
+}
+.ob-flow-pulse { animation: ob-flow-pulse 0.7s ease-out; }
+
 /* Dataflow view: clicking a node walks you to its block in the editor. */
 @keyframes obe-locate-flash {
   0% { background: hsl(var(--primary) / 0.14); }
