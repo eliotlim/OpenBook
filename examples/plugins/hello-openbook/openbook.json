@@ -1,0 +1,9 @@
+{
+  "id": "openbook.hello",
+  "name": "Hello OpenBook",
+  "version": "1.0.0",
+  "description": "A tiny example extension: a greeting block with a counter, and a palette command that creates a page.",
+  "author": "OpenBook",
+  "icon": "👋",
+  "main": "src/index.ts"
+}

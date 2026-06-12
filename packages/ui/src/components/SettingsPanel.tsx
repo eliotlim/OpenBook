@@ -10,11 +10,12 @@ import {
   HeartIcon,
   MixIcon,
 } from '@radix-ui/react-icons';
-import {ArchiveBoxIcon, CpuChipIcon, PaintBrushIcon, ServerStackIcon, WrenchIcon} from '@heroicons/react/24/outline';
+import {ArchiveBoxIcon, CpuChipIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, WrenchIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
 import AppearanceSettings from '@/components/AppearanceSettings';
 import GeneralSettings from '@/components/GeneralSettings';
 import AiSettings from '@/components/AiSettings';
+import ExtensionsSettings from '@/components/ExtensionsSettings';
 import ProfileSettings from '@/components/settings/ProfileSettings';
 import CustomisationSettings from '@/components/settings/CustomisationSettings';
 import ConnectionSettings from '@/components/settings/ConnectionSettings';
@@ -35,6 +36,7 @@ const TAB_META: Record<SettingsTab, {labelKey: TKey; icon: ComponentType<{classN
   support: {labelKey: 'settings.tab.support', icon: HeartIcon},
   connection: {labelKey: 'settings.tab.connection', icon: ServerStackIcon},
   integrations: {labelKey: 'settings.tab.integrations', icon: MixIcon},
+  extensions: {labelKey: 'settings.tab.extensions', icon: PuzzlePieceIcon},
   ai: {labelKey: 'settings.tab.ai', icon: CpuChipIcon},
   admin: {labelKey: 'settings.tab.admin', icon: ArchiveBoxIcon},
 };
@@ -56,6 +58,7 @@ const PANELS: Record<SettingsTab, ComponentType> = {
   support: SupportSettings,
   connection: ConnectionSettings,
   integrations: IntegrationsSettings,
+  extensions: ExtensionsSettings,
   admin: AdminSettings,
 };
 
