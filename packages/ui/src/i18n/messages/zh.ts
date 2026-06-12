@@ -291,6 +291,7 @@ export const zh: PartialMessages = {
     quote: {label: '引用', hint: '突出引文'},
     callout: {label: '标注', hint: '高亮备注'},
     code: {label: '代码', hint: '等宽代码块'},
+    livecode: {label: '实时代码', hint: '基于输入计算；为输出命名以便链式引用'},
     divider: {label: '分隔线', hint: '水平线'},
     table: {label: '表格', hint: '初始 3 × 3'},
     cols2: {label: '2 栏', hint: '并排布局'},

@@ -253,7 +253,7 @@ test('real page: legacy EditorJS content migrates, saves, and reopens in the blo
   await expect(page.locator('.obe-text').nth(1)).toContainText('Now ours.');
 });
 
-test('reactive plugins: a slider drives a live formula', async ({page}) => {
+test('reactive plugins: a slider drives live code (and legacy formulas still render)', async ({page, request}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);
 
@@ -262,7 +262,7 @@ test('reactive plugins: a slider drives a live formula', async ({page}) => {
   await page.keyboard.press('Enter');
   await expect(page.locator('.obe-slider')).toBeVisible();
 
-  // Insert a formula below the slider and wire it to the slider's name.
+  // Insert a live code block below and compute over the slider's name.
   await page.evaluate(() => {
     const blocks = [...document.querySelectorAll('.obe-text')];
     const last = blocks[blocks.length - 1] as HTMLElement;
@@ -275,15 +275,34 @@ test('reactive plugins: a slider drives a live formula', async ({page}) => {
     sel.addRange(range);
   });
   await page.keyboard.press('Enter');
-  await page.keyboard.type('/formula');
+  await page.keyboard.type('/livecode');
   await page.keyboard.press('Enter');
-  await page.locator('.obe-formula-src').fill('x * 2 + 1');
+  await page.locator('.obe-codeblock-live .obe-text').click();
+  await page.keyboard.type('x * 2 + 1');
 
-  // Move the slider → the formula recomputes live.
+  // Move the slider → the live output recomputes.
   await page.locator('.obe-slider input[type=range]').fill('80');
-  await expect(page.locator('.obe-formula-out')).toHaveText('161');
+  await expect(page.locator('.obe-code-out')).toContainText('result = 161');
   await page.locator('.obe-slider input[type=range]').fill('10');
-  await expect(page.locator('.obe-formula-out')).toHaveText('21');
+  await expect(page.locator('.obe-code-out')).toContainText('result = 21');
+
+  // Legacy formula blocks (pre-merge documents) still render and compute.
+  const res = await request.post(`${SERVER}/api/pages`, {
+    data: {
+      name: `LegacyFormula ${Date.now()}`,
+      data: {
+        editor: 'blocks',
+        blockdoc: {blocks: [
+          {id: 's1', type: 'slider', props: {name: 'x', value: 5, min: 0, max: 10}},
+          {id: 'f1', type: 'formula', props: {source: 'x * 3'}},
+        ]},
+        editorjs: {blocks: []}, values: [], names: [],
+      },
+    },
+  });
+  const {id} = (await res.json()) as {id: string};
+  await page.goto(`/?page=${id}`);
+  await expect(page.locator('.obe-formula-out')).toHaveText('15');
 });
 
 test('block page: interactive HTML export stays live offline', async ({page, request, context}) => {

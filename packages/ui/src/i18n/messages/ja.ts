@@ -291,6 +291,7 @@ export const ja: PartialMessages = {
     quote: {label: '引用', hint: '強調引用'},
     callout: {label: 'コールアウト', hint: '強調メモ'},
     code: {label: 'コード', hint: '等幅ブロック'},
+    livecode: {label: 'ライブコード', hint: '入力値を計算。出力に名前を付けて連鎖できます'},
     divider: {label: '区切り線', hint: '水平線'},
     table: {label: 'テーブル', hint: 'はじめは 3 × 3'},
     cols2: {label: '2 列', hint: '横並びレイアウト'},

@@ -23,38 +23,42 @@ const insert = async (page: import('@playwright/test').Page, query: string, labe
   await item.first().click();
 };
 
-test('inputs publish to the scope; a formula reads them all', async ({page}) => {
+test('inputs publish to the scope; live code reads them all', async ({page}) => {
   await freshLab(page);
   await insert(page, 'number', 'Number stepper');
   await insert(page, 'toggle', 'Toggle switch');
   await insert(page, 'radio', 'Radio group');
-  await insert(page, 'formula', 'Formula');
+  await insert(page, 'livecode', 'Live code');
 
-  await page.locator('.obe-formula-src').fill('on ? choice : n');
-  await expect(page.locator('.obe-formula-out')).toHaveText('0');
+  const code = page.locator('.obe-codeblock-live');
+  await code.locator('.obe-text').click();
+  await page.keyboard.type('on ? choice : n');
+  await expect(code.locator('.obe-code-out')).toContainText('result = 0');
 
-  // Step the number → the formula tracks it.
+  // Step the number → the output tracks it.
   await page.getByRole('button', {name: 'Increase'}).click();
   await page.getByRole('button', {name: 'Increase'}).click();
-  await expect(page.locator('.obe-formula-out')).toHaveText('2');
+  await expect(code.locator('.obe-code-out')).toContainText('result = 2');
 
-  // Flip the toggle → the formula switches to the radio's value.
-  await page.getByRole('switch').click();
-  await expect(page.locator('.obe-formula-out')).toHaveText('One');
+  // Flip the toggle (the LIVE switch is inside the code bar — use the kit one).
+  await page.locator('.obe-kit-toggle').getByRole('switch').click();
+  await expect(code.locator('.obe-code-out')).toContainText('result = One');
   await page.getByRole('radio', {name: 'Two'}).click();
-  await expect(page.locator('.obe-formula-out')).toHaveText('Two');
+  await expect(code.locator('.obe-code-out')).toContainText('result = Two');
 });
 
 test('checklist publishes its selection as an array', async ({page}) => {
   await freshLab(page);
   await insert(page, 'choice checklist', 'Choice checklist');
-  await insert(page, 'formula', 'Formula');
+  await insert(page, 'livecode', 'Live code');
 
-  await page.locator('.obe-formula-src').fill('checks.length');
-  await expect(page.locator('.obe-formula-out')).toHaveText('0');
+  const code = page.locator('.obe-codeblock-live');
+  await code.locator('.obe-text').click();
+  await page.keyboard.type('checks.length');
+  await expect(code.locator('.obe-code-out')).toContainText('result = 0');
   await page.getByRole('checkbox', {name: 'Alpha'}).check();
   await page.getByRole('checkbox', {name: 'Gamma'}).check();
-  await expect(page.locator('.obe-formula-out')).toHaveText('2');
+  await expect(code.locator('.obe-code-out')).toContainText('result = 2');
 });
 
 test('radio group: arrow keys move and select (roving tabindex)', async ({page}) => {
@@ -114,6 +118,61 @@ test('chart + status light + button: the full artifact loop', async ({page}, tes
   await expect(page.getByLabel('n value')).toHaveValue('6');
 
   await takeSnapshot(page, testInfo); // visual: a live artifact (stepper → chart/status)
+});
+
+test('live code: named outputs chain into formulas and charts', async ({page}) => {
+  await freshLab(page);
+  await insert(page, 'number', 'Number stepper');
+  await insert(page, 'livecode', 'Live code');
+
+  // Type the code body; name its output via the footer bar.
+  const code = page.locator('.obe-codeblock-live').first();
+  await code.locator('.obe-text').click();
+  await page.keyboard.type('n * 2');
+  await code.getByLabel('Output name').fill('double');
+  await expect(code.locator('.obe-code-out')).toContainText('double = 0');
+
+  // A second live block downstream reads the named output (chaining).
+  await insert(page, 'livecode', 'Live code');
+  const second = page.locator('.obe-codeblock-live').nth(1);
+  await second.locator('.obe-text').click();
+  await page.keyboard.type('double + 1');
+  await second.getByLabel('Output name').fill('plus');
+
+  // Step the input → both chained outputs track it.
+  await page.getByRole('button', {name: 'Increase'}).click();
+  await page.getByRole('button', {name: 'Increase'}).click();
+  await page.getByRole('button', {name: 'Increase'}).click();
+  await expect(page.locator('.obe-code-out').first()).toContainText('double = 6');
+  await expect(second.locator('.obe-code-out')).toContainText('plus = 7');
+
+  // Flipping live OFF turns it back into an inert snippet.
+  await second.getByRole('switch').click();
+  await expect(second.locator('.obe-code-out')).toHaveCount(0);
+});
+
+test('compound growth: a live-code series drives a multi-series chart', async ({page}) => {
+  await freshLab(page);
+  await insert(page, 'slider', 'Slider');
+  await page.locator('.obe-slider-name').fill('months');
+  await insert(page, 'livecode', 'Live code');
+  const code = page.locator('.obe-codeblock-live');
+  await code.locator('.obe-text').click();
+  await page.keyboard.type(
+    "({series: [{name: '3%', data: Array.from({length: months}, (_, i) => Math.pow(1.03, i / 12))}, {name: '10%', data: Array.from({length: months}, (_, i) => Math.pow(1.10, i / 12))}]})",
+  );
+  await code.getByLabel('Output name').fill('growth');
+
+  await insert(page, 'chart', 'Chart');
+  const chart = page.locator('.obe-kit-chart');
+  await chart.hover();
+  await chart.locator('.obe-kit-gear').click();
+  await chart.getByLabel('Chart data expression').fill('growth');
+  await chart.locator('.obe-kit-gear').click();
+
+  // Two named series drawn, with the legend.
+  await expect(chart.locator('svg polyline')).toHaveCount(2);
+  await expect(chart.locator('.obe-chart-legend text', {hasText: '10%'})).toBeVisible();
 });
 
 test('pie chart renders labelled slices with a legend', async ({page}) => {

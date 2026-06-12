@@ -207,11 +207,14 @@ const KIT_INPUT_VALUE: Record<string, (props: Record<string, unknown>) => unknow
 export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
   const out: EditorJsOut = {blocks: [], values: [], names: []};
 
-  // First pass: every named input → block id (for expression re-tokenizing).
+  // First pass: every named input AND named live-code output → block id (for
+  // expression re-tokenizing; the export runtime evaluates exprs in document
+  // order, so chained references resolve there exactly as in the editor).
   const inputs: Array<{id: string; name: string}> = [];
   const collect = (list: BlockJSON[]): void => {
     for (const b of list) {
       if (KIT_INPUT_VALUE[b.type] && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
+      if (b.type === 'code' && b.props?.live && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
       if (b.children) for (const child of b.children) collect([child, ...(child.children ?? [])]);
     }
   };
@@ -270,10 +273,19 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         out.blocks.push({id: b.id, type: 'callout', data: {variant: (b.props?.variant as string) ?? 'info', text: textHtml(b.text)}});
         i += 1;
         break;
-      case 'code':
-        out.blocks.push({id: b.id, type: 'code', data: {code: (b.text ?? []).map((r) => r.t).join(''), language: b.props?.language}});
+      case 'code': {
+        const codeText = (b.text ?? []).map((r) => r.t).join('');
+        if (b.props?.live) {
+          // Live code exports as a computed cell — named, so later expressions
+          // (and charts) keep referencing it in the standalone HTML.
+          out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.name ?? ''), source: tokenize(codeText)}});
+          if (b.props?.name) out.names.push([String(b.props.name), b.id]);
+        } else {
+          out.blocks.push({id: b.id, type: 'code', data: {code: codeText, language: b.props?.language}});
+        }
         i += 1;
         break;
+      }
       case 'divider':
         out.blocks.push({id: b.id, type: 'divider', data: {style: 'line'}});
         i += 1;

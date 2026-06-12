@@ -65,6 +65,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   {id: 'quote', label: 'Quote', hint: 'Pull quote', keywords: 'quote blockquote', apply: turn('quote')},
   {id: 'callout', label: 'Callout', hint: 'Highlighted note', keywords: 'callout note info', apply: turn('callout', {variant: 'info'})},
   {id: 'code', label: 'Code', hint: 'Monospaced block', keywords: 'code snippet', apply: turn('code')},
+  {id: 'livecode', label: 'Live code', hint: 'Computes over inputs; name the output to chain', keywords: 'livecode live code formula compute expr reactive calculation', apply: turn('code', {live: true, name: 'result', language: 'js'})},
   {id: 'divider', label: 'Divider', hint: 'Horizontal rule', keywords: 'divider rule hr line', apply: insertAfterOrReplace(() => ({type: 'divider'}))},
   {id: 'table', label: 'Table', hint: '3 × 3 to start', keywords: 'table grid cells', apply: insertAfterOrReplace(() => makeTable(3, 3))},
   {id: 'cols2', label: '2 columns', hint: 'Side-by-side layout', keywords: 'columns layout two 2', apply: insertAfterOrReplace(() => columns(2))},

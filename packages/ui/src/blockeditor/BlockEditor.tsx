@@ -25,6 +25,7 @@ import {
 import {rangeHasAttr, readSelection, writeSelection} from './richtext';
 import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
 import {getCustomBlock} from './registry';
+import {CodeBlockView} from './CodeBlockView';
 import {pageLinks} from '@/lib/pageLinks';
 import {
   DropdownMenu,
@@ -762,11 +763,7 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   }
 
   case 'code':
-    return (
-      <div className="obe-codeblock">
-        <TextBlockView block={block} editor={editor} ui={ui} />
-      </div>
-    );
+    return <CodeBlockView block={block} editor={editor} ui={ui} />;
 
   case 'heading': {
     const level = blockProp<number>(block, 'level') ?? 2;

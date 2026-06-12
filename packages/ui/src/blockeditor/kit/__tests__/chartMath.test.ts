@@ -21,6 +21,18 @@ describe('toSeries', () => {
     ]);
   });
 
+  it('reads the classic {series: [{name, data}]} shape (compound growth)', () => {
+    const growth = {series: [
+      {name: '3%', data: [1, 1.03]},
+      {name: '5%', data: [1, 1.05]},
+      {name: 'bad', data: ['x']},
+    ]};
+    expect(toSeries(growth)).toEqual([
+      {name: '3%', values: [1, 1.03]},
+      {name: '5%', values: [1, 1.05]},
+    ]);
+  });
+
   it('rejects junk quietly', () => {
     expect(toSeries('nope')).toEqual([]);
     expect(toSeries([1, 'x'])).toEqual([]);

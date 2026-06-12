@@ -66,3 +66,25 @@ describe('kit export mappings', () => {
     expect(out.blocks.some((b) => JSON.stringify(b).includes('Go'))).toBe(false);
   });
 });
+
+describe('live code export', () => {
+  it('exports live code as named exprs with chained references tokenized', () => {
+    const out = blocksToEditorJs(
+      docToJSON(
+        createDoc([
+          {id: 'n1', type: 'number', props: {name: 'n', value: 2}},
+          {id: 'c1', type: 'code', text: 'n * 2', props: {live: true, name: 'double', language: 'js'}},
+          {id: 'c2', type: 'code', text: 'double + n', props: {live: true, name: 'sum'}},
+          {id: 'c3', type: 'code', text: 'plain snippet', props: {language: 'md'}},
+        ]),
+      ),
+    );
+    const exprs = out.blocks.filter((b) => b.type === 'expr');
+    expect(exprs).toHaveLength(2);
+    expect(exprs[0].data).toMatchObject({name: 'double', source: '__C__{n1}__ * 2'});
+    expect(exprs[1].data).toMatchObject({name: 'sum', source: '__C__{c1}__ + __C__{n1}__'});
+    expect(out.names).toEqual(expect.arrayContaining([['double', 'c1'], ['sum', 'c2']]));
+    const code = out.blocks.find((b) => b.type === 'code');
+    expect(code?.data).toMatchObject({code: 'plain snippet', language: 'md'});
+  });
+});

@@ -2,7 +2,7 @@ import React, {useState} from 'react';
 import {blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
-import {evalExpr, formatValue, inputScope} from './scope';
+import {computeScope, evalExpr, formatValue} from './scope';
 
 /**
  * The kit's display blocks: a status light driven by an expression, a term
@@ -44,7 +44,7 @@ const StatusLightBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const source = blockProp<string>(block, 'source') ?? '';
   const okAt = Number(blockProp<number>(block, 'okAt') ?? 1);
   const warnAt = Number(blockProp<number>(block, 'warnAt') ?? 0);
-  const {value, error} = evalExpr(source, inputScope(editor.doc));
+  const {value, error} = evalExpr(source, computeScope(editor.doc).scope);
   const status = statusOf(value, error, okAt, warnAt);
 
   return (

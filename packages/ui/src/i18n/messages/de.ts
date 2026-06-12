@@ -291,6 +291,7 @@ export const de: PartialMessages = {
     quote: {label: 'Zitat', hint: 'Hervorgehobenes Zitat'},
     callout: {label: 'Hinweis', hint: 'Hervorgehobene Notiz'},
     code: {label: 'Code', hint: 'Monospace-Block'},
+    livecode: {label: 'Live-Code', hint: 'Rechnet über Eingaben; benannte Ausgabe zum Verketten'},
     divider: {label: 'Trennlinie', hint: 'Horizontale Linie'},
     table: {label: 'Tabelle', hint: '3 × 3 zum Start'},
     cols2: {label: '2 Spalten', hint: 'Nebeneinander-Layout'},

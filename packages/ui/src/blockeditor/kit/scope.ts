@@ -97,6 +97,67 @@ export function evalExpr(source: string, scope: Record<string, unknown>): {value
   }
 }
 
+/**
+ * Evaluate live-code: a single expression, or — when that doesn't parse — a
+ * function body (multi-line code with its own `return`). Lets a live code
+ * block hold real programs, not just one-liners.
+ */
+export function evalCode(source: string, scope: Record<string, unknown>): {value?: unknown; error?: string} {
+  if (!source.trim()) return {value: undefined};
+  const keys = Object.keys(scope);
+  const values = Object.values(scope);
+  try {
+    const fn = new Function(...keys, `"use strict"; return (${source});`);
+    return {value: fn(...values) as unknown};
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) return {error: err instanceof Error ? err.message : String(err)};
+  }
+  try {
+    const fn = new Function(...keys, `"use strict"; ${source}`);
+    return {value: fn(...values) as unknown};
+  } catch (err) {
+    return {error: err instanceof Error ? err.message : String(err)};
+  }
+}
+
+const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+export interface ComputedScope {
+  /** Every name a consumer can reference: inputs + named live-code outputs. */
+  scope: Record<string, unknown>;
+  /** Per-block evaluation results (live code + legacy formulas), by block id. */
+  results: Map<string, {value?: unknown; error?: string}>;
+}
+
+/**
+ * The document's full reactive scope: input values first, then every LIVE
+ * code block (and legacy formula block) evaluated **in document order**, each
+ * seeing the inputs plus all named outputs above it — so computations chain.
+ * A single ordered pass: forward references read `undefined`, cycles can't
+ * happen.
+ */
+export function computeScope(doc: Y.Doc): ComputedScope {
+  const scope = inputScope(doc);
+  const results = new Map<string, {value?: unknown; error?: string}>();
+  for (const {block} of walkBlocks(rootBlocks(doc))) {
+    const type = blockType(block) as string;
+    const isLiveCode = type === 'code' && Boolean(blockProp<boolean>(block, 'live'));
+    if (!isLiveCode && type !== 'formula') continue;
+    const source = isLiveCode ? (blockTextString(block) ?? '') : (blockProp<string>(block, 'source') ?? '');
+    const result = isLiveCode ? evalCode(source, scope) : evalExpr(source, scope);
+    results.set(String(block.get('id')), result);
+    const name = blockProp<string>(block, 'name');
+    if (name && NAME_RE.test(name) && !result.error) scope[name] = result.value;
+  }
+  return {scope, results};
+}
+
+/** The plain text of a text-carrying block (code blocks store Y.Text). */
+function blockTextString(block: BlockMap): string | undefined {
+  const text = block.get('text');
+  return text && typeof (text as {toString: () => string}).toString === 'function' ? String(text) : undefined;
+}
+
 /** Render an evaluated value the way the formula block does (compact numbers). */
 export function formatValue(value: unknown): string {
   if (value === undefined || value === null) return '—';

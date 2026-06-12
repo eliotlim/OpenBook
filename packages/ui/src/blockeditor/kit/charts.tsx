@@ -2,7 +2,7 @@ import React, {useState} from 'react';
 import {blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
-import {evalExpr, inputScope} from './scope';
+import {computeScope, evalExpr} from './scope';
 import {extent, funnelRows, linePoints, PALETTE, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
 
 /**
@@ -200,7 +200,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const source = blockProp<string>(block, 'source') ?? '';
   const labels = splitLabels(blockProp<string>(block, 'labels') ?? '');
   const title = blockProp<string>(block, 'title') ?? '';
-  const {value, error} = evalExpr(source, inputScope(editor.doc));
+  const {value, error} = evalExpr(source, computeScope(editor.doc).scope);
 
   const body = (() => {
     if (error) return <text className="obe-chart-msg" x={W / 2} y={H / 2}>⚠ {error}</text>;

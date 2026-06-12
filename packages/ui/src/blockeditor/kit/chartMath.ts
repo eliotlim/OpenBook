@@ -25,8 +25,17 @@ const isNumberArray = (v: unknown): v is number[] => Array.isArray(v) && v.every
 const isPointArray = (v: unknown): v is Array<{x: number; y: number}> =>
   Array.isArray(v) && v.length > 0 && v.every((p) => p && typeof p === 'object' && Number.isFinite((p as {x: number}).x) && Number.isFinite((p as {y: number}).y));
 
-/** Coerce an evaluated value into series for line/area/bar charts. */
+const isSeriesShape = (v: unknown): v is {series: Array<{name?: unknown; data?: unknown}>} =>
+  Boolean(v) && typeof v === 'object' && Array.isArray((v as {series?: unknown}).series);
+
+/** Coerce an evaluated value into series for line/area/bar charts. Accepts
+ *  the classic reactive shape `{series: [{name, data: number[]}]}` too. */
 export function toSeries(value: unknown): Series[] {
+  if (isSeriesShape(value)) {
+    return value.series
+      .filter((s) => isNumberArray(s.data) && (s.data as number[]).length > 0)
+      .map((s) => ({name: String(s.name ?? ''), values: s.data as number[]}));
+  }
   if (isNumberArray(value)) return value.length ? [{name: '', values: value}] : [];
   if (Array.isArray(value) && value.every(isNumberArray)) {
     return (value as number[][]).filter((v) => v.length).map((values, i) => ({name: `s${i + 1}`, values}));

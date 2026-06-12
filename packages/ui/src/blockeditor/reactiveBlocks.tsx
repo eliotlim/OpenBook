@@ -1,6 +1,6 @@
 import React from 'react';
 import {blockProp, setBlockProp} from './model';
-import {evalExpr, formatValue, inputScope} from './kit/scope';
+import {computeScope, formatValue} from './kit/scope';
 import {registerCustomBlock, type CustomBlockProps} from './registry';
 
 /**
@@ -46,8 +46,9 @@ const SliderBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
 
 const FormulaBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const source = blockProp<string>(block, 'source') ?? '';
-  const {value, error} = evalExpr(source, inputScope(editor.doc));
-  const result = error ? `⚠ ${error}` : formatValue(value);
+  // Evaluated centrally (in document order, so named live-code outputs chain).
+  const evaluated = computeScope(editor.doc).results.get(String(block.get('id')));
+  const result = evaluated?.error ? `⚠ ${evaluated.error}` : formatValue(evaluated?.value);
 
   return (
     <div className="obe-formula" contentEditable={false}>
@@ -82,14 +83,7 @@ export function registerReactiveBlocks(): void {
       make: () => ({type: 'slider', props: {name: 'x', value: 50, min: 0, max: 100}}),
     },
   });
-  registerCustomBlock({
-    type: 'formula',
-    render: FormulaBlock,
-    slash: {
-      label: 'Formula',
-      hint: 'Live code over sliders',
-      keywords: 'formula code expr compute reactive',
-      make: () => ({type: 'formula', props: {source: ''}}),
-    },
-  });
+  // Legacy formula blocks keep rendering, but the slash menu steers new
+  // documents to the unified live CODE block (toggle in the code footer).
+  registerCustomBlock({type: 'formula', render: FormulaBlock});
 }

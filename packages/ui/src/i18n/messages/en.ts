@@ -310,6 +310,7 @@ export const en = {
     quote: {label: 'Quote', hint: 'Pull quote'},
     callout: {label: 'Callout', hint: 'Highlighted note'},
     code: {label: 'Code', hint: 'Monospaced block'},
+    livecode: {label: 'Live code', hint: 'Computes over inputs; name the output to chain'},
     divider: {label: 'Divider', hint: 'Horizontal rule'},
     table: {label: 'Table', hint: '3 × 3 to start'},
     cols2: {label: '2 columns', hint: 'Side-by-side layout'},
