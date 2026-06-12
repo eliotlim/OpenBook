@@ -50,6 +50,11 @@ pie, donut, scatter, funnel), and status lights. Assemble a calculator, a
 picker, or a tiny dashboard out of blocks — collaborative by default, and the
 interactive HTML export keeps the computation alive offline.
 
+**It's extensible.** Plugins — zips of TypeScript source — add custom
+blocks, palette commands, and integrations (see [PLUGINS.md](PLUGINS.md)).
+Registries can sign packages (Ed25519); the app verifies against keys you
+trust and badges provenance.
+
 **Pages nest.** A page can be a child of another (a `parent_id` link, cascading
 on delete), so the sidebar is a tree and the breadcrumb shows the full path.
 Inside the editor, a **Page** or **Database** block links a child inline — it

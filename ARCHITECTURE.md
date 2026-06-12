@@ -291,6 +291,23 @@ the command palette ("Search notes with AI"). Config persists in the
 `settings` table; everything degrades gracefully — engine failures never
 touch the document APIs.
 
+### Extensions (`packages/ui/src/plugins/` + `/api/plugins`)
+
+TypeScript plugins, VS Code-shaped: a zip of source + `openbook.json`
+installs from Settings → Extensions, is stored server-side per workspace
+(migration `0007_plugins`), and loads on boot. The loader strips types with
+sucrase and links files through an in-memory CommonJS resolver (`react` and
+`@open-book/plugin-sdk` map to host modules; other bare imports are
+refused). `activate(api)` registers custom blocks (namespaced
+`<pluginId>/<type>`, straight into the block-editor registry), palette
+commands (a subscribable registry merged into `useAppCommands`), and uses
+`pages`/`storage`/`fetch` for integrations — all tracked as disposables so
+disable/remove tears down cleanly and an activation crash rolls back
+without touching neighbours. Provenance: Ed25519 over a canonical digest
+(`packages/sdk/src/plugins.ts`), verified client-side against the pinned
+first-party key plus user-trusted registry keys; signing is provenance, not
+sandboxing. See PLUGINS.md; e2e in `packages/web/e2e/plugins.spec.ts`.
+
 ### The agent surface — in-app harness + MCP
 
 Two ways for a model to *act on* the workspace, sharing one tool contract
