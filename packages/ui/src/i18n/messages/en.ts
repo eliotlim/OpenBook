@@ -74,6 +74,9 @@ export const en = {
     trash: 'Trash',
     more: 'More actions',
     favorites: 'Favorites',
+    recents: 'Recents',
+    suggested: 'Suggested',
+    home: 'Home',
     templates: 'Templates',
   },
   tabs: {

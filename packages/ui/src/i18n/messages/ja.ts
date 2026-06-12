@@ -60,6 +60,9 @@ export const ja: PartialMessages = {
   },
   nav: {
     favorites: 'お気に入り',
+    recents: '最近',
+    suggested: 'おすすめ',
+    home: 'ホーム',
     templates: 'テンプレート',
     more: 'その他の操作',
     pages: 'ページ',

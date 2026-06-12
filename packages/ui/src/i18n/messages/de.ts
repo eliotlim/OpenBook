@@ -60,6 +60,9 @@ export const de: PartialMessages = {
   },
   nav: {
     favorites: 'Favoriten',
+    recents: 'Zuletzt besucht',
+    suggested: 'Vorgeschlagen',
+    home: 'Start',
     templates: 'Vorlagen',
     more: 'Weitere Aktionen',
     pages: 'Seiten',

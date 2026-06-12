@@ -60,6 +60,9 @@ export const zh: PartialMessages = {
   },
   nav: {
     favorites: '收藏',
+    recents: '最近',
+    suggested: '推荐',
+    home: '主页',
     templates: '模板',
     more: '更多操作',
     pages: '页面',

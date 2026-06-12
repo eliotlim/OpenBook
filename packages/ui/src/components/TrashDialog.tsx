@@ -11,9 +11,11 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
+import {Kbd} from '@/components/ui/kbd';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {useData} from '@/data';
-import {useConfirm, useHud, useNavigation} from '@/providers';
+import {useConfirm, useHud, useNavigation, useTranslation} from '@/providers';
+import {SHORTCUTS} from '@/lib/shortcuts';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : 'Untitled';
@@ -47,6 +49,7 @@ function timeAgo(iso: string | null): string {
 export default function TrashDialog() {
   const client = useData();
   const confirm = useConfirm();
+  const {t} = useTranslation();
   const {selectPage} = useNavigation();
   // Open state lives in the HUD so the command palette, the ⋮ menu, and the
   // keyboard shortcut can all open the trash, not just the sidebar trigger.
@@ -134,9 +137,16 @@ export default function TrashDialog() {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
+      {/* A nav row under Settings — same anatomy as the launcher above it. */}
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Trash" title="Trash">
-          <Trash2 className="h-4 w-4" />
+        <Button
+          variant="ghost"
+          className="flex h-7 grow justify-start gap-2 px-2 text-muted-foreground hover:text-foreground"
+          aria-label="Trash"
+        >
+          <Trash2 className="h-4 w-4 shrink-0" />
+          <span className="grow text-left">{t('nav.trash')}</span>
+          <Kbd combo={SHORTCUTS.openTrash} />
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[480px]">

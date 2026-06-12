@@ -4,6 +4,7 @@ import {Star} from 'lucide-react';
 import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
 import {IconButton} from '@/components/ui/icon-button';
 import {PageMenuItems} from '@/components/PageContextMenu';
+import {SidebarSection} from '@/components/SidebarSections';
 import {useNavigation, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {readFavorites, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
@@ -42,12 +43,7 @@ export default function FavoritesNav() {
   if (items.length === 0) return null;
 
   return (
-    <div className="flex flex-col">
-      <div className="px-3 pb-1 pt-1">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
-          {t('nav.favorites')}
-        </span>
-      </div>
+    <SidebarSection id="favorites" label={t('nav.favorites')}>
       <div className="flex flex-col">
         {items.map((page) => {
           const selected = page.id === currentPageId;
@@ -88,6 +84,6 @@ export default function FavoritesNav() {
           );
         })}
       </div>
-    </div>
+    </SidebarSection>
   );
 }

@@ -1,27 +1,35 @@
 import {useState} from 'react';
-import {Info, UserPen} from 'lucide-react';
+import {Info, Moon, Sun, SunMoon, UserPen} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {Button} from '@/components/ui/button';
 import AboutDialog from '@/components/AboutDialog';
 import {ProfileAvatar} from '@/components/ProfileAvatar';
-import {useHud, usePreferences, useTranslation} from '@/providers';
+import {useHud, usePreferences, useTheme, useTranslation, type ColorMode} from '@/providers';
 
 /**
  * The sidebar footer is the user: avatar + name opening a small profile
- * menu — edit the profile (Settings → Profile) or read about the app.
+ * menu — edit the profile (Settings → Profile), switch the color mode,
+ * or read about the app.
  */
 export default function ProfileMenu() {
   const {t} = useTranslation();
   const {setHud} = useHud();
+  const {mode, setMode} = useTheme();
   const {profile} = usePreferences().preferences;
   const [aboutOpen, setAboutOpen] = useState(false);
   const name = profile.displayName.trim() || profile.name.trim() || t('profile.anonymous');
+  const ModeIcon = mode === 'light' ? Sun : mode === 'dark' ? Moon : SunMoon;
 
   return (
     <>
@@ -53,6 +61,19 @@ export default function ProfileMenu() {
             <UserPen className="mr-2 h-4 w-4" />
             {t('profile.editProfile')}
           </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <ModeIcon className="mr-2 h-4 w-4" />
+              {t('appearance.colorMode')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-40">
+              <DropdownMenuRadioGroup value={mode} onValueChange={(v) => setMode(v as ColorMode)}>
+                <DropdownMenuRadioItem value="light">{t('appearance.light')}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="dark">{t('appearance.dark')}</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="system">{t('appearance.system')}</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuItem onClick={() => setAboutOpen(true)}>
             <Info className="mr-2 h-4 w-4" />
             {t('profile.aboutApp')}
