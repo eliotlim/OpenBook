@@ -217,7 +217,7 @@ const COMPOUND_GROWTH_BLOCKS = [
   {
     id: 'tpl-cg-final',
     type: 'code',
-    text: [{t: "'After ' + years + ' years: ' + projection.series[1].data[projection.series[1].data.length - 1].toLocaleString()"}],
+    text: [{t: '\'After \' + years + \' years: \' + projection.series[1].data[projection.series[1].data.length - 1].toLocaleString()'}],
     props: {live: true, name: 'summary', language: 'js'},
   },
 ];
@@ -259,7 +259,7 @@ const PRICING_BLOCKS = [
     id: 'tpl-price-code',
     type: 'code',
     text: [
-      {t: "const unit = {Basic: 6, Pro: 12, Scale: 20}[plan];\nconst volume = seats > 100 ? 0.8 : seats > 25 ? 0.9 : 1;\nconst billing = annual ? 0.85 : 1;\nconst list = seats * unit;\nconst total = Math.round(list * volume * billing);\nreturn {list, total, saving: list - total};"},
+      {t: 'const unit = {Basic: 6, Pro: 12, Scale: 20}[plan];\nconst volume = seats > 100 ? 0.8 : seats > 25 ? 0.9 : 1;\nconst billing = annual ? 0.85 : 1;\nconst list = seats * unit;\nconst total = Math.round(list * volume * billing);\nreturn {list, total, saving: list - total};'},
     ],
     props: {live: true, name: 'price', language: 'js'},
   },
@@ -267,7 +267,7 @@ const PRICING_BLOCKS = [
   {
     id: 'tpl-price-sum',
     type: 'code',
-    text: [{t: "price.total.toLocaleString() + ' / month for ' + seats + ' seats on ' + plan"}],
+    text: [{t: 'price.total.toLocaleString() + \' / month for \' + seats + \' seats on \' + plan'}],
     props: {live: true, name: 'quote', language: 'js'},
   },
 ];
