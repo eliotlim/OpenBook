@@ -143,6 +143,20 @@ test('drag a block beside another to create columns; mobile stays stacked', asyn
   expect(direction).toBe('column');
 });
 
+test('REAL mouse drag: handle drags a block beside another into columns', async ({page}) => {
+  // Regression guard: making the handle a Radix menu trigger killed genuine
+  // HTML5 drags (the menu's overlay swallowed them) while synthetic
+  // dragstart/drop dispatches kept passing. This test drags for real.
+  await freshLab(page);
+  const row = page.locator('[data-block-row][data-block-type=todo]');
+  await row.hover();
+  const target = page.locator('[data-block-row][data-block-type=paragraph]').first();
+  const box = (await target.boundingBox())!;
+  await row.locator('.obe-handle').dragTo(target, {targetPosition: {x: box.width * 0.95, y: box.height / 2}});
+  await expect(page.locator('.obe-columns')).toHaveCount(1);
+  await expect(page.locator('.obe-columns .obe-column')).toHaveCount(2);
+});
+
 test('block selection: Escape selects, Backspace deletes, undo restores', async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 1);
