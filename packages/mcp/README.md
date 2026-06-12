@@ -12,6 +12,7 @@ It speaks stdio and talks to a running OpenBook server over the same `@open-book
 | `read_page` | Read one page's title and full text. |
 | `search_notes` | Ranked search with snippets over every page's content. |
 | `create_page` | Create a page from a title and plain-text body. |
+| `create_artifact_page` | BUILD an interactive page from kit blocks — named inputs (steppers, sliders, radios, checklists, toggles) feeding live charts, status lights, and formulas. The MCP-native way to make the calculators/dashboards an AI would otherwise hand-code. |
 | `append_to_page` | Append paragraphs to an existing page (refuses pages owned by the collaborative editor). |
 | `list_database_rows` | List the rows of the database hosted on a page. |
 | `create_database_row` | Add a row (title + property values) to a hosted database. |

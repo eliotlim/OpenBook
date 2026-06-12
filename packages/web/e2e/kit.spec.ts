@@ -57,6 +57,21 @@ test('checklist publishes its selection as an array', async ({page}) => {
   await expect(page.locator('.obe-formula-out')).toHaveText('2');
 });
 
+test('radio group: arrow keys move and select (roving tabindex)', async ({page}) => {
+  await freshLab(page);
+  await insert(page, 'radio', 'Radio group');
+  const group = page.getByRole('radiogroup');
+  await group.getByRole('radio', {name: 'One'}).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(group.getByRole('radio', {name: 'Two'})).toHaveAttribute('aria-checked', 'true');
+  await expect(group.getByRole('radio', {name: 'Two'})).toBeFocused();
+  await page.keyboard.press('ArrowLeft');
+  await expect(group.getByRole('radio', {name: 'One'})).toHaveAttribute('aria-checked', 'true');
+  // Wraps from the first back to the last.
+  await page.keyboard.press('ArrowUp');
+  await expect(group.getByRole('radio', {name: 'Three'})).toHaveAttribute('aria-checked', 'true');
+});
+
 test('chart + status light + button: the full artifact loop', async ({page}, testInfo) => {
   await freshLab(page);
   await insert(page, 'number', 'Number stepper');

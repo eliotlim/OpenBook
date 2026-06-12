@@ -70,9 +70,9 @@ async function main(): Promise<void> {
   const tools = await client.listTools();
   const names = tools.tools.map((t) => t.name).sort();
   check(
-    'all seven tools are listed',
+    'all eight tools are listed',
     JSON.stringify(names) ===
-      JSON.stringify(['append_to_page', 'create_database_row', 'create_page', 'list_database_rows', 'list_pages', 'read_page', 'search_notes']),
+      JSON.stringify(['append_to_page', 'create_artifact_page', 'create_database_row', 'create_page', 'list_database_rows', 'list_pages', 'read_page', 'search_notes']),
   );
   check('tools carry descriptions', tools.tools.every((t) => (t.description ?? '').length > 10));
 
@@ -104,6 +104,34 @@ async function main(): Promise<void> {
 
   const dupe = await client.callTool({name: 'create_page', arguments: {title: 'Quarterly planning'}});
   check('create_page surfaces the duplicate-name conflict', dupe.isError === true);
+
+  console.log('\nArtifact tool');
+  const artifact = await client.callTool({
+    name: 'create_artifact_page',
+    arguments: {
+      title: 'MCP artifact',
+      blocks: [
+        {type: 'heading', text: 'Counter demo', props: {level: 2}},
+        {type: 'number', props: {name: 'n', value: 3, min: 0, max: 10, step: 1}},
+        {type: 'statuslight', props: {label: 'Level', source: 'n', okAt: 5, warnAt: 2}},
+        {type: 'kitchart', props: {kind: 'bar', title: 'Powers', source: '[n, n*n]'}},
+        {type: 'actionbutton', props: {btnlabel: 'Step', action: 'increment', target: 'n'}},
+      ],
+    },
+  });
+  const artifactId = /id ([0-9a-f-]{36})/.exec(resultText(artifact))?.[1];
+  check('create_artifact_page returns the new id', Boolean(artifactId) && artifact.isError !== true);
+  const artifactPage = await seed.getPage(artifactId!);
+  check('the artifact is stamped for the block editor', artifactPage?.data?.editor === 'blocks');
+  const artifactBlocks = (artifactPage?.data as {blockdoc?: {blocks?: Array<{type: string}>}})?.blockdoc?.blocks ?? [];
+  check('all five blocks landed in order', artifactBlocks.map((b) => b.type).join(',') === 'heading,number,statuslight,kitchart,actionbutton');
+  const readArtifact = await client.callTool({name: 'read_page', arguments: {pageId: artifactId!}});
+  check('read_page sees the artifact heading', resultText(readArtifact).includes('Counter demo'));
+  const badType = await client.callTool({
+    name: 'create_artifact_page',
+    arguments: {title: 'Bad artifact', blocks: [{type: 'iframe', props: {}}]},
+  });
+  check('unknown block types are rejected', badType.isError === true && resultText(badType).includes('iframe'));
 
   console.log('\nDatabase tools');
   const rows = await client.callTool({name: 'list_database_rows', arguments: {pageId: dbHost.id}});

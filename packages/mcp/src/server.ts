@@ -92,6 +92,60 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     },
   );
 
+  // The block types an artifact page may contain, with loose prop schemas —
+  // unknown props pass through (the editor ignores what it doesn't know),
+  // unknown TYPES are rejected so a typo'd artifact can't render as a wall
+  // of "Unsupported block" placeholders.
+  const ARTIFACT_TYPES = new Set([
+    'heading', 'paragraph', 'todo', 'quote', 'callout', 'divider', 'code', 'list',
+    'slider', 'formula', 'number', 'textfield', 'radio', 'checklist', 'toggle',
+    'location', 'actionbutton', 'kitchart', 'statuslight', 'tooltipcard', 'linkcard',
+  ]);
+
+  const artifactBlock = z.object({
+    type: z.string().describe('Block type, e.g. heading | paragraph | number | slider | radio | checklist | toggle | kitchart | statuslight | actionbutton | formula | linkcard | tooltipcard | location | textfield'),
+    text: z.string().optional().describe('Text content (heading/paragraph/todo/quote/callout/code/list).'),
+    props: z.record(z.unknown()).optional().describe(
+      'Block props. Inputs publish {name} into a shared scope: number {name,value,min,max,step}; slider {name,value,min,max}; radio/checklist {name,options:"A, B",value|selected}; toggle {name,value}. ' +
+      'Consumers evaluate expressions over the scope: kitchart {kind:line|area|bar|pie|donut|scatter|funnel, source:"[n, n*2]", title, labels}; statuslight {label, source, okAt, warnAt}; formula {source}. ' +
+      'actionbutton {btnlabel, action:increment|set|toggle|link, target, amount, url}; linkcard {title, description, url}; tooltipcard {term, tip}; heading {level}.',
+    ),
+  });
+
+  server.registerTool(
+    'create_artifact_page',
+    {
+      title: 'Create an artifact page',
+      description:
+        'Create an interactive page from blocks: named inputs (number stepper, slider, radio, checklist, toggle, text field) publish values onto a shared scope, and live blocks compute over it (kitchart, statuslight, formula — JavaScript expressions over the input names). Use this to BUILD calculators, dashboards, and pickers instead of writing HTML.',
+      inputSchema: {
+        title: z.string().describe('The page title (must be unique in the workspace).'),
+        blocks: z.array(artifactBlock).min(1).describe('The page content, top to bottom.'),
+      },
+    },
+    async ({title, blocks}) => {
+      const name = title.trim();
+      if (!name) return failure('A title is required.');
+      const bad = blocks.find((b) => !ARTIFACT_TYPES.has(b.type));
+      if (bad) return failure(`Unknown block type "${bad.type}". Use one of: ${[...ARTIFACT_TYPES].join(', ')}.`);
+      const projected = blocks.map((b, i) => ({
+        id: `mcp-${i}`,
+        type: b.type,
+        ...(b.text !== undefined ? {text: [{t: b.text}]} : {}),
+        ...(b.props ? {props: b.props} : {}),
+      }));
+      try {
+        const page = await client.savePage({
+          name,
+          data: {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: {blocks: projected}},
+        });
+        return text(`Created artifact page "${name}" with id ${page.id} (${blocks.length} blocks).`);
+      } catch (err) {
+        return failure(`Could not create the page: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    },
+  );
+
   server.registerTool(
     'append_to_page',
     {

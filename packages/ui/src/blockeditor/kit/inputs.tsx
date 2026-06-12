@@ -175,13 +175,29 @@ const RadioBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   return (
     <div className="obe-kit obe-kit-radio" contentEditable={false} data-kit-name={name}>
       <span className="obe-kit-label">{blockProp<string>(block, 'label') || name}</span>
-      <div role="radiogroup" aria-label={name} className="obe-kit-pills">
+      <div
+        role="radiogroup"
+        aria-label={name}
+        className="obe-kit-pills"
+        onKeyDown={(e) => {
+          // Standard radiogroup keyboard: arrows move AND select, wrapping.
+          if (editor.readOnly || options.length === 0) return;
+          const delta = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+          if (!delta) return;
+          e.preventDefault();
+          const at = Math.max(0, options.indexOf(value ?? ''));
+          const next = options[(at + delta + options.length) % options.length];
+          set(editor, block, 'value', next);
+          (e.currentTarget.querySelectorAll('[role="radio"]')[(at + delta + options.length) % options.length] as HTMLElement)?.focus();
+        }}
+      >
         {options.map((opt) => (
           <button
             key={opt}
             type="button"
             role="radio"
             aria-checked={value === opt}
+            tabIndex={value === opt || (!value && opt === options[0]) ? 0 : -1}
             className={`obe-kit-pill${value === opt ? ' obe-kit-pill-on' : ''}`}
             disabled={editor.readOnly}
             onClick={() => set(editor, block, 'value', opt)}
