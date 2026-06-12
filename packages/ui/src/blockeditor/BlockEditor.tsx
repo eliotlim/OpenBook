@@ -173,12 +173,14 @@ export const BlockEditor: React.FC<{
       if (!text) return '';
       const s = text.toString();
       // The query is what was typed after the '/', bounded by the CARET —
-      // not by the next whitespace. A '/' typed at the start of a non-empty
-      // block would otherwise swallow the trailing text into the query and
-      // close the menu on the first keystroke. The caller passes the
-      // post-edit caret (the DOM selection is a render behind here).
+      // not by the next whitespace, so multi-word labels ("hello test") stay
+      // matchable and the pick deletes the whole typed run. A '/' typed at
+      // the start of a non-empty block would otherwise swallow the trailing
+      // text into the query and close the menu on the first keystroke. The
+      // caller passes the post-edit caret (the DOM selection is a render
+      // behind here).
       const after = s.slice(state.anchorOffset + 1);
-      return after.slice(0, Math.max(0, caret - state.anchorOffset - 1)).split(/\s/)[0] ?? '';
+      return after.slice(0, Math.max(0, caret - state.anchorOffset - 1));
     },
     [doc],
   );

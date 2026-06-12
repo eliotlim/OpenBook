@@ -103,6 +103,8 @@ test('install an unsigned zip: block, command, badge, disable, remove', async ({
   await page.keyboard.type('/hello test');
   await page.locator('.obe-slash-item', {has: page.locator('.obe-slash-label', {hasText: 'Hello test block'})}).first().click();
   await expect(page.locator('[data-hello-block]')).toHaveText('plugin says hi');
+  // The whole multi-word "/hello test" query was cleaned up on pick.
+  await expect(page.locator('.obe-text', {hasText: 'test'})).toHaveCount(0);
 
   // Disable → contributions vanish (the block renders as unsupported).
   await openExtensions(page);
