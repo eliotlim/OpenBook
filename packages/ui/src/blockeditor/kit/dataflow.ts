@@ -8,7 +8,7 @@ import {computeScope, formatValue, INPUT_TYPES} from './scope';
  * dataflow view renders it; tests assert on it.
  */
 
-export type DataflowNodeKind = 'input' | 'code' | 'formula' | 'chart' | 'light' | 'button';
+export type DataflowNodeKind = 'input' | 'code' | 'formula' | 'chart' | 'light' | 'button' | 'outlet';
 
 export interface DataflowNode {
   /** The block id — stable, used for edges and click-to-locate. */
@@ -23,6 +23,23 @@ export interface DataflowNode {
   error?: string;
   /** A short preview of the expression/code the block evaluates. */
   source?: string;
+  /** Secondary line (outlets: the parent page the value flows into). */
+  sub?: string;
+}
+
+/**
+ * Where an exported name flows OUTSIDE the page: a parent database's expr
+ * column reading this page's published value. Composition made visible.
+ */
+export interface DataflowOutlet {
+  /** Node id (e.g. `outlet:<propertyId>`), stable per column. */
+  id: string;
+  /** The expr column's display name. */
+  label: string;
+  /** The parent page's title — where the value lands. */
+  sub: string;
+  /** The exported name the column reads. */
+  name: string;
 }
 
 export interface DataflowEdge {
@@ -66,7 +83,7 @@ const clip = (s: string, max = 80): string => {
  * name to the block that reads it; a button targeting an input points AT the
  * input (it writes).
  */
-export function dataflowGraph(doc: Y.Doc): DataflowGraph {
+export function dataflowGraph(doc: Y.Doc, outlets: DataflowOutlet[] = []): DataflowGraph {
   const {scope, results} = computeScope(doc);
   const nodes: DataflowNode[] = [];
   const edges: DataflowEdge[] = [];
@@ -142,10 +159,31 @@ export function dataflowGraph(doc: Y.Doc): DataflowGraph {
     }
   }
 
+  // Outlets: a published name the parent page reads gets a terminal node at
+  // the graph's edge — the value leaves this page here.
+  for (const outlet of outlets) {
+    const from = publisherOf.get(outlet.name);
+    if (!from) continue;
+    nodes.push({id: outlet.id, kind: 'outlet', type: 'outlet', label: outlet.label, sub: outlet.sub});
+    edges.push({id: `${from}->${outlet.id}:${outlet.name}`, from, to: outlet.id, name: outlet.name});
+  }
+
   // Drop isolated consumers' dangling references (edges always join known
   // nodes; a publisher may legitimately have no consumers).
   const known = new Set(nodes.map((n) => n.id));
   return {nodes, edges: edges.filter((e) => known.has(e.from) && known.has(e.to))};
+}
+
+/** The names this document publishes (what composition can export). */
+export function publishedNames(doc: Y.Doc): Set<string> {
+  const names = new Set<string>();
+  for (const {block} of walkBlocks(rootBlocks(doc))) {
+    const type = blockType(block) as string;
+    const name = blockProp<string>(block, 'name') ?? '';
+    const isLiveCode = type === 'code' && Boolean(blockProp<boolean>(block, 'live'));
+    if ((INPUT_TYPES.has(type) || isLiveCode || type === 'formula') && name) names.add(name);
+  }
+  return names;
 }
 
 /**

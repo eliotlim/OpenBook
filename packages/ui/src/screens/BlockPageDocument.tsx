@@ -10,6 +10,7 @@ import {
   type BlockDocSnapshot,
 } from '@/blockeditor/model';
 import {blockSnapshotToEditorJs} from '@/blockeditor/exportBlocks';
+import {computeScope} from '@/blockeditor/kit/scope';
 import {buildDocumentModel} from '@/export/documentModel';
 import {toMarkdown} from '@/export/toMarkdown';
 import {downloadBlob} from '@/lib/download';
@@ -110,11 +111,24 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       setStatus('saving');
       saveTimer.current = setTimeout(() => {
         const base = lastSnapshot.current ?? {editorjs: {blocks: []}, values: [], names: []};
-        const snapshot: PageSnapshot = {
+        // Re-project the reactive context on every save: `values`/`names` are
+        // what the page EXPORTS (a parent database's expr columns read them
+        // via projectExports), so they must track the live document, and a
+        // named live-code output must publish its computed value too — the
+        // projection only carries its runtime expression.
+        const projected = blockSnapshotToEditorJs({
           ...base,
           editor: 'blocks',
           blockdoc: encodeSnapshot(doc),
-        };
+        });
+        const values = new Map(projected.values);
+        const {results} = computeScope(doc);
+        for (const [, cellId] of projected.names) {
+          if (values.has(cellId)) continue;
+          const result = results.get(cellId);
+          if (result && !result.error) values.set(cellId, result.value);
+        }
+        const snapshot: PageSnapshot = {...projected, values: [...values]};
         lastSnapshot.current = snapshot;
         void Promise.resolve(onSave(snapshot))
           .then(() => setStatus('saved'))

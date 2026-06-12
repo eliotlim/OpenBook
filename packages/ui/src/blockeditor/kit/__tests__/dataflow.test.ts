@@ -60,3 +60,19 @@ describe('dataflowGraph', () => {
     expect(pos.get('light')!.x).toBeGreaterThan(pos.get('lc')!.x);
   });
 });
+
+describe('composition outlets', () => {
+  it('adds outlet nodes for parent expr columns that read published names', () => {
+    const graph = dataflowGraph(reactiveDoc(), [
+      {id: 'outlet:p1', label: 'Total', sub: 'Projects', name: 'total'},
+      {id: 'outlet:p2', label: 'Untracked', sub: 'Projects', name: 'nope'},
+    ]);
+    const outlet = graph.nodes.find((n) => n.kind === 'outlet');
+    expect(outlet).toMatchObject({id: 'outlet:p1', label: 'Total', sub: 'Projects'});
+    expect(graph.nodes.filter((n) => n.kind === 'outlet')).toHaveLength(1); // 'nope' isn't published
+    expect(graph.edges.some((e) => e.from === 'lc' && e.to === 'outlet:p1' && e.name === 'total')).toBe(true);
+    // outlets sit beyond their publisher
+    const pos = layeredLayout(graph);
+    expect(pos.get('outlet:p1')!.x).toBeGreaterThan(pos.get('lc')!.x);
+  });
+});
