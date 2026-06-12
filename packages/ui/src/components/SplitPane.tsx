@@ -2,7 +2,8 @@ import {useCallback, useRef, useState} from 'react';
 import {X} from 'lucide-react';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {IconButton} from '@/components/ui/icon-button';
-import {ConnectedPageDocument} from '@/screens';
+import {ConnectedPageDocument, HomeScreen} from '@/screens';
+import {HOME_PAGE_ID} from '@/lib/homePage';
 import {useNavigation, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
 
@@ -81,7 +82,7 @@ export function SplitPane() {
         </IconButton>
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <ConnectedPageDocument key={pane.pageId} pageId={pane.pageId} />
+        {pane.pageId === HOME_PAGE_ID ? <HomeScreen /> : <ConnectedPageDocument key={pane.pageId} pageId={pane.pageId} />}
       </ScrollArea>
     </aside>
   );

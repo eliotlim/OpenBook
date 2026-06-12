@@ -158,6 +158,17 @@ export const zh: PartialMessages = {
     exportPluginFailed: '此页面无法导出为插件',
     exportPluginFailedOk: '好的',
   },
+  home: {
+    morning: '早上好',
+    afternoon: '下午好',
+    evening: '晚上好',
+    customize: '自定义主页',
+    widgetActions: '快捷操作',
+    widgetRecents: '继续阅读',
+    widgetFavorites: '收藏',
+    widgetEdited: '最近编辑',
+    justNow: '刚刚',
+  },
   mention: {
     label: '链接到页面',
     create: '创建页面“{name}”',

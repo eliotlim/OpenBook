@@ -3,3 +3,4 @@ export {
   default as ConnectedPageDocument,
   type ConnectedPageDocumentProps,
 } from './ConnectedPageDocument';
+export {default as HomeScreen} from './HomeScreen';

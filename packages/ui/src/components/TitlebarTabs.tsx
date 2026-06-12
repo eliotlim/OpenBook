@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react';
 import {Plus, X} from 'lucide-react';
 import {useNavigation, useTranslation} from '@/providers';
+import {HOME_PAGE_ID} from '@/lib/homePage';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
@@ -17,7 +18,7 @@ import BackForwardCluster from '@/components/BackForwardCluster';
  * titlebar strip collapses to 0 height on the web, so nothing shows.
  */
 export default function TitlebarTabs() {
-  const {inWindowTabs, tabs, activeTabId, selectTab, closeTab, newPageIn, pageLabel} = useNavigation();
+  const {inWindowTabs, tabs, activeTabId, selectTab, closeTab, openInNew, pageLabel} = useNavigation();
   const {t} = useTranslation();
   // Icons live in localStorage; re-render when one changes so tab icons stay
   // in sync the moment the user picks a new page icon.
@@ -84,7 +85,7 @@ export default function TitlebarTabs() {
           );
         })}
         <button
-          onClick={() => void newPageIn('tab')}
+          onClick={() => openInNew(HOME_PAGE_ID, 'tab')}
           aria-label={t('tabs.new')}
           title={t('tabs.new')}
           className="mb-0.5 flex h-6 shrink-0 items-center rounded p-1 text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"

@@ -1,4 +1,5 @@
 import {Drawer} from '@/components';
+import HomeButton from '@/components/HomeButton';
 import {useHud, useNavigation} from '@/providers';
 import ProfileMenu from '@/components/ProfileMenu';
 import TrashDialog from '@/components/TrashDialog';
@@ -22,6 +23,7 @@ export default function SideNav() {
           </div>
         )}
         <div className="flex flex-col gap-0.5 px-2 pb-1 pt-1">
+          <HomeButton />
           <CommandToggle />
           <SettingsButton />
           <TrashDialog />

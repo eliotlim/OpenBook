@@ -162,6 +162,17 @@ export const en = {
     exportPluginFailed: 'Can’t export this page as a plugin',
     exportPluginFailedOk: 'OK',
   },
+  home: {
+    morning: 'Good morning',
+    afternoon: 'Good afternoon',
+    evening: 'Good evening',
+    customize: 'Customize Home',
+    widgetActions: 'Quick actions',
+    widgetRecents: 'Jump back in',
+    widgetFavorites: 'Favorites',
+    widgetEdited: 'Recently edited',
+    justNow: 'just now',
+  },
   mention: {
     label: 'Link to page',
     create: 'Create page “{name}”',

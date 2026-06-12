@@ -158,6 +158,17 @@ export const de: PartialMessages = {
     exportPluginFailed: 'Diese Seite lässt sich nicht als Plugin exportieren',
     exportPluginFailedOk: 'OK',
   },
+  home: {
+    morning: 'Guten Morgen',
+    afternoon: 'Guten Tag',
+    evening: 'Guten Abend',
+    customize: 'Start anpassen',
+    widgetActions: 'Schnellaktionen',
+    widgetRecents: 'Weitermachen',
+    widgetFavorites: 'Favoriten',
+    widgetEdited: 'Zuletzt bearbeitet',
+    justNow: 'gerade eben',
+  },
   mention: {
     label: 'Mit Seite verknüpfen',
     create: 'Seite „{name}“ erstellen',

@@ -1,5 +1,6 @@
 import {ChevronDown, Columns2, PanelRightClose, Plus, SquarePlus} from 'lucide-react';
 import {useNavigation} from '@/providers';
+import {HOME_PAGE_ID} from '@/lib/homePage';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +16,7 @@ import {cn} from '@/lib/utils';
  * The split shows a second page inside this window.
  */
 export default function WindowActionsCluster() {
-  const {newPageIn, splitOpen, openInSplit, closeSplit, currentPageId} = useNavigation();
+  const {openInNew, splitOpen, openInSplit, closeSplit, currentPageId} = useNavigation();
 
   const buttonClass =
     'flex h-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:text-muted-foreground/35';
@@ -26,7 +27,7 @@ export default function WindowActionsCluster() {
       <div className="flex items-center">
         <button
           type="button"
-          onClick={() => void newPageIn('tab')}
+          onClick={() => openInNew(HOME_PAGE_ID, 'tab')}
           aria-label="New tab"
           title="New tab"
           className={cn(buttonClass, 'w-6 rounded-r-none')}
@@ -45,11 +46,11 @@ export default function WindowActionsCluster() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuItem onClick={() => void newPageIn('tab')}>
+            <DropdownMenuItem onClick={() => openInNew(HOME_PAGE_ID, 'tab')}>
               <Plus className="mr-2 h-4 w-4" />
               New tab
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => void newPageIn('window')}>
+            <DropdownMenuItem onClick={() => openInNew(HOME_PAGE_ID, 'window')}>
               <SquarePlus className="mr-2 h-4 w-4" />
               New window
             </DropdownMenuItem>

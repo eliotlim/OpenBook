@@ -39,6 +39,7 @@ import {
   subscribePageDocActions,
   type ExportKind,
 } from '@/lib/pageDocActions';
+import {HOME_PAGE_ID} from '@/lib/homePage';
 
 /** Menu copy + icon per export format, in display order. */
 const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: string; icon: typeof FileText}> = [
@@ -53,7 +54,8 @@ export default function NavContextMenu() {
   const {hud, setHud} = useHud();
   const {openInNew, openInSplit, currentPageId} = useNavigation();
   const {t} = useTranslation();
-  const fav = !!currentPageId && isFavorite(currentPageId);
+  const isHome = currentPageId === HOME_PAGE_ID;
+  const fav = !!currentPageId && !isHome && isFavorite(currentPageId);
 
   // The open document registers what it can do (export formats, delete);
   // subscribe so the menu tracks the page — and its plugin-ness — live.
@@ -96,7 +98,7 @@ export default function NavContextMenu() {
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator/>
         <DropdownMenuItem
-          disabled={!currentPageId}
+          disabled={!currentPageId || isHome}
           onClick={() => currentPageId && toggleFavorite(currentPageId)}
         >
           {fav ? <StarOff className="mr-2 h-4 w-4" /> : <Star className="mr-2 h-4 w-4" />}

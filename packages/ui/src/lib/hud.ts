@@ -1,7 +1,9 @@
-/** The settings sidebar: three sections, each with its sub-screens, in order. */
+/** The settings sidebar: three sections, each with its sub-screens, in order.
+ *  Preferences = how the app behaves and looks; Account = who you are
+ *  (identity first); Workspace = this workspace's server and capabilities. */
 export const SETTINGS_SECTIONS = [
-  {id: 'preferences', tabs: ['general', 'profile', 'appearance', 'customisation']},
-  {id: 'account', tabs: ['signup', 'signin', 'support']},
+  {id: 'preferences', tabs: ['general', 'appearance', 'customisation']},
+  {id: 'account', tabs: ['profile', 'signup', 'signin', 'support']},
   {id: 'workspace', tabs: ['connection', 'integrations', 'extensions', 'ai', 'admin']},
 ] as const;
 

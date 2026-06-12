@@ -158,6 +158,17 @@ export const ja: PartialMessages = {
     exportPluginFailed: 'このページはプラグインとしてエクスポートできません',
     exportPluginFailedOk: 'OK',
   },
+  home: {
+    morning: 'おはようございます',
+    afternoon: 'こんにちは',
+    evening: 'こんばんは',
+    customize: 'ホームをカスタマイズ',
+    widgetActions: 'クイックアクション',
+    widgetRecents: '続きから',
+    widgetFavorites: 'お気に入り',
+    widgetEdited: '最近編集',
+    justNow: 'たった今',
+  },
   mention: {
     label: 'ページにリンク',
     create: 'ページ「{name}」を作成',

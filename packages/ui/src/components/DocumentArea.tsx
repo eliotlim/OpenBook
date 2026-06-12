@@ -1,6 +1,7 @@
 import {ScrollArea} from '@/components/ui/scroll-area';
-import {ConnectedPageDocument} from '@/screens';
+import {ConnectedPageDocument, HomeScreen} from '@/screens';
 import {useNavigation} from '@/providers';
+import {HOME_PAGE_ID} from '@/lib/homePage';
 import {cn} from '@/lib/utils';
 
 /**
@@ -26,7 +27,7 @@ export default function DocumentArea() {
       )}
     >
       <ScrollArea className="min-h-0 flex-1">
-        <ConnectedPageDocument key={pane.pageId} pageId={pane.pageId} />
+        {pane.pageId === HOME_PAGE_ID ? <HomeScreen /> : <ConnectedPageDocument key={pane.pageId} pageId={pane.pageId} />}
       </ScrollArea>
     </section>
   );
