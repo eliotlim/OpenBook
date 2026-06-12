@@ -335,6 +335,18 @@ export const ja: PartialMessages = {
       name: '議事録',
       description: 'アジェンダ・メモ・アクションアイテムのひな形。',
     },
+    compoundGrowth: {
+      name: '複利成長',
+      description: 'スライダーがライブコードの予測を更新 — 元本と成長をドラッグしながらプロット。',
+    },
+    loanCalculator: {
+      name: 'ローン返済',
+      description: '金額・金利・期間から返済額と残高曲線を計算。予算がステータスライトを制御します。',
+    },
+    pricingEstimator: {
+      name: '料金見積もり',
+      description: 'シート数・プラン・請求サイクルから価格を計算し、コスト内訳をライブ表示。',
+    },
     interactiveDashboard: {
       name: 'プロジェクトパルス',
       description: 'ライブのミニダッシュボード：入力がチャート・ステータスライト・数式を動かします。',

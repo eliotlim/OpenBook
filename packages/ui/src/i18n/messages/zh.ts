@@ -335,6 +335,18 @@ export const zh: PartialMessages = {
       name: '会议记录',
       description: '议程、笔记和行动项，开箱即用。',
     },
+    compoundGrowth: {
+      name: '复利增长',
+      description: '滑块驱动实时代码预测——拖动即绘制投入与增值曲线。',
+    },
+    loanCalculator: {
+      name: '贷款偿还',
+      description: '金额、利率与期限计算月供与余额曲线；预算驱动状态灯。',
+    },
+    pricingEstimator: {
+      name: '定价估算',
+      description: '席位、套餐与计费周期驱动价格计算，并实时拆解成本。',
+    },
     interactiveDashboard: {
       name: '项目脉搏',
       description: '实时迷你仪表盘：输入驱动图表、状态灯和公式。',

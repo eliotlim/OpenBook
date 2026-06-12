@@ -354,6 +354,18 @@ export const en = {
       name: 'Meeting notes',
       description: 'Agenda, notes, and action items, ready to fill in.',
     },
+    compoundGrowth: {
+      name: 'Compound growth',
+      description: 'Sliders feed a live-code projection — invested vs grown, plotted as you drag.',
+    },
+    loanCalculator: {
+      name: 'Loan repayment',
+      description: 'Amount, rate and term compute the payment and balance curve; a budget drives the status light.',
+    },
+    pricingEstimator: {
+      name: 'Pricing estimator',
+      description: 'Seats, plan and billing cycle feed one price computation with a live cost breakdown.',
+    },
     interactiveDashboard: {
       name: 'Project pulse',
       description: 'A live mini-dashboard: steppers and sliders feeding charts, a status light, and a formula.',

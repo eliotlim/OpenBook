@@ -13,7 +13,7 @@ import type {DatabaseSchema} from './database';
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
-  id: 'tasks' | 'meeting-notes' | 'roadmap' | 'reading-list' | 'weekly-planner' | 'interactive-dashboard';
+  id: 'tasks' | 'meeting-notes' | 'roadmap' | 'reading-list' | 'weekly-planner' | 'interactive-dashboard' | 'compound-growth' | 'loan-calculator' | 'pricing-estimator';
   /** Emoji shown on the gallery card and applied to the created page. */
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
@@ -194,6 +194,84 @@ const WEEKLY_PLANNER_BLOCKS = [
   {id: 'wp-notes', type: 'paragraph', data: {text: 'Loose notes, wins, and anything to carry into next week.'}},
 ];
 
+
+// Compound growth: three sliders feed a live-code projection (the classic
+// sample, rebuilt on the unified system) — invested vs grown, plotted live.
+const COMPOUND_GROWTH_BLOCKS = [
+  {id: 'tpl-cg-h', type: 'heading', text: [{t: 'Compound growth'}], props: {level: 2}},
+  {id: 'tpl-cg-p', type: 'paragraph', text: [{t: 'Drag the sliders — the projection recomputes live. Open the code block to see (and change) the maths.'}]},
+  {id: 'tpl-cg-m', type: 'slider', props: {name: 'monthly', value: 300, min: 50, max: 2000}},
+  {id: 'tpl-cg-y', type: 'slider', props: {name: 'years', value: 20, min: 1, max: 40}},
+  {id: 'tpl-cg-r', type: 'slider', props: {name: 'rate', value: 7, min: 1, max: 12}},
+  {
+    id: 'tpl-cg-code',
+    type: 'code',
+    text: [
+      {
+        t: 'const r = rate / 100 / 12;\nconst months = years * 12;\nlet bal = 0;\nconst invested = [], grown = [];\nfor (let m = 1; m <= months; m++) {\n  bal = (bal + monthly) * (1 + r);\n  if (m % 12 === 0) { invested.push(monthly * m); grown.push(Math.round(bal)); }\n}\nreturn {series: [{name: \'Invested\', data: invested}, {name: \'With growth\', data: grown}]};',
+      },
+    ],
+    props: {live: true, name: 'projection', language: 'js'},
+  },
+  {id: 'tpl-cg-chart', type: 'kitchart', props: {kind: 'area', title: 'Balance by year', source: 'projection'}},
+  {
+    id: 'tpl-cg-final',
+    type: 'code',
+    text: [{t: "'After ' + years + ' years: ' + projection.series[1].data[projection.series[1].data.length - 1].toLocaleString()"}],
+    props: {live: true, name: 'summary', language: 'js'},
+  },
+];
+
+// Loan repayment: amount/rate/term feed a payment + balance schedule; a
+// budget stepper drives the affordability status light (chained live code).
+const LOAN_BLOCKS = [
+  {id: 'tpl-loan-h', type: 'heading', text: [{t: 'Loan repayment'}], props: {level: 2}},
+  {id: 'tpl-loan-a', type: 'slider', props: {name: 'amount', value: 400000, min: 50000, max: 1000000}},
+  {id: 'tpl-loan-r', type: 'slider', props: {name: 'rate', value: 5, min: 1, max: 10}},
+  {id: 'tpl-loan-y', type: 'slider', props: {name: 'years', value: 25, min: 5, max: 35}},
+  {id: 'tpl-loan-b', type: 'number', props: {name: 'budget', label: 'Monthly budget', value: 2500, min: 0, step: 100}},
+  {
+    id: 'tpl-loan-pay',
+    type: 'code',
+    text: [{t: 'const r = rate / 100 / 12;\nconst n = years * 12;\nreturn Math.round((amount * r) / (1 - Math.pow(1 + r, -n)));'}],
+    props: {live: true, name: 'payment', language: 'js'},
+  },
+  {
+    id: 'tpl-loan-sched',
+    type: 'code',
+    text: [
+      {t: 'const r = rate / 100 / 12;\nlet bal = amount;\nconst out = [];\nfor (let y = 1; y <= years; y++) {\n  for (let m = 0; m < 12; m++) bal = bal * (1 + r) - payment;\n  out.push(Math.max(0, Math.round(bal)));\n}\nreturn out;'},
+    ],
+    props: {live: true, name: 'balance', language: 'js'},
+  },
+  {id: 'tpl-loan-chart', type: 'kitchart', props: {kind: 'area', title: 'Remaining balance', source: 'balance'}},
+  {id: 'tpl-loan-status', type: 'statuslight', props: {label: 'Within budget', source: 'payment <= budget', okAt: 1, warnAt: 0}},
+];
+
+// Pricing estimator: a stepper, a radio, and a toggle feed one price
+// computation; a bar chart breaks the total down.
+const PRICING_BLOCKS = [
+  {id: 'tpl-price-h', type: 'heading', text: [{t: 'Pricing estimator'}], props: {level: 2}},
+  {id: 'tpl-price-s', type: 'number', props: {name: 'seats', label: 'Seats', value: 25, min: 1, max: 500, step: 1}},
+  {id: 'tpl-price-plan', type: 'radio', props: {name: 'plan', label: 'Plan', options: 'Basic, Pro, Scale', value: 'Pro'}},
+  {id: 'tpl-price-an', type: 'toggle', props: {name: 'annual', label: 'Annual billing', value: true}},
+  {
+    id: 'tpl-price-code',
+    type: 'code',
+    text: [
+      {t: "const unit = {Basic: 6, Pro: 12, Scale: 20}[plan];\nconst volume = seats > 100 ? 0.8 : seats > 25 ? 0.9 : 1;\nconst billing = annual ? 0.85 : 1;\nconst list = seats * unit;\nconst total = Math.round(list * volume * billing);\nreturn {list, total, saving: list - total};"},
+    ],
+    props: {live: true, name: 'price', language: 'js'},
+  },
+  {id: 'tpl-price-chart', type: 'kitchart', props: {kind: 'bar', title: 'Monthly cost', labels: 'List, You pay, Saving', source: '[price.list, price.total, price.saving]'}},
+  {
+    id: 'tpl-price-sum',
+    type: 'code',
+    text: [{t: "price.total.toLocaleString() + ' / month for ' + seats + ' seats on ' + plan"}],
+    props: {live: true, name: 'quote', language: 'js'},
+  },
+];
+
 // A live artifact built from the block editor's kit: inputs feed a shared
 // reactive scope; the charts, status light, and formula compute over it.
 // Plain JSON projection with stable ids — the block editor seeds a CRDT doc
@@ -258,6 +336,9 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'meeting-notes', icon: '📝', pageName: 'Meeting notes', create: createDocPage(MEETING_NOTES_BLOCKS)},
   {id: 'weekly-planner', icon: '🗓️', pageName: 'Weekly planner', create: createDocPage(WEEKLY_PLANNER_BLOCKS)},
   {id: 'interactive-dashboard', icon: '📊', pageName: 'Project pulse', create: createBlockDocPage(DASHBOARD_BLOCKS)},
+  {id: 'compound-growth', icon: '📈', pageName: 'Compound growth', create: createBlockDocPage(COMPOUND_GROWTH_BLOCKS)},
+  {id: 'loan-calculator', icon: '🏦', pageName: 'Loan repayment', create: createBlockDocPage(LOAN_BLOCKS)},
+  {id: 'pricing-estimator', icon: '🧮', pageName: 'Pricing estimator', create: createBlockDocPage(PRICING_BLOCKS)},
 ];
 
 /** Page names are unique among live pages — pick `name`, `name 2`, `name 3`… */

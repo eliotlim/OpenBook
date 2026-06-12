@@ -335,6 +335,18 @@ export const de: PartialMessages = {
       name: 'Meeting-Notizen',
       description: 'Agenda, Notizen und Aufgaben — bereit zum Ausfüllen.',
     },
+    compoundGrowth: {
+      name: 'Zinseszins',
+      description: 'Regler speisen eine Live-Code-Projektion — eingezahlt vs. verzinst, beim Ziehen geplottet.',
+    },
+    loanCalculator: {
+      name: 'Kredittilgung',
+      description: 'Betrag, Zins und Laufzeit berechnen Rate und Restschuldkurve; ein Budget steuert die Statusleuchte.',
+    },
+    pricingEstimator: {
+      name: 'Preisrechner',
+      description: 'Plätze, Tarif und Abrechnung speisen eine Preisberechnung mit Live-Kostenaufschlüsselung.',
+    },
     interactiveDashboard: {
       name: 'Projektpuls',
       description: 'Ein lebendiges Mini-Dashboard: Eingaben speisen Diagramme, eine Statusleuchte und eine Formel.',

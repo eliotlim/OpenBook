@@ -26,7 +26,7 @@ test('gallery: lists every template with names and descriptions', async ({page},
   await hydrated(page);
   await openGallery(page);
 
-  for (const name of ['Task tracker', 'Product roadmap', 'Reading list', 'Meeting notes', 'Weekly planner', 'Project pulse']) {
+  for (const name of ['Task tracker', 'Product roadmap', 'Reading list', 'Meeting notes', 'Weekly planner', 'Project pulse', 'Compound growth', 'Loan repayment', 'Pricing estimator']) {
     await expect(page.getByRole('button', {name: new RegExp(name)})).toBeVisible();
   }
   await takeSnapshot(page, testInfo); // visual: the template gallery
@@ -115,4 +115,36 @@ test('project pulse template: a live kit artifact, ready to steer', async ({page
   await page.getByRole('button', {name: 'Mark one done'}).click();
   await expect(page.getByLabel('done value')).toHaveValue('8');
   await expect(status).toHaveAttribute('data-status', 'ok');
+});
+
+test('compound growth template: sliders steer a live-code projection', async ({page}) => {
+  await hydrated(page);
+  await openGallery(page);
+  await page.locator('[data-template="compound-growth"]').click();
+
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Compound growth/);
+  // Two named series drawn from the live-code output, with a legend.
+  const chart = page.locator('.obe-kit-chart');
+  await expect(chart.locator('svg polyline')).toHaveCount(2);
+  await expect(chart.locator('.obe-chart-legend text', {hasText: 'With growth'})).toBeVisible();
+  // The summary live block narrates the final balance.
+  await expect(page.locator('.obe-code-out').last()).toContainText('After 20 years:');
+
+  // Drag the years slider → the narration tracks it.
+  await page.locator('.obe-slider input[type=range]').nth(1).fill('30');
+  await expect(page.locator('.obe-code-out').last()).toContainText('After 30 years:');
+});
+
+test('pricing estimator template: plan and billing steer the quote', async ({page}) => {
+  await hydrated(page);
+  await openGallery(page);
+  await page.locator('[data-template="pricing-estimator"]').click();
+
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Pricing estimator/);
+  // Pro · 25 seats · annual: 25 × 12 × 0.85 = 255 (volume tier starts ABOVE 25).
+  await expect(page.locator('.obe-code-out').last()).toContainText('255 / month for 25 seats on Pro');
+  await page.getByRole('radio', {name: 'Scale'}).click();
+  await expect(page.locator('.obe-code-out').last()).toContainText('425 / month for 25 seats on Scale');
+  // Bars redraw from the price breakdown.
+  await expect(page.locator('.obe-kit-chart svg rect')).toHaveCount(3);
 });
