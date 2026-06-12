@@ -1,5 +1,5 @@
 import {test, expect, takeSnapshot} from './fixtures';
-import {useClassicEditor} from './seed';
+import {newPage, useClassicEditor} from './seed';
 
 // This spec drives the classic EditorJS editor — still fully supported, but no
 // longer the default — so pin it before the app boots (see seed.ts).
@@ -10,8 +10,16 @@ test.beforeEach(async ({page}) => {
 
 // Regression for: the full-width toggle (a real menu checkbox item, not a dead
 // Switch) widens the EditorJS content column — not just the title/database.
-test('full-width toggle widens the editor content', async ({page}, testInfo) => {
-  await page.goto('/');
+test('full-width toggle widens the editor content', async ({page, request}, testInfo) => {
+  // Seed our own classic page: '/' auto-selects the workspace's most recent
+  // page, which a previous spec in this worker may have stamped for the
+  // block editor — the classic pin only covers un-stamped pages.
+  const id = await newPage(request, `Full width ${Date.now()}`, {
+    editorjs: {blocks: [{type: 'paragraph', data: {text: 'Width probe.'}}]},
+    values: [],
+    names: [],
+  });
+  await page.goto(`/?page=${id}`);
 
   const content = page.locator('.ce-block__content').first();
   await expect(content).toBeVisible();
