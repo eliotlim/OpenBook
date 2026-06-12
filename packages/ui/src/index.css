@@ -1449,6 +1449,10 @@ a.obe-mention {
 .obe-kit-linkcard-desc { font-size: 0.82rem; color: hsl(var(--muted-foreground)); }
 .obe-kit-linkcard-url { font-size: 0.74rem; color: hsl(var(--muted-foreground) / 0.7); }
 
+/* The handle menu anchors to this empty inline span (the handle itself must
+   stay a plain draggable button — a Radix trigger suppresses dragging). */
+.obe-handle-anchor { position: absolute; width: 0; height: 0; }
+
 /* Column resize divider: a slim grab zone in the column gap */
 .obe-column { position: relative; }
 .obe-col-divider {

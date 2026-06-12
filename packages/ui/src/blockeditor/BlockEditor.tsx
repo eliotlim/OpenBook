@@ -492,6 +492,12 @@ const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) =
   const id = blockId(block);
   const type = blockType(block);
   const rowRef = useRef<HTMLDivElement>(null);
+  // The handle is BOTH a drag grip and the actions-menu trigger. Radix opens
+  // its (modal) menu on pointerdown, which kills HTML5 dragging — the overlay
+  // swallows every dragover/drop. Control the menu and ignore Radix's
+  // pointerdown open-request; a real click (which never follows a drag)
+  // opens it from onClick instead.
+  const [handleMenu, setHandleMenu] = useState(false);
   const selected = editor.selection.has(id);
   const over = drag?.over?.id === id ? drag.over.region : null;
   const allowSides = depth === 0 && type !== 'columns'; // side-drop creates/extends columns at top level
@@ -544,62 +550,73 @@ const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) =
           >
             +
           </button>
-          <DropdownMenu>
+          <DropdownMenu open={handleMenu} onOpenChange={(open) => !open && setHandleMenu(false)}>
+            {/* The menu anchors to this empty span, NOT the handle: a Radix
+                trigger preventDefaults pointerdown (suppressing the mousedown
+                that initiates HTML5 dragging), so the drag grip must stay a
+                plain button. The span sits inside the gutter, so the menu
+                still opens at the handle. */}
             <DropdownMenuTrigger asChild>
-              <button
-                type="button"
-                aria-label="Drag to move, click for actions"
-                className="obe-gutter-btn obe-handle"
-                draggable
-                onDragStart={(e) => {
-                  // dataTransfer is null on synthetic events (tests) — optional.
-                  if (e.dataTransfer) {
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', id);
-                  }
-                  setDrag({id, over: null});
-                }}
-                onDragEnd={() => setDrag(null)}
-                onClick={() => editor.setSelection([id])}
-                onPointerDown={(e) => {
-                  // Touch drag: HTML5 DnD doesn't exist on touch screens, so the
-                  // handle drives a pointer-based drag (move ≥6px to engage).
-                  if (e.pointerType !== 'touch' || editor.readOnly) return;
-                  e.preventDefault();
-                  const startY = e.clientY;
-                  let engaged = false;
-                  let lastOver: {id: string; region: DropRegion} | null = null;
-                  const move = (ev: PointerEvent): void => {
-                    if (!engaged && Math.abs(ev.clientY - startY) < 6) return;
-                    engaged = true;
-                    ev.preventDefault();
-                    const under = document
-                      .elementsFromPoint(ev.clientX, ev.clientY)
-                      .find((el) => el instanceof HTMLElement && el.dataset.blockRow && el.dataset.blockRow !== id) as
+              <span className="obe-handle-anchor" aria-hidden />
+            </DropdownMenuTrigger>
+            <button
+              type="button"
+              aria-label="Drag to move, click for actions"
+              aria-haspopup="menu"
+              aria-expanded={handleMenu}
+              className="obe-gutter-btn obe-handle"
+              draggable
+              onDragStart={(e) => {
+                // dataTransfer is null on synthetic events (tests) — optional.
+                if (e.dataTransfer) {
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', id);
+                }
+                setDrag({id, over: null});
+              }}
+              onDragEnd={() => setDrag(null)}
+              onClick={() => {
+                editor.setSelection([id]);
+                setHandleMenu(true);
+              }}
+              onPointerDown={(e) => {
+                // Touch drag: HTML5 DnD doesn't exist on touch screens, so the
+                // handle drives a pointer-based drag (move ≥6px to engage).
+                if (e.pointerType !== 'touch' || editor.readOnly) return;
+                e.preventDefault();
+                const startY = e.clientY;
+                let engaged = false;
+                let lastOver: {id: string; region: DropRegion} | null = null;
+                const move = (ev: PointerEvent): void => {
+                  if (!engaged && Math.abs(ev.clientY - startY) < 6) return;
+                  engaged = true;
+                  ev.preventDefault();
+                  const under = document
+                    .elementsFromPoint(ev.clientX, ev.clientY)
+                    .find((el) => el instanceof HTMLElement && el.dataset.blockRow && el.dataset.blockRow !== id) as
                   | HTMLElement
                   | undefined;
-                    if (!under) return;
-                    const region = computeRegion(
+                  if (!under) return;
+                  const region = computeRegion(
                   {clientX: ev.clientX, clientY: ev.clientY} as React.PointerEvent,
                   under,
                   under.parentElement?.closest('[data-block-row]') === null,
-                    );
-                    lastOver = {id: under.dataset.blockRow!, region};
-                    setDrag({id, over: lastOver});
-                  };
-                  const up = (): void => {
-                    window.removeEventListener('pointermove', move);
-                    window.removeEventListener('pointerup', up);
-                    if (engaged && lastOver) performDrop(id, lastOver.id, lastOver.region);
-                    setDrag(null);
-                  };
-                  window.addEventListener('pointermove', move, {passive: false});
-                  window.addEventListener('pointerup', up);
-                }}
-              >
-                ⠿
-              </button>
-            </DropdownMenuTrigger>
+                  );
+                  lastOver = {id: under.dataset.blockRow!, region};
+                  setDrag({id, over: lastOver});
+                };
+                const up = (): void => {
+                  window.removeEventListener('pointermove', move);
+                  window.removeEventListener('pointerup', up);
+                  if (engaged && lastOver) performDrop(id, lastOver.id, lastOver.region);
+                  setDrag(null);
+                };
+                window.addEventListener('pointermove', move, {passive: false});
+                window.addEventListener('pointerup', up);
+              }}
+            >
+              ⠿
+            </button>
             <HandleMenu block={block} editor={editor} />
           </DropdownMenu>
         </div>
