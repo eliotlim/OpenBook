@@ -159,7 +159,7 @@ test('compound growth: a live-code series drives a multi-series chart', async ({
   const code = page.locator('.obe-codeblock-live');
   await code.locator('.obe-text').click();
   await page.keyboard.type(
-    "({series: [{name: '3%', data: Array.from({length: months}, (_, i) => Math.pow(1.03, i / 12))}, {name: '10%', data: Array.from({length: months}, (_, i) => Math.pow(1.10, i / 12))}]})",
+    '({series: [{name: \'3%\', data: Array.from({length: months}, (_, i) => Math.pow(1.03, i / 12))}, {name: \'10%\', data: Array.from({length: months}, (_, i) => Math.pow(1.10, i / 12))}]})',
   );
   await code.getByLabel('Output name').fill('growth');
 
