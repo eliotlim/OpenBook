@@ -169,6 +169,12 @@ export const de: PartialMessages = {
     widgetEdited: 'Zuletzt bearbeitet',
     justNow: 'gerade eben',
   },
+  flow: {
+    title: 'Datenfluss',
+    open: 'Datenfluss-Ansicht',
+    empty: 'Auf dieser Seite ist noch nichts reaktiv',
+    emptyHint: 'Füge benannte Eingaben, Live-Code, Diagramme oder Statusleuchten hinzu — ihre Verdrahtung erscheint hier als Live-Graph.',
+  },
   mention: {
     label: 'Mit Seite verknüpfen',
     create: 'Seite „{name}“ erstellen',

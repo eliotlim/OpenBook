@@ -13,7 +13,7 @@ import {useData} from '@/data';
 import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
 import {readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {recordRecent} from '@/lib/recents';
-import {HOME_PAGE_ID} from '@/lib/homePage';
+import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
 import {t as bareT} from '@/i18n';
 import {removeFavorite} from '@/lib/favorites';
 import {usePlatformLibrary, type NewViewTarget} from './PlatformLibraryProvider';
@@ -223,6 +223,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const pageLabel = useCallback(
     (id: string): string => {
       if (id === HOME_PAGE_ID) return bareT('nav.home');
+      if (id === FLOW_PANE_ID) return bareT('flow.title');
       const meta = pages.find((p) => p.id === id);
       if (meta) return meta.name && meta.name.trim().length > 0 ? meta.name : 'Untitled';
       return titleHints[id] ?? 'Untitled';
@@ -361,7 +362,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
         const known = new Set(list.map((p) => p.id));
         const resolve = async (id: string | null): Promise<string | null> => {
           if (!id) return null;
-          if (id === HOME_PAGE_ID) return id; // the Home pseudo-page
+          if (id === HOME_PAGE_ID || id === FLOW_PANE_ID) return id; // pseudo-pages
           if (known.has(id)) return id;
           return (await client.getPage(id)) !== null ? id : null;
         };
@@ -428,7 +429,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   // group). Covers every entry point — sidebar, palette, tabs, back/forward.
   useEffect(() => {
     // Home is a place, not a document — it never enters the recents trail.
-    if (currentPageId && currentPageId !== HOME_PAGE_ID) recordRecent(currentPageId);
+    if (currentPageId && currentPageId !== HOME_PAGE_ID && currentPageId !== FLOW_PANE_ID) recordRecent(currentPageId);
   }, [currentPageId]);
 
   const panes = win ? W.panesOf(win) : [];

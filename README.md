@@ -48,7 +48,10 @@ toggles, locations, action buttons) publish values onto a shared reactive
 scope, and live blocks compute over it — formulas, charts (line, area, bar,
 pie, donut, scatter, funnel), and status lights. Assemble a calculator, a
 picker, or a tiny dashboard out of blocks — collaborative by default, and the
-interactive HTML export keeps the computation alive offline.
+interactive HTML export keeps the computation alive offline. A **dataflow
+view** (page menu → "Dataflow view") opens the page's reactive wiring as a
+live node graph in the split pane: inputs flowing into code into charts,
+values updating as you edit, nodes clicking through to their blocks.
 
 **It's extensible.** Plugins — zips of TypeScript source — add custom
 blocks, palette commands, and integrations (see [PLUGINS.md](PLUGINS.md)).

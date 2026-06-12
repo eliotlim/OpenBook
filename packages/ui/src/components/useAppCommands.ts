@@ -1,6 +1,7 @@
 import React from 'react';
 import type {LucideIcon} from 'lucide-react';
-import {LayoutTemplate,
+import {GitFork,
+  LayoutTemplate,
   ArrowLeft,
   ArrowRight,
   Bot,
@@ -23,6 +24,7 @@ import {seedSampleDocument} from '@open-book/sdk';
 import {useData} from '@/data';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
+import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
 import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
 import {pluginCommands, subscribePluginCommands} from '@/plugins';
 
@@ -173,6 +175,15 @@ export function useAppCommands(): AppCommand[] {
         icon: isDark ? Sun : Moon,
         shortcut: SHORTCUTS.toggleTheme,
         run: () => setMode(isDark ? 'light' : 'dark'),
+      },
+      {
+        id: 'dataflow-view',
+        group: 'view',
+        title: t('flow.open'),
+        keywords: 'dataflow graph network nodes flow wiring reactive',
+        icon: GitFork,
+        disabled: !currentPageId || currentPageId === HOME_PAGE_ID,
+        run: () => openInSplit(FLOW_PANE_ID),
       },
       {
         id: 'split-view',

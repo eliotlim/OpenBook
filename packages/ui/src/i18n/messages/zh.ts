@@ -169,6 +169,12 @@ export const zh: PartialMessages = {
     widgetEdited: '最近编辑',
     justNow: '刚刚',
   },
+  flow: {
+    title: '数据流',
+    open: '数据流视图',
+    empty: '此页面还没有响应式内容',
+    emptyHint: '添加命名输入、实时代码、图表或状态灯——它们的连接会在这里以实时图形显示。',
+  },
   mention: {
     label: '链接到页面',
     create: '创建页面“{name}”',

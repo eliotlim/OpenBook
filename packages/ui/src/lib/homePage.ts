@@ -7,6 +7,12 @@
 
 export const HOME_PAGE_ID = 'home';
 
+/**
+ * The dataflow split-pane mode — another pseudo-page: `?split=flow` shows
+ * the PRIMARY page's reactive graph instead of a second document.
+ */
+export const FLOW_PANE_ID = 'flow';
+
 /** Which Home widgets are shown. All on by default; configurable per device. */
 export interface HomeWidgets {
   actions: boolean;

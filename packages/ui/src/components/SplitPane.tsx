@@ -2,8 +2,8 @@ import {useCallback, useRef, useState} from 'react';
 import {X} from 'lucide-react';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {IconButton} from '@/components/ui/icon-button';
-import {ConnectedPageDocument, HomeScreen} from '@/screens';
-import {HOME_PAGE_ID} from '@/lib/homePage';
+import {ConnectedPageDocument, DataflowView, HomeScreen} from '@/screens';
+import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
 import {useNavigation, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
 
@@ -81,9 +81,16 @@ export function SplitPane() {
           <X className="h-3.5 w-3.5" />
         </IconButton>
       </div>
-      <ScrollArea className="min-h-0 flex-1">
-        {pane.pageId === HOME_PAGE_ID ? <HomeScreen /> : <ConnectedPageDocument key={pane.pageId} pageId={pane.pageId} />}
-      </ScrollArea>
+      {pane.pageId === FLOW_PANE_ID ? (
+        // react-flow owns its own pan/zoom viewport — no ScrollArea around it.
+        <div className="min-h-0 flex-1">
+          <DataflowView />
+        </div>
+      ) : (
+        <ScrollArea className="min-h-0 flex-1">
+          {pane.pageId === HOME_PAGE_ID ? <HomeScreen /> : <ConnectedPageDocument key={pane.pageId} pageId={pane.pageId} />}
+        </ScrollArea>
+      )}
     </aside>
   );
 }

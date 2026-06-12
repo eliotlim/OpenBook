@@ -21,6 +21,7 @@ import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
 import {pageHasPluginManifest} from '@/plugins';
 import {registerPageDocActions, type ExportKind} from '@/lib/pageDocActions';
+import {registerOpenDoc} from '@/lib/openDocs';
 import {useConfirm, useHud, usePreferences, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
@@ -210,6 +211,12 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       console.error('BlockPageDocument: export failed:', e);
     }
   };
+
+  // Expose the live doc to sibling surfaces (the dataflow split view).
+  useEffect(() => {
+    if (!pageId || !doc) return;
+    return registerOpenDoc(pageId, doc);
+  }, [pageId, doc]);
 
   // Publish this document's capabilities to the shell page menu (NavContextMenu).
   // The handlers route through refs so the registration only churns when the
