@@ -31,7 +31,7 @@ const SOURCES: Record<string, string> = {
       api.commands.register({id: 'wave', title: 'Wave from the fixture', keywords: 'wave hello', run: () => {}});
     }
   `,
-  'src/greet.ts': "export const greet = (): string => 'plugin says hi';",
+  'src/greet.ts': 'export const greet = (): string => \'plugin says hi\';',
 };
 
 const zipOf = (withSignature?: object): Buffer => {
@@ -135,7 +135,7 @@ test('a signed zip from a trusted registry shows Verified; tampering loses it', 
   await expect(card.locator('[data-extension-verified]')).toBeVisible();
 
   // Re-install with modified content but the OLD signature → Unverified.
-  const tampered = {...SOURCES, 'src/greet.ts': "export const greet = (): string => 'evil';"};
+  const tampered = {...SOURCES, 'src/greet.ts': 'export const greet = (): string => \'evil\';'};
   const entries: Record<string, Uint8Array> = {'openbook.json': strToU8(JSON.stringify(MANIFEST)), 'signature.json': strToU8(JSON.stringify(signature))};
   for (const [p, s] of Object.entries(tampered)) entries[p] = strToU8(s);
   await page.locator('[data-extension-file]').setInputFiles({name: 'tampered.zip', mimeType: 'application/zip', buffer: Buffer.from(zipSync(entries))});
