@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import * as Y from 'yjs';
-import {Download, FileCode, FileText as FileTextIcon, FileType, MoreHorizontal, Trash2} from 'lucide-react';
+import {Download, FileCode, FileText as FileTextIcon, FileType, MoreHorizontal, Puzzle, Trash2} from 'lucide-react';
 import type {PageSnapshot} from '@open-book/sdk';
 import {
   DropdownMenu,
@@ -30,7 +30,8 @@ import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
-import {useHud, usePreferences, useTranslation} from '@/providers';
+import {pageHasPluginManifest} from '@/plugins';
+import {useConfirm, useHud, usePreferences, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
 import {PageHeader, type PageDocumentProps} from './PageDocument';
@@ -70,6 +71,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const {t} = useTranslation();
   const {preferences} = usePreferences();
   const client = useData();
+  const confirm = useConfirm();
   const [doc, setDoc] = useState<Y.Doc | null>(null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'save failed'>('idle');
   const lastSnapshot = useRef<PageSnapshot | null>(null);
@@ -160,12 +162,39 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     return () => conn.disconnect();
   }, [doc, pageId]);
 
+  // A page whose code blocks include one named openbook.json is an authorable
+  // plugin — surface "Export as plugin" in the menu, live as the user types.
+  const [isPlugin, setIsPlugin] = useState(false);
+  useEffect(() => {
+    if (!doc) return;
+    const check = (): void => setIsPlugin(pageHasPluginManifest(doc));
+    check();
+    doc.on('update', check);
+    return () => doc.off('update', check);
+  }, [doc]);
+
   // ── Export ────────────────────────────────────────────────────────────────
   // The block document projects into the EditorJS shape, then rides the same
   // pipeline as classic pages — markdown, paged/continuous PDF, and the
-  // interactive HTML site (live sliders/formulas, navigable subtree).
-  const handleExport = async (kind: 'md' | 'pdf-paged' | 'pdf-continuous' | 'html'): Promise<void> => {
+  // interactive HTML site (live sliders/formulas, navigable subtree). A page
+  // authored as a plugin additionally exports the install-ready zip itself.
+  const handleExport = async (kind: 'md' | 'pdf-paged' | 'pdf-continuous' | 'html' | 'plugin'): Promise<void> => {
     if (!doc) return;
+    if (kind === 'plugin') {
+      try {
+        const {pageToPluginZip} = await import('@/plugins');
+        const {filename, bytes} = pageToPluginZip(doc);
+        downloadBlob(filename, new Blob([bytes as BlobPart], {type: 'application/zip'}));
+      } catch (e) {
+        void confirm({
+          title: t('page.exportPluginFailed'),
+          description: e instanceof Error ? e.message : String(e),
+          confirmText: t('page.exportPluginFailedOk'),
+          hideCancel: true,
+        });
+      }
+      return;
+    }
     const snapshot = blockSnapshotToEditorJs({
       editorjs: {blocks: []},
       values: [],
@@ -232,6 +261,12 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
                       <FileType className="mr-2 h-4 w-4" />
                       {t('page.exportPdfContinuous')}
                     </DropdownMenuItem>
+                    {isPlugin && (
+                      <DropdownMenuItem onClick={() => void handleExport('plugin')}>
+                        <Puzzle className="mr-2 h-4 w-4" />
+                        {t('page.exportPlugin')}
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
                 {onDelete && (

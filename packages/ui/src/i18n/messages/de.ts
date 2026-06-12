@@ -150,6 +150,9 @@ export const de: PartialMessages = {
     exportHtml: 'Interaktives HTML',
     exportPdfPaged: 'PDF — seitenweise',
     exportPdfContinuous: 'PDF — fortlaufend',
+    exportPlugin: 'Plugin (.zip)',
+    exportPluginFailed: 'Diese Seite lässt sich nicht als Plugin exportieren',
+    exportPluginFailedOk: 'OK',
   },
   mention: {
     label: 'Mit Seite verknüpfen',

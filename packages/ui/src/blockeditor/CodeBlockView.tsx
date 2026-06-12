@@ -10,7 +10,9 @@ import type {EditorUI} from './BlockEditor';
  * footer toggle makes the block *live* — its code evaluates over the
  * document's reactive scope (inputs + every named live block above it), and
  * its result publishes under a name that later live blocks, charts, status
- * lights, and formulas can reference. Off = an ordinary code snippet.
+ * lights, and formulas can reference. Off = an ordinary code snippet, whose
+ * name (if any) is a *filename* — name one `openbook.json` and the page
+ * becomes an exportable plugin (see plugins/pagePlugin.ts).
  */
 export const CodeBlockView: React.FC<{
   block: BlockMap;
@@ -46,20 +48,18 @@ export const CodeBlockView: React.FC<{
           onChange={(e) => set('language', e.target.value.trim())}
         />
         <span className="obe-kit-spacer" />
-        {live && (
-          <label className="obe-kit-field">
-            <span>name</span>
-            <input
-              className="obe-kit-name"
-              value={name}
-              placeholder="result"
-              aria-label="Output name"
-              readOnly={editor.readOnly}
-              spellCheck={false}
-              onChange={(e) => set('name', e.target.value.trim())}
-            />
-          </label>
-        )}
+        <label className="obe-kit-field">
+          <span>name</span>
+          <input
+            className="obe-kit-name"
+            value={name}
+            placeholder={live ? 'result' : 'filename'}
+            aria-label={live ? 'Output name' : 'File name'}
+            readOnly={editor.readOnly}
+            spellCheck={false}
+            onChange={(e) => set('name', e.target.value.trim())}
+          />
+        </label>
         <label className="obe-kit-field">
           <span>live</span>
           <button

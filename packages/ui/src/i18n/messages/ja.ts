@@ -150,6 +150,9 @@ export const ja: PartialMessages = {
     exportHtml: 'インタラクティブ HTML',
     exportPdfPaged: 'PDF — ページ区切り',
     exportPdfContinuous: 'PDF — 連続',
+    exportPlugin: 'プラグイン（.zip）',
+    exportPluginFailed: 'このページはプラグインとしてエクスポートできません',
+    exportPluginFailedOk: 'OK',
   },
   mention: {
     label: 'ページにリンク',

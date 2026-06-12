@@ -154,6 +154,9 @@ export const en = {
     exportHtml: 'Interactive HTML',
     exportPdfPaged: 'PDF — paged',
     exportPdfContinuous: 'PDF — continuous',
+    exportPlugin: 'Plugin (.zip)',
+    exportPluginFailed: 'Can’t export this page as a plugin',
+    exportPluginFailedOk: 'OK',
   },
   mention: {
     label: 'Link to page',

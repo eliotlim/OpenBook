@@ -58,6 +58,17 @@ Settings → **Extensions** → *Install from .zip*. The plugin is stored
 server-side, so every client of the workspace runs it. Disable or remove any
 time; contributions tear down cleanly.
 
+## Author a plugin in a page
+
+A page can *be* a plugin — no toolchain required. Give code blocks a
+**name** (the field next to the language in the block's footer) and each
+named block becomes a file: name one `openbook.json` for the manifest,
+another `index.ts` (or whatever `main` says) for the entry. Once the page
+has an `openbook.json` block, **Page actions → Export → Plugin (.zip)**
+produces the install-ready package — prose, headings, and *live* code
+blocks stay out of it (a live block's name is a reactive output, not a
+filename). Round-trip it straight back in through Settings → Extensions.
+
 ## Signing & registries
 
 Registries vouch for plugins with an **Ed25519 signature** over a canonical

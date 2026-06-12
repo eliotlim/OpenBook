@@ -150,6 +150,9 @@ export const zh: PartialMessages = {
     exportHtml: '交互式 HTML',
     exportPdfPaged: 'PDF — 分页',
     exportPdfContinuous: 'PDF — 连续',
+    exportPlugin: '插件（.zip）',
+    exportPluginFailed: '此页面无法导出为插件',
+    exportPluginFailedOk: '好的',
   },
   mention: {
     label: '链接到页面',

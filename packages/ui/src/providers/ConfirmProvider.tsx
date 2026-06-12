@@ -20,6 +20,8 @@ export interface ConfirmOptions {
   cancelText?: string;
   /** Render the confirm button in the destructive (red) style. */
   destructive?: boolean;
+  /** Notice mode: a lone acknowledge button (for errors — there's nothing to cancel). */
+  hideCancel?: boolean;
 }
 
 type ConfirmFn = (options: ConfirmOptions) => Promise<boolean>;
@@ -73,9 +75,11 @@ export function ConfirmProvider({children}: {children: React.ReactNode}) {
               {options.description && <DialogDescription>{options.description}</DialogDescription>}
             </DialogHeader>
             <DialogFooter>
-              <Button variant="outline" onClick={() => settle(false)}>
-                {options.cancelText ?? 'Cancel'}
-              </Button>
+              {!options.hideCancel && (
+                <Button variant="outline" onClick={() => settle(false)}>
+                  {options.cancelText ?? 'Cancel'}
+                </Button>
+              )}
               <Button
                 variant={options.destructive ? 'destructive' : 'default'}
                 onClick={() => settle(true)}

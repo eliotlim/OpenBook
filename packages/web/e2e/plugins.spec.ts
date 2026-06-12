@@ -123,6 +123,62 @@ test('install an unsigned zip: block, command, badge, disable, remove', async ({
   await expect(page.getByText('No extensions installed')).toBeVisible();
 });
 
+test('a page of named code blocks exports as an installable plugin zip', async ({page, request}) => {
+  // Author the plugin as a page: the manifest and entry live in named,
+  // non-live code blocks.
+  const manifest = {id: 'acme.page-authored', name: 'Page Authored', version: '1.0.0', main: 'index.ts', icon: '📦'};
+  const entry =
+    'export default function activate(api) { api.commands.register({id: \'from-page\', title: \'Command from a page plugin\', run: () => {}}); }';
+  const res = await request.post(`${SERVER}/api/pages`, {
+    data: {
+      name: `Plugin author ${Date.now()}`,
+      data: {
+        editor: 'blocks',
+        blockdoc: {
+          blocks: [
+            {id: 'a1', type: 'paragraph', text: [{t: 'This page is a plugin.'}]},
+            {id: 'a2', type: 'code', text: [{t: JSON.stringify(manifest)}], props: {name: 'openbook.json', language: 'json'}},
+            {id: 'a3', type: 'code', text: [{t: entry}], props: {name: 'index.ts', language: 'ts'}},
+          ],
+        },
+        editorjs: {blocks: []},
+        values: [],
+        names: [],
+      },
+    },
+  });
+  const {id} = (await res.json()) as {id: string};
+  await page.goto(`/?page=${id}`);
+  await expect(page.locator('.obe-codeblock').first()).toBeVisible();
+
+  // Page actions → Export → Plugin (.zip): the item appears because the page
+  // carries an openbook.json code block.
+  await page.getByRole('button', {name: 'Page actions'}).click();
+  await page.getByRole('menuitem', {name: 'Export'}).click();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('menuitem', {name: 'Plugin (.zip)'}).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe('acme.page-authored-1.0.0.zip');
+  const zipPath = await download.path();
+
+  // The exported zip installs straight back through Settings → Extensions.
+  await openExtensions(page);
+  await page.locator('[data-extension-file]').setInputFiles(zipPath);
+  const card = page.locator('[data-extension="acme.page-authored"]');
+  await expect(card).toHaveAttribute('data-extension-state', 'active');
+  await page.keyboard.press('Escape');
+
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByPlaceholder(/Search pages or run a command/).fill('Command from a page plugin');
+  await expect(page.getByRole('option', {name: /Command from a page plugin/})).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  await openExtensions(page);
+  await page.getByLabel('Remove Page Authored').click();
+  await expect(card).toHaveCount(0);
+});
+
 test('a signed zip from a trusted registry shows Verified; tampering or distrust loses it', async ({page}) => {
   const {signature, publicKey} = await signFixture();
 
