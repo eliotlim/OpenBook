@@ -13,7 +13,7 @@ import type {
   StoredDatabase,
   StoredPage,
 } from '@open-book/sdk';
-import {emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle} from '@open-book/sdk';
+import {emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, type PluginPackage, type StoredPlugin} from '@open-book/sdk';
 import type {Db} from './db';
 import {runMigrations} from './migrations';
 
@@ -714,4 +714,71 @@ export class PageStore {
     );
     return rows.length > 0 ? rowFromPage(rows[0]) : null;
   }
+
+  // ── Plugins (installed extensions) ───────────────────────────────────────────
+
+  async listPlugins(): Promise<StoredPlugin[]> {
+    const rows = await this.db.query<PluginRow>(
+      'SELECT id, manifest, files, signature, enabled, installed_at FROM plugins ORDER BY installed_at',
+    );
+    return rows.map(pluginFromRow);
+  }
+
+  async getPlugin(id: string): Promise<StoredPlugin | null> {
+    const rows = await this.db.query<PluginRow>(
+      'SELECT id, manifest, files, signature, enabled, installed_at FROM plugins WHERE id = $1',
+      [id],
+    );
+    return rows.length > 0 ? pluginFromRow(rows[0]) : null;
+  }
+
+  /** Install or update a plugin (idempotent on id; updates re-enable). */
+  async upsertPlugin(pkg: PluginPackage): Promise<StoredPlugin> {
+    const rows = await this.db.query<PluginRow>(
+      `INSERT INTO plugins (id, manifest, files, signature, enabled)
+       VALUES ($1, $2::jsonb, $3::jsonb, $4::jsonb, TRUE)
+       ON CONFLICT (id) DO UPDATE
+         SET manifest = EXCLUDED.manifest,
+             files = EXCLUDED.files,
+             signature = EXCLUDED.signature,
+             enabled = TRUE,
+             installed_at = now()
+       RETURNING id, manifest, files, signature, enabled, installed_at`,
+      [pkg.manifest.id, JSON.stringify(pkg.manifest), JSON.stringify(pkg.files), pkg.signature ? JSON.stringify(pkg.signature) : null],
+    );
+    return pluginFromRow(rows[0]);
+  }
+
+  async setPluginEnabled(id: string, enabled: boolean): Promise<StoredPlugin | null> {
+    const rows = await this.db.query<PluginRow>(
+      `UPDATE plugins SET enabled = $2 WHERE id = $1
+       RETURNING id, manifest, files, signature, enabled, installed_at`,
+      [id, enabled],
+    );
+    return rows.length > 0 ? pluginFromRow(rows[0]) : null;
+  }
+
+  async removePlugin(id: string): Promise<boolean> {
+    const rows = await this.db.query<{id: string}>('DELETE FROM plugins WHERE id = $1 RETURNING id', [id]);
+    return rows.length > 0;
+  }
+}
+
+interface PluginRow {
+  id: string;
+  manifest: unknown;
+  files: unknown;
+  signature: unknown;
+  enabled: boolean;
+  installed_at: string | Date;
+}
+
+function pluginFromRow(row: PluginRow): StoredPlugin {
+  return {
+    manifest: row.manifest as StoredPlugin['manifest'],
+    files: row.files as StoredPlugin['files'],
+    signature: (row.signature as StoredPlugin['signature']) ?? undefined,
+    enabled: row.enabled,
+    installedAt: new Date(row.installed_at).toISOString(),
+  };
 }

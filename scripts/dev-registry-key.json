@@ -1,0 +1,6 @@
+{
+  "__WARNING__": "DEVELOPMENT registry signing key. The matching public key is pinned in packages/sdk/src/plugins.ts (OPENBOOK_REGISTRY). Rotate both before running a real registry — anyone with this file can sign 'verified' plugins for dev builds.",
+  "registry": "OpenBook Registry",
+  "publicKey": "nI4eBQzqrIyVPEmJSEzGtqC9B0+kfWTXKyN5t8Yki/E=",
+  "privateKey": "MC4CAQAwBQYDK2VwBCIEIItB4RUg9R3UxEHZ83I7E4WwWUayISDfhEVPzblFdKFc"
+}

@@ -1,4 +1,5 @@
 import {API, type ApiError} from './routes';
+import type {PluginPackage, StoredPlugin} from './plugins';
 import type {
   AgentChatEvent,
   AgentChatMessage,
@@ -75,6 +76,12 @@ export interface DataClient {
    * (tool call, tool result, final answer, error); resolves when the run ends.
    */
   agentChat(messages: AgentChatMessage[], onEvent: (event: AgentChatEvent) => void, opts?: {signal?: AbortSignal}): Promise<void>;
+
+  // ── Extensions (installed plugins, stored server-side per workspace) ───────
+  listPlugins(): Promise<StoredPlugin[]>;
+  installPlugin(pkg: PluginPackage): Promise<StoredPlugin>;
+  setPluginEnabled(id: string, enabled: boolean): Promise<StoredPlugin>;
+  removePlugin(id: string): Promise<boolean>;
   /**
    * Move a page (and its nested subtree) to the trash. Soft delete: the page is
    * recoverable via {@link restorePage} until the server's cleanup job purges
@@ -407,6 +414,25 @@ export class HttpDataClient implements DataClient {
     opts: {system?: string; maxTokens?: number; signal?: AbortSignal} = {},
   ): Promise<string> {
     return this.aiStream(API.aiGenerate, {prompt, system: opts.system, maxTokens: opts.maxTokens}, onToken, opts.signal);
+  }
+
+  async listPlugins(): Promise<StoredPlugin[]> {
+    return this.request<StoredPlugin[]>('GET', API.plugins);
+  }
+
+  async installPlugin(pkg: PluginPackage): Promise<StoredPlugin> {
+    return this.request<StoredPlugin>('POST', API.plugins, pkg);
+  }
+
+  async setPluginEnabled(id: string, enabled: boolean): Promise<StoredPlugin> {
+    return this.request<StoredPlugin>('PATCH', API.plugin(id), {enabled});
+  }
+
+  async removePlugin(id: string): Promise<boolean> {
+    const res = await fetch(`${this.baseUrl}${API.plugin(id)}`, {method: 'DELETE'});
+    if (res.status === 404) return false;
+    await throwIfNotOk(res);
+    return true;
   }
 
   /** Run the workspace agent, surfacing each streamed step via `onEvent`. */

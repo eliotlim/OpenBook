@@ -103,6 +103,22 @@ const MIGRATIONS: Migration[] = [
       )`,
     ],
   },
+  {
+    // Installed extensions: the whole package (manifest + TypeScript source
+    // files + optional registry signature) lives in JSONB so every client of
+    // the workspace loads the same plugins.
+    name: '0007_plugins',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS plugins (
+        id            TEXT        PRIMARY KEY,
+        manifest      JSONB       NOT NULL,
+        files         JSONB       NOT NULL,
+        signature     JSONB,
+        enabled       BOOLEAN     NOT NULL DEFAULT TRUE,
+        installed_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

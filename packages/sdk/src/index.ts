@@ -110,6 +110,18 @@ export {
 } from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride} from './connection';
 export {snapshotText, paragraphBlocks, textSnapshot, appendTextToSnapshot} from './content';
+export {
+  canonicalDigest,
+  generateRegistryKeys,
+  signPlugin,
+  verifyPlugin,
+  validateManifest,
+  OPENBOOK_REGISTRY,
+  type PluginManifest,
+  type PluginPackage,
+  type PluginSignature,
+  type StoredPlugin,
+} from './plugins';
 export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';
 export {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from './templates';
 export {

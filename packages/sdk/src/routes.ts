@@ -73,6 +73,8 @@ export const API = {
   aiModelDownload: '/api/ai/models/download',
   /** The agent harness: `POST` `{messages}` → SSE tool/final events. */
   agentChat: '/api/agent/chat',
+  plugins: '/api/plugins',
+  plugin: (id: string) => `/api/plugins/${id}`,
 } as const;
 
 /** Error body shape returned by the API for non-2xx responses. */

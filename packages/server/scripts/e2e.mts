@@ -24,6 +24,9 @@ import {
   TITLE_PROPERTY_ID,
   VERIFICATION_PROPERTY_ID,
   type PageSnapshot,
+  generateRegistryKeys,
+  signPlugin,
+  verifyPlugin,
 } from '@open-book/sdk';
 import {startServer} from '../src/server';
 
@@ -490,6 +493,48 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   });
 }
 
+
+async function exercisePlugins(baseUrl: string, client: HttpDataClient, mode: string): Promise<void> {
+  console.log(`\n[${mode}] extensions (plugins API)`);
+
+  const manifest = {id: 'acme.hello', name: 'Hello', version: '1.0.0', main: 'src/index.ts'};
+  const files = {'src/index.ts': 'export default function activate() {}'};
+
+  // Install (unsigned), list, fetch round-trip.
+  const installed = await client.installPlugin({manifest, files});
+  check('install returns the stored plugin', installed.manifest.id === 'acme.hello' && installed.enabled === true);
+  const listed = await client.listPlugins();
+  check('installed plugin is listed', listed.some((p) => p.manifest.id === 'acme.hello'));
+
+  // A signed package stores its signature verbatim and verifies client-side.
+  const keys = await generateRegistryKeys();
+  const signature = await signPlugin({manifest, files}, keys.privateKey, 'E2E Registry', keys.publicKey);
+  const signed = await client.installPlugin({manifest, files, signature});
+  check('signature survives the round-trip', signed.signature?.signature === signature.signature);
+  const verdict = await verifyPlugin(signed, [{name: 'E2E Registry', publicKey: keys.publicKey}]);
+  check('stored package verifies against the trusted key', verdict?.registry === 'E2E Registry');
+
+  // Validation: bad manifests and missing entries are rejected.
+  const badManifest = await fetch(`${baseUrl}${API.plugins}`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({manifest: {id: 'NoDots', name: 'x', version: '1', main: 'a.ts'}, files: {'a.ts': 'x'}}),
+  });
+  check('malformed id rejected (400)', badManifest.status === 400);
+  const noEntry = await fetch(`${baseUrl}${API.plugins}`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({manifest: {...manifest, main: 'missing.ts'}, files}),
+  });
+  check('missing entry file rejected (400)', noEntry.status === 400);
+
+  // Enable toggle + removal.
+  const disabled = await client.setPluginEnabled('acme.hello', false);
+  check('disable persists', disabled.enabled === false);
+  check('remove returns true', (await client.removePlugin('acme.hello')) === true);
+  check('removed plugin is gone', !(await client.listPlugins()).some((p) => p.manifest.id === 'acme.hello'));
+}
+
 async function main(): Promise<void> {
   rmSync(ROOT, {recursive: true, force: true});
 
@@ -511,6 +556,7 @@ async function main(): Promise<void> {
   await exerciseBackup(embeddedClient, 'embedded');
   await exerciseTrash(embeddedClient, 'embedded');
   await exerciseAi(server.url, embeddedClient, 'embedded');
+  await exercisePlugins(server.url, embeddedClient, 'embedded');
 
   // ---- 2. Persistence across restart ----
   console.log('\n=== 2. PERSISTENCE ACROSS RESTART ===');

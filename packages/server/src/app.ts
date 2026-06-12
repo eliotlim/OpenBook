@@ -5,6 +5,7 @@ import {API, type DatabaseInput, type DatabaseUpdate, type ImportRequest, type P
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {mountAiRoutes} from './ai/routes';
+import {mountPluginRoutes} from './pluginRoutes';
 import type {AiService} from './ai/service';
 
 /**
@@ -46,6 +47,7 @@ export function createApp(store: PageStore, ai?: AiService): Hono {
   // Optional local-AI subsystem (status/search/generate). Mounted only when
   // the host passed a service; document APIs never depend on it.
   if (ai) mountAiRoutes(app, ai, store);
+  mountPluginRoutes(app, store);
 
   app.get(API.health, (c) => c.text('ok'));
 
