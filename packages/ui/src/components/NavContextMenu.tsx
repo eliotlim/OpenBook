@@ -18,6 +18,7 @@ import {
   AppWindow,
   Columns2,
   Download,
+  GitFork,
   ExternalLink,
   FileCode,
   FileText,
@@ -39,7 +40,7 @@ import {
   subscribePageDocActions,
   type ExportKind,
 } from '@/lib/pageDocActions';
-import {HOME_PAGE_ID} from '@/lib/homePage';
+import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
 
 /** Menu copy + icon per export format, in display order. */
 const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: string; icon: typeof FileText}> = [
@@ -124,6 +125,13 @@ export default function NavContextMenu() {
         >
           <Columns2 className="mr-2 h-4 w-4" />
           {t('menu.openSplit')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!currentPageId || isHome}
+          onClick={() => openInSplit(FLOW_PANE_ID)}
+        >
+          <GitFork className="mr-2 h-4 w-4" />
+          {t('flow.open')}
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={!currentPageId}

@@ -169,6 +169,12 @@ export const ja: PartialMessages = {
     widgetEdited: '最近編集',
     justNow: 'たった今',
   },
+  flow: {
+    title: 'データフロー',
+    open: 'データフロー表示',
+    empty: 'このページにはまだリアクティブな要素がありません',
+    emptyHint: '名前付き入力・ライブコード・チャート・ステータスライトを追加すると、その配線がライブグラフとして表示されます。',
+  },
   mention: {
     label: 'ページにリンク',
     create: 'ページ「{name}」を作成',

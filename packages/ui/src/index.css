@@ -1034,6 +1034,13 @@ a.obe-mention {
 .obe-slash-label { font-size: 0.9rem; font-weight: 500; }
 .obe-slash-hint { font-size: 0.75rem; color: hsl(var(--muted-foreground)); white-space: nowrap; }
 
+/* Dataflow view: clicking a node walks you to its block in the editor. */
+@keyframes obe-locate-flash {
+  0% { background: hsl(var(--primary) / 0.14); }
+  100% { background: transparent; }
+}
+.obe-locate-flash { animation: obe-locate-flash 1.2s ease-out; border-radius: 8px; }
+
 /* Inline toolbar */
 .obe-toolbar {
   position: fixed;

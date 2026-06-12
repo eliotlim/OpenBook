@@ -173,6 +173,12 @@ export const en = {
     widgetEdited: 'Recently edited',
     justNow: 'just now',
   },
+  flow: {
+    title: 'Dataflow',
+    open: 'Dataflow view',
+    empty: 'Nothing reactive on this page yet',
+    emptyHint: 'Add named inputs, live code, charts or status lights — their wiring appears here as a live graph.',
+  },
   mention: {
     label: 'Link to page',
     create: 'Create page “{name}”',
