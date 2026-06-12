@@ -83,6 +83,7 @@ export const zh: PartialMessages = {
     addDatabase: '添加数据库',
     moveToTrash: '移到回收站',
     viewOptions: '视图选项',
+    options: '菜单',
     fullWidth: '全宽',
     favourite: '收藏',
     favorite: '添加到收藏',

@@ -2,22 +2,12 @@ import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {useHud, usePreferences, useTranslation} from '@/providers';
 import {t as bareT} from '@/i18n';
 import {IconPicker} from '@/components/IconPicker';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {cn} from '@/lib/utils';
-import {IconButton} from '@/components/ui/icon-button';
-import {Download, FileCode, FileText as FileTextIcon, FileType, MoreHorizontal, Trash2} from 'lucide-react';
 import {buildDocumentModel} from '@/export/documentModel';
 import {toMarkdown} from '@/export/toMarkdown';
 import {toPdf} from '@/export/toPdf';
 import {downloadBlob, downloadText, safeFilename} from '@/lib/download';
+import {registerPageDocActions, type ExportKind} from '@/lib/pageDocActions';
 // Type-only imports: the EditorJS class is loaded dynamically (client-only)
 // inside the effect below, so importing this module never pulls EditorJS's
 // browser-dependent bundle during SSR (e.g. the Next.js web shell). The default
@@ -538,7 +528,7 @@ const PageDocument: React.FC<PageDocumentProps> = ({
 
   // Export the page's *current* document (incl. unsaved edits) to a file.
   const handleExport = useCallback(
-    async (kind: 'md' | 'pdf-paged' | 'pdf-continuous' | 'html') => {
+    async (kind: ExportKind) => {
       const inst = editorJsInstance.current;
       if (!inst) return;
       const editorjs = await inst.save();
@@ -568,6 +558,21 @@ const PageDocument: React.FC<PageDocumentProps> = ({
     [title, icon, pageId, client],
   );
 
+  // Publish export/delete to the shell page menu (NavContextMenu) — the
+  // classic editor offers the document formats (no plugin authoring here).
+  const exportRef = useRef(handleExport);
+  exportRef.current = handleExport;
+  const deleteRef = useRef(onDelete);
+  deleteRef.current = onDelete;
+  useEffect(() => {
+    if (!pageId) return;
+    return registerPageDocActions(pageId, {
+      exportKinds: ['md', 'html', 'pdf-paged', 'pdf-continuous'],
+      runExport: (kind) => exportRef.current(kind),
+      deletePage: onDelete ? () => deleteRef.current?.() : undefined,
+    });
+  }, [pageId, !!onDelete]);
+
   // The title lives in a centered column; the editor is full-width and centers
   // its own content to the same width (so the toolbar/+ stays in the left gutter
   // and EditorJS never enters its narrow, right-aligned layout).
@@ -576,52 +581,11 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   const body = (
     <div className="w-full px-6 pb-40 pt-6 md:px-10">
       <div className={columnClass}>
-        {/* Page action bar: subtle save status + overflow menu. */}
+        {/* Save status only — page actions live in the shell menu (NavContextMenu). */}
         <div className="flex h-8 items-center justify-end gap-2 text-xs text-muted-foreground print:hidden">
           <span className={cn('transition-opacity', status === 'save failed' && 'text-destructive')}>
             {statusLabel}
           </span>
-          {pageId && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <IconButton aria-label={t('page.actions')}>
-                  <MoreHorizontal className="h-4 w-4" />
-                </IconButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <Download className="mr-2 h-4 w-4" />
-                    {t('page.export')}
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    <DropdownMenuItem onClick={() => void handleExport('md')}>
-                      <FileTextIcon className="mr-2 h-4 w-4" />
-                      {t('page.exportMarkdown')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => void handleExport('html')}>
-                      <FileCode className="mr-2 h-4 w-4" />
-                      {t('page.exportHtml')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => void handleExport('pdf-paged')}>
-                      <FileType className="mr-2 h-4 w-4" />
-                      {t('page.exportPdfPaged')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => void handleExport('pdf-continuous')}>
-                      <FileType className="mr-2 h-4 w-4" />
-                      {t('page.exportPdfContinuous')}
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-                {onDelete && (
-                  <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {t('page.delete')}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
         </div>
 
         <PageHeader

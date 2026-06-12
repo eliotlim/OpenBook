@@ -93,6 +93,7 @@ export const en = {
     addDatabase: 'Add database',
     moveToTrash: 'Move to trash',
     viewOptions: 'View options',
+    options: 'Menu',
     fullWidth: 'Full width',
     favourite: 'Favourite',
     sectionPage: 'Page',

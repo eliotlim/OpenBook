@@ -1,17 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import * as Y from 'yjs';
-import {Download, FileCode, FileText as FileTextIcon, FileType, MoreHorizontal, Puzzle, Trash2} from 'lucide-react';
 import type {PageSnapshot} from '@open-book/sdk';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {IconButton} from '@/components/ui/icon-button';
 import {BlockEditor} from '@/blockeditor/BlockEditor';
 import {
   createSeededDoc,
@@ -31,6 +20,7 @@ import {registerArtifactKit} from '@/blockeditor/kit';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
 import {pageHasPluginManifest} from '@/plugins';
+import {registerPageDocActions, type ExportKind} from '@/lib/pageDocActions';
 import {useConfirm, useHud, usePreferences, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
@@ -178,7 +168,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   // pipeline as classic pages — markdown, paged/continuous PDF, and the
   // interactive HTML site (live sliders/formulas, navigable subtree). A page
   // authored as a plugin additionally exports the install-ready zip itself.
-  const handleExport = async (kind: 'md' | 'pdf-paged' | 'pdf-continuous' | 'html' | 'plugin'): Promise<void> => {
+  const handleExport = async (kind: ExportKind): Promise<void> => {
     if (!doc) return;
     if (kind === 'plugin') {
       try {
@@ -221,6 +211,24 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     }
   };
 
+  // Publish this document's capabilities to the shell page menu (NavContextMenu).
+  // The handlers route through refs so the registration only churns when the
+  // *shape* changes (page or plugin-ness), not on every keystroke.
+  const exportRef = useRef(handleExport);
+  exportRef.current = handleExport;
+  const deleteRef = useRef(onDelete);
+  deleteRef.current = onDelete;
+  useEffect(() => {
+    if (!pageId || !doc) return;
+    const kinds: ExportKind[] = ['md', 'html', 'pdf-paged', 'pdf-continuous'];
+    if (isPlugin) kinds.push('plugin');
+    return registerPageDocActions(pageId, {
+      exportKinds: kinds,
+      runExport: (kind) => exportRef.current(kind),
+      deletePage: onDelete ? () => deleteRef.current?.() : undefined,
+    });
+  }, [pageId, doc, isPlugin, !!onDelete]);
+
   const statusLabel = status === 'saving' ? t('page.saving') : status === 'saved' ? t('page.saved') : status === 'save failed' ? t('page.saveFailed') : '';
   const columnClass = cn('mx-auto w-full', hud.viewMode.fullWidth ? 'max-w-none' : 'max-w-content');
 
@@ -229,55 +237,9 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const body = (
     <div className="w-full px-6 pb-40 pt-6 md:px-10">
       <div className={columnClass}>
+        {/* Save status only — page actions live in the shell menu (NavContextMenu). */}
         <div className="flex h-8 items-center justify-end gap-2 text-xs text-muted-foreground print:hidden">
           <span className={cn('transition-opacity', status === 'save failed' && 'text-destructive')}>{statusLabel}</span>
-          {pageId && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <IconButton aria-label={t('page.actions')}>
-                  <MoreHorizontal className="h-4 w-4" />
-                </IconButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <Download className="mr-2 h-4 w-4" />
-                    {t('page.export')}
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    <DropdownMenuItem onClick={() => void handleExport('md')}>
-                      <FileTextIcon className="mr-2 h-4 w-4" />
-                      {t('page.exportMarkdown')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => void handleExport('html')}>
-                      <FileCode className="mr-2 h-4 w-4" />
-                      {t('page.exportHtml')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => void handleExport('pdf-paged')}>
-                      <FileType className="mr-2 h-4 w-4" />
-                      {t('page.exportPdfPaged')}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => void handleExport('pdf-continuous')}>
-                      <FileType className="mr-2 h-4 w-4" />
-                      {t('page.exportPdfContinuous')}
-                    </DropdownMenuItem>
-                    {isPlugin && (
-                      <DropdownMenuItem onClick={() => void handleExport('plugin')}>
-                        <Puzzle className="mr-2 h-4 w-4" />
-                        {t('page.exportPlugin')}
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-                {onDelete && (
-                  <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    {t('page.delete')}
-                  </DropdownMenuItem>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
         </div>
 
         <PageHeader
