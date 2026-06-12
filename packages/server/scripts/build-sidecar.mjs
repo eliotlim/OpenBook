@@ -47,19 +47,28 @@ execFileSync('node', [join(here, 'copy-pglite-assets.mjs')], {stdio: 'inherit'})
 // pointed at the MLX/OpenAI-compatible providers.
 mkdirSync(binariesDir, {recursive: true});
 console.log(`Compiling OpenBook server sidecar -> ${outfile}`);
-execFileSync(
-  'bun',
-  [
-    'build',
-    join(serverDir, 'src', 'bin.bun.ts'),
-    '--compile',
-    '--external',
-    'node-llama-cpp',
-    '--external',
-    '@node-llama-cpp/*',
-    '--outfile',
-    outfile,
-  ],
-  {stdio: 'inherit'},
-);
+try {
+  execFileSync(
+    'bun',
+    [
+      'build',
+      join(serverDir, 'src', 'bin.bun.ts'),
+      '--compile',
+      '--external',
+      'node-llama-cpp',
+      '--external',
+      '@node-llama-cpp/*',
+      '--outfile',
+      outfile,
+    ],
+    {stdio: 'inherit'},
+  );
+} catch (err) {
+  if (err?.code === 'ENOENT') {
+    console.error('\nThe sidecar compiles with Bun, which is not on PATH.');
+    console.error('Install it from https://bun.sh (CI: oven-sh/setup-bun).');
+    process.exit(1);
+  }
+  throw err;
+}
 console.log('Done.');

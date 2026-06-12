@@ -122,6 +122,14 @@ jobs:
           node-version-file: ".nvmrc"
           cache: "pnpm"
 
+      # The server sidecar compiles with `bun build --compile`
+      # (packages/server/scripts/build-sidecar.mjs), invoked by Tauri's
+      # beforeBuildCommand on every platform.
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.14"
+
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
