@@ -17,6 +17,7 @@ import GeneralSettings from '@/components/GeneralSettings';
 import AiSettings from '@/components/AiSettings';
 import ExtensionsSettings from '@/components/ExtensionsSettings';
 import ProfileSettings from '@/components/settings/ProfileSettings';
+import {ProfileAvatar} from '@/components/ProfileAvatar';
 import CustomisationSettings from '@/components/settings/CustomisationSettings';
 import ConnectionSettings from '@/components/settings/ConnectionSettings';
 import AdminSettings from '@/components/settings/AdminSettings';
@@ -81,9 +82,7 @@ function ProfileChip({onClick}: {onClick: () => void}) {
       onClick={onClick}
       className="mt-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
     >
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-base leading-none">
-        {profile.avatar}
-      </span>
+      <ProfileAvatar profile={profile} className="h-7 w-7 text-[11px] [&[data-avatar-kind=emoji]]:text-base" />
       <span className="truncate text-sm font-medium">{name}</span>
     </button>
   );

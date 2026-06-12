@@ -9,15 +9,23 @@ import {
 import {Button} from '@/components/ui/button';
 import {InformationCircleIcon} from '@heroicons/react/24/outline';
 
-export default function AboutDialog() {
+/**
+ * Uncontrolled (no props) it renders its own "About" trigger button;
+ * controlled (open/onOpenChange) it is just the dialog — the profile menu
+ * opens it from a menu item.
+ */
+export default function AboutDialog({open, onOpenChange}: {open?: boolean; onOpenChange?: (open: boolean) => void} = {}) {
+  const controlled = open !== undefined;
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="ghost" className="flex grow gap-2">
-          <InformationCircleIcon className="h-4 w-4"/>
-          About
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {!controlled && (
+        <DialogTrigger asChild>
+          <Button variant="ghost" className="flex grow gap-2">
+            <InformationCircleIcon className="h-4 w-4"/>
+            About
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>About OpenBook</DialogTitle>

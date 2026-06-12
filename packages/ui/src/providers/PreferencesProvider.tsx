@@ -4,7 +4,10 @@ import React, {createContext, useCallback, useContext, useEffect, useMemo, useSt
 export interface ProfilePreferences {
   name: string;
   displayName: string;
+  /** Avatar emoji. Empty = derive a lettered (initials) avatar from the name. */
   avatar: string;
+  /** Avatar image as a small data URL. Takes precedence over the emoji. */
+  avatarImage: string;
   bio: string;
 }
 
@@ -26,7 +29,7 @@ export interface Preferences {
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
-  profile: {name: '', displayName: '', avatar: '🙂', bio: ''},
+  profile: {name: '', displayName: '', avatar: '', avatarImage: '', bio: ''},
   general: {confirmOnTrash: true, spellcheck: true, blockEditor: true},
 };
 
