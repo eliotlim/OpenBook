@@ -1,4 +1,5 @@
 import {test, expect, takeSnapshot} from './fixtures';
+import {SERVER} from './seed';
 
 const hudFullWidth = (page: import('@playwright/test').Page) =>
   page.evaluate(() => JSON.parse(localStorage.getItem('hud') || '{}')?.viewMode?.fullWidth ?? false);
@@ -74,4 +75,31 @@ test('page menu: rename, copy link, duplicate, split — and rename focuses the 
 
   await page.getByRole('menuitem', {name: 'Rename'}).click();
   await expect(page.getByLabel('Page title')).toBeFocused();
+});
+
+// Regression: cmdk ≥1.0 marks ENABLED items data-disabled="false", and a
+// presence-matching Tailwind variant greyed out and pointer-disabled every
+// row — keyboard still worked, so only a real CLICK catches this.
+test('command palette: items are clickable and not greyed out', async ({page, request}) => {
+  const res = await request.post(`${SERVER}/api/pages`, {
+    data: {name: `Palette Click ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}},
+  });
+  const {id, name} = (await res.json()) as {id: string; name: string};
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByPlaceholder(/Search pages or run a command/).fill(name);
+  const option = page.getByRole('option', {name: new RegExp(name)}).first();
+  await expect(option).toBeVisible();
+  const style = await option.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return {pointerEvents: cs.pointerEvents, opacity: cs.opacity};
+  });
+  expect(style.pointerEvents).not.toBe('none');
+  expect(Number(style.opacity)).toBe(1);
+
+  // A real mouse click on the row navigates to the page.
+  await option.click();
+  await expect(page).toHaveURL(new RegExp(`page=${id}`));
 });

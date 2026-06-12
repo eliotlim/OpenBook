@@ -156,7 +156,10 @@ const CommandItem = React.forwardRef<
         // click always lands on *this* div — the element that has cursor-pointer
         // — otherwise WKWebView hit-tests the child (cursor not pointer) and never
         // synthesizes the click.
-        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden aria-selected:bg-accent aria-selected:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_*]:pointer-events-none",
+        // data-[disabled=true] (not bare data-disabled): cmdk ≥1.0 sets
+        // data-disabled="false" on ENABLED items, and the presence-matching
+        // variant greyed out + pointer-disabled every row.
+        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden aria-selected:bg-accent aria-selected:text-accent-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_*]:pointer-events-none",
         className
       )}
     />
