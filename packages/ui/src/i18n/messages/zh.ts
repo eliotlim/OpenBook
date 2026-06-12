@@ -331,6 +331,7 @@ export const zh: PartialMessages = {
       textfield: {label: '文本框', hint: '具名文本输入'},
       radio: {label: '单选组', hint: '从多个选项中选一个'},
       checklist: {label: '多选清单', hint: '从多个选项中任选'},
+      dropdown: {label: '下拉选择', hint: '从列表中选择一项'},
       toggle: {label: '开关', hint: '具名开/关切换'},
       location: {label: '位置', hint: '带坐标的地点'},
       actionbutton: {label: '按钮', hint: '设置、步进或切换输入，或打开链接'},

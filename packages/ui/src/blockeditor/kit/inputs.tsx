@@ -48,6 +48,20 @@ const splitOptions = (raw: string): string[] =>
     .map((s) => s.trim())
     .filter(Boolean);
 
+/** Config checkbox: lay the options out as full-width interactive rows. */
+const WideField: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
+  <label className="obe-kit-field">
+    <span>full width</span>
+    <input
+      type="checkbox"
+      checked={Boolean(blockProp<boolean>(block, 'wide'))}
+      disabled={editor.readOnly}
+      aria-label="Full width"
+      onChange={(e) => set(editor, block, 'wide', e.target.checked)}
+    />
+  </label>
+);
+
 const OptionsField: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
   <label className="obe-kit-field obe-kit-field-grow">
     <span>options</span>
@@ -171,9 +185,10 @@ const RadioBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const name = blockProp<string>(block, 'name') ?? 'choice';
   const options = splitOptions(blockProp<string>(block, 'options') ?? '');
   const value = blockProp<string>(block, 'value') ?? null;
+  const wide = Boolean(blockProp<boolean>(block, 'wide'));
 
   return (
-    <div className="obe-kit obe-kit-radio" contentEditable={false} data-kit-name={name}>
+    <div className={`obe-kit obe-kit-radio${wide ? ' obe-kit-wide' : ''}`} contentEditable={false} data-kit-name={name}>
       <span className="obe-kit-label">{blockProp<string>(block, 'label') || name}</span>
       <div
         role="radiogroup"
@@ -202,6 +217,7 @@ const RadioBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
             disabled={editor.readOnly}
             onClick={() => set(editor, block, 'value', opt)}
           >
+            {wide && <span className="obe-kit-pill-dot" aria-hidden />}
             {opt}
           </button>
         ))}
@@ -212,6 +228,7 @@ const RadioBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
         <div className="obe-kit-config">
           <NameField block={block} editor={editor} />
           <OptionsField block={block} editor={editor} />
+          <WideField block={block} editor={editor} />
         </div>
       )}
     </div>
@@ -226,6 +243,7 @@ const ChecklistBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const options = splitOptions(blockProp<string>(block, 'options') ?? '');
   const selectedRaw = blockProp<string[]>(block, 'selected');
   const selected = new Set(Array.isArray(selectedRaw) ? selectedRaw : []);
+  const wide = Boolean(blockProp<boolean>(block, 'wide'));
 
   const toggle = (opt: string): void => {
     const next = new Set(selected);
@@ -235,7 +253,7 @@ const ChecklistBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   };
 
   return (
-    <div className="obe-kit obe-kit-checklist" contentEditable={false} data-kit-name={name}>
+    <div className={`obe-kit obe-kit-checklist${wide ? ' obe-kit-wide' : ''}`} contentEditable={false} data-kit-name={name}>
       <span className="obe-kit-label">{blockProp<string>(block, 'label') || name}</span>
       <div className="obe-kit-checks" role="group" aria-label={name}>
         {options.map((opt) => (
@@ -251,6 +269,45 @@ const ChecklistBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
         <div className="obe-kit-config">
           <NameField block={block} editor={editor} />
           <OptionsField block={block} editor={editor} />
+          <WideField block={block} editor={editor} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Dropdown (single pick from a select) ─────────────────────────────────────
+
+const DropdownBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
+  const [config, setConfig] = useState(false);
+  const name = blockProp<string>(block, 'name') ?? 'pick';
+  const options = splitOptions(blockProp<string>(block, 'options') ?? '');
+  const value = blockProp<string>(block, 'value') ?? '';
+  const wide = Boolean(blockProp<boolean>(block, 'wide'));
+
+  return (
+    <div className={`obe-kit obe-kit-dropdown${wide ? ' obe-kit-wide' : ''}`} contentEditable={false} data-kit-name={name}>
+      <span className="obe-kit-label">{blockProp<string>(block, 'label') || name}</span>
+      <select
+        className="obe-kit-select obe-kit-dropdown-select"
+        value={options.includes(value) ? value : ''}
+        aria-label={`${name} value`}
+        disabled={editor.readOnly}
+        onChange={(e) => set(editor, block, 'value', e.target.value)}
+      >
+        {!options.includes(value) && <option value="">—</option>}
+        {options.map((opt) => (
+          <option key={opt} value={opt}>
+            {opt}
+          </option>
+        ))}
+      </select>
+      <ConfigButton open={config} onClick={() => setConfig(!config)} />
+      {config && (
+        <div className="obe-kit-config">
+          <NameField block={block} editor={editor} />
+          <OptionsField block={block} editor={editor} />
+          <WideField block={block} editor={editor} />
         </div>
       )}
     </div>
@@ -474,6 +531,16 @@ export const INPUT_BLOCKS = [
       hint: 'Pick any of several options',
       keywords: 'checklist checkbox multi select options form',
       make: () => ({type: 'checklist', props: {name: 'checks', options: 'Alpha, Beta, Gamma', selected: []}}),
+    },
+  },
+  {
+    type: 'dropdown',
+    render: DropdownBlock,
+    slash: {
+      label: 'Dropdown',
+      hint: 'Pick one option from a select',
+      keywords: 'dropdown select choose option pick form menu',
+      make: () => ({type: 'dropdown', props: {name: 'pick', options: 'One, Two, Three', value: 'One'}}),
     },
   },
   {

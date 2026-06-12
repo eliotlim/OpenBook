@@ -199,6 +199,7 @@ const KIT_INPUT_VALUE: Record<string, (props: Record<string, unknown>) => unknow
   number: (p) => Number(p.value ?? 0),
   textfield: (p) => String(p.value ?? ''),
   radio: (p) => p.value ?? null,
+  dropdown: (p) => p.value ?? null,
   checklist: (p) => (Array.isArray(p.selected) ? p.selected : []),
   toggle: (p) => Boolean(p.value ?? false),
   location: (p) => ({lat: p.lat ?? null, lng: p.lng ?? null, label: p.labeltext ?? ''}),
@@ -211,9 +212,13 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
   // expression re-tokenizing; the export runtime evaluates exprs in document
   // order, so chained references resolve there exactly as in the editor).
   const inputs: Array<{id: string; name: string}> = [];
+  const propsById = new Map<string, Record<string, unknown>>();
   const collect = (list: BlockJSON[]): void => {
     for (const b of list) {
-      if (KIT_INPUT_VALUE[b.type] && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
+      if (KIT_INPUT_VALUE[b.type] && b.props?.name) {
+        inputs.push({id: b.id, name: String(b.props.name)});
+        propsById.set(b.id, b.props ?? {});
+      }
       if (b.type === 'code' && b.props?.live && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
       if (b.children) for (const child of b.children) collect([child, ...(child.children ?? [])]);
     }
@@ -330,7 +335,9 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         break;
       }
       case 'statuslight': {
-        out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.label ?? 'Status'), source: tokenize(String(b.props?.source ?? ''))}});
+        // A computed cell drives a real light (dot + label) in the export.
+        out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.label ?? 'Status'), source: tokenize(String(b.props?.source ?? '')), hidden: true}});
+        out.blocks.push({id: `${b.id}-light`, type: 'kitlight', data: {refCellId: b.id, label: String(b.props?.label ?? 'Status')}});
         i += 1;
         break;
       }
@@ -350,14 +357,23 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
       case 'textfield':
       case 'radio':
       case 'checklist':
+      case 'dropdown':
       case 'toggle': {
+        // These stay INTERACTIVE in the export — flipping a choice offline
+        // recomputes everything downstream, exactly like the editor.
         const read = KIT_INPUT_VALUE[b.type];
-        const value = read(b.props ?? {});
-        const shown = Array.isArray(value) ? value.join(', ') : String(value ?? '—');
         out.blocks.push({
           id: b.id,
-          type: 'paragraph',
-          data: {text: `<b>${String(b.props?.label ?? b.props?.name ?? b.type)}</b>: ${shown}`},
+          type: 'kitinput',
+          data: {
+            kind: b.type,
+            name: String(b.props?.name ?? b.type),
+            label: String(b.props?.label ?? b.props?.name ?? b.type),
+            options: String(b.props?.options ?? ''),
+            placeholder: String(b.props?.placeholder ?? ''),
+            wide: Boolean(b.props?.wide),
+            value: read(b.props ?? {}),
+          },
         });
         publish(b);
         i += 1;
@@ -386,10 +402,27 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         i += 1;
         break;
       }
-      case 'actionbutton':
-        // Buttons act on the live document; exports carry no equivalent action.
+      case 'actionbutton': {
+        const action = String(b.props?.action ?? 'increment');
+        const label = String(b.props?.btnlabel ?? 'Button');
+        if (action === 'link') {
+          const url = String(b.props?.url ?? '');
+          if (url) out.blocks.push({id: b.id, type: 'kitbutton', data: {label, action, url: /^https?:\/\//.test(url) ? url : `https://${url}`}});
+          i += 1;
+          break;
+        }
+        const target = inputs.find((x) => x.name === String(b.props?.target ?? ''));
+        if (target) {
+          const tprops = propsById.get(target.id) ?? {};
+          out.blocks.push({
+            id: b.id,
+            type: 'kitbutton',
+            data: {label, action, target: target.id, amount: Number(b.props?.amount ?? 1), min: tprops.min, max: tprops.max},
+          });
+        }
         i += 1;
         break;
+      }
       default:
         out.blocks.push({id: b.id, type: 'paragraph', data: {text: textHtml(b.text)}});
         i += 1;

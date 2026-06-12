@@ -55,12 +55,31 @@ interface ChartSpec {
  * across pages — cell ids are globally unique so the reactive runtime stays
  * correct even with many pages embedded at once).
  */
+interface KitInputSpec {
+  cell: string;
+  kind: string;
+}
+interface KitButtonSpec {
+  id: string;
+  action: string;
+  target: string;
+  amount: number;
+  min?: number;
+  max?: number;
+}
+interface KitLightSpec {
+  cell: string;
+}
+
 interface RenderCtx {
   values: Map<string, unknown>;
   nameByCell: Map<string, string>;
   sliders: SliderSpec[];
   exprs: ExprSpec[];
   charts: ChartSpec[];
+  inputs: KitInputSpec[];
+  buttons: KitButtonSpec[];
+  lights: KitLightSpec[];
   initialValues: Record<string, unknown>;
   /** Global chart counter (chart ids must be unique across the whole document). */
   chartSeq: {n: number};
@@ -310,9 +329,12 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
     case 'expr':
       ctx.exprs.push({cell: id, source: str(d.source)});
       if (ctx.values.has(id)) ctx.initialValues[id] = ctx.values.get(id);
-      html.push(
-        `<p class="reactive expr" data-cell="${id}"><code>${escapeHtml(str(d.name) || ctx.nameByCell.get(id) || 'expr')} = <span data-val>${escapeHtml(formatValue(ctx.values.get(id)))}</span></code></p>`,
-      );
+      // hidden exprs feed other blocks (status lights) without a readout
+      if (!d.hidden) {
+        html.push(
+          `<p class="reactive expr" data-cell="${id}"><code>${escapeHtml(str(d.name) || ctx.nameByCell.get(id) || 'expr')} = <span data-val>${escapeHtml(formatValue(ctx.values.get(id)))}</span></code></p>`,
+        );
+      }
       break;
     case 'chart': {
       const cid = `chart-${ctx.chartSeq.n++}`;
@@ -324,6 +346,66 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
         .filter(Boolean);
       ctx.charts.push({id: cid, cells, ...(d.kind ? {kind: str(d.kind), labels} : {})});
       html.push(`<figure class="chart" data-chart="${cid}"></figure>`);
+      break;
+    }
+    case 'kitinput': {
+      const kind = str(d.kind);
+      const label = escapeHtml(str(d.label) || str(d.name));
+      const wide = d.wide ? ' kit-wide' : '';
+      const options = str(d.options)
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean);
+      const value = ctx.values.has(id) ? ctx.values.get(id) : d.value;
+      ctx.initialValues[id] = value;
+      ctx.inputs.push({cell: id, kind});
+      if (kind === 'radio') {
+        const pills = options
+          .map(
+            (o) =>
+              `<button type="button" data-opt="${escapeHtml(o)}" class="kit-pill${o === value ? ' kit-on' : ''}">` +
+              `<span class="kit-dot"></span>${escapeHtml(o)}</button>`,
+          )
+          .join('');
+        html.push(`<div class="reactive kitinput kit-radio${wide}" data-cell="${id}"><span class="kit-label">${label}</span><div class="kit-options">${pills}</div></div>`);
+      } else if (kind === 'checklist') {
+        const selected = new Set(Array.isArray(value) ? (value as string[]) : []);
+        const checks = options
+          .map(
+            (o) =>
+              `<label class="kit-check"><input type="checkbox" data-opt="${escapeHtml(o)}"${selected.has(o) ? ' checked' : ''}> ${escapeHtml(o)}</label>`,
+          )
+          .join('');
+        html.push(`<div class="reactive kitinput kit-checklist${wide}" data-cell="${id}"><span class="kit-label">${label}</span><div class="kit-options">${checks}</div></div>`);
+      } else if (kind === 'dropdown') {
+        const opts = options.map((o) => `<option${o === value ? ' selected' : ''}>${escapeHtml(o)}</option>`).join('');
+        html.push(`<div class="reactive kitinput kit-dropdown${wide}" data-cell="${id}"><label class="kit-label">${label} <select>${opts}</select></label></div>`);
+      } else if (kind === 'toggle') {
+        html.push(
+          `<div class="reactive kitinput kit-toggle" data-cell="${id}"><label class="kit-label">${label} <input type="checkbox"${value ? ' checked' : ''}></label></div>`,
+        );
+      } else {
+        html.push(
+          `<div class="reactive kitinput kit-text${wide}" data-cell="${id}"><label class="kit-label">${label} <input type="text" value="${escapeHtml(String(value ?? ''))}" placeholder="${escapeHtml(str(d.placeholder))}"></label></div>`,
+        );
+      }
+      break;
+    }
+    case 'kitbutton': {
+      if (str(d.action) === 'link') {
+        html.push(`<p class="kitbtn"><a class="kit-btn" href="${escapeHtml(str(d.url))}" target="_blank" rel="noreferrer noopener">${escapeHtml(str(d.label))}</a></p>`);
+        break;
+      }
+      ctx.buttons.push({id, action: str(d.action), target: str(d.target), amount: num(d.amount, 1), ...(typeof d.min === 'number' ? {min: d.min} : {}), ...(typeof d.max === 'number' ? {max: d.max} : {})});
+      html.push(`<p class="kitbtn"><button type="button" class="kit-btn" data-btn="${id}">${escapeHtml(str(d.label))}</button></p>`);
+      break;
+    }
+    case 'kitlight': {
+      const cell = str(d.refCellId);
+      ctx.lights.push({cell});
+      html.push(
+        `<p class="reactive kitlight" data-light="${cell}"><span class="kit-light-dot"></span> ${escapeHtml(str(d.label))}</p>`,
+      );
       break;
     }
     default:
@@ -341,8 +423,21 @@ function loadSnapshot(snapshot: PageSnapshot, values: Map<string, unknown>, name
 
 /** Assemble the final HTML document from rendered body markup + collected specs. */
 function document_(bodyHtml: string, headTitle: string, ctx: RenderCtx, rootId?: string): string {
-  const live = ctx.sliders.length > 0 || ctx.exprs.length > 0 || ctx.charts.length > 0;
-  const data = {values: ctx.initialValues, sliders: ctx.sliders, exprs: ctx.exprs, charts: ctx.charts};
+  const live =
+    ctx.sliders.length > 0 || ctx.exprs.length > 0 || ctx.charts.length > 0 || ctx.inputs.length > 0 || ctx.buttons.length > 0;
+  // Seed EVERY persisted cell value, then overlay the render-time ones: an
+  // expression may read a name whose block isn't itself reactive in the
+  // export, and an unseeded cell poisons whole dependency chains (undefined
+  // .length throws → the expr dies → NaN everywhere downstream).
+  const data = {
+    values: {...Object.fromEntries(ctx.values), ...ctx.initialValues},
+    sliders: ctx.sliders,
+    exprs: ctx.exprs,
+    charts: ctx.charts,
+    inputs: ctx.inputs,
+    buttons: ctx.buttons,
+    lights: ctx.lights,
+  };
   // Kit charts draw themselves (drawKit in the runtime) — only classic
   // cell-driven charts need the vendored d3 + Observable Plot bundles.
   const libs = ctx.charts.some((c) => !c.kind) ? `<script>${escapeScript(d3Umd)}</script>\n<script>${escapeScript(plotUmd)}</script>\n` : '';
@@ -378,6 +473,9 @@ export function toHtml(rawSnapshot: PageSnapshot, title: string, icon: string): 
     sliders: [],
     exprs: [],
     charts: [],
+    inputs: [],
+    buttons: [],
+    lights: [],
     initialValues: {},
     chartSeq: {n: 0},
     anchorPrefix: '',
@@ -408,6 +506,9 @@ export function toHtmlSite(bundle: SiteBundle): string {
     sliders: [],
     exprs: [],
     charts: [],
+    inputs: [],
+    buttons: [],
+    lights: [],
     initialValues: {},
     chartSeq: {n: 0},
     anchorPrefix: '',
@@ -462,6 +563,30 @@ a.subpage:hover { background: rgba(127,127,127,.08); }
 .subpage.is-missing { opacity: .55; cursor: default; }
 .subpage__icon { font-size: 1.1em; line-height: 1; }
 .reactive { background: rgba(127,127,127,.06); border: 1px solid rgba(127,127,127,.16); border-radius: 8px; padding: 10px 12px; margin: 1em 0; }
+.kitinput { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.kit-label { font-weight: 600; font-size: .92rem; }
+.kit-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.kit-pill { font: inherit; font-size: .85rem; cursor: pointer; border: 1px solid rgba(127,127,127,.35); background: transparent; color: inherit; border-radius: 999px; padding: 3px 12px; display: inline-flex; align-items: center; gap: 8px; }
+.kit-pill .kit-dot { display: none; }
+.kit-pill.kit-on { background: #6366f1; border-color: #6366f1; color: #fff; }
+.kit-check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: .9rem; }
+.kit-check input, .kit-toggle input { accent-color: #6366f1; }
+.kitinput select, .kitinput input[type=text] { font: inherit; font-size: .9rem; color: inherit; background: transparent; border: 1px solid rgba(127,127,127,.35); border-radius: 6px; padding: 4px 8px; }
+.kit-wide { display: block; }
+.kit-wide .kit-label { display: block; margin-bottom: 8px; }
+.kit-wide .kit-options { flex-direction: column; }
+.kit-wide .kit-pill, .kit-wide .kit-check { width: 100%; border-radius: 8px; padding: 9px 14px; display: flex; justify-content: flex-start; }
+.kit-wide .kit-pill { background: transparent; color: inherit; }
+.kit-wide .kit-pill:hover, .kit-wide .kit-check:hover { background: rgba(127,127,127,.1); }
+.kit-wide .kit-pill .kit-dot { display: inline-block; width: 13px; height: 13px; border-radius: 999px; border: 1.5px solid rgba(127,127,127,.6); flex-shrink: 0; }
+.kit-wide .kit-pill.kit-on { background: rgba(99,102,241,.1); border-color: #6366f1; }
+.kit-wide .kit-pill.kit-on .kit-dot { border-color: #6366f1; background: radial-gradient(circle, #6366f1 0 38%, transparent 42%); }
+.kit-wide select { width: 100%; padding: 8px 10px; }
+.kit-btn { font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; border: 1px solid rgba(127,127,127,.35); background: rgba(127,127,127,.08); color: inherit; border-radius: 8px; padding: 6px 16px; text-decoration: none; display: inline-block; }
+.kit-btn:hover { background: rgba(127,127,127,.16); }
+.kitlight { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.kit-light-dot { width: 12px; height: 12px; border-radius: 999px; background: #9ca3af; box-shadow: 0 0 0 3px rgba(156,163,175,.25); }
+.kit-light-on .kit-light-dot { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
 .slider input[type=range] { vertical-align: middle; width: 60%; }
 .expr code { color: #4f46e5; }
 figure.chart { margin: 1.2em 0; }
@@ -568,6 +693,7 @@ function drawKit(v,kind,labels){
 function recompute(){
   for (const e of D.exprs) store.set(e.cell, evalExpr(e.source));
   for (const e of D.exprs){ const el=document.querySelector('[data-cell="'+e.cell+'"] [data-val]'); if(el) el.textContent = fmt(get(e.cell)); }
+  for (const l of (D.lights||[])){ const el=document.querySelector('[data-light="'+l.cell+'"]'); if(el) el.classList.toggle("kit-light-on", !!get(l.cell)); }
   for (const c of D.charts){
     const fig = document.querySelector('[data-chart="'+c.id+'"]'); if(!fig) continue;
     if (c.kind){ fig.innerHTML = drawKit(get(c.cells[0]), c.kind, c.labels||[]); continue; }
@@ -581,6 +707,53 @@ for (const s of D.sliders){
   const wrap = document.querySelector('[data-cell="'+s.cell+'"]'); if(!wrap) continue;
   const input = wrap.querySelector("input"), out = wrap.querySelector("output");
   input.addEventListener("input", () => { out.textContent = input.value; store.set(s.cell, Number(input.value)); recompute(); });
+}
+for (const inp of (D.inputs||[])){
+  const wrap = document.querySelector('[data-cell="'+inp.cell+'"]'); if(!wrap) continue;
+  if (inp.kind === "radio"){
+    const pills = Array.from(wrap.querySelectorAll("[data-opt]"));
+    pills.forEach(btn => btn.addEventListener("click", () => {
+      store.set(inp.cell, btn.dataset.opt);
+      pills.forEach(b => b.classList.toggle("kit-on", b === btn));
+      recompute();
+    }));
+  } else if (inp.kind === "checklist"){
+    const boxes = Array.from(wrap.querySelectorAll("input[type=checkbox]"));
+    boxes.forEach(b => b.addEventListener("change", () => {
+      store.set(inp.cell, boxes.filter(x => x.checked).map(x => x.dataset.opt));
+      recompute();
+    }));
+  } else if (inp.kind === "dropdown"){
+    const sel = wrap.querySelector("select");
+    sel.addEventListener("change", () => { store.set(inp.cell, sel.value); recompute(); });
+  } else if (inp.kind === "toggle"){
+    const box = wrap.querySelector("input[type=checkbox]");
+    box.addEventListener("change", () => { store.set(inp.cell, box.checked); recompute(); });
+  } else {
+    const t = wrap.querySelector("input[type=text]");
+    if (t) t.addEventListener("input", () => { store.set(inp.cell, t.value); recompute(); });
+  }
+}
+for (const b of (D.buttons||[])){
+  const el = document.querySelector('[data-btn="'+b.id+'"]'); if(!el) continue;
+  el.addEventListener("click", () => {
+    const cur = store.get(b.target);
+    let next = b.action === "toggle" ? !cur : b.action === "set" ? b.amount : (typeof cur === "number" ? cur : 0) + b.amount;
+    if (typeof next === "number"){
+      if (typeof b.min === "number") next = Math.max(b.min, next);
+      if (typeof b.max === "number") next = Math.min(b.max, next);
+    }
+    store.set(b.target, next);
+    // Mirror the target's visible control so the UI tracks the store.
+    const wrap = document.querySelector('[data-cell="'+b.target+'"]');
+    if (wrap){
+      const range = wrap.querySelector("input[type=range]");
+      if (range){ range.value = next; const out = wrap.querySelector("output"); if (out) out.textContent = String(next); }
+      const box = wrap.querySelector("input[type=checkbox]");
+      if (box && typeof next === "boolean") box.checked = next;
+    }
+    recompute();
+  });
 }
 recompute();
 `;

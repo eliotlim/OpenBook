@@ -350,6 +350,7 @@ export const en = {
       textfield: {label: 'Text field', hint: 'A named text input'},
       radio: {label: 'Radio group', hint: 'Pick one of several options'},
       checklist: {label: 'Choice checklist', hint: 'Pick any of several options'},
+      dropdown: {label: 'Dropdown', hint: 'Pick one option from a select'},
       toggle: {label: 'Toggle switch', hint: 'A named on/off switch'},
       location: {label: 'Location', hint: 'A place with coordinates'},
       actionbutton: {label: 'Button', hint: 'Set, step, or toggle an input — or open a link'},

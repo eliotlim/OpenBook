@@ -10,7 +10,7 @@ import {blockProp, blockType, rootBlocks, setBlockProp, walkBlocks, type BlockMa
  */
 
 /** Block types that publish a named value into the scope. */
-export const INPUT_TYPES = new Set(['slider', 'number', 'textfield', 'radio', 'checklist', 'location', 'toggle']);
+export const INPUT_TYPES = new Set(['slider', 'number', 'textfield', 'radio', 'checklist', 'dropdown', 'location', 'toggle']);
 
 /** The published value of one input block (shape depends on the type). */
 export function inputValue(block: BlockMap): unknown {
@@ -21,6 +21,7 @@ export function inputValue(block: BlockMap): unknown {
   case 'textfield':
     return String(blockProp<string>(block, 'value') ?? '');
   case 'radio':
+  case 'dropdown':
     return blockProp<string>(block, 'value') ?? null;
   case 'checklist': {
     const selected = blockProp<string[]>(block, 'selected');

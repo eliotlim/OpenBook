@@ -331,6 +331,7 @@ export const ja: PartialMessages = {
       textfield: {label: 'テキスト欄', hint: '名前付きテキスト入力'},
       radio: {label: 'ラジオグループ', hint: '選択肢からひとつ選ぶ'},
       checklist: {label: '選択チェックリスト', hint: '選択肢から複数選ぶ'},
+      dropdown: {label: 'ドロップダウン', hint: 'リストから1つ選択'},
       toggle: {label: 'トグルスイッチ', hint: '名前付きオン/オフスイッチ'},
       location: {label: '場所', hint: '座標つきの場所'},
       actionbutton: {label: 'ボタン', hint: '入力の設定・増減・切替、またはリンクを開く'},
