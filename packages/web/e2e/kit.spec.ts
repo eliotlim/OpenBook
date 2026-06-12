@@ -245,8 +245,9 @@ test('HTML export keeps a kit artifact computing offline', async ({page, request
   await download.saveAs(file);
   await page.goto(`file://${file}`);
   const exprs = page.locator('.reactive.expr [data-val]');
-  await expect(exprs.nth(0)).toHaveText('70');
-  await expect(exprs.nth(1)).toHaveText('70');
+  await expect(exprs.nth(0)).toHaveText('70'); // the formula readout
+  // The status light renders as a LIVE dot (its expr is hidden): 70 ≥ truthy.
+  await expect(page.locator('.kitlight')).toHaveClass(/kit-light-on/);
   // The kit chart exports as a DRAWN, kind-faithful plot over its cell:
   // three bars with their x labels, redrawn when the input moves.
   const fig = page.locator('figure[data-chart]');
@@ -256,9 +257,31 @@ test('HTML export keeps a kit artifact computing offline', async ({page, request
   await expect(fig.locator('svg text', {hasText: '20'})).toBeVisible();
   await page.locator('.reactive.slider input[type=range]').fill('3');
   await expect(exprs.nth(0)).toHaveText('30');
-  await expect(exprs.nth(1)).toHaveText('30');
   // …data max 9 → the axis rescales to a "5" tick.
   await expect(fig.locator('svg rect')).toHaveCount(3);
   await expect(fig.locator('svg text', {hasText: '5'})).toBeVisible();
   await expect(fig.locator('svg text', {hasText: '20'})).toHaveCount(0);
+});
+
+test('dropdown publishes its pick; full-width radio renders stacked rows', async ({page}) => {
+  await freshLab(page);
+  await insert(page, 'dropdown', 'Dropdown');
+  await insert(page, 'livecode', 'Live code');
+
+  const code = page.locator('.obe-codeblock-live');
+  await code.locator('.obe-text').click();
+  await page.keyboard.type('pick');
+  await expect(code.locator('.obe-code-out')).toContainText('result = One');
+  await page.locator('.obe-kit-dropdown select').selectOption('Two');
+  await expect(code.locator('.obe-code-out')).toContainText('result = Two');
+
+  // Full width: the ⚙ toggle relays out the radio as stacked rows with dots.
+  await insert(page, 'radio', 'Radio group');
+  const radio = page.locator('.obe-kit-radio');
+  await radio.getByRole('button', {name: 'Configure block'}).click();
+  await radio.getByLabel('Full width').check();
+  await expect(radio).toHaveClass(/obe-kit-wide/);
+  await expect(radio.locator('.obe-kit-pill-dot')).toHaveCount(3);
+  await radio.getByRole('radio', {name: 'Three'}).click();
+  await expect(radio.getByRole('radio', {name: 'Three'})).toHaveAttribute('aria-checked', 'true');
 });

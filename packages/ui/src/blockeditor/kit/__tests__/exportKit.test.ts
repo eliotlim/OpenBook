@@ -55,15 +55,32 @@ describe('kit export mappings', () => {
     expect(plot).toMatchObject({id: 'k1-plot', data: {refCellIds: ['k1']}});
   });
 
-  it('freezes text-ish inputs to readable paragraphs and links cards', () => {
+  it('keeps option inputs interactive (kitinput) and buttons working (kitbutton)', () => {
     const out = blocksToEditorJs(kitDoc());
+    const inputs = out.blocks.filter((b) => b.type === 'kitinput');
+    expect(inputs.map((b) => (b.data as {kind: string}).kind).sort()).toEqual(['checklist', 'radio', 'textfield']);
+    const radio = inputs.find((b) => (b.data as {kind: string}).kind === 'radio');
+    expect(radio).toMatchObject({id: 'r1', data: {name: 'mode', options: 'A, B', value: 'B'}});
+    // The button resolves its target name to the cell id, with clamp bounds.
+    const button = out.blocks.find((b) => b.type === 'kitbutton');
+    expect(button).toMatchObject({id: 'b1', data: {label: 'Go', action: 'increment', target: 'n1', min: 0, max: 10}});
+    // The status light renders as a live light fed by a hidden expr.
+    const light = out.blocks.find((b) => b.type === 'kitlight');
+    expect(light).toMatchObject({data: {refCellId: 's1', label: 'Health'}});
     const texts = out.blocks.filter((b) => b.type === 'paragraph').map((b) => (b.data as {text: string}).text);
-    expect(texts.some((t) => t.includes('<b>Name</b>: Ada'))).toBe(true);
-    expect(texts.some((t) => t.includes('<b>mode</b>: B'))).toBe(true);
-    expect(texts.some((t) => t.includes('a, b'))).toBe(true);
     expect(texts.some((t) => t.includes('<a href="https://example.com">Docs</a> — Read me'))).toBe(true);
-    // Buttons act on the live doc only — no export artifact.
-    expect(out.blocks.some((b) => JSON.stringify(b).includes('Go'))).toBe(false);
+  });
+
+  it('exports the dropdown as an interactive kitinput publishing its value', () => {
+    const out = blocksToEditorJs(
+      docToJSON(createDoc([{id: 'd1', type: 'dropdown', props: {name: 'region', options: 'EU, US', value: 'US'}}])),
+    );
+    expect(out.blocks.find((b) => b.type === 'kitinput')).toMatchObject({
+      id: 'd1',
+      data: {kind: 'dropdown', value: 'US'},
+    });
+    expect(out.values).toEqual(expect.arrayContaining([['d1', 'US']]));
+    expect(out.names).toEqual(expect.arrayContaining([['region', 'd1']]));
   });
 });
 

@@ -331,6 +331,7 @@ export const de: PartialMessages = {
       textfield: {label: 'Textfeld', hint: 'Eine benannte Texteingabe'},
       radio: {label: 'Optionsfeld', hint: 'Eine von mehreren Optionen wählen'},
       checklist: {label: 'Auswahl-Checkliste', hint: 'Beliebig viele Optionen wählen'},
+      dropdown: {label: 'Dropdown', hint: 'Eine Option aus einer Liste wählen'},
       toggle: {label: 'Schalter', hint: 'Ein benannter Ein/Aus-Schalter'},
       location: {label: 'Ort', hint: 'Ein Ort mit Koordinaten'},
       actionbutton: {label: 'Button', hint: 'Eingabe setzen, schrittweise ändern oder Link öffnen'},

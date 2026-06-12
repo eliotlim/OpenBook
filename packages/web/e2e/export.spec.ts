@@ -1,4 +1,5 @@
 import {test, expect, takeSnapshot} from './fixtures';
+import {readFileSync} from 'fs';
 import type {APIRequestContext, Page} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
 import {newPage as seedPage, SERVER, useClassicEditor} from './seed';
@@ -114,4 +115,75 @@ test('backup: export downloads a bundle and restore brings pages back', async ({
     await request.delete(`${SERVER}/api/pages/${p.id}`);
   }
   await request.delete(`${SERVER}/api/trash`);
+});
+
+// The full kit stays interactive offline: radio pills, checklists, dropdowns,
+// toggles and action buttons all drive multi-line live code, charts, and
+// status lights in the exported file — not just sliders.
+test('interactive HTML: option inputs and buttons drive code, charts, lights offline', async ({page, request, context}) => {
+  const res = await request.post(`${SERVER}/api/pages`, {
+    data: {
+      name: `Export kit ${Date.now()}`,
+      data: {
+        editor: 'blocks',
+        blockdoc: {
+          blocks: [
+            {id: 'sld', type: 'slider', props: {name: 'rate', value: 4, min: 0, max: 12}},
+            {id: 'rad', type: 'radio', props: {name: 'plan', options: 'Basic, Pro', value: 'Pro', wide: true}},
+            {id: 'dd', type: 'dropdown', props: {name: 'region', options: 'EU, US', value: 'EU'}},
+            {id: 'tgl', type: 'toggle', props: {name: 'turbo', value: true}},
+            {
+              id: 'lc',
+              type: 'code',
+              text: [{t: 'const base = plan === "Pro" ? 100 : 50;\nreturn base + (turbo ? 20 : 0) + rate * (region === "EU" ? 10 : 5);'}],
+              props: {live: true, name: 'total'},
+            },
+            {id: 'c1', type: 'kitchart', props: {kind: 'bar', title: 'bars', source: '[total, total * 2]', labels: 'T, 2T'}},
+            {id: 'btn', type: 'actionbutton', props: {btnlabel: 'Rate up', action: 'increment', target: 'rate', amount: 2}},
+            {id: 'light', type: 'statuslight', props: {label: 'Big', source: 'total > 150'}},
+          ],
+        },
+        editorjs: {blocks: []},
+        values: [],
+        names: [],
+      },
+    },
+  });
+  const {id} = (await res.json()) as {id: string};
+  await page.goto(`/?page=${id}`);
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  await page.getByRole('button', {name: 'Page actions'}).click();
+  await page.getByRole('menuitem', {name: 'Export'}).click();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('menuitem', {name: 'Interactive HTML'}).click(),
+  ]);
+  const html = readFileSync((await download.path())!, 'utf8');
+
+  const viewer = await context.newPage();
+  await viewer.route('**/*', (route) => route.abort());
+  await viewer.setContent(html, {waitUntil: 'load'});
+
+  const total = viewer.locator('[data-cell="lc"] [data-val]');
+  // Pro(100) + turbo(20) + 4 × EU(10) = 160 → the light is on.
+  await expect(total).toHaveText('160');
+  await expect(viewer.locator('.kitlight')).toHaveClass(/kit-light-on/);
+
+  // Wide radio: full-width pills with dots; flipping recomputes.
+  await expect(viewer.locator('.kit-radio.kit-wide .kit-dot')).toHaveCount(2);
+  await viewer.locator('.kit-radio [data-opt="Basic"]').click();
+  await expect(total).toHaveText('110');
+  await expect(viewer.locator('.kitlight')).not.toHaveClass(/kit-light-on/);
+
+  // Dropdown + toggle + button all keep working offline.
+  await viewer.locator('.kit-dropdown select').selectOption('US');
+  await expect(total).toHaveText('90');
+  await viewer.locator('.kit-toggle input').uncheck();
+  await expect(total).toHaveText('70');
+  await viewer.locator('[data-btn="btn"]').click();
+  await expect(total).toHaveText('80');
+
+  // The chart redraws from the recomputed cell (bar rects present).
+  await expect.poll(() => viewer.locator('[data-chart] rect').count()).toBeGreaterThan(1);
+  await viewer.close();
 });

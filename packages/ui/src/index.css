@@ -1318,6 +1318,54 @@ a.obe-mention {
 }
 .obe-kit-check input { accent-color: hsl(var(--primary)); }
 
+/* Full-width option variants: options become stacked, card-like rows that
+   read as a form — same classes in the editor and the HTML export. */
+.obe-kit.obe-kit-wide { flex-wrap: wrap; }
+.obe-kit-wide > .obe-kit-label { width: 100%; }
+.obe-kit-wide .obe-kit-pills, .obe-kit-wide .obe-kit-checks {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  width: 100%;
+}
+.obe-kit-wide .obe-kit-pill, .obe-kit-wide .obe-kit-check {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  padding: 0.5rem 0.8rem;
+  font-size: 0.88rem;
+  transition: border-color 120ms, background 120ms;
+}
+.obe-kit-wide .obe-kit-pill:hover, .obe-kit-wide .obe-kit-check:hover {
+  background: hsl(var(--accent));
+}
+.obe-kit-wide .obe-kit-pill { color: hsl(var(--foreground)); }
+.obe-kit-wide .obe-kit-pill-on {
+  background: hsl(var(--primary) / 0.08);
+  border-color: hsl(var(--primary));
+}
+.obe-kit-pill-dot {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 999px;
+  border: 1.5px solid hsl(var(--muted-foreground) / 0.5);
+  flex-shrink: 0;
+}
+.obe-kit-pill-on .obe-kit-pill-dot {
+  border-color: hsl(var(--primary));
+  background: radial-gradient(circle, hsl(var(--primary)) 0 38%, transparent 42%);
+}
+.obe-kit-dropdown-select { min-width: 9rem; }
+.obe-kit-wide .obe-kit-dropdown-select {
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.88rem;
+}
+
 /* Toggle switch */
 .obe-kit-switch {
   width: 2.4rem;
