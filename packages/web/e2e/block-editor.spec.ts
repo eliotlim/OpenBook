@@ -87,6 +87,31 @@ test('slash menu inserts blocks; query filters; Escape closes', async ({page}, t
   await expect(page.locator('.obe-slash')).toBeHidden();
 });
 
+// Regression: the editor folds fixed popups on document scroll via a CAPTURE
+// listener — which also saw the slash menu's own internal scroll and closed
+// it the moment you tried to browse a long item list.
+test('slash menu scrolls internally without closing', async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/');
+  const menu = page.locator('.obe-slash');
+  await expect(menu).toBeVisible();
+
+  // The full item list overflows the menu's max height.
+  const overflowing = await menu.evaluate((el) => el.scrollHeight > el.clientHeight);
+  expect(overflowing).toBe(true);
+
+  // Wheel over the menu scrolls it — and the menu stays open and live
+  // (typing still filters).
+  await menu.hover();
+  await page.mouse.wheel(0, 150);
+  await expect.poll(() => menu.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+  await expect(menu).toBeVisible();
+  await page.keyboard.type('table');
+  await expect(page.locator('.obe-slash-item')).toHaveCount(1);
+});
+
 test('inline toolbar formats a selection as bold rich-text runs', async ({page}) => {
   await freshLab(page);
   // Select the word "scratch" in the intro paragraph.

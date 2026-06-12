@@ -346,7 +346,10 @@ export const BlockEditor: React.FC<{
     };
     const onCopy = (e: ClipboardEvent): void => onClipboard(e, false);
     const onCut = (e: ClipboardEvent): void => onClipboard(e, true);
-    const onScroll = (): void => {
+    const onScroll = (e: Event): void => {
+      // Scrolling INSIDE the slash menu is the menu working as intended —
+      // this listener captures, so its own overflow scroll lands here too.
+      if (e.target instanceof Element && e.target.closest('.obe-slash')) return;
       // Fixed-position popups don't track the page — fold them on scroll.
       if (uiRef.current.slash.open) uiRef.current.closeSlash();
       setToolbar(null);

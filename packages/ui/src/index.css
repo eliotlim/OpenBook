@@ -1007,6 +1007,9 @@ a.obe-mention {
   width: 17rem;
   max-height: 19rem;
   overflow-y: auto;
+  /* Don't chain to the document scroller at the list's ends — an outer
+     scroll folds the menu (BlockEditor's capture listener). */
+  overscroll-behavior: contain;
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
   border-radius: 10px;
