@@ -45,7 +45,7 @@ const ChoiceCardsBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const isOn = (val: string): boolean => (multi ? selected.has(val) : value === val);
 
   const control = (
-    <div className="obe-kit-cards" role={multi ? 'group' : 'radiogroup'} aria-label={name}>
+    <div className="obe-kit-cardgrid" role={multi ? 'group' : 'radiogroup'} aria-label={name}>
       {options.map((opt) => (
         <button
           key={opt.value}

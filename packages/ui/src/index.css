@@ -1903,8 +1903,12 @@ a.obe-mention {
 
 /* ── June-2026 kit inputs ──────────────────────────────────────────────────── */
 
-/* Choice cards: a grid of selectable cards with an image/icon/colour cover. */
-.obe-kit-cards {
+/* Choice cards: a grid of selectable cards with an image/icon/colour cover.
+   Note: the class is `obe-kit-cardgrid`, NOT `obe-kit-cards` — the KitFrame root
+   carries `obe-kit-${kind}` = `obe-kit-cards` for kind="cards", so reusing that
+   name here would turn the frame itself into a grid and break the head/body
+   layout. */
+.obe-kit-cardgrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
   gap: 0.5rem;
