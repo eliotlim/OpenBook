@@ -99,6 +99,7 @@ jobs:
       - name: nx release — version, changelog, tag, GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HUSKY: "0"
         run: npx nx release --skip-publish
 
   # Build the desktop bundles per-OS and attach them to the release nx just
