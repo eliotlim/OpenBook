@@ -113,19 +113,18 @@ export function AccentPicker({
   );
 }
 
-/** Neutral temperature (warm / cool / gray / match-the-accent). */
+/** Neutral gray temperature (warm / cool / neutral). */
 export function NeutralPicker({value, onChange}: {value: NeutralFamily; onChange: (v: NeutralFamily) => void}) {
   const {t} = useTranslation();
   const opts: Array<{value: NeutralFamily; label: string}> = [
     {value: 'warm', label: t('appearance.neutralWarm')},
     {value: 'cool', label: t('appearance.neutralCool')},
-    {value: 'gray', label: t('appearance.neutralGray')},
-    {value: 'match', label: t('appearance.neutralMatch')},
+    {value: 'neutral', label: t('appearance.neutralNeutral')},
   ];
   return <Segmented options={opts} value={value} onChange={onChange} />;
 }
 
-/** A 0–3 level picker (tint strength / control-accent intensity). */
+/** A 0–3 level picker (interface intensity / control intensity). */
 export function LevelPicker({
   value,
   onChange,

@@ -7,6 +7,7 @@ import {useNavigation, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {readFavorites, subscribeFavorites} from '@/lib/favorites';
 import {readRecents, subscribeRecents} from '@/lib/recents';
+import {SIDEBAR_ACTIVE, SIDEBAR_HOVER} from '@/lib/sidebarStyles';
 import {cn} from '@/lib/utils';
 import {t as bareT} from '@/i18n';
 
@@ -83,8 +84,9 @@ export function SidebarPageRow({page}: {page: PageMeta}) {
         <div
           onClick={() => selectPage(page.id)}
           className={cn(
-            'mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-foreground/75 transition-colors hover:bg-accent',
-            selected && 'bg-accent font-medium text-foreground',
+            'mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-foreground/75 transition-colors',
+            SIDEBAR_HOVER,
+            selected && cn(SIDEBAR_ACTIVE, 'font-medium'),
           )}
         >
           <span className="mr-2 h-4 w-4 shrink-0 text-center text-xs leading-4" aria-hidden="true">

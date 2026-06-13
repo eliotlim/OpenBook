@@ -150,33 +150,35 @@
   }
 
   .dark {
-    /* Refined dark palette: main surface dark, sidebar slightly lighter */
-    --background: 0 0% 11%;
-    --foreground: 0 0% 87%;
-    --card: 0 0% 14.5%;
-    --card-foreground: 0 0% 87%;
-    --popover: 0 0% 15%;
-    --popover-foreground: 0 0% 87%;
-    --primary: 207 80% 57%;
+    /* Refined dark palette: main surface dark, sidebar slightly lighter.
+       Softened 2026-06-13: lifted the base, eased the text, and calmed the
+       accent so dark mode reads less harsh (lower contrast, less glare). */
+    --background: 0 0% 13%;
+    --foreground: 0 0% 82%;
+    --card: 0 0% 16%;
+    --card-foreground: 0 0% 82%;
+    --popover: 0 0% 16.5%;
+    --popover-foreground: 0 0% 82%;
+    --primary: 207 68% 55%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 17%;
-    --secondary-foreground: 0 0% 87%;
-    --muted: 0 0% 17%;
-    --muted-foreground: 0 0% 55%;
-    --accent: 0 0% 21%;
-    --accent-foreground: 0 0% 92%;
-    --destructive: 4 64% 51%;
+    --secondary: 0 0% 18.5%;
+    --secondary-foreground: 0 0% 82%;
+    --muted: 0 0% 18.5%;
+    --muted-foreground: 0 0% 56%;
+    --accent: 0 0% 22%;
+    --accent-foreground: 0 0% 86%;
+    --destructive: 4 58% 52%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 20%;
-    --input: 0 0% 25%;
-    --ring: 207 80% 57%;
-    --sheet-1: 0 0% 14%;
-    --sheet-1-foreground: 0 0% 87%;
-    --sheet-2: 0 0% 17.5%;
-    --sheet-2-foreground: 0 0% 87%;
-    --brand: 207 80% 60%;
+    --border: 0 0% 22%;
+    --input: 0 0% 26%;
+    --ring: 207 68% 55%;
+    --sheet-1: 0 0% 15.5%;
+    --sheet-1-foreground: 0 0% 82%;
+    --sheet-2: 0 0% 18.5%;
+    --sheet-2-foreground: 0 0% 82%;
+    --brand: 207 70% 57%;
     --brand-foreground: 0 0% 100%;
-    --brand-subtle: 208 55% 21%;
+    --brand-subtle: 208 48% 22%;
   }
 
   html,

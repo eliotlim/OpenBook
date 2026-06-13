@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   applyAppearance,
+  normalizeAppearance,
   themes,
   DEFAULT_THEME_ID,
   DEFAULT_APPEARANCE,
@@ -42,7 +43,7 @@ function readStoredAppearance(): AppearanceOptions {
   if (typeof window === 'undefined') return DEFAULT_APPEARANCE;
   try {
     const raw = localStorage.getItem(APPEARANCE_KEY);
-    if (raw) return {...DEFAULT_APPEARANCE, ...(JSON.parse(raw) as Partial<AppearanceOptions>)};
+    if (raw) return {...DEFAULT_APPEARANCE, ...normalizeAppearance(JSON.parse(raw) as Record<string, unknown>)};
   } catch {
     // fall through to the legacy/default path
   }

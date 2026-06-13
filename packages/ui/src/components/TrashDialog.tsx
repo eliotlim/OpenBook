@@ -11,11 +11,13 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
-import {Kbd} from '@/components/ui/kbd';
+import {Kbd, ShortcutTooltip} from '@/components/ui/kbd';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {useData} from '@/data';
 import {useConfirm, useHud, useNavigation, useTranslation} from '@/providers';
 import {SHORTCUTS} from '@/lib/shortcuts';
+import {SIDEBAR_HOVER} from '@/lib/sidebarStyles';
+import {cn} from '@/lib/utils';
 
 const displayName = (name: string | null): string =>
   name && name.trim().length > 0 ? name : 'Untitled';
@@ -138,17 +140,19 @@ export default function TrashDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {/* A nav row under Settings — same anatomy as the launcher above it. */}
-      <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          className="flex h-7 grow justify-start gap-2 px-2 text-muted-foreground hover:text-foreground"
-          aria-label="Trash"
-        >
-          <Trash2 className="h-4 w-4 shrink-0" />
-          <span className="grow text-left">{t('nav.trash')}</span>
-          <Kbd combo={SHORTCUTS.openTrash} />
-        </Button>
-      </DialogTrigger>
+      <ShortcutTooltip combo={SHORTCUTS.openTrash} label={t('nav.trash')}>
+        <DialogTrigger asChild>
+          <Button
+            variant="ghost"
+            className={cn('flex h-7 grow justify-start gap-2 px-2 text-muted-foreground', SIDEBAR_HOVER)}
+            aria-label="Trash"
+          >
+            <Trash2 className="h-4 w-4 shrink-0" />
+            <span className="grow text-left">{t('nav.trash')}</span>
+            <Kbd combo={SHORTCUTS.openTrash} />
+          </Button>
+        </DialogTrigger>
+      </ShortcutTooltip>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
           <DialogTitle>Trash</DialogTitle>

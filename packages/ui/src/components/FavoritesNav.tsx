@@ -8,6 +8,7 @@ import {SidebarSection} from '@/components/SidebarSections';
 import {useNavigation, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {readFavorites, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
+import {SIDEBAR_ACTIVE, SIDEBAR_HOVER} from '@/lib/sidebarStyles';
 import {cn} from '@/lib/utils';
 import {t} from '@/i18n';
 
@@ -53,8 +54,9 @@ export default function FavoritesNav() {
                 <div
                   onClick={() => selectPage(page.id)}
                   className={cn(
-                    'group/fav mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-foreground/75 transition-colors hover:bg-accent',
-                    selected && 'bg-accent font-medium text-foreground',
+                    'group/fav mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-foreground/75 transition-colors',
+                    SIDEBAR_HOVER,
+                    selected && cn(SIDEBAR_ACTIVE, 'font-medium'),
                   )}
                 >
                   <span className="mr-2 h-4 w-4 shrink-0 text-center text-xs leading-4" aria-hidden="true">

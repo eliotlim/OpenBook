@@ -22,15 +22,21 @@ export default function SideNav() {
             <WorkspaceSelectMenu />
           </div>
         )}
-        <div className="flex flex-col gap-0.5 px-2 pb-1 pt-1">
+        <div className="flex flex-col gap-0.5 px-2 pb-1.5 pt-1">
           <HomeButton />
           <CommandToggle />
           <SettingsButton />
           <TrashDialog />
         </div>
-        <FavoritesNav />
-        <SuggestedNav />
-        <div className="mt-1 min-h-0 flex-1 overflow-hidden">
+        {/* Separate the action buttons from the navigable content below. */}
+        <div className="mx-3 border-t border-border/60" />
+        {/* Favourites + recent — scrollable, so a long list never crowds out the
+            page tree (which keeps the remaining space). */}
+        <div className="min-h-0 max-h-[42%] shrink-0 overflow-y-auto py-1">
+          <FavoritesNav />
+          <SuggestedNav />
+        </div>
+        <div className="mt-1 min-h-0 flex-1 overflow-hidden border-t border-border/40">
           <WorkspaceNavigationTree />
         </div>
         <div className="flex items-center border-t border-border/60 px-2 py-1.5">

@@ -7,7 +7,7 @@ import {
   DEFAULT_APPEARANCE,
   composeAppearance,
   mergeAppearance,
-  type AppearanceOptions,
+  normalizeAppearance,
 } from '../themes';
 
 const satOf = (triple: string): number => Number(triple.replace(/%/g, '').split(/\s+/)[1]);
@@ -38,7 +38,7 @@ describe('themes', () => {
     expect(root.style.getPropertyValue('--brand-subtle')).toBe('221 86% 95%');
 
     applyTheme(getTheme('default'), 'dark');
-    expect(root.style.getPropertyValue('--primary')).toBe('207 80% 57%');
+    expect(root.style.getPropertyValue('--primary')).toBe('207 68% 55%');
   });
 });
 
@@ -62,32 +62,32 @@ describe('composeAppearance', () => {
     expect(satOf(t.muted)).toBe(0);
     expect(satOf(t.accent)).toBe(0);
     expect(satOf(t.background)).toBe(0);
-    expect(t.primary).toBe('207 80% 57%');
+    expect(t.primary).toBe('207 68% 55%');
   });
 
-  it('"match" pulls the neutral surfaces toward the accent hue', () => {
-    const opts: AppearanceOptions = {...DEFAULT_APPEARANCE, themeId: 'forest', neutral: 'match'};
-    const t = composeAppearance(opts, 'light');
-    expect(hueOf(t.muted)).toBe(142); // forest's hue, not warm 40
+  it('"cool" swings the neutral surfaces to a cool hue', () => {
+    const t = composeAppearance({...DEFAULT_APPEARANCE, neutral: 'cool'}, 'light');
+    expect(hueOf(t.muted)).toBe(220); // cool, not warm 40
     expect(satOf(t.muted)).toBeGreaterThan(0);
   });
 
-  it('"gray" fully desaturates the neutral surfaces', () => {
-    const t = composeAppearance({...DEFAULT_APPEARANCE, neutral: 'gray', tint: 3}, 'light');
+  it('"neutral" fully desaturates the surfaces (true gray)', () => {
+    const t = composeAppearance({...DEFAULT_APPEARANCE, neutral: 'neutral', interfaceIntensity: 3}, 'light');
     expect(satOf(t.muted)).toBe(0);
     expect(satOf(t.sheet1)).toBe(0);
+    expect(satOf(t.accent)).toBe(0);
   });
 
-  it('the tint level scales the interface saturation', () => {
-    const off = composeAppearance({...DEFAULT_APPEARANCE, tint: 0}, 'light');
-    const strong = composeAppearance({...DEFAULT_APPEARANCE, tint: 3}, 'light');
+  it('interface intensity scales the surface saturation', () => {
+    const off = composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 0}, 'light');
+    const strong = composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 3}, 'light');
     expect(satOf(off.muted)).toBe(0);
     expect(satOf(strong.muted)).toBeGreaterThan(satOf(composeAppearance(DEFAULT_APPEARANCE, 'light').muted));
   });
 
-  it('control-accent intensity scales --accent (0 = neutral)', () => {
-    const soft = composeAppearance({...DEFAULT_APPEARANCE, accentIntensity: 0}, 'light');
-    const vivid = composeAppearance({...DEFAULT_APPEARANCE, accentIntensity: 3}, 'light');
+  it('control intensity scales --accent (0 = neutral)', () => {
+    const soft = composeAppearance({...DEFAULT_APPEARANCE, controlIntensity: 0}, 'light');
+    const vivid = composeAppearance({...DEFAULT_APPEARANCE, controlIntensity: 3}, 'light');
     expect(satOf(soft.accent)).toBe(0);
     expect(satOf(vivid.accent)).toBeGreaterThan(12);
   });
@@ -101,13 +101,26 @@ describe('composeAppearance', () => {
 
 describe('mergeAppearance', () => {
   it('overlays only the provided keys and ignores undefined', () => {
-    const merged = mergeAppearance(DEFAULT_APPEARANCE, {neutral: 'cool', tint: undefined});
+    const merged = mergeAppearance(DEFAULT_APPEARANCE, {neutral: 'cool', interfaceIntensity: undefined});
     expect(merged.neutral).toBe('cool');
-    expect(merged.tint).toBe(DEFAULT_APPEARANCE.tint);
+    expect(merged.interfaceIntensity).toBe(DEFAULT_APPEARANCE.interfaceIntensity);
     expect(merged.themeId).toBe(DEFAULT_APPEARANCE.themeId);
   });
 
   it('returns the base unchanged for a null override', () => {
     expect(mergeAppearance(DEFAULT_APPEARANCE, null)).toEqual(DEFAULT_APPEARANCE);
+  });
+});
+
+describe('normalizeAppearance (migration)', () => {
+  it('maps the old tint / accentIntensity / neutral keys to the new model', () => {
+    const out = normalizeAppearance({tint: 3, accentIntensity: 1, neutral: 'gray'});
+    expect(out).toEqual({interfaceIntensity: 3, controlIntensity: 1, neutral: 'neutral'});
+    expect(normalizeAppearance({neutral: 'match'}).neutral).toBe('warm');
+  });
+
+  it('leaves an already-current override untouched', () => {
+    const cur = {neutral: 'cool', interfaceIntensity: 1, controlIntensity: 2};
+    expect(normalizeAppearance(cur)).toEqual(cur);
   });
 });

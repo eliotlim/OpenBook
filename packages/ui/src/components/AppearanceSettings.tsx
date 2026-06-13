@@ -38,12 +38,12 @@ export default function AppearanceSettings() {
         />
       </Field>
 
-      <Field label={t('appearance.interfaceTint')} hint={t('appearance.interfaceTintHint')}>
+      <Field label={t('appearance.interfaceIntensity')} hint={t('appearance.interfaceIntensityHint')}>
         <NeutralPicker value={appearance.neutral} onChange={(neutral) => setAppearance({neutral})} />
         <div className="mt-1.5">
           <LevelPicker
-            value={appearance.tint}
-            onChange={(tint) => setAppearance({tint})}
+            value={appearance.interfaceIntensity}
+            onChange={(interfaceIntensity) => setAppearance({interfaceIntensity})}
             labels={[
               t('appearance.levelOff'),
               t('appearance.levelSubtle'),
@@ -54,10 +54,10 @@ export default function AppearanceSettings() {
         </div>
       </Field>
 
-      <Field label={t('appearance.controlAccent')} hint={t('appearance.controlAccentHint')}>
+      <Field label={t('appearance.controlIntensity')} hint={t('appearance.controlIntensityHint')}>
         <LevelPicker
-          value={appearance.accentIntensity}
-          onChange={(accentIntensity) => setAppearance({accentIntensity})}
+          value={appearance.controlIntensity}
+          onChange={(controlIntensity) => setAppearance({controlIntensity})}
           labels={[
             t('appearance.levelSoft'),
             t('appearance.levelMedium'),

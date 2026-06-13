@@ -14,6 +14,7 @@ import {useSyncExternalStore} from 'react';
 import {
   appearanceStyle,
   mergeAppearance,
+  normalizeAppearance,
   type AppearanceOptions,
   type AppearanceOverride,
 } from '@/lib/themes';
@@ -33,7 +34,7 @@ export function readPageTheme(pageId: string): AppearanceOverride | null {
   if (typeof localStorage === 'undefined' || !pageId) return null;
   try {
     const raw = localStorage.getItem(themeKey(pageId));
-    return raw ? (JSON.parse(raw) as AppearanceOverride) : null;
+    return raw ? normalizeAppearance(JSON.parse(raw) as Record<string, unknown>) : null;
   } catch {
     return null;
   }
@@ -75,7 +76,7 @@ function pageThemeSnapshot(pageId: string): AppearanceOverride | null {
   if (cached && cached.raw === raw) return cached.value;
   let value: AppearanceOverride | null = null;
   try {
-    value = raw ? (JSON.parse(raw) as AppearanceOverride) : null;
+    value = raw ? normalizeAppearance(JSON.parse(raw) as Record<string, unknown>) : null;
   } catch {
     value = null;
   }

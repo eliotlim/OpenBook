@@ -66,12 +66,12 @@ export function PageThemeControl({pageId}: {pageId: string}) {
 
         <AccentPicker value={eff.themeId} onChange={(themeId) => set({themeId})} scheme={colorScheme} />
 
-        <Field label={t('appearance.interfaceTint')}>
+        <Field label={t('appearance.interfaceIntensity')}>
           <NeutralPicker value={eff.neutral} onChange={(neutral) => set({neutral})} />
           <div className="mt-1.5">
             <LevelPicker
-              value={eff.tint}
-              onChange={(tint) => set({tint})}
+              value={eff.interfaceIntensity}
+              onChange={(interfaceIntensity) => set({interfaceIntensity})}
               labels={[
                 t('appearance.levelOff'),
                 t('appearance.levelSubtle'),
@@ -82,10 +82,10 @@ export function PageThemeControl({pageId}: {pageId: string}) {
           </div>
         </Field>
 
-        <Field label={t('appearance.controlAccent')}>
+        <Field label={t('appearance.controlIntensity')}>
           <LevelPicker
-            value={eff.accentIntensity}
-            onChange={(accentIntensity) => set({accentIntensity})}
+            value={eff.controlIntensity}
+            onChange={(controlIntensity) => set({controlIntensity})}
             labels={[
               t('appearance.levelSoft'),
               t('appearance.levelMedium'),

@@ -6,12 +6,13 @@
  * the design language stays consistent while the highlight color changes.
  *
  * On top of the accent palette the user controls four knobs (see
- * {@link AppearanceOptions}): the **neutral temperature** (warm / cool / gray /
- * match-the-accent), how strong that **interface tint** is, the **intensity of
- * the faded control accent** (`--accent`), and whether the **sidebar adopts the
- * accent**. {@link composeAppearance} folds an accent palette + those knobs into
- * one token set; {@link applyAppearance} writes it onto an element (the document
- * root globally, or a page wrapper for a per-page override).
+ * {@link AppearanceOptions}): the **neutral temperature** (warm / cool /
+ * neutral gray), the **interface intensity** (how saturated those grays are),
+ * the **control intensity** of the faded control accent (`--accent`), and
+ * whether the **sidebar adopts the accent**. {@link composeAppearance} folds an
+ * accent palette + those knobs into one token set; {@link applyAppearance}
+ * writes it onto an element (the document root globally, or a page wrapper for a
+ * per-page override).
  *
  * The crucial invariant: {@link DEFAULT_APPEARANCE} composes to the *exact*
  * legacy palette (verbatim from index.css) in both schemes, so the parametric
@@ -93,33 +94,35 @@ const DEFAULT_LIGHT: ThemeTokens = {
   brandSubtle: '207 86% 95%',
 };
 
+// Softened 2026-06-13 to lower dark-mode contrast (must stay in lockstep with
+// the `.dark` block in index.css — applyAppearance writes these inline).
 const DEFAULT_DARK: ThemeTokens = {
-  background: '0 0% 11%',
-  foreground: '0 0% 87%',
-  card: '0 0% 14.5%',
-  cardForeground: '0 0% 87%',
-  popover: '0 0% 15%',
-  popoverForeground: '0 0% 87%',
-  primary: '207 80% 57%',
+  background: '0 0% 13%',
+  foreground: '0 0% 82%',
+  card: '0 0% 16%',
+  cardForeground: '0 0% 82%',
+  popover: '0 0% 16.5%',
+  popoverForeground: '0 0% 82%',
+  primary: '207 68% 55%',
   primaryForeground: '0 0% 100%',
-  secondary: '0 0% 17%',
-  secondaryForeground: '0 0% 87%',
-  muted: '0 0% 17%',
-  mutedForeground: '0 0% 55%',
-  accent: '0 0% 21%',
-  accentForeground: '0 0% 92%',
-  destructive: '4 64% 51%',
+  secondary: '0 0% 18.5%',
+  secondaryForeground: '0 0% 82%',
+  muted: '0 0% 18.5%',
+  mutedForeground: '0 0% 56%',
+  accent: '0 0% 22%',
+  accentForeground: '0 0% 86%',
+  destructive: '4 58% 52%',
   destructiveForeground: '0 0% 100%',
-  border: '0 0% 20%',
-  input: '0 0% 25%',
-  ring: '207 80% 57%',
-  sheet1: '0 0% 14%',
-  sheet1Foreground: '0 0% 87%',
-  sheet2: '0 0% 17.5%',
-  sheet2Foreground: '0 0% 87%',
-  brand: '207 80% 60%',
+  border: '0 0% 22%',
+  input: '0 0% 26%',
+  ring: '207 68% 55%',
+  sheet1: '0 0% 15.5%',
+  sheet1Foreground: '0 0% 82%',
+  sheet2: '0 0% 18.5%',
+  sheet2Foreground: '0 0% 82%',
+  brand: '207 70% 57%',
   brandForeground: '0 0% 100%',
-  brandSubtle: '208 55% 21%',
+  brandSubtle: '208 48% 22%',
 };
 
 interface Accent {
@@ -247,10 +250,14 @@ export function getSystemColorScheme(): 'light' | 'dark' {
 
 // ── Parametric appearance ────────────────────────────────────────────────────
 
-/** Where the neutral surfaces get their hue from. */
-export type NeutralFamily = 'warm' | 'cool' | 'gray' | 'match';
+/**
+ * The temperature of the neutral grays. The interface is always a gray; this
+ * only leans it warm or cool (or keeps it dead neutral). There's no longer a
+ * "tint the whole UI with the accent" option — that mechanism was removed.
+ */
+export type NeutralFamily = 'warm' | 'cool' | 'neutral';
 
-/** 0 = off … 3 = strong. Same scale for the tint and accent-intensity knobs. */
+/** 0 = off … 3 = strong. Shared scale for the interface- and control-intensity knobs. */
 export type Level = 0 | 1 | 2 | 3;
 
 /**
@@ -260,12 +267,12 @@ export type Level = 0 | 1 | 2 | 3;
 export interface AppearanceOptions {
   /** Accent palette id (see {@link themes}). */
   themeId: string;
-  /** Hue source for the neutral surfaces. */
+  /** Temperature of the neutral grays (warm / cool / neutral). */
   neutral: NeutralFamily;
-  /** How saturated the neutral surfaces are (the "interface hue"). */
-  tint: Level;
+  /** How saturated the neutral surfaces are. */
+  interfaceIntensity: Level;
   /** How colored the faded control surface (`--accent`) is. */
-  accentIntensity: Level;
+  controlIntensity: Level;
   /** Sidebar sheets adopt the accent hue. */
   tintedSidebar: boolean;
 }
@@ -273,13 +280,30 @@ export interface AppearanceOptions {
 export const DEFAULT_APPEARANCE: AppearanceOptions = {
   themeId: DEFAULT_THEME_ID,
   neutral: 'warm',
-  tint: 2,
-  accentIntensity: 2,
+  interfaceIntensity: 2,
+  controlIntensity: 2,
   tintedSidebar: false,
 };
 
 /** A per-page override: any subset of the global appearance. */
 export type AppearanceOverride = Partial<AppearanceOptions>;
+
+/**
+ * Migrate a persisted (possibly older-shape) appearance to the current model:
+ * `tint`→`interfaceIntensity`, `accentIntensity`→`controlIntensity`, and the
+ * dropped neutral families (`gray`→`neutral`, `match`→`warm`). Unknown keys are
+ * dropped by the `{...DEFAULT_APPEARANCE, ...}` merge at the call site.
+ */
+export function normalizeAppearance(raw: Record<string, unknown>): AppearanceOverride {
+  const out: Record<string, unknown> = {...raw};
+  if (out.tint !== undefined && out.interfaceIntensity === undefined) out.interfaceIntensity = out.tint;
+  if (out.accentIntensity !== undefined && out.controlIntensity === undefined) out.controlIntensity = out.accentIntensity;
+  delete out.tint;
+  delete out.accentIntensity;
+  if (out.neutral === 'gray') out.neutral = 'neutral';
+  if (out.neutral === 'match') out.neutral = 'warm';
+  return out as AppearanceOverride;
+}
 
 /** Merge a (possibly partial) override over a base, dropping undefined keys. */
 export function mergeAppearance(base: AppearanceOptions, override?: AppearanceOverride | null): AppearanceOptions {
@@ -343,11 +367,10 @@ const SURFACE_WEIGHT: Record<string, number> = {
 
 const NEUTRAL_KEYS = Object.keys(SURFACE_WEIGHT) as Array<keyof ThemeTokens>;
 
-const FAMILY_HUE: Record<NeutralFamily, number | null> = {
+const FAMILY_HUE: Record<NeutralFamily, number> = {
   warm: 40,
   cool: 220,
-  gray: null, // saturation forced to 0; hue irrelevant
-  match: -1, // sentinel: use the accent's hue
+  neutral: 0, // saturation forced to 0; hue irrelevant
 };
 
 /**
@@ -361,26 +384,26 @@ export function composeAppearance(opts: AppearanceOptions, scheme: 'light' | 'da
   const tokens: ThemeTokens = {...base};
 
   const accentHue = hueOf(base.primary);
-  const familyHue = opts.neutral === 'match' ? accentHue : FAMILY_HUE[opts.neutral];
-  const gray = opts.neutral === 'gray';
-  const tintFloor = (scheme === 'dark' ? TINT_FLOOR_DARK : TINT_FLOOR_LIGHT)[opts.tint];
+  const familyHue = FAMILY_HUE[opts.neutral];
+  const gray = opts.neutral === 'neutral';
+  const tintFloor = (scheme === 'dark' ? TINT_FLOOR_DARK : TINT_FLOOR_LIGHT)[opts.interfaceIntensity];
 
   // Neutral surfaces: keep their base lightness, restyle hue + saturation.
   for (const key of NEUTRAL_KEYS) {
     const c = parseHsl(base[key]);
     const weight = SURFACE_WEIGHT[key];
-    const sat = gray ? 0 : Math.max(c.s * TINT_MUL[opts.tint], tintFloor * weight);
-    const hue = gray ? c.h : (familyHue as number);
+    const sat = gray ? 0 : Math.max(c.s * TINT_MUL[opts.interfaceIntensity], tintFloor * weight);
+    const hue = gray ? c.h : familyHue;
     tokens[key] = toTriple({h: hue, s: sat, l: c.l});
   }
 
   // The faded control accent (`--accent`): hue follows the neutral family (so it
-  // sits on the surfaces), saturation is the user's intensity knob.
+  // sits on the surfaces), saturation is the user's control-intensity knob.
   {
     const c = parseHsl(base.accent);
-    const accentFloor = (scheme === 'dark' ? ACCENT_FLOOR_DARK : ACCENT_FLOOR_LIGHT)[opts.accentIntensity];
-    const sat = gray ? 0 : Math.max(c.s * ACCENT_MUL[opts.accentIntensity], accentFloor);
-    const hue = gray ? c.h : (familyHue as number);
+    const accentFloor = (scheme === 'dark' ? ACCENT_FLOOR_DARK : ACCENT_FLOOR_LIGHT)[opts.controlIntensity];
+    const sat = gray ? 0 : Math.max(c.s * ACCENT_MUL[opts.controlIntensity], accentFloor);
+    const hue = gray ? c.h : familyHue;
     tokens.accent = toTriple({h: hue, s: sat, l: c.l});
   }
 

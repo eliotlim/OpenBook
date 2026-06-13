@@ -23,8 +23,8 @@ describe('AppearanceSettings', () => {
   it('renders every appearance knob', () => {
     renderWithProviders(<AppearanceSettings />);
     expect(screen.getByText('Accent color')).toBeTruthy();
-    expect(screen.getByText('Interface tint')).toBeTruthy();
-    expect(screen.getByText('Control accent')).toBeTruthy();
+    expect(screen.getByText('Interface')).toBeTruthy();
+    expect(screen.getByText('Control intensity')).toBeTruthy();
     expect(screen.getByText('Tinted sidebar')).toBeTruthy();
     // Grouped accent swatches.
     expect(screen.getByText('Forest')).toBeTruthy();
@@ -40,9 +40,9 @@ describe('AppearanceSettings', () => {
 
   it('switching the neutral family retints the surfaces', () => {
     renderWithProviders(<AppearanceSettings />);
-    fireEvent.click(screen.getByText('Match'));
-    // muted now follows the (default blue) accent hue instead of warm 40.
-    expect(document.documentElement.style.getPropertyValue('--muted').startsWith('207 ')).toBe(true);
+    fireEvent.click(screen.getByText('Cool'));
+    // muted swings from warm 40 to the cool 220 hue.
+    expect(document.documentElement.style.getPropertyValue('--muted').startsWith('220 ')).toBe(true);
   });
 });
 
