@@ -180,6 +180,19 @@ test('REAL mouse drag: handle drags a block beside another into columns', async 
   await row.locator('.obe-handle').dragTo(target, {targetPosition: {x: box.width * 0.95, y: box.height / 2}});
   await expect(page.locator('.obe-columns')).toHaveCount(1);
   await expect(page.locator('.obe-columns .obe-column')).toHaveCount(2);
+
+  // Regression: blocks INSIDE a column kept their drop targets but lost their
+  // drag handle (the gutter only rendered at the top level) — once a block
+  // entered a column it could never leave. Drag it back out below a root row.
+  const inColumn = page.locator('.obe-columns [data-block-row][data-block-type=todo]');
+  await inColumn.hover();
+  await expect(inColumn.locator('.obe-handle')).toBeVisible();
+  const lastRoot = page.locator('.obe-root > [data-block-row]').last();
+  const rootBox = (await lastRoot.boundingBox())!;
+  await inColumn.locator('.obe-handle').dragTo(lastRoot, {targetPosition: {x: rootBox.width / 2, y: rootBox.height * 0.9}});
+  // The columns dissolve (one occupant left) and the todo is a root row again.
+  await expect(page.locator('.obe-columns')).toHaveCount(0);
+  await expect(page.locator('.obe-root > [data-block-row][data-block-type=todo]')).toHaveCount(1);
 });
 
 test('block selection: Escape selects, Backspace deletes, undo restores', async ({page}) => {

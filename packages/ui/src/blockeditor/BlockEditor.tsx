@@ -1,4 +1,5 @@
 import React, {useCallback, useMemo, useRef, useState} from 'react';
+import {GripVertical, Plus} from 'lucide-react';
 import type * as Y from 'yjs';
 import {
   blockChildren,
@@ -542,20 +543,22 @@ const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) =
       onDrop={onDrop}
       onDragLeave={() => setDrag((d) => (d?.over?.id === id ? {...d, over: null} : d))}
     >
-      {!editor.readOnly && depth === 0 && (
-        <div className="obe-gutter" contentEditable={false}>
-          <button
-            type="button"
-            tabIndex={-1}
-            aria-label="Add a block below"
-            className="obe-gutter-btn"
-            onClick={() => {
-              const newId = editor.insertAfter(id, {type: 'paragraph'});
-              if (newId) ui.openSlash(newId, 0);
-            }}
-          >
-            +
-          </button>
+      {!editor.readOnly && (
+        <div className={`obe-gutter${depth > 0 ? ' obe-gutter-nested' : ''}`} contentEditable={false}>
+          {depth === 0 && (
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label="Add a block below"
+              className="obe-gutter-btn"
+              onClick={() => {
+                const newId = editor.insertAfter(id, {type: 'paragraph'});
+                if (newId) ui.openSlash(newId, 0);
+              }}
+            >
+              <Plus className="obe-gutter-icon" />
+            </button>
+          )}
           <DropdownMenu open={handleMenu} onOpenChange={(open) => !open && setHandleMenu(false)}>
             {/* The menu anchors to this empty span, NOT the handle: a Radix
                 trigger preventDefaults pointerdown (suppressing the mousedown
@@ -621,7 +624,7 @@ const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) =
                 window.addEventListener('pointerup', up);
               }}
             >
-              ⠿
+              <GripVertical className="obe-gutter-icon" />
             </button>
             <HandleMenu block={block} editor={editor} />
           </DropdownMenu>
