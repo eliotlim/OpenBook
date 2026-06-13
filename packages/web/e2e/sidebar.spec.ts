@@ -19,9 +19,9 @@ test('sidebar row shows the page icon and opens its context menu on right-click'
 });
 
 // The restructured sidebar chrome: trash is a nav row under Settings, the
-// color mode lives in the profile menu, and flat page sections (Recents,
-// Suggested) appear above the tree with collapsible headers.
-test('sidebar chrome: trash row, color mode in profile menu, recents section', async ({page, request}) => {
+// color mode lives in the profile menu, and the Suggested section appears
+// above the tree with a collapsible header (no Recents — too noisy).
+test('sidebar chrome: trash row, color mode in profile menu, suggested section', async ({page, request}) => {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
 
@@ -37,16 +37,19 @@ test('sidebar chrome: trash row, color mode in profile menu, recents section', a
   await page.getByRole('menuitemradio', {name: 'Dark'}).click();
   await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(true);
 
-  // Visiting pages builds the Recents section; its header collapses it.
+  // A page edited elsewhere (created via API, never visited) surfaces under
+  // Suggested; the section header collapses and restores it. There is no
+  // Recents section — recents live in the palette and on Home.
   const res = await request.post(`${SERVER}/api/pages`, {
-    data: {name: `Sidebar Recent ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}},
+    data: {name: `Sidebar Suggested ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}},
   });
-  const {id, name} = (await res.json()) as {id: string; name: string};
-  await page.goto(`/?page=${id}`);
-  const recents = page.locator('[data-sidebar-section="recents"]');
-  await expect(recents.getByText(name)).toBeVisible();
-  await recents.getByRole('button', {name: 'Recents'}).click(); // collapse
-  await expect(recents.getByText(name)).toHaveCount(0);
-  await recents.getByRole('button', {name: 'Recents'}).click(); // restore
-  await expect(recents.getByText(name)).toBeVisible();
+  const {name} = (await res.json()) as {id: string; name: string};
+  await page.reload();
+  await expect(page.locator('[data-sidebar-section="recents"]')).toHaveCount(0);
+  const suggested = page.locator('[data-sidebar-section="suggested"]');
+  await expect(suggested.getByText(name)).toBeVisible();
+  await suggested.getByRole('button', {name: 'Suggested'}).click(); // collapse
+  await expect(suggested.getByText(name)).toHaveCount(0);
+  await suggested.getByRole('button', {name: 'Suggested'}).click(); // restore
+  await expect(suggested.getByText(name)).toBeVisible();
 });

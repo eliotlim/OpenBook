@@ -109,33 +109,10 @@ function useSidebarSignals(): number {
   return version;
 }
 
-const SHOWN_RECENTS = 5;
+// (Recents lives in the command palette and on Home — a sidebar section of it
+// proved too noisy; `readRecents` below only feeds the Suggested skip-list.)
+const SKIP_RECENTS = 5;
 const SHOWN_SUGGESTED = 4;
-
-/** Last-visited pages, most recent first. Hidden until there's history. */
-export function RecentsNav() {
-  const {pages} = useNavigation();
-  const {t} = useTranslation();
-  const version = useSidebarSignals();
-
-  const items = useMemo<PageMeta[]>(() => {
-    void version;
-    const byId = new Map(pages.map((p) => [p.id, p] as const));
-    return readRecents()
-      .map((id) => byId.get(id))
-      .filter((p): p is PageMeta => !!p)
-      .slice(0, SHOWN_RECENTS);
-  }, [pages, version]);
-
-  if (items.length === 0) return null;
-  return (
-    <SidebarSection id="recents" label={t('nav.recents')}>
-      {items.map((page) => (
-        <SidebarPageRow key={page.id} page={page} />
-      ))}
-    </SidebarSection>
-  );
-}
 
 /**
  * Pages that changed recently but aren't in your recent trail — the "you
@@ -148,7 +125,7 @@ export function SuggestedNav() {
 
   const items = useMemo<PageMeta[]>(() => {
     void version;
-    const skip = new Set([...readRecents().slice(0, SHOWN_RECENTS), ...readFavorites()]);
+    const skip = new Set([...readRecents().slice(0, SKIP_RECENTS), ...readFavorites()]);
     return [...pages]
       .filter((p) => !skip.has(p.id))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))

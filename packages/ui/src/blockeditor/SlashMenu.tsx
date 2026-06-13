@@ -210,6 +210,7 @@ export const SlashMenu: React.FC<{
           role="option"
           aria-selected={i === index}
           className={`obe-slash-item${i === index ? ' obe-slash-active' : ''}`}
+          title={item.hint}
           onMouseEnter={() => setIndex(i)}
           onMouseDown={(e) => {
             e.preventDefault(); // keep the caret in the document
@@ -217,7 +218,6 @@ export const SlashMenu: React.FC<{
           }}
         >
           <span className="obe-slash-label">{item.label}</span>
-          <span className="obe-slash-hint">{item.hint}</span>
         </button>
       ))}
     </div>

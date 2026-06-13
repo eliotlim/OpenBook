@@ -6,7 +6,7 @@ import TrashDialog from '@/components/TrashDialog';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
 import SettingsButton from '@/components/SettingsButton';
 import FavoritesNav from '@/components/FavoritesNav';
-import {RecentsNav, SuggestedNav} from '@/components/SidebarSections';
+import {SuggestedNav} from '@/components/SidebarSections';
 import WorkspaceNavigationTree from '@/components/WorkspaceNavigationTree';
 import CommandToggle from '@/components/CommandToggle';
 
@@ -29,7 +29,6 @@ export default function SideNav() {
           <TrashDialog />
         </div>
         <FavoritesNav />
-        <RecentsNav />
         <SuggestedNav />
         <div className="mt-1 min-h-0 flex-1 overflow-hidden">
           <WorkspaceNavigationTree />

@@ -774,12 +774,20 @@ h3.ce-header {
 .obe-gutter {
   position: absolute;
   left: -3.4rem;
-  top: 0.15rem;
+  /* Center the controls on the row's FIRST text line (15px x 1.6 = 1.5rem,
+     + the row's 1px padding) so handle, +, and text read as one line. */
+  top: 1px;
+  height: 1.5rem;
   display: flex;
+  align-items: center;
   gap: 2px;
   opacity: 0;
   transition: opacity 120ms ease;
 }
+/* Inside columns there's no page gutter — a compact, handle-only grip
+   floats in the column gap. */
+.obe-gutter-nested { left: -1.45rem; }
+.obe-gutter-icon { width: 14px; height: 14px; }
 .obe-row:hover > .obe-gutter,
 .obe-gutter:focus-within {
   opacity: 1;
@@ -799,11 +807,7 @@ h3.ce-header {
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
 }
-.obe-handle {
-  cursor: grab;
-  font-size: 11px;
-  letter-spacing: -1px;
-}
+.obe-handle { cursor: grab; }
 .obe-handle:active { cursor: grabbing; }
 
 /* Drop indicators */
@@ -1007,6 +1011,7 @@ a.obe-mention {
   width: 17rem;
   max-height: 19rem;
   overflow-y: auto;
+  overflow-x: hidden;
   /* Don't chain to the document scroller at the list's ends — an outer
      scroll folds the menu (BlockEditor's capture listener). */
   overscroll-behavior: contain;
@@ -1022,17 +1027,17 @@ a.obe-mention {
 .obe-slash-item {
   display: flex;
   width: 100%;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: 0.75rem;
   padding: 0.4rem 0.6rem;
   border-radius: 7px;
   cursor: pointer;
   text-align: left;
+  overflow: hidden;
 }
 .obe-slash-active { background: hsl(var(--accent)); }
 .obe-slash-label { font-size: 0.9rem; font-weight: 500; }
-.obe-slash-hint { font-size: 0.75rem; color: hsl(var(--muted-foreground)); white-space: nowrap; }
+.obe-slash-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* Dataflow view: a value chip pulses when its value changes (keyed remount). */
 @keyframes ob-flow-pulse {
