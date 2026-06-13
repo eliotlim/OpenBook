@@ -60,7 +60,11 @@ describe('kit export mappings', () => {
     const inputs = out.blocks.filter((b) => b.type === 'kitinput');
     expect(inputs.map((b) => (b.data as {kind: string}).kind).sort()).toEqual(['checklist', 'radio', 'textfield']);
     const radio = inputs.find((b) => (b.data as {kind: string}).kind === 'radio');
-    expect(radio).toMatchObject({id: 'r1', data: {name: 'mode', options: 'A, B', value: 'B'}});
+    // Legacy `options` strings resolve to {label,value} pairs (value == label).
+    expect(radio).toMatchObject({
+      id: 'r1',
+      data: {name: 'mode', opts: [{label: 'A', value: 'A'}, {label: 'B', value: 'B'}], value: 'B'},
+    });
     // The button resolves its target name to the cell id, with clamp bounds.
     const button = out.blocks.find((b) => b.type === 'kitbutton');
     expect(button).toMatchObject({id: 'b1', data: {label: 'Go', action: 'increment', target: 'n1', min: 0, max: 10}});

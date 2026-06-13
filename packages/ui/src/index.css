@@ -788,6 +788,16 @@ h3.ce-header {
    floats in the column gap. */
 .obe-gutter-nested { left: -1.45rem; }
 .obe-gutter-icon { width: 14px; height: 14px; }
+/* Align the hover gutter (drag handle + add button) with each block type's
+   FIRST text line. The default `top` is tuned for a paragraph; headings push
+   their first line down (margin-top + a taller line), and callouts/code blocks
+   add top padding — so nudge the gutter to sit on that line instead of floating
+   above it. */
+.obe-row[data-block-type='heading'][data-block-level='1'] > .obe-gutter { top: 1.15rem; }
+.obe-row[data-block-type='heading'][data-block-level='2'] > .obe-gutter { top: 0.7rem; }
+.obe-row[data-block-type='heading'][data-block-level='3'] > .obe-gutter { top: 0.4rem; }
+.obe-row[data-block-type='callout'] > .obe-gutter { top: 0.85rem; }
+.obe-row[data-block-type='code'] > .obe-gutter { top: 0.8rem; }
 .obe-row:hover > .obe-gutter,
 .obe-gutter:focus-within {
   opacity: 1;
@@ -1187,6 +1197,22 @@ a.obe-mention {
   color: hsl(var(--muted-foreground));
   min-width: 4.5rem;
 }
+/* Header column: display name over an optional description, decoupled from the
+   reactive variable symbol. */
+.obe-kit-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 4.5rem;
+}
+.obe-kit-head .obe-kit-label {
+  min-width: 0;
+}
+.obe-kit-desc {
+  font-size: 0.7rem;
+  line-height: 1.3;
+  color: hsl(var(--muted-foreground) / 0.8);
+}
 .obe-kit-spacer { flex: 1; }
 .obe-kit-gear {
   border: none;
@@ -1326,7 +1352,8 @@ a.obe-mention {
 /* Full-width option variants: options become stacked, card-like rows that
    read as a form — same classes in the editor and the HTML export. */
 .obe-kit.obe-kit-wide { flex-wrap: wrap; }
-.obe-kit-wide > .obe-kit-label { width: 100%; }
+.obe-kit-wide > .obe-kit-label,
+.obe-kit-wide > .obe-kit-head { width: 100%; }
 .obe-kit-wide .obe-kit-pills, .obe-kit-wide .obe-kit-checks {
   flex-direction: column;
   flex-wrap: nowrap;

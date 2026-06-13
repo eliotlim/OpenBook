@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, ChevronDown, ChevronRight, Copy, EyeOff, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Plus, Rows3, Save, Search, Trash2, X} from 'lucide-react';
+import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, ChevronDown, ChevronRight, Copy, EyeOff, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, X} from 'lucide-react';
 import {
   buildRowTree,
   dateStart,
@@ -30,6 +30,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuSub,
   ContextMenuSubContent,
@@ -41,7 +42,7 @@ import {readPageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {cellValue, PropertyValueCell} from './databaseCells';
-import {AddPropertyMenu, AddViewMenu, FilterChips, FilterMenu, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon} from './databaseMenus';
+import {AddPropertyMenu, AddViewMenu, FilterChips, FilterMenu, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, VIEW_TYPES} from './databaseMenus';
 import {BoardView, CalendarView, GalleryView, rowColor, RowChips, RowContextMenu} from './databaseLayouts';
 import {BarChartView, PieChartView} from './databaseCharts';
 import {TimelineView} from './databaseTimeline';
@@ -1048,10 +1049,14 @@ const NewRowMenu: React.FC<{db: UseDatabase}> = ({db}) => {
   );
 };
 
-const Toolbar: React.FC<{db: UseDatabase; view: DbView}> = ({db, view}) => {
+const Toolbar: React.FC<{db: UseDatabase; view: DbView; renamingId: string | null; setRenamingId: (id: string | null) => void}> = ({
+  db,
+  view,
+  renamingId,
+  setRenamingId,
+}) => {
   const [dragView, setDragView] = useState<string | null>(null);
   const [overView, setOverView] = useState<string | null>(null);
-  const [renamingId, setRenamingId] = useState<string | null>(null);
   return (
     <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
       {/* Both clusters wrap so the toolbar degrades to stacked rows on narrow
@@ -1141,12 +1146,66 @@ const Toolbar: React.FC<{db: UseDatabase; view: DbView}> = ({db, view}) => {
  * both beneath a host page's own content (a full-page database) and embedded
  * inline via the database block.
  */
+/**
+ * Right-click actions for the database *as a whole* — view operations and a new
+ * row — so the database chrome (toolbar, empty space, the section itself) opens
+ * a database menu ("Rename view") instead of falling through to the page menu
+ * ("Rename page"). Cell/column/row right-clicks still hit their own nested menus.
+ */
+const DatabaseContextMenu: React.FC<{db: UseDatabase; onRenameView: () => void; children: React.ReactNode}> = ({db, onRenameView, children}) => {
+  const view = db.activeView!;
+  const canDeleteView = (db.database?.schema.views.length ?? 0) > 1;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-52">
+        <ContextMenuLabel className="text-xs font-medium text-muted-foreground">{view.name}</ContextMenuLabel>
+        <ContextMenuItem onSelect={onRenameView}>
+          <Pencil className="mr-2 h-4 w-4" />
+          Rename view
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void db.duplicateView(view.id)}>
+          <Copy className="mr-2 h-4 w-4" />
+          Duplicate view
+        </ContextMenuItem>
+        {canDeleteView && (
+          <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={() => void db.deleteView(view.id)}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete view
+          </ContextMenuItem>
+        )}
+        <ContextMenuSeparator />
+        <ContextMenuSub>
+          <ContextMenuSubTrigger>
+            <Plus className="mr-2 h-4 w-4" />
+            Add view
+          </ContextMenuSubTrigger>
+          <ContextMenuSubContent className="w-44">
+            {VIEW_TYPES.map(({value, label, Icon}) => (
+              <ContextMenuItem key={value} onSelect={() => void db.addView(value)}>
+                <Icon className="mr-2 h-4 w-4" />
+                {label}
+              </ContextMenuItem>
+            ))}
+          </ContextMenuSubContent>
+        </ContextMenuSub>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => void db.addRow()}>
+          <Rows3 className="mr-2 h-4 w-4" />
+          New row
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};
+
 export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | null; inline?: boolean}> = ({
   pageId,
   databaseIdHint,
   inline,
 }) => {
   const db = useDatabase(pageId, databaseIdHint);
+  const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
   if (!db.database || !db.activeView) return null;
 
   const schema = db.database.schema.properties;
@@ -1159,23 +1218,25 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
       : schema;
 
   return (
-    <div className={cn(inline ? 'rounded-lg border border-border p-3' : 'mt-6 border-t border-border pt-5')}>
-      {inline && (
-        <input
-          defaultValue={db.database.name ?? ''}
-          onBlur={(e) => e.target.value !== (db.database?.name ?? '') && void db.renameDatabase(e.target.value)}
-          placeholder="Untitled database"
-          className="mb-2 w-full bg-transparent text-base font-semibold outline-hidden placeholder:text-muted-foreground/40"
-        />
-      )}
-      <Toolbar db={db} view={view} />
-      <div className="flex flex-wrap items-center gap-x-3">
-        <FilterChips db={db} view={view} />
-        <SortChips db={db} view={view} />
+    <DatabaseContextMenu db={db} onRenameView={() => setRenamingViewId(view.id)}>
+      <div className={cn(inline ? 'rounded-lg border border-border p-3' : 'mt-6 border-t border-border pt-5')}>
+        {inline && (
+          <input
+            defaultValue={db.database.name ?? ''}
+            onBlur={(e) => e.target.value !== (db.database?.name ?? '') && void db.renameDatabase(e.target.value)}
+            placeholder="Untitled database"
+            className="mb-2 w-full bg-transparent text-base font-semibold outline-hidden placeholder:text-muted-foreground/40"
+          />
+        )}
+        <Toolbar db={db} view={view} renamingId={renamingViewId} setRenamingId={setRenamingViewId} />
+        <div className="flex flex-wrap items-center gap-x-3">
+          <FilterChips db={db} view={view} />
+          <SortChips db={db} view={view} />
+        </div>
+        <MetricsBar db={db} view={view} />
+        <ViewBody db={db} view={view} columns={columns} schema={schema} />
       </div>
-      <MetricsBar db={db} view={view} />
-      <ViewBody db={db} view={view} columns={columns} schema={schema} />
-    </div>
+    </DatabaseContextMenu>
   );
 };
 

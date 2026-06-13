@@ -22,6 +22,7 @@ import {
   tableInsertRow,
   TEXT_BLOCKS,
   type BlockMap,
+  type BlockType,
 } from './model';
 import {rangeHasAttr, readSelection, writeSelection} from './richtext';
 import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
@@ -38,6 +39,16 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import {TextBlockView} from './TextBlockView';
 import {SlashMenu, type SlashState} from './SlashMenu';
 import {InlineToolbar, type ToolbarState} from './InlineToolbar';
@@ -526,11 +537,12 @@ const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) =
     setDrag(null);
   };
 
-  return (
+  const rowEl = (
     <div
       ref={rowRef}
       data-block-row={id}
       data-block-type={type}
+      data-block-level={type === 'heading' ? blockProp<number>(block, 'level') ?? 2 : undefined}
       className={[
         'obe-row',
         selected ? 'obe-row-selected' : '',
@@ -633,32 +645,61 @@ const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) =
       <BlockBody block={block} {...shared} />
     </div>
   );
+
+  // Right-clicking a block opens its own actions (not the page menu). In
+  // read-only mode there are no block actions, so fall through to the page menu.
+  if (editor.readOnly) return rowEl;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{rowEl}</ContextMenuTrigger>
+      <BlockRowMenu block={block} editor={editor} />
+    </ContextMenu>
+  );
 };
+
+/** The "Turn into" choices, shared by the handle menu and the right-click menu. */
+const TURN_OPTIONS: Array<{label: string; type: BlockType; props?: Record<string, unknown>}> = [
+  {label: 'Text', type: 'paragraph'},
+  {label: 'Heading 1', type: 'heading', props: {level: 1}},
+  {label: 'Heading 2', type: 'heading', props: {level: 2}},
+  {label: 'Heading 3', type: 'heading', props: {level: 3}},
+  {label: 'Bulleted list', type: 'list', props: {kind: 'bullet'}},
+  {label: 'Numbered list', type: 'list', props: {kind: 'number'}},
+  {label: 'To-do', type: 'todo'},
+  {label: 'Quote', type: 'quote'},
+  {label: 'Callout', type: 'callout', props: {variant: 'info'}},
+  {label: 'Code', type: 'code'},
+];
+
+/** Block actions shared by the drag-handle menu and the right-click menu.
+ *  Direct model ops (not the selection-based controller ops, which would read
+ *  a stale closure if the selection were set in the same tick). */
+function blockOps(editor: BlockEditorController, id: string) {
+  return {
+    turn: (type: BlockType, props?: Record<string, unknown>): void => editor.turnInto(id, type, props),
+    duplicate: (): void => {
+      const found = findBlock(editor.doc, id);
+      if (!found) return;
+      editor.doc.transact(() => found.parent.insert(found.index + 1, [cloneBlock(found.block, true)]), 'local');
+    },
+    move: (delta: -1 | 1): void => {
+      const found = findBlock(editor.doc, id);
+      if (!found) return;
+      const parentBlock = parentBlockOf(editor.doc, found.parent);
+      moveBlock(editor.doc, id, parentBlock ? blockId(parentBlock) : null, found.index + delta);
+    },
+    remove: (): void => {
+      removeBlock(editor.doc, id);
+      editor.clearSelection();
+    },
+  };
+}
 
 /** The drag handle's click menu: block actions without leaving the mouse. */
 const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => {
   const id = blockId(block);
   const isText = TEXT_BLOCKS.has(blockType(block));
-  const turn = (type: Parameters<BlockEditorController['turnInto']>[1], props?: Record<string, unknown>): void => {
-    editor.turnInto(id, type, props);
-  };
-  // Direct model ops (the selection-based controller ops would read a stale
-  // closure if we set the selection in the same tick).
-  const duplicate = (): void => {
-    const found = findBlock(editor.doc, id);
-    if (!found) return;
-    editor.doc.transact(() => found.parent.insert(found.index + 1, [cloneBlock(found.block, true)]), 'local');
-  };
-  const move = (delta: -1 | 1): void => {
-    const found = findBlock(editor.doc, id);
-    if (!found) return;
-    const parentBlock = parentBlockOf(editor.doc, found.parent);
-    moveBlock(editor.doc, id, parentBlock ? blockId(parentBlock) : null, found.index + delta);
-  };
-  const remove = (): void => {
-    removeBlock(editor.doc, id);
-    editor.clearSelection();
-  };
+  const ops = blockOps(editor, id);
   return (
     <DropdownMenuContent align="start" side="bottom" className="w-44">
       {isText && (
@@ -666,32 +707,59 @@ const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>Turn into</DropdownMenuSubTrigger>
             <DropdownMenuSubContent className="w-40">
-              <DropdownMenuItem onClick={() => turn('paragraph')}>Text</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => turn('heading', {level: 1})}>Heading 1</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => turn('heading', {level: 2})}>Heading 2</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => turn('heading', {level: 3})}>Heading 3</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => turn('list', {kind: 'bullet'})}>Bulleted list</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => turn('list', {kind: 'number'})}>Numbered list</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => turn('todo')}>To-do</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => turn('quote')}>Quote</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => turn('callout', {variant: 'info'})}>Callout</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => turn('code')}>Code</DropdownMenuItem>
+              {TURN_OPTIONS.map((o) => (
+                <DropdownMenuItem key={o.label} onClick={() => ops.turn(o.type, o.props)}>
+                  {o.label}
+                </DropdownMenuItem>
+              ))}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />
         </>
       )}
-      <DropdownMenuItem onClick={duplicate}>Duplicate</DropdownMenuItem>
-      <DropdownMenuItem onClick={() => move(-1)}>Move up</DropdownMenuItem>
-      <DropdownMenuItem onClick={() => move(1)}>Move down</DropdownMenuItem>
+      <DropdownMenuItem onClick={ops.duplicate}>Duplicate</DropdownMenuItem>
+      <DropdownMenuItem onClick={() => ops.move(-1)}>Move up</DropdownMenuItem>
+      <DropdownMenuItem onClick={() => ops.move(1)}>Move down</DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem
-        className="text-destructive focus:text-destructive"
-        onClick={remove}
-      >
+      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={ops.remove}>
         Delete
       </DropdownMenuItem>
     </DropdownMenuContent>
+  );
+};
+
+/** The block's right-click menu — block actions in place of the page menu, so
+ *  right-clicking a block reads as "this block", not "this page". */
+const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => {
+  const id = blockId(block);
+  const isText = TEXT_BLOCKS.has(blockType(block));
+  const ops = blockOps(editor, id);
+  return (
+    <ContextMenuContent className="w-44">
+      {isText && (
+        <>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>Turn into</ContextMenuSubTrigger>
+            <ContextMenuSubContent className="w-40">
+              {TURN_OPTIONS.map((o) => (
+                <ContextMenuItem key={o.label} onSelect={() => ops.turn(o.type, o.props)}>
+                  {o.label}
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
+          <ContextMenuSeparator />
+        </>
+      )}
+      <ContextMenuItem onSelect={() => editor.setSelection([id])}>Select block</ContextMenuItem>
+      <ContextMenuItem onSelect={ops.duplicate}>Duplicate</ContextMenuItem>
+      <ContextMenuItem onSelect={() => ops.move(-1)}>Move up</ContextMenuItem>
+      <ContextMenuItem onSelect={() => ops.move(1)}>Move down</ContextMenuItem>
+      <ContextMenuSeparator />
+      <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={ops.remove}>
+        Delete
+      </ContextMenuItem>
+    </ContextMenuContent>
   );
 };
 

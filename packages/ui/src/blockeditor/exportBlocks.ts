@@ -1,4 +1,5 @@
 import type {BlockJSON, InlineAttrs, TextRun} from './model';
+import {resolveOptionsFromProps} from './kit/options';
 
 /**
  * Exporters over the JSON projection of a block document. Markdown for
@@ -369,9 +370,11 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
             kind: b.type,
             name: String(b.props?.name ?? b.type),
             label: String(b.props?.label ?? b.props?.name ?? b.type),
-            options: String(b.props?.options ?? ''),
+            // Resolved {label,value} pairs so the export shows labels but
+            // serialises values; full-width unless the block opted into compact.
+            opts: resolveOptionsFromProps(b.props ?? {}),
             placeholder: String(b.props?.placeholder ?? ''),
-            wide: Boolean(b.props?.wide),
+            wide: !b.props?.compact,
             value: read(b.props ?? {}),
           },
         });

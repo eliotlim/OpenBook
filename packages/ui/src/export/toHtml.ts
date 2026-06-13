@@ -352,10 +352,15 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
       const kind = str(d.kind);
       const label = escapeHtml(str(d.label) || str(d.name));
       const wide = d.wide ? ' kit-wide' : '';
-      const options = str(d.options)
-        .split(',')
-        .map((o) => o.trim())
-        .filter(Boolean);
+      // Prefer the structured {label,value} options; fall back to parsing the
+      // legacy comma string (where value == label) for older exports.
+      const options: Array<{label: string; value: string}> = Array.isArray(d.opts)
+        ? (d.opts as Array<{label: string; value: string}>)
+        : str(d.options)
+          .split(',')
+          .map((o) => o.trim())
+          .filter(Boolean)
+          .map((o) => ({label: o, value: o}));
       const value = ctx.values.has(id) ? ctx.values.get(id) : d.value;
       ctx.initialValues[id] = value;
       ctx.inputs.push({cell: id, kind});
@@ -363,8 +368,8 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
         const pills = options
           .map(
             (o) =>
-              `<button type="button" data-opt="${escapeHtml(o)}" class="kit-pill${o === value ? ' kit-on' : ''}">` +
-              `<span class="kit-dot"></span>${escapeHtml(o)}</button>`,
+              `<button type="button" data-opt="${escapeHtml(o.value)}" class="kit-pill${o.value === value ? ' kit-on' : ''}">` +
+              `<span class="kit-dot"></span>${escapeHtml(o.label)}</button>`,
           )
           .join('');
         html.push(`<div class="reactive kitinput kit-radio${wide}" data-cell="${id}"><span class="kit-label">${label}</span><div class="kit-options">${pills}</div></div>`);
@@ -373,12 +378,12 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
         const checks = options
           .map(
             (o) =>
-              `<label class="kit-check"><input type="checkbox" data-opt="${escapeHtml(o)}"${selected.has(o) ? ' checked' : ''}> ${escapeHtml(o)}</label>`,
+              `<label class="kit-check"><input type="checkbox" data-opt="${escapeHtml(o.value)}"${selected.has(o.value) ? ' checked' : ''}> ${escapeHtml(o.label)}</label>`,
           )
           .join('');
         html.push(`<div class="reactive kitinput kit-checklist${wide}" data-cell="${id}"><span class="kit-label">${label}</span><div class="kit-options">${checks}</div></div>`);
       } else if (kind === 'dropdown') {
-        const opts = options.map((o) => `<option${o === value ? ' selected' : ''}>${escapeHtml(o)}</option>`).join('');
+        const opts = options.map((o) => `<option value="${escapeHtml(o.value)}"${o.value === value ? ' selected' : ''}>${escapeHtml(o.label)}</option>`).join('');
         html.push(`<div class="reactive kitinput kit-dropdown${wide}" data-cell="${id}"><label class="kit-label">${label} <select>${opts}</select></label></div>`);
       } else if (kind === 'toggle') {
         html.push(
