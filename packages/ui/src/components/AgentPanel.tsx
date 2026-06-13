@@ -1,7 +1,9 @@
 import {useEffect, useRef, useState} from 'react';
-import {ArrowUp, Bot, ChevronDown, ChevronRight, Loader2, Plus, Square, X} from 'lucide-react';
-import type {AgentChatEvent, AgentChatMessage} from '@open-book/sdk';
+import {ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Loader2, Plus, Square, X} from 'lucide-react';
+import type {AgentChatEvent, AgentChatMessage, AgentProposal, AiEffort} from '@open-book/sdk';
 import {Button} from '@/components/ui/button';
+import {Select} from '@/components/ui/select';
+import {aiBridge} from '@/lib/aiBridge';
 import {useData} from '@/data';
 import type {TKey} from '@/i18n';
 import {useHud, useTranslation} from '@/providers';
@@ -10,25 +12,35 @@ import {cn} from '@/lib/utils';
 /**
  * The workspace assistant: a docked chat panel over the server's agent
  * harness. Each reply streams as steps — tool calls render as chips while
- * they run (click one to see what the tool returned), the grounded answer
- * lands as an assistant bubble. The agent needs a configured AI engine;
- * with none, the panel links straight to Settings → AI.
+ * they run (click one to see what the tool returned), reasoning lands as a
+ * collapsible block, and the grounded answer lands as an assistant bubble.
+ * When the agent proposes WRITES, a diff/summary card appears: the user
+ * approves (applied via the editor bridge in one CRDT transaction) or discards.
+ * The agent needs a configured AI engine; with none, the panel links straight
+ * to Settings → AI.
  */
 
 /** One rendered entry in the thread (richer than the wire conversation). */
 type ThreadItem =
   | {kind: 'user'; text: string}
   | {kind: 'assistant'; text: string}
+  | {kind: 'reasoning'; text: string; expanded?: boolean}
   | {kind: 'tool'; name: string; detail?: string; running: boolean; result?: string; expanded?: boolean}
+  | {kind: 'proposals'; proposals: AgentProposal[]; status: 'pending' | 'approved' | 'rejected'}
   | {kind: 'error'; text: string};
 
 /** A one-line human summary of a tool call's arguments. */
 const argSummary = (args: Record<string, unknown>): string | undefined => {
-  const value = args.query ?? args.title ?? args.pageId;
+  const value = args.query ?? args.title ?? args.name ?? args.pageId;
   return typeof value === 'string' && value.trim() ? value : undefined;
 };
 
 const SUGGESTION_KEYS: TKey[] = ['agent.suggestion1', 'agent.suggestion2', 'agent.suggestion3'];
+const EFFORTS: Array<{value: AiEffort; key: TKey}> = [
+  {value: 'low', key: 'agent.effortLow'},
+  {value: 'med', key: 'agent.effortMed'},
+  {value: 'high', key: 'agent.effortHigh'},
+];
 
 export function AgentPanel() {
   const {hud, setHud} = useHud();
@@ -39,6 +51,8 @@ export function AgentPanel() {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [engineReady, setEngineReady] = useState(true);
+  const [effort, setEffort] = useState<AiEffort>('med');
+  const [thinking, setThinking] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -56,14 +70,18 @@ export function AgentPanel() {
       return draft;
     });
 
-  // Surface a "no engine" hint up front rather than on the first failed ask,
-  // and put the cursor where the conversation starts.
+  // Surface a "no engine" hint up front, and adopt the configured agent
+  // defaults (effort / thinking) so the controls reflect Settings → AI.
   useEffect(() => {
     if (!open) return;
     inputRef.current?.focus();
     void client
       .aiStatus()
-      .then((status) => setEngineReady(status.ready))
+      .then((status) => {
+        setEngineReady(status.ready);
+        if (status.config.effort) setEffort(status.config.effort);
+        if (typeof status.config.thinking === 'boolean') setThinking(status.config.thinking);
+      })
       .catch(() => setEngineReady(false));
   }, [open, client]);
 
@@ -106,6 +124,12 @@ export function AgentPanel() {
         }
         return next;
       });
+    } else if (event.type === 'reasoning') {
+      setThread((items) => [...items, {kind: 'reasoning', text: event.text}]);
+    } else if (event.type === 'proposals') {
+      if (event.proposals.length > 0) {
+        setThread((items) => [...items, {kind: 'proposals', proposals: event.proposals, status: 'pending'}]);
+      }
     } else if (event.type === 'final') {
       setThread((items) => [...items, {kind: 'assistant', text: event.text}]);
       setConversation((turns) => [...turns, {role: 'assistant', content: event.text}]);
@@ -125,7 +149,7 @@ export function AgentPanel() {
     const abort = new AbortController();
     abortRef.current = abort;
     void client
-      .agentChat(turns, handleEvent, {signal: abort.signal})
+      .agentChat(turns, handleEvent, {signal: abort.signal, effort, thinking})
       .catch((err: unknown) => {
         if (abort.signal.aborted) return;
         setThread((items) => [...items, {kind: 'error', text: t('agent.error', {error: err instanceof Error ? err.message : String(err)})}]);
@@ -133,8 +157,32 @@ export function AgentPanel() {
       .finally(() => setBusy(false));
   };
 
-  const toggleTool = (index: number): void =>
-    setThread((items) => items.map((item, i) => (i === index && item.kind === 'tool' ? {...item, expanded: !item.expanded} : item)));
+  const toggleExpand = (index: number): void =>
+    setThread((items) =>
+      items.map((item, i) =>
+        i === index && (item.kind === 'tool' || item.kind === 'reasoning') ? {...item, expanded: !item.expanded} : item,
+      ),
+    );
+
+  // Apply (or discard) a proposal card. Approval routes through the AI bridge,
+  // which applies in one CRDT transaction against the live editor (undoable).
+  const resolveProposals = async (index: number, approve: boolean): Promise<void> => {
+    const item = thread[index];
+    if (item?.kind !== 'proposals' || item.status !== 'pending') return;
+    if (!approve) {
+      setThread((items) => items.map((it, i) => (i === index && it.kind === 'proposals' ? {...it, status: 'rejected'} : it)));
+      setThread((items) => [...items, {kind: 'assistant', text: t('agent.rejected')}]);
+      return;
+    }
+    try {
+      const result = await aiBridge.applyProposals(item.proposals);
+      setThread((items) => items.map((it, i) => (i === index && it.kind === 'proposals' ? {...it, status: 'approved'} : it)));
+      const text = result.failed.length > 0 ? t('agent.applyFailed') : t('agent.applied', {count: result.applied});
+      setThread((items) => [...items, {kind: 'assistant', text}]);
+    } catch (err) {
+      setThread((items) => [...items, {kind: 'error', text: t('agent.error', {error: err instanceof Error ? err.message : String(err)})}]);
+    }
+  };
 
   if (!open) return null;
 
@@ -196,7 +244,7 @@ export function AgentPanel() {
                 <button
                   type="button"
                   data-agent-tool={item.name}
-                  onClick={() => toggleTool(i)}
+                  onClick={() => toggleExpand(i)}
                   disabled={item.result === undefined}
                   aria-expanded={item.expanded ?? false}
                   className={cn(
@@ -217,6 +265,73 @@ export function AgentPanel() {
                   >
                     {item.result}
                   </pre>
+                )}
+              </div>
+            );
+          }
+          if (item.kind === 'reasoning') {
+            const Chevron = item.expanded ? ChevronDown : ChevronRight;
+            return (
+              <div key={i} className="flex max-w-full flex-col gap-1 self-start">
+                <button
+                  type="button"
+                  data-agent-reasoning
+                  onClick={() => toggleExpand(i)}
+                  aria-expanded={item.expanded ?? false}
+                  className="inline-flex max-w-full items-center gap-1.5 self-start rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+                >
+                  <Brain className="size-3" aria-hidden />
+                  <Chevron className="size-3" aria-hidden />
+                  <span className="truncate">{t('agent.reasoning')}</span>
+                </button>
+                {item.expanded && (
+                  <pre
+                    data-agent-reasoning-body
+                    className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-background/60 px-2.5 py-2 text-[11px] leading-relaxed text-muted-foreground"
+                  >
+                    {item.text}
+                  </pre>
+                )}
+              </div>
+            );
+          }
+          if (item.kind === 'proposals') {
+            return (
+              <div
+                key={i}
+                data-agent-proposals={item.status}
+                className="flex max-w-full flex-col gap-2 self-start rounded-lg border border-border bg-background/60 px-3 py-2.5"
+              >
+                <p className="text-xs font-medium">{t('agent.proposalTitle')}</p>
+                <p className="text-[11px] text-muted-foreground">{t('agent.proposalHint')}</p>
+                <ul className="flex flex-col gap-1.5">
+                  {item.proposals.map((p) => (
+                    <li key={p.id} className="rounded-md border border-border bg-sheet-1 px-2.5 py-1.5">
+                      <p className="text-xs font-medium">{p.summary}</p>
+                      {(p.before !== undefined || p.after !== undefined) && (
+                        <p className="mt-0.5 break-words font-mono text-[10px] leading-relaxed text-muted-foreground">
+                          {p.before !== undefined && <span className="text-destructive/80">- {p.before}</span>}
+                          {p.before !== undefined && p.after !== undefined && ' '}
+                          {p.after !== undefined && <span className="text-emerald-600 dark:text-emerald-400">+ {p.after}</span>}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                {item.status === 'pending' ? (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" data-agent-approve onClick={() => void resolveProposals(i, true)}>
+                      <Check className="mr-1 size-3.5" />
+                      {t('agent.approve')}
+                    </Button>
+                    <Button size="sm" variant="outline" data-agent-reject onClick={() => void resolveProposals(i, false)}>
+                      {t('agent.reject')}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    {item.status === 'approved' ? t('agent.approve') + ' ✓' : t('agent.reject') + ' ✓'}
+                  </p>
                 )}
               </div>
             );
@@ -263,8 +378,36 @@ export function AgentPanel() {
           aria-label={t('agent.placeholder')}
           className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring"
         />
-        <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[11px] text-muted-foreground">{t('agent.inputHint')}</span>
+        <div className="flex items-center gap-2">
+          <Select
+            inputSize="sm"
+            value={effort}
+            onChange={(e) => setEffort(e.target.value as AiEffort)}
+            wrapperClassName="w-[110px]"
+            data-agent-effort
+            aria-label={t('ai.effort')}
+          >
+            {EFFORTS.map((e) => (
+              <option key={e.value} value={e.value}>
+                {t(e.key)}
+              </option>
+            ))}
+          </Select>
+          <button
+            type="button"
+            data-agent-thinking
+            aria-pressed={thinking}
+            onClick={() => setThinking((v) => !v)}
+            title={t('agent.thinkingToggle')}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors',
+              thinking ? 'border-ring bg-accent/40 text-foreground' : 'border-border text-muted-foreground hover:bg-accent/20',
+            )}
+          >
+            <Brain className="size-3.5" />
+            {t('agent.thinkingToggle')}
+          </button>
+          <span className="flex-1" />
           {busy ? (
             <Button size="icon" variant="outline" className="size-7" onClick={stop} title={t('agent.stop')} aria-label={t('agent.stop')}>
               <Square className="size-3.5" />
