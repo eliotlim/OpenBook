@@ -1,9 +1,10 @@
 import {describe, it, expect, afterEach, beforeEach} from 'vitest';
 import {render, screen, cleanup, fireEvent} from '@testing-library/react';
 import AppearanceSettings from '../AppearanceSettings';
-import {PageThemeControl} from '../appearance/PageThemeControl';
+import {PageAppearanceControls} from '../appearance/PageCustomiseBody';
 import {I18nProvider, ThemeProvider} from '@/providers';
 import {readPageTheme} from '@/lib/pageTheme';
+import {readPageFonts} from '@/lib/pageFont';
 
 function renderWithProviders(node: React.ReactNode) {
   return render(
@@ -46,14 +47,25 @@ describe('AppearanceSettings', () => {
   });
 });
 
-describe('PageThemeControl', () => {
+describe('PageAppearanceControls', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => cleanup());
 
-  it('mounts and exposes the page-theme trigger', () => {
-    renderWithProviders(<PageThemeControl pageId="page-1" />);
-    expect(screen.getByLabelText('Page theme')).toBeTruthy();
-    // No override yet.
+  it('renders the appearance + typeface controls without creating an override', () => {
+    renderWithProviders(<PageAppearanceControls pageId="page-1" />);
+    expect(screen.getByText('Body font')).toBeTruthy();
+    expect(screen.getByText('Heading font')).toBeTruthy();
+    expect(screen.getByText('Control intensity')).toBeTruthy();
+    expect(screen.getByText('Forest')).toBeTruthy(); // an accent swatch
+    // Just mounting writes nothing.
     expect(readPageTheme('page-1')).toBeNull();
+    expect(readPageFonts('page-1')).toBeNull();
+  });
+
+  it('writes a per-page font override when a typeface is picked', () => {
+    renderWithProviders(<PageAppearanceControls pageId="page-2" />);
+    // Two "Serif" buttons (body + heading pickers); the first is the body font.
+    fireEvent.click(screen.getAllByText('Serif')[0]);
+    expect(readPageFonts('page-2')?.body).toBe('serif');
   });
 });

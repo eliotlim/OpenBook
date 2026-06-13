@@ -21,6 +21,15 @@ export const FLOW_PANE_ID = 'flow';
  */
 export const CONFIG_PANE_ID = 'config';
 
+/**
+ * The page-customisation split-pane mode — a pseudo-page hosting a page's
+ * appearance + typeface controls (accent, neutrals, intensities, primary /
+ * secondary fonts). Like {@link CONFIG_PANE_ID} it reuses the side pane rather
+ * than a popover, and is ephemeral — never persisted to the URL. The page it
+ * targets is tracked in `lib/pageCustomise.ts`.
+ */
+export const CUSTOMISE_PANE_ID = 'customise';
+
 /** Which Home widgets are shown. All on by default; configurable per device. */
 export interface HomeWidgets {
   actions: boolean;

@@ -25,6 +25,7 @@ import {useData} from '@/data';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
 import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
+import {togglePageFullWidth} from '@/lib/pageFullWidth';
 import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
 import {pluginCommands, subscribePluginCommands} from '@/plugins';
 
@@ -161,11 +162,10 @@ export function useAppCommands(): AppCommand[] {
         keywords: 'full width wide narrow column layout',
         icon: StretchHorizontal,
         shortcut: SHORTCUTS.toggleFullWidth,
-        run: () =>
-          setHud((draft) => {
-            draft.viewMode.fullWidth = !draft.viewMode.fullWidth;
-            return draft;
-          }),
+        // Full width is a per-page layout choice — toggle the focused page's.
+        run: () => {
+          if (currentPageId) togglePageFullWidth(currentPageId);
+        },
       },
       {
         id: 'toggle-theme',

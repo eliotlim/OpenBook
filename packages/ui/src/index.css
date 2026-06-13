@@ -322,6 +322,25 @@
 .ob-editor-compact .codex-editor__redactor {
   padding-bottom: 0.25rem !important;
 }
+
+/* Page cover banner: a full-bleed image / gradient above the title. The height
+   scales with the viewport but stays within a calm band. */
+.ob-page-cover {
+  height: clamp(140px, 22vh, 220px);
+}
+
+/* Per-page typefaces (lib/pageFont): the wrapper sets the body family, headings
+   (and the title) take the heading family — falling back to the body family
+   when only one is set. Code keeps its own monospace (set explicitly elsewhere). */
+.ob-page-fonts {
+  font-family: var(--ob-font-body, inherit);
+}
+.ob-page-fonts :is(h1, h2, h3, h4, h5, h6),
+.ob-page-fonts .ob-page-title,
+.ob-page-fonts .ce-header,
+.ob-page-fonts .obe-heading {
+  font-family: var(--ob-font-heading, var(--ob-font-body, inherit));
+}
 .ce-paragraph {
   line-height: 1.6;
   font-size: 0.9375rem; /* 15px — comfortable reading body */

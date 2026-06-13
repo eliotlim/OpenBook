@@ -1,8 +1,5 @@
 import {test, expect, takeSnapshot} from './fixtures';
 
-const hudFullWidth = (page: import('@playwright/test').Page) =>
-  page.evaluate(() => JSON.parse(localStorage.getItem('hud') || '{}')?.viewMode?.fullWidth ?? false);
-
 test('settings: grouped sections, stubs, and admin danger zone', async ({page}, testInfo) => {
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
@@ -36,14 +33,4 @@ test('settings: profile edits persist across reload', async ({page}) => {
   // The tab lives in the URL, so a reload reopens Profile; the value is restored.
   await page.reload();
   await expect(page.locator('#ob-profile-name')).toHaveValue('Ada Lovelace');
-});
-
-test('settings: the full-width toggle drives the HUD', async ({page}) => {
-  await page.goto('/');
-  await page.getByRole('button', {name: 'Settings'}).first().click();
-  await page.getByRole('button', {name: 'Customisation'}).click();
-
-  const before = await hudFullWidth(page);
-  await page.getByText('Full-width editor').click();
-  await expect.poll(() => hudFullWidth(page)).toBe(!before);
 });

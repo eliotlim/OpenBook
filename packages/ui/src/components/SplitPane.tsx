@@ -4,8 +4,9 @@ import {ScrollArea} from '@/components/ui/scroll-area';
 import {IconButton} from '@/components/ui/icon-button';
 import PageActionsCluster from '@/components/PageActionsCluster';
 import {ConnectedPageDocument, DataflowView, HomeScreen} from '@/screens';
-import {CONFIG_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
+import {CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
 import {closeKitPanel, getKitPanel, setKitPanelHost, subscribeKitPanel} from '@/blockeditor/kit/kitPanel';
+import {PageCustomiseBody} from '@/components/appearance/PageCustomiseBody';
 import {useNavigation} from '@/providers';
 import {cn} from '@/lib/utils';
 
@@ -86,7 +87,8 @@ export function SplitPane() {
   const focused = pane.id === focusedPaneId;
   const isFlow = pane.pageId === FLOW_PANE_ID;
   const isConfig = pane.pageId === CONFIG_PANE_ID;
-  const isPage = !isFlow && !isConfig; // a real document — gets make-main + the actions cluster
+  const isCustomise = pane.pageId === CUSTOMISE_PANE_ID;
+  const isPage = !isFlow && !isConfig && !isCustomise; // a real document — gets make-main + the actions cluster
 
   return (
     <aside
@@ -111,8 +113,11 @@ export function SplitPane() {
         className="absolute inset-y-0 -left-0.5 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"
       />
       {/* The split pane owns its page's chrome: hide / expand on the left, and
-          the page-actions cluster ("…" menu + status/copy/star) on the right. */}
-      <div className="flex h-9 shrink-0 items-center justify-between gap-1 border-b border-border px-1.5">
+          the page-actions cluster ("…" menu + status/copy/star) on the right.
+          It matches the primary nav bar's height (h-12) and carries no bottom
+          border, so the secondary pane reads as a calm peek rather than a second
+          framed toolbar. */}
+      <div className="flex h-12 shrink-0 items-center justify-between gap-1 px-2">
         <div className="flex items-center gap-0.5">
           <IconButton size="sm" onClick={() => closeSplit()} aria-label="Hide split pane" title="Hide split pane">
             <PanelRightClose className="h-3.5 w-3.5" />
@@ -138,6 +143,10 @@ export function SplitPane() {
       ) : isConfig ? (
         <div className="min-h-0 flex-1">
           <KitConfigPaneBody />
+        </div>
+      ) : isCustomise ? (
+        <div className="min-h-0 flex-1">
+          <PageCustomiseBody />
         </div>
       ) : (
         <ScrollArea className="min-h-0 flex-1">

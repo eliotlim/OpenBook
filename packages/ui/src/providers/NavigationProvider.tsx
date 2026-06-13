@@ -13,7 +13,7 @@ import {useData} from '@/data';
 import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
 import {readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {recordRecent} from '@/lib/recents';
-import {CONFIG_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
+import {CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
 import {registerKitPanelNav} from '@/blockeditor/kit/kitPanel';
 import {t as bareT} from '@/i18n';
 import {removeFavorite} from '@/lib/favorites';
@@ -171,7 +171,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   useEffect(() => {
     if (!win) return;
     const split = W.activeTab(win).split;
-    writeUrl(W.primaryPage(win), split === CONFIG_PANE_ID ? null : split);
+    const ephemeral = split === CONFIG_PANE_ID || split === CUSTOMISE_PANE_ID;
+    writeUrl(W.primaryPage(win), ephemeral ? null : split);
   }, [win]);
 
   const update = useCallback((fn: (w: WindowState) => WindowState) => {
@@ -230,6 +231,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       if (id === HOME_PAGE_ID) return bareT('nav.home');
       if (id === FLOW_PANE_ID) return bareT('flow.title');
       if (id === CONFIG_PANE_ID) return 'Settings';
+      if (id === CUSTOMISE_PANE_ID) return 'Customise';
       const meta = pages.find((p) => p.id === id);
       if (meta) return meta.name && meta.name.trim().length > 0 ? meta.name : 'Untitled';
       return titleHints[id] ?? 'Untitled';
@@ -443,7 +445,13 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   // group). Covers every entry point — sidebar, palette, tabs, back/forward.
   useEffect(() => {
     // Home/flow/config are places, not documents — they never enter the recents trail.
-    if (currentPageId && currentPageId !== HOME_PAGE_ID && currentPageId !== FLOW_PANE_ID && currentPageId !== CONFIG_PANE_ID)
+    if (
+      currentPageId &&
+      currentPageId !== HOME_PAGE_ID &&
+      currentPageId !== FLOW_PANE_ID &&
+      currentPageId !== CONFIG_PANE_ID &&
+      currentPageId !== CUSTOMISE_PANE_ID
+    )
       recordRecent(currentPageId);
   }, [currentPageId]);
 

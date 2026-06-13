@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {copyPageLink} from '@/lib/pageActions';
+import {togglePageFullWidth, usePageFullWidth} from '@/lib/pageFullWidth';
 import {isFavorite, toggleFavorite} from '@/lib/favorites';
 import {formatShortcut, SHORTCUTS} from '@/lib/shortcuts';
 import {
@@ -56,12 +57,14 @@ const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: string; icon: typeof File
  * page) so the split view's cluster can act on the right pane's page.
  */
 export default function NavContextMenu({pageId}: {pageId?: string | null} = {}) {
-  const {hud, setHud} = useHud();
+  const {setHud} = useHud();
   const {openInNew, openInSplit, currentPageId: focusedPageId} = useNavigation();
   const {t} = useTranslation();
   const currentPageId = pageId !== undefined ? pageId : focusedPageId;
   const isHome = currentPageId === HOME_PAGE_ID;
   const fav = !!currentPageId && !isHome && isFavorite(currentPageId);
+  // Full width is a per-page layout choice (see lib/pageFullWidth).
+  const fullWidth = usePageFullWidth(currentPageId && !isHome ? currentPageId : '');
 
   // The open document registers what it can do (export formats, delete);
   // subscribe so the menu tracks the page — and its plugin-ness — live.
@@ -93,10 +96,9 @@ export default function NavContextMenu({pageId}: {pageId?: string | null} = {}) 
             desktop WKWebView especially). `onSelect` preventDefault keeps the
             menu open so you can see the layout change. */}
         <DropdownMenuCheckboxItem
-          checked={hud.viewMode.fullWidth}
-          onCheckedChange={(checked) =>
-            setHud({...hud, viewMode: {...hud.viewMode, fullWidth: checked}})
-          }
+          checked={fullWidth}
+          disabled={!currentPageId || isHome}
+          onCheckedChange={() => currentPageId && togglePageFullWidth(currentPageId)}
           onSelect={(e) => e.preventDefault()}
         >
           {t('menu.fullWidth')}

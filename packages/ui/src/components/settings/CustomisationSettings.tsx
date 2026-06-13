@@ -39,17 +39,8 @@ export default function CustomisationSettings() {
   return (
     <SettingsScreen title={t('customisation.title')} description={t('customisation.description')}>
       <SettingsSection title={t('customisation.layout')}>
-        <SettingsToggle
-          label={t('customisation.fullWidth')}
-          hint={t('customisation.fullWidthHint')}
-          checked={hud.viewMode.fullWidth}
-          onCheckedChange={(v) =>
-            setHud((draft) => {
-              draft.viewMode.fullWidth = v;
-              return draft;
-            })
-          }
-        />
+        {/* Full width is now a per-page choice (page "…" menu / ⌘. / the page's
+            customise pane), so it's no longer a global switch here. */}
         <SettingsToggle
           label={t('customisation.autoHideSidebar')}
           hint={t('customisation.autoHideSidebarHint')}

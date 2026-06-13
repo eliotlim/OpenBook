@@ -66,9 +66,6 @@ export interface HudProps {
   agent: {
     open: boolean;
   };
-  viewMode: {
-    fullWidth: boolean;
-  }
 }
 
 export const HudDefault: HudProps = {
@@ -96,9 +93,6 @@ export const HudDefault: HudProps = {
   agent: {
     open: false,
   },
-  viewMode: {
-    fullWidth: false,
-  },
 };
 
 export const HUD_STORAGE_KEY = 'hud';
@@ -121,7 +115,6 @@ export const loadHudStorage = (): HudProps => {
     templates: {open: false},
     ai: {open: false},
     agent: {open: false},
-    viewMode: {...HudDefault.viewMode, ...stored.viewMode},
   };
 };
 

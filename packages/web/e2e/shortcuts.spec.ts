@@ -1,8 +1,10 @@
 import {test, expect, takeSnapshot} from './fixtures';
 import {SERVER} from './seed';
 
-const hudFullWidth = (page: import('@playwright/test').Page) =>
-  page.evaluate(() => JSON.parse(localStorage.getItem('hud') || '{}')?.viewMode?.fullWidth ?? false);
+// Full width is a per-page choice now: assert via the document's content column
+// (max-w-content → max-w-none) rather than a global HUD flag.
+const columnIsFull = (page: import('@playwright/test').Page) =>
+  page.locator('main .mx-auto.w-full').first().evaluate((el) => el.classList.contains('max-w-none'));
 
 // The command palette: opens with the keyboard, groups app commands, and runs
 // one (Toggle full width) — proving the shared command registry is wired to both
@@ -24,19 +26,19 @@ test('command palette: opens with ⌘K, groups commands, and runs one', async ({
   await takeSnapshot(page, testInfo); // visual: command palette with grouped commands
 
   // Filter to a command and run it with Enter (the top match auto-highlights).
-  const before = await hudFullWidth(page);
+  const before = await columnIsFull(page);
   await page.getByPlaceholder(/Search pages or run a command/).fill('Toggle full width');
   await page.keyboard.press('Enter');
-  await expect.poll(() => hudFullWidth(page)).toBe(!before);
+  await expect.poll(() => columnIsFull(page)).toBe(!before);
 });
 
 // A global shortcut fires while the editor has focus: ⌘. toggles full width.
 test('keyboard shortcut: ⌘. toggles the full-width view', async ({page}) => {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
-  const before = await hudFullWidth(page);
+  const before = await columnIsFull(page);
   await page.keyboard.press('ControlOrMeta+.');
-  await expect.poll(() => hudFullWidth(page)).toBe(!before);
+  await expect.poll(() => columnIsFull(page)).toBe(!before);
 });
 
 // The sidebar row reveals quick actions on hover: a "+" to add a subpage and a

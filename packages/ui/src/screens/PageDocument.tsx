@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {useHud, usePreferences, useTranslation} from '@/providers';
+import {usePreferences, useTranslation} from '@/providers';
 import {t as bareT} from '@/i18n';
 import {IconPicker} from '@/components/IconPicker';
 import {cn} from '@/lib/utils';
@@ -79,7 +79,11 @@ import {DatabaseView} from '@/components/database/DatabaseView';
 import {InlineDatabaseChooser} from '@/components/database/DatabasePicker';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
-import {PageThemeControl, usePageThemeStyle} from '@/components/appearance/PageThemeControl';
+import {PageHeaderControls} from '@/components/PageHeaderControls';
+import {PageCoverBanner} from '@/components/PageCover';
+import {usePageThemeStyle} from '@/components/appearance/PageCustomiseBody';
+import {usePageFullWidth} from '@/lib/pageFullWidth';
+import {pageFontStyle, usePageFonts} from '@/lib/pageFont';
 import {installEditorChrome} from '@/lib/editorChrome';
 import {MentionController, PageLinkInlineTool} from '@/editor/pageMention';
 import {MentionPopover} from '@/components/MentionPopover';
@@ -181,7 +185,7 @@ export const PageHeader: React.FC<{
       <textarea
         ref={inputRef}
         rows={1}
-        className="w-full resize-none overflow-hidden bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-muted-foreground/35"
+        className="ob-page-title w-full resize-none overflow-hidden bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-muted-foreground/35"
         value={title}
         placeholder={t('common.untitled')}
         onChange={(e) => onTitleChange?.(e.target.value)}
@@ -214,7 +218,6 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   hasDatabase = false,
 }) => {
   'use client';
-  const {hud} = useHud();
   const client = useData();
   const {preferences} = usePreferences();
   const spellcheck = preferences.general.spellcheck;
@@ -581,59 +584,66 @@ const PageDocument: React.FC<PageDocumentProps> = ({
     });
   }, [pageId, !!onDelete]);
 
-  // The title lives in a centered column; the editor is full-width and centers
-  // its own content to the same width (so the toolbar/+ stays in the left gutter
-  // and EditorJS never enters its narrow, right-aligned layout).
-  const columnClass = cn('mx-auto w-full', hud.viewMode.fullWidth ? 'max-w-none' : 'max-w-content');
+  // Full width is a per-page choice (see lib/pageFullWidth). The title lives in a
+  // centered column; the editor is full-width and centers its own content to the
+  // same width (so the toolbar/+ stays in the left gutter and EditorJS never
+  // enters its narrow, right-aligned layout).
+  const fullWidth = usePageFullWidth(pageId ?? '');
+  const columnClass = cn('mx-auto w-full', fullWidth ? 'max-w-none' : 'max-w-content');
 
-  // A per-page theme override (if any) recolors just this page via scoped vars.
+  // Per-page overrides recolor (theme) and restyle (fonts) just this page via
+  // scoped CSS vars / the `ob-page-fonts` class on the wrapper.
   const pageThemeStyle = usePageThemeStyle(pageId ?? '');
+  const fontStyle = pageFontStyle(usePageFonts(pageId ?? ''));
 
   const body = (
-    <div className="w-full px-6 pb-40 pt-6 md:px-10" style={pageThemeStyle}>
-      <div className={columnClass}>
-        {/* Per-page theme control. The save status moved to the shell's
-            page-actions cluster (titlebar on desktop, nav bar on web). */}
-        <div className="flex h-8 items-center justify-start gap-2 text-xs text-muted-foreground print:hidden">
-          {pageId ? <PageThemeControl pageId={pageId} /> : <span />}
+    <div
+      className={cn('w-full pb-40', fontStyle && 'ob-page-fonts')}
+      style={{...pageThemeStyle, ...fontStyle}}
+    >
+      {pageId && <PageCoverBanner pageId={pageId} />}
+      <div className="px-6 pt-6 md:px-10">
+        <div className={columnClass}>
+          {/* Cover-area controls (customise / owner / verification / add cover).
+              The save status moved to the shell's page-actions cluster. */}
+          {pageId && <PageHeaderControls pageId={pageId} />}
+
+          <PageHeader
+            title={title}
+            icon={icon}
+            pageId={pageId}
+            onTitleChange={onTitleChange}
+            onIconChange={onIconChange}
+            onTitleActiveChange={onTitleActiveChange}
+          />
+
+          {/* Wiki-style page properties (database fields, backlinks). */}
+          {pageId && <PageProperties pageId={pageId} />}
         </div>
 
-        <PageHeader
-          title={title}
-          icon={icon}
-          pageId={pageId}
-          onTitleChange={onTitleChange}
-          onIconChange={onIconChange}
-          onTitleActiveChange={onTitleActiveChange}
-        />
+        {/* `ob-editor-full` lets the CSS widen the EditorJS content column to match
+            the full-width title/database sections (the editor centers its blocks
+            via a max-width in index.css, which this overrides). */}
+        {!isSSR() && (
+          <div
+            ref={holderRef}
+            className={cn(hasDatabase ? 'min-h-0 ob-editor-compact' : 'min-h-[40vh]', fullWidth && 'ob-editor-full')}
+          />
+        )}
 
-        {/* Wiki-style page properties (owner, verification, backlinks). The same
-            values double as database columns for a databased collection. */}
-        {pageId && <PageProperties pageId={pageId} />}
+        {/* Inline databases: a live DatabaseView portaled into each database
+            block's DOM node, so the view runs inside the document's providers. */}
+        {[...dbBlocks].map(([id, {el, pageId: dbPageId, onCreate, onPick}]) =>
+          dbPageId
+            ? createPortal(<DatabaseView pageId={dbPageId} inline />, el, id)
+            : createPortal(<InlineDatabaseChooser onCreate={onCreate} onPick={onPick} />, el, id),
+        )}
+
+        {!isSSR() && mentionRef.current && <MentionPopover controller={mentionRef.current} />}
+        {!isSSR() && emojiRef.current && <EmojiSuggestPopover controller={emojiRef.current} />}
+
+        {footer && <div className={columnClass}>{footer}</div>}
       </div>
-
-      {/* `ob-editor-full` lets the CSS widen the EditorJS content column to match
-          the full-width title/database sections (the editor centers its blocks
-          via a max-width in index.css, which this overrides). */}
-      {!isSSR() && (
-        <div
-          ref={holderRef}
-          className={cn(hasDatabase ? 'min-h-0 ob-editor-compact' : 'min-h-[40vh]', hud.viewMode.fullWidth && 'ob-editor-full')}
-        />
-      )}
-
-      {/* Inline databases: a live DatabaseView portaled into each database
-          block's DOM node, so the view runs inside the document's providers. */}
-      {[...dbBlocks].map(([id, {el, pageId: dbPageId, onCreate, onPick}]) =>
-        dbPageId
-          ? createPortal(<DatabaseView pageId={dbPageId} inline />, el, id)
-          : createPortal(<InlineDatabaseChooser onCreate={onCreate} onPick={onPick} />, el, id),
-      )}
-
-      {!isSSR() && mentionRef.current && <MentionPopover controller={mentionRef.current} />}
-      {!isSSR() && emojiRef.current && <EmojiSuggestPopover controller={emojiRef.current} />}
-
-      {footer && <div className={columnClass}>{footer}</div>}
     </div>
   );
 

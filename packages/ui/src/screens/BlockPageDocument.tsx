@@ -21,12 +21,16 @@ import {registerArtifactKit} from '@/blockeditor/kit';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
-import {PageThemeControl, usePageThemeStyle} from '@/components/appearance/PageThemeControl';
+import {PageHeaderControls} from '@/components/PageHeaderControls';
+import {PageCoverBanner} from '@/components/PageCover';
+import {usePageThemeStyle} from '@/components/appearance/PageCustomiseBody';
+import {usePageFullWidth} from '@/lib/pageFullWidth';
+import {pageFontStyle, usePageFonts} from '@/lib/pageFont';
 import {setPageSaveStatus} from '@/lib/pageSaveStatus';
 import {pageHasPluginManifest} from '@/plugins';
 import {registerPageDocActions, type ExportKind} from '@/lib/pageDocActions';
 import {registerOpenDoc} from '@/lib/openDocs';
-import {useConfirm, useHud, usePreferences, useTranslation} from '@/providers';
+import {useConfirm, usePreferences, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
 import {PageHeader, type PageDocumentProps} from './PageDocument';
@@ -63,7 +67,6 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   pageId,
   hasDatabase = false,
 }) => {
-  const {hud} = useHud();
   const {t} = useTranslation();
   const {preferences} = usePreferences();
   const client = useData();
@@ -261,46 +264,52 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     return () => setPageSaveStatus(pageId, null);
   }, [pageId, status]);
 
-  const columnClass = cn('mx-auto w-full', hud.viewMode.fullWidth ? 'max-w-none' : 'max-w-content');
+  // Full width is a per-page choice (see lib/pageFullWidth).
+  const fullWidth = usePageFullWidth(pageId ?? '');
+  const columnClass = cn('mx-auto w-full', fullWidth ? 'max-w-none' : 'max-w-content');
 
-  // A per-page theme override (if any) recolors just this page via scoped vars.
+  // Per-page overrides recolor (theme) and restyle (fonts) just this page.
   const pageThemeStyle = usePageThemeStyle(pageId ?? '');
+  const fontStyle = pageFontStyle(usePageFonts(pageId ?? ''));
 
   // Right-clicking the page body opens the shared page actions (favorite,
   // open in split, rename, duplicate, trash, …) — same menu as classic pages.
   const body = (
-    <div className="w-full px-6 pb-40 pt-6 md:px-10" style={pageThemeStyle}>
-      <div className={columnClass}>
-        {/* Per-page theme control. The save status moved to the shell's
-            page-actions cluster (titlebar on desktop, nav bar on web). */}
-        <div className="flex h-8 items-center justify-start gap-2 text-xs text-muted-foreground print:hidden">
-          {pageId ? <PageThemeControl pageId={pageId} /> : <span />}
+    <div
+      className={cn('w-full pb-40', fontStyle && 'ob-page-fonts')}
+      style={{...pageThemeStyle, ...fontStyle}}
+    >
+      {pageId && <PageCoverBanner pageId={pageId} />}
+      <div className="px-6 pt-6 md:px-10">
+        <div className={columnClass}>
+          {/* Cover-area controls (customise / owner / verification / add cover). */}
+          {pageId && <PageHeaderControls pageId={pageId} />}
+
+          <PageHeader
+            title={title}
+            icon={icon}
+            pageId={pageId}
+            onTitleChange={onTitleChange}
+            onIconChange={onIconChange}
+            onTitleActiveChange={onTitleActiveChange}
+          />
+          {pageId && <PageProperties pageId={pageId} />}
+
+          <div className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'pt-2')}>
+            {doc && (
+              <BlockEditor
+                doc={doc}
+                ariaLabel={title || 'Page content'}
+                fullWidth={fullWidth}
+                compact={hasDatabase}
+                spellcheck={preferences.general.spellcheck}
+                pageId={pageId}
+              />
+            )}
+          </div>
+
+          {footer}
         </div>
-
-        <PageHeader
-          title={title}
-          icon={icon}
-          pageId={pageId}
-          onTitleChange={onTitleChange}
-          onIconChange={onIconChange}
-          onTitleActiveChange={onTitleActiveChange}
-        />
-        {pageId && <PageProperties pageId={pageId} />}
-
-        <div className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'pt-2')}>
-          {doc && (
-            <BlockEditor
-              doc={doc}
-              ariaLabel={title || 'Page content'}
-              fullWidth={hud.viewMode.fullWidth}
-              compact={hasDatabase}
-              spellcheck={preferences.general.spellcheck}
-              pageId={pageId}
-            />
-          )}
-        </div>
-
-        {footer}
       </div>
     </div>
   );
