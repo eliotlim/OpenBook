@@ -82,7 +82,7 @@ const FitBounds: React.FC<{markers: PlacedMarker[]}> = ({markers}) => {
     }
     const bounds = L.latLngBounds(markers.map((m) => [m.lat, m.lng] as [number, number]));
     map.fitBounds(bounds, {padding: [40, 40], maxZoom: 14});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Deps are intentional: `markers` content is captured by `sig`.
   }, [map, sig]);
   return null;
 };
@@ -109,11 +109,11 @@ const MarkersLayer: React.FC<{markers: PlacedMarker[]; clustered: boolean; onOpe
   useEffect(() => {
     const layer: L.LayerGroup = clustered
       ? L.markerClusterGroup({
-          chunkedLoading: true,
-          showCoverageOnHover: false,
-          maxClusterRadius: 56,
-          iconCreateFunction: clusterIcon,
-        })
+        chunkedLoading: true,
+        showCoverageOnHover: false,
+        maxClusterRadius: 56,
+        iconCreateFunction: clusterIcon,
+      })
       : L.layerGroup();
 
     for (const m of markers) {
@@ -126,8 +126,8 @@ const MarkersLayer: React.FC<{markers: PlacedMarker[]; clustered: boolean; onOpe
     return () => {
       map.removeLayer(layer);
     };
-    // `sig` captures the meaningful marker content; rebuild on it or the toggle.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `sig` captures the meaningful marker content; rebuild on it or the toggle
+    // (`onOpen` is read through a ref, so its identity churn doesn't rebuild).
   }, [map, sig, clustered]);
 
   return null;
