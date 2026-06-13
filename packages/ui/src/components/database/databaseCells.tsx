@@ -1,6 +1,7 @@
 import React, {useRef, useState} from 'react';
-import {BadgeCheck, Check, ChevronDown, ExternalLink, Plus, X} from 'lucide-react';
+import {BadgeCheck, Check, ChevronDown, ExternalLink, MapPin, Plus, X} from 'lucide-react';
 import {
+  asLocation,
   dateEnd,
   dateStart,
   formatNumber,
@@ -16,6 +17,7 @@ import {
   type DatabaseRow,
   type DatabaseSelectOption,
   type DateRange,
+  type LocationValue,
   type VerificationValue,
 } from '@open-book/sdk';
 import {
@@ -164,6 +166,10 @@ export function formatCellValue(property: DatabaseProperty, value: unknown): str
   if (property.type === 'rating') {
     const n = typeof value === 'number' ? value : Number(value);
     return Number.isFinite(n) && n > 0 ? '★'.repeat(Math.round(n)) : '';
+  }
+  if (property.type === 'location') {
+    const loc = asLocation(value);
+    return loc ? loc.label ?? loc.address ?? `${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}` : '';
   }
   if (value === undefined || value === null || value === '') return '';
   if (property.type === 'checkbox') return value ? '✓' : '';
@@ -368,6 +374,8 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
   case 'email':
   case 'phone':
     return <LinkCell kind={property.type} value={value} onChange={onChange} />;
+  case 'location':
+    return <LocationCell value={value} onChange={onChange} />;
   case 'created_time':
   case 'last_edited_time':
     return (
@@ -810,6 +818,102 @@ const LinkCell: React.FC<{kind: 'url' | 'email' | 'phone'; value: unknown; onCha
         </a>
       )}
     </div>
+  );
+};
+
+/**
+ * A `location` cell: a coordinate point with an optional label and source
+ * address. The cell summarises the place; a popover edits the four fields. The
+ * stored shape ({@link LocationValue}) matches the location kit input so the two
+ * are interchangeable. Clearing both coordinates empties the cell.
+ */
+const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> = ({value, onChange}) => {
+  const loc = asLocation(value);
+  // Edit the raw text inputs as strings so a half-typed "-" or "." survives.
+  const stored = (value && typeof value === 'object' ? (value as Partial<LocationValue>) : {}) as Partial<LocationValue>;
+  const [lat, setLat] = useState(stored.lat != null ? String(stored.lat) : '');
+  const [lng, setLng] = useState(stored.lng != null ? String(stored.lng) : '');
+  const [label, setLabel] = useState(stored.label ?? '');
+  const [address, setAddress] = useState(stored.address ?? '');
+
+  const commit = (): void => {
+    const nlat = Number(lat);
+    const nlng = Number(lng);
+    if (lat.trim() === '' && lng.trim() === '') {
+      onChange(null);
+      return;
+    }
+    if (!Number.isFinite(nlat) || !Number.isFinite(nlng)) return; // keep editing
+    const next: LocationValue = {
+      lat: nlat,
+      lng: nlng,
+      ...(label.trim() ? {label: label.trim()} : {}),
+      ...(address.trim() ? {address: address.trim()} : {}),
+    };
+    onChange(next);
+  };
+
+  const summary = loc ? loc.label ?? loc.address ?? `${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}` : '';
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="group flex w-full items-center gap-1.5 px-2 py-1 text-left text-sm transition-colors hover:bg-accent/40"
+          aria-label="Location"
+        >
+          <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
+          {summary ? <span className="truncate">{summary}</span> : <span className={emptyHint}>Empty</span>}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-64 space-y-2 p-2.5">
+        <div className="flex gap-1.5">
+          <label className="flex-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Latitude</span>
+            <input
+              value={lat}
+              onChange={(e) => setLat(e.target.value)}
+              onBlur={commit}
+              inputMode="decimal"
+              placeholder="51.5074"
+              className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+            />
+          </label>
+          <label className="flex-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Longitude</span>
+            <input
+              value={lng}
+              onChange={(e) => setLng(e.target.value)}
+              onBlur={commit}
+              inputMode="decimal"
+              placeholder="-0.1278"
+              className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+            />
+          </label>
+        </div>
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Label</span>
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onBlur={commit}
+            placeholder="Optional name"
+            className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Address</span>
+          <input
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            onBlur={commit}
+            placeholder="Optional address"
+            className="mt-1 w-full rounded border border-border bg-background px-1.5 py-1 text-xs outline-hidden"
+          />
+        </label>
+      </PopoverContent>
+    </Popover>
   );
 };
 

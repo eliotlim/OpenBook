@@ -924,6 +924,7 @@ const VIEW_TYPE_LABEL: Record<DatabaseViewType, string> = {
   board: 'Board',
   calendar: 'Calendar',
   timeline: 'Timeline',
+  map: 'Map',
   graph: 'Graph',
   bar: 'Bar chart',
   pie: 'Pie chart',

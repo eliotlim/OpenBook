@@ -13,6 +13,7 @@ import {
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseView as DbView,
+  type RowGroup,
   type SummaryType,
 } from '@open-book/sdk';
 import {
@@ -280,10 +281,89 @@ const BoardColumnFooter: React.FC<{db: UseDatabase; view: DbView; properties: Da
   );
 };
 
+/** A board card move: drop a card into a (column, lane) cell. `subKey` is null
+ *  when the board has no sub-grouping (a flat single-lane board). */
+interface BoardDropTarget {
+  colKey: string;
+  subKey: string | null;
+}
+
+/** Mutable drag/hover state shared by every board column (flat or swimlaned). */
+interface BoardDnd {
+  dragRow: string | null;
+  setDragRow: (id: string | null) => void;
+  dragCol: string | null;
+  setDragCol: (key: string | null) => void;
+  /** The hovered drop cell, encoded "<colKey>::<subKey>" so lanes don't collide. */
+  overKey: string | null;
+  setOverKey: (key: string | null) => void;
+}
+
+const cellKey = (colKey: string, subKey: string | null): string => `${colKey}::${subKey ?? ''}`;
+
+/**
+ * One board column's cards (within a lane when sub-grouped): the draggable cards
+ * plus the footer and "New" affordance. Extracted so swimlanes can reuse a column
+ * per (column, lane) cell. Card DnD into this cell writes the column's group value
+ * — and, when laned, the lane's sub-group value too — in a single transaction.
+ */
+const BoardColumnCards: React.FC<{
+  db: UseDatabase;
+  view: DbView;
+  properties: DatabaseProperty[];
+  cardProps: DatabaseProperty[];
+  rows: DatabaseRow[];
+  canMove: boolean;
+  dnd: BoardDnd;
+  newInCell: () => void;
+}> = ({db, view, properties, cardProps, rows, canMove, dnd, newInCell}) => (
+  <>
+    <div className="flex flex-col gap-2">
+      {rows.map((row) => {
+        const accent = rowColor(row, view, properties, db.rows);
+        return (
+          <RowContextMenu key={row.id} db={db} rowId={row.id}>
+            <div
+              draggable={canMove}
+              onDragStart={() => dnd.setDragRow(row.id)}
+              onDragEnd={() => dnd.setDragRow(null)}
+              onClick={() => db.openRow(row.id)}
+              style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
+              className={cn(
+                'group cursor-pointer overflow-hidden rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
+                dnd.dragRow === row.id && 'opacity-50',
+              )}
+            >
+              {/* Board cards honour the view's cover like gallery cards. */}
+              {view.coverPropertyId && coverImageUrl(row.properties[view.coverPropertyId]) && (
+                <div className="-mx-2.5 -mt-2.5 mb-2">
+                  <CardCover src={coverImageUrl(row.properties[view.coverPropertyId])} heightClass="h-20" icon={readPageIcon(row.id)} />
+                </div>
+              )}
+              <div className="mb-1 flex items-center gap-1.5">
+                <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+                <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
+                <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
+              </div>
+              <RowChips row={row} properties={cardProps} rows={db.rows} />
+            </div>
+          </RowContextMenu>
+        );
+      })}
+    </div>
+    {rows.length > 0 && <BoardColumnFooter db={db} view={view} properties={properties} rows={rows} />}
+    <NewRowButton onClick={newInCell} label="New" className="px-1 py-1" />
+  </>
+);
+
 /**
  * Board (kanban): columns from the view's group-by property. Cards drag between
  * columns to change their group value (when grouping on a `select`). A per-column
- * "+ New" creates a row already set to that column.
+ * "+ New" creates a row already set to that column. When the view also names a
+ * `subGroupByPropertyId`, the board splits into horizontal **swimlanes** (one per
+ * sub-group value, spanning all columns — the Notion model); dropping a card into
+ * a (column, lane) cell sets both the column and the lane property in one
+ * transaction. Lanes are collapsible and their collapsed state persists.
  */
 export const BoardView: React.FC<{
   db: UseDatabase;
@@ -294,10 +374,21 @@ export const BoardView: React.FC<{
 }> = ({db, view, properties, cardProperties}) => {
   const groupByParent = view.groupByPropertyId === PARENT_GROUP_ID;
   const groupProp = groupByParent ? undefined : properties.find((p) => p.id === view.groupByPropertyId);
+  // The sub-group (swimlane) dimension. Parent-item sub-grouping isn't a settable
+  // property write, so DnD is limited to it but lanes still render.
+  const subByParent = view.subGroupByPropertyId === PARENT_GROUP_ID;
+  const subProp = subByParent ? undefined : properties.find((p) => p.id === view.subGroupByPropertyId);
+  const swimlaned = !!view.subGroupByPropertyId && (!!subProp || subByParent);
+
   const [dragRow, setDragRow] = useState<string | null>(null);
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const [collapsedCols, setCollapsedCols] = useState<Set<string>>(new Set());
+  // Collapsed lanes persist per view (a board with many swimlanes is unwieldy
+  // until folded — remember the fold across reloads), mirroring activeViewKey.
+  const [collapsedLanes, setCollapsedLanes] = usePersistedSet(`ob.board.lanes.${view.id}`);
+  const dnd: BoardDnd = {dragRow, setDragRow, dragCol, setDragCol, overKey, setOverKey};
+
   const toggleCol = (key: string): void =>
     setCollapsedCols((prev) => {
       const next = new Set(prev);
@@ -305,24 +396,39 @@ export const BoardView: React.FC<{
       else next.add(key);
       return next;
     });
+
   const allGroups = groupRowsBy(db.visibleRows, view.groupByPropertyId, properties);
   const groups = view.hideEmptyGroups ? allGroups.filter((g) => g.rows.length > 0) : allGroups;
-  const canMove = groupProp?.type === 'select' || groupProp?.type === 'status' || groupByParent;
+  const canMoveCol = groupProp?.type === 'select' || groupProp?.type === 'status' || groupByParent;
+  // Cards drag at all when the primary group is movable, OR when only the lane is
+  // (so a card can change lane within an unmovable column).
+  const canMoveLane = subProp?.type === 'select' || subProp?.type === 'status';
+  const canMove = canMoveCol || canMoveLane;
   // Columns backed by a real option (not the trailing "No value") can be reordered;
   // parent-item columns follow row order and aren't.
-  const isOption = (key: string): boolean => !groupByParent && canMove && key !== '__none__' && key !== '__all__';
-  // Properties shown on a card exclude the grouping one (it's the column itself).
-  const cardProps = (cardProperties ?? properties).filter((p) => p.id !== groupProp?.id);
+  const isOption = (key: string): boolean => !groupByParent && canMoveCol && key !== '__none__' && key !== '__all__';
+  // Properties shown on a card exclude the grouping ones (they're the cell itself).
+  const cardProps = (cardProperties ?? properties).filter((p) => p.id !== groupProp?.id && p.id !== subProp?.id);
 
-  const drop = (key: string): void => {
+  // Lanes: one per sub-group value (spanning every column). Honours hideEmptyGroups.
+  const allLanes = swimlaned ? groupRowsBy(db.visibleRows, view.subGroupByPropertyId, properties) : [];
+  const lanes = view.hideEmptyGroups ? allLanes.filter((l) => l.rows.length > 0) : allLanes;
+
+  /** Persist a card's move into a (column, lane) cell — both writes in one txn. */
+  const drop = (target: BoardDropTarget): void => {
     if (dragRow && canMove) {
+      const patch: Record<string, unknown> = {};
       if (groupByParent) {
-        // Dropping on a parent column nests the card under that row ("No parent"
-        // un-nests it). The hook ignores self-drops; the server rejects cycles.
-        void db.setRowParent(dragRow, key === '__none__' ? null : key);
-      } else if (groupProp) {
-        void db.setRowProperty(dragRow, groupProp.id, key === '__none__' ? null : key);
+        // Parent-item columns aren't a property write — re-parent instead. (A
+        // lane sub-group, if any, can still be written alongside.)
+        void db.setRowParent(dragRow, target.colKey === '__none__' ? null : target.colKey);
+      } else if (groupProp && canMoveCol) {
+        patch[groupProp.id] = target.colKey === '__none__' ? null : target.colKey;
       }
+      if (subProp && canMoveLane && target.subKey !== null) {
+        patch[subProp.id] = target.subKey === '__none__' ? null : target.subKey;
+      }
+      if (Object.keys(patch).length > 0) void db.setRowProperties(dragRow, patch);
     }
     setDragRow(null);
     setOverKey(null);
@@ -330,7 +436,7 @@ export const BoardView: React.FC<{
 
   // Drop a column header on another → reorder the group property's options.
   const reorderColumn = (fromKey: string, toKey: string): void => {
-    if (!groupProp || !canMove) return;
+    if (!groupProp || !canMoveCol) return;
     const opts = [...(groupProp.options ?? [])];
     const from = opts.findIndex((o) => o.id === fromKey);
     const to = opts.findIndex((o) => o.id === toKey);
@@ -343,18 +449,149 @@ export const BoardView: React.FC<{
     setOverKey(null);
   };
 
-  const newInColumn = (key: string): void => {
+  /** Create a row seeded to a (column, lane) cell. */
+  const newInCell = (colKey: string, subKey: string | null): void => {
     if (groupByParent) {
       // A new card in a parent's column is a sub-item of that row.
-      void (key === '__none__' ? db.addRow() : db.addSubItem(key));
+      void (colKey === '__none__' ? db.addRow() : db.addSubItem(colKey));
       return;
     }
-    const initial = canMove && key !== '__none__' && key !== '__all__' ? {[groupProp!.id]: key} : undefined;
-    void db.addRow(initial);
+    const initial: Record<string, unknown> = {};
+    if (groupProp && canMoveCol && colKey !== '__none__' && colKey !== '__all__') initial[groupProp.id] = colKey;
+    if (subProp && canMoveLane && subKey && subKey !== '__none__') initial[subProp.id] = subKey;
+    void db.addRow(Object.keys(initial).length ? initial : undefined);
   };
 
   const allCollapsed = groups.length > 0 && groups.every((g) => collapsedCols.has(g.key));
 
+  /** The shared column-header strip (used once for flat, once atop swimlanes). */
+  const ColumnHeaders: React.FC = () => (
+    <div className="flex gap-3">
+      {groups.map((group) => {
+        const isCollapsed = collapsedCols.has(group.key);
+        return (
+          <div
+            key={group.key}
+            data-col-key={group.key}
+            draggable={isOption(group.key)}
+            onDragStart={(e) => {
+              e.stopPropagation();
+              setDragCol(group.key);
+            }}
+            onDragEnd={() => {
+              setDragCol(null);
+              setOverKey(null);
+            }}
+            onDragOver={(e) => {
+              if (dragCol && isOption(group.key)) {
+                e.preventDefault();
+                setOverKey(cellKey(group.key, null));
+              }
+            }}
+            onDrop={() => dragCol && reorderColumn(dragCol, group.key)}
+            className={cn(
+              'flex shrink-0 items-center gap-1.5 rounded-md bg-muted/30 px-2 py-1.5 text-xs font-medium',
+              isCollapsed ? 'w-11 justify-center' : 'w-64',
+              isOption(group.key) && 'cursor-grab active:cursor-grabbing',
+              overKey === cellKey(group.key, null) && 'ring-1 ring-brand/40',
+            )}
+          >
+            {group.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />}
+            {groupByParent && group.key !== '__none__' && <span className="shrink-0 text-sm leading-none">{readPageIcon(group.key)}</span>}
+            {!isCollapsed && <span className="truncate">{group.label}</span>}
+            <span className="text-muted-foreground/60">{group.rows.length}</span>
+            <button
+              onClick={() => toggleCol(group.key)}
+              aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${group.label} column`}
+              className={cn('shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground', !isCollapsed && 'ml-auto')}
+            >
+              {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  /** One (column, lane) cell's drop zone wrapping the cards. */
+  const Cell: React.FC<{group: RowGroup; rows: DatabaseRow[]; subKey: string | null}> = ({group, rows, subKey}) => {
+    const isCollapsed = collapsedCols.has(group.key);
+    const key = cellKey(group.key, subKey);
+    if (isCollapsed) return <div className="w-11 shrink-0" />;
+    return (
+      <div
+        onDragOver={(e) => {
+          if (dragRow && canMove) {
+            e.preventDefault();
+            setOverKey(key);
+          }
+        }}
+        onDrop={() => !dragCol && drop({colKey: group.key, subKey})}
+        className={cn(
+          'flex w-64 shrink-0 flex-col gap-2 rounded-lg bg-muted/30 p-2 transition-colors',
+          overKey === key && 'bg-accent/50 ring-1 ring-brand/40',
+        )}
+      >
+        <BoardColumnCards
+          db={db}
+          view={view}
+          properties={properties}
+          cardProps={cardProps}
+          rows={rows}
+          canMove={canMove}
+          dnd={dnd}
+          newInCell={() => newInCell(group.key, subKey)}
+        />
+      </div>
+    );
+  };
+
+  // ── Swimlaned board: a column-header strip, then one band per lane. ──────────
+  if (swimlaned) {
+    const toggleLane = (laneKey: string): void =>
+      setCollapsedLanes((prev) => {
+        const next = new Set(prev);
+        if (next.has(laneKey)) next.delete(laneKey);
+        else next.add(laneKey);
+        return next;
+      });
+    return (
+      <div className="overflow-x-auto pb-2">
+        <div className="w-max space-y-2">
+          {/* Lane labels sit in a left gutter; offset the header strip to match. */}
+          <div className="flex gap-3 pl-[8.5rem]">
+            <ColumnHeaders />
+          </div>
+          {lanes.map((lane) => {
+            const laneCollapsed = collapsedLanes.has(lane.key);
+            const byCol = new Map(groups.map((g) => [g.key, new Set(g.rows.map((r) => r.id))]));
+            return (
+              <div key={lane.key} className="flex gap-3">
+                {/* Lane header on the left: collapse chevron + label + count. */}
+                <button
+                  onClick={() => toggleLane(lane.key)}
+                  aria-label={`${laneCollapsed ? 'Expand' : 'Collapse'} ${lane.label} lane`}
+                  className="flex h-fit w-32 shrink-0 items-start gap-1 rounded-md px-2 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+                >
+                  <ChevronRight className={cn('mt-0.5 h-3.5 w-3.5 shrink-0 transition-transform', !laneCollapsed && 'rotate-90')} />
+                  {lane.color && <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[lane.color] ?? '#9ca3af'}} />}
+                  <span className="min-w-0 break-words">{lane.label}</span>
+                  <span className="ml-auto shrink-0 text-muted-foreground/60">{lane.rows.length}</span>
+                </button>
+                {!laneCollapsed &&
+                  groups.map((group) => {
+                    const rows = lane.rows.filter((r) => byCol.get(group.key)?.has(r.id));
+                    return <Cell key={group.key} group={group} rows={rows} subKey={lane.key} />;
+                  })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Flat board (single lane): the original layout. ──────────────────────────
   return (
     <div>
       {groups.length > 1 && (
@@ -377,14 +614,14 @@ export const BoardView: React.FC<{
               onDragOver={(e) => {
                 if ((dragRow && canMove) || (dragCol && isOption(group.key))) {
                   e.preventDefault();
-                  setOverKey(group.key);
+                  setOverKey(cellKey(group.key, null));
                 }
               }}
-              onDrop={() => (dragCol ? reorderColumn(dragCol, group.key) : drop(group.key))}
+              onDrop={() => (dragCol ? reorderColumn(dragCol, group.key) : drop({colKey: group.key, subKey: null}))}
               className={cn(
                 'flex shrink-0 flex-col gap-2 rounded-lg bg-muted/30 p-2 transition-colors',
                 isCollapsed ? 'w-11 items-center' : 'w-64',
-                overKey === group.key && 'bg-accent/50 ring-1 ring-brand/40',
+                overKey === cellKey(group.key, null) && 'bg-accent/50 ring-1 ring-brand/40',
               )}
             >
               {isCollapsed ? (
@@ -434,52 +671,51 @@ export const BoardView: React.FC<{
                       <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <div className="flex flex-col gap-2">
-                    {group.rows.map((row) => {
-                      const accent = rowColor(row, view, properties, db.rows);
-                      return (
-                        <RowContextMenu key={row.id} db={db} rowId={row.id}>
-                          <div
-                            draggable={canMove}
-                            onDragStart={() => setDragRow(row.id)}
-                            onDragEnd={() => setDragRow(null)}
-                            onClick={() => db.openRow(row.id)}
-                            style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
-                            className={cn(
-                              'group cursor-pointer overflow-hidden rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
-                              dragRow === row.id && 'opacity-50',
-                            )}
-                          >
-                            {/* Board cards honour the view's cover like gallery cards. */}
-                            {view.coverPropertyId && coverImageUrl(row.properties[view.coverPropertyId]) && (
-                              <div className="-mx-2.5 -mt-2.5 mb-2">
-                                <CardCover src={coverImageUrl(row.properties[view.coverPropertyId])} heightClass="h-20" icon={readPageIcon(row.id)} />
-                              </div>
-                            )}
-                            <div className="mb-1 flex items-center gap-1.5">
-                              <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
-                              <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-                              <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
-                            </div>
-                            <RowChips row={row} properties={cardProps} rows={db.rows} />
-                          </div>
-                        </RowContextMenu>
-                      );
-                    })}
-                  </div>
-                  {group.rows.length > 0 && <BoardColumnFooter db={db} view={view} properties={properties} rows={group.rows} />}
-                  <NewRowButton onClick={() => newInColumn(group.key)} label="New" className="px-1 py-1" />
+                  <BoardColumnCards
+                    db={db}
+                    view={view}
+                    properties={properties}
+                    cardProps={cardProps}
+                    rows={group.rows}
+                    canMove={canMove}
+                    dnd={dnd}
+                    newInCell={() => newInCell(group.key, null)}
+                  />
                 </>
               )}
             </div>
           );
         })}
         {/* New group: mint a select option without leaving the board. */}
-        {canMove && groupProp && <NewGroupColumn onAdd={(label) => void db.addSelectOption(groupProp.id, label)} />}
+        {canMoveCol && groupProp && <NewGroupColumn onAdd={(label) => void db.addSelectOption(groupProp.id, label)} />}
       </div>
     </div>
   );
 };
+
+/** A `useState`-backed Set persisted to localStorage under `key` (board lane folds). */
+function usePersistedSet(key: string): [Set<string>, (updater: (prev: Set<string>) => Set<string>) => void] {
+  const [set, setSet] = useState<Set<string>>(() => {
+    if (typeof localStorage === 'undefined') return new Set();
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+  const update = (updater: (prev: Set<string>) => Set<string>): void =>
+    setSet((prev) => {
+      const next = updater(prev);
+      try {
+        if (typeof localStorage !== 'undefined') localStorage.setItem(key, JSON.stringify([...next]));
+      } catch {
+        /* quota / private mode — fold still works in-session. */
+      }
+      return next;
+    });
+  return [set, update];
+}
 
 /** The trailing ghost column on a board: click to name a new group (select option). */
 const NewGroupColumn: React.FC<{onAdd: (label: string) => void}> = ({onAdd}) => {
