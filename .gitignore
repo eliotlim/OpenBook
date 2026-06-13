@@ -148,5 +148,9 @@ packages/web/playwright-report/
 packages/web/blob-report/
 packages/web/.last-run.json
 
+# Nx cache
+.nx/cache
+.nx/workspace-data
+
 # Claude Code local runtime state
 .claude/scheduled_tasks.lock

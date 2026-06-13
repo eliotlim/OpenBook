@@ -18,20 +18,19 @@ concurrency:
 jobs:
   # Ungated dry run: would the commits on main cut a release at all?
   # Reviewers are only asked to approve when the answer is yes, so routine
-  # merges (docs, chores, refactors) don't ping anyone.
+  # merges (docs, chores, refactors) don't ping anyone. `nx release --dry-run`
+  # makes no changes and needs no token.
   plan:
     name: Plan (dry run)
     runs-on: ubuntu-latest
-    permissions:
-      contents: write # semantic-release verifies push access even in --dry-run
     outputs:
-      new_release: ${{ steps.dry_run.outputs.new_release }}
-      version: ${{ steps.dry_run.outputs.version }}
+      new_release: ${{ steps.plan.outputs.new_release }}
+      version: ${{ steps.plan.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # nx reads conventional commits since the last v* tag
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
       - name: Setup Node.js
@@ -42,18 +41,17 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Determine whether a release is due
-        id: dry_run
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        id: plan
         run: |
           set -o pipefail
-          output=$(pnpm exec semantic-release --dry-run 2>&1) || true
-          echo "$output" | tail -n 25
-          version=$(echo "$output" | grep -oE 'The next release version is [0-9]+\.[0-9]+\.[0-9]+([-.[:alnum:]]*)?' | awk '{print $NF}' | tail -n 1)
-          if [ -n "$version" ]; then
+          out=$(npx nx release --dry-run 2>&1) || true
+          echo "$out" | grep -viE '^npm warn' | tail -n 30
+          next=$(echo "$out" | grep -oiE 'new version [0-9]+\.[0-9]+\.[0-9]+' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+          current=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null | sed 's/^v//' || true)
+          if [ -n "$next" ] && [ "$next" != "$current" ]; then
             echo "new_release=true" >> "$GITHUB_OUTPUT"
-            echo "version=$version" >> "$GITHUB_OUTPUT"
-            echo "Release due: v$version (awaiting approval)"
+            echo "version=$next" >> "$GITHUB_OUTPUT"
+            echo "Release due: v$next (awaiting approval)"
           else
             echo "new_release=false" >> "$GITHUB_OUTPUT"
             echo "No release-worthy commits — nothing to approve."
@@ -63,6 +61,12 @@ jobs:
   # configure it once under Settings → Environments → release → "Required
   # reviewers". Until approved there, this job (and everything after it)
   # stays queued.
+  #
+  # `nx release` (fixed mode, see nx.json) bumps every package to the new
+  # version, writes CHANGELOG.md, commits + tags `vX.Y.Z`, pushes both to main
+  # (commit message carries [skip ci]; a GITHUB_TOKEN push can't re-trigger CI
+  # anyway), and creates the GitHub release from the changelog. --skip-publish
+  # leaves npm alone (every package is private).
   release:
     name: Release v${{ needs.plan.outputs.version }} (on approval)
     needs: plan
@@ -70,17 +74,15 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     permissions:
-      contents: write # to be able to publish a GitHub release
-      issues: write # to be able to comment on released issues
-      pull-requests: write # to be able to comment on released pull requests
-      id-token: write # to enable use of OIDC for npm provenance
+      contents: write # push the version bump + tag, create the GitHub release
     outputs:
-      publish_required: ${{ steps.semantic_release.outputs.publish_required }}
+      version: ${{ needs.plan.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: main # commit/tag land on the branch, not a detached HEAD
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
       - name: Setup Node.js
@@ -90,18 +92,23 @@ jobs:
           cache: "pnpm"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Release
-        id: semantic_release
+      - name: Configure git identity for the release commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: nx release — version, changelog, tag, GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: pnpm exec semantic-release
+        run: npx nx release --skip-publish
 
+  # Build the desktop bundles per-OS and attach them to the release nx just
+  # created. Runs on the tag nx pushed, so tauri.conf.json's
+  # "version": "../package.json" resolves to the bumped version.
   publish-tauri:
-    needs: release
-    if: ${{ needs.release.outputs.publish_required }}
+    name: Build & attach desktop bundles
+    needs: [plan, release]
     permissions:
-      contents: write
+      contents: write # gh release upload
     strategy:
       fail-fast: false
       matrix:
@@ -112,6 +119,8 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.version }} # the tag nx release pushed
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -134,23 +143,50 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: install dependencies (ubuntu only)
+        # libfuse2: linuxdeploy and its appimage plugin are themselves AppImages
+        # and self-mount via FUSE; GitHub's ubuntu-22.04 image no longer ships it.
         if: matrix.platform == 'ubuntu-22.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2
 
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: build packages
-        run: pnpm run build
+      # build:desktop runs `tauri build`, whose beforeBuildCommand builds the
+      # sdk, ui, server sidecar, and frontend before bundling.
+      - name: Build Tauri bundles
+        env:
+          # AppImage bundling hardening (Linux only; ignored elsewhere):
+          #  - NO_STRIP: the ~80 MB Bun --compile sidecar has data appended past
+          #    the ELF; linuxdeploy's strip step corrupts/fails on it.
+          #  - APPIMAGE_EXTRACT_AND_RUN: run the linuxdeploy/appimagetool
+          #    AppImages by self-extracting instead of FUSE-mounting.
+          NO_STRIP: "true"
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+        run: pnpm run build:desktop
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: Upload bundles to the v${{ needs.release.outputs.version }} release
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: app-v__VERSION__ # the action automatically replaces \_\_VERSION\_\_ with the app version
-          releaseName: 'App v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
+        run: |
+          tag="v${{ needs.release.outputs.version }}"
+          base="packages/app/src-tauri/target/release/bundle"
+          shopt -s nullglob
+          files=(
+            "$base"/dmg/*.dmg
+            "$base"/macos/*.app.tar.gz
+            "$base"/deb/*.deb
+            "$base"/rpm/*.rpm
+            "$base"/appimage/*.AppImage
+            "$base"/msi/*.msi
+            "$base"/nsis/*.exe
+          )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No bundles found under $base" >&2
+            find "$base" -maxdepth 2 -type f 2>/dev/null >&2 || true
+            exit 1
+          fi
+          printf 'Uploading to %s:\n' "$tag"; printf '  %s\n' "${files[@]}"
+          gh release upload "$tag" "${files[@]}" --clobber

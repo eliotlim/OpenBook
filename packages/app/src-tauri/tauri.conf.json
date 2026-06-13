@@ -21,7 +21,7 @@
   },
   "productName": "OpenBook",
   "mainBinaryName": "OpenBook",
-  "version": "0.0.0",
+  "version": "../package.json",
   "identifier": "dev.book.open",
   "plugins": {},
   "app": {
