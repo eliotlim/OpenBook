@@ -1,0 +1,184 @@
+import {useId, type CSSProperties} from 'react';
+
+/**
+ * The OpenBook "constellation" mark — an open book whose **cover** is the
+ * user's accent colour. The cover/binding/ribbon are driven by `--brand` (the
+ * themed accent that `applyTheme` writes onto `document.documentElement`), so
+ * the mark recolours live when the colour scheme changes; the pages and their
+ * content stay paper-neutral.
+ *
+ * The art is the designer's `resources/openbook-constellation.svg` verbatim
+ * (its global `:root` `<style>` stripped) so colours come only from the scoped
+ * vars below. Gradient/filter ids are namespaced per instance to avoid `url(#…)`
+ * collisions when more than one mark is on the page.
+ */
+
+// Everything inside the source <svg> except its <style> block. Colours resolve
+// from the CSS vars set on the <svg> root in the component below.
+const ART = `
+  <defs>
+    <linearGradient id="coverGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:var(--cover, #EAE5DD)"/>
+      <stop offset="100%" style="stop-color:var(--cover-edge, #D9D2C6)"/>
+    </linearGradient>
+    <linearGradient id="leftCoverGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:var(--cover-edge, #D9D2C6)"/>
+      <stop offset="100%" style="stop-color:var(--cover-deep, #B3AB9D)"/>
+    </linearGradient>
+    <linearGradient id="pageGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FCFBFA"/>
+    </linearGradient>
+    <linearGradient id="gutterShadowR" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0.45"/>
+      <stop offset="40%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0.14"/>
+      <stop offset="100%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="gutterShadowL" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0"/>
+      <stop offset="60%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0.14"/>
+      <stop offset="100%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0.45"/>
+    </linearGradient>
+    <linearGradient id="foldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F4F2EE"/>
+      <stop offset="100%" stop-color="#DAD6CE"/>
+    </linearGradient>
+    <linearGradient id="ribbonGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:var(--ribbon, #B3AB9D)"/>
+      <stop offset="100%" style="stop-color:var(--ribbon-deep, #948B7B)"/>
+    </linearGradient>
+    <clipPath id="imgClip">
+      <rect x="67" y="64" width="102" height="58" rx="6"/>
+    </clipPath>
+    <filter id="bookShadow" x="-15%" y="-12%" width="132%" height="132%">
+      <feDropShadow dx="0" dy="7" stdDeviation="9" flood-color="#57534E" flood-opacity="0.22"/>
+    </filter>
+    <filter id="pageShadow" x="-8%" y="-8%" width="118%" height="118%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#57534E" flood-opacity="0.13"/>
+    </filter>
+    <filter id="ribbonShadow" x="-40%" y="-20%" width="180%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" style="flood-color:var(--ribbon-dark, #645C4E)" flood-opacity="0.30"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#bookShadow)">
+
+    <path d="M46 18 L178 18 Q190 18 190 30 L190 178 Q190 190 178 190 L46 190 Z"
+          fill="url(#coverGrad)"/>
+
+    <path d="M44 18 L50 18 L50 190 L44 190 Z" fill="var(--cover-deep, #B3AB9D)"/>
+
+    <path d="M16 10.4 Q10 10 10 16 L10 192 Q10 198 16 197.6 L46 190 L46 18 Z"
+          fill="url(#leftCoverGrad)"/>
+    <line x1="11.5" y1="16" x2="11.5" y2="192" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="1.4" stroke-linecap="round"/>
+
+    <g filter="url(#pageShadow)">
+
+      <path d="M31.8 17.4 L50 24 L50 184 L31.8 190.2
+           Q28 191.5 28 187.5 L28 20 Q28 16 31.8 17.4 Z" fill="url(#pageGrad)"/>
+      <path d="M38 19.6 L50 24 L50 184 L38 188.1 Z" fill="url(#gutterShadowL)"/>
+
+      <path d="M162 24 L178 24 Q184 24 184 30 L184 46 Z" fill="#ECE9E4"/>
+
+      <path d="M50 24
+               L162 24
+               L184 46
+               L184 178
+               Q184 184 178 184
+               L50 184 Z"
+            fill="url(#pageGrad)"/>
+
+      <path d="M162 24 L184 46 L166 46 Q162 46 162 42 Z" fill="url(#foldGrad)"/>
+      <path d="M161 26 L183.5 48.5 L165.5 48.5 Q161 48.5 161 44.5 Z" fill="#57534E" opacity="0.08"/>
+      <line x1="162" y1="24" x2="184" y2="46" stroke="#C9C4BB" stroke-width="1.1"/>
+
+      <path d="M50 24 L72 24 L72 184 L50 184 Z" fill="url(#gutterShadowR)"/>
+      <line x1="50" y1="24" x2="50" y2="184" stroke="var(--cover-deep, #B3AB9D)" stroke-width="1.4" stroke-opacity="0.75"/>
+      <line x1="51.2" y1="25" x2="51.2" y2="183" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="0.8"/>
+
+      <text x="67" y="52" font-family="'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+            font-size="13.5" font-weight="600" letter-spacing="-0.2"
+            fill="var(--ink, #57534E)"><tspan fill-opacity="0.38">Open</tspan><tspan fill-opacity="0.62">Book</tspan></text>
+
+      <rect x="67" y="64" width="102" height="58" rx="6" fill="#EFEDE9"/>
+      <g clip-path="url(#imgClip)">
+        <g stroke="#D5CFC5" stroke-width="1.6">
+          <line x1="84"  y1="96" x2="108" y2="78"/>
+          <line x1="108" y1="78" x2="134" y2="90"/>
+          <line x1="134" y1="90" x2="154" y2="74"/>
+          <line x1="134" y1="90" x2="146" y2="108"/>
+        </g>
+        <circle cx="84"  cy="96"  r="5"   fill="#C8C1B5"/>
+        <circle cx="108" cy="78"  r="4"   fill="#DDD8CF"/>
+        <circle cx="134" cy="90"  r="6.5" fill="#BBB3A5"/>
+        <circle cx="154" cy="74"  r="3.5" fill="#DDD8CF"/>
+        <circle cx="146" cy="108" r="4"   fill="#C8C1B5"/>
+      </g>
+      <rect x="67" y="64" width="102" height="58" rx="6" fill="none" stroke="#DEDAD3" stroke-width="1"/>
+
+      <rect x="67" y="131" width="102" height="6" rx="3" fill="#ECE9E4"/>
+      <rect x="67" y="142" width="88"  height="6" rx="3" fill="#ECE9E4"/>
+      <rect x="67" y="153" width="96"  height="6" rx="3" fill="#ECE9E4"/>
+      <rect x="67" y="164" width="58"  height="6" rx="3" fill="#ECE9E4"/>
+
+    </g>
+
+    <g filter="url(#ribbonShadow)">
+      <path d="M140 16 Q140 14 142 14 L153 14 Q155 14 155 16
+               L155 41 L147.5 35.5 L140 41 Z"
+            fill="url(#ribbonGrad)"/>
+      <line x1="142.2" y1="16.5" x2="142.2" y2="37" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="1" stroke-linecap="round"/>
+    </g>
+
+  </g>
+`;
+
+// Gradient/filter/clip ids that must be unique per rendered instance.
+const IDS = [
+  'coverGrad', 'leftCoverGrad', 'pageGrad', 'gutterShadowR', 'gutterShadowL',
+  'foldGrad', 'ribbonGrad', 'imgClip', 'bookShadow', 'pageShadow', 'ribbonShadow',
+];
+
+/** Cover/ribbon shades derived from the accent; pages/ink stay neutral. */
+const themedVars: Record<string, string> = {
+  '--cover': 'hsl(var(--brand, 207 76% 47%))',
+  '--cover-edge': 'color-mix(in srgb, hsl(var(--brand, 207 76% 47%)) 88%, #000)',
+  '--cover-deep': 'color-mix(in srgb, hsl(var(--brand, 207 76% 47%)) 74%, #000)',
+  '--ribbon': 'color-mix(in srgb, hsl(var(--brand, 207 76% 47%)) 74%, #000)',
+  '--ribbon-deep': 'color-mix(in srgb, hsl(var(--brand, 207 76% 47%)) 58%, #000)',
+  '--ribbon-dark': 'color-mix(in srgb, hsl(var(--brand, 207 76% 47%)) 42%, #000)',
+  '--ink': '#57534E',
+};
+
+export interface OpenBookLogoProps {
+  /** Rendered width & height (the mark is square-ish, 220×214 viewBox). */
+  size?: number | string;
+  className?: string;
+  style?: CSSProperties;
+  /** Accessible label; pass `null`/'' to mark decorative. */
+  title?: string | null;
+}
+
+export function OpenBookLogo({size = 96, className, style, title = 'OpenBook'}: OpenBookLogoProps) {
+  const raw = useId();
+  const uid = raw.replace(/[^a-zA-Z0-9]/g, '');
+  let art = ART;
+  for (const id of IDS) {
+    art = art.split(`"${id}"`).join(`"${id}-${uid}"`).split(`url(#${id})`).join(`url(#${id}-${uid})`);
+  }
+  return (
+    <svg
+      viewBox="0 0 220 214"
+      width={size}
+      height={size}
+      role={title ? 'img' : 'presentation'}
+      aria-label={title || undefined}
+      aria-hidden={title ? undefined : true}
+      className={className}
+      style={{...themedVars, ...style} as CSSProperties}
+      dangerouslySetInnerHTML={{__html: art}}
+    />
+  );
+}
+
+export default OpenBookLogo;

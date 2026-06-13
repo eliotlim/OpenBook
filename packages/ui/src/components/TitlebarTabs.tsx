@@ -7,6 +7,7 @@ import {cn} from '@/lib/utils';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
 import SideNavToggle from '@/components/SideNavToggle';
 import BackForwardCluster from '@/components/BackForwardCluster';
+import {OpenBookMark} from '@/components/brand';
 
 /**
  * The in-window tab bar, drawn in the titlebar (Chrome/Arc style) on the
@@ -41,6 +42,8 @@ export default function TitlebarTabs() {
           sidebar / nav bar: sidebar toggle, then the workspace switcher, then
           back/forward. Interactive, so not drag regions. */}
       <div className="flex shrink-0 items-center gap-0.5 pr-1">
+        {/* App mark — its tile follows the accent and recolours with the scheme. */}
+        <OpenBookMark size={18} className="mr-1 shrink-0" radius={5} />
         <SideNavToggle className="h-7 px-2" />
         <WorkspaceSelectMenu variant="titlebar" />
         <BackForwardCluster />

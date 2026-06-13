@@ -7,6 +7,7 @@ import {
   DialogTrigger
 } from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
+import {OpenBookLogo} from '@/components/brand';
 import {InformationCircleIcon} from '@heroicons/react/24/outline';
 
 /**
@@ -27,7 +28,11 @@ export default function AboutDialog({open, onOpenChange}: {open?: boolean; onOpe
         </DialogTrigger>
       )}
       <DialogContent className="sm:max-w-[425px]">
-        <DialogHeader>
+        <div className="flex justify-center pt-1">
+          {/* Cover follows the user's accent colour and recolours with the scheme. */}
+          <OpenBookLogo size={104} />
+        </div>
+        <DialogHeader className="items-center text-center sm:text-center">
           <DialogTitle>About OpenBook</DialogTitle>
           <DialogDescription>A second brain for thinking in public and in private.</DialogDescription>
         </DialogHeader>

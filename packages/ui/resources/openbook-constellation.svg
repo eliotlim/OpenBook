@@ -1,0 +1,167 @@
+<svg viewBox="0 0 220 214" xmlns="http://www.w3.org/2000/svg">
+
+  <!-- ════════════════════════════════════════════════════════════
+       THEME — edit these variables to re-skin the mark.
+       Suggested palettes:
+         Warm gray   : cover #EAE5DD  edge #D9D2C6  deep #B3AB9D
+         Light gray  : cover #ECEDEF  edge #DCDEE3  deep #AEB2BB
+         Periwinkle  : cover #DDE1F8  edge #C9CFF2  deep #9AA3DE
+         Pastel mint : cover #DDEFE6  edge #C7E3D4  deep #93BFA9
+       Bookmark accents (ribbon / ribbon-deep / ribbon-dark):
+         Cover-toned (default): #B3AB9D / #948B7B / #645C4E
+         Pink  : #F472B6 / #DB2777 / #9D174D
+         Amber : #FBBF24 / #D97706 / #92400E
+         Teal  : #2DD4BF / #0D9488 / #115E59
+       ════════════════════════════════════════════════════════════ -->
+  <style>
+    :root {
+      --cover:        #EAE5DD;
+      --cover-edge:   #D9D2C6;
+      --cover-deep:   #B3AB9D;
+      --ribbon:       #B3AB9D;
+      --ribbon-deep:  #948B7B;
+      --ribbon-dark:  #645C4E;
+      --ink:          #57534E;
+    }
+  </style>
+
+  <defs>
+    <linearGradient id="coverGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:var(--cover, #EAE5DD)"/>
+      <stop offset="100%" style="stop-color:var(--cover-edge, #D9D2C6)"/>
+    </linearGradient>
+    <!-- Left cover: vertical gradient, lit from the top -->
+    <linearGradient id="leftCoverGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:var(--cover-edge, #D9D2C6)"/>
+      <stop offset="100%" style="stop-color:var(--cover-deep, #B3AB9D)"/>
+    </linearGradient>
+    <linearGradient id="pageGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FCFBFA"/>
+    </linearGradient>
+    <!-- Right page bowing into the spine (dark at left) -->
+    <linearGradient id="gutterShadowR" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0.45"/>
+      <stop offset="40%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0.14"/>
+      <stop offset="100%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0"/>
+    </linearGradient>
+    <!-- Left page bowing into the spine (dark at right) -->
+    <linearGradient id="gutterShadowL" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0"/>
+      <stop offset="60%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0.14"/>
+      <stop offset="100%" style="stop-color:var(--cover-deep, #B3AB9D)" stop-opacity="0.45"/>
+    </linearGradient>
+    <linearGradient id="foldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F4F2EE"/>
+      <stop offset="100%" stop-color="#DAD6CE"/>
+    </linearGradient>
+    <linearGradient id="ribbonGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:var(--ribbon, #B3AB9D)"/>
+      <stop offset="100%" style="stop-color:var(--ribbon-deep, #948B7B)"/>
+    </linearGradient>
+    <clipPath id="imgClip">
+      <rect x="67" y="64" width="102" height="58" rx="6"/>
+    </clipPath>
+    <filter id="bookShadow" x="-15%" y="-12%" width="132%" height="132%">
+      <feDropShadow dx="0" dy="7" stdDeviation="9" flood-color="#57534E" flood-opacity="0.22"/>
+    </filter>
+    <filter id="pageShadow" x="-8%" y="-8%" width="118%" height="118%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#57534E" flood-opacity="0.13"/>
+    </filter>
+    <filter id="ribbonShadow" x="-40%" y="-20%" width="180%" height="160%">
+      <feDropShadow dx="0" dy="2" stdDeviation="2" style="flood-color:var(--ribbon-dark, #645C4E)" flood-opacity="0.30"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#bookShadow)">
+
+    <!-- ════════ BACK COVER (right body) ════════
+         Corner radius 18, centred at (178,36)/(178,178):
+         exactly concentric with the page's r=6 corners. -->
+    <path d="M46 18 L178 18 Q190 18 190 30 L190 178 Q190 190 178 190 L46 190 Z"
+          fill="url(#coverGrad)"/>
+
+    <!-- ════════ GUTTER WEDGE (spine hinge) ════════ -->
+    <path d="M44 18 L50 18 L50 190 L44 190 Z" fill="var(--cover-deep, #B3AB9D)"/>
+
+    <!-- ════════ LEFT COVER — open past 90°, foreshortened ════════ -->
+    <path d="M16 10.4 Q10 10 10 16 L10 192 Q10 198 16 197.6 L46 190 L46 18 Z"
+          fill="url(#leftCoverGrad)"/>
+    <!-- Highlight on the free edge -->
+    <line x1="11.5" y1="16" x2="11.5" y2="192" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="1.4" stroke-linecap="round"/>
+
+    <!-- ════════ THE OPEN SPREAD: two pages joined at the spine ════════ -->
+    <g filter="url(#pageShadow)">
+
+      <!-- LEFT PAGE — lying on the left cover, foreshortened.
+           Its right edge (x=54, y 24→184) is shared with the right page. -->
+      <path d="M31.8 17.4 L50 24 L50 184 L31.8 190.2
+           Q28 191.5 28 187.5 L28 20 Q28 16 31.8 17.4 Z" fill="url(#pageGrad)"/>
+      <!-- Left page dipping down into the gutter -->
+      <path d="M38 19.6 L50 24 L50 184 L38 188.1 Z" fill="url(#gutterShadowL)"/>
+
+      <!-- Page beneath, visible in the clipped dog-ear corner -->
+      <path d="M162 24 L178 24 Q184 24 184 30 L184 46 Z" fill="#ECE9E4"/>
+
+      <!-- RIGHT PAGE — bound at the left (square corners),
+           free corners rounded on the right -->
+      <path d="M50 24
+               L162 24
+               L184 46
+               L184 178
+               Q184 184 178 184
+               L50 184 Z"
+            fill="url(#pageGrad)"/>
+
+      <!-- Dog-ear flap, soft-cornered where it lies on the page -->
+      <path d="M162 24 L184 46 L166 46 Q162 46 162 42 Z" fill="url(#foldGrad)"/>
+      <!-- Shadow cast by the flap — follows the flap's curved corner -->
+      <path d="M161 26 L183.5 48.5 L165.5 48.5 Q161 48.5 161 44.5 Z" fill="#57534E" opacity="0.08"/>
+      <!-- Crease -->
+      <line x1="162" y1="24" x2="184" y2="46" stroke="#C9C4BB" stroke-width="1.1"/>
+
+      <!-- Right page rising out of the gutter -->
+      <path d="M50 24 L72 24 L72 184 L50 184 Z" fill="url(#gutterShadowR)"/>
+      <!-- Spine crease: the sharp valley where the two pages meet -->
+      <line x1="50" y1="24" x2="50" y2="184" stroke="var(--cover-deep, #B3AB9D)" stroke-width="1.4" stroke-opacity="0.75"/>
+      <line x1="51.2" y1="25" x2="51.2" y2="183" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="0.8"/>
+
+      <!-- ════════ PAGE CONTENT ════════ -->
+      <text x="67" y="52" font-family="'Inter', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+            font-size="13.5" font-weight="600" letter-spacing="-0.2"
+            fill="var(--ink, #57534E)"><tspan fill-opacity="0.38">Open</tspan><tspan fill-opacity="0.62">Book</tspan></text>
+
+      <rect x="67" y="64" width="102" height="58" rx="6" fill="#EFEDE9"/>
+      <g clip-path="url(#imgClip)">
+        <!-- Linked-notes constellation -->
+        <g stroke="#D5CFC5" stroke-width="1.6">
+          <line x1="84"  y1="96" x2="108" y2="78"/>
+          <line x1="108" y1="78" x2="134" y2="90"/>
+          <line x1="134" y1="90" x2="154" y2="74"/>
+          <line x1="134" y1="90" x2="146" y2="108"/>
+        </g>
+        <circle cx="84"  cy="96"  r="5"   fill="#C8C1B5"/>
+        <circle cx="108" cy="78"  r="4"   fill="#DDD8CF"/>
+        <circle cx="134" cy="90"  r="6.5" fill="#BBB3A5"/>
+        <circle cx="154" cy="74"  r="3.5" fill="#DDD8CF"/>
+        <circle cx="146" cy="108" r="4"   fill="#C8C1B5"/>
+      </g>
+      <rect x="67" y="64" width="102" height="58" rx="6" fill="none" stroke="#DEDAD3" stroke-width="1"/>
+
+      <rect x="67" y="131" width="102" height="6" rx="3" fill="#ECE9E4"/>
+      <rect x="67" y="142" width="88"  height="6" rx="3" fill="#ECE9E4"/>
+      <rect x="67" y="153" width="96"  height="6" rx="3" fill="#ECE9E4"/>
+      <rect x="67" y="164" width="58"  height="6" rx="3" fill="#ECE9E4"/>
+
+    </g>
+
+    <!-- ════════ BOOKMARK RIBBON ════════ -->
+    <g filter="url(#ribbonShadow)">
+      <path d="M140 16 Q140 14 142 14 L153 14 Q155 14 155 16
+               L155 41 L147.5 35.5 L140 41 Z"
+            fill="url(#ribbonGrad)"/>
+      <line x1="142.2" y1="16.5" x2="142.2" y2="37" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="1" stroke-linecap="round"/>
+    </g>
+
+  </g>
+</svg>
