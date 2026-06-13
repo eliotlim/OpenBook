@@ -135,16 +135,17 @@ export const TextBlockView: React.FC<{
     case 'insertReplacementText': {
       ev.preventDefault();
       const data = ev.data ?? '';
-      // Slash menu: '/' at start or after whitespace opens it.
-      if (data === '/' && !isCode && type !== 'cell') {
+      // Slash / mention menus: '/' or '@' at the start or after whitespace.
+      if ((data === '/' || data === '@') && !isCode && type !== 'cell') {
         const before = text.toString().slice(0, sel.start);
         if (before === '' || /\s$/.test(before)) {
           apply(() => {
             deleteSelection(sel);
-            insertPlain(sel.start, '/');
+            insertPlain(sel.start, data);
           });
           editor.requestCaret({blockId: id, offset: sel.start + 1});
-          ui.openSlash(id, sel.start);
+          if (data === '/') ui.openSlash(id, sel.start);
+          else ui.openMention(id, sel.start);
           return;
         }
       }
@@ -166,12 +167,13 @@ export const TextBlockView: React.FC<{
       });
       editor.requestCaret({blockId: id, offset: sel.start + data.length});
       if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash(sel.start + data.length);
+      if (ui.mention.open && ui.mention.blockId === id) ui.updateMention(sel.start + data.length);
       return;
     }
 
     case 'insertParagraph': {
       ev.preventDefault();
-      if (ui.slash.open) return; // Enter belongs to the menu
+      if (ui.slash.open || ui.mention.open) return; // Enter belongs to the open menu
       if (type === 'cell') {
         // Tables are grids: Enter moves down the column, growing the table
         // at the bottom edge — it never splits a cell.
@@ -227,6 +229,7 @@ export const TextBlockView: React.FC<{
         apply(() => text.delete(sel.start - len, len));
         editor.requestCaret({blockId: id, offset: sel.start - len});
         if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash(sel.start - len);
+        if (ui.mention.open && ui.mention.blockId === id) ui.updateMention(sel.start - len);
       } else if (type === 'cell') {
         // Never merge table cells — Backspace at a cell's start is a no-op.
       } else {
@@ -393,6 +396,13 @@ export const TextBlockView: React.FC<{
         return;
       }
     }
+    if (ui.mention.open && ui.mention.blockId === id) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(e.key)) {
+        e.preventDefault();
+        ui.mentionKey(e.key);
+        return;
+      }
+    }
 
     const mod = e.metaKey || e.ctrlKey;
     if (mod && !isCode) {
@@ -547,6 +557,7 @@ export const TextBlockView: React.FC<{
       onBlur={() => {
         if (editor.focusedId === id) editor.setFocusedId(null);
         if (ui.slash.open && ui.slash.blockId === id) ui.closeSlash();
+        if (ui.mention.open && ui.mention.blockId === id) ui.closeMention();
       }}
       onMouseUp={() => ui.scheduleToolbar()}
       onKeyUp={(e) => {

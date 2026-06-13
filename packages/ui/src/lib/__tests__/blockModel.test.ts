@@ -107,27 +107,34 @@ describe('column layouts', () => {
     expect(cols[1].children![0].text![0].t).toBe('b');
   });
 
-  it('dropping beside a column child grows the layout to 3 then 4 columns, capped', () => {
+  it('grows a columns layout column-by-column on side-drops, capped at 6', () => {
     const doc = seed();
     const [a, b] = docToJSON(doc);
     dropBeside(doc, b.id, a.id, 'right'); // 2 cols (a | b)
     let cols = docToJSON(doc)[0].children!;
     const c = docToJSON(doc)[1];
     dropBeside(doc, c.id, cols[1].children![0].id, 'right'); // 3 cols
-    cols = docToJSON(doc)[0].children!;
-    expect(cols).toHaveLength(3);
+    expect(docToJSON(doc)[0].children!).toHaveLength(3);
 
-    insertBlock(doc, rootBlocks(doc), 1, {type: 'paragraph', text: 'd'});
-    const d = docToJSON(doc)[1];
-    dropBeside(doc, d.id, cols[0].children![0].id, 'left'); // 4 cols
-    cols = docToJSON(doc)[0].children!;
-    expect(cols).toHaveLength(4);
-    expect(cols[0].children![0].text![0].t).toBe('d');
+    // Keep dropping fresh blocks beside a column child → 4, 5, 6 columns.
+    for (let n = 4; n <= 6; n += 1) {
+      insertBlock(doc, rootBlocks(doc), 1, {type: 'paragraph', text: `x${n}`});
+      const fresh = docToJSON(doc)[1];
+      cols = docToJSON(doc)[0].children!;
+      dropBeside(doc, fresh.id, cols[0].children![0].id, 'left');
+      expect(docToJSON(doc)[0].children!).toHaveLength(n);
+    }
 
-    insertBlock(doc, rootBlocks(doc), 1, {type: 'paragraph', text: 'e'});
-    const e = docToJSON(doc)[1];
-    dropBeside(doc, e.id, cols[0].children![0].id, 'left'); // capped at 4
-    expect(docToJSON(doc)[0].children!).toHaveLength(4);
+    // Capped: a 7th side-drop is a no-op (the block stays at the root).
+    insertBlock(doc, rootBlocks(doc), 1, {type: 'paragraph', text: 'cap'});
+    const extra = docToJSON(doc)[1];
+    cols = docToJSON(doc)[0].children!;
+    dropBeside(doc, extra.id, cols[0].children![0].id, 'left');
+    expect(docToJSON(doc)[0].children!).toHaveLength(6);
+
+    // Spans are redistributed evenly and always sum to the 12-unit grid.
+    const spans = docToJSON(doc)[0].children!.map((col) => (col.props?.span as number) ?? 0);
+    expect(spans.reduce((sum, v) => sum + v, 0)).toBe(12);
   });
 
   it('moving the last block out of a column unwraps the layout', () => {

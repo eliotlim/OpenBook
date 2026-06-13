@@ -1,5 +1,6 @@
 import type * as Y from 'yjs';
 import type {InlineAttrs} from './model';
+import {isColorToken} from './colors';
 
 /**
  * The DOM half of text editing: rendering Y.Text runs into a contenteditable
@@ -26,6 +27,8 @@ export function runsToHtml(text: Y.Text): string {
     if (a.i) piece = `<em>${piece}</em>`;
     if (a.u) piece = `<u>${piece}</u>`;
     if (a.s) piece = `<s>${piece}</s>`;
+    if (isColorToken(a.tc)) piece = `<span class="obe-fg-${a.tc}">${piece}</span>`;
+    if (isColorToken(a.hl)) piece = `<span class="obe-hl-${a.hl}">${piece}</span>`;
     if (a.m) piece = `<a class="obe-mention" data-page-id="${escapeHtml(a.m)}" contenteditable="false">${piece}</a>`;
     else if (a.a) piece = `<a class="obe-link" href="${escapeHtml(a.a)}" target="_blank" rel="noreferrer">${piece}</a>`;
     html += piece;

@@ -54,6 +54,10 @@ export interface InlineAttrs {
   a?: string;
   /** Mention: a page id (rendered as a live page chip). */
   m?: string;
+  /** Text colour — a palette token (see `colors.ts`). */
+  tc?: string;
+  /** Highlight colour — a palette token. */
+  hl?: string;
 }
 
 /** One run of a block's rich text in the JSON projection. */
@@ -351,11 +355,26 @@ export function turnInto(doc: Y.Doc, id: string, type: BlockType, props?: Record
   }, 'local');
 }
 
+/** Most columns a layout can hold (a 12-unit grid stays legible up to six). */
+export const MAX_COLUMNS = 6;
+
+/** Spread the 12 grid units evenly across a layout's columns (sum stays 12). */
+function distributeSpans(columns: Y.Array<BlockMap>): void {
+  const n = columns.length;
+  if (n === 0) return;
+  const base = Math.floor(12 / n);
+  let rem = 12 - base * n;
+  for (let i = 0; i < n; i += 1) {
+    setBlockProp(columns.get(i), 'span', base + (rem > 0 ? 1 : 0));
+    if (rem > 0) rem -= 1;
+  }
+}
+
 /**
  * Make a columns layout: wraps `targetId` and the moved block `movedId`
  * side-by-side (moved goes left when `side === 'left'`). If `targetId` is
  * already a column's child, the moved block becomes a new adjacent column
- * instead (2 → 3 → 4 columns by dropping beside).
+ * instead (2 → 3 → … columns by dropping beside, up to {@link MAX_COLUMNS}).
  */
 export function dropBeside(doc: Y.Doc, movedId: string, targetId: string, side: 'left' | 'right'): void {
   doc.transact(() => {
@@ -370,11 +389,12 @@ export function dropBeside(doc: Y.Doc, movedId: string, targetId: string, side: 
     if (parentBlock && blockType(parentBlock) === 'column') {
       const columnsBlock = parentBlockOf(doc, findBlock(doc, blockId(parentBlock))!.parent);
       const columns = columnsBlock ? blockChildren(columnsBlock) : undefined;
-      if (!columnsBlock || !columns || columns.length >= 4) return;
+      if (!columnsBlock || !columns || columns.length >= MAX_COLUMNS) return;
       const colIndex = indexOfBlock(columns, blockId(parentBlock));
       moved.parent.delete(moved.index, 1);
       const at = side === 'left' ? colIndex : colIndex + 1;
       columns.insert(at, [makeBlock({type: 'column', children: [movedJson]})]);
+      distributeSpans(columns); // even out the widths as the layout grows
       pruneEmptyContainers(doc);
       ensureNotEmpty(doc);
       return;

@@ -1,9 +1,13 @@
+import {Image as ImageIcon, Trash2} from 'lucide-react';
 import {useEffect, useMemo, useState, type CSSProperties} from 'react';
 import {useTheme, useTranslation} from '@/providers';
-import {mergeAppearance, type AppearanceOverride} from '@/lib/themes';
+import {cn} from '@/lib/utils';
+import {mergeAppearance, PAGE_BACKGROUNDS, type AppearanceOverride} from '@/lib/themes';
 import {composePageAppearance, hasPageTheme, usePageTheme, writePageTheme} from '@/lib/pageTheme';
 import {FONT_PRESETS, readPageFonts, usePageFonts, writePageFonts, type PageFonts} from '@/lib/pageFont';
 import {getPageCustomiseTarget, subscribePageCustomise} from '@/lib/pageCustomise';
+import {usePageCover, writePageCover} from '@/lib/pageCover';
+import {CoverPicker} from '@/components/PageCover';
 import {AccentPicker, Field, LevelPicker, NeutralPicker, Segmented} from './AppearanceControls';
 
 /**
@@ -21,7 +25,86 @@ export function usePageThemeStyle(pageId: string): CSSProperties | undefined {
   );
 }
 
+/** Whether a page sets its own canvas background tint (drives `.ob-page-bg`). */
+export function usePageHasBackground(pageId: string): boolean {
+  const override = usePageTheme(pageId);
+  return !!override?.background;
+}
+
 const CUSTOM = '__custom__';
+
+/** Soft full-canvas background swatches (per-page). A leading tile clears it. */
+function BackgroundPicker({
+  value,
+  scheme,
+  onChange,
+}: {
+  value: string | undefined;
+  scheme: 'light' | 'dark';
+  onChange: (token: string | undefined) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <button
+        type="button"
+        title="Default"
+        aria-label="Default background"
+        onClick={() => onChange(undefined)}
+        className={cn(
+          'h-7 w-7 rounded-md border bg-card',
+          !value ? 'border-primary ring-2 ring-ring' : 'border-border',
+        )}
+        style={{backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 4px, hsl(var(--border)) 4px, hsl(var(--border)) 5px)'}}
+      />
+      {Object.keys(PAGE_BACKGROUNDS).map((token) => (
+        <button
+          key={token}
+          type="button"
+          title={token}
+          aria-label={`Background ${token}`}
+          onClick={() => onChange(token)}
+          className={cn('h-7 w-7 rounded-md border', value === token ? 'border-primary ring-2 ring-ring' : 'border-border')}
+          style={{backgroundColor: `hsl(${PAGE_BACKGROUNDS[token][scheme]})`}}
+        />
+      ))}
+    </div>
+  );
+}
+
+/** The page's cover, set right from the customisation pane. */
+function CoverField({pageId}: {pageId: string}) {
+  const cover = usePageCover(pageId);
+  const preview =
+    cover?.kind === 'gradient'
+      ? {background: cover.css}
+      : cover?.kind === 'image'
+        ? {backgroundImage: `url("${cover.url}")`, backgroundSize: 'cover', backgroundPosition: '50% 50%'}
+        : undefined;
+  return (
+    <div className="flex items-center gap-2">
+      <div className="h-9 w-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted" style={preview} aria-hidden />
+      <CoverPicker pageId={pageId}>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+        >
+          <ImageIcon className="h-3.5 w-3.5" />
+          {cover ? 'Change' : 'Add cover'}
+        </button>
+      </CoverPicker>
+      {cover && (
+        <button
+          type="button"
+          onClick={() => writePageCover(pageId, null)}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Remove
+        </button>
+      )}
+    </div>
+  );
+}
 
 /** A typeface picker: the built-in presets plus a free-text custom family. */
 function TypefacePicker({value, onChange}: {value: string | undefined; onChange: (v: string | undefined) => void}) {
@@ -69,6 +152,12 @@ export function PageAppearanceControls({pageId}: {pageId: string}) {
   const active = (!!override && Object.keys(override).length > 0) || !!fonts;
   const eff = mergeAppearance(appearance, override);
   const setTheme = (patch: AppearanceOverride) => writePageTheme(pageId, {...(override ?? {}), ...patch});
+  const setBackground = (token: string | undefined): void => {
+    const next = {...(override ?? {})};
+    if (token) next.background = token;
+    else delete next.background;
+    writePageTheme(pageId, next);
+  };
   const setFont = (patch: PageFonts) => {
     const next = {...(readPageFonts(pageId) ?? {}), ...patch};
     writePageFonts(pageId, {body: next.body || undefined, heading: next.heading || undefined});
@@ -91,6 +180,10 @@ export function PageAppearanceControls({pageId}: {pageId: string}) {
           </button>
         )}
       </div>
+
+      <Field label={t('appearance.cover')} hint={t('appearance.coverHint')}>
+        <CoverField pageId={pageId} />
+      </Field>
 
       <AccentPicker value={eff.themeId} onChange={(themeId) => setTheme({themeId})} scheme={colorScheme} />
 
@@ -121,6 +214,10 @@ export function PageAppearanceControls({pageId}: {pageId: string}) {
             t('appearance.levelVivid'),
           ]}
         />
+      </Field>
+
+      <Field label={t('appearance.background')} hint={t('appearance.backgroundHint')}>
+        <BackgroundPicker value={override?.background} scheme={colorScheme} onChange={setBackground} />
       </Field>
 
       <Field label={t('appearance.fontBody')} hint={t('appearance.fontBodyHint')}>

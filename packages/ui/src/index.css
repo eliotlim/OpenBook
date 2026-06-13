@@ -329,6 +329,14 @@
   height: clamp(140px, 22vh, 220px);
 }
 
+/* Per-page background tint (lib/pageTheme `background`): the override sets
+   --background on this wrapper; paint it and fill the viewport so the colour
+   reads as the page canvas. */
+.ob-page-bg {
+  background-color: hsl(var(--background));
+  min-height: 100%;
+}
+
 /* Per-page typefaces (lib/pageFont): the wrapper sets the body family, headings
    (and the title) take the heading family — falling back to the body family
    when only one is set. Code keeps its own monospace (set explicitly elsewhere). */
@@ -759,7 +767,10 @@ h3.ce-header {
 
 .obe-root {
   position: relative;
-  max-width: 44rem;
+  /* Match the page's title/header column (max-w-content) so block text lines
+     up with the title and icon on both edges — the drag gutter floats in the
+     left margin. Full-width mode (.obe-full) drops the cap entirely. */
+  max-width: var(--container-content, 46rem);
   margin-inline: auto;
   padding: 0.25rem 0 30vh;
   font-size: 15px;
@@ -841,11 +852,35 @@ h3.ce-header {
 .obe-handle { cursor: grab; }
 .obe-handle:active { cursor: grabbing; }
 
-/* Drop indicators */
-.obe-drop-above { box-shadow: inset 0 2.5px 0 0 hsl(var(--ring)); }
-.obe-drop-below { box-shadow: inset 0 -2.5px 0 0 hsl(var(--ring)); }
-.obe-drop-left { box-shadow: inset 3px 0 0 0 hsl(var(--ring)); }
-.obe-drop-right { box-shadow: inset -3px 0 0 0 hsl(var(--ring)); }
+/* Drop indicators: a dashed line drawn on a ::after that's absolutely
+   positioned, so showing it never changes the row's box (no layout shift
+   during a drag). Above/below run horizontally; left/right run vertically to
+   read as "drop into a column here". */
+.obe-drop-above::after,
+.obe-drop-below::after,
+.obe-drop-left::after,
+.obe-drop-right::after {
+  content: '';
+  position: absolute;
+  pointer-events: none;
+  z-index: 3;
+}
+.obe-drop-above::after,
+.obe-drop-below::after {
+  left: 0.1rem;
+  right: 0.1rem;
+  border-top: 2px dashed hsl(var(--primary));
+}
+.obe-drop-above::after { top: -1px; }
+.obe-drop-below::after { bottom: -1px; }
+.obe-drop-left::after,
+.obe-drop-right::after {
+  top: 0.15rem;
+  bottom: 0.15rem;
+  border-left: 2px dashed hsl(var(--primary));
+}
+.obe-drop-left::after { left: -0.35rem; }
+.obe-drop-right::after { right: -0.35rem; }
 
 /* Text */
 .obe-text {
@@ -1186,6 +1221,149 @@ a.obe-mention {
 .obe-tb-underline { text-decoration: underline; }
 .obe-tb-strike { text-decoration: line-through; }
 .obe-tb-sep { width: 1px; height: 1.1rem; background: hsl(var(--border)); margin: 0 3px; }
+
+/* ── Editor colour palette ───────────────────────────────────────────────────
+   Per-block colours (bg/fg props) and inline colours (hl/tc attrs) store a
+   palette TOKEN; these theme-aware classes render it. */
+.obe-blockbody { flex: 1; min-width: 0; }
+/* A tinted block gets breathing room without nudging text: the padding is
+   cancelled by an equal negative margin, so the tint bleeds into the margins
+   while the text stays aligned with untinted blocks. */
+.obe-blockbody[class*='obe-bg-'] {
+  border-radius: 8px;
+  padding: 0.12rem 0.5rem;
+  margin-inline: -0.5rem;
+}
+/* A tinted section shows the tint instead of a group's default panel fill. */
+.obe-blockbody[class*='obe-bg-'] > .obe-group { background: transparent; }
+
+/* Text colours (block `fg`, inline `tc`). */
+.obe-fg-gray { color: hsl(0 0% 45%); }
+.obe-fg-brown { color: hsl(25 35% 38%); }
+.obe-fg-orange { color: hsl(28 80% 42%); }
+.obe-fg-yellow { color: hsl(42 80% 36%); }
+.obe-fg-green { color: hsl(140 50% 34%); }
+.obe-fg-blue { color: hsl(210 72% 45%); }
+.obe-fg-purple { color: hsl(265 55% 52%); }
+.obe-fg-pink { color: hsl(330 65% 48%); }
+.obe-fg-red { color: hsl(0 68% 48%); }
+.dark .obe-fg-gray { color: hsl(0 0% 66%); }
+.dark .obe-fg-brown { color: hsl(25 40% 62%); }
+.dark .obe-fg-orange { color: hsl(28 85% 62%); }
+.dark .obe-fg-yellow { color: hsl(45 80% 62%); }
+.dark .obe-fg-green { color: hsl(140 50% 60%); }
+.dark .obe-fg-blue { color: hsl(210 75% 67%); }
+.dark .obe-fg-purple { color: hsl(265 65% 73%); }
+.dark .obe-fg-pink { color: hsl(330 70% 71%); }
+.dark .obe-fg-red { color: hsl(0 72% 69%); }
+
+/* Block backgrounds (subtle tints). */
+.obe-bg-gray { background-color: hsl(0 0% 50% / 0.1); }
+.obe-bg-brown { background-color: hsl(25 45% 50% / 0.13); }
+.obe-bg-orange { background-color: hsl(28 85% 52% / 0.13); }
+.obe-bg-yellow { background-color: hsl(45 90% 52% / 0.15); }
+.obe-bg-green { background-color: hsl(140 55% 45% / 0.13); }
+.obe-bg-blue { background-color: hsl(210 80% 55% / 0.13); }
+.obe-bg-purple { background-color: hsl(265 60% 58% / 0.14); }
+.obe-bg-pink { background-color: hsl(330 70% 58% / 0.13); }
+.obe-bg-red { background-color: hsl(0 72% 55% / 0.12); }
+.dark .obe-bg-gray { background-color: hsl(0 0% 78% / 0.1); }
+.dark .obe-bg-brown { background-color: hsl(25 45% 55% / 0.18); }
+.dark .obe-bg-orange { background-color: hsl(28 80% 55% / 0.18); }
+.dark .obe-bg-yellow { background-color: hsl(45 80% 55% / 0.18); }
+.dark .obe-bg-green { background-color: hsl(140 50% 50% / 0.18); }
+.dark .obe-bg-blue { background-color: hsl(210 70% 55% / 0.2); }
+.dark .obe-bg-purple { background-color: hsl(265 55% 60% / 0.22); }
+.dark .obe-bg-pink { background-color: hsl(330 60% 58% / 0.2); }
+.dark .obe-bg-red { background-color: hsl(0 65% 55% / 0.2); }
+
+/* Inline highlights (stronger, with their own radius/padding). */
+[class*='obe-hl-'] { border-radius: 3px; padding: 0 0.12em; }
+.obe-hl-gray { background-color: hsl(0 0% 55% / 0.28); }
+.obe-hl-brown { background-color: hsl(25 50% 50% / 0.3); }
+.obe-hl-orange { background-color: hsl(30 90% 55% / 0.32); }
+.obe-hl-yellow { background-color: hsl(48 95% 55% / 0.4); }
+.obe-hl-green { background-color: hsl(140 60% 48% / 0.3); }
+.obe-hl-blue { background-color: hsl(210 85% 58% / 0.28); }
+.obe-hl-purple { background-color: hsl(265 65% 60% / 0.3); }
+.obe-hl-pink { background-color: hsl(330 75% 60% / 0.3); }
+.obe-hl-red { background-color: hsl(0 75% 58% / 0.28); }
+.dark .obe-hl-gray { background-color: hsl(0 0% 62% / 0.3); }
+.dark .obe-hl-brown { background-color: hsl(25 45% 50% / 0.34); }
+.dark .obe-hl-orange { background-color: hsl(30 80% 50% / 0.36); }
+.dark .obe-hl-yellow { background-color: hsl(48 80% 50% / 0.34); }
+.dark .obe-hl-green { background-color: hsl(140 50% 45% / 0.34); }
+.dark .obe-hl-blue { background-color: hsl(210 70% 52% / 0.36); }
+.dark .obe-hl-purple { background-color: hsl(265 55% 55% / 0.38); }
+.dark .obe-hl-pink { background-color: hsl(330 60% 55% / 0.36); }
+.dark .obe-hl-red { background-color: hsl(0 65% 52% / 0.36); }
+
+/* Swatch buttons (toolbar colour panel). */
+.obe-sw {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: grid;
+  place-items: center;
+  border: 1px solid hsl(var(--border));
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.obe-sw:hover { outline: 2px solid hsl(var(--ring)); outline-offset: 1px; }
+.obe-sw-fill { color: transparent; }
+.obe-sw-reset { background: transparent; color: hsl(var(--muted-foreground)); }
+.obe-sw-reset.obe-sw-fill {
+  background: repeating-linear-gradient(45deg, transparent, transparent 4px, hsl(var(--border)) 4px, hsl(var(--border)) 5px);
+}
+
+/* Menu-item colour chip (leading swatch in the block menus). */
+.obe-mi-sw {
+  width: 1.05rem;
+  height: 1.05rem;
+  margin-right: 0.5rem;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 4px;
+  border: 1px solid hsl(var(--border));
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: -0.2rem;
+}
+.obe-mi-sw-fill { color: transparent; }
+.obe-mi-sw-reset { background: transparent; }
+
+/* Inline toolbar colour panel. */
+.obe-tb-color { flex-direction: column; gap: 1px; line-height: 1; }
+.obe-tb-color-bar {
+  display: block;
+  width: 0.9em;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, hsl(0 70% 55%), hsl(45 90% 55%), hsl(210 80% 55%));
+}
+.obe-tb-colors {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  box-shadow: 0 12px 32px -12px hsl(0 0% 0% / 0.4);
+  padding: 0.5rem;
+  width: max-content;
+  z-index: 60;
+}
+.obe-tb-colors-label {
+  font-size: 0.65rem;
+  color: hsl(var(--muted-foreground));
+  margin: 0.15rem 0.1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.obe-tb-colors-row { display: grid; grid-template-columns: repeat(10, 1.5rem); gap: 0.25rem; }
+.obe-tb-colors-row + .obe-tb-colors-label { margin-top: 0.45rem; }
 
 /* Touch: gutters are always visible (no hover on touch screens) */
 @media (hover: none) {

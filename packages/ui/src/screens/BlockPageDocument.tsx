@@ -23,7 +23,7 @@ import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
 import {PageHeaderControls} from '@/components/PageHeaderControls';
 import {PageCoverBanner} from '@/components/PageCover';
-import {usePageThemeStyle} from '@/components/appearance/PageCustomiseBody';
+import {usePageThemeStyle, usePageHasBackground} from '@/components/appearance/PageCustomiseBody';
 import {usePageFullWidth} from '@/lib/pageFullWidth';
 import {pageFontStyle, usePageFonts} from '@/lib/pageFont';
 import {setPageSaveStatus} from '@/lib/pageSaveStatus';
@@ -271,12 +271,13 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   // Per-page overrides recolor (theme) and restyle (fonts) just this page.
   const pageThemeStyle = usePageThemeStyle(pageId ?? '');
   const fontStyle = pageFontStyle(usePageFonts(pageId ?? ''));
+  const hasBackground = usePageHasBackground(pageId ?? '');
 
   // Right-clicking the page body opens the shared page actions (favorite,
   // open in split, rename, duplicate, trash, …) — same menu as classic pages.
   const body = (
     <div
-      className={cn('w-full pb-40', fontStyle && 'ob-page-fonts')}
+      className={cn('w-full pb-40', fontStyle && 'ob-page-fonts', hasBackground && 'ob-page-bg')}
       style={{...pageThemeStyle, ...fontStyle}}
     >
       {pageId && <PageCoverBanner pageId={pageId} />}

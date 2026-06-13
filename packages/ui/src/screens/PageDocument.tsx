@@ -81,7 +81,7 @@ import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
 import {PageHeaderControls} from '@/components/PageHeaderControls';
 import {PageCoverBanner} from '@/components/PageCover';
-import {usePageThemeStyle} from '@/components/appearance/PageCustomiseBody';
+import {usePageThemeStyle, usePageHasBackground} from '@/components/appearance/PageCustomiseBody';
 import {usePageFullWidth} from '@/lib/pageFullWidth';
 import {pageFontStyle, usePageFonts} from '@/lib/pageFont';
 import {installEditorChrome} from '@/lib/editorChrome';
@@ -595,10 +595,11 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   // scoped CSS vars / the `ob-page-fonts` class on the wrapper.
   const pageThemeStyle = usePageThemeStyle(pageId ?? '');
   const fontStyle = pageFontStyle(usePageFonts(pageId ?? ''));
+  const hasBackground = usePageHasBackground(pageId ?? '');
 
   const body = (
     <div
-      className={cn('w-full pb-40', fontStyle && 'ob-page-fonts')}
+      className={cn('w-full pb-40', fontStyle && 'ob-page-fonts', hasBackground && 'ob-page-bg')}
       style={{...pageThemeStyle, ...fontStyle}}
     >
       {pageId && <PageCoverBanner pageId={pageId} />}

@@ -50,7 +50,9 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {TextBlockView} from './TextBlockView';
+import {COLOR_TOKENS, isColorToken} from './colors';
 import {SlashMenu, type SlashState} from './SlashMenu';
+import {MentionMenu} from './MentionMenu';
 import {LinkPicker} from './LinkPicker';
 import {hasKitConfig, openKitConfig} from './kit/kitConfig';
 import {KitLockContext, useKitLock} from './kit/lock';
@@ -72,11 +74,16 @@ import type {InlineAttrs} from './model';
 /** Shared UI surface text blocks call into (menus, formatting, drag). */
 export interface EditorUI {
   slash: SlashState;
+  mention: SlashState;
   spellcheck: boolean;
   openSlash(blockId: string, anchorOffset: number): void;
   updateSlash(caret: number): void;
   closeSlash(): void;
   slashKey(key: string): void;
+  openMention(blockId: string, anchorOffset: number): void;
+  updateMention(caret: number): void;
+  closeMention(): void;
+  mentionKey(key: string): void;
   toggleFormat(key: keyof InlineAttrs, value?: string): void;
   scheduleToolbar(): void;
 }
@@ -105,6 +112,7 @@ export const BlockEditor: React.FC<{
   const rootRef = useRef<HTMLDivElement>(null);
 
   const [slash, setSlash] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
+  const [mention, setMention] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [linkPicker, setLinkPicker] = useState<{kind: 'page' | 'database'; blockId: string; anchorOffset: number} | null>(null);
@@ -123,6 +131,19 @@ export const BlockEditor: React.FC<{
         text.insert(start + label.length, ' ', {m: null}); // plain space so the caret exits the chip
       }, 'local');
       editor.requestCaret({blockId, offset: start + label.length + 1});
+    },
+    [doc, editor],
+  );
+
+  // Insert plain text at an offset (mention menu's dates / person names).
+  const insertTextAt = useCallback(
+    (blockId: string, at: number, str: string): void => {
+      const found = findBlock(doc, blockId);
+      const text = found && blockText(found.block);
+      if (!text) return;
+      const start = Math.min(at, text.length);
+      doc.transact(() => text.insert(start, str, {}), 'local');
+      editor.requestCaret({blockId, offset: start + str.length});
     },
     [doc, editor],
   );
@@ -172,6 +193,32 @@ export const BlockEditor: React.FC<{
         if (current && current.start === sel.start && current.end === sel.start) {
           writeSelection(node, sel.start, sel.end);
         }
+      });
+    },
+    [editor, doc, blockEl],
+  );
+
+  // Set (or clear, with null) a non-boolean inline attribute on the selection —
+  // colours pick a value rather than toggling on/off like bold.
+  const setFormat = useCallback(
+    (key: keyof InlineAttrs, value: string | null): void => {
+      const id = editor.focusedId;
+      if (!id) return;
+      const found = findBlock(doc, id);
+      const text = found && blockText(found.block);
+      const el = blockEl(id);
+      if (!found || !text || !el) return;
+      const sel = readSelection(el);
+      if (!sel || sel.end === sel.start) return;
+      doc.transact(() => {
+        text.format(sel.start, sel.end - sel.start, {[key]: value ?? null});
+      }, 'local');
+      editor.requestCaret({blockId: id, offset: sel.start});
+      requestAnimationFrame(() => {
+        const node = blockEl(id);
+        if (!node) return;
+        const current = readSelection(node);
+        if (current && current.start === sel.start && current.end === sel.start) writeSelection(node, sel.start, sel.end);
       });
     },
     [editor, doc, blockEl],
@@ -238,28 +285,35 @@ export const BlockEditor: React.FC<{
 
   const ui = useMemo<EditorUI>(() => {
     const closeSlash = (): void => setSlash((s) => ({...s, open: false, query: '', index: 0}));
+    const closeMention = (): void => setMention((s) => ({...s, open: false, query: '', index: 0}));
+    // The query tracker is trigger-agnostic — it just slices text after the
+    // anchor up to the caret, so the slash and mention menus share it.
+    const triggerOpen = (caret: number, s: SlashState, trigger: string): SlashState => {
+      if (!s.open) return s;
+      const found = findBlock(doc, s.blockId);
+      const text = found && blockText(found.block);
+      if (!text || text.toString()[s.anchorOffset] !== trigger) return {...s, open: false}; // trigger deleted
+      return {...s, query: slashQuery(s, caret), index: 0};
+    };
     return {
       slash,
+      mention,
       spellcheck,
       openSlash: (id, anchorOffset) => setSlash({open: true, blockId: id, anchorOffset, query: '', index: 0}),
-      updateSlash: (caret) =>
-        setSlash((s) => {
-          if (!s.open) return s;
-          const found = findBlock(doc, s.blockId);
-          const text = found && blockText(found.block);
-          // '/' deleted → close.
-          if (!text || text.toString()[s.anchorOffset] !== '/') return {...s, open: false};
-          return {...s, query: slashQuery(s, caret), index: 0};
-        }),
+      updateSlash: (caret) => setSlash((s) => triggerOpen(caret, s, '/')),
       closeSlash,
       slashKey: (key) => {
         // handled inside SlashMenu via props — stored here so text blocks can forward keys
         setSlash((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}}));
       },
+      openMention: (id, anchorOffset) => setMention({open: true, blockId: id, anchorOffset, query: '', index: 0}),
+      updateMention: (caret) => setMention((s) => triggerOpen(caret, s, '@')),
+      closeMention,
+      mentionKey: (key) => setMention((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}})),
       toggleFormat,
       scheduleToolbar,
     };
-  }, [slash, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck]);
+  }, [slash, mention, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck]);
 
   // ── Drag and drop ────────────────────────────────────────────────────────
   const computeRegion = (e: React.DragEvent | React.PointerEvent, el: HTMLElement, allowSides: boolean): DropRegion => {
@@ -490,7 +544,7 @@ export const BlockEditor: React.FC<{
         }
       }}
     >
-      <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} />
+      <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} container={null} />
       {slash.open && (
         <SlashMenu
           state={slash}
@@ -500,6 +554,16 @@ export const BlockEditor: React.FC<{
           onClose={ui.closeSlash}
           pageId={pageId}
           onLink={(kind, blockId, anchorOffset) => setLinkPicker({kind, blockId, anchorOffset})}
+        />
+      )}
+      {mention.open && (
+        <MentionMenu
+          state={mention}
+          editor={editor}
+          anchorEl={blockEl(mention.blockId)}
+          onClose={ui.closeMention}
+          onMentionPage={insertMention}
+          onInsertText={insertTextAt}
         />
       )}
       {linkPicker && !readOnly && (
@@ -514,7 +578,9 @@ export const BlockEditor: React.FC<{
           }}
         />
       )}
-      {toolbar && !readOnly && <InlineToolbar state={toolbar} onToggle={toggleFormat} />}
+      {toolbar && !readOnly && (
+        <InlineToolbar state={toolbar} onToggle={toggleFormat} onColor={(key, token) => setFormat(key, token)} />
+      )}
       <div aria-live="polite" className="obe-sr-only">
         {live}
       </div>
@@ -547,6 +613,10 @@ interface RowShared {
   performDrop: (sourceId: string, targetId: string, region: DropRegion) => void;
   computeRegion: (e: React.DragEvent | React.PointerEvent, el: HTMLElement, allowSides: boolean) => DropRegion;
   depth: number;
+  /** Type of the block whose children these rows are (null at the root) — a
+   *  side-drop is offered at the root and inside columns (to create / grow a
+   *  columns layout), but not inside groups or tables. */
+  container: BlockType | null;
 }
 
 const BlockList: React.FC<RowShared & {list: Y.Array<BlockMap>}> = ({list, ...shared}) => (
@@ -571,7 +641,16 @@ const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) =
   const [handleMenu, setHandleMenu] = useState(false);
   const selected = editor.selection.has(id);
   const over = drag?.over?.id === id ? drag.over.region : null;
-  const allowSides = depth === 0 && type !== 'columns'; // side-drop creates/extends columns at top level
+  // Side-drop creates a columns layout (at the root) or grows one (inside a
+  // column); never on the columns wrapper itself, nor inside groups/tables.
+  const {container} = shared;
+  const allowSides = type !== 'columns' && (container === null || container === 'column');
+  // Per-block colours (palette tokens → theme-aware classes on the body).
+  const bg = blockProp<string>(block, 'bg');
+  const fg = blockProp<string>(block, 'fg');
+  const bodyClass = ['obe-blockbody', isColorToken(bg) && `obe-bg-${bg}`, isColorToken(fg) && `obe-fg-${fg}`]
+    .filter(Boolean)
+    .join(' ');
   const indent = blockProp<number>(block, 'indent') ?? 0;
 
   const onDragOver = (e: React.DragEvent): void => {
@@ -695,7 +774,9 @@ const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) =
           </DropdownMenu>
         </div>
       )}
-      <BlockBody block={block} {...shared} />
+      <div className={bodyClass}>
+        <BlockBody block={block} {...shared} />
+      </div>
     </div>
   );
 
@@ -745,8 +826,19 @@ function blockOps(editor: BlockEditorController, id: string) {
       removeBlock(editor.doc, id);
       editor.clearSelection();
     },
+    setColor: (which: 'fg' | 'bg', token: string | null): void => {
+      const found = findBlock(editor.doc, id);
+      if (!found) return;
+      editor.doc.transact(() => setBlockProp(found.block, which, token ?? undefined), 'local');
+    },
   };
 }
+
+/** Colour choices for the block menus (a leading "Default" clears the prop). */
+const COLOR_MENU: Array<{id: string | null; label: string}> = [
+  {id: null, label: 'Default'},
+  ...COLOR_TOKENS.map((c) => ({id: c.id, label: c.label})),
+];
 
 /** The drag handle's click menu: block actions without leaving the mouse. */
 const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => {
@@ -770,6 +862,29 @@ const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = (
           <DropdownMenuSeparator />
         </>
       )}
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>Text colour</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-40">
+          {COLOR_MENU.map((c) => (
+            <DropdownMenuItem key={c.id ?? 'default'} onClick={() => ops.setColor('fg', c.id)}>
+              <span className={`obe-mi-sw ${c.id ? `obe-fg-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden>A</span>
+              {c.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <DropdownMenuSub>
+        <DropdownMenuSubTrigger>Background</DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="w-40">
+          {COLOR_MENU.map((c) => (
+            <DropdownMenuItem key={c.id ?? 'default'} onClick={() => ops.setColor('bg', c.id)}>
+              <span className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden />
+              {c.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuSubContent>
+      </DropdownMenuSub>
+      <DropdownMenuSeparator />
       <DropdownMenuItem onClick={ops.duplicate}>Duplicate</DropdownMenuItem>
       <DropdownMenuItem onClick={() => ops.move(-1)}>Move up</DropdownMenuItem>
       <DropdownMenuItem onClick={() => ops.move(1)}>Move down</DropdownMenuItem>
@@ -811,6 +926,29 @@ const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> =
           <ContextMenuSeparator />
         </>
       )}
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>Text colour</ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-40">
+          {COLOR_MENU.map((c) => (
+            <ContextMenuItem key={c.id ?? 'default'} onSelect={() => ops.setColor('fg', c.id)}>
+              <span className={`obe-mi-sw ${c.id ? `obe-fg-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden>A</span>
+              {c.label}
+            </ContextMenuItem>
+          ))}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuSub>
+        <ContextMenuSubTrigger>Background</ContextMenuSubTrigger>
+        <ContextMenuSubContent className="w-40">
+          {COLOR_MENU.map((c) => (
+            <ContextMenuItem key={c.id ?? 'default'} onSelect={() => ops.setColor('bg', c.id)}>
+              <span className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden />
+              {c.label}
+            </ContextMenuItem>
+          ))}
+        </ContextMenuSubContent>
+      </ContextMenuSub>
+      <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => editor.setSelection([id])}>Select block</ContextMenuItem>
       <ContextMenuItem onSelect={ops.duplicate}>Duplicate</ContextMenuItem>
       <ContextMenuItem onSelect={() => ops.move(-1)}>Move up</ContextMenuItem>
@@ -918,7 +1056,7 @@ const GroupView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
           </button>
         </header>
         <div className="obe-group-body">
-          {children && <BlockList list={children} {...shared} depth={shared.depth + 1} />}
+          {children && <BlockList list={children} {...shared} depth={shared.depth + 1} container="group" />}
         </div>
       </section>
     </KitLockContext.Provider>
@@ -1124,7 +1262,7 @@ const ColumnsView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}
                 onPointerDown={(e) => onDividerDown(e, i - 1)}
               />
             )}
-            <BlockList list={blockChildren(col)!} {...shared} depth={shared.depth + 1} />
+            <BlockList list={blockChildren(col)!} {...shared} depth={shared.depth + 1} container="column" />
           </div>
         </React.Fragment>
       ))}

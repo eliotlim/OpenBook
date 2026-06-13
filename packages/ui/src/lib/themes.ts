@@ -275,7 +275,22 @@ export interface AppearanceOptions {
   controlIntensity: Level;
   /** Sidebar sheets adopt the accent hue. */
   tintedSidebar: boolean;
+  /** Optional page-canvas tint (a {@link PAGE_BACKGROUNDS} token). Mostly used
+   *  per page; unset means the canvas keeps the theme's default `--background`. */
+  background?: string;
 }
+
+/** Soft full-canvas tints for the per-page "Background" control (token → HSL). */
+export const PAGE_BACKGROUNDS: Record<string, {light: string; dark: string}> = {
+  gray: {light: '0 0% 96.5%', dark: '0 0% 15%'},
+  red: {light: '6 60% 97.5%', dark: '4 26% 14.5%'},
+  orange: {light: '28 70% 96.5%', dark: '24 28% 14.5%'},
+  yellow: {light: '46 78% 96%', dark: '44 26% 14%'},
+  green: {light: '140 42% 96.5%', dark: '140 22% 14%'},
+  blue: {light: '210 58% 97.5%', dark: '210 28% 15%'},
+  purple: {light: '265 48% 97.5%', dark: '265 24% 15.5%'},
+  pink: {light: '330 58% 97.5%', dark: '330 24% 15.5%'},
+};
 
 export const DEFAULT_APPEARANCE: AppearanceOptions = {
   themeId: DEFAULT_THEME_ID,
@@ -405,6 +420,12 @@ export function composeAppearance(opts: AppearanceOptions, scheme: 'light' | 'da
     const sat = gray ? 0 : Math.max(c.s * ACCENT_MUL[opts.controlIntensity], accentFloor);
     const hue = gray ? c.h : familyHue;
     tokens.accent = toTriple({h: hue, s: sat, l: c.l});
+  }
+
+  // Optional page-canvas tint (per-page background). Only the canvas surfaces
+  // shift; cards/popovers keep their own fill so they lift off the tint.
+  if (opts.background && PAGE_BACKGROUNDS[opts.background]) {
+    tokens.background = PAGE_BACKGROUNDS[opts.background][scheme];
   }
 
   // Tinted sidebar: the sheets adopt the accent hue as a soft colored panel.
