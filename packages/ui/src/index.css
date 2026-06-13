@@ -1046,6 +1046,17 @@ a.obe-mention {
   overflow: hidden;
 }
 .obe-slash-active { background: hsl(var(--accent)); }
+/* Category headers between groups of slash commands. */
+.obe-slash-group {
+  padding: 0.45rem 0.6rem 0.2rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: hsl(var(--muted-foreground) / 0.7);
+  user-select: none;
+}
+.obe-slash-group:first-child { padding-top: 0.2rem; }
 .obe-slash-label { font-size: 0.9rem; font-weight: 500; }
 .obe-slash-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 

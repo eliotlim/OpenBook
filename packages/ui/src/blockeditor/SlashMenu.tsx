@@ -2,6 +2,7 @@ import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'reac
 import {blockText, blockType, findBlock, makeTable, type BlockType, type NewBlock} from './model';
 import {customSlashItems} from './registry';
 import {aiSlashItems} from './aiBlocks';
+import {pageLinks, type SubpageKind} from '@/lib/pageLinks';
 import {t, type TKey} from '../i18n';
 import type {BlockEditorController} from './useBlockEditor';
 
@@ -22,11 +23,23 @@ export interface SlashState {
   keyEvent?: {key: string; n: number};
 }
 
+/** Slash-menu categories, in display order. */
+export type SlashGroup = 'pages' | 'basic' | 'interactive' | 'extensions' | 'ai';
+const GROUP_ORDER: SlashGroup[] = ['pages', 'basic', 'interactive', 'extensions', 'ai'];
+const GROUP_LABEL: Record<SlashGroup, {key: string; fallback: string}> = {
+  pages: {key: 'slash.group.pages', fallback: 'Pages'},
+  basic: {key: 'slash.group.basic', fallback: 'Basic blocks'},
+  interactive: {key: 'slash.group.interactive', fallback: 'Interactive blocks'},
+  extensions: {key: 'slash.group.extensions', fallback: 'Extensions'},
+  ai: {key: 'slash.group.ai', fallback: 'AI'},
+};
+
 interface SlashItem {
   id: string;
   label: string;
   hint: string;
   keywords: string;
+  group: SlashGroup;
   apply: (editor: BlockEditorController, blockId: string) => void;
 }
 
@@ -54,23 +67,61 @@ const columns = (n: number): NewBlock => ({
   children: Array.from({length: n}, () => ({type: 'column' as const, children: [{type: 'paragraph' as const}]})),
 });
 
+/** Create a child page/database under `pageId` and drop an inline page-link
+ *  mention where the command was typed (replacing the empty "/" line). */
+const insertNewPage =
+  (kind: SubpageKind, pageId: string) =>
+    (editor: BlockEditorController, blockId: string): void => {
+      void pageLinks.createSubpage(pageId, kind).then((newId) => {
+        if (!newId) return;
+        const label = pageLinks.label(newId) || (kind === 'database' ? 'Untitled database' : 'Untitled');
+        const found = findBlock(editor.doc, blockId);
+        const empty = found && blockType(found.block) === 'paragraph' && (blockText(found.block)?.length ?? 0) === 0;
+        editor.insertAfter(blockId, {type: 'paragraph', text: [{t: label, a: {m: newId}}]});
+        if (empty && found) editor.doc.transact(() => found.parent.delete(found.index, 1), 'local');
+      });
+    };
+
+/** Items that create + link a nested page/database. Built per-render because
+ *  they close over the current page id (the new page's parent). */
+function pageItems(pageId: string): SlashItem[] {
+  return [
+    {
+      id: 'newpage',
+      label: 'New page',
+      hint: 'Create a nested page and link it here',
+      keywords: 'new page subpage nested child create link',
+      group: 'pages',
+      apply: insertNewPage('page', pageId),
+    },
+    {
+      id: 'newdatabase',
+      label: 'New database',
+      hint: 'Create a nested database and link it here',
+      keywords: 'new database table collection grid create link',
+      group: 'pages',
+      apply: insertNewPage('database', pageId),
+    },
+  ];
+}
+
 export const SLASH_ITEMS: SlashItem[] = [
-  {id: 'text', label: 'Text', hint: 'Plain paragraph', keywords: 'text paragraph plain', apply: turn('paragraph')},
-  {id: 'h1', label: 'Heading 1', hint: 'Large section heading', keywords: 'h1 heading title', apply: turn('heading', {level: 1})},
-  {id: 'h2', label: 'Heading 2', hint: 'Medium section heading', keywords: 'h2 heading', apply: turn('heading', {level: 2})},
-  {id: 'h3', label: 'Heading 3', hint: 'Small section heading', keywords: 'h3 heading', apply: turn('heading', {level: 3})},
-  {id: 'bullet', label: 'Bulleted list', hint: 'Simple list', keywords: 'bullet list ul', apply: turn('list', {kind: 'bullet'})},
-  {id: 'number', label: 'Numbered list', hint: 'Ordered list', keywords: 'number ordered list ol', apply: turn('list', {kind: 'number'})},
-  {id: 'todo', label: 'To-do', hint: 'Checkbox item', keywords: 'todo check task', apply: turn('todo')},
-  {id: 'quote', label: 'Quote', hint: 'Pull quote', keywords: 'quote blockquote', apply: turn('quote')},
-  {id: 'callout', label: 'Callout', hint: 'Highlighted note', keywords: 'callout note info', apply: turn('callout', {variant: 'info'})},
-  {id: 'code', label: 'Code', hint: 'Monospaced block', keywords: 'code snippet', apply: turn('code')},
-  {id: 'livecode', label: 'Live code', hint: 'Computes over inputs; name the output to chain', keywords: 'livecode live code formula compute expr reactive calculation', apply: turn('code', {live: true, name: 'result', language: 'js'})},
-  {id: 'divider', label: 'Divider', hint: 'Horizontal rule', keywords: 'divider rule hr line', apply: insertAfterOrReplace(() => ({type: 'divider'}))},
-  {id: 'table', label: 'Table', hint: '3 × 3 to start', keywords: 'table grid cells', apply: insertAfterOrReplace(() => makeTable(3, 3))},
-  {id: 'cols2', label: '2 columns', hint: 'Side-by-side layout', keywords: 'columns layout two 2', apply: insertAfterOrReplace(() => columns(2))},
-  {id: 'cols3', label: '3 columns', hint: 'Three-across layout', keywords: 'columns layout three 3', apply: insertAfterOrReplace(() => columns(3))},
-  {id: 'cols4', label: '4 columns', hint: 'Four-across layout', keywords: 'columns layout four 4', apply: insertAfterOrReplace(() => columns(4))},
+  {id: 'text', label: 'Text', hint: 'Plain paragraph', keywords: 'text paragraph plain', group: 'basic', apply: turn('paragraph')},
+  {id: 'h1', label: 'Heading 1', hint: 'Large section heading', keywords: 'h1 heading title', group: 'basic', apply: turn('heading', {level: 1})},
+  {id: 'h2', label: 'Heading 2', hint: 'Medium section heading', keywords: 'h2 heading', group: 'basic', apply: turn('heading', {level: 2})},
+  {id: 'h3', label: 'Heading 3', hint: 'Small section heading', keywords: 'h3 heading', group: 'basic', apply: turn('heading', {level: 3})},
+  {id: 'bullet', label: 'Bulleted list', hint: 'Simple list', keywords: 'bullet list ul', group: 'basic', apply: turn('list', {kind: 'bullet'})},
+  {id: 'number', label: 'Numbered list', hint: 'Ordered list', keywords: 'number ordered list ol', group: 'basic', apply: turn('list', {kind: 'number'})},
+  {id: 'todo', label: 'To-do', hint: 'Checkbox item', keywords: 'todo check task', group: 'basic', apply: turn('todo')},
+  {id: 'quote', label: 'Quote', hint: 'Pull quote', keywords: 'quote blockquote', group: 'basic', apply: turn('quote')},
+  {id: 'callout', label: 'Callout', hint: 'Highlighted note', keywords: 'callout note info', group: 'basic', apply: turn('callout', {variant: 'info'})},
+  {id: 'code', label: 'Code', hint: 'Monospaced block', keywords: 'code snippet', group: 'basic', apply: turn('code')},
+  {id: 'livecode', label: 'Live code', hint: 'Computes over inputs; name the output to chain', keywords: 'livecode live code formula compute expr reactive calculation', group: 'interactive', apply: turn('code', {live: true, name: 'result', language: 'js'})},
+  {id: 'divider', label: 'Divider', hint: 'Horizontal rule', keywords: 'divider rule hr line', group: 'basic', apply: insertAfterOrReplace(() => ({type: 'divider'}))},
+  {id: 'table', label: 'Table', hint: '3 × 3 to start', keywords: 'table grid cells', group: 'basic', apply: insertAfterOrReplace(() => makeTable(3, 3))},
+  {id: 'cols2', label: '2 columns', hint: 'Side-by-side layout', keywords: 'columns layout two 2', group: 'basic', apply: insertAfterOrReplace(() => columns(2))},
+  {id: 'cols3', label: '3 columns', hint: 'Three-across layout', keywords: 'columns layout three 3', group: 'basic', apply: insertAfterOrReplace(() => columns(3))},
+  {id: 'cols4', label: '4 columns', hint: 'Four-across layout', keywords: 'columns layout four 4', group: 'basic', apply: insertAfterOrReplace(() => columns(4))},
 ];
 
 export const SlashMenu: React.FC<{
@@ -79,7 +130,9 @@ export const SlashMenu: React.FC<{
   anchorEl: HTMLElement | null;
   rootEl: HTMLElement | null;
   onClose: () => void;
-}> = ({state, editor, anchorEl, rootEl, onClose}) => {
+  /** The page hosting this editor — enables the "New page/database" commands. */
+  pageId?: string;
+}> = ({state, editor, anchorEl, rootEl, onClose, pageId}) => {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{left: number; top: number; maxHeight: number} | null>(null);
   const [index, setIndex] = useState(0);
@@ -96,7 +149,8 @@ export const SlashMenu: React.FC<{
 
   const items = useMemo(() => {
     const q = state.query.toLowerCase();
-    const core: SlashItem[] = SLASH_ITEMS.map((item) => ({
+    const pages: SlashItem[] = pageId ? pageItems(pageId) : [];
+    const core: SlashItem[] = [...pages, ...SLASH_ITEMS].map((item) => ({
       ...item,
       label: tr(`slash.${item.id}.label`, item.label),
       hint: tr(`slash.${item.id}.hint`, item.hint),
@@ -106,6 +160,7 @@ export const SlashMenu: React.FC<{
       label: tr(`slash.custom.${def.type}.label`, def.slash!.label),
       hint: tr(`slash.custom.${def.type}.hint`, def.slash!.hint),
       keywords: def.slash!.keywords,
+      group: def.slash!.group ?? 'extensions',
       apply: insertAfterOrReplace(() => def.slash!.make()),
     }));
     const ai: SlashItem[] = aiSlashItems().map((item) => ({
@@ -113,12 +168,15 @@ export const SlashMenu: React.FC<{
       label: tr(`slash.${item.id}.label`, item.label),
       hint: tr(`slash.${item.id}.hint`, item.hint),
       keywords: item.keywords,
+      group: 'ai',
       apply: item.apply,
     }));
-    return [...core, ...custom, ...ai].filter(
-      (item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q),
-    );
-  }, [state.query]);
+    return [...core, ...custom, ...ai]
+      .filter((item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q))
+      // Stable sort groups into display order (Array.sort is stable), so items
+      // keep their authored order within each category.
+      .sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
+  }, [state.query, pageId]);
 
   // Fixed (viewport) positioning: anchored to the caret, measured after
   // render, flipped above the line when there's no room below, clamped to the
@@ -203,23 +261,32 @@ export const SlashMenu: React.FC<{
       role="listbox"
       aria-label="Insert a block"
     >
-      {items.map((item, i) => (
-        <button
-          key={item.id}
-          type="button"
-          role="option"
-          aria-selected={i === index}
-          className={`obe-slash-item${i === index ? ' obe-slash-active' : ''}`}
-          title={item.hint}
-          onMouseEnter={() => setIndex(i)}
-          onMouseDown={(e) => {
-            e.preventDefault(); // keep the caret in the document
-            pick(item);
-          }}
-        >
-          <span className="obe-slash-label">{item.label}</span>
-        </button>
-      ))}
+      {items.map((item, i) => {
+        const newGroup = item.group !== items[i - 1]?.group;
+        return (
+          <React.Fragment key={item.id}>
+            {newGroup && (
+              <div className="obe-slash-group" role="presentation">
+                {tr(GROUP_LABEL[item.group].key, GROUP_LABEL[item.group].fallback)}
+              </div>
+            )}
+            <button
+              type="button"
+              role="option"
+              aria-selected={i === index}
+              className={`obe-slash-item${i === index ? ' obe-slash-active' : ''}`}
+              title={item.hint}
+              onMouseEnter={() => setIndex(i)}
+              onMouseDown={(e) => {
+                e.preventDefault(); // keep the caret in the document
+                pick(item);
+              }}
+            >
+              <span className="obe-slash-label">{item.label}</span>
+            </button>
+          </React.Fragment>
+        );
+      })}
     </div>
   );
 };

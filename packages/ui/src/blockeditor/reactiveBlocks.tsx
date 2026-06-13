@@ -81,6 +81,7 @@ export function registerReactiveBlocks(): void {
       hint: 'A named live input',
       keywords: 'slider input range reactive',
       make: () => ({type: 'slider', props: {name: 'x', value: 50, min: 0, max: 100}}),
+      group: 'interactive',
     },
   });
   // Legacy formula blocks keep rendering, but the slash menu steers new

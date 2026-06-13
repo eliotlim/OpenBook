@@ -16,6 +16,9 @@ export {CHART_KINDS} from './charts';
  */
 export function registerArtifactKit(): void {
   for (const def of [...INPUT_BLOCKS, ...CHART_BLOCKS, ...CARD_BLOCKS]) {
-    registerCustomBlock(def as unknown as CustomBlockDef);
+    const d = def as unknown as CustomBlockDef;
+    // Tag the built-ins so the slash menu files them under "Interactive blocks"
+    // (third-party plugin blocks fall through to "Extensions").
+    registerCustomBlock(d.slash ? {...d, slash: {...d.slash, group: 'interactive'}} : d);
   }
 }

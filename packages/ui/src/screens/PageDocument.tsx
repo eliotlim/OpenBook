@@ -8,6 +8,7 @@ import {toMarkdown} from '@/export/toMarkdown';
 import {toPdf} from '@/export/toPdf';
 import {downloadBlob, downloadText, safeFilename} from '@/lib/download';
 import {registerPageDocActions, type ExportKind} from '@/lib/pageDocActions';
+import {setPageSaveStatus} from '@/lib/pageSaveStatus';
 // Type-only imports: the EditorJS class is loaded dynamically (client-only)
 // inside the effect below, so importing this module never pulls EditorJS's
 // browser-dependent bundle during SSR (e.g. the Next.js web shell). The default
@@ -214,7 +215,6 @@ const PageDocument: React.FC<PageDocumentProps> = ({
 }) => {
   'use client';
   const {hud} = useHud();
-  const {t} = useTranslation();
   const client = useData();
   const {preferences} = usePreferences();
   const spellcheck = preferences.general.spellcheck;
@@ -524,8 +524,15 @@ const PageDocument: React.FC<PageDocumentProps> = ({
     };
   }, [incoming?.version]);
 
-  const statusLabel =
-    status === 'unsaved' ? t('page.saving') : status === 'saved' ? t('page.saved') : status === 'save failed' ? t('page.saveFailed') : '';
+  // Publish save status to the shell's page-actions cluster (it shows the
+  // right pane's page when the split view is open). The classic editor's
+  // internal states map onto the shared idle/saving/saved/failed vocabulary.
+  useEffect(() => {
+    const mapped =
+      status === 'unsaved' ? 'saving' : status === 'saved' ? 'saved' : status === 'save failed' ? 'save failed' : 'idle';
+    setPageSaveStatus(pageId, mapped);
+    return () => setPageSaveStatus(pageId, null);
+  }, [pageId, status]);
 
   // Export the page's *current* document (incl. unsaved edits) to a file.
   const handleExport = useCallback(
@@ -585,12 +592,10 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   const body = (
     <div className="w-full px-6 pb-40 pt-6 md:px-10" style={pageThemeStyle}>
       <div className={columnClass}>
-        {/* Page theme control + save status — page actions live in the shell menu. */}
-        <div className="flex h-8 items-center justify-between gap-2 text-xs text-muted-foreground print:hidden">
+        {/* Per-page theme control. The save status moved to the shell's
+            page-actions cluster (titlebar on desktop, nav bar on web). */}
+        <div className="flex h-8 items-center justify-start gap-2 text-xs text-muted-foreground print:hidden">
           {pageId ? <PageThemeControl pageId={pageId} /> : <span />}
-          <span className={cn('transition-opacity', status === 'save failed' && 'text-destructive')}>
-            {statusLabel}
-          </span>
         </div>
 
         <PageHeader

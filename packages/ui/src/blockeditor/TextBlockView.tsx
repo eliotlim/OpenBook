@@ -465,6 +465,23 @@ export const TextBlockView: React.FC<{
       return;
     }
 
+    // Backspace in an EMPTY block: WKWebView (and some engines) fire no
+    // `beforeinput` when there's nothing to delete, so the usual
+    // `deleteContentBackward` merge-up never ran — the empty line just sat
+    // there. Handle it here (preventDefault suppresses any beforeinput, so this
+    // never double-deletes a non-empty block, which keeps its beforeinput path).
+    if (e.key === 'Backspace' && !mod && type !== 'cell' && text.length === 0 && !(ui.slash.open && ui.slash.blockId === id)) {
+      e.preventDefault();
+      const indent = blockProp<number>(block, 'indent') ?? 0;
+      if (indent > 0) {
+        apply(() => setBlockProp(block, 'indent', indent - 1));
+        editor.requestCaret({blockId: id, offset: 0});
+      } else {
+        editor.mergeUp(id);
+      }
+      return;
+    }
+
     // Shift+Arrow at a block edge escalates to block selection (a native
     // range can't span per-block contenteditables).
     if (e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {

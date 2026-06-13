@@ -91,7 +91,9 @@ export const BlockEditor: React.FC<{
   compact?: boolean;
   /** Spellcheck text blocks while typing (user preference). */
   spellcheck?: boolean;
-}> = ({doc, readOnly = false, ariaLabel, fullWidth = false, compact = false, spellcheck = true}) => {
+  /** The page hosting this editor — powers the "New page/database" commands. */
+  pageId?: string;
+}> = ({doc, readOnly = false, ariaLabel, fullWidth = false, compact = false, spellcheck = true, pageId}) => {
   const editor = useBlockEditor(doc, readOnly);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -459,6 +461,7 @@ export const BlockEditor: React.FC<{
           anchorEl={blockEl(slash.blockId)}
           rootEl={rootRef.current}
           onClose={ui.closeSlash}
+          pageId={pageId}
         />
       )}
       {toolbar && !readOnly && <InlineToolbar state={toolbar} onToggle={toggleFormat} />}

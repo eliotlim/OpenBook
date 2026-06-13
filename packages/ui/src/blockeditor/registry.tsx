@@ -30,6 +30,9 @@ export interface CustomBlockDef {
     hint: string;
     keywords: string;
     make: () => NewBlock;
+    /** Slash-menu category. Built-ins set `interactive`; third-party blocks
+     *  default to `extensions`. */
+    group?: 'interactive' | 'extensions';
   };
 }
 

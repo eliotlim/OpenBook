@@ -21,6 +21,7 @@ import {registerArtifactKit} from '@/blockeditor/kit';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
 import {PageThemeControl, usePageThemeStyle} from '@/components/appearance/PageThemeControl';
+import {setPageSaveStatus} from '@/lib/pageSaveStatus';
 import {pageHasPluginManifest} from '@/plugins';
 import {registerPageDocActions, type ExportKind} from '@/lib/pageDocActions';
 import {registerOpenDoc} from '@/lib/openDocs';
@@ -251,7 +252,13 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     });
   }, [pageId, doc, isPlugin, !!onDelete]);
 
-  const statusLabel = status === 'saving' ? t('page.saving') : status === 'saved' ? t('page.saved') : status === 'save failed' ? t('page.saveFailed') : '';
+  // Publish the save status to the shell so the page-actions cluster can show it
+  // (it tracks the right pane's page when the split view is open).
+  useEffect(() => {
+    setPageSaveStatus(pageId, status);
+    return () => setPageSaveStatus(pageId, null);
+  }, [pageId, status]);
+
   const columnClass = cn('mx-auto w-full', hud.viewMode.fullWidth ? 'max-w-none' : 'max-w-content');
 
   // A per-page theme override (if any) recolors just this page via scoped vars.
@@ -262,10 +269,10 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const body = (
     <div className="w-full px-6 pb-40 pt-6 md:px-10" style={pageThemeStyle}>
       <div className={columnClass}>
-        {/* Page theme control + save status — page actions live in the shell menu. */}
-        <div className="flex h-8 items-center justify-between gap-2 text-xs text-muted-foreground print:hidden">
+        {/* Per-page theme control. The save status moved to the shell's
+            page-actions cluster (titlebar on desktop, nav bar on web). */}
+        <div className="flex h-8 items-center justify-start gap-2 text-xs text-muted-foreground print:hidden">
           {pageId ? <PageThemeControl pageId={pageId} /> : <span />}
-          <span className={cn('transition-opacity', status === 'save failed' && 'text-destructive')}>{statusLabel}</span>
         </div>
 
         <PageHeader
@@ -286,6 +293,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
               fullWidth={hud.viewMode.fullWidth}
               compact={hasDatabase}
               spellcheck={preferences.general.spellcheck}
+              pageId={pageId}
             />
           )}
         </div>

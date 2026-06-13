@@ -7,6 +7,7 @@ import {cn} from '@/lib/utils';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
 import SideNavToggle from '@/components/SideNavToggle';
 import BackForwardCluster from '@/components/BackForwardCluster';
+import PageActionsCluster from '@/components/PageActionsCluster';
 import {OpenBookLogo} from '@/components/brand';
 
 /**
@@ -100,6 +101,12 @@ export default function TitlebarTabs() {
 
       {/* Remaining space, draggable. */}
       <div data-tauri-drag-region className="min-w-4 flex-1" />
+
+      {/* Page actions (status / copy / favourite / "…"), pinned to the right —
+          on the desktop these live here in the titlebar, not the nav bar. */}
+      <div className="flex shrink-0 items-center pr-1">
+        <PageActionsCluster />
+      </div>
     </div>
   );
 }

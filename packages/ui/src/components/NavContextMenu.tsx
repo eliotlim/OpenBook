@@ -51,10 +51,15 @@ const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: string; icon: typeof File
   {kind: 'plugin', labelKey: 'page.exportPlugin', icon: Puzzle},
 ];
 
-export default function NavContextMenu() {
+/**
+ * The page "…" actions menu. Targets {@link pageId} (defaults to the focused
+ * page) so the split view's cluster can act on the right pane's page.
+ */
+export default function NavContextMenu({pageId}: {pageId?: string | null} = {}) {
   const {hud, setHud} = useHud();
-  const {openInNew, openInSplit, currentPageId} = useNavigation();
+  const {openInNew, openInSplit, currentPageId: focusedPageId} = useNavigation();
   const {t} = useTranslation();
+  const currentPageId = pageId !== undefined ? pageId : focusedPageId;
   const isHome = currentPageId === HOME_PAGE_ID;
   const fav = !!currentPageId && !isHome && isFavorite(currentPageId);
 

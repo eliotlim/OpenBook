@@ -355,6 +355,15 @@ export const en = {
     },
   },
   slash: {
+    group: {
+      pages: 'Pages',
+      basic: 'Basic blocks',
+      interactive: 'Interactive blocks',
+      extensions: 'Extensions',
+      ai: 'AI',
+    },
+    newpage: {label: 'New page', hint: 'Create a nested page and link it here'},
+    newdatabase: {label: 'New database', hint: 'Create a nested database and link it here'},
     text: {label: 'Text', hint: 'Plain paragraph'},
     h1: {label: 'Heading 1', hint: 'Large section heading'},
     h2: {label: 'Heading 2', hint: 'Medium section heading'},
