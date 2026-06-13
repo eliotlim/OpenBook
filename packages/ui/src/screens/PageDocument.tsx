@@ -78,6 +78,7 @@ import {DatabaseView} from '@/components/database/DatabaseView';
 import {InlineDatabaseChooser} from '@/components/database/DatabasePicker';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
+import {PageThemeControl, usePageThemeStyle} from '@/components/appearance/PageThemeControl';
 import {installEditorChrome} from '@/lib/editorChrome';
 import {MentionController, PageLinkInlineTool} from '@/editor/pageMention';
 import {MentionPopover} from '@/components/MentionPopover';
@@ -578,11 +579,15 @@ const PageDocument: React.FC<PageDocumentProps> = ({
   // and EditorJS never enters its narrow, right-aligned layout).
   const columnClass = cn('mx-auto w-full', hud.viewMode.fullWidth ? 'max-w-none' : 'max-w-content');
 
+  // A per-page theme override (if any) recolors just this page via scoped vars.
+  const pageThemeStyle = usePageThemeStyle(pageId ?? '');
+
   const body = (
-    <div className="w-full px-6 pb-40 pt-6 md:px-10">
+    <div className="w-full px-6 pb-40 pt-6 md:px-10" style={pageThemeStyle}>
       <div className={columnClass}>
-        {/* Save status only — page actions live in the shell menu (NavContextMenu). */}
-        <div className="flex h-8 items-center justify-end gap-2 text-xs text-muted-foreground print:hidden">
+        {/* Page theme control + save status — page actions live in the shell menu. */}
+        <div className="flex h-8 items-center justify-between gap-2 text-xs text-muted-foreground print:hidden">
+          {pageId ? <PageThemeControl pageId={pageId} /> : <span />}
           <span className={cn('transition-opacity', status === 'save failed' && 'text-destructive')}>
             {statusLabel}
           </span>

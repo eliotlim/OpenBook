@@ -20,6 +20,7 @@ import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
+import {PageThemeControl, usePageThemeStyle} from '@/components/appearance/PageThemeControl';
 import {pageHasPluginManifest} from '@/plugins';
 import {registerPageDocActions, type ExportKind} from '@/lib/pageDocActions';
 import {registerOpenDoc} from '@/lib/openDocs';
@@ -253,13 +254,17 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const statusLabel = status === 'saving' ? t('page.saving') : status === 'saved' ? t('page.saved') : status === 'save failed' ? t('page.saveFailed') : '';
   const columnClass = cn('mx-auto w-full', hud.viewMode.fullWidth ? 'max-w-none' : 'max-w-content');
 
+  // A per-page theme override (if any) recolors just this page via scoped vars.
+  const pageThemeStyle = usePageThemeStyle(pageId ?? '');
+
   // Right-clicking the page body opens the shared page actions (favorite,
   // open in split, rename, duplicate, trash, …) — same menu as classic pages.
   const body = (
-    <div className="w-full px-6 pb-40 pt-6 md:px-10">
+    <div className="w-full px-6 pb-40 pt-6 md:px-10" style={pageThemeStyle}>
       <div className={columnClass}>
-        {/* Save status only — page actions live in the shell menu (NavContextMenu). */}
-        <div className="flex h-8 items-center justify-end gap-2 text-xs text-muted-foreground print:hidden">
+        {/* Page theme control + save status — page actions live in the shell menu. */}
+        <div className="flex h-8 items-center justify-between gap-2 text-xs text-muted-foreground print:hidden">
+          {pageId ? <PageThemeControl pageId={pageId} /> : <span />}
           <span className={cn('transition-opacity', status === 'save failed' && 'text-destructive')}>{statusLabel}</span>
         </div>
 

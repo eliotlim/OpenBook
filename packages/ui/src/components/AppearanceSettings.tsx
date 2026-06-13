@@ -1,8 +1,9 @@
 import {type ComponentType} from 'react';
 import {SunIcon} from '@heroicons/react/24/outline';
-import {MoonIcon, DesktopIcon, CheckIcon} from '@radix-ui/react-icons';
-import {cn} from '@/lib/utils';
+import {MoonIcon, DesktopIcon} from '@radix-ui/react-icons';
 import {ColorMode, useTheme, useTranslation} from '@/providers';
+import {Switch} from '@/components/ui/switch';
+import {AccentPicker, Field, LevelPicker, NeutralPicker, Segmented} from '@/components/appearance/AppearanceControls';
 import type {TKey} from '@/i18n';
 
 const MODES: Array<{value: ColorMode; key: TKey; icon: ComponentType<{className?: string}>}> = [
@@ -11,64 +12,71 @@ const MODES: Array<{value: ColorMode; key: TKey; icon: ComponentType<{className?
   {value: 'system', key: 'appearance.system', icon: DesktopIcon},
 ];
 
-/** Color mode (light/dark/system) + named color-theme picker. */
+/** Color mode + the full appearance model: accent palette, interface tint,
+ *  control-accent intensity, and a tinted sidebar toggle. */
 export default function AppearanceSettings() {
-  const {mode, setMode, themeId, setThemeId, themes, colorScheme} = useTheme();
+  const {mode, setMode, appearance, setAppearance, colorScheme} = useTheme();
   const {t} = useTranslation();
 
   return (
     <div className="flex flex-col gap-7">
       <h3 className="text-lg font-semibold">{t('appearance.title')}</h3>
 
-      <section className="flex flex-col gap-2">
-        <span className="text-sm font-medium">{t('appearance.colorMode')}</span>
-        <div className="flex gap-2">
-          {MODES.map(({value, key, icon: Icon}) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setMode(value)}
-              className={cn(
-                'flex flex-1 cursor-pointer flex-col items-center gap-1.5 rounded-md border px-3 py-3 text-sm transition-colors',
-                mode === value ? 'border-primary bg-accent' : 'border-border hover:bg-accent',
-              )}
-            >
-              <Icon className="h-5 w-5" />
-              {t(key)}
-            </button>
-          ))}
-        </div>
-      </section>
+      <Field label={t('appearance.colorMode')}>
+        <Segmented
+          options={MODES.map(({value, key, icon}) => ({value, label: t(key), icon}))}
+          value={mode}
+          onChange={setMode}
+        />
+      </Field>
 
-      <section className="flex flex-col gap-2">
-        <span className="text-sm font-medium">{t('appearance.colorTheme')}</span>
-        <span className="text-xs text-muted-foreground">{t('appearance.colorThemeHint')}</span>
-        <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {themes.map((theme) => {
-            const tokens = colorScheme === 'dark' ? theme.dark : theme.light;
-            const active = theme.id === themeId;
-            return (
-              <button
-                key={theme.id}
-                type="button"
-                onClick={() => setThemeId(theme.id)}
-                className={cn(
-                  'flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-sm transition-colors',
-                  active ? 'border-primary bg-accent' : 'border-border hover:bg-accent',
-                )}
-              >
-                <span
-                  className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border"
-                  style={{backgroundColor: `hsl(${tokens.primary})`}}
-                >
-                  {active && <CheckIcon className="h-3.5 w-3.5 text-white" />}
-                </span>
-                <span className="truncate">{t(theme.nameKey as TKey)}</span>
-              </button>
-            );
-          })}
+      <Field label={t('appearance.colorTheme')} hint={t('appearance.colorThemeHint')}>
+        <AccentPicker
+          value={appearance.themeId}
+          onChange={(themeId) => setAppearance({themeId})}
+          scheme={colorScheme}
+        />
+      </Field>
+
+      <Field label={t('appearance.interfaceTint')} hint={t('appearance.interfaceTintHint')}>
+        <NeutralPicker value={appearance.neutral} onChange={(neutral) => setAppearance({neutral})} />
+        <div className="mt-1.5">
+          <LevelPicker
+            value={appearance.tint}
+            onChange={(tint) => setAppearance({tint})}
+            labels={[
+              t('appearance.levelOff'),
+              t('appearance.levelSubtle'),
+              t('appearance.levelMedium'),
+              t('appearance.levelStrong'),
+            ]}
+          />
         </div>
-      </section>
+      </Field>
+
+      <Field label={t('appearance.controlAccent')} hint={t('appearance.controlAccentHint')}>
+        <LevelPicker
+          value={appearance.accentIntensity}
+          onChange={(accentIntensity) => setAppearance({accentIntensity})}
+          labels={[
+            t('appearance.levelSoft'),
+            t('appearance.levelMedium'),
+            t('appearance.levelStrong'),
+            t('appearance.levelVivid'),
+          ]}
+        />
+      </Field>
+
+      <label className="flex cursor-pointer items-center justify-between gap-4">
+        <span className="flex flex-col gap-1">
+          <span className="text-sm font-medium">{t('appearance.tintedSidebar')}</span>
+          <span className="text-xs text-muted-foreground">{t('appearance.tintedSidebarHint')}</span>
+        </span>
+        <Switch
+          checked={appearance.tintedSidebar}
+          onCheckedChange={(tintedSidebar) => setAppearance({tintedSidebar})}
+        />
+      </label>
     </div>
   );
 }

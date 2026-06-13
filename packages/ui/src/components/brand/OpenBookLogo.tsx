@@ -3,8 +3,8 @@ import {useId, type CSSProperties} from 'react';
 /**
  * The OpenBook "constellation" mark — an open book whose **cover** is the
  * user's accent colour. The cover/binding/ribbon are driven by `--brand` (the
- * themed accent that `applyTheme` writes onto `document.documentElement`), so
- * the mark recolours live when the colour scheme changes; the pages and their
+ * themed accent that `applyAppearance` writes onto `document.documentElement`),
+ * so the mark recolours live when the accent changes; the pages and their
  * content stay paper-neutral.
  *
  * The art is the designer's `resources/openbook-constellation.svg` verbatim
