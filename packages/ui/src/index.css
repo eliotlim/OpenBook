@@ -1134,6 +1134,8 @@ a.obe-mention {
 
 /* Block editor: reactive custom blocks (slider + formula) */
 .obe-custom { flex: 1; min-width: 0; }
+/* Inline database embed ("Link to database"): a live DatabaseView as a block. */
+.obe-dbview { margin: 0.6rem 0; }
 .obe-slider {
   display: flex;
   align-items: center;

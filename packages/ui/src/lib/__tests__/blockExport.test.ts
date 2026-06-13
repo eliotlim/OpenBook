@@ -120,6 +120,14 @@ describe('blocksToEditorJs (export pipeline adapter)', () => {
     expect(out.blocks[1].data.source).toBe(`__C__{${out.blocks[0].id}}__ * __C__{${out.blocks[0].id}}__`);
   });
 
+  it('exports an inline database (dbview) as a link to its page', () => {
+    const json = docToJSON(createDoc([{type: 'dbview', props: {pageId: 'db-7', name: 'Tasks'}}]));
+    const html = blocksToHtml(json);
+    expect(html).toContain('data-page-id="db-7"');
+    expect(html).toContain('Tasks');
+    expect(blocksToMarkdown(json)).toContain('Tasks');
+  });
+
   it('blockSnapshotToEditorJs projects stamped snapshots and passes others through', async () => {
     const {blockSnapshotToEditorJs} = await import('../../blockeditor/exportBlocks');
     const {encodeSnapshot} = await import('../../blockeditor/model');

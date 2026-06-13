@@ -122,6 +122,18 @@ export const BlockEditor: React.FC<{
     [doc, editor],
   );
 
+  // Embed a live database view as its own block (the "Link to database"
+  // command), replacing the empty "/" line it was triggered from.
+  const insertDbView = useCallback(
+    (blockId: string, r: PageLinkResult): void => {
+      const found = findBlock(doc, blockId);
+      const empty = found && blockType(found.block) === 'paragraph' && (blockText(found.block)?.length ?? 0) === 0;
+      editor.insertAfter(blockId, {type: 'dbview', props: {pageId: r.id, name: r.label}});
+      if (empty && found) editor.doc.transact(() => found.parent.delete(found.index, 1), 'local');
+    },
+    [doc, editor],
+  );
+
   const blockEl = useCallback((id: string): HTMLElement | null => {
     return rootRef.current?.querySelector(`[data-block-text="${id}"]`) ?? null;
   }, []);
@@ -491,7 +503,8 @@ export const BlockEditor: React.FC<{
           anchorEl={blockEl(linkPicker.blockId)}
           onClose={() => setLinkPicker(null)}
           onPick={(r) => {
-            insertMention(linkPicker.blockId, linkPicker.anchorOffset, r);
+            if (linkPicker.kind === 'database') insertDbView(linkPicker.blockId, r);
+            else insertMention(linkPicker.blockId, linkPicker.anchorOffset, r);
             setLinkPicker(null);
           }}
         />

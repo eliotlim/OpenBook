@@ -111,6 +111,13 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       i += 1;
       break;
     }
+    case 'dbview':
+      // No live table in static HTML — export a link to the database page.
+      parts.push(
+        `<p><a class="ob-mention" data-page-id="${escapeHtml(String(b.props?.pageId ?? ''))}">🗃 ${escapeHtml(String(b.props?.name ?? 'Database'))}</a></p>`,
+      );
+      i += 1;
+      break;
     default:
       parts.push(`<p>${textHtml(b.text) || '&nbsp;'}</p>`);
       i += 1;
@@ -169,6 +176,9 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
       }
       break;
     }
+    case 'dbview':
+      out.push(`**🗃 ${String(b.props?.name ?? 'Database')}**`);
+      break;
     default:
       out.push(textMd(b.text));
     }
@@ -426,6 +436,16 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         i += 1;
         break;
       }
+      case 'dbview':
+        // Embedded databases export as a link to their page (the standalone
+        // runtime has no database engine).
+        out.blocks.push({
+          id: b.id,
+          type: 'paragraph',
+          data: {text: textHtml([{t: `🗃 ${String(b.props?.name ?? 'Database')}`, a: {m: String(b.props?.pageId ?? '')}}])},
+        });
+        i += 1;
+        break;
       default:
         out.blocks.push({id: b.id, type: 'paragraph', data: {text: textHtml(b.text)}});
         i += 1;

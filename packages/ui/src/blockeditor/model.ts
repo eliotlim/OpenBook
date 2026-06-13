@@ -897,7 +897,8 @@ export function migrateEditorJs(blocks: EditorJsBlock[], ctx: MigrationContext =
       const pageId = typeof d.pageId === 'string' ? d.pageId : '';
       if (pageId) {
         const label = ctx.pageLabels?.get(pageId);
-        out.push({type: 'paragraph', text: [{t: `🗃 ${label ?? 'Inline database'}`, a: {m: pageId}}]});
+        // An inline database migrates to a live embedded view (dbview block).
+        out.push({type: 'dbview', props: {pageId, name: label ?? 'Inline database'}});
       }
       break;
     }

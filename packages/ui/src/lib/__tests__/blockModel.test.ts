@@ -258,13 +258,14 @@ describe('editorjs migration — full app coverage', () => {
       {values: [['c1', 7]], names: [['speed', 'c1']]},
     );
     const types = blocks.map((b) => b.type);
-    expect(types).toEqual(['heading', 'paragraph', 'paragraph', 'paragraph', 'paragraph', 'slider', 'formula', 'callout']);
+    expect(types).toEqual(['heading', 'paragraph', 'paragraph', 'paragraph', 'dbview', 'slider', 'formula', 'callout']);
     // toc skipped; accordion → heading + paragraph with formatting kept
     expect(blocks[1].text).toEqual([{t: 'Hidden '}, {t: 'body', a: {b: true}}]);
-    // button keeps its link; subpage/database survive as mention runs
+    // button keeps its link; a subpage survives as a mention run; an inline
+    // database becomes a live embedded view (dbview block).
     expect(blocks[2].text).toEqual([{t: 'Visit', a: {a: 'https://x.y'}}]);
     expect((blocks[3].text as {a?: {m?: string}}[])[0].a?.m).toBe('pg-1');
-    expect((blocks[4].text as {a?: {m?: string}}[])[0].a?.m).toBe('pg-db');
+    expect((blocks[4] as {props?: {pageId?: string}}).props?.pageId).toBe('pg-db');
     // slider carries the LIVE value (7), not the stale initial (3)
     expect(blocks[5].props).toMatchObject({name: 'speed', min: 0, max: 10, value: 7});
     // expr tokens and @refs resolve to plain names

@@ -18,6 +18,7 @@ import {useData} from '@/data';
 import {connectBroadcast} from '@/blockeditor/provider';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
+import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
 import {PageContextMenu} from '@/components/PageContextMenu';
 import {PageProperties} from '@/components/PageProperties';
 import {PageThemeControl, usePageThemeStyle} from '@/components/appearance/PageThemeControl';
@@ -46,6 +47,7 @@ import {PageHeader, type PageDocumentProps} from './PageDocument';
  */
 registerReactiveBlocks(); // built-in reactive plugins (slider + formula)
 registerArtifactKit(); // interactive artifact blocks (inputs, charts, cards)
+registerDatabaseBlock(); // inline database-view embeds ("Link to database")
 
 const BlockPageDocument: React.FC<PageDocumentProps> = ({
   onSave,
