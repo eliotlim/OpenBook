@@ -107,3 +107,69 @@ Post-v0 follow-ups surfaced during `/office-hours` (2026-05-27) and `/plan-eng-r
 **Cons:** Several hundred strings across four large files; e2e specs assert many of these literals (`getByRole('button', {name: 'Filter'})` etc.) and would need `t()`-aware fixtures or English-locale test runs.
 
 **Depends on / blocked by:** Nothing; best done as one focused mechanical PR with the Playwright suite pinned to English.
+
+---
+
+The next four (T8–T11) are the June-2026 feature slate. Decisions captured interactively with the owner; full design in `docs/feature-design-2026-06.md`.
+
+## T8 — Database map view
+
+**What:** A `map` database view. Leaflet + OpenStreetMap raster tiles. Markers from a new first-class `location` property type (lat/lng + optional label/address) AND optional geocoding of an existing address text property. Markers colored by a group-by property (legend) with clustering at low zoom; click → row card.
+
+**Why:** Geographic data (places, trips, assets, field notes) has no spatial view today; only an abstract `location` kit *input* exists, not a database property or view.
+
+**Pros:** Leaflet needs no API key; reuses `groupRowsBy` for color/legend; coordinate shape matches the existing location kit input.
+
+**Cons:** Leaflet injects its own stylesheet (CSS-clobber trap) and isn't React-native; geocoding is a network call so it must be opt-in + cached to honor local-first.
+
+**Context:** 5 view touch points (`DatabaseViewType`, `VIEW_TYPES`, new `databaseMap.tsx`, `ViewBody` switch, `viewTypePatch`); new `'location'` `DatabasePropertyType`; `geoPropertyId`/`addressPropertyId` on `DatabaseView`. See design doc §1.
+
+**Depends on / blocked by:** Nothing; geocoding cache wants a server endpoint + table.
+
+---
+
+## T9 — Sub-grouping (swimlanes) for board & timeline
+
+**What:** Add a second grouping dimension. Board: horizontal swimlanes (columns = primary group, lanes = sub-group, Notion model), collapsible. Timeline: Gantt swimlane bands by `groupByPropertyId` (timeline has no grouping today), collapsible.
+
+**Why:** Single-level grouping forces flat boards and a single undifferentiated timeline track; teams want e.g. status × assignee, or a timeline banded by workstream.
+
+**Pros:** Board already grids by group; timeline already lays bars by date — both extend rather than rewrite. New `subGroupByPropertyId` field keeps it distinct from chart `breakdownPropertyId`.
+
+**Cons:** Board card DnD must write two property values in one transaction (column + lane); collapsed-lane state needs persisting.
+
+**Context:** `BoardView` (`databaseLayouts.tsx` ~288), `TimelineView` (`databaseTimeline.tsx` ~269), `ViewOptionsMenu` pickers (`databaseMenus.tsx` ~1441). See design doc §2.
+
+**Depends on / blocked by:** Nothing.
+
+---
+
+## T10 — New interactive kit components
+
+**What:** Eight new artifact-kit components: choice cards (image-cover radio cards, multi-select capable; image via URL-or-upload per option), accordion checklist sections (container, auto-computed completion + optional stage gating), tabs with completion (container, same gating), progress bar (display computed from an expression), long text AND rich text (two components), searchable select/multi-select (static + dynamic-binding options), tag field (free-entry + suggestions, toggleable). All inputs are full reactive citizens (publish into `inputScope`, var-name override, group namespacing).
+
+**Why:** The current kit (radio/checklist/dropdown/toggle/number/text/location + charts/status/cards) can't express image choices, staged/wizard flows, progress, searchable pickers, tags, or long-form input.
+
+**Pros:** Reuses kit anatomy (KitFrame/KitSettings/KitInlineText), the group container infra (tabs/accordion), `inputScope`/`evalExpr` dataflow, and `components/ui/command.tsx` for search.
+
+**Cons:** Containers add nesting/DnD complexity; rich-text publishes markup that the export tokenizer and `evalExpr` must handle; image upload reuses the files mechanism.
+
+**Context:** `kit/inputs.tsx`, `kit/cards.tsx`, `kit/scope.ts` (`INPUT_TYPES` + `inputValue`), `SlashMenu.tsx` `TYPE_ICONS`, `OptionsEditor`. Slash e2e matches `.obe-slash-label`. See design doc §3.
+
+**Depends on / blocked by:** Container components lean on the existing group block (memory `blockeditor-groups`).
+
+---
+
+## T11 — AI harness v2 (tools, thinking, effort, skills)
+
+**What:** (a) Tool-calling to inspect pages (block tree, kit values, DB rows) and update controls (kit values, DB cells, blocks) — writes behind a preview-and-confirm gate applied via the editor bridge in one CRDT transaction. (b) Thinking: auto-detect `<think>` tags (Qwen-QwQ/DeepSeek-R1), scratchpad fallback otherwise, streamed as collapsible reasoning. (c) Effort knob (low/med/high) → thinking budget + sampling + agent step cap. (d) Skills: both user-authored prompt/recipe skills (per-workspace markdown) and plugin-registered tool skills. Still local models only.
+
+**Why:** The agent today is text-only (5 read/append tools), no thinking, no effort control, no skills, and can't touch blocks/cells/kit values — so it can't actually operate the workspace.
+
+**Pros:** JSON-protocol loop + SSE streaming + provider abstraction already exist; `aiBridge` already injects capabilities into the editor without coupling.
+
+**Cons:** Block-level writes need new CRDT mutation paths (`appendTextToSnapshot` returns null for block-editor pages today); confirm-gate is real UI; native tool-calling support varies across local endpoints (fall back to JSON).
+
+**Context:** `packages/server/src/ai/{agent,providers,routes,service}.ts`, `packages/sdk/src/ai.ts`, `AgentPanel.tsx`/`aiBridge.ts`, MCP parity (`packages/mcp`). See design doc §4.
+
+**Depends on / blocked by:** Write tools for kit values (T10) and DB cells (T8/T9) are richer once those land, but read tools + thinking/effort/skills are independent.
