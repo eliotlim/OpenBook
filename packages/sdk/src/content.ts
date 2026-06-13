@@ -86,3 +86,39 @@ export function appendTextToSnapshot(data: PageSnapshot, content: string, idPref
   const editorjs = (data.editorjs as {blocks?: unknown[]} | undefined) ?? {blocks: []};
   return {...data, editorjs: {...editorjs, blocks: [...(editorjs.blocks ?? []), ...added]}};
 }
+
+/** A block to append to a block-editor page (the agent / MCP write path). */
+export interface AppendBlock {
+  type: string;
+  /** Plain text (text-carrying blocks). */
+  text?: string;
+  props?: Record<string, unknown>;
+}
+
+/**
+ * Append blocks to a **block-editor** page's JSON projection, returning the new
+ * snapshot — or `null` for legacy EditorJS pages (use {@link appendTextToSnapshot}
+ * there). This mutates only the JSON projection (`blockdoc.blocks`), NOT the
+ * CRDT `update` — so a *live* editor on that page should apply the change
+ * through the editor bridge instead (one CRDT transaction, undoable). This
+ * server-side path exists for the MCP server, which has no live editor; a live
+ * client merges the JSON projection on next load. Used by the agent's confirm
+ * gate only as a fallback when no editor bridge is present.
+ */
+export function appendBlocksToSnapshot(data: PageSnapshot, blocks: AppendBlock[], idPrefix = 'gen'): PageSnapshot | null {
+  if (data.editor !== 'blocks') return null;
+  if (blocks.length === 0) return data;
+  const blockdoc = (data.blockdoc as {blocks?: unknown[]; update?: string; v?: number} | undefined) ?? {blocks: []};
+  const projected = blocks.map((b, i) => ({
+    id: `${idPrefix}-${i}`,
+    type: b.type,
+    ...(b.text !== undefined ? {text: [{t: b.text}]} : {}),
+    ...(b.props ? {props: b.props} : {}),
+  }));
+  return {
+    ...data,
+    // Drop the stale CRDT `update` so the page rebuilds from the JSON projection
+    // (decodeSnapshot prefers `update`; clearing it forces the merged blocks in).
+    blockdoc: {...blockdoc, update: undefined, blocks: [...(blockdoc.blocks ?? []), ...projected]},
+  };
+}

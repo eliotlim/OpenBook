@@ -19,6 +19,13 @@
 
 export type AiProvider = 'off' | 'mock' | 'llama' | 'mlx' | 'openai';
 
+/**
+ * How hard the agent works on a turn. One knob maps (server-side, in one
+ * place — `ai/effort.ts`) to a thinking-token budget, sampling temperature,
+ * answer-token cap, and the agent's max tool-call steps.
+ */
+export type AiEffort = 'low' | 'med' | 'high';
+
 export interface AiConfig {
   provider: AiProvider;
   /** Model identifier: a GGUF filename (llama), an MLX model id (mlx), or a
@@ -28,6 +35,10 @@ export interface AiConfig {
   baseUrl?: string;
   /** mlx only: spawn `mlx_lm.server` automatically when possible. */
   autoStart?: boolean;
+  /** Default agent effort (low/med/high). Falls back to 'med'. */
+  effort?: AiEffort;
+  /** Whether the agent surfaces its reasoning (collapsible). Default true. */
+  thinking?: boolean;
 }
 
 export interface AiStatus {
@@ -62,9 +73,16 @@ export interface AiTasksResponse {
   tasks: string[];
 }
 
-/** Server-sent chunk of a streaming generation. */
+/**
+ * Server-sent chunk of a streaming generation. `token` carries answer text;
+ * `reasoning` carries a model's thinking (from `<think>…</think>` or a
+ * scratchpad) routed to a separate channel so the UI renders it as a
+ * collapsible block and never as document content.
+ */
 export interface AiStreamEvent {
   token?: string;
+  /** A reasoning/thinking token (kept out of the document). */
+  reasoning?: string;
   done?: boolean;
   error?: string;
 }
@@ -76,9 +94,64 @@ export interface AgentChatMessage {
   content: string;
 }
 
+/**
+ * A single proposed change the agent wants to apply to the workspace. Write
+ * tools enqueue these instead of mutating immediately; the UI shows a
+ * diff/summary card and the user approves (apply in one CRDT transaction) or
+ * rejects. `before`/`after` are human-readable for the card; `target` +
+ * `payload` are what the UI bridge replays on approval.
+ */
+export interface AgentProposal {
+  /** Stable id within the turn's change set. */
+  id: string;
+  /** Which write tool produced it (drives how the bridge applies it). */
+  kind: 'set_kit_value' | 'set_db_cell' | 'update_block' | 'append_blocks';
+  /** One-line human summary, e.g. `Set "budget" = 1200`. */
+  summary: string;
+  /** The page this change targets (for block/kit writes). */
+  pageId?: string;
+  /** Prior value, rendered for the diff card (optional). */
+  before?: string;
+  /** New value, rendered for the diff card. */
+  after?: string;
+  /** Structured payload the client bridge replays to mutate the CRDT/DB. */
+  payload: Record<string, unknown>;
+}
+
 /** One streamed step of an agent run. */
 export type AgentChatEvent =
   | {type: 'tool'; name: string; args: Record<string, unknown>}
   | {type: 'tool_result'; name: string; result: string}
+  | {type: 'reasoning'; text: string}
+  | {type: 'proposals'; proposals: AgentProposal[]}
   | {type: 'final'; text: string}
   | {type: 'error'; error: string};
+
+/** Options for one agent run. */
+export interface AgentChatOptions {
+  signal?: AbortSignal;
+  /** Override the configured default effort for this run. */
+  effort?: AiEffort;
+  /** Override whether reasoning is surfaced for this run. */
+  thinking?: boolean;
+  /** Names of prompt/recipe skills to inline into the system prompt. */
+  skills?: string[];
+}
+
+// ── Skills (user-authored prompt/recipe skills) ─────────────────────────────────
+
+/**
+ * A user-authored prompt/recipe skill: markdown instructions the agent can
+ * inline into its system prompt. No code — pure prompt engineering, editable
+ * by the user. Stored per-workspace (in the `settings` table under `ai.skills`;
+ * see `ai/skills.ts`).
+ */
+export interface AiSkill {
+  /** Stable slug (lowercase, hyphenated), unique per workspace. */
+  name: string;
+  /** Short one-line description shown in the catalogue. */
+  description: string;
+  /** The instructions inlined when the skill is invoked (markdown). */
+  instructions: string;
+  updatedAt?: string;
+}

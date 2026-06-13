@@ -3,8 +3,10 @@ import type {PluginPackage, StoredPlugin} from './plugins';
 import type {
   AgentChatEvent,
   AgentChatMessage,
+  AgentChatOptions,
   AiConfig,
   AiSearchResponse,
+  AiSkill,
   AiStatus,
   AiStreamEvent,
   AiTasksResponse,
@@ -73,9 +75,16 @@ export interface DataClient {
   aiGenerate(prompt: string, onToken: (token: string) => void, opts?: {system?: string; maxTokens?: number; signal?: AbortSignal}): Promise<string>;
   /**
    * Run the workspace agent on a conversation. `onEvent` fires once per step
-   * (tool call, tool result, final answer, error); resolves when the run ends.
+   * (tool call, tool result, reasoning, proposals, final answer, error);
+   * resolves when the run ends. `opts` carries effort/thinking/skills overrides.
    */
-  agentChat(messages: AgentChatMessage[], onEvent: (event: AgentChatEvent) => void, opts?: {signal?: AbortSignal}): Promise<void>;
+  agentChat(messages: AgentChatMessage[], onEvent: (event: AgentChatEvent) => void, opts?: AgentChatOptions): Promise<void>;
+  /** List the workspace's prompt/recipe skills. */
+  aiSkills(): Promise<AiSkill[]>;
+  /** Create or replace a prompt/recipe skill (keyed on its slug). */
+  aiSaveSkill(skill: AiSkill): Promise<AiSkill>;
+  /** Delete a prompt/recipe skill by name. */
+  aiDeleteSkill(name: string): Promise<boolean>;
 
   // ── Extensions (installed plugins, stored server-side per workspace) ───────
   listPlugins(): Promise<StoredPlugin[]>;
@@ -435,16 +444,29 @@ export class HttpDataClient implements DataClient {
     return true;
   }
 
+  async aiSkills(): Promise<AiSkill[]> {
+    return this.request<AiSkill[]>('GET', API.aiSkills);
+  }
+
+  async aiSaveSkill(skill: AiSkill): Promise<AiSkill> {
+    return this.request<AiSkill>('PUT', API.aiSkills, {skill});
+  }
+
+  async aiDeleteSkill(name: string): Promise<boolean> {
+    const {removed} = await this.request<{removed: boolean}>('DELETE', API.aiSkill(name));
+    return removed;
+  }
+
   /** Run the workspace agent, surfacing each streamed step via `onEvent`. */
   async agentChat(
     messages: AgentChatMessage[],
     onEvent: (event: AgentChatEvent) => void,
-    opts: {signal?: AbortSignal} = {},
+    opts: AgentChatOptions = {},
   ): Promise<void> {
     const res = await fetch(`${this.baseUrl}${API.agentChat}`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({messages}),
+      body: JSON.stringify({messages, effort: opts.effort, thinking: opts.thinking, skills: opts.skills}),
       cache: 'no-store',
       signal: opts.signal,
     });

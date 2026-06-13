@@ -71,8 +71,12 @@ export const API = {
   aiComplete: '/api/ai/complete',
   /** Download a model file for the in-process engine: `POST` `{url?}`. */
   aiModelDownload: '/api/ai/models/download',
-  /** The agent harness: `POST` `{messages}` → SSE tool/final events. */
+  /** The agent harness: `POST` `{messages, effort?, thinking?, skills?}` → SSE tool/reasoning/proposal/final events. */
   agentChat: '/api/agent/chat',
+  /** User-authored prompt/recipe skills: `GET` (list) / `PUT` `{skill}` (upsert). */
+  aiSkills: '/api/ai/skills',
+  /** One skill by name: `DELETE`. */
+  aiSkill: (name: string) => `/api/ai/skills/${encodeURIComponent(name)}`,
   plugins: '/api/plugins',
   plugin: (id: string) => `/api/plugins/${id}`,
 } as const;

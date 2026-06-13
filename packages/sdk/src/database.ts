@@ -53,6 +53,7 @@ export type DatabasePropertyType =
   | 'url'
   | 'email'
   | 'phone'
+  | 'location'
   | 'files'
   | 'relation'
   | 'dependency'
@@ -165,6 +166,35 @@ export interface DateRange {
 }
 
 /**
+ * The stored value of a `location` property: a geographic point with optional
+ * human label and source address. The shape mirrors the `location` **kit
+ * input** (see `blockeditor/kit/scope.ts`) so the two are interchangeable —
+ * `address` is added here for the database's geocoding round-trip (a text/address
+ * property geocoded into coords keeps the source string for re-display).
+ */
+export interface LocationValue {
+  lat: number;
+  lng: number;
+  label?: string;
+  address?: string;
+}
+
+/** Read a `{lat, lng, …}` location value from a cell, or null when unresolvable. */
+export function asLocation(value: unknown): LocationValue | null {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Partial<LocationValue>;
+  const lat = typeof v.lat === 'number' ? v.lat : Number(v.lat);
+  const lng = typeof v.lng === 'number' ? v.lng : Number(v.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return {
+    lat,
+    lng,
+    ...(typeof v.label === 'string' && v.label.trim() ? {label: v.label} : {}),
+    ...(typeof v.address === 'string' && v.address.trim() ? {address: v.address} : {}),
+  };
+}
+
+/**
  * A named, collapsible/toggleable cluster of properties in the **page-view
  * properties panel** (open a database row → its fields, organised). Hiding a
  * group hides all its properties at once; collapsing just folds them away.
@@ -203,6 +233,7 @@ export type DatabaseViewType =
   | 'board'
   | 'calendar'
   | 'timeline'
+  | 'map'
   | 'graph'
   | 'bar'
   | 'pie';
@@ -383,6 +414,21 @@ export interface DatabaseView {
   boardSummary?: {propertyId: string; type: SummaryType};
   /** When grouped, hide groups/columns that currently have no rows (table + board). */
   hideEmptyGroups?: boolean;
+  /**
+   * Board/timeline only: a **second** grouping dimension. The board renders one
+   * horizontal swimlane per value of this property (columns stay the primary
+   * {@link groupByPropertyId}, the Notion model); the timeline already groups by
+   * {@link groupByPropertyId}. Distinct from the chart {@link breakdownPropertyId}
+   * (different semantics — keep the menus unambiguous).
+   */
+  subGroupByPropertyId?: string;
+  /** Map only: the `location` property whose coords place each row's marker. */
+  geoPropertyId?: string;
+  /** Map only: an optional text/address property the user can opt to geocode into
+   *  the {@link geoPropertyId} coords (no silent network calls — explicit action). */
+  addressPropertyId?: string;
+  /** Map only: cluster nearby markers at low zoom (default on for dense data). */
+  mapClustered?: boolean;
 }
 
 /** The full editable definition of a database: its columns, views, and the
@@ -770,6 +816,18 @@ export function rowDateSpan(row: DatabaseRow, view: DatabaseView, properties: Da
   return {start, end: end && end >= start ? end : start};
 }
 
+/**
+ * The map marker location for a row: the resolved coords of the view's
+ * `geoPropertyId` location cell, or null when the row has no usable coords (an
+ * empty cell, or an address that hasn't been geocoded). Pure — drives the map
+ * view's placed/unplaced split and is unit-testable.
+ */
+export function rowLocation(row: DatabaseRow, view: DatabaseView, properties: DatabaseProperty[]): LocationValue | null {
+  const geoProp = view.geoPropertyId ? properties.find((p) => p.id === view.geoPropertyId) : undefined;
+  if (!geoProp) return null;
+  return asLocation(row.properties[geoProp.id]);
+}
+
 // ── Dependency graph ─────────────────────────────────────────────────────────
 
 /** A node in the dependency graph, placed in a layer (column) at an order (row). */
@@ -1124,6 +1182,11 @@ export function defaultView(type: DatabaseViewType, name: string, properties: Da
   if (type === 'graph') {
     view.dependencyPropertyId = properties.find((p) => p.type === 'dependency')?.id;
   }
+  if (type === 'map') {
+    // Place markers off the first location property; clustering on by default.
+    view.geoPropertyId = properties.find((p) => p.type === 'location')?.id;
+    view.mapClustered = true;
+  }
   return view;
 }
 
@@ -1184,10 +1247,13 @@ export function removeProperty(schema: DatabaseSchema, propertyId: string): Data
         visiblePropertyIds: v.visiblePropertyIds?.filter((id) => id !== propertyId),
         summaries,
         groupByPropertyId: v.groupByPropertyId === propertyId ? undefined : v.groupByPropertyId,
+        subGroupByPropertyId: v.subGroupByPropertyId === propertyId ? undefined : v.subGroupByPropertyId,
         datePropertyId: v.datePropertyId === propertyId ? undefined : v.datePropertyId,
         endDatePropertyId: v.endDatePropertyId === propertyId ? undefined : v.endDatePropertyId,
         dependencyPropertyId: v.dependencyPropertyId === propertyId ? undefined : v.dependencyPropertyId,
         coverPropertyId: v.coverPropertyId === propertyId ? undefined : v.coverPropertyId,
+        geoPropertyId: v.geoPropertyId === propertyId ? undefined : v.geoPropertyId,
+        addressPropertyId: v.addressPropertyId === propertyId ? undefined : v.addressPropertyId,
       };
     }),
     // Drop the removed property's seed value from every row template.
@@ -1271,6 +1337,10 @@ function displayValue(row: DatabaseRow, property: DatabaseProperty, properties: 
     return property.options?.find((o) => o.id === row.properties[property.id])?.label ?? '';
   }
   if (v instanceof FormulaError) return v.message;
+  if (property.type === 'location') {
+    const loc = asLocation(v);
+    return loc ? loc.label ?? loc.address ?? `${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)}` : '';
+  }
   if (Array.isArray(v)) return v.map(String).join(', ');
   if (v === undefined || v === null) return '';
   if (typeof v === 'boolean') return v ? 'Checked' : 'Unchecked';
