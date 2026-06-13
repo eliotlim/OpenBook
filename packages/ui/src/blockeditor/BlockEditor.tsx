@@ -51,6 +51,8 @@ import {
 } from '@/components/ui/context-menu';
 import {TextBlockView} from './TextBlockView';
 import {SlashMenu, type SlashState} from './SlashMenu';
+import {LinkPicker} from './LinkPicker';
+import type {PageLinkResult} from '@/lib/pageLinks';
 import {InlineToolbar, type ToolbarState} from './InlineToolbar';
 import {useBlockEditor, type BlockEditorController} from './useBlockEditor';
 import type {InlineAttrs} from './model';
@@ -100,7 +102,25 @@ export const BlockEditor: React.FC<{
   const [slash, setSlash] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
+  const [linkPicker, setLinkPicker] = useState<{kind: 'page' | 'database'; blockId: string; anchorOffset: number} | null>(null);
   const [live, setLive] = useState(''); // aria-live announcements
+
+  // Insert an inline page-link mention (chosen in the LinkPicker) at the caret.
+  const insertMention = useCallback(
+    (blockId: string, at: number, r: PageLinkResult): void => {
+      const found = findBlock(doc, blockId);
+      const text = found && blockText(found.block);
+      if (!text) return;
+      const label = `${r.icon} ${r.label}`;
+      const start = Math.min(at, text.length);
+      doc.transact(() => {
+        text.insert(start, label, {m: r.id});
+        text.insert(start + label.length, ' ', {m: null}); // plain space so the caret exits the chip
+      }, 'local');
+      editor.requestCaret({blockId, offset: start + label.length + 1});
+    },
+    [doc, editor],
+  );
 
   const blockEl = useCallback((id: string): HTMLElement | null => {
     return rootRef.current?.querySelector(`[data-block-text="${id}"]`) ?? null;
@@ -462,6 +482,18 @@ export const BlockEditor: React.FC<{
           rootEl={rootRef.current}
           onClose={ui.closeSlash}
           pageId={pageId}
+          onLink={(kind, blockId, anchorOffset) => setLinkPicker({kind, blockId, anchorOffset})}
+        />
+      )}
+      {linkPicker && !readOnly && (
+        <LinkPicker
+          kind={linkPicker.kind}
+          anchorEl={blockEl(linkPicker.blockId)}
+          onClose={() => setLinkPicker(null)}
+          onPick={(r) => {
+            insertMention(linkPicker.blockId, linkPicker.anchorOffset, r);
+            setLinkPicker(null);
+          }}
         />
       )}
       {toolbar && !readOnly && <InlineToolbar state={toolbar} onToggle={toggleFormat} />}

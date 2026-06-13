@@ -24,8 +24,9 @@ export interface PageLinkBridge {
   label: (id: string) => string;
   /** The emoji icon for a page id. */
   icon: (id: string) => string;
-  /** Existing top-level pages whose title matches `query` (best matches first). */
-  searchPages: (query: string) => PageLinkResult[];
+  /** Pages whose title matches `query` (best matches first). Pass
+   *  `{databasesOnly: true}` to restrict to pages that host a database. */
+  searchPages: (query: string, opts?: {databasesOnly?: boolean}) => PageLinkResult[];
   /** Create a new page titled `name` (no navigation); resolves its id. */
   createPage: (name: string) => Promise<string>;
 }
@@ -55,7 +56,7 @@ export const pageLinks: PageLinkBridge = {
   openPage: (id) => bridge?.openPage(id),
   label: (id) => bridge?.label(id) ?? 'Untitled',
   icon: (id) => bridge?.icon(id) ?? '📄',
-  searchPages: (query) => bridge?.searchPages(query) ?? [],
+  searchPages: (query, opts) => bridge?.searchPages(query, opts) ?? [],
   createPage: (name) =>
     bridge ? bridge.createPage(name) : Promise.reject(new Error('page links not ready')),
 };

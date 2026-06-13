@@ -354,6 +354,14 @@ export const en = {
       append_to_page: 'Adding to a page',
     },
   },
+  link: {
+    pageTitle: 'Link to page',
+    databaseTitle: 'Link to database',
+    pagePlaceholder: 'Search pages…',
+    databasePlaceholder: 'Search databases…',
+    noPages: 'No pages found',
+    noDatabases: 'No databases found',
+  },
   slash: {
     group: {
       pages: 'Pages',
@@ -364,6 +372,8 @@ export const en = {
     },
     newpage: {label: 'New page', hint: 'Create a nested page and link it here'},
     newdatabase: {label: 'New database', hint: 'Create a nested database and link it here'},
+    linkpage: {label: 'Link to page', hint: 'Insert a link to an existing page'},
+    linkdatabase: {label: 'Link to database', hint: 'Insert a link to an existing database'},
     text: {label: 'Text', hint: 'Plain paragraph'},
     h1: {label: 'Heading 1', hint: 'Large section heading'},
     h2: {label: 'Heading 2', hint: 'Medium section heading'},

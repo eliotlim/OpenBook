@@ -41,6 +41,8 @@ interface SlashItem {
   keywords: string;
   group: SlashGroup;
   apply: (editor: BlockEditorController, blockId: string) => void;
+  /** When set, the command opens the link picker instead of applying inline. */
+  picker?: 'page' | 'database';
 }
 
 const turn =
@@ -81,6 +83,15 @@ const insertNewPage =
         if (empty && found) editor.doc.transact(() => found.parent.delete(found.index, 1), 'local');
       });
     };
+
+const noop = (): void => {};
+
+/** Link-to-existing commands. The picker (opened via `onLink`) does the work,
+ *  so `apply` is a no-op; see {@link SlashMenu}'s `pick`. */
+const LINK_ITEMS: SlashItem[] = [
+  {id: 'linkpage', label: 'Link to page', hint: 'Insert a link to an existing page', keywords: 'link page mention reference existing', group: 'pages', picker: 'page', apply: noop},
+  {id: 'linkdatabase', label: 'Link to database', hint: 'Insert a link to an existing database', keywords: 'link database existing inline view reference embed', group: 'pages', picker: 'database', apply: noop},
+];
 
 /** Items that create + link a nested page/database. Built per-render because
  *  they close over the current page id (the new page's parent). */
@@ -132,7 +143,9 @@ export const SlashMenu: React.FC<{
   onClose: () => void;
   /** The page hosting this editor — enables the "New page/database" commands. */
   pageId?: string;
-}> = ({state, editor, anchorEl, rootEl, onClose, pageId}) => {
+  /** Open the link picker for a "Link to page/database" command. */
+  onLink?: (kind: 'page' | 'database', blockId: string, anchorOffset: number) => void;
+}> = ({state, editor, anchorEl, rootEl, onClose, pageId, onLink}) => {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{left: number; top: number; maxHeight: number} | null>(null);
   const [index, setIndex] = useState(0);
@@ -149,7 +162,7 @@ export const SlashMenu: React.FC<{
 
   const items = useMemo(() => {
     const q = state.query.toLowerCase();
-    const pages: SlashItem[] = pageId ? pageItems(pageId) : [];
+    const pages: SlashItem[] = [...(pageId ? pageItems(pageId) : []), ...(onLink ? LINK_ITEMS : [])];
     const core: SlashItem[] = [...pages, ...SLASH_ITEMS].map((item) => ({
       ...item,
       label: tr(`slash.${item.id}.label`, item.label),
@@ -176,7 +189,7 @@ export const SlashMenu: React.FC<{
       // Stable sort groups into display order (Array.sort is stable), so items
       // keep their authored order within each category.
       .sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
-  }, [state.query, pageId]);
+  }, [state.query, pageId, onLink]);
 
   // Fixed (viewport) positioning: anchored to the caret, measured after
   // render, flipped above the line when there's no room below, clamped to the
@@ -250,7 +263,10 @@ export const SlashMenu: React.FC<{
       }, 'local');
     }
     onClose();
-    item.apply(editor, state.blockId);
+    // Link commands hand off to the picker (which inserts the mention at the
+    // caret); everything else applies inline.
+    if (item.picker && onLink) onLink(item.picker, state.blockId, state.anchorOffset);
+    else item.apply(editor, state.blockId);
   };
 
   return (

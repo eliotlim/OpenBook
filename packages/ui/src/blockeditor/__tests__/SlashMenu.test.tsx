@@ -8,7 +8,7 @@ import {SlashMenu} from '../SlashMenu';
 
 afterEach(() => cleanup());
 
-function renderMenu(pageId?: string) {
+function renderMenu(pageId?: string, onLink?: () => void) {
   registerReactiveBlocks(); // gives the menu an "interactive" item (the slider)
   const doc = createDoc([{id: 'x', type: 'paragraph'}]);
   const {result} = renderHook(() => useBlockEditor(doc));
@@ -20,6 +20,7 @@ function renderMenu(pageId?: string) {
       rootEl={null}
       onClose={() => {}}
       pageId={pageId}
+      onLink={onLink}
     />,
   );
 }
@@ -37,10 +38,17 @@ describe('SlashMenu grouping', () => {
     expect(screen.getByText('Text')).toBeTruthy();
   });
 
-  it('omits the Pages group when there is no host page', () => {
+  it('omits the Pages group when there is no host page and no link handler', () => {
     renderMenu(undefined);
     expect(screen.queryByText('Pages')).toBeNull();
     expect(screen.queryByText('New page')).toBeNull();
     expect(screen.getByText('Basic blocks')).toBeTruthy();
+  });
+
+  it('offers the link-to-existing commands when a link handler is provided', () => {
+    renderMenu(undefined, () => {});
+    expect(screen.getByText('Pages')).toBeTruthy();
+    expect(screen.getByText('Link to page')).toBeTruthy();
+    expect(screen.getByText('Link to database')).toBeTruthy();
   });
 });

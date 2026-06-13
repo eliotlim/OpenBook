@@ -318,9 +318,10 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   // ── @-mention page links ──────────────────────────────────────────────────
   const searchPages = useCallback(
-    (query: string): PageLinkResult[] => {
+    (query: string, opts?: {databasesOnly?: boolean}): PageLinkResult[] => {
       const q = query.trim().toLowerCase();
       const matches = pages
+        .filter((p) => !opts?.databasesOnly || p.hostedDatabaseId)
         .map((p) => ({id: p.id, label: pageLabel(p.id), icon: readPageIcon(p.id)}))
         .filter((r) => q === '' || r.label.toLowerCase().includes(q));
       // Exact title match first, then prefix matches, then by position; cap
