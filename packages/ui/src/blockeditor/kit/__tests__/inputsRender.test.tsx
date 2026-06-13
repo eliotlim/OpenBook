@@ -42,9 +42,11 @@ describe('kit input rendering', () => {
 
   it('uses the display name in the header, decoupled from the variable symbol', () => {
     renderInput('toggle', {name: 'darkMode', label: 'Dark mode', value: false});
-    // The header shows the friendly label, not the `darkMode` symbol.
-    expect(screen.getByText('Dark mode')).toBeTruthy();
+    // The header shows the friendly label as an edit-in-place field (WYSIWYG)…
+    expect(screen.getByDisplayValue('Dark mode')).toBeTruthy();
+    // …not the `darkMode` symbol (that lives in the closed config popover).
     expect(screen.queryByText('darkMode')).toBeNull();
+    expect(screen.queryByDisplayValue('darkMode')).toBeNull();
   });
 
   it('registers a config opener so the context menu can "Configure" it', () => {

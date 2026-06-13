@@ -1,5 +1,6 @@
 import type * as Y from 'yjs';
-import {blockProp, blockType, rootBlocks, setBlockProp, walkBlocks, type BlockMap} from '../model';
+import {blockChildren, blockProp, blockType, rootBlocks, setBlockProp, walkBlocks, type BlockMap} from '../model';
+import {varNameFromLabel} from './options';
 
 /**
  * The artifact kit's reactive backbone. Every *input* block publishes a named
@@ -9,8 +10,44 @@ import {blockProp, blockType, rootBlocks, setBlockProp, walkBlocks, type BlockMa
  * re-renders every consumer on any change. No subscription plumbing needed.
  */
 
+/** A legal reactive identifier. */
+const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
+ * The name a block publishes under: its explicit variable `name` when set,
+ * otherwise one derived from the human display `label` ("Dark mode" → darkMode).
+ * So an author who only fills in a display name still gets a working reactive
+ * symbol — without it, display-name-only inputs published nothing and the whole
+ * dataflow looked empty. Returns '' when neither yields a legal identifier.
+ */
+export function publishedName(block: BlockMap): string {
+  const explicit = (blockProp<string>(block, 'name') ?? '').trim();
+  if (explicit) return NAME_RE.test(explicit) ? explicit : '';
+  const derived = varNameFromLabel(blockProp<string>(block, 'label') ?? '');
+  return derived && NAME_RE.test(derived) ? derived : '';
+}
+
 /** Block types that publish a named value into the scope. */
 export const INPUT_TYPES = new Set(['slider', 'number', 'textfield', 'radio', 'checklist', 'dropdown', 'location', 'toggle']);
+
+/**
+ * The reactive namespace a group publishes under — a legal identifier derived
+ * from the group's display name. Inputs inside a named group are exported as
+ * `group.field.value`; an unnamed group adds no namespace.
+ */
+export function groupKey(block: BlockMap): string {
+  return varNameFromLabel(blockProp<string>(block, 'name') ?? '');
+}
+
+/** Walk inputs depth-first, tracking the nearest enclosing group's key. */
+function eachInput(list: Y.Array<BlockMap>, group: string, cb: (block: BlockMap, group: string) => void): void {
+  for (const block of list) {
+    const type = blockType(block) as string;
+    if (INPUT_TYPES.has(type)) cb(block, group);
+    const children = blockChildren(block);
+    if (children) eachInput(children, type === 'group' ? groupKey(block) || group : group, cb);
+  }
+}
 
 /** The published value of one input block (shape depends on the type). */
 export function inputValue(block: BlockMap): unknown {
@@ -42,20 +79,61 @@ export function inputValue(block: BlockMap): unknown {
 /** Every named input's current value, by name. */
 export function inputScope(doc: Y.Doc): Record<string, unknown> {
   const scope: Record<string, unknown> = {};
-  for (const {block} of walkBlocks(rootBlocks(doc))) {
-    if (!INPUT_TYPES.has(blockType(block) as string)) continue;
-    const name = blockProp<string>(block, 'name');
-    if (name && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) scope[name] = inputValue(block);
-  }
+  eachInput(rootBlocks(doc), '', (block, group) => {
+    const field = publishedName(block);
+    if (!field) return;
+    if (group) {
+      // Grouped: scope.<group>.<field>.value — composition made addressable.
+      const bag = (scope[group] as Record<string, unknown>) ?? (scope[group] = {});
+      (bag as Record<string, unknown>)[field] = {value: inputValue(block)};
+    } else {
+      scope[field] = inputValue(block);
+    }
+  });
   return scope;
 }
 
 /** Find the first input block published under `name`, or null. */
 export function findInput(doc: Y.Doc, name: string): BlockMap | null {
   for (const {block} of walkBlocks(rootBlocks(doc))) {
-    if (INPUT_TYPES.has(blockType(block) as string) && blockProp<string>(block, 'name') === name) return block;
+    if (INPUT_TYPES.has(blockType(block) as string) && publishedName(block) === name) return block;
   }
   return null;
+}
+
+/** Write an input's value back from a synced/plain value (inverse of inputValue). */
+export function setInputValue(block: BlockMap, value: unknown): void {
+  switch (blockType(block) as string) {
+  case 'checklist':
+    setBlockProp(block, 'selected', Array.isArray(value) ? value : []);
+    break;
+  case 'location':
+    // Composite value — left to its own controls for now.
+    break;
+  default:
+    setBlockProp(block, 'value', value);
+    break;
+  }
+}
+
+/** A group's own inputs, keyed by published field name (not crossing into any
+ *  nested group, which keeps its own namespace). Drives cross-page sync. */
+export function groupInputs(group: BlockMap): Map<string, BlockMap> {
+  const map = new Map<string, BlockMap>();
+  const visit = (list: Y.Array<BlockMap>): void => {
+    for (const block of list) {
+      const type = blockType(block) as string;
+      if (INPUT_TYPES.has(type)) {
+        const field = publishedName(block);
+        if (field && !map.has(field)) map.set(field, block);
+      }
+      const children = blockChildren(block);
+      if (children && type !== 'group') visit(children);
+    }
+  };
+  const children = blockChildren(group);
+  if (children) visit(children);
+  return map;
 }
 
 /**
@@ -120,8 +198,6 @@ export function evalCode(source: string, scope: Record<string, unknown>): {value
     return {error: err instanceof Error ? err.message : String(err)};
   }
 }
-
-const NAME_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 export interface ComputedScope {
   /** Every name a consumer can reference: inputs + named live-code outputs. */

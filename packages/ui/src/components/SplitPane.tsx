@@ -1,12 +1,43 @@
-import {useCallback, useRef, useState} from 'react';
+import {useCallback, useEffect, useRef, useState} from 'react';
 import {Maximize2, PanelRightClose} from 'lucide-react';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {IconButton} from '@/components/ui/icon-button';
 import PageActionsCluster from '@/components/PageActionsCluster';
 import {ConnectedPageDocument, DataflowView, HomeScreen} from '@/screens';
-import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
+import {CONFIG_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
+import {closeKitPanel, getKitPanel, setKitPanelHost, subscribeKitPanel} from '@/blockeditor/kit/kitPanel';
 import {useNavigation} from '@/providers';
 import {cn} from '@/lib/utils';
+
+/**
+ * The expanded block-settings pane: a host element the interactive block's live
+ * config fields portal into (see `blockeditor/kit/kitPanel.ts`). Publishing the
+ * host on mount and clearing the panel on unmount keeps the bridge in step with
+ * what the side pane is actually showing.
+ */
+function KitConfigPaneBody() {
+  const [panel, setPanel] = useState(getKitPanel());
+  useEffect(() => subscribeKitPanel(() => setPanel(getKitPanel())), []);
+  const hostRef = useCallback((el: HTMLDivElement | null) => setKitPanelHost(el), []);
+  useEffect(
+    () => () => {
+      setKitPanelHost(null);
+      closeKitPanel({keepPane: true}); // the pane is already going away
+    },
+    [],
+  );
+  return (
+    <div className="flex h-full flex-col">
+      <div className="shrink-0 border-b border-border px-4 py-2.5">
+        <p className="truncate text-sm font-semibold">{panel?.title || 'Settings'}</p>
+        <p className="text-xs text-muted-foreground">Block settings</p>
+      </div>
+      <div ref={hostRef} className="min-h-0 flex-1 overflow-y-auto p-4">
+        {!panel && <p className="text-xs text-muted-foreground">Open a block’s settings to edit it here.</p>}
+      </div>
+    </div>
+  );
+}
 
 /**
  * The split view's secondary page: a full-height pane docked at the window's
@@ -54,6 +85,8 @@ export function SplitPane() {
   const pane = panes[1];
   const focused = pane.id === focusedPaneId;
   const isFlow = pane.pageId === FLOW_PANE_ID;
+  const isConfig = pane.pageId === CONFIG_PANE_ID;
+  const isPage = !isFlow && !isConfig; // a real document — gets make-main + the actions cluster
 
   return (
     <aside
@@ -84,7 +117,7 @@ export function SplitPane() {
           <IconButton size="sm" onClick={() => closeSplit()} aria-label="Hide split pane" title="Hide split pane">
             <PanelRightClose className="h-3.5 w-3.5" />
           </IconButton>
-          {!isFlow && (
+          {isPage && (
             <IconButton
               size="sm"
               onClick={() => closePane('primary')}
@@ -95,12 +128,16 @@ export function SplitPane() {
             </IconButton>
           )}
         </div>
-        {!isFlow && <PageActionsCluster pageId={pane.pageId} />}
+        {isPage && <PageActionsCluster pageId={pane.pageId} />}
       </div>
-      {pane.pageId === FLOW_PANE_ID ? (
+      {isFlow ? (
         // react-flow owns its own pan/zoom viewport — no ScrollArea around it.
         <div className="min-h-0 flex-1">
           <DataflowView />
+        </div>
+      ) : isConfig ? (
+        <div className="min-h-0 flex-1">
+          <KitConfigPaneBody />
         </div>
       ) : (
         <ScrollArea className="min-h-0 flex-1">

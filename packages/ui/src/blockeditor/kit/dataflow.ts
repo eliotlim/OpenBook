@@ -1,6 +1,6 @@
 import type * as Y from 'yjs';
 import {blockProp, blockType, rootBlocks, walkBlocks, type BlockMap} from '../model';
-import {computeScope, formatValue, INPUT_TYPES} from './scope';
+import {computeScope, formatValue, INPUT_TYPES, publishedName} from './scope';
 
 /**
  * The page's reactive wiring as a graph: which blocks publish named values,
@@ -93,7 +93,7 @@ export function dataflowGraph(doc: Y.Doc, outlets: DataflowOutlet[] = []): Dataf
   for (const {block} of walkBlocks(rootBlocks(doc))) {
     const id = String(block.get('id'));
     const type = blockType(block) as string;
-    const name = blockProp<string>(block, 'name') ?? '';
+    const name = publishedName(block);
     const isLiveCode = type === 'code' && Boolean(blockProp<boolean>(block, 'live'));
     if ((INPUT_TYPES.has(type) || isLiveCode || type === 'formula') && name && !publisherOf.has(name)) {
       publisherOf.set(name, id);
@@ -112,7 +112,7 @@ export function dataflowGraph(doc: Y.Doc, outlets: DataflowOutlet[] = []): Dataf
   for (const {block} of walkBlocks(rootBlocks(doc))) {
     const id = String(block.get('id'));
     const type = blockType(block) as string;
-    const name = blockProp<string>(block, 'name') ?? '';
+    const name = publishedName(block);
     const result = results.get(id);
 
     if (INPUT_TYPES.has(type)) {
@@ -179,7 +179,7 @@ export function publishedNames(doc: Y.Doc): Set<string> {
   const names = new Set<string>();
   for (const {block} of walkBlocks(rootBlocks(doc))) {
     const type = blockType(block) as string;
-    const name = blockProp<string>(block, 'name') ?? '';
+    const name = publishedName(block);
     const isLiveCode = type === 'code' && Boolean(blockProp<boolean>(block, 'live'));
     if ((INPUT_TYPES.has(type) || isLiveCode || type === 'formula') && name) names.add(name);
   }

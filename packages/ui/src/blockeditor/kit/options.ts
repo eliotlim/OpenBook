@@ -29,6 +29,22 @@ export const slugify = (s: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
+/**
+ * A valid JS-identifier variable name derived from a display label, so an
+ * input the reader knows as "Dark mode" publishes as `darkMode` without the
+ * author ever opening the config. camelCase; a leading digit is prefixed with
+ * `_`; an empty/symbol-only label yields ''. The reactive engine references
+ * these (`new Function(name, …)`), so the result is always a legal identifier.
+ */
+export const varNameFromLabel = (label: string): string => {
+  const words = label.trim().split(/[^A-Za-z0-9]+/).filter(Boolean);
+  if (words.length === 0) return '';
+  const camel = words
+    .map((w, i) => (i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
+    .join('');
+  return /^[0-9]/.test(camel) ? `_${camel}` : camel;
+};
+
 /** The value an option actually publishes (explicit value, else slug of label). */
 export const optionValue = (opt: RawOption): string => (opt.value?.trim() ? opt.value.trim() : slugify(opt.label));
 

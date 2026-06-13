@@ -118,6 +118,13 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       );
       i += 1;
       break;
+    case 'group': {
+      const name = String(b.props?.name ?? '').trim();
+      const heading = name ? `<p class="obe-x-group-name"><strong>${escapeHtml(name)}</strong></p>` : '';
+      parts.push(`<section class="obe-x-group">${heading}${blocksToHtml(b.children ?? [])}</section>`);
+      i += 1;
+      break;
+    }
     default:
       parts.push(`<p>${textHtml(b.text) || '&nbsp;'}</p>`);
       i += 1;
@@ -179,6 +186,12 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
     case 'dbview':
       out.push(`**🗃 ${String(b.props?.name ?? 'Database')}**`);
       break;
+    case 'group': {
+      const name = String(b.props?.name ?? '').trim();
+      if (name) out.push(`**${name}**`);
+      out.push(blocksToMarkdown(b.children ?? []));
+      break;
+    }
     default:
       out.push(textMd(b.text));
     }

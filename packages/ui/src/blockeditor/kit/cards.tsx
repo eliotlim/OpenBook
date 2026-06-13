@@ -1,23 +1,21 @@
-import React, {useState} from 'react';
-import {blockProp, setBlockProp, type BlockMap} from '../model';
+import React from 'react';
+import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
 import {computeScope, evalExpr, formatValue} from './scope';
+import {ConfigField, ConfigInput, KitInlineText} from './KitFrame';
+import {KitSettings} from './KitSettings';
 
 /**
  * The kit's display blocks: a status light driven by an expression, a term
  * with a hover tooltip, and a hyperlinked card. With the inputs and charts
  * these close the artifact loop — state in, computation, visible result.
+ * Each shares the {@link KitConfig} settings affordance (hover gear → popover →
+ * side pane), the same as every other interactive block.
  */
 
 const set = (editor: BlockEditorController, block: BlockMap, key: string, value: unknown): void =>
   editor.doc.transact(() => setBlockProp(block, key, value), 'local');
-
-const Gear: React.FC<{open: boolean; onClick: () => void}> = ({open, onClick}) => (
-  <button type="button" className={`obe-kit-gear${open ? ' obe-kit-gear-on' : ''}`} aria-label="Configure block" aria-expanded={open} onClick={onClick}>
-    ⚙
-  </button>
-);
 
 // ── Status light ─────────────────────────────────────────────────────────────
 // The expression decides the colour: booleans → ok/bad; numbers → ok at or
@@ -39,7 +37,6 @@ function statusOf(value: unknown, error: string | undefined, okAt: number, warnA
 }
 
 const StatusLightBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
-  const [config, setConfig] = useState(false);
   const label = blockProp<string>(block, 'label') ?? 'Status';
   const source = blockProp<string>(block, 'source') ?? '';
   const okAt = Number(blockProp<number>(block, 'okAt') ?? 1);
@@ -50,19 +47,23 @@ const StatusLightBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   return (
     <div className="obe-kit obe-kit-status" contentEditable={false} data-status={status}>
       <span className={`obe-kit-light obe-kit-light-${status}`} aria-hidden />
-      <span className="obe-kit-status-label">{label}</span>
+      <KitInlineText
+        className="obe-kit-status-label"
+        value={label}
+        placeholder="Status"
+        readOnly={editor.readOnly}
+        ariaLabel="Status label"
+        onCommit={(v) => set(editor, block, 'label', v)}
+      />
       <span className="obe-kit-status-value">{error ? `⚠ ${error}` : formatValue(value)}</span>
-      <Gear open={config} onClick={() => setConfig(!config)} />
-      {config && (
-        <div className="obe-kit-config">
-          <label className="obe-kit-field">
-            <span>label</span>
-            <input className="obe-kit-name" value={label} readOnly={editor.readOnly} aria-label="Status label" onChange={(e) => set(editor, block, 'label', e.target.value)} />
-          </label>
-          <label className="obe-kit-field obe-kit-field-grow">
-            <span>value</span>
-            <input
-              className="obe-kit-options obe-kit-mono"
+      <KitSettings blockId={blockId(block)} title={label || 'Status'}>
+        <div className="flex flex-col gap-3">
+          <ConfigField label="Label">
+            <ConfigInput value={label} readOnly={editor.readOnly} aria-label="Status label" onChange={(e) => set(editor, block, 'label', e.target.value)} />
+          </ConfigField>
+          <ConfigField label="Value" hint="An expression — boolean, number, or 'ok' / 'warn' / 'bad'.">
+            <ConfigInput
+              mono
               value={source}
               readOnly={editor.readOnly}
               spellCheck={false}
@@ -70,17 +71,17 @@ const StatusLightBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               placeholder="x > 10  ·  errors  ·  'warn'"
               onChange={(e) => set(editor, block, 'source', e.target.value)}
             />
-          </label>
-          <label className="obe-kit-field">
-            <span>ok ≥</span>
-            <input className="obe-kit-num" inputMode="decimal" value={blockProp<number>(block, 'okAt') ?? 1} readOnly={editor.readOnly} aria-label="Ok threshold" onChange={(e) => Number.isFinite(Number(e.target.value)) && set(editor, block, 'okAt', Number(e.target.value))} />
-          </label>
-          <label className="obe-kit-field">
-            <span>warn ≥</span>
-            <input className="obe-kit-num" inputMode="decimal" value={blockProp<number>(block, 'warnAt') ?? 0} readOnly={editor.readOnly} aria-label="Warn threshold" onChange={(e) => Number.isFinite(Number(e.target.value)) && set(editor, block, 'warnAt', Number(e.target.value))} />
-          </label>
+          </ConfigField>
+          <div className="flex gap-2">
+            <ConfigField label="ok ≥">
+              <ConfigInput inputMode="decimal" value={blockProp<number>(block, 'okAt') ?? 1} readOnly={editor.readOnly} aria-label="Ok threshold" onChange={(e) => Number.isFinite(Number(e.target.value)) && set(editor, block, 'okAt', Number(e.target.value))} />
+            </ConfigField>
+            <ConfigField label="warn ≥">
+              <ConfigInput inputMode="decimal" value={blockProp<number>(block, 'warnAt') ?? 0} readOnly={editor.readOnly} aria-label="Warn threshold" onChange={(e) => Number.isFinite(Number(e.target.value)) && set(editor, block, 'warnAt', Number(e.target.value))} />
+            </ConfigField>
+          </div>
         </div>
-      )}
+      </KitSettings>
     </div>
   );
 };
@@ -88,14 +89,20 @@ const StatusLightBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
 // ── Tooltip card ─────────────────────────────────────────────────────────────
 
 const TooltipCardBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
-  const [config, setConfig] = useState(false);
   const term = blockProp<string>(block, 'term') ?? 'Term';
   const tip = blockProp<string>(block, 'tip') ?? '';
 
   return (
     <div className="obe-kit obe-kit-tooltip" contentEditable={false}>
       <span className="obe-kit-term" tabIndex={0}>
-        {term}
+        <KitInlineText
+          className="obe-kit-term-text"
+          value={term}
+          placeholder="Term"
+          readOnly={editor.readOnly}
+          ariaLabel="Term"
+          onCommit={(v) => set(editor, block, 'term', v)}
+        />
         <span className="obe-kit-term-mark" aria-hidden>
           ?
         </span>
@@ -105,19 +112,16 @@ const TooltipCardBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
           </span>
         )}
       </span>
-      <Gear open={config} onClick={() => setConfig(!config)} />
-      {config && (
-        <div className="obe-kit-config">
-          <label className="obe-kit-field">
-            <span>term</span>
-            <input className="obe-kit-name" value={term} readOnly={editor.readOnly} aria-label="Term" onChange={(e) => set(editor, block, 'term', e.target.value)} />
-          </label>
-          <label className="obe-kit-field obe-kit-field-grow">
-            <span>tip</span>
-            <input className="obe-kit-options" value={tip} readOnly={editor.readOnly} aria-label="Tooltip text" placeholder="Shown on hover or focus" onChange={(e) => set(editor, block, 'tip', e.target.value)} />
-          </label>
+      <KitSettings blockId={blockId(block)} title={term || 'Tooltip'}>
+        <div className="flex flex-col gap-3">
+          <ConfigField label="Term">
+            <ConfigInput value={term} readOnly={editor.readOnly} aria-label="Term" onChange={(e) => set(editor, block, 'term', e.target.value)} />
+          </ConfigField>
+          <ConfigField label="Tip">
+            <ConfigInput value={tip} readOnly={editor.readOnly} aria-label="Tooltip text" placeholder="Shown on hover or focus" onChange={(e) => set(editor, block, 'tip', e.target.value)} />
+          </ConfigField>
         </div>
-      )}
+      </KitSettings>
     </div>
   );
 };
@@ -125,7 +129,6 @@ const TooltipCardBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
 // ── Hyperlinked card ─────────────────────────────────────────────────────────
 
 const LinkCardBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
-  const [config, setConfig] = useState(false);
   const title = blockProp<string>(block, 'title') ?? 'Untitled';
   const description = blockProp<string>(block, 'description') ?? '';
   const url = blockProp<string>(block, 'url') ?? '';
@@ -138,23 +141,19 @@ const LinkCardBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
         {description && <span className="obe-kit-linkcard-desc">{description}</span>}
         {url && <span className="obe-kit-linkcard-url">{url.replace(/^https?:\/\//, '')}</span>}
       </a>
-      <Gear open={config} onClick={() => setConfig(!config)} />
-      {config && (
-        <div className="obe-kit-config">
-          <label className="obe-kit-field">
-            <span>title</span>
-            <input className="obe-kit-name" value={title} readOnly={editor.readOnly} aria-label="Card title" onChange={(e) => set(editor, block, 'title', e.target.value)} />
-          </label>
-          <label className="obe-kit-field obe-kit-field-grow">
-            <span>text</span>
-            <input className="obe-kit-options" value={description} readOnly={editor.readOnly} aria-label="Card description" onChange={(e) => set(editor, block, 'description', e.target.value)} />
-          </label>
-          <label className="obe-kit-field obe-kit-field-grow">
-            <span>url</span>
-            <input className="obe-kit-options" value={url} readOnly={editor.readOnly} aria-label="Card URL" placeholder="https://…" spellCheck={false} onChange={(e) => set(editor, block, 'url', e.target.value)} />
-          </label>
+      <KitSettings blockId={blockId(block)} title={title || 'Link card'}>
+        <div className="flex flex-col gap-3">
+          <ConfigField label="Title">
+            <ConfigInput value={title} readOnly={editor.readOnly} aria-label="Card title" onChange={(e) => set(editor, block, 'title', e.target.value)} />
+          </ConfigField>
+          <ConfigField label="Text">
+            <ConfigInput value={description} readOnly={editor.readOnly} aria-label="Card description" onChange={(e) => set(editor, block, 'description', e.target.value)} />
+          </ConfigField>
+          <ConfigField label="URL">
+            <ConfigInput value={url} readOnly={editor.readOnly} aria-label="Card URL" placeholder="https://…" spellCheck={false} onChange={(e) => set(editor, block, 'url', e.target.value)} />
+          </ConfigField>
         </div>
-      )}
+      </KitSettings>
     </div>
   );
 };

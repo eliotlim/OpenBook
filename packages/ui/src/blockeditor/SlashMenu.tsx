@@ -91,7 +91,7 @@ const ID_ICONS: Record<string, IconComp> = {
   text: Type, h1: Heading1, h2: Heading2, h3: Heading3,
   bullet: List, number: ListOrdered, todo: ListTodo, quote: Quote,
   callout: Info, code: Code2, livecode: Sigma, divider: Minus,
-  table: Table, cols2: Columns2, cols3: Columns3, cols4: Columns3,
+  table: Table, cols2: Columns2, cols3: Columns3, cols4: Columns3, group: Boxes,
   newpage: FilePlus2, newdatabase: Table2, linkpage: Link2, linkdatabase: Database,
 };
 const TYPE_ICONS: Record<string, IconComp> = {
@@ -187,6 +187,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   {id: 'callout', label: 'Callout', hint: 'Highlighted note', keywords: 'callout note info', group: 'basic', apply: turn('callout', {variant: 'info'})},
   {id: 'code', label: 'Code', hint: 'Monospaced block', keywords: 'code snippet', group: 'basic', apply: turn('code')},
   {id: 'livecode', label: 'Live code', hint: 'Computes over inputs; name the output to chain', keywords: 'livecode live code formula compute expr reactive calculation', group: 'interactive', apply: turn('code', {live: true, name: 'result', language: 'js'})},
+  {id: 'group', label: 'Group', hint: 'Lockable, syncable container that namespaces its inputs', keywords: 'group container section lock sync namespace box organise organize', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'group', props: {name: ''}, children: [{type: 'paragraph'}]}))},
   {id: 'divider', label: 'Divider', hint: 'Horizontal rule', keywords: 'divider rule hr line', group: 'basic', apply: insertAfterOrReplace(() => ({type: 'divider'}))},
   {id: 'table', label: 'Table', hint: '3 × 3 to start', keywords: 'table grid cells', group: 'basic', apply: insertAfterOrReplace(() => makeTable(3, 3))},
   {id: 'cols2', label: '2 columns', hint: 'Side-by-side layout', keywords: 'columns layout two 2', group: 'basic', apply: insertAfterOrReplace(() => columns(2))},

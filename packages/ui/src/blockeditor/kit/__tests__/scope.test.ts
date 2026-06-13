@@ -1,6 +1,7 @@
 import {describe, expect, it} from 'vitest';
-import {createDoc} from '../../model';
-import {computeScope, evalCode, evalExpr, formatValue, inputScope, setNamedNumber} from '../scope';
+import {createDoc, rootBlocks} from '../../model';
+import {computeScope, evalCode, evalExpr, formatValue, inputScope, publishedName, setNamedNumber} from '../scope';
+import {varNameFromLabel} from '../options';
 
 const artifactDoc = () =>
   createDoc([
@@ -22,6 +23,78 @@ describe('inputScope', () => {
   it('skips names that are not valid identifiers', () => {
     const doc = createDoc([{type: 'number', props: {name: 'not a name', value: 1}}]);
     expect(inputScope(doc)).toEqual({});
+  });
+
+  it('derives the variable name from the display label when no name is set', () => {
+    // The author only filled in a friendly display name — the input still
+    // publishes (this gap made the dataflow view look empty).
+    const doc = createDoc([
+      {type: 'toggle', props: {label: 'Dark mode', value: true}},
+      {type: 'number', props: {label: 'Tax rate %', value: 7}},
+    ]);
+    expect(inputScope(doc)).toMatchObject({darkMode: true, taxRate: 7});
+  });
+
+  it('prefers an explicit name over the derived one', () => {
+    const doc = createDoc([{type: 'toggle', props: {name: 'flag', label: 'Dark mode', value: true}}]);
+    expect(inputScope(doc)).toEqual({flag: true});
+  });
+});
+
+describe('varNameFromLabel', () => {
+  it('camelCases a display label into a legal identifier', () => {
+    expect(varNameFromLabel('Dark mode')).toBe('darkMode');
+    expect(varNameFromLabel('Tax rate %')).toBe('taxRate');
+    expect(varNameFromLabel('API key')).toBe('apiKey');
+    expect(varNameFromLabel('2 things')).toBe('_2Things');
+    expect(varNameFromLabel('   ')).toBe('');
+  });
+});
+
+describe('publishedName', () => {
+  it('resolves explicit name, else derived, else empty', () => {
+    const doc = createDoc([
+      {id: 'a', type: 'slider', props: {name: 'x'}},
+      {id: 'b', type: 'slider', props: {label: 'Big Number'}},
+      {id: 'c', type: 'slider', props: {}},
+    ]);
+    const blocks = rootBlocks(doc);
+    expect(publishedName(blocks.get(0))).toBe('x');
+    expect(publishedName(blocks.get(1))).toBe('bigNumber');
+    expect(publishedName(blocks.get(2))).toBe('');
+  });
+});
+
+describe('grouped inputs (namespaced exports)', () => {
+  it('namespaces a group’s inputs as group.field.value, leaving outsiders flat', () => {
+    const doc = createDoc([
+      {type: 'slider', props: {name: 'rate', value: 5}},
+      {
+        type: 'group',
+        props: {name: 'Survey'},
+        children: [
+          {type: 'toggle', props: {label: 'Agree', value: true}},
+          {type: 'number', props: {name: 'score', value: 9}},
+        ],
+      },
+    ]);
+    const scope = inputScope(doc);
+    expect(scope.rate).toBe(5);
+    expect(scope.survey).toEqual({agree: {value: true}, score: {value: 9}});
+    // A formula can read into the group.
+    expect(evalExpr('survey.score.value * 2 + rate', scope).value).toBe(23);
+  });
+
+  it('keeps each group’s namespace separate and unnamed groups flat', () => {
+    const doc = createDoc([
+      {type: 'group', props: {name: 'A'}, children: [{type: 'number', props: {name: 'x', value: 1}}]},
+      {type: 'group', props: {name: 'B'}, children: [{type: 'number', props: {name: 'x', value: 2}}]},
+      {type: 'group', props: {}, children: [{type: 'number', props: {name: 'loose', value: 7}}]},
+    ]);
+    const scope = inputScope(doc);
+    expect(scope.a).toEqual({x: {value: 1}});
+    expect(scope.b).toEqual({x: {value: 2}});
+    expect(scope.loose).toBe(7); // unnamed group adds no namespace
   });
 });
 

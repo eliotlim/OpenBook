@@ -13,7 +13,8 @@ import {useData} from '@/data';
 import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
 import {readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {recordRecent} from '@/lib/recents';
-import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
+import {CONFIG_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
+import {registerKitPanelNav} from '@/blockeditor/kit/kitPanel';
 import {t as bareT} from '@/i18n';
 import {removeFavorite} from '@/lib/favorites';
 import {usePlatformLibrary, type NewViewTarget} from './PlatformLibraryProvider';
@@ -164,9 +165,13 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const initRef = useRef<Promise<void> | null>(null);
   const prevTopLevelIds = useRef<Set<string>>(new Set());
 
-  // Mirror the window into the URL whenever it changes.
+  // Mirror the window into the URL whenever it changes. The block-settings pane
+  // is ephemeral (its config lives in an in-memory bridge), so it never goes in
+  // the URL — a reload would otherwise reopen an empty pane.
   useEffect(() => {
-    if (win) writeUrl(W.primaryPage(win), W.activeTab(win).split);
+    if (!win) return;
+    const split = W.activeTab(win).split;
+    writeUrl(W.primaryPage(win), split === CONFIG_PANE_ID ? null : split);
   }, [win]);
 
   const update = useCallback((fn: (w: WindowState) => WindowState) => {
@@ -224,6 +229,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     (id: string): string => {
       if (id === HOME_PAGE_ID) return bareT('nav.home');
       if (id === FLOW_PANE_ID) return bareT('flow.title');
+      if (id === CONFIG_PANE_ID) return 'Settings';
       const meta = pages.find((p) => p.id === id);
       if (meta) return meta.name && meta.name.trim().length > 0 ? meta.name : 'Untitled';
       return titleHints[id] ?? 'Untitled';
@@ -414,6 +420,13 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     return () => setPageLinkBridge(null);
   }, [createSubpage, selectPage, pageLabel, searchPages, createLinkedPage]);
 
+  // Let an interactive block "Expand" its settings into the side pane (reusing
+  // the split mechanism rather than a bespoke drawer).
+  useEffect(
+    () => registerKitPanelNav(() => openInSplit(CONFIG_PANE_ID), () => closeSplit()),
+    [openInSplit, closeSplit],
+  );
+
   // Refresh title hints from the live page list.
   useEffect(() => {
     if (pages.length === 0) return;
@@ -429,8 +442,9 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   // Track the focused page as "recently visited" (drives the palette's Recent
   // group). Covers every entry point — sidebar, palette, tabs, back/forward.
   useEffect(() => {
-    // Home is a place, not a document — it never enters the recents trail.
-    if (currentPageId && currentPageId !== HOME_PAGE_ID && currentPageId !== FLOW_PANE_ID) recordRecent(currentPageId);
+    // Home/flow/config are places, not documents — they never enter the recents trail.
+    if (currentPageId && currentPageId !== HOME_PAGE_ID && currentPageId !== FLOW_PANE_ID && currentPageId !== CONFIG_PANE_ID)
+      recordRecent(currentPageId);
   }, [currentPageId]);
 
   const panes = win ? W.panesOf(win) : [];

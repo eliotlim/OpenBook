@@ -40,7 +40,8 @@ export type BlockType =
   | 'column'
   | 'table'
   | 'row'
-  | 'cell';
+  | 'cell'
+  | 'group';
 
 /** Inline formatting attributes carried by Y.Text runs. */
 export interface InlineAttrs {
@@ -83,7 +84,7 @@ export const TEXT_BLOCKS: ReadonlySet<BlockType> = new Set([
 ]);
 
 /** Block types whose `children` hold ordinary blocks. */
-export const CONTAINER_BLOCKS: ReadonlySet<BlockType> = new Set(['columns', 'column', 'table', 'row']);
+export const CONTAINER_BLOCKS: ReadonlySet<BlockType> = new Set(['columns', 'column', 'table', 'row', 'group']);
 
 export type BlockMap = Y.Map<unknown>;
 

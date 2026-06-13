@@ -1,8 +1,10 @@
-import React, {useState} from 'react';
-import {blockProp, setBlockProp, type BlockMap} from '../model';
+import React from 'react';
+import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
 import {computeScope, evalExpr} from './scope';
+import {ConfigField, ConfigInput, KitInlineText} from './KitFrame';
+import {KitSettings} from './KitSettings';
 import {extent, funnelRows, linePoints, PALETTE, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
 
 /**
@@ -195,7 +197,6 @@ const Funnel: React.FC<{value: unknown; labels: string[]}> = ({value, labels}) =
 };
 
 const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
-  const [config, setConfig] = useState(false);
   const kind = (blockProp<string>(block, 'kind') as ChartKind) ?? 'line';
   const source = blockProp<string>(block, 'source') ?? '';
   const labels = splitLabels(blockProp<string>(block, 'labels') ?? '');
@@ -231,30 +232,42 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
 
   return (
     <figure className="obe-kit obe-kit-chart" contentEditable={false} data-chart-kind={kind}>
-      <div className="obe-kit-chart-head">
-        {title && <figcaption className="obe-kit-chart-title">{title}</figcaption>}
-        <span className="obe-kit-spacer" />
-        <ConfigGear open={config} onClick={() => setConfig(!config)} />
-      </div>
+      <figcaption className="obe-kit-chart-head">
+        <KitInlineText
+          className="obe-kit-chart-title"
+          value={title}
+          placeholder="Chart title"
+          readOnly={editor.readOnly}
+          ariaLabel="Chart title"
+          onCommit={(v) => setProp(editor, block, 'title', v)}
+        />
+      </figcaption>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title || `${kind} chart`} className="obe-chart-svg">
         {body}
       </svg>
-      {config && (
-        <div className="obe-kit-config">
-          <label className="obe-kit-field">
-            <span>kind</span>
-            <select className="obe-kit-select" value={kind} disabled={editor.readOnly} aria-label="Chart kind" onChange={(e) => setProp(editor, block, 'kind', e.target.value)}>
+      <KitSettings blockId={blockId(block)} title={title || `${kind} chart`}>
+        <div className="flex flex-col gap-3">
+          <ConfigField label="Title">
+            <ConfigInput value={title} readOnly={editor.readOnly} aria-label="Chart title" onChange={(e) => setProp(editor, block, 'title', e.target.value)} />
+          </ConfigField>
+          <ConfigField label="Kind">
+            <select
+              className="w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
+              value={kind}
+              disabled={editor.readOnly}
+              aria-label="Chart kind"
+              onChange={(e) => setProp(editor, block, 'kind', e.target.value)}
+            >
               {CHART_KINDS.map((k) => (
                 <option key={k} value={k}>
                   {k}
                 </option>
               ))}
             </select>
-          </label>
-          <label className="obe-kit-field obe-kit-field-grow">
-            <span>data</span>
-            <input
-              className="obe-kit-options obe-kit-mono"
+          </ConfigField>
+          <ConfigField label="Data" hint="An expression over the page's inputs.">
+            <ConfigInput
+              mono
               value={source}
               readOnly={editor.readOnly}
               spellCheck={false}
@@ -262,27 +275,15 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               placeholder="[x, x*2, x*3]  ·  {a: [1,2,3], b: [2,4,6]}"
               onChange={(e) => setProp(editor, block, 'source', e.target.value)}
             />
-          </label>
-          <label className="obe-kit-field">
-            <span>labels</span>
-            <input className="obe-kit-name" value={blockProp<string>(block, 'labels') ?? ''} readOnly={editor.readOnly} aria-label="Labels (comma-separated)" placeholder="A, B, C" onChange={(e) => setProp(editor, block, 'labels', e.target.value)} />
-          </label>
-          <label className="obe-kit-field">
-            <span>title</span>
-            <input className="obe-kit-name" value={title} readOnly={editor.readOnly} aria-label="Chart title" onChange={(e) => setProp(editor, block, 'title', e.target.value)} />
-          </label>
+          </ConfigField>
+          <ConfigField label="Labels" hint="Comma-separated, one per point.">
+            <ConfigInput value={blockProp<string>(block, 'labels') ?? ''} readOnly={editor.readOnly} aria-label="Labels (comma-separated)" placeholder="A, B, C" onChange={(e) => setProp(editor, block, 'labels', e.target.value)} />
+          </ConfigField>
         </div>
-      )}
+      </KitSettings>
     </figure>
   );
 };
-
-/** Same gear as the inputs use — duplicated locally to keep modules acyclic. */
-const ConfigGear: React.FC<{open: boolean; onClick: () => void}> = ({open, onClick}) => (
-  <button type="button" className={`obe-kit-gear${open ? ' obe-kit-gear-on' : ''}`} aria-label="Configure block" aria-expanded={open} onClick={onClick}>
-    ⚙
-  </button>
-);
 
 export const CHART_BLOCKS = [
   {

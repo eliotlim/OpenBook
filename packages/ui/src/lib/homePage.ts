@@ -13,6 +13,14 @@ export const HOME_PAGE_ID = 'home';
  */
 export const FLOW_PANE_ID = 'flow';
 
+/**
+ * The block-settings split-pane mode — a pseudo-page that hosts the "Expand"
+ * view of an interactive block's configuration. Reuses the side pane rather
+ * than a separate drawer; the live config fields portal into it (see
+ * `blockeditor/kit/kitPanel.ts`). Ephemeral — never persisted to the URL.
+ */
+export const CONFIG_PANE_ID = 'config';
+
 /** Which Home widgets are shown. All on by default; configurable per device. */
 export interface HomeWidgets {
   actions: boolean;

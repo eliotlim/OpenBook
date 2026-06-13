@@ -1,5 +1,5 @@
-import React, {useCallback, useMemo, useRef, useState} from 'react';
-import {GripVertical, Plus} from 'lucide-react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {Boxes, GripVertical, Lock, LockOpen, Plus, RefreshCw} from 'lucide-react';
 import type * as Y from 'yjs';
 import {
   blockChildren,
@@ -53,6 +53,10 @@ import {TextBlockView} from './TextBlockView';
 import {SlashMenu, type SlashState} from './SlashMenu';
 import {LinkPicker} from './LinkPicker';
 import {hasKitConfig, openKitConfig} from './kit/kitConfig';
+import {KitLockContext, useKitLock} from './kit/lock';
+import {KitInlineText} from './kit/KitFrame';
+import {groupInputs, inputValue, setInputValue} from './kit/scope';
+import {readGroupSync, subscribeGroupSync, valueEqual, writeGroupSync} from './kit/groupSync';
 import type {PageLinkResult} from '@/lib/pageLinks';
 import {InlineToolbar, type ToolbarState} from './InlineToolbar';
 import {useBlockEditor, type BlockEditorController} from './useBlockEditor';
@@ -819,11 +823,126 @@ const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> =
   );
 };
 
+// ── Group ────────────────────────────────────────────────────────────────────
+
+/**
+ * A named group: a titled, bordered container that (1) namespaces its inputs in
+ * the reactive scope (`group.field.value`), (2) locks its contents read-only on
+ * demand (interactive widgets excepted), and (3) optionally mirrors its inputs
+ * across pages by a shared sync key.
+ */
+const GroupView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
+  const {editor} = shared;
+  const doc = editor.doc;
+  const name = blockProp<string>(block, 'name') ?? '';
+  const ownLocked = Boolean(blockProp<boolean>(block, 'locked'));
+  const parentLocked = useKitLock();
+  const locked = ownLocked || parentLocked;
+  const sync = (blockProp<string>(block, 'sync') ?? '').trim();
+  const children = blockChildren(block);
+
+  const set = (key: string, value: unknown): void =>
+    doc.transact(() => setBlockProp(block, key, value), 'local');
+
+  // A signature of the group's input values — recomputed each doc version (the
+  // editor's identity changes per version), so it drives the publish effect.
+  const sig = useMemo(() => {
+    const out: Record<string, unknown> = {};
+    for (const [field, blk] of groupInputs(block)) out[field] = inputValue(blk);
+    return JSON.stringify(out);
+  }, [block, editor]);
+
+  // Adopt shared values FIRST (defined before publish so on mount the store
+  // wins the race), then keep adopting whenever another page writes.
+  useEffect(() => {
+    if (!sync) return;
+    const apply = (): void => {
+      const incoming = readGroupSync(sync);
+      doc.transact(() => {
+        for (const [field, blk] of groupInputs(block)) {
+          if (field in incoming && !valueEqual(inputValue(blk), incoming[field])) {
+            setInputValue(blk, incoming[field]);
+          }
+        }
+      }, 'local');
+    };
+    apply();
+    return subscribeGroupSync(sync, apply);
+  }, [sync, block, doc]);
+
+  // Publish local values to the store. Reads LIVE values at effect-time (not the
+  // render snapshot) so the post-adopt mount state is what gets published —
+  // `writeGroupSync` no-ops when unchanged, so adopted values never echo back.
+  useEffect(() => {
+    if (!sync) return;
+    const live: Record<string, unknown> = {};
+    for (const [field, blk] of groupInputs(block)) live[field] = inputValue(blk);
+    writeGroupSync(sync, live);
+  }, [sync, sig, block]);
+
+  return (
+    <KitLockContext.Provider value={{locked}}>
+      <section className={`obe-group${locked ? ' obe-group-locked' : ''}`} data-group-name={name || undefined}>
+        <header className="obe-group-head" contentEditable={false}>
+          <Boxes className="obe-group-icon" aria-hidden />
+          <KitInlineText
+            className="obe-group-name"
+            value={name}
+            placeholder="Group"
+            readOnly={editor.readOnly}
+            ariaLabel="Group name"
+            onCommit={(v) => set('name', v)}
+          />
+          <span className="obe-group-spacer" />
+          <button
+            type="button"
+            className={`obe-group-btn${sync ? ' obe-group-btn-on' : ''}`}
+            aria-label={sync ? `Synced across pages as ${sync}` : 'Sync this group across pages'}
+            aria-pressed={Boolean(sync)}
+            title={sync ? `Synced across pages as “${sync}”` : 'Sync across pages'}
+            disabled={editor.readOnly}
+            onClick={() => set('sync', sync ? '' : name.trim() || 'group')}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            className={`obe-group-btn${locked ? ' obe-group-btn-on' : ''}`}
+            aria-label={locked ? 'Unlock group' : 'Lock group'}
+            aria-pressed={locked}
+            title={locked ? 'Unlock group' : 'Lock group'}
+            disabled={editor.readOnly}
+            onClick={() => set('locked', !ownLocked)}
+          >
+            {locked ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
+          </button>
+        </header>
+        <div className="obe-group-body">
+          {children && <BlockList list={children} {...shared} depth={shared.depth + 1} />}
+        </div>
+      </section>
+    </KitLockContext.Provider>
+  );
+};
+
 /** Type dispatch for a block's content. */
 const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui} = shared;
   const type = blockType(block);
   const id = blockId(block);
+
+  // A locked group makes its descendants read-only: text and structure
+  // entirely, kit widgets unless they're flagged `interactive` (a reader keeps
+  // operating those). Containers keep the real editor and re-apply the lock at
+  // each leaf via the context.
+  const locked = useKitLock();
+  const lockText = locked && !editor.readOnly;
+  const interactive = Boolean(blockProp<boolean>(block, 'interactive'));
+  const textEditor = useMemo(() => (lockText ? {...editor, readOnly: true} : editor), [editor, lockText]);
+  const kitEditor = useMemo(
+    () => (lockText && !interactive ? {...editor, readOnly: true} : editor),
+    [editor, lockText, interactive],
+  );
 
   switch (type) {
   case 'divider':
@@ -831,6 +950,9 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
 
   case 'columns':
     return <ColumnsView block={block} {...shared} />;
+
+  case 'group':
+    return <GroupView block={block} {...shared} />;
 
   case 'table':
     return <TableView block={block} {...shared} />;
@@ -843,10 +965,11 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
           type="checkbox"
           className="obe-todo-box"
           checked={checked}
+          disabled={textEditor.readOnly}
           aria-label={checked ? 'Mark as not done' : 'Mark as done'}
           onChange={() => editor.doc.transact(() => setBlockProp(block, 'checked', !checked), 'local')}
         />
-        <TextBlockView block={block} editor={editor} ui={ui} />
+        <TextBlockView block={block} editor={textEditor} ui={ui} />
       </div>
     );
   }
@@ -859,7 +982,7 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
         <span className={`obe-list-marker obe-list-${kind}`} contentEditable={false} aria-hidden>
           {marker}
         </span>
-        <TextBlockView block={block} editor={editor} ui={ui} />
+        <TextBlockView block={block} editor={textEditor} ui={ui} />
       </div>
     );
   }
@@ -867,7 +990,7 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   case 'quote':
     return (
       <blockquote className="obe-quote">
-        <TextBlockView block={block} editor={editor} ui={ui} />
+        <TextBlockView block={block} editor={textEditor} ui={ui} />
       </blockquote>
     );
 
@@ -880,6 +1003,7 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
           type="button"
           className="obe-callout-icon"
           contentEditable={false}
+          disabled={textEditor.readOnly}
           aria-label="Change callout style"
           onClick={() => {
             const order = ['info', 'warn', 'success', 'danger'];
@@ -889,19 +1013,19 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
         >
           {icons[variant] ?? '💡'}
         </button>
-        <TextBlockView block={block} editor={editor} ui={ui} />
+        <TextBlockView block={block} editor={textEditor} ui={ui} />
       </div>
     );
   }
 
   case 'code':
-    return <CodeBlockView block={block} editor={editor} ui={ui} />;
+    return <CodeBlockView block={block} editor={textEditor} ui={ui} />;
 
   case 'heading': {
     const level = blockProp<number>(block, 'level') ?? 2;
     return (
       <div className={`obe-heading obe-h${level}`} role="heading" aria-level={level}>
-        <TextBlockView block={block} editor={editor} ui={ui} />
+        <TextBlockView block={block} editor={textEditor} ui={ui} />
       </div>
     );
   }
@@ -912,13 +1036,13 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
       const Custom = custom.render;
       return (
         <div className="obe-custom" data-custom-type={type}>
-          <Custom block={block} editor={editor} />
+          <Custom block={block} editor={kitEditor} />
         </div>
       );
     }
     // A text-carrying unknown type still edits as text; anything else shows
     // a quiet placeholder instead of crashing (forward compatibility).
-    if (blockText(block)) return <TextBlockView block={block} editor={editor} ui={ui} />;
+    if (blockText(block)) return <TextBlockView block={block} editor={textEditor} ui={ui} />;
     return (
       <div className="obe-unknown" contentEditable={false}>
         Unsupported block “{type}”

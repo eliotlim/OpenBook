@@ -961,6 +961,55 @@ a.obe-mention {
   .obe-columns { display: flex; flex-direction: column; gap: 0.25rem; }
 }
 
+/* Group: a titled, lockable, syncable container that namespaces its inputs. */
+.obe-group {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: 10px;
+  background: hsl(var(--muted) / 0.25);
+  margin: 0.2rem 0;
+}
+.obe-group-locked {
+  background: hsl(var(--muted) / 0.45);
+  border-style: dashed;
+}
+.obe-group-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem 0.35rem 0.6rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.6);
+}
+.obe-group-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+  color: hsl(var(--muted-foreground));
+  flex-shrink: 0;
+}
+.obe-group-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+.obe-group-spacer { flex: 1; }
+.obe-group-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.22rem;
+  border-radius: 6px;
+  color: hsl(var(--muted-foreground));
+  transition: color 120ms, background 120ms;
+}
+.obe-group-btn:hover:not(:disabled) { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.obe-group-btn-on { color: hsl(var(--primary)); }
+.obe-group-btn:disabled { opacity: 0.4; cursor: default; }
+.obe-group-body { padding: 0.35rem 0.6rem; }
+/* Exported groups (static HTML). */
+.obe-x-group { border: 1px solid #e5e7eb; border-radius: 10px; padding: 0.5rem 0.9rem; margin: 0.75rem 0; }
+.obe-x-group-name { margin: 0 0 0.35rem; font-size: 0.9rem; }
+
 /* Tables */
 .obe-table-wrap { flex: 1; min-width: 0; position: relative; padding: 2px 1.4rem 1.4rem 0; }
 .obe-table {
@@ -1234,29 +1283,61 @@ a.obe-mention {
   line-height: 1.3;
   color: hsl(var(--muted-foreground) / 0.8);
 }
+/* Edit-in-place label: reads as plain text (inherits the caller's font/size/
+   weight/colour), auto-sizes to its content, and only reveals an outline on
+   hover/focus — so the display name is WYSIWYG-editable right on the block. */
+.obe-kit-inline {
+  field-sizing: content;
+  min-width: 2ch;
+  max-width: 100%;
+  font-family: inherit;
+  line-height: inherit;
+  color: inherit;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0 2px;
+  margin: 0 -2px;
+  cursor: text;
+  transition: border-color 120ms, background 120ms;
+}
+.obe-kit-inline:hover { border-color: hsl(var(--border) / 0.6); }
+.obe-kit-inline:focus { outline: none; border-color: hsl(var(--ring)); background: hsl(var(--card)); }
+.obe-kit-inline::placeholder { color: hsl(var(--muted-foreground) / 0.55); }
 .obe-kit-spacer { flex: 1; }
+/* The settings gear sits at the block's top-right, invisible until the block is
+   hovered/focused (or its popover is open). Same affordance for every kit block;
+   the gutter context menu's "Configure" reaches the same popover. */
 .obe-kit-gear {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 1px solid hsl(var(--border) / 0.7);
   background: hsl(var(--card));
   color: hsl(var(--muted-foreground));
-  padding: 0.28rem;
+  padding: 0.22rem;
   border-radius: 7px;
   cursor: pointer;
-  /* Visible at rest (just dimmed) so the settings affordance is obvious. */
-  opacity: 0.7;
+  opacity: 0;
+  pointer-events: none;
   transition: opacity 120ms, color 120ms, background 120ms, border-color 120ms;
 }
 .obe-kit:hover .obe-kit-gear,
 .obe-kit:focus-within .obe-kit-gear,
-.obe-kit-gear-on { opacity: 1; }
-.obe-kit-gear:hover, .obe-kit-gear-on {
+.obe-kit-gear:focus-visible,
+.obe-kit-gear[data-state='open'] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.obe-kit-gear:hover,
+.obe-kit-gear[data-state='open'] {
   color: hsl(var(--foreground));
   background: hsl(var(--accent));
   border-color: hsl(var(--border));
-  opacity: 1;
 }
 .obe-kit-config {
   flex-basis: 100%;
