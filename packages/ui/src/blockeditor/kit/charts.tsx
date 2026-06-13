@@ -3,7 +3,7 @@ import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
 import {computeScope, evalExpr} from './scope';
-import {ConfigField, ConfigInput, KitInlineText} from './KitFrame';
+import {ConfigField, ConfigInput, KitInlineText, NameDescriptionFields} from './KitFrame';
 import {KitSettings} from './KitSettings';
 import {extent, funnelRows, linePoints, PALETTE, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
 
@@ -201,6 +201,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const source = blockProp<string>(block, 'source') ?? '';
   const labels = splitLabels(blockProp<string>(block, 'labels') ?? '');
   const title = blockProp<string>(block, 'title') ?? '';
+  const description = blockProp<string>(block, 'description') ?? '';
   const {value, error} = evalExpr(source, computeScope(editor.doc).scope);
 
   const body = (() => {
@@ -241,15 +242,23 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
           ariaLabel="Chart title"
           onCommit={(v) => setProp(editor, block, 'title', v)}
         />
+        {(!editor.readOnly || description) && (
+          <KitInlineText
+            className="obe-kit-desc obe-kit-desc-edit"
+            value={description}
+            placeholder="Add a description…"
+            readOnly={editor.readOnly}
+            ariaLabel="Description"
+            onCommit={(v) => setProp(editor, block, 'description', v)}
+          />
+        )}
       </figcaption>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title || `${kind} chart`} className="obe-chart-svg">
         {body}
       </svg>
       <KitSettings blockId={blockId(block)} title={title || `${kind} chart`}>
         <div className="flex flex-col gap-3">
-          <ConfigField label="Title">
-            <ConfigInput value={title} readOnly={editor.readOnly} aria-label="Chart title" onChange={(e) => setProp(editor, block, 'title', e.target.value)} />
-          </ConfigField>
+          <NameDescriptionFields block={block} editor={editor} nameKey="title" namePlaceholder="Chart title" />
           <ConfigField label="Kind">
             <select
               className="w-full rounded-md border border-border bg-card px-2 py-1 text-sm"

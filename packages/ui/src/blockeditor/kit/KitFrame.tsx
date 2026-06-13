@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState} from 'react';
 import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import {KitSettings} from './KitSettings';
@@ -79,7 +79,97 @@ export const KitInlineText: React.FC<{
   );
 };
 
-/** The common name / label / description / compact fields, shared by every input. */
+/**
+ * The reactive symbol, kept deliberately quiet. It auto-derives from the
+ * display name (`varNameFromLabel`), so most authors never need it; it shows as
+ * a muted "Variable `darkMode` · override" line that only expands into an input
+ * when they choose to pin a custom symbol.
+ */
+const VariableNameField: React.FC<{block: BlockMap; editor: BlockEditorController; defaultName: string}> = ({
+  block,
+  editor,
+  defaultName,
+}) => {
+  const explicit = (blockProp<string>(block, 'name') ?? '').trim();
+  const derived = varNameFromLabel(blockProp<string>(block, 'label') ?? '');
+  const [editing, setEditing] = useState(explicit.length > 0);
+  const shown = explicit || derived || defaultName || 'value';
+
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        className="obe-kit-symbol-hint"
+        onClick={() => !editor.readOnly && setEditing(true)}
+        disabled={editor.readOnly}
+        title="The symbol formulas and charts reference"
+      >
+        <span>Variable</span>
+        <code className="obe-kit-symbol-code">{shown}</code>
+        {!editor.readOnly && <span className="obe-kit-symbol-edit">override</span>}
+      </button>
+    );
+  }
+  return (
+    <ConfigField label="Variable name" hint="The symbol formulas and charts reference.">
+      <ConfigInput
+        mono
+        autoFocus
+        value={explicit}
+        placeholder={derived || defaultName}
+        readOnly={editor.readOnly}
+        spellCheck={false}
+        aria-label="Variable name"
+        onChange={(e) => kitSet(editor, block, 'name', e.target.value.trim())}
+      />
+    </ConfigField>
+  );
+};
+
+/**
+ * The building block that pairs a **display name** with a **description** —
+ * shared by every configuration card (inputs, charts, cards) so the two always
+ * travel together. For input blocks (`symbol`) it also tucks in the
+ * de-emphasized {@link VariableNameField}.
+ */
+export const NameDescriptionFields: React.FC<{
+  block: BlockMap;
+  editor: BlockEditorController;
+  /** Prop holding the human display name (default `label`). */
+  nameKey?: string;
+  /** Placeholder for the display-name input. */
+  namePlaceholder?: string;
+  /** Prop holding the description (default `description`). */
+  descKey?: string;
+  /** Show the de-emphasized auto-derived variable name (input blocks only). */
+  symbol?: boolean;
+  /** Fallback symbol when the label is empty. */
+  defaultName?: string;
+}> = ({block, editor, nameKey = 'label', namePlaceholder, descKey = 'description', symbol = false, defaultName = ''}) => (
+  <div className="flex flex-col gap-2">
+    <ConfigField label="Display name">
+      <ConfigInput
+        value={blockProp<string>(block, nameKey) ?? ''}
+        placeholder={namePlaceholder}
+        readOnly={editor.readOnly}
+        aria-label="Display name"
+        onChange={(e) => kitSet(editor, block, nameKey, e.target.value)}
+      />
+    </ConfigField>
+    <ConfigField label="Description">
+      <ConfigTextarea
+        value={blockProp<string>(block, descKey) ?? ''}
+        placeholder="Add a description…"
+        readOnly={editor.readOnly}
+        aria-label="Description"
+        onChange={(e) => kitSet(editor, block, descKey, e.target.value)}
+      />
+    </ConfigField>
+    {symbol && <VariableNameField block={block} editor={editor} defaultName={defaultName} />}
+  </div>
+);
+
+/** The common name / description / symbol / layout fields, shared by every input. */
 const CommonFields: React.FC<{block: BlockMap; editor: BlockEditorController; defaultName: string; supportsWide: boolean}> = ({
   block,
   editor,
@@ -87,33 +177,7 @@ const CommonFields: React.FC<{block: BlockMap; editor: BlockEditorController; de
   supportsWide,
 }) => (
   <>
-    <ConfigField label="Variable name" hint="The symbol formulas and charts reference — derived from the display name unless you set it here.">
-      <ConfigInput
-        mono
-        value={blockProp<string>(block, 'name') ?? ''}
-        placeholder={varNameFromLabel(blockProp<string>(block, 'label') ?? '') || defaultName}
-        readOnly={editor.readOnly}
-        spellCheck={false}
-        aria-label="Variable name"
-        onChange={(e) => kitSet(editor, block, 'name', e.target.value.trim())}
-      />
-    </ConfigField>
-    <ConfigField label="Display name" hint="Shown to readers; also derives the variable name.">
-      <ConfigInput
-        value={blockProp<string>(block, 'label') ?? ''}
-        readOnly={editor.readOnly}
-        aria-label="Display name"
-        onChange={(e) => kitSet(editor, block, 'label', e.target.value)}
-      />
-    </ConfigField>
-    <ConfigField label="Description">
-      <ConfigTextarea
-        value={blockProp<string>(block, 'description') ?? ''}
-        readOnly={editor.readOnly}
-        aria-label="Description"
-        onChange={(e) => kitSet(editor, block, 'description', e.target.value)}
-      />
-    </ConfigField>
+    <NameDescriptionFields block={block} editor={editor} symbol defaultName={defaultName} namePlaceholder={defaultName} />
     {supportsWide && (
       <label className="flex cursor-pointer items-center justify-between gap-3">
         <span className="flex flex-col">
@@ -209,7 +273,16 @@ export const KitFrame: React.FC<KitFrameProps> = ({
             ariaLabel="Display name"
             onCommit={(v) => kitSet(editor, block, 'label', v)}
           />
-          {description && <span className="obe-kit-desc">{description}</span>}
+          {(!editor.readOnly || description) && (
+            <KitInlineText
+              className="obe-kit-desc obe-kit-desc-edit"
+              value={description ?? ''}
+              placeholder="Add a description…"
+              readOnly={editor.readOnly}
+              ariaLabel="Description"
+              onCommit={(v) => kitSet(editor, block, 'description', v)}
+            />
+          )}
         </span>
       )}
       {control}

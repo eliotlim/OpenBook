@@ -29,20 +29,37 @@ export const slugify = (s: string): string =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
+// Reserved words can't be used as a binding name in `new Function(name, …)`
+// (the reactive engine), so a label that camelCases to one gets a trailing `_`.
+const RESERVED_WORDS = new Set([
+  'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else',
+  'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof',
+  'new', 'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void',
+  'while', 'with', 'let', 'static', 'yield', 'await', 'async', 'implements', 'interface', 'package',
+  'private', 'protected', 'public', 'arguments', 'eval',
+]);
+
 /**
- * A valid JS-identifier variable name derived from a display label, so an
- * input the reader knows as "Dark mode" publishes as `darkMode` without the
- * author ever opening the config. camelCase; a leading digit is prefixed with
- * `_`; an empty/symbol-only label yields ''. The reactive engine references
- * these (`new Function(name, …)`), so the result is always a legal identifier.
+ * Turn ANY free-text display label into a valid TypeScript identifier, so a
+ * reader-facing name like "Tax rate (2024) 💰" still publishes a usable symbol
+ * (`taxRate2024`) with the author never touching the config. The rules, in
+ * order: fold accents to ASCII ("Café" → "Cafe"); split on every run of
+ * non-identifier characters and camelCase the words; prefix a leading digit
+ * with `_`; suffix a reserved word with `_`. Returns '' only when nothing
+ * usable remains (the caller falls back to the block's default symbol). The
+ * reactive engine references these via `new Function(name, …)`, so the result
+ * is always legal.
  */
 export const varNameFromLabel = (label: string): string => {
-  const words = label.trim().split(/[^A-Za-z0-9]+/).filter(Boolean);
+  const folded = label.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+  const words = folded.split(/[^A-Za-z0-9]+/).filter(Boolean);
   if (words.length === 0) return '';
   const camel = words
     .map((w, i) => (i === 0 ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
     .join('');
-  return /^[0-9]/.test(camel) ? `_${camel}` : camel;
+  let name = /^[0-9]/.test(camel) ? `_${camel}` : camel;
+  if (RESERVED_WORDS.has(name)) name = `${name}_`;
+  return name;
 };
 
 /** The value an option actually publishes (explicit value, else slug of label). */

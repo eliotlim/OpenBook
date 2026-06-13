@@ -1306,6 +1306,53 @@ a.obe-mention {
 .obe-kit-inline:hover { border-color: hsl(var(--border) / 0.6); }
 .obe-kit-inline:focus { outline: none; border-color: hsl(var(--ring)); background: hsl(var(--card)); }
 .obe-kit-inline::placeholder { color: hsl(var(--muted-foreground) / 0.55); }
+
+/* The inline description edits in place (WYSIWYG). When it has text it always
+   shows; while empty, its "Add a description…" prompt collapses away and only
+   unfurls when the block is hovered (or the field focused), so blocks stay
+   compact at rest. */
+.obe-kit-desc-edit {
+  overflow: hidden;
+  transition: max-height 140ms ease, opacity 140ms ease, border-color 120ms;
+}
+.obe-kit-desc-edit:placeholder-shown:not(:focus) {
+  max-height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.obe-kit:hover .obe-kit-desc-edit:placeholder-shown,
+.obe-kit-desc-edit:focus {
+  max-height: 1.5rem;
+  opacity: 0.6;
+  pointer-events: auto;
+}
+
+/* The de-emphasized reactive symbol in a config card: a muted "Variable `x`"
+   line that only reveals its "override" affordance on hover. */
+.obe-kit-symbol-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  align-self: flex-start;
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground) / 0.85);
+  cursor: pointer;
+}
+.obe-kit-symbol-hint:disabled { cursor: default; }
+.obe-kit-symbol-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--muted) / 0.6);
+  border: 1px solid hsl(var(--border) / 0.6);
+  border-radius: 5px;
+  padding: 0.05rem 0.3rem;
+}
+.obe-kit-symbol-edit {
+  color: hsl(var(--primary));
+  opacity: 0;
+  transition: opacity 120ms;
+}
+.obe-kit-symbol-hint:hover .obe-kit-symbol-edit { opacity: 1; }
 .obe-kit-spacer { flex: 1; }
 /* The settings gear sits at the block's top-right, invisible until the block is
    hovered/focused (or its popover is open). Same affordance for every kit block;
@@ -1552,7 +1599,7 @@ a.obe-mention {
 
 /* Chart */
 .obe-kit-chart { display: block; margin: 0.25rem 0; }
-.obe-kit-chart-head { display: flex; align-items: center; min-height: 1.4rem; }
+.obe-kit-chart-head { display: flex; flex-direction: column; align-items: flex-start; gap: 0.05rem; min-height: 1.4rem; }
 .obe-kit-chart-title { font-size: 0.82rem; font-weight: 550; color: hsl(var(--muted-foreground)); }
 .obe-chart-svg {
   display: block;

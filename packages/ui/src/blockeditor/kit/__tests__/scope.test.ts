@@ -49,6 +49,25 @@ describe('varNameFromLabel', () => {
     expect(varNameFromLabel('2 things')).toBe('_2Things');
     expect(varNameFromLabel('   ')).toBe('');
   });
+
+  it('survives gnarly free text → still valid TypeScript', () => {
+    // Punctuation + numbers + an emoji all collapse to camelCase.
+    expect(varNameFromLabel('Tax rate (2024) 💰')).toBe('taxRate2024');
+    // Accents fold to ASCII.
+    expect(varNameFromLabel('Café value')).toBe('cafeValue');
+    expect(varNameFromLabel('Sales — Q1')).toBe('salesQ1');
+    // Nothing usable → empty (caller falls back to the default symbol).
+    expect(varNameFromLabel('💰💰')).toBe('');
+    expect(varNameFromLabel('— / —')).toBe('');
+  });
+
+  it('escapes reserved words so the reactive engine can bind them', () => {
+    expect(varNameFromLabel('Class')).toBe('class_');
+    expect(varNameFromLabel('new')).toBe('new_');
+    expect(varNameFromLabel('Default')).toBe('default_');
+    // A reserved word as one of several words is fine (only the whole match matters).
+    expect(varNameFromLabel('class name')).toBe('className');
+  });
 });
 
 describe('publishedName', () => {

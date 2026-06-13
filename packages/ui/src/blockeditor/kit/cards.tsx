@@ -3,7 +3,7 @@ import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
 import {computeScope, evalExpr, formatValue} from './scope';
-import {ConfigField, ConfigInput, KitInlineText} from './KitFrame';
+import {ConfigField, ConfigInput, KitInlineText, NameDescriptionFields} from './KitFrame';
 import {KitSettings} from './KitSettings';
 
 /**
@@ -143,12 +143,7 @@ const LinkCardBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
       </a>
       <KitSettings blockId={blockId(block)} title={title || 'Link card'}>
         <div className="flex flex-col gap-3">
-          <ConfigField label="Title">
-            <ConfigInput value={title} readOnly={editor.readOnly} aria-label="Card title" onChange={(e) => set(editor, block, 'title', e.target.value)} />
-          </ConfigField>
-          <ConfigField label="Text">
-            <ConfigInput value={description} readOnly={editor.readOnly} aria-label="Card description" onChange={(e) => set(editor, block, 'description', e.target.value)} />
-          </ConfigField>
+          <NameDescriptionFields block={block} editor={editor} nameKey="title" namePlaceholder="Untitled" />
           <ConfigField label="URL">
             <ConfigInput value={url} readOnly={editor.readOnly} aria-label="Card URL" placeholder="https://…" spellCheck={false} onChange={(e) => set(editor, block, 'url', e.target.value)} />
           </ConfigField>

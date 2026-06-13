@@ -1,8 +1,9 @@
 import {describe, it, expect, afterEach} from 'vitest';
-import {render, screen, cleanup, within} from '@testing-library/react';
+import {render, screen, cleanup, within, fireEvent} from '@testing-library/react';
 import {createDoc, rootBlocks, type BlockMap} from '../../model';
 import type {BlockEditorController} from '../../useBlockEditor';
 import {INPUT_BLOCKS} from '../inputs';
+import {NameDescriptionFields} from '../KitFrame';
 import {hasKitConfig} from '../kitConfig';
 
 /** Render a kit input block with a minimal (non-interactive) editor stub. */
@@ -52,5 +53,32 @@ describe('kit input rendering', () => {
   it('registers a config opener so the context menu can "Configure" it', () => {
     renderInput('radio', {name: 'mode', opts: [{label: 'One'}]});
     expect(hasKitConfig('x')).toBe(true); // the block id used by renderInput
+  });
+});
+
+describe('NameDescriptionFields building block', () => {
+  it('pairs display name + description and keeps the variable name de-emphasized', () => {
+    const doc = createDoc([{id: 'x', type: 'slider', props: {label: 'Dark mode'}}]);
+    const block = rootBlocks(doc).get(0);
+    const editor = {doc, readOnly: false} as unknown as BlockEditorController;
+    render(<NameDescriptionFields block={block} editor={editor} symbol defaultName="n" namePlaceholder="n" />);
+
+    expect(screen.getByLabelText('Display name')).toBeTruthy();
+    expect(screen.getByLabelText('Description')).toBeTruthy();
+    // The reactive symbol is a quiet hint (derived from the label), not a field…
+    expect(screen.queryByLabelText('Variable name')).toBeNull();
+    expect(screen.getByText('darkMode')).toBeTruthy();
+    // …until you choose to override it.
+    fireEvent.click(screen.getByText('darkMode'));
+    expect(screen.getByLabelText('Variable name')).toBeTruthy();
+  });
+
+  it('omits the variable-name hint for non-symbol cards (charts, link cards)', () => {
+    const doc = createDoc([{id: 'c', type: 'kitchart', props: {title: 'Growth'}}]);
+    const block = rootBlocks(doc).get(0);
+    const editor = {doc, readOnly: false} as unknown as BlockEditorController;
+    render(<NameDescriptionFields block={block} editor={editor} nameKey="title" />);
+    expect(screen.getByDisplayValue('Growth')).toBeTruthy();
+    expect(screen.queryByText('Variable')).toBeNull();
   });
 });
