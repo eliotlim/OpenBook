@@ -1046,6 +1046,14 @@ a.obe-mention {
   overflow: hidden;
 }
 .obe-slash-active { background: hsl(var(--accent)); }
+/* Per-command icon describing what the block does. */
+.obe-slash-icon {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex-shrink: 0;
+  color: hsl(var(--muted-foreground));
+}
+.obe-slash-active .obe-slash-icon { color: hsl(var(--foreground)); }
 /* Category headers between groups of slash commands. */
 .obe-slash-group {
   padding: 0.45rem 0.6rem 0.2rem;
@@ -1228,21 +1236,28 @@ a.obe-mention {
 }
 .obe-kit-spacer { flex: 1; }
 .obe-kit-gear {
-  border: none;
-  background: transparent;
-  color: hsl(var(--muted-foreground) / 0.45);
-  font-size: 0.85rem;
-  line-height: 1;
-  padding: 0.2rem;
-  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid hsl(var(--border) / 0.7);
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  padding: 0.28rem;
+  border-radius: 7px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 120ms, color 120ms;
+  /* Visible at rest (just dimmed) so the settings affordance is obvious. */
+  opacity: 0.7;
+  transition: opacity 120ms, color 120ms, background 120ms, border-color 120ms;
 }
 .obe-kit:hover .obe-kit-gear,
 .obe-kit:focus-within .obe-kit-gear,
 .obe-kit-gear-on { opacity: 1; }
-.obe-kit-gear:hover, .obe-kit-gear-on { color: hsl(var(--foreground)); }
+.obe-kit-gear:hover, .obe-kit-gear-on {
+  color: hsl(var(--foreground));
+  background: hsl(var(--accent));
+  border-color: hsl(var(--border));
+  opacity: 1;
+}
 .obe-kit-config {
   flex-basis: 100%;
   display: flex;

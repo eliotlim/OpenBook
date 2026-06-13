@@ -3,6 +3,7 @@ import {render, screen, cleanup, within} from '@testing-library/react';
 import {createDoc, rootBlocks, type BlockMap} from '../../model';
 import type {BlockEditorController} from '../../useBlockEditor';
 import {INPUT_BLOCKS} from '../inputs';
+import {hasKitConfig} from '../kitConfig';
 
 /** Render a kit input block with a minimal (non-interactive) editor stub. */
 function renderInput(type: string, props: Record<string, unknown>) {
@@ -44,5 +45,10 @@ describe('kit input rendering', () => {
     // The header shows the friendly label, not the `darkMode` symbol.
     expect(screen.getByText('Dark mode')).toBeTruthy();
     expect(screen.queryByText('darkMode')).toBeNull();
+  });
+
+  it('registers a config opener so the context menu can "Configure" it', () => {
+    renderInput('radio', {name: 'mode', opts: [{label: 'One'}]});
+    expect(hasKitConfig('x')).toBe(true); // the block id used by renderInput
   });
 });

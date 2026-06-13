@@ -1,9 +1,10 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import {Cog, PanelRight, X} from 'lucide-react';
-import {blockProp, setBlockProp, type BlockMap} from '../model';
+import {Settings2, PanelRight, X} from 'lucide-react';
+import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {registerKitConfig} from './kitConfig';
 
 /**
  * The shared chrome for every artifact-kit input: a quiet header (display name
@@ -129,6 +130,13 @@ export const KitFrame: React.FC<KitFrameProps> = ({
   symbol = true,
 }) => {
   const [panel, setPanel] = useState(false);
+  const [open, setOpen] = useState(false);
+
+  // Let the block context menu's "Configure" item open this popover (deferred a
+  // tick so the closing context menu doesn't immediately steal it back).
+  const id = blockId(block);
+  useEffect(() => registerKitConfig(id, () => setTimeout(() => setOpen(true), 0)), [id]);
+
   const name = blockProp<string>(block, 'name') || defaultName;
   const label = blockProp<string>(block, 'label') || name;
   const description = blockProp<string>(block, 'description');
@@ -156,10 +164,10 @@ export const KitFrame: React.FC<KitFrameProps> = ({
       {control}
       <span className="obe-kit-spacer" />
 
-      <Popover>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button type="button" className="obe-kit-gear" aria-label="Configure block">
-            <Cog className="h-3.5 w-3.5" />
+          <button type="button" className="obe-kit-gear" aria-label="Configure block" title="Configure">
+            <Settings2 className="h-4 w-4" />
           </button>
         </PopoverTrigger>
         <PopoverContent align="end" className="w-72">

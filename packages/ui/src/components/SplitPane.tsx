@@ -1,10 +1,11 @@
 import {useCallback, useRef, useState} from 'react';
-import {X} from 'lucide-react';
+import {Maximize2, PanelRightClose} from 'lucide-react';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {IconButton} from '@/components/ui/icon-button';
+import PageActionsCluster from '@/components/PageActionsCluster';
 import {ConnectedPageDocument, DataflowView, HomeScreen} from '@/screens';
 import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
-import {useNavigation, useTranslation} from '@/providers';
+import {useNavigation} from '@/providers';
 import {cn} from '@/lib/utils';
 
 /**
@@ -15,8 +16,7 @@ import {cn} from '@/lib/utils';
  * the full editing surface.
  */
 export function SplitPane() {
-  const {panes, focusedPaneId, splitOpen, focusPane, closePane} = useNavigation();
-  const {t} = useTranslation();
+  const {panes, focusedPaneId, splitOpen, focusPane, closeSplit, closePane} = useNavigation();
   // Pane width in px; the drag clamps it between a readable minimum and most
   // of the window, so the primary document never collapses entirely.
   const [width, setWidth] = useState(() => (typeof window === 'undefined' ? 480 : Math.min(560, Math.round(window.innerWidth * 0.42))));
@@ -53,11 +53,12 @@ export function SplitPane() {
   if (!splitOpen || panes.length < 2) return null;
   const pane = panes[1];
   const focused = pane.id === focusedPaneId;
+  const isFlow = pane.pageId === FLOW_PANE_ID;
 
   return (
     <aside
       data-split-pane
-      aria-label={t('command.splitView')}
+      aria-label="Split view"
       style={{width}}
       onMouseDownCapture={() => focusPane(pane.id)}
       className={cn(
@@ -76,10 +77,25 @@ export function SplitPane() {
         aria-orientation="vertical"
         className="absolute inset-y-0 -left-0.5 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"
       />
-      <div className="flex h-9 shrink-0 items-center justify-end border-b border-border px-1.5">
-        <IconButton size="sm" onClick={() => closePane(pane.id)} aria-label={t('command.closeSplit')} title={t('command.closeSplit')}>
-          <X className="h-3.5 w-3.5" />
-        </IconButton>
+      {/* The split pane owns its page's chrome: hide / expand on the left, and
+          the page-actions cluster ("…" menu + status/copy/star) on the right. */}
+      <div className="flex h-9 shrink-0 items-center justify-between gap-1 border-b border-border px-1.5">
+        <div className="flex items-center gap-0.5">
+          <IconButton size="sm" onClick={() => closeSplit()} aria-label="Hide split pane" title="Hide split pane">
+            <PanelRightClose className="h-3.5 w-3.5" />
+          </IconButton>
+          {!isFlow && (
+            <IconButton
+              size="sm"
+              onClick={() => closePane('primary')}
+              aria-label="Make this the main pane"
+              title="Make this the main pane"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+            </IconButton>
+          )}
+        </div>
+        {!isFlow && <PageActionsCluster pageId={pane.pageId} />}
       </div>
       {pane.pageId === FLOW_PANE_ID ? (
         // react-flow owns its own pan/zoom viewport — no ScrollArea around it.

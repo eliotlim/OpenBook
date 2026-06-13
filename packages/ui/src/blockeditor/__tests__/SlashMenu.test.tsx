@@ -51,4 +51,10 @@ describe('SlashMenu grouping', () => {
     expect(screen.getByText('Link to page')).toBeTruthy();
     expect(screen.getByText('Link to database')).toBeTruthy();
   });
+
+  it('renders an icon for each command (#3)', () => {
+    const {container} = renderMenu('parent-page');
+    const item = container.querySelector('.obe-slash-item');
+    expect(item?.querySelector('svg.obe-slash-icon')).toBeTruthy();
+  });
 });

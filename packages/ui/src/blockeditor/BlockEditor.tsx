@@ -52,6 +52,7 @@ import {
 import {TextBlockView} from './TextBlockView';
 import {SlashMenu, type SlashState} from './SlashMenu';
 import {LinkPicker} from './LinkPicker';
+import {hasKitConfig, openKitConfig} from './kit/kitConfig';
 import type {PageLinkResult} from '@/lib/pageLinks';
 import {InlineToolbar, type ToolbarState} from './InlineToolbar';
 import {useBlockEditor, type BlockEditorController} from './useBlockEditor';
@@ -784,6 +785,13 @@ const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> =
   const ops = blockOps(editor, id);
   return (
     <ContextMenuContent className="w-44">
+      {/* Interactive blocks expose their settings popover right from the menu. */}
+      {hasKitConfig(id) && (
+        <>
+          <ContextMenuItem onSelect={() => openKitConfig(id)}>Configure…</ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      )}
       {isText && (
         <>
           <ContextMenuSub>

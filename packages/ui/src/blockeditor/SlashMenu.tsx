@@ -1,10 +1,49 @@
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {
+  Activity,
+  BarChart3,
+  Boxes,
+  ChevronDown,
+  Code2,
+  Columns2,
+  Columns3,
+  Database,
+  ExternalLink,
+  FilePlus2,
+  FileText,
+  Hash,
+  Heading1,
+  Heading2,
+  Heading3,
+  Info,
+  Link2,
+  List,
+  ListChecks,
+  ListOrdered,
+  ListTodo,
+  MapPin,
+  MessageCircle,
+  Minus,
+  MousePointerClick,
+  Puzzle,
+  Quote,
+  Sigma,
+  SlidersHorizontal,
+  Sparkles,
+  Table,
+  Table2,
+  TextCursorInput,
+  ToggleLeft,
+  Type,
+} from 'lucide-react';
 import {blockText, blockType, findBlock, makeTable, type BlockType, type NewBlock} from './model';
 import {customSlashItems} from './registry';
 import {aiSlashItems} from './aiBlocks';
 import {pageLinks, type SubpageKind} from '@/lib/pageLinks';
 import {t, type TKey} from '../i18n';
 import type {BlockEditorController} from './useBlockEditor';
+
+type IconComp = React.ComponentType<{className?: string}>;
 
 /**
  * The “/” command menu: filters as the user keeps typing after the slash,
@@ -43,7 +82,27 @@ interface SlashItem {
   apply: (editor: BlockEditorController, blockId: string) => void;
   /** When set, the command opens the link picker instead of applying inline. */
   picker?: 'page' | 'database';
+  icon?: IconComp;
 }
+
+// Icons that describe each command visually. Core/page items key by item id;
+// custom blocks key by block type; everything else falls back per group.
+const ID_ICONS: Record<string, IconComp> = {
+  text: Type, h1: Heading1, h2: Heading2, h3: Heading3,
+  bullet: List, number: ListOrdered, todo: ListTodo, quote: Quote,
+  callout: Info, code: Code2, livecode: Sigma, divider: Minus,
+  table: Table, cols2: Columns2, cols3: Columns3, cols4: Columns3,
+  newpage: FilePlus2, newdatabase: Table2, linkpage: Link2, linkdatabase: Database,
+};
+const TYPE_ICONS: Record<string, IconComp> = {
+  slider: SlidersHorizontal, number: Hash, textfield: TextCursorInput,
+  radio: ListChecks, checklist: ListChecks, dropdown: ChevronDown,
+  toggle: ToggleLeft, location: MapPin, actionbutton: MousePointerClick,
+  kitchart: BarChart3, statuslight: Activity, tooltipcard: MessageCircle, linkcard: ExternalLink,
+};
+const GROUP_ICON: Record<SlashGroup, IconComp> = {
+  pages: FileText, basic: Type, interactive: Boxes, extensions: Puzzle, ai: Sparkles,
+};
 
 const turn =
   (type: BlockType, props?: Record<string, unknown>) =>
@@ -167,15 +226,20 @@ export const SlashMenu: React.FC<{
       ...item,
       label: tr(`slash.${item.id}.label`, item.label),
       hint: tr(`slash.${item.id}.hint`, item.hint),
+      icon: ID_ICONS[item.id] ?? GROUP_ICON[item.group],
     }));
-    const custom: SlashItem[] = customSlashItems().map((def) => ({
-      id: `custom-${def.type}`,
-      label: tr(`slash.custom.${def.type}.label`, def.slash!.label),
-      hint: tr(`slash.custom.${def.type}.hint`, def.slash!.hint),
-      keywords: def.slash!.keywords,
-      group: def.slash!.group ?? 'extensions',
-      apply: insertAfterOrReplace(() => def.slash!.make()),
-    }));
+    const custom: SlashItem[] = customSlashItems().map((def) => {
+      const group = def.slash!.group ?? 'extensions';
+      return {
+        id: `custom-${def.type}`,
+        label: tr(`slash.custom.${def.type}.label`, def.slash!.label),
+        hint: tr(`slash.custom.${def.type}.hint`, def.slash!.hint),
+        keywords: def.slash!.keywords,
+        group,
+        apply: insertAfterOrReplace(() => def.slash!.make()),
+        icon: TYPE_ICONS[def.type] ?? GROUP_ICON[group],
+      };
+    });
     const ai: SlashItem[] = aiSlashItems().map((item) => ({
       id: item.id,
       label: tr(`slash.${item.id}.label`, item.label),
@@ -183,6 +247,7 @@ export const SlashMenu: React.FC<{
       keywords: item.keywords,
       group: 'ai',
       apply: item.apply,
+      icon: GROUP_ICON.ai,
     }));
     return [...core, ...custom, ...ai]
       .filter((item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q))
@@ -298,6 +363,7 @@ export const SlashMenu: React.FC<{
                 pick(item);
               }}
             >
+              {item.icon && <item.icon className="obe-slash-icon" />}
               <span className="obe-slash-label">{item.label}</span>
             </button>
           </React.Fragment>

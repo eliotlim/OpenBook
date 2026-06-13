@@ -1,6 +1,6 @@
 import {useSyncExternalStore} from 'react';
 import {Link2, Star} from 'lucide-react';
-import {useNavigation, useTranslation} from '@/providers';
+import {useTranslation} from '@/providers';
 import {IconButton} from '@/components/ui/icon-button';
 import NavContextMenu from '@/components/NavContextMenu';
 import {copyPageLink} from '@/lib/pageActions';
@@ -18,21 +18,15 @@ const STATUS_LABEL: Record<string, TKey | ''> = {
 };
 
 /**
- * The page-actions cluster at the top-right of the window: last-saved status,
- * a copy-link button, a favourite star, then the "…" actions menu. It targets
- * the **right pane's page when the split view is open** (else the focused page),
- * so the cluster always acts on the page the user is looking at on the right.
- *
- * Placement is the shell's call: the titlebar on desktop, the nav bar on web.
+ * The page-actions cluster for one page: last-saved status, a copy-link button,
+ * a favourite star, then the "…" actions menu. It acts on the given
+ * {@link pageId}, so the nav bar mounts one for the primary page and the split
+ * pane mounts its own for the right pane — each owns its page's actions.
  */
-export default function PageActionsCluster() {
-  const {currentPageId, panes, splitOpen} = useNavigation();
+export default function PageActionsCluster({pageId}: {pageId: string | null}) {
   const {t} = useTranslation();
 
-  // The split view's secondary page wins; fall back to the focused page. The
-  // flow pane isn't a page, so it never becomes the target.
-  const right = splitOpen ? panes[1]?.pageId : undefined;
-  const targetPageId = right && right !== FLOW_PANE_ID ? right : currentPageId;
+  const targetPageId = pageId;
   const actionable = !!targetPageId && targetPageId !== HOME_PAGE_ID && targetPageId !== FLOW_PANE_ID;
 
   useSyncExternalStore(subscribePageSaveStatus, pageSaveStatusVersion, pageSaveStatusVersion);
