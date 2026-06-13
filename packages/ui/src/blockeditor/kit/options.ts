@@ -13,12 +13,20 @@ import {blockProp, type BlockMap} from '../model';
 export interface KitOption {
   label: string;
   value: string;
+  /** Choice-card media (optional): a cover image (URL or data URL), an
+   *  icon/emoji, or a palette colour token shown when no image is set. */
+  image?: string;
+  icon?: string;
+  color?: string;
 }
 
 /** Stored option (value may be blank → falls back to a slug of the label). */
 interface RawOption {
   label: string;
   value?: string;
+  image?: string;
+  icon?: string;
+  color?: string;
 }
 
 /** A URL/identifier-friendly slug of a label ("Option 1" → "option-1"). */
@@ -85,21 +93,30 @@ export function rawOptions(props: {opts?: unknown; options?: unknown}): RawOptio
   if (Array.isArray(props.opts)) {
     return props.opts
       .filter((o): o is RawOption => !!o && typeof (o as RawOption).label === 'string')
-      .map((o) => ({label: o.label, value: o.value}));
+      .map((o) => ({label: o.label, value: o.value, image: o.image, icon: o.icon, color: o.color}));
   }
   if (typeof props.options === 'string') return parseOptionsString(props.options);
   return [];
 }
 
+/** Carry the optional media fields onto the resolved option (drops empties). */
+const withMedia = (o: RawOption, value: string): KitOption => ({
+  label: o.label,
+  value,
+  ...(o.image ? {image: o.image} : {}),
+  ...(o.icon ? {icon: o.icon} : {}),
+  ...(o.color ? {color: o.color} : {}),
+});
+
 /** Fully-resolved options (every value non-empty) for rendering + publishing. */
 export function resolveOptions(block: BlockMap): KitOption[] {
   const raw = rawOptions({opts: blockProp<unknown>(block, 'opts'), options: blockProp<unknown>(block, 'options')});
-  return raw.map((o) => ({label: o.label, value: optionValue(o)}));
+  return raw.map((o) => withMedia(o, optionValue(o)));
 }
 
 /** Same resolution from a plain props bag (export path). */
 export function resolveOptionsFromProps(props: Record<string, unknown>): KitOption[] {
-  return rawOptions(props).map((o) => ({label: o.label, value: optionValue(o)}));
+  return rawOptions(props).map((o) => withMedia(o, optionValue(o)));
 }
 
 /** Map a stored value back to its display label (falls back to the value). */

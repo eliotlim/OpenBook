@@ -1,6 +1,7 @@
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {
   Activity,
+  AlignLeft,
   BarChart3,
   Boxes,
   ChevronDown,
@@ -11,11 +12,13 @@ import {
   ExternalLink,
   FilePlus2,
   FileText,
+  GalleryHorizontalEnd,
   Hash,
   Heading1,
   Heading2,
   Heading3,
   Info,
+  LayoutList,
   Link2,
   List,
   ListChecks,
@@ -25,14 +28,18 @@ import {
   MessageCircle,
   Minus,
   MousePointerClick,
+  PanelTop,
   Puzzle,
   Quote,
+  Search,
   Sigma,
   SlidersHorizontal,
   Sparkles,
   Table,
   Table2,
+  Tag,
   TextCursorInput,
+  TextQuote,
   ToggleLeft,
   Type,
 } from 'lucide-react';
@@ -92,6 +99,7 @@ const ID_ICONS: Record<string, IconComp> = {
   bullet: List, number: ListOrdered, todo: ListTodo, quote: Quote,
   callout: Info, code: Code2, livecode: Sigma, divider: Minus,
   table: Table, cols2: Columns2, cols3: Columns3, cols4: Columns3, group: Boxes,
+  tabs: PanelTop, accordion: LayoutList,
   newpage: FilePlus2, newdatabase: Table2, linkpage: Link2, linkdatabase: Database,
 };
 const TYPE_ICONS: Record<string, IconComp> = {
@@ -99,6 +107,9 @@ const TYPE_ICONS: Record<string, IconComp> = {
   radio: ListChecks, checklist: ListChecks, dropdown: ChevronDown,
   toggle: ToggleLeft, location: MapPin, actionbutton: MousePointerClick,
   kitchart: BarChart3, statuslight: Activity, tooltipcard: MessageCircle, linkcard: ExternalLink,
+  // June-2026 additions
+  choicecards: GalleryHorizontalEnd, longtext: AlignLeft, richtext: TextQuote,
+  searchselect: Search, tagfield: Tag, progressbar: Activity,
 };
 const GROUP_ICON: Record<SlashGroup, IconComp> = {
   pages: FileText, basic: Type, interactive: Boxes, extensions: Puzzle, ai: Sparkles,
@@ -188,6 +199,8 @@ export const SLASH_ITEMS: SlashItem[] = [
   {id: 'code', label: 'Code', hint: 'Monospaced block', keywords: 'code snippet', group: 'basic', apply: turn('code')},
   {id: 'livecode', label: 'Live code', hint: 'Computes over inputs; name the output to chain', keywords: 'livecode live code formula compute expr reactive calculation', group: 'interactive', apply: turn('code', {live: true, name: 'result', language: 'js'})},
   {id: 'group', label: 'Group', hint: 'Lockable, syncable container that namespaces its inputs', keywords: 'group container section lock sync namespace box organise organize', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'group', props: {name: ''}, children: [{type: 'paragraph'}]}))},
+  {id: 'tabs', label: 'Tabs', hint: 'Tabbed sections with auto completion and optional gating', keywords: 'tabs tabbed sections wizard steps completion gating container', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'tabs', props: {name: '', active: 0}, children: [{type: 'tab', props: {label: 'Tab 1'}, children: [{type: 'paragraph'}]}, {type: 'tab', props: {label: 'Tab 2'}, children: [{type: 'paragraph'}]}]}))},
+  {id: 'accordion', label: 'Accordion', hint: 'Collapsible checklist sections with auto completion and gating', keywords: 'accordion collapse sections checklist wizard stages completion gating container fold', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'accordion', props: {name: ''}, children: [{type: 'accordionsection', props: {label: 'Section 1'}, children: [{type: 'paragraph'}]}, {type: 'accordionsection', props: {label: 'Section 2', collapsed: true}, children: [{type: 'paragraph'}]}]}))},
   {id: 'divider', label: 'Divider', hint: 'Horizontal rule', keywords: 'divider rule hr line', group: 'basic', apply: insertAfterOrReplace(() => ({type: 'divider'}))},
   {id: 'table', label: 'Table', hint: '3 × 3 to start', keywords: 'table grid cells', group: 'basic', apply: insertAfterOrReplace(() => makeTable(3, 3))},
   {id: 'cols2', label: '2 columns', hint: 'Side-by-side layout', keywords: 'columns layout two 2', group: 'basic', apply: insertAfterOrReplace(() => columns(2))},

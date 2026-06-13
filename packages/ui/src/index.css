@@ -1901,6 +1901,294 @@ a.obe-mention {
 .obe-kit-linkcard-desc { font-size: 0.82rem; color: hsl(var(--muted-foreground)); }
 .obe-kit-linkcard-url { font-size: 0.74rem; color: hsl(var(--muted-foreground) / 0.7); }
 
+/* ── June-2026 kit inputs ──────────────────────────────────────────────────── */
+
+/* Choice cards: a grid of selectable cards with an image/icon/colour cover. */
+.obe-kit-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.5rem;
+  width: 100%;
+}
+.obe-kit-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.4rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  background: hsl(var(--card));
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 120ms, box-shadow 120ms;
+}
+.obe-kit-card:hover:not(:disabled) { border-color: hsl(var(--ring)); }
+.obe-kit-card-on { border-color: hsl(var(--primary)); box-shadow: 0 0 0 1px hsl(var(--primary)); }
+.obe-kit-card:disabled { opacity: 0.55; cursor: default; }
+.obe-kit-card-cover {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  border-radius: 6px;
+  background-size: cover;
+  background-position: center;
+  background-color: hsl(var(--muted) / 0.6);
+}
+.obe-kit-card-cover-empty { border: 1px dashed hsl(var(--border)); background-color: transparent; }
+.obe-kit-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+}
+.obe-kit-card-label { font-size: 0.82rem; font-weight: 550; line-height: 1.2; }
+.obe-kit-card-tick {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+
+/* Long text: an auto-growing textarea. */
+.obe-kit-longtext {
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: hsl(var(--foreground));
+}
+.obe-kit-longtext:focus { outline: none; border-color: hsl(var(--ring)); }
+
+/* Rich text: a contentEditable surface with a tiny formatting bar. */
+.obe-kit-richtext { width: 100%; display: flex; flex-direction: column; gap: 0.3rem; }
+.obe-kit-richtext-bar { display: flex; gap: 0.2rem; }
+.obe-kit-richtext-btn {
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 120ms;
+}
+.obe-kit-richtext-btn:hover { border-color: hsl(var(--ring)); color: hsl(var(--foreground)); }
+.obe-kit-richtext-b { font-weight: 700; }
+.obe-kit-richtext-i { font-style: italic; }
+.obe-kit-richtext-u { text-decoration: underline; }
+.obe-kit-richtext-body {
+  min-height: 3rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  outline: none;
+}
+.obe-kit-richtext-body:focus { border-color: hsl(var(--ring)); }
+.obe-kit-richtext-body:empty::before {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground) / 0.55);
+}
+
+/* Searchable select trigger (the popover surface is Radix Command). */
+.obe-kit-searchtrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 11rem;
+  max-width: 100%;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  padding: 0.3rem 0.6rem;
+  font-size: 0.88rem;
+  color: hsl(var(--foreground));
+  cursor: pointer;
+  transition: border-color 120ms;
+}
+.obe-kit-searchtrigger:hover:not(:disabled) { border-color: hsl(var(--ring)); }
+.obe-kit-searchtrigger:disabled { opacity: 0.6; cursor: default; }
+.obe-kit-search-placeholder { color: hsl(var(--muted-foreground) / 0.7); }
+
+/* Tag field: chips + a free-entry input. */
+.obe-kit-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--card));
+  padding: 0.3rem 0.4rem;
+  min-height: 2rem;
+}
+.obe-kit-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border-radius: 999px;
+  background: hsl(var(--muted) / 0.7);
+  padding: 0.1rem 0.2rem 0.1rem 0.55rem;
+  font-size: 0.8rem;
+}
+.obe-kit-tag-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+.obe-kit-tag-x:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.obe-kit-tag-entry { flex: 1; min-width: 4rem; }
+.obe-kit-tag-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.85rem;
+  outline: none;
+  color: hsl(var(--foreground));
+}
+.obe-kit-tag-input::placeholder { color: hsl(var(--muted-foreground) / 0.6); }
+
+/* Progress bar (display, no published value). */
+.obe-kit-progress { flex-direction: column; align-items: stretch; gap: 0.3rem; }
+.obe-kit-progress-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.obe-kit-progress-label { font-size: 0.85rem; font-weight: 550; }
+.obe-kit-progress-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  color: hsl(var(--muted-foreground));
+}
+.obe-kit-progress-track {
+  display: block;
+  height: 0.55rem;
+  border-radius: 999px;
+  background: hsl(var(--muted) / 0.7);
+  overflow: hidden;
+}
+.obe-kit-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: hsl(var(--primary));
+  transition: width 200ms ease;
+}
+
+/* ── Tabs & accordion containers ───────────────────────────────────────────── */
+.obe-cnt {
+  display: block;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  margin: 0.25rem 0;
+  overflow: hidden;
+}
+.obe-cnt-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  background: hsl(var(--muted) / 0.4);
+  border-bottom: 1px solid hsl(var(--border) / 0.7);
+}
+.obe-cnt-spacer { flex: 1; }
+.obe-cnt-panel { padding: 0.4rem 0.6rem; }
+.obe-cnt-panel.obe-cnt-locked, .obe-acc-section.obe-cnt-locked { opacity: 0.7; }
+.obe-cnt-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 6px;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.78rem;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: all 120ms;
+}
+.obe-cnt-add:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+
+.obe-tabs-strip { display: flex; align-items: center; gap: 0.2rem; flex-wrap: wrap; flex: 1; }
+.obe-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.84rem;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: all 120ms;
+}
+.obe-tab:hover:not(:disabled) { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.obe-tab-on {
+  background: hsl(var(--card));
+  border-color: hsl(var(--border));
+  color: hsl(var(--foreground));
+  font-weight: 550;
+}
+.obe-tab-locked { opacity: 0.55; cursor: default; }
+.obe-tab-label { font: inherit; }
+
+.obe-acc-section { border-bottom: 1px solid hsl(var(--border) / 0.6); }
+.obe-acc-section:last-child { border-bottom: none; }
+.obe-acc-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.5rem;
+}
+.obe-acc-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground));
+  border-radius: 5px;
+  cursor: pointer;
+}
+.obe-acc-toggle:hover:not(:disabled) { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.obe-acc-toggle:disabled { opacity: 0.5; cursor: default; }
+.obe-acc-label { font-size: 0.9rem; font-weight: 550; }
+.obe-acc-body { padding: 0.1rem 0.6rem 0.5rem 1.7rem; }
+.obe-acc-foot { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0.5rem; }
+
+/* Completion chip shared by tabs + accordion. */
+.obe-cnt-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.1rem;
+  height: 1.1rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: hsl(var(--muted) / 0.8);
+  color: hsl(var(--muted-foreground));
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+.obe-cnt-done { background: #10b981; color: #fff; }
+
 /* Live code: the footer bar (language · name · live switch) and output row */
 .obe-code-bar {
   display: flex;
@@ -1965,3 +2253,25 @@ a.obe-mention {
 /* Pages with content below the editor (a hosted database view) don't reserve
    the tall click-to-append zone — it would push that content below the fold. */
 .obe-root.obe-compact { padding-bottom: 0.75rem; }
+
+/* ── Database map view ──────────────────────────────────────────────────────
+   Marker-cluster count bubbles. We import MarkerCluster.css (structural only)
+   and skip MarkerCluster.Default.css, restyling the bubble to the warm-minimal
+   system here instead of Leaflet's default blue/green/orange. The divIcon
+   className replaces Leaflet's `.leaflet-div-icon` box, so the bubble is ours. */
+.ob-map-cluster-wrap { background: transparent; border: 0; }
+.ob-map-cluster {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  border: 1.5px solid hsl(var(--border));
+  box-shadow: 0 1px 3px hsl(var(--foreground) / 0.18);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.12s ease;
+}
+.ob-map-cluster-wrap:hover .ob-map-cluster { border-color: hsl(var(--ring) / 0.55); }

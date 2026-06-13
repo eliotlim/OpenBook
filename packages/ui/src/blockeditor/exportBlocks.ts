@@ -1,6 +1,8 @@
 import type {BlockJSON, InlineAttrs, TextRun} from './model';
 import {resolveOptionsFromProps} from './kit/options';
 
+// TextRun is referenced in the kit emit cases below.
+
 /**
  * Exporters over the JSON projection of a block document. Markdown for
  * portability; HTML for the standalone/interactive export (the obe-* class
@@ -26,6 +28,20 @@ function runToHtml(run: TextRun): string {
 
 const textHtml = (runs: TextRun[] | undefined): string => (runs ?? []).map(runToHtml).join('');
 
+/** The current value of a June-2026 kit input rendered as HTML (selection text
+ *  for the choosers, escaped/markup text for long/rich text). */
+function kitInputText(b: BlockJSON): string {
+  const p = b.props ?? {};
+  if (b.type === 'richtext') return Array.isArray(p.runs) ? textHtml(p.runs as TextRun[]) : '';
+  if (b.type === 'longtext') return textHtml([{t: String(p.value ?? '')}]);
+  // Choosers: map the selected value(s) to their option labels.
+  const opts = resolveOptionsFromProps(p);
+  const labelFor = (v: string): string => opts.find((o) => o.value === v)?.label ?? v;
+  const val = b.type === 'tagfield' || p.multi ? (Array.isArray(p.selected) ? p.selected : []) : (p.value ?? null);
+  const shown = Array.isArray(val) ? (val as string[]).map(labelFor).join(', ') : val ? labelFor(String(val)) : '—';
+  return textHtml([{t: shown}]);
+}
+
 function runToMd(run: TextRun): string {
   let out = run.t;
   const a: InlineAttrs = run.a ?? {};
@@ -38,6 +54,17 @@ function runToMd(run: TextRun): string {
 }
 
 const textMd = (runs: TextRun[] | undefined): string => (runs ?? []).map(runToMd).join('');
+
+/** The current value of a June-2026 kit input rendered as Markdown. */
+function kitInputMd(b: BlockJSON): string {
+  const p = b.props ?? {};
+  if (b.type === 'richtext') return Array.isArray(p.runs) ? textMd(p.runs as TextRun[]) : '';
+  if (b.type === 'longtext') return String(p.value ?? '');
+  const opts = resolveOptionsFromProps(p);
+  const labelFor = (v: string): string => opts.find((o) => o.value === v)?.label ?? v;
+  const val = b.type === 'tagfield' || p.multi ? (Array.isArray(p.selected) ? p.selected : []) : (p.value ?? null);
+  return Array.isArray(val) ? (val as string[]).map(labelFor).join(', ') : val ? labelFor(String(val)) : '—';
+}
 
 /** Render block JSON to clean semantic HTML (one string, no wrapper). */
 export function blocksToHtml(blocks: BlockJSON[]): string {
@@ -125,6 +152,33 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       i += 1;
       break;
     }
+    case 'tabs':
+    case 'accordion': {
+      // Each tab/section becomes a titled block (the static export has no
+      // interactive tab/accordion widget).
+      const sections = (b.children ?? [])
+        .map((s) => {
+          const label = String(s.props?.label ?? '').trim();
+          const head = label ? `<h3>${escapeHtml(label)}</h3>` : '';
+          return `<section class="obe-x-section">${head}${blocksToHtml(s.children ?? [])}</section>`;
+        })
+        .join('');
+      parts.push(`<section class="obe-x-${b.type}">${sections}</section>`);
+      i += 1;
+      break;
+    }
+    case 'choicecards':
+    case 'searchselect':
+    case 'tagfield':
+    case 'longtext':
+    case 'richtext': {
+      const label = String(b.props?.label ?? b.props?.name ?? '').trim();
+      const head = label ? `<strong>${escapeHtml(label)}:</strong> ` : '';
+      const body = kitInputText(b);
+      parts.push(`<p class="obe-x-kitvalue">${head}${body}</p>`);
+      i += 1;
+      break;
+    }
     default:
       parts.push(`<p>${textHtml(b.text) || '&nbsp;'}</p>`);
       i += 1;
@@ -192,6 +246,24 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
       out.push(blocksToMarkdown(b.children ?? []));
       break;
     }
+    case 'tabs':
+    case 'accordion':
+      for (const section of b.children ?? []) {
+        const label = String(section.props?.label ?? '').trim();
+        if (label) out.push(`### ${label}`);
+        out.push(blocksToMarkdown(section.children ?? []));
+      }
+      break;
+    case 'choicecards':
+    case 'searchselect':
+    case 'tagfield':
+    case 'longtext':
+    case 'richtext': {
+      const label = String(b.props?.label ?? b.props?.name ?? '').trim();
+      const body = kitInputMd(b);
+      out.push(label ? `**${label}:** ${body}` : body);
+      break;
+    }
     default:
       out.push(textMd(b.text));
     }
@@ -227,6 +299,14 @@ const KIT_INPUT_VALUE: Record<string, (props: Record<string, unknown>) => unknow
   checklist: (p) => (Array.isArray(p.selected) ? p.selected : []),
   toggle: (p) => Boolean(p.value ?? false),
   location: (p) => ({lat: p.lat ?? null, lng: p.lng ?? null, label: p.labeltext ?? ''}),
+  // June-2026 inputs. Choice cards / search-select publish a scalar (single) or
+  // string[] (multi); the tag field is always string[]; long text a string;
+  // rich text its plain-text projection (the markup lives in `runs`).
+  choicecards: (p) => (p.multi ? (Array.isArray(p.selected) ? p.selected : []) : (p.value ?? null)),
+  searchselect: (p) => (p.multi ? (Array.isArray(p.selected) ? p.selected : []) : (p.value ?? null)),
+  tagfield: (p) => (Array.isArray(p.selected) ? p.selected : []),
+  longtext: (p) => String(p.value ?? ''),
+  richtext: (p) => (Array.isArray(p.runs) ? (p.runs as Array<{t?: string}>).map((r) => r?.t ?? '').join('') : ''),
 };
 
 export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
@@ -328,6 +408,18 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
       case 'columns':
         // The export model is single-column: flatten in reading order.
         for (const col of b.children ?? []) emit(col.children ?? []);
+        i += 1;
+        break;
+      case 'tabs':
+      case 'accordion':
+        // No tab/accordion widget in the standalone runtime — flatten each
+        // tab/section's blocks in reading order (a labelled heading per
+        // section keeps them legible). Inputs inside still publish/stay live.
+        for (const section of b.children ?? []) {
+          const heading = String(section.props?.label ?? '').trim();
+          if (heading) out.blocks.push({type: 'header', data: {text: textHtml([{t: heading}]), level: 3}});
+          emit(section.children ?? []);
+        }
         i += 1;
         break;
       case 'slider': {
@@ -446,6 +538,42 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
             data: {label, action, target: target.id, amount: Number(b.props?.amount ?? 1), min: tprops.min, max: tprops.max},
           });
         }
+        i += 1;
+        break;
+      }
+      case 'choicecards':
+      case 'searchselect':
+      case 'tagfield': {
+        // The standalone runtime has no searchable/card widgets — export the
+        // current selection as readable text, but still PUBLISH the value so
+        // downstream charts/formulas read it live (longest-names-first
+        // tokenizing means an expr over this input resolves in the export).
+        const read = KIT_INPUT_VALUE[b.type];
+        const val = read(b.props ?? {});
+        const opts = resolveOptionsFromProps(b.props ?? {});
+        const labelFor = (v: string): string => opts.find((o) => o.value === v)?.label ?? v;
+        const shown = Array.isArray(val) ? val.map(labelFor).join(', ') : val ? labelFor(String(val)) : '—';
+        const label = String(b.props?.label ?? b.props?.name ?? b.type);
+        out.blocks.push({id: b.id, type: 'paragraph', data: {text: `<b>${label}:</b> ${textHtml([{t: shown}])}`}});
+        publish(b);
+        i += 1;
+        break;
+      }
+      case 'longtext':
+      case 'richtext': {
+        // Long/rich text export as paragraphs; rich text keeps its inline
+        // markup (the runs already carry b/i/u/links), plain long text is
+        // escaped. Both publish their value (plain string) for expressions.
+        const runs = b.type === 'richtext' && Array.isArray(b.props?.runs) ? (b.props!.runs as TextRun[]) : [{t: String(b.props?.value ?? '')}];
+        out.blocks.push({id: b.id, type: 'paragraph', data: {text: textHtml(runs)}});
+        publish(b);
+        i += 1;
+        break;
+      }
+      case 'progressbar': {
+        // A computed cell drives the readout; the bar itself has no standalone
+        // widget, so render a labelled progress line via a hidden expr + text.
+        out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.label ?? 'Progress'), source: tokenize(String(b.props?.source ?? '')), hidden: true}});
         i += 1;
         break;
       }

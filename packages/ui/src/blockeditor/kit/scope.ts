@@ -1,6 +1,7 @@
 import type * as Y from 'yjs';
-import {blockChildren, blockProp, blockType, rootBlocks, setBlockProp, walkBlocks, type BlockMap} from '../model';
+import {blockChildren, blockProp, blockType, rootBlocks, setBlockProp, type TextRun, walkBlocks, type BlockMap} from '../model';
 import {varNameFromLabel} from './options';
+import {containerCompletions} from './completion';
 
 /**
  * The artifact kit's reactive backbone. Every *input* block publishes a named
@@ -28,7 +29,13 @@ export function publishedName(block: BlockMap): string {
 }
 
 /** Block types that publish a named value into the scope. */
-export const INPUT_TYPES = new Set(['slider', 'number', 'textfield', 'radio', 'checklist', 'dropdown', 'location', 'toggle']);
+export const INPUT_TYPES = new Set([
+  'slider', 'number', 'textfield', 'radio', 'checklist', 'dropdown', 'location', 'toggle',
+  // June-2026 additions (kit/inputs2.tsx). Choice cards publish single|multi like
+  // radio/checklist; the two long-text variants publish a plain string; the
+  // searchable select / tag field publish single|multi like dropdown/checklist.
+  'choicecards', 'longtext', 'richtext', 'searchselect', 'tagfield',
+]);
 
 /**
  * The reactive namespace a group publishes under — a legal identifier derived
@@ -49,6 +56,14 @@ function eachInput(list: Y.Array<BlockMap>, group: string, cb: (block: BlockMap,
   }
 }
 
+/** The plain-text projection of a rich-text input's stored runs. Used as the
+ *  block's published value (so evalExpr/export read a string) and by the export
+ *  tokenizer. Defined here so scope, the renderer, and exports agree. */
+export function richTextPlain(block: BlockMap): string {
+  const runs = blockProp<TextRun[]>(block, 'runs');
+  return Array.isArray(runs) ? runs.map((r) => r.t).join('') : '';
+}
+
 /** The published value of one input block (shape depends on the type). */
 export function inputValue(block: BlockMap): unknown {
   switch (blockType(block) as string) {
@@ -64,6 +79,31 @@ export function inputValue(block: BlockMap): unknown {
     const selected = blockProp<string[]>(block, 'selected');
     return Array.isArray(selected) ? selected : [];
   }
+  case 'choicecards': {
+    // Multi-select cards publish the selected array; single cards publish a
+    // scalar (mirrors checklist vs radio value rules).
+    if (blockProp<boolean>(block, 'multi')) {
+      const selected = blockProp<string[]>(block, 'selected');
+      return Array.isArray(selected) ? selected : [];
+    }
+    return blockProp<string>(block, 'value') ?? null;
+  }
+  case 'searchselect':
+  case 'tagfield': {
+    // Multi publishes string[]; single (searchselect only) publishes a scalar.
+    // The tag field is always multi.
+    if ((blockType(block) as string) === 'tagfield' || blockProp<boolean>(block, 'multi')) {
+      const selected = blockProp<string[]>(block, 'selected');
+      return Array.isArray(selected) ? selected : [];
+    }
+    return blockProp<string>(block, 'value') ?? null;
+  }
+  case 'longtext':
+    return String(blockProp<string>(block, 'value') ?? '');
+  case 'richtext':
+    // Publishes the PLAIN-TEXT projection so formulas/exports stay predictable;
+    // the markup itself lives in `runs` (the block renders it; export reads it).
+    return richTextPlain(block);
   case 'toggle':
     return Boolean(blockProp<boolean>(block, 'value') ?? false);
   case 'location': {
@@ -78,7 +118,9 @@ export function inputValue(block: BlockMap): unknown {
 
 /** Every named input's current value, by name. */
 export function inputScope(doc: Y.Doc): Record<string, unknown> {
-  const scope: Record<string, unknown> = {};
+  // Container completion reads first (read-only signals from tabs/accordion);
+  // a real input sharing the name wins, so it overrides below.
+  const scope: Record<string, unknown> = {...containerCompletions(doc)};
   eachInput(rootBlocks(doc), '', (block, group) => {
     const field = publishedName(block);
     if (!field) return;
@@ -103,9 +145,25 @@ export function findInput(doc: Y.Doc, name: string): BlockMap | null {
 
 /** Write an input's value back from a synced/plain value (inverse of inputValue). */
 export function setInputValue(block: BlockMap, value: unknown): void {
-  switch (blockType(block) as string) {
+  const type = blockType(block) as string;
+  switch (type) {
   case 'checklist':
     setBlockProp(block, 'selected', Array.isArray(value) ? value : []);
+    break;
+  case 'choicecards':
+  case 'searchselect':
+  case 'tagfield':
+    // Array-valued when multi (tagfield always); scalar otherwise.
+    if (type === 'tagfield' || blockProp<boolean>(block, 'multi')) {
+      setBlockProp(block, 'selected', Array.isArray(value) ? value : []);
+    } else {
+      setBlockProp(block, 'value', value);
+    }
+    break;
+  case 'richtext':
+    // Composite markup — adopted from another page only as plain text, written
+    // as a single run so the renderer stays consistent.
+    setBlockProp(block, 'runs', [{t: String(value ?? '')}]);
     break;
   case 'location':
     // Composite value — left to its own controls for now.

@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Boxes, GripVertical, Lock, LockOpen, Plus, RefreshCw} from 'lucide-react';
+import {Boxes, Check, ChevronDown, ChevronRight, GripVertical, Lock, LockOpen, Plus, RefreshCw} from 'lucide-react';
 import type * as Y from 'yjs';
 import {
   blockChildren,
@@ -9,6 +9,7 @@ import {
   blockType,
   dropBeside,
   findBlock,
+  makeBlock,
   moveBlock,
   parentBlockOf,
   blockToJSON,
@@ -58,6 +59,7 @@ import {hasKitConfig, openKitConfig} from './kit/kitConfig';
 import {KitLockContext, useKitLock} from './kit/lock';
 import {KitInlineText} from './kit/KitFrame';
 import {groupInputs, inputValue, setInputValue} from './kit/scope';
+import {sectionCompletion, type CompletionStat} from './kit/completion';
 import {readGroupSync, subscribeGroupSync, valueEqual, writeGroupSync} from './kit/groupSync';
 import type {PageLinkResult} from '@/lib/pageLinks';
 import {InlineToolbar, type ToolbarState} from './InlineToolbar';
@@ -1063,6 +1065,207 @@ const GroupView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   );
 };
 
+// ── Tabs & Accordion (interactive-kit containers) ─────────────────────────────
+
+/** A small completion chip a tab/section shows: ✓ when complete, else N/M.
+ *  Nothing to complete renders nothing (a purely informational section). */
+const CompletionBadge: React.FC<{stat: CompletionStat}> = ({stat}) => {
+  if (stat.total === 0) return null;
+  return stat.complete ? (
+    <span className="obe-cnt-badge obe-cnt-done" aria-label="Complete">
+      <Check className="h-3 w-3" />
+    </span>
+  ) : (
+    <span className="obe-cnt-badge" aria-label={`${stat.done} of ${stat.total} complete`}>
+      {stat.done}/{stat.total}
+    </span>
+  );
+};
+
+/**
+ * Tabs — a container whose children are `tab` blocks, each holding arbitrary
+ * blocks. Per-tab completion is auto-computed from the inputs/to-dos it
+ * contains; optional gating locks later tabs until earlier ones complete
+ * (wizard). Reuses the group container infra: BlockList for children, the
+ * KitLockContext for the gate, and the standard row DnD inside each tab.
+ *
+ * Completion reads: an author binds `setup.complete` / `setup.ratio` in a
+ * progress bar or formula via the tab/accordion's group-style name on the
+ * input scope — see kit/completion.ts.
+ */
+const TabsView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
+  const {editor} = shared;
+  const doc = editor.doc;
+  const tabs = blockChildren(block)!;
+  const gated = Boolean(blockProp<boolean>(block, 'gated'));
+  const active = Math.max(0, Math.min(blockProp<number>(block, 'active') ?? 0, Math.max(0, tabs.length - 1)));
+  const parentLocked = useKitLock();
+
+  const set = (key: string, value: unknown): void => doc.transact(() => setBlockProp(block, key, value), 'local');
+  const addTab = (): void => {
+    doc.transact(() => {
+      const child = makeChild('tab', {label: `Tab ${tabs.length + 1}`});
+      tabs.insert(tabs.length, [child]);
+      setBlockProp(block, 'active', tabs.length - 1);
+    }, 'local');
+  };
+
+  // Per-tab completion (recomputed each version via the editor identity).
+  const stats = useMemo(() => tabs.map((tab) => sectionCompletion(tab)), [block, editor]);
+  // A gated tab is reachable once every PRIOR tab is complete.
+  const reachable = (i: number): boolean => !gated || stats.slice(0, i).every((s) => s.complete);
+  const activeTab = tabs.length > 0 ? tabs.get(active) : null;
+  const activeLocked = parentLocked || (gated && !reachable(active));
+
+  return (
+    <section className="obe-cnt obe-tabs" data-kit-name={blockProp<string>(block, 'name') || undefined}>
+      <header className="obe-cnt-head" contentEditable={false}>
+        <div className="obe-tabs-strip" role="tablist" aria-label="Tabs">
+          {tabs.map((tab, i) => {
+            const locked = gated && !reachable(i);
+            return (
+              <button
+                key={blockId(tab)}
+                type="button"
+                role="tab"
+                aria-selected={i === active}
+                className={`obe-tab${i === active ? ' obe-tab-on' : ''}${locked ? ' obe-tab-locked' : ''}`}
+                disabled={locked}
+                onClick={() => set('active', i)}
+              >
+                <KitInlineText
+                  className="obe-tab-label"
+                  value={blockProp<string>(tab, 'label') ?? ''}
+                  placeholder={`Tab ${i + 1}`}
+                  readOnly={editor.readOnly || i !== active}
+                  ariaLabel="Tab label"
+                  onCommit={(v) => doc.transact(() => setBlockProp(tab, 'label', v), 'local')}
+                />
+                <CompletionBadge stat={stats[i]} />
+                {locked && <Lock className="h-3 w-3 opacity-60" aria-hidden />}
+              </button>
+            );
+          })}
+          {!editor.readOnly && (
+            <button type="button" className="obe-cnt-add" aria-label="Add tab" title="Add tab" onClick={addTab}>
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        {!editor.readOnly && (
+          <button
+            type="button"
+            className={`obe-group-btn${gated ? ' obe-group-btn-on' : ''}`}
+            aria-label={gated ? 'Gating on — later tabs lock until earlier complete' : 'Gate tabs (wizard)'}
+            aria-pressed={gated}
+            title={gated ? 'Gating on (wizard)' : 'Gate: lock later tabs until earlier complete'}
+            onClick={() => set('gated', !gated)}
+          >
+            <Lock className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </header>
+      {activeTab && (
+        <KitLockContext.Provider value={{locked: activeLocked}}>
+          <div className={`obe-cnt-panel${activeLocked ? ' obe-cnt-locked' : ''}`} role="tabpanel">
+            <BlockList list={blockChildren(activeTab)!} {...shared} depth={shared.depth + 1} container="group" />
+          </div>
+        </KitLockContext.Provider>
+      )}
+    </section>
+  );
+};
+
+/**
+ * Accordion — a container whose children are `accordionsection` blocks (each a
+ * collapsible holder of arbitrary blocks). Completion is auto-computed per
+ * section; an optional gating toggle locks later sections (and force-collapses
+ * them) until prior ones complete. Reuses the group container infra.
+ */
+const AccordionView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
+  const {editor} = shared;
+  const doc = editor.doc;
+  const sections = blockChildren(block)!;
+  const gated = Boolean(blockProp<boolean>(block, 'gated'));
+  const parentLocked = useKitLock();
+
+  const set = (key: string, value: unknown): void => doc.transact(() => setBlockProp(block, key, value), 'local');
+  const addSection = (): void => {
+    doc.transact(() => {
+      sections.insert(sections.length, [makeChild('accordionsection', {label: `Section ${sections.length + 1}`})]);
+    }, 'local');
+  };
+
+  const stats = useMemo(() => sections.map((s) => sectionCompletion(s)), [block, editor]);
+  const reachable = (i: number): boolean => !gated || stats.slice(0, i).every((s) => s.complete);
+
+  return (
+    <section className="obe-cnt obe-accordion" data-kit-name={blockProp<string>(block, 'name') || undefined}>
+      {sections.map((section, i) => {
+        const locked = parentLocked || (gated && !reachable(i));
+        // Gating force-collapses unreachable sections; otherwise honour state.
+        const collapsed = locked || Boolean(blockProp<boolean>(section, 'collapsed'));
+        return (
+          <div key={blockId(section)} className={`obe-acc-section${locked ? ' obe-cnt-locked' : ''}`}>
+            <header className="obe-acc-head" contentEditable={false}>
+              <button
+                type="button"
+                className="obe-acc-toggle"
+                aria-expanded={!collapsed}
+                disabled={locked}
+                onClick={() => doc.transact(() => setBlockProp(section, 'collapsed', !collapsed), 'local')}
+              >
+                {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
+              <KitInlineText
+                className="obe-acc-label"
+                value={blockProp<string>(section, 'label') ?? ''}
+                placeholder={`Section ${i + 1}`}
+                readOnly={editor.readOnly}
+                ariaLabel="Section label"
+                onCommit={(v) => doc.transact(() => setBlockProp(section, 'label', v), 'local')}
+              />
+              <span className="obe-cnt-spacer" />
+              <CompletionBadge stat={stats[i]} />
+              {locked && <Lock className="h-3.5 w-3.5 opacity-60" aria-hidden />}
+            </header>
+            {!collapsed && (
+              <KitLockContext.Provider value={{locked}}>
+                <div className="obe-acc-body">
+                  <BlockList list={blockChildren(section)!} {...shared} depth={shared.depth + 1} container="group" />
+                </div>
+              </KitLockContext.Provider>
+            )}
+          </div>
+        );
+      })}
+      {!editor.readOnly && (
+        <div className="obe-acc-foot" contentEditable={false}>
+          <button type="button" className="obe-cnt-add" aria-label="Add section" onClick={addSection}>
+            <Plus className="h-3.5 w-3.5" /> Section
+          </button>
+          <span className="obe-cnt-spacer" />
+          <button
+            type="button"
+            className={`obe-group-btn${gated ? ' obe-group-btn-on' : ''}`}
+            aria-label={gated ? 'Gating on — later sections lock until earlier complete' : 'Gate sections (wizard)'}
+            aria-pressed={gated}
+            title={gated ? 'Gating on (wizard)' : 'Gate: lock later sections until earlier complete'}
+            onClick={() => set('gated', !gated)}
+          >
+            <Lock className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+    </section>
+  );
+};
+
+/** Build a fresh tab/section child with one empty paragraph to type into. */
+function makeChild(type: BlockType, props: Record<string, unknown>): BlockMap {
+  return makeBlock({type, props, children: [{type: 'paragraph'}]});
+}
+
 /** Type dispatch for a block's content. */
 const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui} = shared;
@@ -1091,6 +1294,12 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
 
   case 'group':
     return <GroupView block={block} {...shared} />;
+
+  case 'tabs':
+    return <TabsView block={block} {...shared} />;
+
+  case 'accordion':
+    return <AccordionView block={block} {...shared} />;
 
   case 'table':
     return <TableView block={block} {...shared} />;
