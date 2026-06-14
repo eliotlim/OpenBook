@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {Check, Plus, X} from 'lucide-react';
 import {Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from '@/components/ui/command';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
-import {blockProp, type BlockMap, type TextRun} from '../model';
+import {blockId, blockProp, type BlockMap, type TextRun} from '../model';
 import {domToRuns, runsToHtml} from '../RichTextEditor';
 import {isColorToken} from '../colors';
 import type {CustomBlockProps} from '../registry';
@@ -154,9 +154,12 @@ const RichTextBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   // editing the DOM is the source of truth; `onInput`→`sync` projects it out.
   const runsRef = useRef(runs);
   runsRef.current = runs;
+  // Key the re-seed on the STABLE block id string — not [block, editor], whose
+  // object refs churn every render, which re-applied innerHTML on every keystroke
+  // and reset the caret to the start (text came out reversed).
   useEffect(() => {
     if (ref.current) ref.current.innerHTML = runsToHtml(Array.isArray(runsRef.current) ? runsRef.current : []);
-  }, [block, editor]);
+  }, [blockId(block)]);
 
   const sync = (): void => {
     const el = ref.current;

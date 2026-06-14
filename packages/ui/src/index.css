@@ -1504,24 +1504,12 @@ a.obe-mention {
 .obe-kit-inline:focus { outline: none; border-color: hsl(var(--ring)); background: hsl(var(--card)); }
 .obe-kit-inline::placeholder { color: hsl(var(--muted-foreground) / 0.55); }
 
-/* The inline description edits in place (WYSIWYG). When it has text it always
-   shows; while empty, its "Add a description…" prompt collapses away and only
-   unfurls when the block is hovered (or the field focused), so blocks stay
-   compact at rest. */
+/* The inline description edits in place (WYSIWYG) and only renders when it has
+   text (see KitFrame) — so it never collapses/unfurls and never shifts the
+   layout. An empty description is added from the settings gear. */
 .obe-kit-desc-edit {
-  overflow: hidden;
-  transition: max-height 140ms ease, opacity 140ms ease, border-color 120ms;
-}
-.obe-kit-desc-edit:placeholder-shown:not(:focus) {
-  max-height: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-.obe-kit:hover .obe-kit-desc-edit:placeholder-shown,
-.obe-kit-desc-edit:focus {
-  max-height: 1.5rem;
-  opacity: 0.6;
-  pointer-events: auto;
+  opacity: 0.85;
+  transition: border-color 120ms;
 }
 
 /* The de-emphasized reactive symbol in a config card: a muted "Variable `x`"

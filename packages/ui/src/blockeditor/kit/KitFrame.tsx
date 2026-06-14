@@ -289,11 +289,13 @@ export const KitFrame: React.FC<KitFrameProps> = ({
             ariaLabel="Display name"
             onCommit={(v) => kitSet(editor, block, 'label', v)}
           />
-          {(!editor.readOnly || description) && (
+          {/* Only render the inline description when it HAS content — an empty
+              field that unfurled on hover shifted the layout. Add/edit a
+              description from the settings gear (NameDescriptionFields). */}
+          {description && (
             <KitInlineText
               className="obe-kit-desc obe-kit-desc-edit"
-              value={description ?? ''}
-              placeholder="Add a description…"
+              value={description}
               readOnly={editor.readOnly}
               ariaLabel="Description"
               onCommit={(v) => kitSet(editor, block, 'description', v)}
