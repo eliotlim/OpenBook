@@ -72,9 +72,9 @@ export interface NavigationContextValue {
   // ── Single-page navigation ──────────────────────────────────────────────────
   /** Navigate the focused pane to a page. */
   selectPage: (id: string) => void;
-  /** Navigate (and focus) a SPECIFIC pane — e.g. a link click drives the pane it
-   *  came from, not whichever pane is focused. The primary is the default target
-   *  for left/sidebar/breadcrumb navigation; the secondary only when split. */
+  /** Navigate (and focus) a SPECIFIC pane, regardless of which is focused. All
+   *  link / sidebar / breadcrumb navigation targets the primary pane; the side
+   *  pane stays put as a reference and changes only via "open in split". */
   selectPageInPane: (id: string, pane: PaneId) => void;
   goBack: () => void;
   goForward: () => void;

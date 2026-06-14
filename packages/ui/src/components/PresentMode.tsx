@@ -32,6 +32,7 @@ export default function PresentMode() {
           className="fixed inset-0 z-50 outline-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0"
         >
           <DialogPrimitive.Title className="sr-only">Present</DialogPrimitive.Title>
+          <DialogPrimitive.Description className="sr-only">Slide presentation of the page</DialogPrimitive.Description>
           {open && <Deck pageId={pageId} mode={mode} onClose={close} onSetMode={setMode} />}
         </DialogPrimitive.Content>
       </DialogPortal>
