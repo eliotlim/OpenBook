@@ -2,7 +2,7 @@ import {describe, it, expect} from 'vitest';
 import type {PageSnapshot} from '@open-book/sdk';
 import {buildDocumentModel, parseInline, runsToText} from '../documentModel';
 import {toMarkdown} from '../toMarkdown';
-import {toHtml, toHtmlSite} from '../toHtml';
+import {toHtml, toHtmlSite, toSlideDeck} from '../toHtml';
 import {referencedPageIds, type SiteBundle} from '../exportSite';
 
 const snapshot = (blocks: unknown[], values: Array<[string, unknown]> = [], names: Array<[string, string]> = []): PageSnapshot => ({
@@ -227,5 +227,46 @@ describe('toHtmlSite', () => {
   it('embeds the navigation runtime', () => {
     expect(html).toContain('hashchange');
     expect(html).toContain('id="ob-back"');
+  });
+});
+
+describe('toSlideDeck', () => {
+  it('splits blocks into one slide section per divider-delimited slide', () => {
+    const html = toSlideDeck(
+      snapshot([
+        {id: 'h1', type: 'header', data: {text: 'Intro', level: 1}},
+        {id: 'p1', type: 'paragraph', data: {text: 'Hello'}},
+        {id: 'd1', type: 'divider', data: {}},
+        {id: 'h2', type: 'header', data: {text: 'Second', level: 2}},
+        {id: 'd2', type: 'divider', data: {}},
+        {id: 'p2', type: 'paragraph', data: {text: 'Last'}},
+      ]),
+      'Deck',
+      '📊',
+    );
+    expect(html.match(/class="slide"/g) ?? []).toHaveLength(3);
+    expect(html).toContain('Intro');
+    expect(html).toContain('Second');
+    expect(html).toContain('Last');
+    expect(html).toContain('Deck'); // title heads the first slide
+    expect(html).toContain('deck-counter'); // slide-nav runtime present
+  });
+
+  it('keeps interactive widgets live (a slider seeds the reactive runtime)', () => {
+    const html = toSlideDeck(
+      snapshot(
+        [
+          {id: 's1', type: 'slider', data: {name: 'n', min: 0, max: 10, initial: 3}},
+          {id: 'd', type: 'divider', data: {}},
+          {id: 'p', type: 'paragraph', data: {text: 'x'}},
+        ],
+        [['s1', 3]],
+        [['n', 's1']],
+      ),
+      'Deck',
+      '',
+    );
+    expect(html.match(/class="slide"/g) ?? []).toHaveLength(2);
+    expect(html).toContain('id="ob-data"'); // reactive runtime data seeded
   });
 });

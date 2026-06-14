@@ -34,6 +34,8 @@ interface RenderState {
   y: number;
   pageH: number | null; // null = continuous (no page breaks)
   draw: boolean;
+  /** Slide deck: each `divider` forces a new page instead of drawing a rule. */
+  slides?: boolean;
 }
 
 const HEADER_SIZE: Record<number, number> = {1: 22, 2: 17, 3: 14, 4: 12.5, 5: 11.5, 6: 11};
@@ -204,6 +206,12 @@ async function writeBlock(s: RenderState, block: DocBlock): Promise<void> {
     });
     break;
   case 'divider': {
+    // Slide deck: a divider ends the slide — start a fresh page, no rule.
+    if (s.slides) {
+      if (s.draw) s.doc.addPage();
+      s.y = MARGIN;
+      break;
+    }
     breakIfNeeded(s, 18);
     if (s.draw) {
       const yy = s.y + 6;
@@ -262,7 +270,15 @@ async function renderDocument(s: RenderState, model: DocModel): Promise<number> 
   return s.y;
 }
 
-export async function toPdf(model: DocModel, mode: PdfMode): Promise<Blob> {
+export async function toPdf(model: DocModel, mode: PdfMode, opts?: {slides?: boolean}): Promise<Blob> {
+  // Slide deck: one slide per page (dividers force the breaks); no measuring
+  // pass needed since the page format is fixed.
+  if (opts?.slides) {
+    const doc = new jsPDF({unit: 'pt', format: 'letter'});
+    await renderDocument({doc, y: MARGIN, pageH: PAGE_H, draw: true, slides: true}, model);
+    return doc.output('blob');
+  }
+
   // Measuring pass (no page breaks, no drawing) → total content height.
   const scratch = new jsPDF({unit: 'pt', format: [PAGE_W, 20000]});
   const totalH = await renderDocument({doc: scratch, y: MARGIN, pageH: null, draw: false}, model);

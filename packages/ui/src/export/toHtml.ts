@@ -426,8 +426,15 @@ function loadSnapshot(snapshot: PageSnapshot, values: Map<string, unknown>, name
   for (const [name, cell] of snapshot.names as Array<[string, string]>) nameByCell.set(cell, name);
 }
 
-/** Assemble the final HTML document from rendered body markup + collected specs. */
-function document_(bodyHtml: string, headTitle: string, ctx: RenderCtx, rootId?: string): string {
+/** Assemble the final HTML document from rendered body markup + collected specs.
+ *  `extra` injects deck-specific CSS + a nav script (used by the slide deck). */
+function document_(
+  bodyHtml: string,
+  headTitle: string,
+  ctx: RenderCtx,
+  rootId?: string,
+  extra?: {styles?: string; script?: string},
+): string {
   const live =
     ctx.sliders.length > 0 || ctx.exprs.length > 0 || ctx.charts.length > 0 || ctx.inputs.length > 0 || ctx.buttons.length > 0;
   // Seed EVERY persisted cell value, then overlay the render-time ones: an
@@ -457,11 +464,11 @@ function document_(bodyHtml: string, headTitle: string, ctx: RenderCtx, rootId?:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(headTitle)}</title>
-<style>${STYLES}</style>
+<style>${STYLES}</style>${extra?.styles ? `\n<style>${extra.styles}</style>` : ''}
 </head>
 <body${rootId ? ` data-root="${escapeHtml(rootId)}"` : ''}>
 ${rootId ? '<header class="ob-nav"><button id="ob-back" hidden>← Back</button></header>\n' : ''}${bodyHtml}
-${reactive}${nav}
+${reactive}${nav}${extra?.script ? `\n<script>${escapeScript(extra.script)}</script>` : ''}
 </body>
 </html>`;
 }
@@ -492,6 +499,93 @@ export function toHtml(rawSnapshot: PageSnapshot, title: string, icon: string): 
   const blocks = (snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? [];
   const body = `<main>\n<h1 class="doc-title">${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1>\n${renderBlocks(blocks, ctx)}\n</main>`;
   return document_(body, title, ctx);
+}
+
+/** Slide-deck CSS: one slide visible at a time, fading + sliding up, with a
+ *  floating nav. `@media print` falls back to one slide per page. */
+const SLIDE_STYLES = `
+.ob-deck { max-width: none; padding: 0; }
+.slide { display: none; box-sizing: border-box; min-height: 100vh; max-width: 60rem; margin: 0 auto; padding: clamp(2rem,6vh,5rem) clamp(1.5rem,6vw,5rem); }
+.slide[data-current] { display: block; animation: ob-slide-in 340ms cubic-bezier(.2,.7,.2,1) both; }
+.slide .slide-title h1 { font-size: 2.4rem; margin: 0 0 1.5rem; }
+@keyframes ob-slide-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+.deck-nav { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: .6rem; padding: .3rem .6rem; border: 1px solid #e5e7eb; border-radius: 999px; background: rgba(255,255,255,.92); box-shadow: 0 2px 10px rgba(0,0,0,.08); font: 14px system-ui, sans-serif; }
+.deck-nav button { border: 0; background: none; cursor: pointer; font-size: 1.25rem; line-height: 1; padding: .1rem .45rem; color: #333; }
+#deck-counter { min-width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; color: #555; }
+@media print { .slide { display: block !important; min-height: 0; page-break-after: always; } .deck-nav { display: none; } }
+`;
+
+/** Slide navigation runtime: arrow / space / page keys + the nav buttons. Skips
+ *  key handling while a form control is focused so widgets keep their keys. */
+const SLIDE_NAV = `
+(function(){
+  var slides = [].slice.call(document.querySelectorAll('.slide'));
+  if (!slides.length) return;
+  var i = 0, counter = document.getElementById('deck-counter');
+  function show(n){
+    i = Math.max(0, Math.min(slides.length - 1, n));
+    for (var k = 0; k < slides.length; k++) { if (k === i) slides[k].setAttribute('data-current',''); else slides[k].removeAttribute('data-current'); }
+    if (counter) counter.textContent = (i + 1) + ' / ' + slides.length;
+    try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+  }
+  function field(t){ return t && t.closest && t.closest('input,textarea,select,[contenteditable=true]'); }
+  document.addEventListener('keydown', function(e){
+    if (field(e.target)) return;
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Spacebar' || e.key === 'PageDown') { e.preventDefault(); show(i + 1); }
+    else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); show(i - 1); }
+  });
+  var p = document.getElementById('deck-prev'), n = document.getElementById('deck-next');
+  if (p) p.addEventListener('click', function(){ show(i - 1); });
+  if (n) n.addEventListener('click', function(){ show(i + 1); });
+  show(0);
+})();
+`;
+
+/** Build a self-contained, interactive slide deck: blocks split into slides at
+ *  every divider, widgets stay live offline, arrow-key navigation. */
+export function toSlideDeck(rawSnapshot: PageSnapshot, title: string, icon: string): string {
+  const snapshot = blockSnapshotToEditorJs(rawSnapshot);
+  const values = new Map<string, unknown>();
+  const nameByCell = new Map<string, string>();
+  loadSnapshot(snapshot, values, nameByCell);
+  const ctx: RenderCtx = {
+    values,
+    nameByCell,
+    sliders: [],
+    exprs: [],
+    charts: [],
+    inputs: [],
+    buttons: [],
+    lights: [],
+    initialValues: {},
+    chartSeq: {n: 0},
+    anchorPrefix: '',
+    pageExists: () => false,
+    titleOf: (id) => id,
+    iconOf: () => '',
+    databaseOf: () => undefined,
+  };
+  const blocks = (snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? [];
+  // Group blocks into slides at each divider (notes are already stripped by the
+  // block→editorjs projection); drop empty groups from doubled/edge dividers.
+  const groups: RawBlock[][] = [[]];
+  for (const b of blocks) {
+    if (b.type === 'divider') groups.push([]);
+    else groups[groups.length - 1].push(b);
+  }
+  const slides = groups.filter((g) => g.length > 0);
+  if (slides.length === 0) slides.push([]);
+  const sections = slides
+    .map((g, idx) => {
+      const head =
+        idx === 0
+          ? `<header class="slide-title"><h1>${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1></header>\n`
+          : '';
+      return `<section class="slide">${head}${renderBlocks(g, ctx)}</section>`;
+    })
+    .join('\n');
+  const body = `<main class="ob-deck">\n${sections}\n<nav class="deck-nav"><button id="deck-prev" aria-label="Previous slide">‹</button><span id="deck-counter"></span><button id="deck-next" aria-label="Next slide">›</button></nav>\n</main>`;
+  return document_(body, title, ctx, undefined, {styles: SLIDE_STYLES, script: SLIDE_NAV});
 }
 
 /**

@@ -111,6 +111,9 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       parts.push(`<pre><code>${escapeHtml((b.text ?? []).map((r) => r.t).join(''))}</code></pre>`);
       i += 1;
       break;
+    case 'notes': // speaker-only — never exported
+      i += 1;
+      break;
     case 'divider':
       parts.push('<hr>');
       i += 1;
@@ -216,6 +219,8 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
       break;
     case 'code':
       out.push(`\`\`\`${(b.props?.language as string) ?? ''}\n${(b.text ?? []).map((r) => r.t).join('')}\n\`\`\``);
+      break;
+    case 'notes': // speaker-only — never exported
       break;
     case 'divider':
       out.push('---');
@@ -395,6 +400,9 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         i += 1;
         break;
       }
+      case 'notes': // speaker-only — never exported
+        i += 1;
+        break;
       case 'divider':
         out.blocks.push({id: b.id, type: 'divider', data: {style: 'line'}});
         i += 1;

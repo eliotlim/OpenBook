@@ -19,6 +19,10 @@ export const DEFAULT_SETTINGS_TAB: SettingsTab = SETTINGS_SECTIONS[0].tabs[0];
 /** How the settings screen is presented. */
 export type SettingsMode = 'modal' | 'fullscreen';
 
+/** How a page is presented: an immersive full-screen deck, or the presenter
+ *  console (current + next slide, speaker notes, timer). */
+export type PresentMode = 'fullscreen' | 'presenter';
+
 export const isSettingsTab = (value: unknown): value is SettingsTab =>
   typeof value === 'string' && (SETTINGS_TABS as readonly string[]).includes(value);
 
@@ -50,6 +54,13 @@ export interface HudProps {
     /** The currently selected settings panel. */
     tab: SettingsTab;
   };
+  present: {
+    open: boolean;
+    /** Immersive full-screen deck, or the presenter console. */
+    mode: PresentMode;
+    /** The page being presented. */
+    pageId: string | null;
+  };
   sideNav: {
     open: boolean;
     docked: boolean;
@@ -76,6 +87,11 @@ export const HudDefault: HudProps = {
     open: false,
     mode: 'modal',
     tab: DEFAULT_SETTINGS_TAB,
+  },
+  present: {
+    open: false,
+    mode: 'fullscreen',
+    pageId: null,
   },
   sideNav: {
     open: true,
@@ -115,6 +131,7 @@ export const loadHudStorage = (): HudProps => {
     templates: {open: false},
     ai: {open: false},
     agent: {open: false},
+    present: {...HudDefault.present},
   };
 };
 
@@ -129,6 +146,7 @@ export const saveHudStorage = (hud: HudProps) => {
     templates: {open: false},
     ai: {open: false},
     agent: {open: false},
+    present: {...HudDefault.present},
   };
   localStorage.setItem(HUD_STORAGE_KEY, JSON.stringify(persisted));
 };

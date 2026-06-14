@@ -223,9 +223,17 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     try {
       if (kind === 'md') {
         downloadText(`${base}.md`, toMarkdown(buildDocumentModel({title, icon, snapshot})), 'text/markdown');
-      } else if (kind === 'pdf-paged' || kind === 'pdf-continuous') {
+      } else if (kind === 'pdf-paged' || kind === 'pdf-continuous' || kind === 'pdf-slides') {
         const {toPdf} = await import('@/export/toPdf');
-        downloadBlob(`${base}.pdf`, await toPdf(buildDocumentModel({title, icon, snapshot}), kind === 'pdf-paged' ? 'paged' : 'continuous'));
+        const blob = await toPdf(
+          buildDocumentModel({title, icon, snapshot}),
+          kind === 'pdf-continuous' ? 'continuous' : 'paged',
+          kind === 'pdf-slides' ? {slides: true} : undefined,
+        );
+        downloadBlob(`${base}${kind === 'pdf-slides' ? '-slides' : ''}.pdf`, blob);
+      } else if (kind === 'html-slides') {
+        const {toSlideDeck} = await import('@/export/toHtml');
+        downloadText(`${base}-slides.html`, toSlideDeck(snapshot, title, icon), 'text/html');
       } else {
         const [{toHtmlSite}, {gatherSite}] = await Promise.all([import('@/export/toHtml'), import('@/export/exportSite')]);
         const bundle = pageId
@@ -261,7 +269,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   deleteRef.current = onDelete;
   useEffect(() => {
     if (!pageId || !doc) return;
-    const kinds: ExportKind[] = ['md', 'html', 'pdf-paged', 'pdf-continuous'];
+    const kinds: ExportKind[] = ['md', 'html', 'html-slides', 'pdf-paged', 'pdf-continuous', 'pdf-slides'];
     if (isPlugin) kinds.push('plugin');
     return registerPageDocActions(pageId, {
       exportKinds: kinds,

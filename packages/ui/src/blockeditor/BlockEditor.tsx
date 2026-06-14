@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import {Boxes, Check, ChevronDown, ChevronRight, GripVertical, Lock, LockOpen, Plus, RefreshCw} from 'lucide-react';
+import {Boxes, Check, ChevronDown, ChevronRight, EyeOff, GripVertical, Lock, LockOpen, Plus, RefreshCw} from 'lucide-react';
 import type * as Y from 'yjs';
 import {
   blockChildren,
@@ -612,7 +612,7 @@ function firstTextDescendant(doc: Y.Doc, id: string): string | null {
 
 // ── Block list + rows ─────────────────────────────────────────────────────────
 
-interface RowShared {
+export interface RowShared {
   editor: BlockEditorController;
   ui: EditorUI;
   drag: DragState | null;
@@ -635,7 +635,7 @@ const BlockList: React.FC<RowShared & {list: Y.Array<BlockMap>}> = ({list, ...sh
 );
 
 /** One block row: hover gutter (add + drag handle), drop targeting, dispatch. */
-const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
+export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui, drag, setDrag, performDrop, computeRegion, depth} = shared;
   const id = blockId(block);
   const type = blockType(block);
@@ -1392,6 +1392,18 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
 
   case 'code':
     return <CodeBlockView block={block} editor={textEditor} ui={ui} />;
+
+  case 'notes':
+    // A speaker note: quietly marked on the page (and hidden from the audience
+    // deck + every export); surfaced in the presenter view.
+    return (
+      <div className="obe-notes" data-block-kind="notes">
+        <span className="obe-notes-tag" contentEditable={false}>
+          <EyeOff className="h-3.5 w-3.5" /> Speaker note
+        </span>
+        <TextBlockView block={block} editor={textEditor} ui={ui} />
+      </div>
+    );
 
   case 'heading': {
     const level = blockProp<number>(block, 'level') ?? 2;

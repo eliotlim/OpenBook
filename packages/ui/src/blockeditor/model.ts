@@ -35,6 +35,9 @@ export type BlockType =
   | 'quote'
   | 'callout'
   | 'code'
+  // A speaker note: editable on the page, shown only in the presenter view —
+  // never to the audience deck or any export.
+  | 'notes'
   | 'divider'
   | 'columns'
   | 'column'
@@ -91,6 +94,7 @@ export const TEXT_BLOCKS: ReadonlySet<BlockType> = new Set([
   'quote',
   'callout',
   'code',
+  'notes',
   'cell',
 ]);
 

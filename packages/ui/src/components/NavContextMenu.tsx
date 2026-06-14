@@ -24,6 +24,9 @@ import {
   FileText,
   FileType,
   Link2,
+  Maximize2,
+  Monitor,
+  Presentation,
   Puzzle,
   Settings as SettingsIcon,
   Star,
@@ -47,8 +50,10 @@ import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
 const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: string; icon: typeof FileText}> = [
   {kind: 'md', labelKey: 'page.exportMarkdown', icon: FileText},
   {kind: 'html', labelKey: 'page.exportHtml', icon: FileCode},
+  {kind: 'html-slides', labelKey: 'page.exportHtmlSlides', icon: Presentation},
   {kind: 'pdf-paged', labelKey: 'page.exportPdfPaged', icon: FileType},
   {kind: 'pdf-continuous', labelKey: 'page.exportPdfContinuous', icon: FileType},
+  {kind: 'pdf-slides', labelKey: 'page.exportPdfSlides', icon: Presentation},
   {kind: 'plugin', labelKey: 'page.exportPlugin', icon: Puzzle},
 ];
 
@@ -147,6 +152,33 @@ export default function NavContextMenu({pageId}: {pageId?: string | null} = {}) 
           <Link2 className="mr-2 h-4 w-4" />
           {t('menu.copyLink')}
         </DropdownMenuItem>
+        <DropdownMenuSeparator/>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger disabled={!currentPageId || isHome}>
+            <Presentation className="mr-2 h-4 w-4" />
+            {t('page.present')}
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuItem
+              onClick={() =>
+                currentPageId &&
+                setHud((d) => {d.present = {open: true, mode: 'fullscreen', pageId: currentPageId}; return d;})
+              }
+            >
+              <Maximize2 className="mr-2 h-4 w-4" />
+              {t('page.presentFull')}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() =>
+                currentPageId &&
+                setHud((d) => {d.present = {open: true, mode: 'presenter', pageId: currentPageId}; return d;})
+              }
+            >
+              <Monitor className="mr-2 h-4 w-4" />
+              {t('page.presentPresenter')}
+            </DropdownMenuItem>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
         {exportItems.length > 0 && (
           <>
             <DropdownMenuSeparator/>

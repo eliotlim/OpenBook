@@ -6,7 +6,14 @@
  * references to each other.
  */
 
-export type ExportKind = 'md' | 'pdf-paged' | 'pdf-continuous' | 'html' | 'plugin';
+export type ExportKind =
+  | 'md'
+  | 'pdf-paged'
+  | 'pdf-continuous'
+  | 'pdf-slides'
+  | 'html'
+  | 'html-slides'
+  | 'plugin';
 
 export interface PageDocActions {
   /** Which export formats this document offers (order = menu order). */

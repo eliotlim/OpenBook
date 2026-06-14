@@ -1048,6 +1048,183 @@ a.obe-mention {
   border-top: 1px solid hsl(var(--border));
   margin: 0.8rem 0;
 }
+/* Speaker note: quietly marked on the page; hidden from the audience deck and
+   every export, surfaced only in the presenter view. */
+.obe-notes {
+  flex: 1;
+  min-width: 0;
+  border-left: 3px solid hsl(var(--primary) / 0.4);
+  background: hsl(var(--primary) / 0.05);
+  border-radius: 0 8px 8px 0;
+  padding: 0.5rem 0.75rem;
+  margin: 2px 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.9rem;
+}
+.obe-notes-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: hsl(var(--primary) / 0.8);
+  user-select: none;
+}
+
+/* ── Present mode (slide deck) ───────────────────────────────────────────────
+   A page rendered as slides (split at dividers): a centred sheet that fades and
+   slides up on change, read-only but with live widgets, editing chrome hidden,
+   and tall slides scrolling gracefully. Two layouts: immersive full screen, and
+   a presenter console (next slide + speaker notes + timer). */
+.ob-present {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  background: hsl(var(--sheet-2));
+  color: hsl(var(--foreground));
+  overflow: hidden;
+}
+.ob-present-full { flex-direction: column; }
+.ob-present-presenter { flex-direction: row; }
+.ob-present-main { position: relative; display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.ob-present-aside {
+  display: flex;
+  width: 22rem;
+  max-width: 34vw;
+  flex: none;
+  flex-direction: column;
+  gap: 0.85rem;
+  overflow-y: auto;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  padding: 0.75rem 0.95rem 1.1rem;
+}
+
+/* The stage scrolls; the slide is a centred sheet that animates in as a whole. */
+.ob-present-stage {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  justify-content: center;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: clamp(1.5rem, 5vh, 4rem) clamp(1rem, 4vw, 3rem);
+}
+.ob-slide {
+  width: 100%;
+  max-width: 56rem;
+  margin: auto 0; /* vertically centre short slides; tall ones scroll */
+  animation: ob-slide-in 340ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.ob-present-full .ob-slide { font-size: 1.08rem; }
+@keyframes ob-slide-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+.ob-slide-title { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1.4rem; }
+.ob-slide-title-icon { font-size: 2.5rem; line-height: 1; }
+.ob-slide-title h1 { margin: 0; font-size: 2.2rem; font-weight: 700; letter-spacing: -0.01em; }
+
+/* The page reads as locked: hide every editing affordance. */
+.ob-present .obe-gutter,
+.ob-present .obe-kit-gear,
+.ob-present .obe-cnt-add,
+.ob-present .obe-table-add,
+.ob-present .obe-handle-anchor { display: none !important; }
+
+/* Top-right exit / view toggle — auto-hidden in full screen until hover. */
+.ob-present-topbar { display: flex; gap: 0.35rem; }
+.ob-present-full .ob-present-topbar {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.9rem;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 160ms;
+}
+.ob-present-full:hover .ob-present-topbar,
+.ob-present-full .ob-present-topbar:focus-within { opacity: 1; }
+.ob-present-presenter .ob-present-topbar { justify-content: flex-end; }
+.ob-present-modebtn {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+  transition: background 120ms, color 120ms;
+}
+.ob-present-modebtn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+
+/* Bottom navigation. */
+.ob-present-controls { display: flex; align-items: center; justify-content: center; gap: 1rem; padding: 0.75rem; }
+.ob-present-full .ob-present-controls {
+  position: absolute;
+  bottom: 0.4rem;
+  left: 50%;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition: opacity 160ms;
+}
+.ob-present-full:hover .ob-present-controls,
+.ob-present-full .ob-present-controls:focus-within { opacity: 1; }
+.ob-present-controls button {
+  display: inline-flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 999px;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  cursor: pointer;
+}
+.ob-present-controls button:disabled { opacity: 0.35; cursor: default; }
+.ob-present-counter {
+  min-width: 3.5rem;
+  text-align: center;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Presenter console pieces. */
+.ob-present-timer { text-align: center; font-size: 1.7rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ob-present-aside h2 {
+  margin: 0 0 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+}
+.ob-present-next-frame {
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--background));
+}
+.ob-present-next-scale {
+  width: 238%;
+  height: 238%;
+  transform: scale(0.42);
+  transform-origin: top left;
+  padding: 1rem;
+  pointer-events: none;
+}
+.ob-present-notes-panel { flex: 1; min-height: 6rem; }
+.ob-present-notes-panel .obe-notes { border: 0; background: none; padding: 0; color: inherit; font-size: 0.95rem; }
+.ob-present-notes-panel .obe-notes-tag { display: none; }
+.ob-present-empty { font-size: 0.85rem; font-style: italic; color: hsl(var(--muted-foreground)); }
 .obe-codeblock {
   flex: 1;
   min-width: 0;

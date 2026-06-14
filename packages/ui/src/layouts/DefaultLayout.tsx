@@ -8,6 +8,7 @@ import {SplitPane} from '@/components/SplitPane';
 import PluginBoot from '@/components/PluginBoot';
 import {AiBridgeHost} from '@/components/AiBridgeHost';
 import Settings from '@/components/Settings';
+import PresentMode from '@/components/PresentMode';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
 import TitlebarTabs from '@/components/TitlebarTabs';
 import WindowControls from '@/components/WindowControls';
@@ -42,6 +43,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <WindowTitle/>
           <CommandMenu/>
           <Settings/>
+          <PresentMode/>
           <TemplateGallery/>
           <AiSearchDialog/>
           <AiBridgeHost/>
