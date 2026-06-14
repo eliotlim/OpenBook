@@ -4,7 +4,6 @@ import GlobalShortcuts from '@/components/GlobalShortcuts';
 import WindowTitle from '@/components/WindowTitle';
 import TemplateGallery from '@/components/TemplateGallery';
 import {AiSearchDialog} from '@/components/AiSearchDialog';
-import {AgentPanel} from '@/components/AgentPanel';
 import {SplitPane} from '@/components/SplitPane';
 import PluginBoot from '@/components/PluginBoot';
 import {AiBridgeHost} from '@/components/AiBridgeHost';
@@ -52,7 +51,6 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
             </main>
           </div>
           <SplitPane/>
-          <AgentPanel/>
         </div>
       </div>
     </ConfirmProvider>

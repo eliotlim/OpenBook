@@ -60,6 +60,9 @@ export interface AgentRunOptions {
   skills?: AiSkill[];
   /** Plugin-contributed agent tools (read from manifests). */
   pluginTools?: PluginAgentTool[];
+  /** Ambient context: the page the user is viewing + their current selection,
+   *  injected into the system prompt so replies are grounded without a tool call. */
+  context?: {pageTitle?: string; pageId?: string; pageText?: string; selection?: string};
 }
 
 interface ToolDef {
@@ -412,6 +415,17 @@ export class AgentRunner {
       'You are the OpenBook assistant: you help the user work with their local note workspace using TOOLS.',
       'Tools that change the workspace only PROPOSE a change — the user approves before anything is applied.',
     ];
+    // Ambient context: the page the user is viewing + their selection, so replies
+    // are grounded in what they're looking at without spending a tool call.
+    const ctx = this.options.context;
+    if (ctx && (ctx.pageText || ctx.selection)) {
+      lines.push('', '── Current context (what the user is looking at) ──');
+      if (ctx.pageText) {
+        lines.push(`The user is viewing the page "${ctx.pageTitle ?? 'Untitled'}"${ctx.pageId ? ` (id ${ctx.pageId})` : ''}:`, ctx.pageText);
+      }
+      if (ctx.selection) lines.push('', `The user's current selection:\n${ctx.selection}`);
+      lines.push('── End context ──');
+    }
     const skills = this.options.skills ?? [];
     if (skills.length > 0) {
       lines.push('', 'Available skills (recipes you may follow):');

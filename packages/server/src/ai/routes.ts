@@ -1,6 +1,6 @@
 import {Hono} from 'hono';
 import {streamSSE} from 'hono/streaming';
-import {API, type AgentChatMessage, type AiConfig, type AiEffort, type AiSkill, type PluginAgentTool} from '@open-book/sdk';
+import {API, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiSkill, type PluginAgentTool} from '@open-book/sdk';
 import type {PageStore} from '../store';
 import {AgentRunner, type AgentMessage} from './agent';
 import type {AiService} from './service';
@@ -95,6 +95,8 @@ export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore): void 
       effort?: AiEffort;
       thinking?: boolean;
       skills?: string[];
+      pageId?: string;
+      selection?: string;
     };
     const turns = (body.messages ?? []).filter(
       (m): m is AgentMessage => (m?.role === 'user' || m?.role === 'assistant') && typeof m?.content === 'string',
@@ -108,7 +110,19 @@ export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore): void 
     const skills = await ai.skills.resolve(body.skills ?? []);
     const pluginTools = await collectPluginTools(store);
 
-    const runner = new AgentRunner(ai, store, {effort, thinking, skills, pluginTools});
+    // Ambient context: the page the user is viewing (fetched here so we don't
+    // ship its body over the wire twice) + their current selection.
+    const selection = body.selection?.trim() || undefined;
+    let context: {pageTitle?: string; pageId?: string; pageText?: string; selection?: string} | undefined;
+    if (body.pageId || selection) {
+      const page = body.pageId ? await store.getPage(body.pageId).catch(() => null) : null;
+      const pageText = page ? snapshotText(page.data).slice(0, 4000) || undefined : undefined;
+      if (pageText || selection) {
+        context = {pageTitle: page?.name ?? undefined, pageId: body.pageId, pageText, selection};
+      }
+    }
+
+    const runner = new AgentRunner(ai, store, {effort, thinking, skills, pluginTools, context});
     return streamSSE(c, async (stream) => {
       const abort = new AbortController();
       stream.onAbort(() => abort.abort());

@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import {ArrowUp, Bot, Brain, ChevronDown, ChevronRight, ClipboardCheck, Loader2, Plus, Square, X} from 'lucide-react';
+import {ArrowUp, Bot, Brain, ChevronDown, ChevronRight, ClipboardCheck, Loader2, Plus, Square} from 'lucide-react';
 import type {AgentChatEvent, AgentChatMessage, AiEffort, StoredSuggestion} from '@open-book/sdk';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
@@ -8,6 +8,7 @@ import type {TKey} from '@/i18n';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {REVIEW_PANE_ID} from '@/lib/homePage';
 import {setReviewTarget} from '@/lib/reviewPane';
+import {lastSelection} from '@/lib/selection';
 import {cn} from '@/lib/utils';
 
 /**
@@ -44,10 +45,10 @@ const EFFORTS: Array<{value: AiEffort; key: TKey}> = [
 ];
 
 export function AgentPanel() {
-  const {hud, setHud} = useHud();
+  const {setHud} = useHud();
   const {t} = useTranslation();
   const client = useData();
-  const {openInSplit} = useNavigation();
+  const {openInSplit, closeSplit, currentPageId} = useNavigation();
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [conversation, setConversation] = useState<AgentChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -59,12 +60,7 @@ export function AgentPanel() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const open = hud.agent.open;
-  const close = () =>
-    setHud((draft) => {
-      draft.agent.open = false;
-      return draft;
-    });
+  const close = () => closeSplit();
   const openAiSettings = () =>
     setHud((draft) => {
       draft.settings.open = true;
@@ -75,7 +71,6 @@ export function AgentPanel() {
   // Surface a "no engine" hint up front, and adopt the configured agent
   // defaults (effort / thinking) so the controls reflect Settings → AI.
   useEffect(() => {
-    if (!open) return;
     inputRef.current?.focus();
     void client
       .aiStatus()
@@ -85,18 +80,15 @@ export function AgentPanel() {
         if (typeof status.config.thinking === 'boolean') setThinking(status.config.thinking);
       })
       .catch(() => setEngineReady(false));
-  }, [open, client]);
+  }, [client]);
 
   // Keep the latest step in view as the run streams.
   useEffect(() => {
     scrollRef.current?.scrollTo({top: scrollRef.current.scrollHeight, behavior: 'smooth'});
   }, [thread, busy]);
 
-  // Abandon an in-flight run when the panel closes or unmounts.
-  useEffect(() => {
-    if (!open) abortRef.current?.abort();
-    return () => abortRef.current?.abort();
-  }, [open]);
+  // Abandon an in-flight run when the pane unmounts (closes).
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const stop = (): void => {
     abortRef.current?.abort();
@@ -151,7 +143,15 @@ export function AgentPanel() {
     const abort = new AbortController();
     abortRef.current = abort;
     void client
-      .agentChat(turns, handleEvent, {signal: abort.signal, effort, thinking})
+      .agentChat(turns, handleEvent, {
+        signal: abort.signal,
+        effort,
+        thinking,
+        // The agent grounds replies in the page the user is viewing + their
+        // current selection, on top of whatever they typed.
+        pageId: currentPageId ?? undefined,
+        selection: lastSelection() || undefined,
+      })
       .catch((err: unknown) => {
         if (abort.signal.aborted) return;
         setThread((items) => [...items, {kind: 'error', text: t('agent.error', {error: err instanceof Error ? err.message : String(err)})}]);
@@ -174,22 +174,13 @@ export function AgentPanel() {
     openInSplit(REVIEW_PANE_ID);
   };
 
-  if (!open) return null;
-
   return (
-    <aside
-      data-agent-panel
-      aria-label={t('agent.title')}
-      className="flex w-[340px] shrink-0 flex-col border-l border-border bg-sheet-1 animate-in fade-in slide-in-from-right-4 duration-200 print:hidden"
-    >
+    <div data-agent-panel aria-label={t('agent.title')} className="flex h-full flex-col bg-sheet-1">
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Bot className="size-4 text-muted-foreground" aria-hidden />
         <h2 className="flex-1 truncate text-sm font-medium">{t('agent.title')}</h2>
         <Button size="icon" variant="ghost" className="size-7" onClick={reset} title={t('agent.reset')} aria-label={t('agent.reset')}>
           <Plus className="size-4" />
-        </Button>
-        <Button size="icon" variant="ghost" className="size-7" onClick={close} title={t('agent.close')} aria-label={t('agent.close')}>
-          <X className="size-4" />
         </Button>
       </header>
 
@@ -408,7 +399,7 @@ export function AgentPanel() {
           )}
         </div>
       </footer>
-    </aside>
+    </div>
   );
 }
 

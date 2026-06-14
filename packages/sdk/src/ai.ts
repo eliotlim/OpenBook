@@ -144,6 +144,10 @@ export interface AgentChatOptions {
   thinking?: boolean;
   /** Names of prompt/recipe skills to inline into the system prompt. */
   skills?: string[];
+  /** The page the user is currently viewing — its content is added as context. */
+  pageId?: string;
+  /** The user's current text selection — added as context on top of the message. */
+  selection?: string;
 }
 
 // ── Skills (user-authored prompt/recipe skills) ─────────────────────────────────
