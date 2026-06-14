@@ -1,7 +1,18 @@
 import {Hono} from 'hono';
 import {cors} from 'hono/cors';
 import {streamSSE} from 'hono/streaming';
-import {API, type DatabaseInput, type DatabaseUpdate, type ImportRequest, type PageInput, type RowInput} from '@open-book/sdk';
+import {
+  API,
+  type CommentInput,
+  type DatabaseInput,
+  type DatabaseUpdate,
+  type ImportRequest,
+  type PageInput,
+  type RowInput,
+  type SuggestionInput,
+  type SuggestionStatus,
+  type SuggestionUpdate,
+} from '@open-book/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {mountAiRoutes} from './ai/routes';
@@ -244,6 +255,50 @@ export function createApp(store: PageStore, ai?: AiService): Hono {
     if (!row) return c.json({error: 'row not found'}, 404);
     await broadcastRows(id);
     return c.json(row);
+  });
+
+  // ── Suggestions + comments (the review layer) ─────────────────────────────
+  // Persisted proposed changes (AI write tools + human "Suggest edit") and a
+  // general comment layer. These never auto-apply; accepting a suggestion is a
+  // client concern (the editor bridge replays its payload as one CRDT
+  // transaction) — the server just records the accepted/rejected status.
+
+  app.get(`${API.pages}/:id/suggestions`, async (c) => {
+    const status = c.req.query('status') as SuggestionStatus | undefined;
+    return c.json(await store.listSuggestions(c.req.param('id'), status));
+  });
+
+  app.post(`${API.pages}/:id/suggestions`, async (c) => {
+    const input = await c.req.json<SuggestionInput>();
+    const suggestion = await store.createSuggestion({...input, pageId: c.req.param('id')});
+    return c.json(suggestion, 201);
+  });
+
+  app.patch('/api/suggestions/:id', async (c) => {
+    const patch = await c.req.json<SuggestionUpdate>();
+    const suggestion = await store.updateSuggestion(c.req.param('id'), patch);
+    if (!suggestion) return c.json({error: 'suggestion not found'}, 404);
+    return c.json(suggestion);
+  });
+
+  app.delete('/api/suggestions/:id', async (c) => {
+    const deleted = await store.deleteSuggestion(c.req.param('id'));
+    if (!deleted) return c.json({error: 'suggestion not found'}, 404);
+    return c.body(null, 204);
+  });
+
+  app.get(`${API.pages}/:id/comments`, async (c) => c.json(await store.listComments(c.req.param('id'))));
+
+  app.post(`${API.pages}/:id/comments`, async (c) => {
+    const input = await c.req.json<CommentInput>();
+    const comment = await store.createComment({...input, pageId: c.req.param('id')});
+    return c.json(comment, 201);
+  });
+
+  app.delete('/api/comments/:id', async (c) => {
+    const deleted = await store.deleteComment(c.req.param('id'));
+    if (!deleted) return c.json({error: 'comment not found'}, 404);
+    return c.body(null, 204);
   });
 
   // ── Live update streams (Server-Sent Events) ──────────────────────────────

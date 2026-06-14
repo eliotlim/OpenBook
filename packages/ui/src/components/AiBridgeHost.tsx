@@ -1,8 +1,8 @@
 import {useEffect, useRef} from 'react';
 import type * as Y from 'yjs';
-import type {AgentProposal} from '@open-book/sdk';
+import type {AgentProposal, StoredSuggestion} from '@open-book/sdk';
 import {useData} from '@/data';
-import {getBlockEditorDoc, setAiBridge, type ProposalApplyResult} from '@/lib/aiBridge';
+import {getBlockEditorDoc, setAiBridge, suggestionToProposal, type ProposalApplyResult} from '@/lib/aiBridge';
 import {
   blockText,
   decodeSnapshot,
@@ -124,11 +124,19 @@ export function AiBridgeHost() {
       return {applied, failed};
     };
 
+    // Apply one accepted suggestion through the same CRDT-first path. AI and
+    // human suggestions are identical here: the proposal shape is reconstructed
+    // from the suggestion's payload (which carries the original write-tool kind).
+    const applySuggestion = async (suggestion: StoredSuggestion): Promise<void> => {
+      await applyOne(suggestionToProposal(suggestion));
+    };
+
     setAiBridge({
       ready: () => readyRef.current,
       complete: (text, onToken) => client.aiComplete(text, onToken),
       tasks: async (goal, context) => (await client.aiTasks(goal, context)).tasks,
       applyProposals,
+      applySuggestion,
     });
     return () => {
       cancelled = true;

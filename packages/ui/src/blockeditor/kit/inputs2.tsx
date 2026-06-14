@@ -2,7 +2,8 @@ import React, {useMemo, useRef, useState} from 'react';
 import {Check, Plus, X} from 'lucide-react';
 import {Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from '@/components/ui/command';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
-import {blockProp, type BlockMap, type InlineAttrs, type TextRun} from '../model';
+import {blockProp, type BlockMap, type TextRun} from '../model';
+import {domToRuns, runsToHtml} from '../RichTextEditor';
 import {isColorToken} from '../colors';
 import type {CustomBlockProps} from '../registry';
 import {computeScope, evalExpr} from './scope';
@@ -208,47 +209,8 @@ const RichTextBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   return <KitFrame block={block} editor={editor} kind="richtext" defaultName="text" control={control} config={config} />;
 };
 
-/** TextRun[] → simple inline HTML (b/i/u/links) for the editable surface. */
-function runsToHtml(runs: TextRun[]): string {
-  const esc = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return runs
-    .map((run) => {
-      let out = esc(run.t).replace(/\n/g, '<br>');
-      const a: InlineAttrs = run.a ?? {};
-      if (a.b) out = `<strong>${out}</strong>`;
-      if (a.i) out = `<em>${out}</em>`;
-      if (a.u) out = `<u>${out}</u>`;
-      if (a.a) out = `<a href="${esc(a.a)}">${out}</a>`;
-      return out;
-    })
-    .join('');
-}
-
-/** Read a contentEditable surface back into TextRun[] (b/i/u/links survive). */
-function domToRuns(root: HTMLElement): TextRun[] {
-  const runs: TextRun[] = [];
-  const visit = (node: Node, attrs: InlineAttrs): void => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const t = node.textContent ?? '';
-      if (t) runs.push({t, ...(Object.keys(attrs).length > 0 ? {a: attrs} : {})});
-      return;
-    }
-    if (!(node instanceof HTMLElement)) return;
-    if (node.tagName === 'BR') {
-      runs.push({t: '\n'});
-      return;
-    }
-    const next = {...attrs};
-    const tag = node.tagName.toLowerCase();
-    if (tag === 'b' || tag === 'strong') next.b = true;
-    if (tag === 'i' || tag === 'em') next.i = true;
-    if (tag === 'u') next.u = true;
-    if (tag === 'a' && node.getAttribute('href')) next.a = node.getAttribute('href')!;
-    node.childNodes.forEach((child) => visit(child, next));
-  };
-  root.childNodes.forEach((child) => visit(child, {}));
-  return runs;
-}
+// (runsToHtml / domToRuns now live in ../RichTextEditor and are shared with the
+//  comment composer.)
 
 // ── Searchable select / multi-select ─────────────────────────────────────────
 // Search box over options (static OR dynamic), single or multi. Built on the

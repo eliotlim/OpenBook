@@ -1,5 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import type {
+  CommentInput,
+  CommentRun,
   DatabaseInput,
   DatabaseRow,
   DatabaseSchema,
@@ -10,8 +12,14 @@ import type {
   PageMeta,
   PageSnapshot,
   RowInput,
+  StoredComment,
   StoredDatabase,
   StoredPage,
+  StoredSuggestion,
+  SuggestionInput,
+  SuggestionStatus,
+  SuggestionTarget,
+  SuggestionUpdate,
 } from '@open-book/sdk';
 import {emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, type PluginPackage, type StoredPlugin} from '@open-book/sdk';
 import type {Db} from './db';
@@ -762,6 +770,102 @@ export class PageStore {
     const rows = await this.db.query<{id: string}>('DELETE FROM plugins WHERE id = $1 RETURNING id', [id]);
     return rows.length > 0;
   }
+
+  // ── Suggestions + comments (the review layer) ────────────────────────────────
+
+  /** A page's suggestions, newest first. Optionally filtered by status. */
+  async listSuggestions(pageId: string, status?: SuggestionStatus): Promise<StoredSuggestion[]> {
+    const rows = status
+      ? await this.db.query<SuggestionRow>(
+        `SELECT ${SUGGESTION_COLS} FROM suggestions WHERE page_id = $1 AND status = $2 ORDER BY created_at DESC`,
+        [pageId, status],
+      )
+      : await this.db.query<SuggestionRow>(
+        `SELECT ${SUGGESTION_COLS} FROM suggestions WHERE page_id = $1 ORDER BY created_at DESC`,
+        [pageId],
+      );
+    return rows.map(suggestionFromRow);
+  }
+
+  async getSuggestion(id: string): Promise<StoredSuggestion | null> {
+    const rows = await this.db.query<SuggestionRow>(
+      `SELECT ${SUGGESTION_COLS} FROM suggestions WHERE id = $1`,
+      [id],
+    );
+    return rows.length > 0 ? suggestionFromRow(rows[0]) : null;
+  }
+
+  async createSuggestion(input: SuggestionInput): Promise<StoredSuggestion> {
+    const id = input.id ?? randomUUID();
+    const rows = await this.db.query<SuggestionRow>(
+      `INSERT INTO suggestions
+         (id, page_id, author_kind, author_name, kind, target, before_text, after_text, status, payload, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'open', $9::jsonb, now())
+       RETURNING ${SUGGESTION_COLS}`,
+      [
+        id,
+        input.pageId,
+        input.authorKind,
+        input.authorName,
+        input.kind,
+        JSON.stringify(input.target ?? {}),
+        input.before ?? '',
+        input.after ?? '',
+        JSON.stringify(input.payload ?? {}),
+      ],
+    );
+    return suggestionFromRow(rows[0]);
+  }
+
+  async updateSuggestion(id: string, patch: SuggestionUpdate): Promise<StoredSuggestion | null> {
+    const rows = await this.db.query<SuggestionRow>(
+      `UPDATE suggestions
+         SET status = COALESCE($2, status),
+             updated_at = now()
+       WHERE id = $1
+       RETURNING ${SUGGESTION_COLS}`,
+      [id, patch.status === undefined ? null : patch.status],
+    );
+    return rows.length > 0 ? suggestionFromRow(rows[0]) : null;
+  }
+
+  async deleteSuggestion(id: string): Promise<boolean> {
+    const rows = await this.db.query('DELETE FROM suggestions WHERE id = $1 RETURNING id', [id]);
+    return rows.length > 0;
+  }
+
+  /** A page's comments, oldest first (a thread reads top-to-bottom). */
+  async listComments(pageId: string): Promise<StoredComment[]> {
+    const rows = await this.db.query<CommentRowRecord>(
+      `SELECT ${COMMENT_COLS} FROM comments WHERE page_id = $1 ORDER BY created_at ASC`,
+      [pageId],
+    );
+    return rows.map(commentFromRow);
+  }
+
+  async createComment(input: CommentInput): Promise<StoredComment> {
+    const id = input.id ?? randomUUID();
+    const rows = await this.db.query<CommentRowRecord>(
+      `INSERT INTO comments (id, page_id, suggestion_id, block_id, parent_id, author_name, body)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+       RETURNING ${COMMENT_COLS}`,
+      [
+        id,
+        input.pageId,
+        input.suggestionId ?? null,
+        input.blockId ?? null,
+        input.parentId ?? null,
+        input.authorName,
+        JSON.stringify(input.body ?? []),
+      ],
+    );
+    return commentFromRow(rows[0]);
+  }
+
+  async deleteComment(id: string): Promise<boolean> {
+    const rows = await this.db.query('DELETE FROM comments WHERE id = $1 RETURNING id', [id]);
+    return rows.length > 0;
+  }
 }
 
 interface PluginRow {
@@ -780,5 +884,68 @@ function pluginFromRow(row: PluginRow): StoredPlugin {
     signature: (row.signature as StoredPlugin['signature']) ?? undefined,
     enabled: row.enabled,
     installedAt: new Date(row.installed_at).toISOString(),
+  };
+}
+
+// ── Suggestions + comments row mappers ───────────────────────────────────────
+
+const SUGGESTION_COLS =
+  'id, page_id, author_kind, author_name, kind, target, before_text, after_text, status, payload, created_at, updated_at';
+
+interface SuggestionRow {
+  id: string;
+  page_id: string;
+  author_kind: string;
+  author_name: string;
+  kind: string;
+  target: SuggestionTarget | string | null;
+  before_text: string;
+  after_text: string;
+  status: string;
+  payload: Record<string, unknown> | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+function suggestionFromRow(row: SuggestionRow): StoredSuggestion {
+  return {
+    id: row.id,
+    pageId: row.page_id,
+    authorKind: row.author_kind as StoredSuggestion['authorKind'],
+    authorName: row.author_name,
+    kind: row.kind as StoredSuggestion['kind'],
+    target: parseJson<SuggestionTarget>(row.target, {}),
+    before: row.before_text ?? '',
+    after: row.after_text ?? '',
+    status: row.status as StoredSuggestion['status'],
+    payload: parseJson<Record<string, unknown>>(row.payload, {}),
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+const COMMENT_COLS = 'id, page_id, suggestion_id, block_id, parent_id, author_name, body, created_at';
+
+interface CommentRowRecord {
+  id: string;
+  page_id: string;
+  suggestion_id: string | null;
+  block_id: string | null;
+  parent_id: string | null;
+  author_name: string;
+  body: CommentRun[] | string | null;
+  created_at: Date | string;
+}
+
+function commentFromRow(row: CommentRowRecord): StoredComment {
+  return {
+    id: row.id,
+    pageId: row.page_id,
+    suggestionId: row.suggestion_id ?? null,
+    blockId: row.block_id ?? null,
+    parentId: row.parent_id ?? null,
+    authorName: row.author_name,
+    body: parseJson<CommentRun[]>(row.body, []),
+    createdAt: toIso(row.created_at),
   };
 }

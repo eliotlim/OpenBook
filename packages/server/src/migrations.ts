@@ -119,6 +119,47 @@ const MIGRATIONS: Migration[] = [
       )`,
     ],
   },
+  {
+    // The review layer: persisted SUGGESTIONS (proposed, reviewable changes —
+    // AI write tools and humans both author these instead of mutating the
+    // document directly) and COMMENTS (threaded on a suggestion, or standalone
+    // on a block). Both cascade-delete with their host page. A suggestion's
+    // `target`/`payload` are JSONB (the bridge replays `payload` to apply the
+    // change); a comment's `body` is JSONB rich text (TextRun[]). Comments are
+    // double-anchored: `suggestion_id` for a review thread, `block_id` for a
+    // standalone block comment (exactly one is set in practice).
+    name: '0008_suggestions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS suggestions (
+        id           UUID        PRIMARY KEY,
+        page_id      UUID        NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        author_kind  TEXT        NOT NULL,
+        author_name  TEXT        NOT NULL,
+        kind         TEXT        NOT NULL,
+        target       JSONB       NOT NULL DEFAULT '{}'::jsonb,
+        before_text  TEXT        NOT NULL DEFAULT '',
+        after_text   TEXT        NOT NULL DEFAULT '',
+        status       TEXT        NOT NULL DEFAULT 'open',
+        payload      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      'CREATE INDEX IF NOT EXISTS suggestions_page_id_idx ON suggestions (page_id)',
+      'CREATE INDEX IF NOT EXISTS suggestions_status_idx ON suggestions (page_id, status)',
+      `CREATE TABLE IF NOT EXISTS comments (
+        id             UUID        PRIMARY KEY,
+        page_id        UUID        NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        suggestion_id  UUID        REFERENCES suggestions(id) ON DELETE CASCADE,
+        block_id       TEXT,
+        parent_id      UUID        REFERENCES comments(id) ON DELETE CASCADE,
+        author_name    TEXT        NOT NULL,
+        body           JSONB       NOT NULL DEFAULT '[]'::jsonb,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      'CREATE INDEX IF NOT EXISTS comments_page_id_idx ON comments (page_id)',
+      'CREATE INDEX IF NOT EXISTS comments_suggestion_id_idx ON comments (suggestion_id)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

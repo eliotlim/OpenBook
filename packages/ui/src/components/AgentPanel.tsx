@@ -1,12 +1,13 @@
 import {useEffect, useRef, useState} from 'react';
-import {ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, Loader2, Plus, Square, X} from 'lucide-react';
-import type {AgentChatEvent, AgentChatMessage, AgentProposal, AiEffort} from '@open-book/sdk';
+import {ArrowUp, Bot, Brain, ChevronDown, ChevronRight, ClipboardCheck, Loader2, Plus, Square, X} from 'lucide-react';
+import type {AgentChatEvent, AgentChatMessage, AiEffort, StoredSuggestion} from '@open-book/sdk';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
-import {aiBridge} from '@/lib/aiBridge';
 import {useData} from '@/data';
 import type {TKey} from '@/i18n';
-import {useHud, useTranslation} from '@/providers';
+import {useHud, useNavigation, useTranslation} from '@/providers';
+import {REVIEW_PANE_ID} from '@/lib/homePage';
+import {setReviewTarget} from '@/lib/reviewPane';
 import {cn} from '@/lib/utils';
 
 /**
@@ -14,10 +15,10 @@ import {cn} from '@/lib/utils';
  * harness. Each reply streams as steps — tool calls render as chips while
  * they run (click one to see what the tool returned), reasoning lands as a
  * collapsible block, and the grounded answer lands as an assistant bubble.
- * When the agent proposes WRITES, a diff/summary card appears: the user
- * approves (applied via the editor bridge in one CRDT transaction) or discards.
- * The agent needs a configured AI engine; with none, the panel links straight
- * to Settings → AI.
+ * When the agent proposes WRITES, it persists them as SUGGESTIONS (never
+ * applied) and a summary card appears with a "Review" button that opens the
+ * Review side pane to accept/reject them. The agent needs a configured AI
+ * engine; with none, the panel links straight to Settings → AI.
  */
 
 /** One rendered entry in the thread (richer than the wire conversation). */
@@ -26,7 +27,7 @@ type ThreadItem =
   | {kind: 'assistant'; text: string}
   | {kind: 'reasoning'; text: string; expanded?: boolean}
   | {kind: 'tool'; name: string; detail?: string; running: boolean; result?: string; expanded?: boolean}
-  | {kind: 'proposals'; proposals: AgentProposal[]; status: 'pending' | 'approved' | 'rejected'}
+  | {kind: 'suggestions'; suggestions: StoredSuggestion[]}
   | {kind: 'error'; text: string};
 
 /** A one-line human summary of a tool call's arguments. */
@@ -46,6 +47,7 @@ export function AgentPanel() {
   const {hud, setHud} = useHud();
   const {t} = useTranslation();
   const client = useData();
+  const {openInSplit} = useNavigation();
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [conversation, setConversation] = useState<AgentChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -126,9 +128,9 @@ export function AgentPanel() {
       });
     } else if (event.type === 'reasoning') {
       setThread((items) => [...items, {kind: 'reasoning', text: event.text}]);
-    } else if (event.type === 'proposals') {
-      if (event.proposals.length > 0) {
-        setThread((items) => [...items, {kind: 'proposals', proposals: event.proposals, status: 'pending'}]);
+    } else if (event.type === 'suggestions') {
+      if (event.suggestions.length > 0) {
+        setThread((items) => [...items, {kind: 'suggestions', suggestions: event.suggestions}]);
       }
     } else if (event.type === 'final') {
       setThread((items) => [...items, {kind: 'assistant', text: event.text}]);
@@ -164,24 +166,12 @@ export function AgentPanel() {
       ),
     );
 
-  // Apply (or discard) a proposal card. Approval routes through the AI bridge,
-  // which applies in one CRDT transaction against the live editor (undoable).
-  const resolveProposals = async (index: number, approve: boolean): Promise<void> => {
-    const item = thread[index];
-    if (item?.kind !== 'proposals' || item.status !== 'pending') return;
-    if (!approve) {
-      setThread((items) => items.map((it, i) => (i === index && it.kind === 'proposals' ? {...it, status: 'rejected'} : it)));
-      setThread((items) => [...items, {kind: 'assistant', text: t('agent.rejected')}]);
-      return;
-    }
-    try {
-      const result = await aiBridge.applyProposals(item.proposals);
-      setThread((items) => items.map((it, i) => (i === index && it.kind === 'proposals' ? {...it, status: 'approved'} : it)));
-      const text = result.failed.length > 0 ? t('agent.applyFailed') : t('agent.applied', {count: result.applied});
-      setThread((items) => [...items, {kind: 'assistant', text}]);
-    } catch (err) {
-      setThread((items) => [...items, {kind: 'error', text: t('agent.error', {error: err instanceof Error ? err.message : String(err)})}]);
-    }
+  // The agent persists WRITES as suggestions (never applied). Open the Review
+  // side pane to accept/reject them, focusing the first of the batch.
+  const openReview = (suggestions: StoredSuggestion[]): void => {
+    if (suggestions.length === 0) return;
+    setReviewTarget(suggestions[0].pageId, {suggestionId: suggestions[0].id});
+    openInSplit(REVIEW_PANE_ID);
   };
 
   if (!open) return null;
@@ -295,44 +285,35 @@ export function AgentPanel() {
               </div>
             );
           }
-          if (item.kind === 'proposals') {
+          if (item.kind === 'suggestions') {
             return (
               <div
                 key={i}
-                data-agent-proposals={item.status}
+                data-agent-suggestions
                 className="flex max-w-full flex-col gap-2 self-start rounded-lg border border-border bg-background/60 px-3 py-2.5"
               >
-                <p className="text-xs font-medium">{t('agent.proposalTitle')}</p>
-                <p className="text-[11px] text-muted-foreground">{t('agent.proposalHint')}</p>
+                <p className="text-xs font-medium">{t('agent.suggestionsTitle', {count: item.suggestions.length})}</p>
+                <p className="text-[11px] text-muted-foreground">{t('agent.suggestionsHint')}</p>
                 <ul className="flex flex-col gap-1.5">
-                  {item.proposals.map((p) => (
-                    <li key={p.id} className="rounded-md border border-border bg-sheet-1 px-2.5 py-1.5">
-                      <p className="text-xs font-medium">{p.summary}</p>
-                      {(p.before !== undefined || p.after !== undefined) && (
+                  {item.suggestions.map((s) => (
+                    <li key={s.id} className="rounded-md border border-border bg-sheet-1 px-2.5 py-1.5">
+                      <p className="text-xs font-medium">
+                        {typeof s.payload.summary === 'string' ? s.payload.summary : s.kind}
+                      </p>
+                      {(s.before || s.after) && (
                         <p className="mt-0.5 break-words font-mono text-[10px] leading-relaxed text-muted-foreground">
-                          {p.before !== undefined && <span className="text-destructive/80">- {p.before}</span>}
-                          {p.before !== undefined && p.after !== undefined && ' '}
-                          {p.after !== undefined && <span className="text-emerald-600 dark:text-emerald-400">+ {p.after}</span>}
+                          {s.before && <span className="text-destructive/80">- {s.before}</span>}
+                          {s.before && s.after && ' '}
+                          {s.after && <span className="text-emerald-600 dark:text-emerald-400">+ {s.after}</span>}
                         </p>
                       )}
                     </li>
                   ))}
                 </ul>
-                {item.status === 'pending' ? (
-                  <div className="flex items-center gap-2">
-                    <Button size="sm" data-agent-approve onClick={() => void resolveProposals(i, true)}>
-                      <Check className="mr-1 size-3.5" />
-                      {t('agent.approve')}
-                    </Button>
-                    <Button size="sm" variant="outline" data-agent-reject onClick={() => void resolveProposals(i, false)}>
-                      {t('agent.reject')}
-                    </Button>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground">
-                    {item.status === 'approved' ? t('agent.approve') + ' ✓' : t('agent.reject') + ' ✓'}
-                  </p>
-                )}
+                <Button size="sm" data-agent-review className="self-start" onClick={() => openReview(item.suggestions)}>
+                  <ClipboardCheck className="mr-1 size-3.5" />
+                  {t('agent.review')}
+                </Button>
               </div>
             );
           }

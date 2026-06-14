@@ -65,6 +65,8 @@ import type {PageLinkResult} from '@/lib/pageLinks';
 import {InlineToolbar, type ToolbarState} from './InlineToolbar';
 import {useBlockEditor, type BlockEditorController} from './useBlockEditor';
 import type {InlineAttrs} from './model';
+import {getPageIdForDoc} from '@/lib/aiBridge';
+import {requestComment, requestSuggestEdit, suggestHostReady} from '@/lib/suggestBridge';
 
 /**
  * The block editor root: renders the block tree, owns the transient UI
@@ -904,12 +906,30 @@ const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> =
   const id = blockId(block);
   const isText = TEXT_BLOCKS.has(blockType(block));
   const ops = blockOps(editor, id);
+  // Review affordances need the host (BlockPageDocument) mounted and the live
+  // doc registered against a page id (so the composer knows its target page).
+  const pageId = getPageIdForDoc(editor.doc);
+  const reviewable = !editor.readOnly && suggestHostReady() && pageId !== null;
+  const suggestEdit = (): void => {
+    const text = blockText(block);
+    if (pageId) requestSuggestEdit({pageId, blockId: id, before: text ? text.toString() : ''});
+  };
+  const comment = (): void => {
+    if (pageId) requestComment({pageId, blockId: id});
+  };
   return (
     <ContextMenuContent className="w-44">
       {/* Interactive blocks expose their settings popover right from the menu. */}
       {hasKitConfig(id) && (
         <>
           <ContextMenuItem onSelect={() => openKitConfig(id)}>Configure…</ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      )}
+      {reviewable && (
+        <>
+          {isText && <ContextMenuItem onSelect={suggestEdit}>Suggest edit…</ContextMenuItem>}
+          <ContextMenuItem onSelect={comment}>Comment…</ContextMenuItem>
           <ContextMenuSeparator />
         </>
       )}

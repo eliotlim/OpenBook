@@ -5,6 +5,8 @@ import {
   type AiEffort,
   type AiSkill,
   type PluginAgentTool,
+  type StoredSuggestion,
+  type SuggestionKind,
 } from '@open-book/sdk';
 import type {PageStore} from '../store';
 import {effortProfile} from './effort';
@@ -25,10 +27,11 @@ import {SCRATCHPAD_INSTRUCTION, splitReasoning} from './thinking';
  * separate channel so the UI shows it as a collapsible block — never document
  * content. Effort (low/med/high) drives the step cap and sampling.
  *
- * Write safety: write tools never mutate. They enqueue a PROPOSED change set
- * the UI shows for approval; on approve the client applies it through the
- * editor bridge in one CRDT transaction (undoable). The runner only describes
- * the change.
+ * Write safety: write tools never mutate. They persist SUGGESTIONS (proposed,
+ * reviewable changes) and surface a "review" event linking to the Review side
+ * pane. A human accepts a suggestion later (the client replays its payload
+ * through the editor bridge in one CRDT transaction, undoable) — the agent
+ * never applies anything itself. AI and human suggestions share one model.
  */
 
 export interface AgentMessage {
@@ -40,7 +43,12 @@ export type AgentEvent =
   | {type: 'tool'; name: string; args: Record<string, unknown>}
   | {type: 'tool_result'; name: string; result: string}
   | {type: 'reasoning'; text: string}
-  | {type: 'proposals'; proposals: AgentProposal[]}
+  /**
+   * The write tools persisted these suggestions for review (NOT applied). The
+   * UI shows a "proposed N suggestions — Review" card linking to the Review
+   * side pane, where a human accepts/rejects each.
+   */
+  | {type: 'suggestions'; suggestions: StoredSuggestion[]}
   | {type: 'final'; text: string}
   | {type: 'error'; error: string};
 
@@ -75,11 +83,21 @@ const obj = (props: Record<string, unknown>, required: string[] = []): Record<st
 });
 const str = (description: string) => ({type: 'string', description});
 
+/** Display name for AI-authored suggestions. */
+const AI_AUTHOR_NAME = 'Assistant';
+
+/** Map an agent write-tool kind to the SDK suggestion kind (for the diff card). */
+const SUGGESTION_KIND: Record<AgentProposal['kind'], SuggestionKind> = {
+  update_block: 'replace-text',
+  append_blocks: 'insert',
+  set_kit_value: 'replace-text',
+  set_db_cell: 'set-cell',
+};
+
 export class AgentRunner {
   private readonly tools: ToolDef[];
-  /** Proposals accumulated across this run's write-tool calls (one approval). */
-  private proposals: AgentProposal[] = [];
-  private proposalSeq = 0;
+  /** Suggestions persisted across this run's write-tool calls (reviewed later). */
+  private suggestions: StoredSuggestion[] = [];
 
   constructor(
     private readonly ai: AiService,
@@ -346,11 +364,42 @@ export class AgentRunner {
     }));
   }
 
-  /** Record a proposal and return the message the model sees as the tool result. */
-  private enqueue(proposal: Omit<AgentProposal, 'id'>): string {
-    const id = `prop-${(this.proposalSeq += 1)}`;
-    this.proposals.push({id, ...proposal});
-    return `PROPOSED (pending your approval): ${proposal.summary}. Do not call it again; continue or answer.`;
+  /**
+   * Persist a write tool's change as a SUGGESTION (proposed, not applied) and
+   * return the message the model sees as the tool result. The suggestion's
+   * `payload` carries the original write-tool kind as `applyKind` so the editor
+   * bridge replays it unchanged when a human accepts it.
+   */
+  private async enqueue(proposal: Omit<AgentProposal, 'id'>): Promise<string> {
+    const pageId = proposal.pageId ?? String(proposal.payload.pageId ?? '');
+    if (!pageId) return 'Could not record the suggestion: no target page.';
+    try {
+      const suggestion = await this.store.createSuggestion({
+        pageId,
+        authorKind: 'ai',
+        authorName: AI_AUTHOR_NAME,
+        kind: SUGGESTION_KIND[proposal.kind],
+        target: this.suggestionTarget(proposal),
+        before: proposal.before ?? '',
+        after: proposal.after ?? '',
+        payload: {...proposal.payload, applyKind: proposal.kind, summary: proposal.summary},
+      });
+      this.suggestions.push(suggestion);
+      return `SUGGESTED for review (not applied): ${proposal.summary}. Do not call it again; continue or answer.`;
+    } catch (err) {
+      return `Could not record the suggestion: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  /** Derive a suggestion's structured target from a write-tool proposal. */
+  private suggestionTarget(proposal: Omit<AgentProposal, 'id'>): StoredSuggestion['target'] {
+    const p = proposal.payload;
+    if (proposal.kind === 'update_block') return {blockId: String(p.blockId ?? '')};
+    if (proposal.kind === 'set_db_cell') {
+      return {databaseId: String(p.databaseId ?? ''), rowId: String(p.rowId ?? ''), propertyId: String(p.propertyId ?? '')};
+    }
+    if (proposal.kind === 'set_kit_value') return {blockId: undefined};
+    return {}; // append_blocks: appended at the document end
   }
 
   // ── Prompt ────────────────────────────────────────────────────────────────────
@@ -434,7 +483,7 @@ export class AgentRunner {
     const {maxSteps, maxTokens, temperature, thinkingBudget} = effortProfile(this.options.effort);
     const showThinking = this.options.thinking !== false;
     const toolTrace: string[] = [];
-    this.proposals = [];
+    this.suggestions = [];
 
     // Prefer native tool-calling when the endpoint advertises it; fall back to
     // the JSON protocol on any failure.
@@ -460,7 +509,7 @@ export class AgentRunner {
     };
 
     const finish = async (text: string): Promise<void> => {
-      if (this.proposals.length > 0) await emit({type: 'proposals', proposals: this.proposals});
+      if (this.suggestions.length > 0) await emit({type: 'suggestions', suggestions: this.suggestions});
       await emit({type: 'final', text: text.trim()});
     };
 

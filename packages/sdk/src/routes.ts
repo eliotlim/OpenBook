@@ -79,6 +79,16 @@ export const API = {
   aiSkill: (name: string) => `/api/ai/skills/${encodeURIComponent(name)}`,
   plugins: '/api/plugins',
   plugin: (id: string) => `/api/plugins/${id}`,
+
+  // ── Suggestions + comments (the review layer) ────────────────────────────────
+  /** A page's suggestions: `GET` (list, optionally `?status=open`) / `POST` (create). */
+  suggestions: (pageId: string): string => `/api/pages/${encodeURIComponent(pageId)}/suggestions`,
+  /** A single suggestion: `PATCH` (status: accepted/rejected) / `DELETE`. */
+  suggestion: (id: string): string => `/api/suggestions/${encodeURIComponent(id)}`,
+  /** A page's comments (standalone block comments + suggestion threads): `GET` / `POST` (create). */
+  comments: (pageId: string): string => `/api/pages/${encodeURIComponent(pageId)}/comments`,
+  /** A single comment: `DELETE`. */
+  comment: (id: string): string => `/api/comments/${encodeURIComponent(id)}`,
 } as const;
 
 /** Error body shape returned by the API for non-2xx responses. */

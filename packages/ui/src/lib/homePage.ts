@@ -30,6 +30,15 @@ export const CONFIG_PANE_ID = 'config';
  */
 export const CUSTOMISE_PANE_ID = 'customise';
 
+/**
+ * The Review split-pane mode — a pseudo-page hosting the suggestions + comments
+ * review surface for a page (open suggestions with before→after diffs, accept /
+ * reject, and threaded rich-text comments). Like {@link CONFIG_PANE_ID} it
+ * reuses the side pane and is ephemeral — never persisted to the URL. The page
+ * it targets is tracked in `lib/reviewPane.ts`.
+ */
+export const REVIEW_PANE_ID = 'review';
+
 /** Which Home widgets are shown. All on by default; configurable per device. */
 export interface HomeWidgets {
   actions: boolean;

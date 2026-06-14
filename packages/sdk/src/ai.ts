@@ -17,6 +17,8 @@
  *               llama-server, vLLM…).
  */
 
+import type {StoredSuggestion} from './suggestions';
+
 export type AiProvider = 'off' | 'mock' | 'llama' | 'mlx' | 'openai';
 
 /**
@@ -95,11 +97,12 @@ export interface AgentChatMessage {
 }
 
 /**
- * A single proposed change the agent wants to apply to the workspace. Write
- * tools enqueue these instead of mutating immediately; the UI shows a
- * diff/summary card and the user approves (apply in one CRDT transaction) or
- * rejects. `before`/`after` are human-readable for the card; `target` +
- * `payload` are what the UI bridge replays on approval.
+ * A single change the agent's write tools describe. Internal to the agent
+ * harness: a write tool builds one of these, the runner persists it as a
+ * {@link StoredSuggestion} (see `./suggestions`), and the suggestion — not this
+ * proposal — is what reaches the UI. Retained because the persisted
+ * suggestion's `payload` carries this `kind` (as `applyKind`), which the editor
+ * bridge replays to apply the change when a human accepts it.
  */
 export interface AgentProposal {
   /** Stable id within the turn's change set. */
@@ -123,7 +126,12 @@ export type AgentChatEvent =
   | {type: 'tool'; name: string; args: Record<string, unknown>}
   | {type: 'tool_result'; name: string; result: string}
   | {type: 'reasoning'; text: string}
-  | {type: 'proposals'; proposals: AgentProposal[]}
+  /**
+   * The agent's write tools persisted these suggestions for review (NOT
+   * applied). The UI shows a "proposed N suggestions — Review" card linking to
+   * the Review side pane; a human accepts/rejects each there.
+   */
+  | {type: 'suggestions'; suggestions: StoredSuggestion[]}
   | {type: 'final'; text: string}
   | {type: 'error'; error: string};
 

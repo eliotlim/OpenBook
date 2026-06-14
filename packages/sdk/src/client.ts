@@ -21,6 +21,14 @@ import type {
   RowUpdate,
   StoredDatabase,
 } from './database';
+import type {
+  CommentInput,
+  StoredComment,
+  StoredSuggestion,
+  SuggestionInput,
+  SuggestionStatus,
+  SuggestionUpdate,
+} from './suggestions';
 
 /** Handlers for a single page's live update stream. */
 export interface PageSubscription {
@@ -135,6 +143,22 @@ export interface DataClient {
   reorderRows(databaseId: string, orderedIds: string[]): Promise<void>;
   /** Subscribe to a database's live row-list updates. Returns an unsubscribe fn. */
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void;
+
+  // ── Suggestions + comments (the review layer) ────────────────────────────────
+  /** List a page's suggestions, newest first. `status` filters (e.g. only open). */
+  listSuggestions(pageId: string, status?: SuggestionStatus): Promise<StoredSuggestion[]>;
+  /** Persist a new suggestion (status defaults to `open`). */
+  createSuggestion(input: SuggestionInput): Promise<StoredSuggestion>;
+  /** Update a suggestion (today: its status). Returns the updated suggestion. */
+  updateSuggestion(id: string, patch: SuggestionUpdate): Promise<StoredSuggestion>;
+  /** Delete a suggestion (and its thread). Resolves `true` if removed. */
+  deleteSuggestion(id: string): Promise<boolean>;
+  /** List a page's comments, oldest first (so a thread reads top-to-bottom). */
+  listComments(pageId: string): Promise<StoredComment[]>;
+  /** Persist a new comment (on a suggestion or a block). */
+  createComment(input: CommentInput): Promise<StoredComment>;
+  /** Delete a comment. Resolves `true` if removed. */
+  deleteComment(id: string): Promise<boolean>;
 }
 
 /**
@@ -376,6 +400,43 @@ export class HttpDataClient implements DataClient {
 
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void {
     return this.liveStream().onRows(databaseId, onRows);
+  }
+
+  // ── Suggestions + comments (the review layer) ────────────────────────────────
+
+  async listSuggestions(pageId: string, status?: SuggestionStatus): Promise<StoredSuggestion[]> {
+    const path = status ? `${API.suggestions(pageId)}?status=${encodeURIComponent(status)}` : API.suggestions(pageId);
+    return this.request<StoredSuggestion[]>('GET', path);
+  }
+
+  async createSuggestion(input: SuggestionInput): Promise<StoredSuggestion> {
+    return this.request<StoredSuggestion>('POST', API.suggestions(input.pageId), input);
+  }
+
+  async updateSuggestion(id: string, patch: SuggestionUpdate): Promise<StoredSuggestion> {
+    return this.request<StoredSuggestion>('PATCH', API.suggestion(id), patch);
+  }
+
+  async deleteSuggestion(id: string): Promise<boolean> {
+    const res = await fetch(`${this.baseUrl}${API.suggestion(id)}`, {method: 'DELETE'});
+    if (res.status === 404) return false;
+    await throwIfNotOk(res);
+    return true;
+  }
+
+  async listComments(pageId: string): Promise<StoredComment[]> {
+    return this.request<StoredComment[]>('GET', API.comments(pageId));
+  }
+
+  async createComment(input: CommentInput): Promise<StoredComment> {
+    return this.request<StoredComment>('POST', API.comments(input.pageId), input);
+  }
+
+  async deleteComment(id: string): Promise<boolean> {
+    const res = await fetch(`${this.baseUrl}${API.comment(id)}`, {method: 'DELETE'});
+    if (res.status === 404) return false;
+    await throwIfNotOk(res);
+    return true;
   }
 
   // ── Optional local AI ───────────────────────────────────────────────────────

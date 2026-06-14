@@ -1,5 +1,5 @@
 import type * as Y from 'yjs';
-import type {AgentProposal} from '@open-book/sdk';
+import type {AgentProposal, StoredSuggestion} from '@open-book/sdk';
 
 /**
  * Bridge between the (provider-less) block editor and the app's AI client —
@@ -36,7 +36,33 @@ export interface AiBridgeImpl {
   tasks: (goal: string, context?: string) => Promise<string[]>;
   /** Apply an approved set of agent proposals. */
   applyProposals: (proposals: AgentProposal[]) => Promise<ProposalApplyResult>;
+  /**
+   * Apply one accepted suggestion to the document — the same CRDT-first /
+   * savePage-fallback path as {@link applyProposals}, keyed off the suggestion's
+   * `payload.applyKind`. Throws on failure (the caller keeps the suggestion open).
+   */
+  applySuggestion: (suggestion: StoredSuggestion) => Promise<void>;
 }
+
+/**
+ * Convert a persisted suggestion back into the {@link AgentProposal} shape the
+ * editor-bridge apply path understands. The suggestion's `payload` carries the
+ * original write-tool kind as `applyKind`, so applying an AI suggestion and a
+ * human suggestion go through identical code.
+ */
+export const suggestionToProposal = (s: StoredSuggestion): AgentProposal => {
+  const payload = s.payload ?? {};
+  const kind = (payload.applyKind as AgentProposal['kind']) ?? 'update_block';
+  return {
+    id: s.id,
+    kind,
+    summary: typeof payload.summary === 'string' ? payload.summary : `${s.kind} on ${s.pageId}`,
+    pageId: s.pageId,
+    before: s.before,
+    after: s.after,
+    payload,
+  };
+};
 
 let bridge: AiBridgeImpl | null = null;
 const subscribers = new Set<() => void>();
@@ -59,6 +85,14 @@ export const registerBlockEditorDoc = (pageId: string, doc: Y.Doc): (() => void)
 export const getBlockEditorDoc = (pageId: string | undefined): Y.Doc | null =>
   (pageId && editorDocs.get(pageId)) || null;
 
+/** Reverse lookup: the page id a live editor doc is registered under, if any. */
+export const getPageIdForDoc = (doc: Y.Doc): string | null => {
+  for (const [pageId, registered] of editorDocs) {
+    if (registered === doc) return pageId;
+  }
+  return null;
+};
+
 export const setAiBridge = (next: AiBridgeImpl | null): void => {
   bridge = next;
   subscribers.forEach((cb) => cb());
@@ -77,4 +111,6 @@ export const aiBridge = {
     bridge ? bridge.tasks(goal, context) : Promise.reject(new Error('AI not available')),
   applyProposals: (proposals: AgentProposal[]): Promise<ProposalApplyResult> =>
     bridge ? bridge.applyProposals(proposals) : Promise.reject(new Error('AI not available')),
+  applySuggestion: (suggestion: StoredSuggestion): Promise<void> =>
+    bridge ? bridge.applySuggestion(suggestion) : Promise.reject(new Error('editor bridge not available')),
 };

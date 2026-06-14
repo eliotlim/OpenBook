@@ -392,6 +392,9 @@ export const en = {
     suggestion2: 'Find my notes about planning',
     suggestion3: 'Create a page with a plan for today',
     reasoning: 'Reasoning',
+    suggestionsTitle: 'Proposed {count} suggestion(s)',
+    suggestionsHint: 'The assistant proposed these changes. Open Review to accept or reject each.',
+    review: 'Review',
     proposalTitle: 'Proposed changes',
     proposalHint: 'The assistant wants to make these changes. Review and approve.',
     approve: 'Approve',
@@ -507,7 +510,15 @@ export const en = {
     },
     roadmap: {
       name: 'Product roadmap',
-      description: 'Initiatives on a timeline, a board, and a table.',
+      description: 'Initiatives on a timeline and a board, both split into swimlanes by area.',
+    },
+    fieldMap: {
+      name: 'Field map',
+      description: 'Offices and partners pinned on a map, coloured by region — with a table view.',
+    },
+    intakeForm: {
+      name: 'New project intake',
+      description: 'A guided wizard: gated stages of choice cards, tags, and rich text, tracked by a progress bar.',
     },
     readingList: {
       name: 'Reading list',

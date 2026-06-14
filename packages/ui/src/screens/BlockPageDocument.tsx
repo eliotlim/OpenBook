@@ -31,6 +31,8 @@ import {pageHasPluginManifest} from '@/plugins';
 import {registerPageDocActions, type ExportKind} from '@/lib/pageDocActions';
 import {registerOpenDoc} from '@/lib/openDocs';
 import {registerBlockEditorDoc} from '@/lib/aiBridge';
+import {SuggestHost} from '@/components/review/SuggestHost';
+import {BlockReviewMarkers} from '@/components/review/BlockReviewMarkers';
 import {useConfirm, usePreferences, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
@@ -76,6 +78,8 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'save failed'>('idle');
   const lastSnapshot = useRef<PageSnapshot | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The editor's positioned wrapper — inline review indicators portal into it.
+  const editorWrapRef = useRef<HTMLDivElement | null>(null);
 
   // ── Load (or migrate) ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -305,7 +309,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
           />
           {pageId && <PageProperties pageId={pageId} />}
 
-          <div className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'pt-2')}>
+          <div ref={editorWrapRef} className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'relative pt-2')}>
             {doc && (
               <BlockEditor
                 doc={doc}
@@ -316,7 +320,14 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
                 pageId={pageId}
               />
             )}
+            {/* Inline review affordances (provider-aware, portaled into the
+                editor wrapper since the editor's own root is provider-less). */}
+            {pageId && doc && <BlockReviewMarkers pageId={pageId} containerRef={editorWrapRef} />}
           </div>
+
+          {/* Bridges the editor's inline "Suggest edit"/"Comment" menu items to
+              the data client + Review pane. */}
+          {pageId && doc && <SuggestHost />}
 
           {footer}
         </div>

@@ -2011,6 +2011,17 @@ a.obe-mention {
   color: hsl(var(--muted-foreground) / 0.55);
 }
 
+/* Inline review: a quiet accent on blocks with an open suggestion or a comment,
+   plus link styling inside a rendered comment body. Presentation-only. */
+.ob-block-reviewed {
+  border-radius: 6px;
+  box-shadow: inset 2px 0 0 0 hsl(var(--primary) / 0.55);
+  background: hsl(var(--primary) / 0.05);
+}
+.ob-comment-body a { color: hsl(var(--primary)); text-decoration: underline; }
+.ob-comment-body strong { font-weight: 700; }
+.ob-comment-body em { font-style: italic; }
+
 /* Searchable select trigger (the popover surface is Radix Command). */
 .obe-kit-searchtrigger {
   display: inline-flex;

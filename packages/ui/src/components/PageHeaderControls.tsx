@@ -1,4 +1,4 @@
-import {Image as ImageIcon, Palette} from 'lucide-react';
+import {ClipboardCheck, Image as ImageIcon, Palette} from 'lucide-react';
 import {OWNER_PROPERTY_ID, VERIFICATION_PROPERTY_ID} from '@open-book/sdk';
 import {useNavigation, useTranslation} from '@/providers';
 import {IconButton} from '@/components/ui/icon-button';
@@ -6,7 +6,8 @@ import {OwnerEditor, VerificationEditor, usePageProperties} from '@/components/P
 import {CoverPicker} from '@/components/PageCover';
 import {usePageCover} from '@/lib/pageCover';
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
-import {CUSTOMISE_PANE_ID} from '@/lib/homePage';
+import {CUSTOMISE_PANE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {setReviewTarget} from '@/lib/reviewPane';
 import {hasPageCustomisation} from '@/components/appearance/PageCustomiseBody';
 
 /**
@@ -27,6 +28,11 @@ export function PageHeaderControls({pageId}: {pageId: string}) {
     openInSplit(CUSTOMISE_PANE_ID);
   };
 
+  const openReview = () => {
+    setReviewTarget(pageId);
+    openInSplit(REVIEW_PANE_ID);
+  };
+
   return (
     <div className="flex h-8 flex-wrap items-center gap-1 text-sm text-muted-foreground print:hidden">
       <IconButton
@@ -37,6 +43,9 @@ export function PageHeaderControls({pageId}: {pageId: string}) {
         className={customised ? 'text-primary hover:text-primary' : undefined}
       >
         <Palette className="h-4 w-4" />
+      </IconButton>
+      <IconButton size="sm" aria-label="Review suggestions" title="Review suggestions" onClick={openReview}>
+        <ClipboardCheck className="h-4 w-4" />
       </IconButton>
       <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
       <OwnerEditor owner={owner} onChange={(v) => setProperty(OWNER_PROPERTY_ID, v)} />

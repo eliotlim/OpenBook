@@ -127,6 +127,18 @@ export {
   type StoredPlugin,
 } from './plugins';
 export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';
+export type {
+  CommentRun,
+  SuggestionAuthorKind,
+  SuggestionKind,
+  SuggestionStatus,
+  SuggestionTarget,
+  StoredSuggestion,
+  SuggestionInput,
+  SuggestionUpdate,
+  StoredComment,
+  CommentInput,
+} from './suggestions';
 export {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from './templates';
 export {
   BACKUP_VERSION,
