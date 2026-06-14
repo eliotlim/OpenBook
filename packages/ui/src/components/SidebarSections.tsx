@@ -76,13 +76,13 @@ const displayName = (name: string | null): string => (name && name.trim().length
 
 /** A flat page row: icon + name, selectable, with the shared page context menu. */
 export function SidebarPageRow({page}: {page: PageMeta}) {
-  const {currentPageId, selectPage} = useNavigation();
+  const {currentPageId, selectPageInPane} = useNavigation();
   const selected = page.id === currentPageId;
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
         <div
-          onClick={() => selectPage(page.id)}
+          onClick={() => selectPageInPane(page.id, 'primary')}
           className={cn(
             'mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-foreground/75 transition-colors',
             SIDEBAR_HOVER,

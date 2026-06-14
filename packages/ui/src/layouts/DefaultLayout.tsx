@@ -11,6 +11,7 @@ import Settings from '@/components/Settings';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
 import TitlebarTabs from '@/components/TitlebarTabs';
 import WindowControls from '@/components/WindowControls';
+import {useHud} from '@/providers';
 import {ConfirmProvider} from '@/providers/ConfirmProvider';
 
 export interface DefaultLayoutProps {
@@ -18,6 +19,10 @@ export interface DefaultLayoutProps {
 }
 
 export default function DefaultLayout(props: DefaultLayoutProps) {
+  const {hud} = useHud();
+  // The page binds straight into the sidebar (no left inset) only while it is
+  // pinned open — i.e. taking layout space. Undocked/closed leaves the inset.
+  const sidebarPinned = hud.sideNav.docked && hud.sideNav.open;
   return (
     <ConfirmProvider>
       <div className="flex h-screen flex-col">
@@ -42,9 +47,13 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <AiBridgeHost/>
           <EmojiPickerHost/>
           <SideNav/>
-          {/* The desk: a quiet backdrop the primary page and the split pane
-              float on as rounded "notebook" sheets, inset from the window. */}
-          <div className="ob-desk flex min-h-0 w-full min-w-0 flex-row overflow-hidden">
+          {/* The book cover: the primary page and the split pane sit on it as
+              rounded "notebook" sheets, inset from the window (no left inset
+              while the sidebar is pinned). */}
+          <div
+            className="ob-desk flex min-h-0 w-full min-w-0 flex-row overflow-hidden"
+            data-sidebar-pinned={sidebarPinned}
+          >
             <div className="ob-sheet flex min-h-0 w-full min-w-0 flex-col">
               <NavBar/>
               {/* The document area owns scrolling, one ScrollArea per pane, so the

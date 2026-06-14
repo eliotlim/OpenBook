@@ -74,12 +74,16 @@ const tabPushPrimary = (t: TabState, pageId: string): TabState => {
   return {...t, history, index: history.length - 1};
 };
 
-const tabNavigate = (t: TabState, pageId: string): TabState => {
-  if (t.focused === 'secondary' && tabIsSplit(t)) {
+/** Navigate a SPECIFIC pane (regardless of focus). The secondary pane only
+ *  exists while split — navigating it otherwise falls back to the primary. */
+const tabNavigateIn = (t: TabState, pane: PaneId, pageId: string): TabState => {
+  if (pane === 'secondary' && tabIsSplit(t)) {
     return t.split === pageId ? t : {...t, split: pageId};
   }
   return tabPushPrimary(t, pageId);
 };
+
+const tabNavigate = (t: TabState, pageId: string): TabState => tabNavigateIn(t, t.focused, pageId);
 
 const tabStep = (t: TabState, delta: -1 | 1): TabState => {
   const index = t.index + delta;
@@ -156,6 +160,13 @@ export const allOpenPageIds = (w: WindowState): string[] => {
 // Active-tab navigation.
 export const navigateFocused = (w: WindowState, pageId: string): WindowState =>
   mapActive(w, (t) => tabNavigate(t, pageId));
+/** Navigate (and focus) a specific pane — used so a link click drives the pane
+ *  it came from rather than whichever pane happens to be focused. */
+export const navigatePane = (w: WindowState, pane: PaneId, pageId: string): WindowState =>
+  mapActive(w, (t) => {
+    const target: PaneId = pane === 'secondary' && tabIsSplit(t) ? 'secondary' : 'primary';
+    return tabNavigateIn(tabFocusPane(t, target), target, pageId);
+  });
 export const goBack = (w: WindowState): WindowState => mapActive(w, (t) => tabStep(t, -1));
 export const goForward = (w: WindowState): WindowState => mapActive(w, (t) => tabStep(t, 1));
 export const openSplit = (w: WindowState, pageId: string): WindowState => mapActive(w, (t) => tabOpenSplit(t, pageId));

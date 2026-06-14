@@ -524,7 +524,10 @@ export const BlockEditor: React.FC<{
           const pageRef = anchor.dataset.pageId;
           if (pageRef) {
             e.preventDefault();
-            pageLinks.openPage(pageRef);
+            // Navigate the pane the link lives in: the split pane stays put for
+            // primary-pane links, and only the right pane follows its own links.
+            const pane = anchor.closest('[data-split-pane]') ? 'secondary' : 'primary';
+            pageLinks.openPage(pageRef, pane);
             return;
           }
           if (anchor.classList.contains('obe-link') && (readOnly || e.metaKey || e.ctrlKey)) {

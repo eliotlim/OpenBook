@@ -7,7 +7,7 @@ import {cn} from '@/lib/utils';
 
 /** Sidebar launcher for the Home view — the workspace's new-tab page. */
 export default function HomeButton() {
-  const {currentPageId, selectPage} = useNavigation();
+  const {currentPageId, selectPageInPane} = useNavigation();
   const {t} = useTranslation();
   const selected = currentPageId === HOME_PAGE_ID;
   return (
@@ -18,7 +18,7 @@ export default function HomeButton() {
         SIDEBAR_HOVER,
         selected && SIDEBAR_ACTIVE,
       )}
-      onClick={() => selectPage(HOME_PAGE_ID)}
+      onClick={() => selectPageInPane(HOME_PAGE_ID, 'primary')}
     >
       <House className="h-4 w-4 shrink-0" />
       <span className="grow text-left">{t('nav.home')}</span>

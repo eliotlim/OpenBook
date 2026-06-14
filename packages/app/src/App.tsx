@@ -38,6 +38,9 @@ if (typeof document !== 'undefined') {
   // The native window corner radius, so the notebook "sheets" curve concentrically
   // with the window (macOS ≈ 10px; Windows 11 ≈ 8px). Web keeps the CSS fallback.
   document.documentElement.style.setProperty('--ob-window-radius', IS_MAC ? '10px' : '8px');
+  // On the desktop the titlebar is the book cover's top edge, so the pages sit
+  // flush beneath it — no top inset (the bottom keeps one).
+  document.documentElement.style.setProperty('--ob-inset-top', '0px');
 }
 
 const newWindowLabel = (): string =>

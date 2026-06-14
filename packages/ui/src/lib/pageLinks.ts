@@ -18,8 +18,9 @@ export interface PageLinkResult {
 export interface PageLinkBridge {
   /** Create a child page nested under `parentId`; resolves to the new page id. */
   createSubpage: (parentId: string, kind: SubpageKind) => Promise<string>;
-  /** Navigate to a page. */
-  openPage: (id: string) => void;
+  /** Navigate to a page. Pass `pane` to drive a specific pane (the one the link
+   *  was clicked in) rather than whichever pane is focused. */
+  openPage: (id: string, pane?: 'primary' | 'secondary') => void;
   /** A display title for a page id. */
   label: (id: string) => string;
   /** The emoji icon for a page id. */
@@ -53,7 +54,7 @@ export const subscribePageLinks = (cb: () => void): (() => void) => {
 export const pageLinks: PageLinkBridge = {
   createSubpage: (parentId, kind) =>
     bridge ? bridge.createSubpage(parentId, kind) : Promise.reject(new Error('page links not ready')),
-  openPage: (id) => bridge?.openPage(id),
+  openPage: (id, pane) => bridge?.openPage(id, pane),
   label: (id) => bridge?.label(id) ?? 'Untitled',
   icon: (id) => bridge?.icon(id) ?? '📄',
   searchPages: (query, opts) => bridge?.searchPages(query, opts) ?? [],

@@ -152,8 +152,11 @@
        --ob-window-radius to the native corner; the page radius is concentric
        with it (inner radius = outer − the inset gap). Web keeps the fallback. */
     --ob-page-inset: 6px;
+    /* Top inset of the sheets. The desktop shell sets this to 0 (the titlebar is
+       the cover's top edge); the web keeps the inset. */
+    --ob-inset-top: var(--ob-page-inset);
     --ob-window-radius: 10px;
-    --ob-page-radius: max(4px, calc(var(--ob-window-radius) - var(--ob-page-inset)));
+    --ob-page-radius: max(10px, calc(var(--ob-window-radius) - var(--ob-page-inset)));
   }
 
   .dark {
@@ -344,14 +347,23 @@
   min-height: 100%;
 }
 
-/* ── Notebook "sheets" on a desk ─────────────────────────────────────────────
-   The primary page and the right split pane read like facing notebook pages:
-   rounded sheets floating on a quiet desk, inset from the window edge so their
-   corners curve concentrically with the (desktop) window. */
+/* ── Notebook "sheets" on a book cover ───────────────────────────────────────
+   The primary page and the right split pane read like facing notebook pages.
+   The "desk" they sit on is the book cover — the same colour as the sidebar and
+   titlebar — inset from the window edge (no top inset on desktop, where the
+   titlebar is the cover's top; no left inset while the sidebar is pinned, so the
+   page binds straight into it). The two pages meet at a central seam, not a gap. */
 .ob-desk {
-  background-color: hsl(var(--sheet-2));
-  gap: var(--ob-page-inset);
-  padding: var(--ob-page-inset);
+  background-color: hsl(var(--sheet-1));
+  gap: 0;
+  padding-top: var(--ob-inset-top);
+  padding-bottom: var(--ob-page-inset);
+  padding-left: var(--ob-page-inset);
+  padding-right: var(--ob-page-inset);
+}
+/* Sidebar pinned open → the primary page binds straight into it (no left inset). */
+.ob-desk[data-sidebar-pinned='true'] {
+  padding-left: 0;
 }
 .ob-sheet {
   background-color: hsl(var(--background));
@@ -361,6 +373,27 @@
     0 1px 2px hsl(var(--foreground) / 0.04),
     0 1px 3px hsl(var(--foreground) / 0.05);
   overflow: hidden;
+}
+/* Split view: the two pages meet at a central seam (the book's spine). No gap;
+   square the inner corners so they sit flush; a single seam line is the right
+   page's left border; and a soft gutter gradient falls onto the right page. */
+.ob-desk > .ob-sheet:first-child:not(:only-child) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 0;
+}
+.ob-desk > .ob-sheet:last-child:not(:only-child) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.ob-desk > [data-split-pane]::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 1.75rem;
+  background: linear-gradient(to right, hsl(var(--foreground) / 0.07), transparent);
+  pointer-events: none;
+  z-index: 4;
 }
 
 /* Per-page typefaces (lib/pageFont): the wrapper sets the body family, headings

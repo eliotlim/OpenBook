@@ -23,7 +23,7 @@ const displayName = (name: string | null): string =>
  * been deleted simply drops out (we only show ids still in the page list).
  */
 export default function FavoritesNav() {
-  const {pages, currentPageId, selectPage} = useNavigation();
+  const {pages, currentPageId, selectPageInPane} = useNavigation();
   const {t} = useTranslation();
 
   // Favourites + icons live in localStorage, which doesn't notify React; bump a
@@ -52,7 +52,7 @@ export default function FavoritesNav() {
             <ContextMenu key={page.id}>
               <ContextMenuTrigger asChild>
                 <div
-                  onClick={() => selectPage(page.id)}
+                  onClick={() => selectPageInPane(page.id, 'primary')}
                   className={cn(
                     'group/fav mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-foreground/75 transition-colors',
                     SIDEBAR_HOVER,

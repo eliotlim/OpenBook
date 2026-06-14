@@ -15,6 +15,7 @@ import {
   goForward,
   initWindow,
   navigateFocused,
+  navigatePane,
   openSplit,
   panesOf,
   primaryPage,
@@ -72,6 +73,28 @@ describe('windowModel', () => {
     w = navigateFocused(w, 'c');
     expect(primaryPage(w)).toBe('c');
     expect(activeTab(w).split).toBe('b');
+  });
+
+  it('navigatePane drives a SPECIFIC pane regardless of focus (and focuses it)', () => {
+    // Secondary is focused, but a primary-targeted nav must keep the split put.
+    let w = openSplit(initWindow('a'), 'b'); // secondary focused, split = b
+    w = navigatePane(w, 'primary', 'c');
+    expect(primaryPage(w)).toBe('c');
+    expect(activeTab(w).split).toBe('b'); // split unchanged
+    expect(focusedPaneId(w)).toBe('primary'); // navigating a pane focuses it
+
+    // Primary is focused, but a secondary-targeted nav drives the split.
+    w = navigatePane(w, 'secondary', 'd');
+    expect(activeTab(w).split).toBe('d');
+    expect(primaryPage(w)).toBe('c'); // primary unchanged
+    expect(focusedPaneId(w)).toBe('secondary');
+  });
+
+  it('navigatePane secondary falls back to the primary when not split', () => {
+    let w = initWindow('a'); // no split
+    w = navigatePane(w, 'secondary', 'b');
+    expect(primaryPage(w)).toBe('b');
+    expect(splitOpen(w)).toBe(false);
   });
 
   it('closes the split and returns focus to the primary', () => {

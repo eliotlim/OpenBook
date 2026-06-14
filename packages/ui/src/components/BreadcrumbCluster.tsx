@@ -4,7 +4,7 @@ import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 
 export default function BreadcrumbCluster() {
   const {workspace} = useWorkspace();
-  const {pages, panes, currentPageId, pageLabel, selectPage, focusPane} = useNavigation();
+  const {pages, panes, currentPageId, pageLabel, selectPageInPane} = useNavigation();
   // Icons live in localStorage; re-render when one changes so the crumb
   // updates the moment the user picks a new page icon.
   const [, setIconVersion] = useState(0);
@@ -15,12 +15,8 @@ export default function BreadcrumbCluster() {
   // rather than following focus into the side pane.
   const primaryPageId = panes[0]?.pageId ?? currentPageId;
 
-  // Crumb clicks act on the primary pane regardless of which pane has focus —
-  // focus it first, then navigate (functional setWin updates compose in order).
-  const goToCrumb = (id: string): void => {
-    focusPane('primary');
-    selectPage(id);
-  };
+  // Crumb clicks act on the primary pane regardless of which pane has focus.
+  const goToCrumb = (id: string): void => selectPageInPane(id, 'primary');
 
   // Walk parent links up from the primary page to build the ancestor path.
   const chain: string[] = [];

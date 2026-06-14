@@ -69,9 +69,13 @@ export interface NavigationContextValue {
   /** Seed a known title for a page (e.g. a database row being opened). */
   setPageHint: (id: string, name: string | null) => void;
 
-  // ── Single-page navigation (focused pane) ───────────────────────────────────
-  /** Navigate the focused pane to a page (classic sidebar click). */
+  // ── Single-page navigation ──────────────────────────────────────────────────
+  /** Navigate the focused pane to a page. */
   selectPage: (id: string) => void;
+  /** Navigate (and focus) a SPECIFIC pane — e.g. a link click drives the pane it
+   *  came from, not whichever pane is focused. The primary is the default target
+   *  for left/sidebar/breadcrumb navigation; the secondary only when split. */
+  selectPageInPane: (id: string, pane: PaneId) => void;
   goBack: () => void;
   goForward: () => void;
   canGoBack: boolean;
@@ -187,6 +191,10 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   // ── Navigation ──────────────────────────────────────────────────────────────
   const selectPage = useCallback((id: string) => update((w) => W.navigateFocused(w, id)), [update]);
+  const selectPageInPane = useCallback(
+    (id: string, pane: PaneId) => update((w) => W.navigatePane(w, pane, id)),
+    [update],
+  );
   const goBack = useCallback(() => update(W.goBack), [update]);
   const goForward = useCallback(() => update(W.goForward), [update]);
   const focusPane = useCallback((pane: PaneId) => update((w) => W.focusPane(w, pane)), [update]);
@@ -414,14 +422,16 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   useEffect(() => {
     setPageLinkBridge({
       createSubpage: (parentId, kind) => createSubpage(parentId, kind),
-      openPage: (id) => selectPage(id),
+      // A link click navigates the pane it came from (the editor passes 'primary'
+      // or 'secondary'); without a target it falls back to the focused pane.
+      openPage: (id, pane) => (pane ? selectPageInPane(id, pane) : selectPage(id)),
       label: (id) => pageLabel(id),
       icon: (id) => readPageIcon(id),
       searchPages,
       createPage: createLinkedPage,
     });
     return () => setPageLinkBridge(null);
-  }, [createSubpage, selectPage, pageLabel, searchPages, createLinkedPage]);
+  }, [createSubpage, selectPage, selectPageInPane, pageLabel, searchPages, createLinkedPage]);
 
   // Let an interactive block "Expand" its settings into the side pane (reusing
   // the split mechanism rather than a bespoke drawer).
@@ -490,6 +500,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       pageLabel,
       setPageHint,
       selectPage,
+      selectPageInPane,
       goBack,
       goForward,
       canGoBack,
@@ -506,7 +517,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [
       pages, currentPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
       panes, focusedPaneId, splitOpen, focusPane, openInSplit,
-      closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, selectPage, goBack,
+      closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, selectPage, selectPageInPane, goBack,
       goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, duplicatePage, deletePage, renamePage,
       movePage, reload,
     ],

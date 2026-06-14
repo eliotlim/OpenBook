@@ -42,7 +42,10 @@ export function buildTree(pages: PageMeta[]): TreeDataItem[] {
 }
 
 export default function WorkspaceNavigationTree() {
-  const {pages, currentPageId, selectPage, createPage, createDatabasePage, createSubpage, movePage} = useNavigation();
+  const {pages, currentPageId, selectPageInPane, createPage, createDatabasePage, createSubpage, movePage} = useNavigation();
+  // Sidebar navigation always drives the primary (left) pane — the split pane
+  // only follows its own links or an explicit "open in split".
+  const openPrimary = (id: string): void => selectPageInPane(id, 'primary');
   const {setHud} = useHud();
   const {t} = useTranslation();
 
@@ -83,7 +86,7 @@ export default function WorkspaceNavigationTree() {
         data={data}
         className="w-full flex-1 border-0"
         selectedItemId={currentPageId ?? undefined}
-        onSelectChange={(item) => item && selectPage(item.id)}
+        onSelectChange={(item) => item && openPrimary(item.id)}
         renderItemContextMenu={(item) => <PageMenuItems pageId={item.id} />}
         renderRowActions={(item, {openMenu}) => (
           <>
@@ -92,7 +95,7 @@ export default function WorkspaceNavigationTree() {
               className="h-5 w-5 rounded p-0.5"
               aria-label={t('menu.addSubpage')}
               title={t('menu.addSubpage')}
-              onClick={() => void createSubpage(item.id, 'page').then(selectPage)}
+              onClick={() => void createSubpage(item.id, 'page').then(openPrimary)}
             >
               <Plus className="h-3.5 w-3.5" />
             </IconButton>
