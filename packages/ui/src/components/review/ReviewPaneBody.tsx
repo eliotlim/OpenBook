@@ -74,8 +74,15 @@ export function ReviewPaneBody() {
     }
   };
 
-  // Blocks that carry standalone comments (a flat thread per block).
-  const blockIds = [...new Set(comments.filter((c) => !c.suggestionId && c.blockId).map((c) => c.blockId as string))];
+  // Blocks that carry standalone comments (a flat thread per block). The
+  // focused block (from the "Comment…" affordance) is included even with no
+  // comments yet, so its thread + composer render for the first comment.
+  const blockIds = [
+    ...new Set([
+      ...(target.focusBlockId ? [target.focusBlockId] : []),
+      ...comments.filter((c) => !c.suggestionId && c.blockId).map((c) => c.blockId as string),
+    ]),
+  ];
   const open = suggestions.filter((s) => s.status === 'open');
   const resolved = suggestions.filter((s) => s.status !== 'open');
 
