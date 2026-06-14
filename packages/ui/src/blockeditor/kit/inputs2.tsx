@@ -1,4 +1,4 @@
-import React, {useMemo, useRef, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {Check, Plus, X} from 'lucide-react';
 import {Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList} from '@/components/ui/command';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
@@ -148,10 +148,15 @@ const RichTextBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const name = blockProp<string>(block, 'name') ?? 'text';
   const runs = blockProp<TextRun[]>(block, 'runs');
   const ref = useRef<HTMLDivElement>(null);
-  // Render the stored runs ONCE per identity change; thereafter the DOM is the
-  // source of truth while editing (re-rendering on every keystroke would fight
-  // the caret). `key` resets it when the block identity (doc version) changes.
-  const initialHtml = useMemo(() => runsToHtml(Array.isArray(runs) ? runs : []), [block, editor]);
+  // Seed the editable IMPERATIVELY on identity change only — NOT via
+  // dangerouslySetInnerHTML, which React re-applies on every re-render (the
+  // block re-renders on each doc change) and wipes what was just typed. While
+  // editing the DOM is the source of truth; `onInput`→`sync` projects it out.
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
+  useEffect(() => {
+    if (ref.current) ref.current.innerHTML = runsToHtml(Array.isArray(runsRef.current) ? runsRef.current : []);
+  }, [block, editor]);
 
   const sync = (): void => {
     const el = ref.current;
@@ -190,7 +195,6 @@ const RichTextBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
         aria-multiline
         aria-label={`${name} value`}
         data-placeholder={blockProp<string>(block, 'placeholder') ?? 'Type here…'}
-        dangerouslySetInnerHTML={{__html: initialHtml}}
         onInput={sync}
         onBlur={sync}
         onKeyDown={(e) => e.stopPropagation()}

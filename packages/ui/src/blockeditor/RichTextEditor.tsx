@@ -1,4 +1,4 @@
-import React, {useMemo, useRef} from 'react';
+import React, {useEffect, useRef} from 'react';
 import type {InlineAttrs, TextRun} from './model';
 
 /**
@@ -44,11 +44,18 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
   seed,
 }) => {
   const ref = useRef<HTMLDivElement>(null);
-  // Render the runs ONCE per seed/identity; thereafter the DOM is the source of
-  // truth while editing. `seed` lets a host reset the surface after a submit.
-  // (Deliberately keyed on `seed` only — re-rendering on every `value` change
-  // would fight the caret while typing.)
-  const initialHtml = useMemo(() => runsToHtml(Array.isArray(value) ? value : []), [seed]);
+  // Seed the contentEditable IMPERATIVELY (not via dangerouslySetInnerHTML) on
+  // mount and whenever `seed` changes — a host bumps `seed` to reset after a
+  // submit. Crucially this does NOT depend on `value`: re-rendering the editable
+  // from `value` on every keystroke (React re-applying innerHTML) wipes what the
+  // user just typed. While editing, the DOM is the source of truth; `onInput`
+  // projects it back out via `sync`.
+  // `value` is intentionally NOT a dep — see the comment above.
+  const seededValue = useRef(value);
+  seededValue.current = value;
+  useEffect(() => {
+    if (ref.current) ref.current.innerHTML = runsToHtml(Array.isArray(seededValue.current) ? seededValue.current : []);
+  }, [seed]);
 
   const sync = (): void => {
     const el = ref.current;
@@ -105,7 +112,6 @@ export const RichTextEditor: React.FC<RichTextEditorProps> = ({
         aria-multiline
         aria-label={ariaLabel}
         data-placeholder={placeholder}
-        dangerouslySetInnerHTML={{__html: initialHtml}}
         onInput={sync}
         onBlur={sync}
         onKeyDown={(e) => e.stopPropagation()}
