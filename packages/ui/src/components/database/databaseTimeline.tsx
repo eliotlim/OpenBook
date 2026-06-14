@@ -185,9 +185,15 @@ const TimelineBody: React.FC<{
       {months.map((m, i) => (
         <div key={i} className="absolute top-0 h-full border-l border-border/30" style={{left: m.left}} />
       ))}
-      {/* Band separators: a faint full-width rule under each swimlane header. */}
+      {/* Swimlane band bars: a full-width horizontal bar across the body at each
+          band header, continuing the left-column header so the lane reads as one
+          long horizontal bar demarcating the swimlane. */}
       {bands.map((b) => (
-        <div key={b.key} className="absolute left-0 border-t border-border/40" style={{top: b.top, width: bodyW, height: BAND_H}} />
+        <div
+          key={b.key}
+          className="absolute left-0 z-[1] border-b border-border/60 bg-muted/20"
+          style={{top: b.top, width: bodyW, height: BAND_H}}
+        />
       ))}
       {todayX !== null && <div className="absolute top-0 z-10 h-full border-l border-brand/60" style={{left: todayX}} title="Today" />}
 

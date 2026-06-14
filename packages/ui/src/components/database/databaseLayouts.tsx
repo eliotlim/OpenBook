@@ -546,7 +546,9 @@ export const BoardView: React.FC<{
     );
   };
 
-  // ── Swimlaned board: a column-header strip, then one band per lane. ──────────
+  // ── Swimlaned board: a column-header strip, then one lane per sub-group. Each
+  // lane is a full-width horizontal BAR (demarcating the swimlane) ABOVE its row
+  // of column cells — the lane label is a header, not a left gutter column. ─────
   if (swimlaned) {
     const toggleLane = (laneKey: string): void =>
       setCollapsedLanes((prev) => {
@@ -557,32 +559,33 @@ export const BoardView: React.FC<{
       });
     return (
       <div className="overflow-x-auto pb-2">
-        <div className="w-max space-y-2">
-          {/* Lane labels sit in a left gutter; offset the header strip to match. */}
-          <div className="flex gap-3 pl-[8.5rem]">
-            <ColumnHeaders />
-          </div>
+        <div className="w-max space-y-3">
+          <ColumnHeaders />
           {lanes.map((lane) => {
             const laneCollapsed = collapsedLanes.has(lane.key);
             const byCol = new Map(groups.map((g) => [g.key, new Set(g.rows.map((r) => r.id))]));
             return (
-              <div key={lane.key} className="flex gap-3">
-                {/* Lane header on the left: collapse chevron + label + count. */}
+              <div key={lane.key} className="space-y-2">
+                {/* Full-width horizontal lane bar above the cards: chevron, dot,
+                    label, count. Spans every column so it reads as a swimlane. */}
                 <button
                   onClick={() => toggleLane(lane.key)}
                   aria-label={`${laneCollapsed ? 'Expand' : 'Collapse'} ${lane.label} lane`}
-                  className="flex h-fit w-32 shrink-0 items-start gap-1 rounded-md px-2 py-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+                  className="flex w-full items-center gap-1.5 rounded-md border-b border-border/70 bg-muted/40 px-2.5 py-1.5 text-left text-xs font-medium transition-colors hover:bg-accent/40"
                 >
-                  <ChevronRight className={cn('mt-0.5 h-3.5 w-3.5 shrink-0 transition-transform', !laneCollapsed && 'rotate-90')} />
-                  {lane.color && <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[lane.color] ?? '#9ca3af'}} />}
-                  <span className="min-w-0 break-words">{lane.label}</span>
-                  <span className="ml-auto shrink-0 text-muted-foreground/60">{lane.rows.length}</span>
+                  <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !laneCollapsed && 'rotate-90')} />
+                  {lane.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[lane.color] ?? '#9ca3af'}} />}
+                  <span className="truncate text-foreground/80">{lane.label}</span>
+                  <span className="text-muted-foreground/60">{lane.rows.length}</span>
                 </button>
-                {!laneCollapsed &&
-                  groups.map((group) => {
-                    const rows = lane.rows.filter((r) => byCol.get(group.key)?.has(r.id));
-                    return <Cell key={group.key} group={group} rows={rows} subKey={lane.key} />;
-                  })}
+                {!laneCollapsed && (
+                  <div className="flex gap-3">
+                    {groups.map((group) => {
+                      const rows = lane.rows.filter((r) => byCol.get(group.key)?.has(r.id));
+                      return <Cell key={group.key} group={group} rows={rows} subKey={lane.key} />;
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
