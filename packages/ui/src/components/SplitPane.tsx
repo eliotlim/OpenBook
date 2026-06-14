@@ -101,7 +101,7 @@ export function SplitPane() {
       style={{width}}
       onMouseDownCapture={() => focusPane(pane.id)}
       className={cn(
-        'relative flex shrink-0 flex-col border-l border-border bg-background',
+        'ob-sheet relative flex shrink-0 flex-col',
         'animate-in fade-in slide-in-from-right-4 duration-200 print:hidden',
         focused && 'ring-1 ring-inset ring-primary/15',
       )}
@@ -114,7 +114,7 @@ export function SplitPane() {
         onPointerCancel={onDividerUp}
         role="separator"
         aria-orientation="vertical"
-        className="absolute inset-y-0 -left-0.5 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"
+        className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-col-resize transition-colors hover:bg-primary/30"
       />
       {/* The split pane owns its page's chrome: hide / expand on the left, and
           the page-actions cluster ("…" menu + status/copy/star) on the right.

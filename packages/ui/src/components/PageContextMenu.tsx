@@ -1,10 +1,7 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback} from 'react';
 import {
-  ArrowDown,
-  ArrowUp,
   AppWindow,
   Columns2,
-  Copy,
   CopyPlus,
   ExternalLink,
   FilePlus2,
@@ -15,12 +12,10 @@ import {
   Table2,
   Trash2,
 } from 'lucide-react';
-import type EditorJS from '@editorjs/editorjs';
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
@@ -113,120 +108,17 @@ export function PageMenuItems({pageId}: {pageId: string}) {
 }
 
 /**
- * Right-click actions for a single editor block, driven by the EditorJS block
- * API. These mutations fire `block-moved` / `block-added` / `block-removed`,
- * which the document treats as persist-worthy edits, so the change autosaves.
+ * Wrap the page body so right-clicking it opens the page's context menu. (The
+ * block editor supplies its own per-block actions through the gutter handle; the
+ * sidebar tree wires {@link PageMenuItems} in directly.)
  */
-export function BlockMenuItems({
-  editorRef,
-  blockId,
-}: {
-  editorRef: React.RefObject<EditorJS | null>;
-  blockId: string;
-}) {
-  const {t} = useTranslation();
-  const indexOf = (): number => editorRef.current?.blocks.getBlockIndex(blockId) ?? -1;
-
-  const moveUp = () => {
-    const inst = editorRef.current;
-    const i = indexOf();
-    if (inst && i > 0) inst.blocks.move(i - 1, i);
-  };
-
-  const moveDown = () => {
-    const inst = editorRef.current;
-    const i = indexOf();
-    if (inst && i >= 0 && i < inst.blocks.getBlocksCount() - 1) inst.blocks.move(i + 1, i);
-  };
-
-  const duplicate = async () => {
-    const inst = editorRef.current;
-    const i = indexOf();
-    if (!inst || i < 0) return;
-    const saved = await inst.blocks.getById(blockId)?.save();
-    if (!saved) return;
-    inst.blocks.insert(saved.tool, saved.data, undefined, i + 1, false);
-  };
-
-  const remove = () => {
-    const inst = editorRef.current;
-    const i = indexOf();
-    if (inst && i >= 0) inst.blocks.delete(i);
-  };
-
-  return (
-    <>
-      <ContextMenuItem onSelect={moveUp}>
-        <ArrowUp className="mr-2 h-4 w-4" />
-        {t('menu.block.moveUp')}
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={moveDown}>
-        <ArrowDown className="mr-2 h-4 w-4" />
-        {t('menu.block.moveDown')}
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => void duplicate()}>
-        <Copy className="mr-2 h-4 w-4" />
-        {t('menu.block.duplicate')}
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onSelect={remove} className="text-destructive focus:text-destructive">
-        <Trash2 className="mr-2 h-4 w-4" />
-        {t('menu.block.deleteBlock')}
-      </ContextMenuItem>
-    </>
-  );
-}
-
-/**
- * Wrap the page body so right-clicking it opens a context menu. When `editorRef`
- * is supplied and the click lands on an editor block (`.ce-block`), block
- * actions are shown above the page actions; clicking empty space (or any page
- * without an editor) shows the page actions alone. The sidebar tree wires
- * {@link PageMenuItems} in directly.
- */
-export function PageContextMenu({
-  pageId,
-  editorRef,
-  children,
-}: {
-  pageId: string;
-  editorRef?: React.RefObject<EditorJS | null>;
-  children: React.ReactNode;
-}) {
-  const [blockId, setBlockId] = useState<string | null>(null);
-  const {t} = useTranslation();
-
-  const onContextMenu = (e: React.MouseEvent) => {
-    if (!editorRef) {
-      setBlockId(null);
-      return;
-    }
-    const block = (e.target as HTMLElement).closest('.ce-block');
-    setBlockId(block?.getAttribute('data-id') ?? null);
-  };
-
+export function PageContextMenu({pageId, children}: {pageId: string; children: React.ReactNode}) {
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
-        <div className="contents" onContextMenu={onContextMenu}>
-          {children}
-        </div>
+        <div className="contents">{children}</div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
-        {/* With both groups present, "Duplicate"/"Delete" would be ambiguous —
-            label each section so block actions read apart from page actions. */}
-        {editorRef && blockId && (
-          <>
-            <ContextMenuLabel className="text-xs font-medium text-muted-foreground">
-              {t('menu.block.sectionBlock')}
-            </ContextMenuLabel>
-            <BlockMenuItems editorRef={editorRef} blockId={blockId} />
-            <ContextMenuSeparator />
-            <ContextMenuLabel className="text-xs font-medium text-muted-foreground">
-              {t('menu.sectionPage')}
-            </ContextMenuLabel>
-          </>
-        )}
         <PageMenuItems pageId={pageId} />
       </ContextMenuContent>
     </ContextMenu>

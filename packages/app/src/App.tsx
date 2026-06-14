@@ -35,6 +35,9 @@ const TITLEBAR_HEIGHT = '38px';
 if (typeof document !== 'undefined') {
   document.documentElement.style.setProperty('--ob-titlebar-height', TITLEBAR_HEIGHT);
   document.documentElement.style.setProperty('--ob-titlebar-pad-left', IS_MAC ? '78px' : '8px');
+  // The native window corner radius, so the notebook "sheets" curve concentrically
+  // with the window (macOS ≈ 10px; Windows 11 ≈ 8px). Web keeps the CSS fallback.
+  document.documentElement.style.setProperty('--ob-window-radius', IS_MAC ? '10px' : '8px');
 }
 
 const newWindowLabel = (): string =>

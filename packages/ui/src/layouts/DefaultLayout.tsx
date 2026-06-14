@@ -42,15 +42,19 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <AiBridgeHost/>
           <EmojiPickerHost/>
           <SideNav/>
-          <div className="flex min-h-0 w-full min-w-0 flex-col">
-            <NavBar/>
-            {/* The document area owns scrolling, one ScrollArea per pane, so the
-                split panes can scroll independently. */}
-            <main className="min-h-0 flex-1 overflow-hidden">
-              {props.children}
-            </main>
+          {/* The desk: a quiet backdrop the primary page and the split pane
+              float on as rounded "notebook" sheets, inset from the window. */}
+          <div className="ob-desk flex min-h-0 w-full min-w-0 flex-row overflow-hidden">
+            <div className="ob-sheet flex min-h-0 w-full min-w-0 flex-col">
+              <NavBar/>
+              {/* The document area owns scrolling, one ScrollArea per pane, so the
+                  split panes can scroll independently. */}
+              <main className="min-h-0 flex-1 overflow-hidden">
+                {props.children}
+              </main>
+            </div>
+            <SplitPane/>
           </div>
-          <SplitPane/>
         </div>
       </div>
     </ConfirmProvider>

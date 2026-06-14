@@ -217,10 +217,12 @@ const CommonFields: React.FC<{block: BlockMap; editor: BlockEditorController; de
     )}
     <ConfigToggle
       label="Stays interactive when locked"
-      hint="Readers can still change it inside a locked group."
-      checked={Boolean(blockProp<boolean>(block, 'interactive'))}
+      hint="On by default — readers can still change it inside a locked group."
+      checked={blockProp<boolean>(block, 'interactive') ?? true}
       disabled={editor.readOnly}
-      onChange={(next) => kitSet(editor, block, 'interactive', next || undefined)}
+      // Default is ON, so only the explicit opt-out is persisted (`false`);
+      // leaving it on stores nothing (undefined ⇒ the default).
+      onChange={(next) => kitSet(editor, block, 'interactive', next ? undefined : false)}
     />
   </>
 );

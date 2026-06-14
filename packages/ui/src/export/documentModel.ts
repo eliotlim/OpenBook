@@ -10,7 +10,7 @@
  */
 import type {PageSnapshot} from '@open-book/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
-import {normalizeChartInput, type NormalizedSeries} from '@/reactive/chartNormalize';
+import {normalizeChartInput, type NormalizedSeries} from './chartNormalize';
 
 export interface InlineRun {
   text: string;

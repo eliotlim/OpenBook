@@ -1293,12 +1293,14 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   const id = blockId(block);
 
   // A locked group makes its descendants read-only: text and structure
-  // entirely, kit widgets unless they're flagged `interactive` (a reader keeps
-  // operating those). Containers keep the real editor and re-apply the lock at
-  // each leaf via the context.
+  // entirely, but kit widgets stay operable for the reader by default — that's
+  // the point of an interactive artifact. An author opts a widget *out* by
+  // turning off "Stays interactive when locked" (stored `interactive: false`).
+  // Containers keep the real editor and re-apply the lock at each leaf via the
+  // context.
   const locked = useKitLock();
   const lockText = locked && !editor.readOnly;
-  const interactive = Boolean(blockProp<boolean>(block, 'interactive'));
+  const interactive = blockProp<boolean>(block, 'interactive') ?? true;
   const textEditor = useMemo(() => (lockText ? {...editor, readOnly: true} : editor), [editor, lockText]);
   const kitEditor = useMemo(
     () => (lockText && !interactive ? {...editor, readOnly: true} : editor),

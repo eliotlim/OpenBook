@@ -2,20 +2,12 @@
 // per-test snapshot (its archive helper is flaky in headless CI runs).
 import {test, expect} from './fixtures';
 import {readFileSync} from 'node:fs';
-import {reclaimNames, SERVER, useClassicEditor} from './seed';
-
-// This spec drives the classic EditorJS editor — still fully supported, but no
-// longer the default — so pin it before the app boots (see seed.ts).
-test.beforeEach(async ({page}) => {
-  await useClassicEditor(page);
-});
+import {reclaimNames} from './seed';
 
 // Every test creates its own database (newDatabase) or seeds under a
 // Date.now()-unique name, and fixed row names are reclaimed per test — so the
 // file (40 tests, the suite's longest by far) fans out across workers.
 test.describe.configure({mode: 'parallel'});
-
-const emptySnapshot = {editorjs: {blocks: []}, values: [], names: []};
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
@@ -229,34 +221,10 @@ test('sub-items: nest a row and collapse it', async ({page}) => {
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(1);
 });
 
-// A linked database block embeds an *existing* database, chosen via a picker.
-test('linked database block: embeds an existing database', async ({page, request}) => {
-  // Seed a target database (page + database) via the API.
-  const dbName = `LinkTarget ${Date.now()}`;
-  const dbPage = await (await request.post(`${SERVER}/api/pages`, {data: {name: dbName, data: emptySnapshot}})).json();
-  await request.post(`${SERVER}/api/databases`, {
-    data: {
-      pageId: dbPage.id,
-      name: dbName,
-      schema: {properties: [{id: 'p1', name: 'Notes', type: 'text'}], views: [{id: 'v1', name: 'Table', type: 'table', filters: [], sorts: []}]},
-    },
-  });
-
-  // Open a fresh host page and insert a "Linked database" block.
-  const host = await (await request.post(`${SERVER}/api/pages`, {data: {name: `Host ${Date.now()}`, data: emptySnapshot}})).json();
-  await page.goto(`/?page=${host.id}`);
-  await page.locator('.ce-block').first().waitFor({state: 'visible'});
-  await page.locator('.ce-paragraph').first().click();
-  await page.keyboard.type('/Inline database');
-  await expect(page.locator('.ce-popover--opened .ce-popover-item--focused')).toBeVisible();
-  await page.keyboard.press('Enter');
-
-  // Choose "Link existing", search for the seeded database, and pick it.
-  await page.getByRole('button', {name: 'Link existing database'}).click();
-  await page.getByPlaceholder('Search databases…').fill('LinkTarget');
-  await page.getByRole('button', {name: new RegExp(dbName)}).click();
-  await expect(page.getByRole('button', {name: 'Add column'})).toBeVisible({timeout: 15000});
-});
+// NOTE: the inline "Link to database" embed (block editor slash → link picker →
+// existing database) is not covered here yet — it needs a block-editor-native
+// e2e against a server page. The feature itself is unchanged by the classic
+// editor's retirement; only the old EditorJS inline-database insertion is gone.
 
 // A files & media property holds URLs (rendered as chips / image thumbnails).
 test('files property: add a file URL', async ({page}) => {

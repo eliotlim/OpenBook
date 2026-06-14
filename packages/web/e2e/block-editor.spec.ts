@@ -298,7 +298,7 @@ test('reactive plugins: a slider drives live code (and legacy formulas still ren
   await page.keyboard.press('Enter');
   await page.keyboard.type('/slider');
   await page.keyboard.press('Enter');
-  await expect(page.locator('.obe-slider')).toBeVisible();
+  await expect(page.locator('.obe-kit-slider')).toBeVisible();
 
   // Insert a live code block below and compute over the slider's name.
   await page.evaluate(() => {
@@ -319,9 +319,9 @@ test('reactive plugins: a slider drives live code (and legacy formulas still ren
   await page.keyboard.type('x * 2 + 1');
 
   // Move the slider → the live output recomputes.
-  await page.locator('.obe-slider input[type=range]').fill('80');
+  await page.locator('.obe-kit-slider input[type=range]').fill('80');
   await expect(page.locator('.obe-code-out')).toContainText('result = 161');
-  await page.locator('.obe-slider input[type=range]').fill('10');
+  await page.locator('.obe-kit-slider input[type=range]').fill('10');
   await expect(page.locator('.obe-code-out')).toContainText('result = 21');
 
   // Legacy formula blocks (pre-merge documents) still render and compute.

@@ -9,10 +9,8 @@ import {DatabaseView} from './DatabaseView';
  * document. The "Link to database" command inserts one (referencing the chosen
  * database's hosting page id).
  *
- * Unlike the EditorJS editor — whose blocks mount their own React root *outside*
- * the providers and so must portal database views in from PageDocument — the
- * block editor renders custom blocks inside the main React tree (and thus inside
- * the data/navigation providers), so the view renders here directly.
+ * The block editor renders custom blocks inside the main React tree (and thus
+ * inside the data/navigation providers), so the view renders here directly.
  */
 const DbViewBlock: React.FC<CustomBlockProps> = ({block}) => {
   const pageId = blockProp<string>(block, 'pageId');

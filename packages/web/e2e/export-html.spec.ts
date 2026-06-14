@@ -1,14 +1,7 @@
 import {test, expect} from './fixtures';
 import type {APIRequestContext} from '@playwright/test';
 
-import {reclaimNames, SERVER, useClassicEditor} from './seed';
-
-// This spec drives the classic EditorJS editor — still fully supported, but no
-// longer the default — so pin it before the app boots (see seed.ts).
-test.beforeEach(async ({page}) => {
-  await useClassicEditor(page);
-});
-
+import {reclaimNames, SERVER} from './seed';
 
 const schema = {
   properties: [

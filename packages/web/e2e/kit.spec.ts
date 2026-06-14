@@ -125,11 +125,13 @@ test('live code: named outputs chain into formulas and charts', async ({page}) =
   await insert(page, 'number', 'Number stepper');
   await insert(page, 'livecode', 'Live code');
 
-  // Type the code body; name its output via the footer bar.
+  // Type the code body; name its output via the settings popover (⚙).
   const code = page.locator('.obe-codeblock-live').first();
   await code.locator('.obe-text').click();
   await page.keyboard.type('n * 2');
-  await code.getByLabel('Output name').fill('double');
+  await code.locator('.obe-kit-gear').click();
+  await page.getByLabel('Output name').fill('double');
+  await page.keyboard.press('Escape');
   await expect(code.locator('.obe-code-out')).toContainText('double = 0');
 
   // A second live block downstream reads the named output (chaining).
@@ -137,7 +139,9 @@ test('live code: named outputs chain into formulas and charts', async ({page}) =
   const second = page.locator('.obe-codeblock-live').nth(1);
   await second.locator('.obe-text').click();
   await page.keyboard.type('double + 1');
-  await second.getByLabel('Output name').fill('plus');
+  await second.locator('.obe-kit-gear').click();
+  await page.getByLabel('Output name').fill('plus');
+  await page.keyboard.press('Escape');
 
   // Step the input → both chained outputs track it.
   await page.getByRole('button', {name: 'Increase'}).click();
@@ -146,22 +150,31 @@ test('live code: named outputs chain into formulas and charts', async ({page}) =
   await expect(page.locator('.obe-code-out').first()).toContainText('double = 6');
   await expect(second.locator('.obe-code-out')).toContainText('plus = 7');
 
-  // Flipping live OFF turns it back into an inert snippet.
-  await second.getByRole('switch').click();
-  await expect(second.locator('.obe-code-out')).toHaveCount(0);
+  // Flipping live OFF (in the settings popover) turns it back into an inert snippet.
+  await second.locator('.obe-kit-gear').click();
+  await page.getByLabel('Live').click();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.obe-codeblock-live')).toHaveCount(1);
 });
 
 test('compound growth: a live-code series drives a multi-series chart', async ({page}) => {
   await freshLab(page);
   await insert(page, 'slider', 'Slider');
-  await page.locator('.obe-slider-name').fill('months');
+  // Name the slider's variable in its settings popover (⚙ shown on hover).
+  const slider = page.locator('.obe-kit-slider');
+  await slider.hover();
+  await slider.locator('.obe-kit-gear').click();
+  await page.getByLabel('Variable name').fill('months');
+  await page.keyboard.press('Escape');
   await insert(page, 'livecode', 'Live code');
   const code = page.locator('.obe-codeblock-live');
   await code.locator('.obe-text').click();
   await page.keyboard.type(
     '({series: [{name: \'3%\', data: Array.from({length: months}, (_, i) => Math.pow(1.03, i / 12))}, {name: \'10%\', data: Array.from({length: months}, (_, i) => Math.pow(1.10, i / 12))}]})',
   );
-  await code.getByLabel('Output name').fill('growth');
+  await code.locator('.obe-kit-gear').click();
+  await page.getByLabel('Output name').fill('growth');
+  await page.keyboard.press('Escape');
 
   await insert(page, 'chart', 'Chart');
   const chart = page.locator('.obe-kit-chart');

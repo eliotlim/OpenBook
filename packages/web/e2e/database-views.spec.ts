@@ -1,12 +1,5 @@
 import {test, expect, takeSnapshot} from './fixtures';
-import {newPage, reclaimNames, useClassicEditor} from './seed';
-
-// This spec drives the classic EditorJS editor — still fully supported, but no
-// longer the default — so pin it before the app boots (see seed.ts).
-test.beforeEach(async ({page}) => {
-  await useClassicEditor(page);
-});
-
+import {reclaimNames} from './seed';
 
 /** Create a fresh database via the command palette and wait for its view. */
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
@@ -130,22 +123,5 @@ test('database quick search: filters rows by text', async ({page}) => {
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(1);
 });
 
-// An inline database block embeds a full database view inside a document.
-test('inline database block: embeds a database view in a page', async ({page, request}) => {
-  const id = await newPage(request, `Inline DB Host ${Date.now()}`);
-  await page.goto(`/?page=${id}`);
-  await page.locator('.ce-block').first().waitFor({state: 'visible'});
-  await page.locator('.ce-paragraph').first().click();
-
-  // Insert the inline database block from the slash menu.
-  await page.keyboard.type('/Inline database');
-  await expect(page.locator('.ce-popover--opened .ce-popover-item--focused')).toBeVisible();
-  await page.keyboard.press('Enter');
-
-  // The block shows a chooser; pick "New database" to mint one inline.
-  await page.locator('.block-database').getByText('New database').click();
-
-  // The host portals the new database's view in — its toolbar ("Add column")
-  // appears inline (child creation is async).
-  await expect(page.getByRole('button', {name: 'Add column'})).toBeVisible({timeout: 15000});
-});
+// Inline-database embedding (linking an existing database into a document) is
+// covered by database-parity.spec.ts ("linked database block").

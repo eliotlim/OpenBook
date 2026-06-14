@@ -7,7 +7,7 @@
  * An override is a *partial* {@link AppearanceOptions}: only the knobs the user
  * changed for this page. {@link composePageAppearance} merges it over the global
  * appearance, and the result is written as scoped CSS variables on the page's
- * wrapper element (see PageDocument), so the override recolors the page content
+ * wrapper element (see BlockPageDocument), so the override recolors the page content
  * while the surrounding app chrome keeps the global theme.
  */
 import {useSyncExternalStore} from 'react';

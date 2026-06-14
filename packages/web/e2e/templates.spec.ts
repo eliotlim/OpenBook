@@ -1,12 +1,5 @@
 import {test, expect, takeSnapshot} from './fixtures';
-import {useClassicEditor} from './seed';
-
-// This spec drives the classic EditorJS editor — still fully supported, but no
-// longer the default — so pin it before the app boots (see seed.ts).
-test.beforeEach(async ({page}) => {
-  await useClassicEditor(page);
-});
-
+import {} from './seed';
 
 // The template gallery: ready-made pages (documents and databases with sample
 // rows) created client-side. These tests drive it exactly as a user would —
@@ -74,12 +67,10 @@ test('meeting notes template: a document with agenda, notes, and action items', 
 
   await expect(page.getByLabel('Page title')).toHaveValue(/^Meeting notes/);
   for (const heading of ['Agenda', 'Notes', 'Action items']) {
-    await expect(page.locator('.ce-header', {hasText: heading})).toBeVisible();
+    await expect(page.getByRole('heading', {name: heading})).toBeVisible();
   }
   // The agenda checklist seeded its items.
   await expect(page.getByText('Review last week’s action items')).toBeVisible();
-  // The table of contents picked up the headings.
-  await expect(page.locator('.block-toc__link', {hasText: 'Agenda'})).toBeVisible();
 });
 
 test('instantiating a template twice suffixes the page and row names (names are unique)', async ({page}) => {
@@ -131,7 +122,7 @@ test('compound growth template: sliders steer a live-code projection', async ({p
   await expect(page.locator('.obe-code-out').last()).toContainText('After 20 years:');
 
   // Drag the years slider → the narration tracks it.
-  await page.locator('.obe-slider input[type=range]').nth(1).fill('30');
+  await page.locator('.obe-kit-slider input[type=range]').nth(1).fill('30');
   await expect(page.locator('.obe-code-out').last()).toContainText('After 30 years:');
 });
 

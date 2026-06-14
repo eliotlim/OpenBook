@@ -2,14 +2,7 @@ import {test, expect, takeSnapshot} from './fixtures';
 import {readFileSync} from 'fs';
 import type {APIRequestContext, Page} from '@playwright/test';
 import {readFile} from 'node:fs/promises';
-import {newPage as seedPage, SERVER, useClassicEditor} from './seed';
-
-// This spec drives the classic EditorJS editor — still fully supported, but no
-// longer the default — so pin it before the app boots (see seed.ts).
-test.beforeEach(async ({page}) => {
-  await useClassicEditor(page);
-});
-
+import {newPage as seedPage, SERVER} from './seed';
 
 async function newPage(request: APIRequestContext, name: string, blocks: unknown[], values: unknown[] = [], names: unknown[] = []): Promise<string> {
   return seedPage(request, name, {editorjs: {blocks}, values, names});
@@ -46,38 +39,11 @@ test('page export: Markdown, HTML and vector PDFs download', async ({page, reque
   await exportFromMenu(page, 'PDF — continuous');
 });
 
-test('interactive HTML stays live and works offline (incl. charts)', async ({page, request, context}) => {
-  const id = await newPage(
-    request,
-    'Live Spec',
-    [
-      {id: 'm1', type: 'slider', data: {name: 'n', min: 1, max: 10, step: 1, initial: 3}},
-      {id: 'e1', type: 'expr', data: {name: 'doubled', source: '__C__{m1}__ * 2'}},
-      {id: 'e2', type: 'expr', data: {name: 'arr', source: '{series:[{name:"s",data:Array.from({length: __C__{m1}__}, (_,i)=>i*i)}]}'}},
-      {id: 'c1', type: 'chart', data: {refCellIds: ['e2']}},
-    ],
-    [['m1', 3], ['e1', 6], ['e2', {series: [{name: 's', data: [0, 1, 4]}]}]],
-    [['n', 'm1'], ['doubled', 'e1'], ['arr', 'e2']],
-  );
-  await page.goto(`/?page=${id}`);
-  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
-  const download = await exportFromMenu(page, 'Interactive HTML');
-  const html = await readFile(await download.path(), 'utf8');
-
-  const viewer = await context.newPage();
-  // Block ALL network so we prove the export (d3 + Plot inlined) is fully offline.
-  await viewer.route('**/*', (route) => route.abort());
-  await viewer.setContent(html, {waitUntil: 'load'});
-
-  const val = viewer.locator('.expr[data-cell="e1"] [data-val]');
-  await expect(val).toHaveText('6');
-  await expect(viewer.locator('figure[data-chart] svg')).toBeVisible(); // chart renders offline
-
-  const input = viewer.locator('.slider[data-cell="m1"] input');
-  await input.fill('8');
-  await input.dispatchEvent('input');
-  await expect(val).toHaveText('16'); // expression recomputed live
-});
+// The classic-reactive interactive-HTML export (legacy `__C__{cell}__` slider /
+// expr / chart format) retired with the EditorJS editor. The block editor's
+// interactive HTML export — inputs, live code, charts and status lights staying
+// live offline — is covered by "interactive HTML: option inputs and buttons
+// drive code, charts, lights offline" below.
 
 test('backup: export downloads a bundle and restore brings pages back', async ({page, request}, testInfo) => {
   await newPage(request, 'Backup Spec Page', [{type: 'paragraph', data: {text: 'content'}}]);

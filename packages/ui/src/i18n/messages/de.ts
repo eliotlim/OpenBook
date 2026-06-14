@@ -464,8 +464,6 @@ export const de: PartialMessages = {
     confirmTrashHint: 'Vor dem Verschieben einer Seite in den Papierkorb nachfragen.',
     spellcheck: 'Rechtschreibprüfung beim Tippen',
     spellcheckHint: 'Falsch geschriebene Wörter im Editor unterstreichen.',
-    blockEditor: 'Block-Editor',
-    blockEditorHint: 'Dokumente im kollaborativen Block-Editor öffnen (Standard). Bestehende Seiten werden beim Öffnen migriert; ausgeschaltet öffnen nicht migrierte Seiten im klassischen Editor.',
   },
   profile: {
     title: 'Profil',

@@ -13,19 +13,18 @@ export function pageLinkUrl(pageId: string): string {
   return url.toString();
 }
 
-/** Copy a page's deep link to the clipboard. Resolves to whether it worked. */
-export async function copyPageLink(pageId: string): Promise<boolean> {
+/** Copy arbitrary text to the clipboard. Resolves to whether it worked. */
+export async function copyText(text: string): Promise<boolean> {
   if (typeof window === 'undefined') return false;
-  const link = pageLinkUrl(pageId);
   try {
-    await navigator.clipboard.writeText(link);
+    await navigator.clipboard.writeText(text);
     return true;
   } catch {
     // Fallback for WKWebView / non-secure contexts where the async clipboard
     // API is unavailable: a throwaway textarea + execCommand('copy').
     try {
       const ta = document.createElement('textarea');
-      ta.value = link;
+      ta.value = text;
       ta.style.position = 'fixed';
       ta.style.opacity = '0';
       document.body.appendChild(ta);
@@ -40,9 +39,15 @@ export async function copyPageLink(pageId: string): Promise<boolean> {
   }
 }
 
+/** Copy a page's deep link to the clipboard. Resolves to whether it worked. */
+export async function copyPageLink(pageId: string): Promise<boolean> {
+  if (typeof window === 'undefined') return false;
+  return copyText(pageLinkUrl(pageId));
+}
+
 // ── Rename bridge ───────────────────────────────────────────────────────────
-// "Rename" from a menu focuses the page's title field, which lives in
-// PageDocument (outside the menu's subtree). We both fire an event (for a title
+// "Rename" from a menu focuses the page's title field, which lives in the page
+// header (outside the menu's subtree). We both fire an event (for a title
 // already mounted) and stash a pending target (for one about to mount after a
 // page switch), so it works whether or not we're already on the page.
 

@@ -23,11 +23,13 @@ test('split pane: full height on the right, resizable, closable', async ({page, 
   // The primary keeps its document and the NavBar above it.
   await expect(page.locator('main').getByText('Primary document body.')).toBeVisible();
 
-  // Full height: the pane spans the viewport (the web titlebar strip is 0).
+  // A tall "notebook sheet" docked on the right: it spans nearly the full
+  // height, inset from the window edge by the small desk margin (--ob-page-inset).
   const viewport = page.viewportSize()!;
   const box = (await pane.boundingBox())!;
-  expect(box.height).toBeGreaterThan(viewport.height - 2);
-  expect(Math.round(box.y)).toBe(0);
+  expect(box.height).toBeGreaterThan(viewport.height * 0.9);
+  expect(box.y).toBeGreaterThanOrEqual(0);
+  expect(box.y).toBeLessThan(20);
 
   // Drag the left edge to widen the pane.
   const before = (await pane.boundingBox())!.width;
@@ -39,7 +41,7 @@ test('split pane: full height on the right, resizable, closable', async ({page, 
   await expect.poll(async () => (await pane.boundingBox())!.width).toBeGreaterThan(before + 80);
 
   // Closing the pane returns to a single full-width document and clears ?split.
-  await pane.getByRole('button', {name: 'Close split view'}).click();
+  await pane.getByRole('button', {name: 'Hide split pane'}).click();
   await expect(pane).toHaveCount(0);
   await expect(page).toHaveURL((url) => !url.searchParams.has('split'));
   await expect(page.locator('main').getByText('Primary document body.')).toBeVisible();

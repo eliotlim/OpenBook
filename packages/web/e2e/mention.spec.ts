@@ -1,77 +1,56 @@
 import {test, expect, takeSnapshot} from './fixtures';
-import {newPage, reclaimNames, SERVER, useClassicEditor} from './seed';
+import {newPage, SERVER} from './seed';
 
-// This spec drives the classic EditorJS editor — still fully supported, but no
-// longer the default — so pin it before the app boots (see seed.ts).
-test.beforeEach(async ({page}) => {
-  await useClassicEditor(page);
-});
-
+// Typing `@` opens the block editor's mention menu (existing pages, dates,
+// people). Picking a page inserts an inline link that navigates to it and
+// survives reload. (The classic editor's inline "create a new page" flow is
+// gone — the block editor's `@` links existing pages only.)
 
 async function openEditor(page: import('@playwright/test').Page, pageId: string): Promise<void> {
   await page.goto(`/?page=${pageId}`);
-  await page.locator('.ce-block').first().waitFor({state: 'visible'});
-  // Clicking before EditorJS finishes wiring focus silently drops the caret
-  // (typed text then goes nowhere) — retry until the paragraph holds focus.
-  const para = page.locator('.ce-paragraph').first();
+  const para = page.locator('.obe-text').first();
+  await para.waitFor({state: 'visible'});
+  // Clicking before the editor finishes wiring focus silently drops the caret —
+  // retry until the paragraph holds focus.
   await expect(async () => {
     await para.click();
     await expect(para).toBeFocused({timeout: 500});
   }).toPass({timeout: 10_000});
 }
 
-// Typing `@` opens a page-link menu; picking a page inserts an inline link that
-// navigates to it and survives reload (the PageLinkInlineTool sanitize whitelist).
 test('@ menu links an existing page inline and navigates to it', async ({page, request}) => {
   const targetId = await newPage(request, 'Roadmap E2E');
   const hostId = await newPage(request, 'Mention Host');
 
   await openEditor(page, hostId);
-  await page.keyboard.type('See @Roadmap E2E');
-  await expect(page.getByRole('listbox', {name: 'Link to page'}).getByRole('option')).toContainText('Roadmap E2E');
+  await page.keyboard.type('See @Roadmap');
+  const menu = page.getByRole('listbox', {name: 'Insert a mention'});
+  await expect(menu.getByRole('option').filter({hasText: 'Roadmap E2E'})).toBeVisible();
 
   await page.keyboard.press('Enter');
-  const link = page.locator('a.ob-mention');
+  const link = page.locator('a.obe-mention');
   await expect(link).toHaveText(/Roadmap E2E/);
   await expect(link).toHaveAttribute('data-page-id', targetId);
 
-  // Survives a reload (the inline anchor is preserved through save sanitization).
-  // Wait for autosave to persist the mention first.
+  // Survives a reload — the mention persists in the saved block document.
   await expect
-    .poll(async () => JSON.stringify((await (await request.get(`${SERVER}/api/pages/${hostId}`)).json()).data.editorjs).includes(targetId))
+    .poll(async () => JSON.stringify((await (await request.get(`${SERVER}/api/pages/${hostId}`)).json()).data).includes(targetId))
     .toBe(true);
   await page.reload();
-  await expect(page.locator('a.ob-mention')).toHaveAttribute('data-page-id', targetId);
+  await expect(page.locator('a.obe-mention')).toHaveAttribute('data-page-id', targetId);
 
   // Clicking the mention navigates to the linked page.
-  await page.locator('a.ob-mention').click();
+  await page.locator('a.obe-mention').click();
   await expect(page).toHaveURL(new RegExp(targetId));
 });
 
-// No exact match → the menu offers to create the page, then links it.
-test('@ menu creates a new page and links it', async ({page, request}) => {
-  const hostId = await newPage(request, 'Mention Create Host');
-  await openEditor(page, hostId);
-
-  const novel = 'Quokka Notes E2E';
-  await reclaimNames(request, novel); // the @-create flow makes this page; free the name for reruns
-  await page.keyboard.type(`Link @${novel}`);
-  await expect(page.getByRole('listbox', {name: 'Link to page'}).getByText('Create page')).toBeVisible();
-  await page.keyboard.press('Enter');
-
-  await expect(page.locator('a.ob-mention')).toHaveText(new RegExp(novel));
-  await expect
-    .poll(async () => ((await (await request.get(`${SERVER}/api/pages`)).json()) as {name: string}[]).some((p) => p.name === novel))
-    .toBe(true);
-});
-
-// Visual: the @ page-link menu open (kept in its own test — taking a snapshot
+// Visual: the @ mention menu open (kept in its own test — taking a snapshot
 // mid-edit disrupts the editor selection that the insert flow relies on).
 test('@ menu visual', async ({page, request}, testInfo) => {
   await newPage(request, 'Roadmap E2E');
   const hostId = await newPage(request, 'Mention Snapshot Host');
   await openEditor(page, hostId);
   await page.keyboard.type('See @Road');
-  await expect(page.getByRole('listbox', {name: 'Link to page'})).toBeVisible();
+  await expect(page.getByRole('listbox', {name: 'Insert a mention'})).toBeVisible();
   await takeSnapshot(page, testInfo);
 });

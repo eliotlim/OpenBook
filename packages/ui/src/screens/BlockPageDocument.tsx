@@ -36,7 +36,7 @@ import {BlockReviewMarkers} from '@/components/review/BlockReviewMarkers';
 import {useConfirm, usePreferences, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
-import {PageHeader, type PageDocumentProps} from './PageDocument';
+import {PageHeader, type PageDocumentProps} from './pageChrome';
 
 /**
  * The CRDT block editor mounted as a page document. Speaks the same contract

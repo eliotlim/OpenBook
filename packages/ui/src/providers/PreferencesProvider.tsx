@@ -17,10 +17,6 @@ export interface GeneralPreferences {
   confirmOnTrash: boolean;
   /** Spellcheck the editor while typing. */
   spellcheck: boolean;
-  /** Open documents in the CRDT block editor (the default). Pages already
-   *  written with it always use it regardless of this flag; turning it off
-   *  returns un-migrated pages to the classic EditorJS editor. */
-  blockEditor: boolean;
 }
 
 export interface Preferences {
@@ -30,7 +26,7 @@ export interface Preferences {
 
 export const DEFAULT_PREFERENCES: Preferences = {
   profile: {name: '', displayName: '', avatar: '', avatarImage: '', bio: ''},
-  general: {confirmOnTrash: true, spellcheck: true, blockEditor: true},
+  general: {confirmOnTrash: true, spellcheck: true},
 };
 
 /** A nested partial — every key optional, recursively — for `update(patch)`. */

@@ -5,7 +5,7 @@
  * happy-dom). Returns `null` when there is nothing plottable.
  */
 import * as Plot from '@observablehq/plot';
-import type {NormalizedSeries} from '@/reactive/chartNormalize';
+import type {NormalizedSeries} from './chartNormalize';
 
 export function buildChartSvg(series: NormalizedSeries[], width = 600, color = '#111111'): SVGElement | null {
   const usable = series.filter((s) => s.data.length > 0);

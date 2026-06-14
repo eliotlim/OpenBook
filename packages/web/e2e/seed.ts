@@ -1,4 +1,4 @@
-import type {APIRequestContext, Page} from '@playwright/test';
+import type {APIRequestContext} from '@playwright/test';
 
 /**
  * This worker's OpenBook data server. Every Playwright worker runs its own
@@ -41,16 +41,4 @@ export async function newPage(
   await reclaimNames(request, name);
   const res = await request.post(`${SERVER}/api/pages`, {data: {name, data}});
   return ((await res.json()) as {id: string}).id;
-}
-
-/**
- * Pin a test to the classic EditorJS editor. The CRDT block editor is the
- * default; specs that cover the classic editor (still fully supported, and
- * the renderer for un-migrated documents) opt out via the persisted
- * preference before the app boots. Call before the first `page.goto`.
- */
-export async function useClassicEditor(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    localStorage.setItem('openbook.preferences', JSON.stringify({general: {blockEditor: false}}));
-  });
 }
