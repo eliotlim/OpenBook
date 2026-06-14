@@ -125,7 +125,10 @@ const LongTextBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
     </ConfigField>
   );
 
-  return <KitFrame block={block} editor={editor} kind="longtext" defaultName="text" control={control} config={config} />;
+  // kind "longtextfield" (not "longtext") so the frame's `obe-kit-${kind}` class
+  // doesn't collide with the textarea's own `.obe-kit-longtext` (which would copy
+  // the textarea border/min-height onto the frame). Same trap as choice cards.
+  return <KitFrame block={block} editor={editor} kind="longtextfield" defaultName="text" control={control} config={config} />;
 };
 
 // ── Rich text (inline formatting; publishes plain projection + markup) ───────
@@ -206,7 +209,9 @@ const RichTextBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
     </ConfigField>
   );
 
-  return <KitFrame block={block} editor={editor} kind="richtext" defaultName="text" control={control} config={config} />;
+  // kind "richtextfield" (not "richtext") so the frame's `obe-kit-${kind}` class
+  // doesn't collide with the control's / shared composer's `.obe-kit-richtext`.
+  return <KitFrame block={block} editor={editor} kind="richtextfield" defaultName="text" control={control} config={config} />;
 };
 
 // (runsToHtml / domToRuns now live in ../RichTextEditor and are shared with the
