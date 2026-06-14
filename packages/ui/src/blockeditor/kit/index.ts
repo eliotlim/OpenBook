@@ -1,5 +1,7 @@
 import {registerCustomBlock, type CustomBlockDef} from '../registry';
 import {INPUT_BLOCKS} from './inputs';
+import {INPUT2_BLOCKS} from './inputs2';
+import {PROGRESS_BLOCKS} from './progress';
 import {CHART_BLOCKS} from './charts';
 import {CARD_BLOCKS} from './cards';
 
@@ -15,7 +17,7 @@ export {CHART_KINDS} from './charts';
  * out of reusable, collaborative blocks.
  */
 export function registerArtifactKit(): void {
-  for (const def of [...INPUT_BLOCKS, ...CHART_BLOCKS, ...CARD_BLOCKS]) {
+  for (const def of [...INPUT_BLOCKS, ...INPUT2_BLOCKS, ...PROGRESS_BLOCKS, ...CHART_BLOCKS, ...CARD_BLOCKS]) {
     const d = def as unknown as CustomBlockDef;
     // Tag the built-ins so the slash menu files them under "Interactive blocks"
     // (third-party plugin blocks fall through to "Extensions").

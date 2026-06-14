@@ -18,6 +18,7 @@ import {
   Link2,
   List,
   ListFilter,
+  MapPin,
   MoreHorizontal,
   PieChart,
   Plus,
@@ -84,6 +85,7 @@ const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
   {value: 'url', label: 'URL'},
   {value: 'email', label: 'Email'},
   {value: 'phone', label: 'Phone'},
+  {value: 'location', label: 'Location'},
   {value: 'files', label: 'Files & media'},
   {value: 'relation', label: 'Relation (link pages)'},
   {value: 'dependency', label: 'Dependency (link rows)'},
@@ -202,6 +204,9 @@ function operatorsFor(type: DatabasePropertyType | undefined): FilterOperator[] 
   case 'dependency':
   case 'files':
     return ['contains', 'not_contains', 'is_empty', 'is_not_empty'];
+  case 'location':
+    // A location is a coord object — only presence tests make sense.
+    return ['is_empty', 'is_not_empty'];
   default:
     return ['contains', 'not_contains', 'equals', 'not_equals', 'starts_with', 'ends_with', 'is_empty', 'is_not_empty'];
   }
@@ -215,6 +220,7 @@ export const VIEW_TYPES: {value: DatabaseViewType; label: string; Icon: React.Co
   {value: 'list', label: 'List', Icon: List},
   {value: 'calendar', label: 'Calendar', Icon: Calendar},
   {value: 'timeline', label: 'Timeline', Icon: GanttChartSquare},
+  {value: 'map', label: 'Map', Icon: MapPin},
   {value: 'graph', label: 'Graph', Icon: Workflow},
   {value: 'bar', label: 'Bar chart', Icon: BarChart3},
   {value: 'pie', label: 'Pie chart', Icon: PieChart},
@@ -1434,6 +1440,31 @@ export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = 
 );
 
 /**
+ * A property picker for a grouping dimension: the shared "Group by" /
+ * "Sub-group by" / timeline "Group by" control. Offers the parent-item sentinel
+ * plus every property; an empty choice clears the grouping.
+ */
+const GroupByPicker: React.FC<{
+  label: string;
+  value: string | undefined;
+  properties: DatabaseProperty[];
+  onChange: (id: string | undefined) => void;
+}> = ({label, value, properties, onChange}) => (
+  <label className="block">
+    <span className={sectionLabel}>{label}</span>
+    <select value={value ?? ''} onChange={(e) => onChange(e.target.value || undefined)} className={cn(fieldClass, 'mt-1 w-full')}>
+      <option value="">—</option>
+      <option value={PARENT_GROUP_ID}>Sub-items (parent)</option>
+      {properties.map((p) => (
+        <option key={p.id} value={p.id}>
+          {p.name}
+        </option>
+      ))}
+    </select>
+  </label>
+);
+
+/**
  * The active view's settings: rename, switch layout, configure layout-specific
  * options (board/chart grouping, chart aggregation, calendar date, visible
  * columns), duplicate, and delete.
@@ -1454,7 +1485,19 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
   };
 
   const showGroup =
-    view.type === 'board' || view.type === 'bar' || view.type === 'pie' || view.type === 'table' || view.type === 'list' || view.type === 'gallery';
+    view.type === 'board' ||
+    view.type === 'bar' ||
+    view.type === 'pie' ||
+    view.type === 'table' ||
+    view.type === 'list' ||
+    view.type === 'gallery' ||
+    view.type === 'map' ||
+    view.type === 'timeline';
+  // A second grouping dimension: board swimlanes (shown once the primary group is set).
+  const showSubGroup = view.type === 'board';
+  const showMap = view.type === 'map';
+  const locationProps = properties.filter((p) => p.type === 'location');
+  const addressProps = properties.filter((p) => p.type === 'text' || p.type === 'url');
   const showChart = view.type === 'bar' || view.type === 'pie';
   const showDate = view.type === 'calendar' || view.type === 'timeline';
   const showTimeline = view.type === 'timeline';
@@ -1476,7 +1519,8 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
     view.type === 'gallery' ||
     view.type === 'board' ||
     view.type === 'calendar' ||
-    view.type === 'timeline';
+    view.type === 'timeline' ||
+    view.type === 'map';
 
   return (
     <Popover>
@@ -1517,22 +1561,23 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
         </div>
 
         {showGroup && (
-          <label className="block">
-            <span className={sectionLabel}>Group by</span>
-            <select
-              value={view.groupByPropertyId ?? ''}
-              onChange={(e) => db.updateView(view.id, {groupByPropertyId: e.target.value || undefined})}
-              className={cn(fieldClass, 'mt-1 w-full')}
-            >
-              <option value="">—</option>
-              <option value={PARENT_GROUP_ID}>Sub-items (parent)</option>
-              {groupable.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <GroupByPicker
+            label="Group by"
+            value={view.groupByPropertyId}
+            properties={groupable}
+            onChange={(id) => db.updateView(view.id, {groupByPropertyId: id})}
+          />
+        )}
+
+        {showSubGroup && view.groupByPropertyId && (
+          // The board's second dimension (horizontal swimlanes). Offered only once
+          // the primary group exists, and never the same property as the primary.
+          <GroupByPicker
+            label="Sub-group by"
+            value={view.subGroupByPropertyId}
+            properties={groupable.filter((p) => p.id !== view.groupByPropertyId)}
+            onChange={(id) => db.updateView(view.id, {subGroupByPropertyId: id})}
+          />
         )}
 
         {showGroup && view.groupByPropertyId && (
@@ -1544,6 +1589,57 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
               className="h-3.5 w-3.5 accent-primary"
             />
             Hide empty groups
+          </label>
+        )}
+
+        {showMap && (
+          <label className="block">
+            <span className={sectionLabel}>Location property</span>
+            <select
+              value={view.geoPropertyId ?? ''}
+              onChange={(e) => db.updateView(view.id, {geoPropertyId: e.target.value || undefined})}
+              className={cn(fieldClass, 'mt-1 w-full')}
+            >
+              <option value="">—</option>
+              {locationProps.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        {showMap && (
+          <label className="block">
+            <span className={sectionLabel}>Geocode address (optional)</span>
+            <select
+              value={view.addressPropertyId ?? ''}
+              onChange={(e) => db.updateView(view.id, {addressPropertyId: e.target.value || undefined})}
+              className={cn(fieldClass, 'mt-1 w-full')}
+            >
+              <option value="">None</option>
+              {addressProps.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[11px] text-muted-foreground/70">
+              Lets you look up coordinates from an address column on demand (a network call).
+            </span>
+          </label>
+        )}
+
+        {showMap && (
+          <label className="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={view.mapClustered !== false}
+              onChange={(e) => db.updateView(view.id, {mapClustered: e.target.checked})}
+              className="h-3.5 w-3.5 accent-primary"
+            />
+            Cluster markers
           </label>
         )}
 
@@ -1802,6 +1898,10 @@ function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: D
   }
   if (type === 'graph' && !view.dependencyPropertyId) {
     patch.dependencyPropertyId = properties.find((p) => p.type === 'dependency')?.id;
+  }
+  if (type === 'map') {
+    if (!view.geoPropertyId) patch.geoPropertyId = properties.find((p) => p.type === 'location')?.id;
+    if (view.mapClustered === undefined) patch.mapClustered = true;
   }
   return patch;
 }

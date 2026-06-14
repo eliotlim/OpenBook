@@ -46,6 +46,7 @@ import {AddPropertyMenu, AddViewMenu, FilterChips, FilterMenu, MetricsBar, Prope
 import {BoardView, CalendarView, GalleryView, rowColor, RowChips, RowContextMenu} from './databaseLayouts';
 import {BarChartView, PieChartView} from './databaseCharts';
 import {TimelineView} from './databaseTimeline';
+import {MapView} from './databaseMap';
 import {GraphView} from './databaseGraph';
 import {SWATCH_HEX} from './databaseColors';
 
@@ -958,6 +959,8 @@ const ViewBody: React.FC<{db: UseDatabase; view: DbView; columns: DatabaseProper
     return <CalendarView db={db} view={view} properties={schema} cardProperties={explicitCols} />;
   case 'timeline':
     return <TimelineView db={db} view={view} properties={schema} cardProperties={explicitCols} />;
+  case 'map':
+    return <MapView db={db} view={view} properties={schema} cardProperties={explicitCols} />;
   case 'graph':
     return <GraphView db={db} view={view} properties={schema} />;
   case 'bar':

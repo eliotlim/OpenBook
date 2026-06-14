@@ -17,10 +17,37 @@ import type {AiConfig} from '@open-book/sdk';
  *              dependency, loaded dynamically; GGUF models from disk).
  */
 
+/** A native (OpenAI-style) tool the engine may call. */
+export interface NativeTool {
+  name: string;
+  description: string;
+  /** JSON-Schema for the tool's arguments object. */
+  parameters: Record<string, unknown>;
+}
+
+/** A native tool call the model emitted. */
+export interface NativeToolCall {
+  id: string;
+  name: string;
+  args: Record<string, unknown>;
+}
+
 export interface GenerateOptions {
   system?: string;
   maxTokens?: number;
   temperature?: number;
+  /** Soft cap on reasoning tokens for thinking models (advisory). */
+  thinkingBudget?: number;
+  /** One knob that, mapped server-side (`effort.ts`), sets the others. */
+  effort?: 'low' | 'med' | 'high';
+  /**
+   * Native tools advertised to the model. When provided AND the engine
+   * supports native tool-calling, the model may answer with tool calls
+   * (surfaced via {@link onToolCalls}) instead of plain text.
+   */
+  tools?: NativeTool[];
+  /** Called with any native tool calls the model emitted this turn. */
+  onToolCalls?: (calls: NativeToolCall[]) => void;
   onToken: (token: string) => void;
   signal?: AbortSignal;
 }
@@ -30,6 +57,13 @@ export interface AiEngine {
   /** Throws (with a user-readable message) when the engine can't run. */
   ensureReady(): Promise<void>;
   generate(prompt: string, opts: GenerateOptions): Promise<string>;
+  /**
+   * Whether this engine can do native (OpenAI-style) function-calling. The
+   * agent prefers native tool-calling when true and falls back to its JSON
+   * protocol otherwise — so every local endpoint stays usable. Best-effort:
+   * probes the endpoint's capabilities; never throws.
+   */
+  supportsTools?(): Promise<boolean>;
   /** Undefined when the engine cannot embed. */
   embed?(texts: string[]): Promise<number[][]>;
   dispose(): Promise<void>;
@@ -49,10 +83,11 @@ export class MockEngine implements AiEngine {
   async generate(prompt: string, opts: GenerateOptions): Promise<string> {
     let out: string;
     if (/OpenBook assistant/i.test(opts.system ?? '')) {
-      // Scripted agent turn: search first, then answer from the result.
+      // Scripted agent turn: search first, then answer from the result. The
+      // leading <think> block exercises the reasoning-channel splitter.
       if (!prompt.includes('TOOL RESULT')) {
         const lastUser = prompt.split('User:').pop()?.split('\n')[0]?.trim() ?? '';
-        out = JSON.stringify({tool: 'search_notes', args: {query: lastUser.slice(0, 60)}});
+        out = `<think>The user asked: ${lastUser.slice(0, 40)}. I'll search the notes.</think>${JSON.stringify({tool: 'search_notes', args: {query: lastUser.slice(0, 60)}})}`;
       } else {
         const hits = (prompt.match(/^- \[/gm) ?? []).length;
         out = JSON.stringify({final: `I looked through your notes and found ${hits} relevant ${hits === 1 ? 'page' : 'pages'}.`});
@@ -110,7 +145,43 @@ export class OpenAiCompatEngine implements AiEngine {
     }
   }
 
+  /**
+   * Cached result of the native-tool-calling capability probe (per endpoint).
+   * `undefined` until first probed.
+   */
+  private toolsSupported: boolean | undefined;
+
+  /**
+   * Probe whether the endpoint advertises native tool-calling. OpenAI-compatible
+   * servers don't expose a uniform capability flag, so we send a one-token
+   * request with a trivial tool and see whether the server accepts the `tools`
+   * field (a 4xx means "not supported"; a stream means it does). Cached.
+   */
+  async supportsTools(): Promise<boolean> {
+    if (this.toolsSupported !== undefined) return this.toolsSupported;
+    try {
+      const res = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+        method: 'POST',
+        headers: {'content-type': 'application/json'},
+        body: JSON.stringify({
+          model: this.model || 'default',
+          max_tokens: 1,
+          stream: false,
+          messages: [{role: 'user', content: 'ping'}],
+          tools: [{type: 'function', function: {name: 'noop', description: 'noop', parameters: {type: 'object', properties: {}}}}],
+        }),
+        signal: AbortSignal.timeout(4000),
+      });
+      // 200 → the server understood `tools`. 4xx (esp. 400) → it rejected them.
+      this.toolsSupported = res.ok;
+    } catch {
+      this.toolsSupported = false;
+    }
+    return this.toolsSupported;
+  }
+
   async generate(prompt: string, opts: GenerateOptions): Promise<string> {
+    const useTools = Boolean(opts.tools && opts.tools.length > 0);
     const res = await fetch(`${this.baseUrl}/v1/chat/completions`, {
       method: 'POST',
       headers: {'content-type': 'application/json'},
@@ -119,6 +190,15 @@ export class OpenAiCompatEngine implements AiEngine {
         stream: true,
         max_tokens: opts.maxTokens ?? 512,
         temperature: opts.temperature ?? 0.7,
+        ...(useTools
+          ? {
+            tools: opts.tools!.map((tool) => ({
+              type: 'function',
+              function: {name: tool.name, description: tool.description, parameters: tool.parameters},
+            })),
+            tool_choice: 'auto',
+          }
+          : {}),
         messages: [
           ...(opts.system ? [{role: 'system', content: opts.system}] : []),
           {role: 'user', content: prompt},
@@ -129,6 +209,8 @@ export class OpenAiCompatEngine implements AiEngine {
     if (!res.ok || !res.body) throw new Error(`Generation failed: HTTP ${res.status}`);
 
     let full = '';
+    // Native tool-call fragments accumulate by index across deltas.
+    const toolAcc = new Map<number, {id: string; name: string; args: string}>();
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -142,16 +224,55 @@ export class OpenAiCompatEngine implements AiEngine {
         const data = line.replace(/^data:\s*/, '').trim();
         if (!data || data === '[DONE]') continue;
         try {
-          const parsed = JSON.parse(data) as {choices?: Array<{delta?: {content?: string}}>};
-          const token = parsed.choices?.[0]?.delta?.content ?? '';
+          const parsed = JSON.parse(data) as {
+            choices?: Array<{
+              delta?: {
+                content?: string;
+                /** Some servers stream reasoning out-of-band (vLLM/llama.cpp). */
+                reasoning_content?: string;
+                tool_calls?: Array<{index?: number; id?: string; function?: {name?: string; arguments?: string}}>;
+              };
+            }>;
+          };
+          const delta = parsed.choices?.[0]?.delta;
+          // Out-of-band reasoning → wrap so the splitter routes it to the
+          // reasoning channel (it's never document content).
+          const reasoning = delta?.reasoning_content ?? '';
+          if (reasoning) {
+            full += `<think>${reasoning}</think>`;
+            opts.onToken(`<think>${reasoning}</think>`);
+          }
+          const token = delta?.content ?? '';
           if (token) {
             full += token;
             opts.onToken(token);
+          }
+          for (const tc of delta?.tool_calls ?? []) {
+            const idx = tc.index ?? 0;
+            const acc = toolAcc.get(idx) ?? {id: '', name: '', args: ''};
+            if (tc.id) acc.id = tc.id;
+            if (tc.function?.name) acc.name = tc.function.name;
+            if (tc.function?.arguments) acc.args += tc.function.arguments;
+            toolAcc.set(idx, acc);
           }
         } catch {
           // partial frame — wait for more
         }
       }
+    }
+    if (useTools && toolAcc.size > 0 && opts.onToolCalls) {
+      const calls: NativeToolCall[] = [];
+      for (const acc of toolAcc.values()) {
+        if (!acc.name) continue;
+        let args: Record<string, unknown> = {};
+        try {
+          args = acc.args ? (JSON.parse(acc.args) as Record<string, unknown>) : {};
+        } catch {
+          // malformed args — pass empty; the tool reports its own error
+        }
+        calls.push({id: acc.id || `call_${calls.length}`, name: acc.name, args});
+      }
+      if (calls.length > 0) opts.onToolCalls(calls);
     }
     return full;
   }

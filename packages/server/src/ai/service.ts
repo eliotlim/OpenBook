@@ -5,6 +5,7 @@ import type {AiConfig, AiSearchResponse, AiStatus, AiTasksResponse} from '@open-
 import type {Db} from '../db';
 import {createEngine, type AiEngine, type GenerateOptions} from './providers';
 import {bm25Scores, buildIndex, chunkText, cosine, parseTaskList, snapshotText, snippetFor, type Bm25Index, type IndexedDoc} from './search';
+import {SkillStore} from './skills';
 
 /**
  * The optional local-AI subsystem: holds the configured engine, the note
@@ -40,11 +41,15 @@ export class AiService {
   private indexedVersion = -1;
   private download: DownloadState | null = null;
   private loaded = false;
+  /** User-authored prompt/recipe skills (per-workspace markdown). */
+  readonly skills: SkillStore;
 
   constructor(
     private readonly db: Db,
     private readonly modelsDir: string,
-  ) {}
+  ) {
+    this.skills = new SkillStore(db);
+  }
 
   /** Mark the search index stale (call on any page write). */
   invalidateIndex(): void {
@@ -191,6 +196,16 @@ export class AiService {
   async generate(prompt: string, opts: GenerateOptions): Promise<string> {
     const engine = await this.readyEngine();
     return engine.generate(prompt, opts);
+  }
+
+  /** Whether the active engine can do native (OpenAI-style) tool-calling. */
+  async supportsTools(): Promise<boolean> {
+    try {
+      const engine = await this.readyEngine();
+      return engine.supportsTools ? await engine.supportsTools() : false;
+    } catch {
+      return false;
+    }
   }
 
   /** Break a goal into a clean list of actionable tasks. */

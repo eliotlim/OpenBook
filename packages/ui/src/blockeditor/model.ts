@@ -41,7 +41,14 @@ export type BlockType =
   | 'table'
   | 'row'
   | 'cell'
-  | 'group';
+  | 'group'
+  // Interactive-kit containers (June 2026). Tabs/accordion hold one child per
+  // tab/section; each tab/section block holds arbitrary blocks. They reuse the
+  // group container infra (child storage, DnD, lock context).
+  | 'tabs'
+  | 'tab'
+  | 'accordion'
+  | 'accordionsection';
 
 /** Inline formatting attributes carried by Y.Text runs. */
 export interface InlineAttrs {
@@ -88,7 +95,10 @@ export const TEXT_BLOCKS: ReadonlySet<BlockType> = new Set([
 ]);
 
 /** Block types whose `children` hold ordinary blocks. */
-export const CONTAINER_BLOCKS: ReadonlySet<BlockType> = new Set(['columns', 'column', 'table', 'row', 'group']);
+export const CONTAINER_BLOCKS: ReadonlySet<BlockType> = new Set([
+  'columns', 'column', 'table', 'row', 'group',
+  'tabs', 'tab', 'accordion', 'accordionsection',
+]);
 
 export type BlockMap = Y.Map<unknown>;
 

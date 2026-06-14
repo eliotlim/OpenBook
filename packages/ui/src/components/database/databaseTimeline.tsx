@@ -1,6 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Plus} from 'lucide-react';
+import {ChevronRight, Plus} from 'lucide-react';
 import {
+  groupRowsBy,
   rowDateSpan,
   type DatabaseProperty,
   type DatabaseRow,
@@ -8,6 +9,7 @@ import {
   type DateSpan,
 } from '@open-book/sdk';
 import {readPageIcon} from '@/lib/pageIcon';
+import {cn} from '@/lib/utils';
 import type {UseDatabase} from './useDatabase';
 import {SWATCH_HEX} from './databaseColors';
 import {RowChips, RowContextMenu} from './databaseLayouts';
@@ -15,6 +17,8 @@ import {RowChips, RowContextMenu} from './databaseLayouts';
 const DAY_MS = 86_400_000;
 const ROW_H = 34;
 const HEADER_H = 40;
+/** Height of a collapsible swimlane band header row (when grouped). */
+const BAND_H = 30;
 const LABEL_W = 200;
 const BAR_PAD = 5;
 
@@ -40,7 +44,20 @@ const dayWidthFor = (totalDays: number): number => {
 interface Laid {
   row: DatabaseRow;
   span: DateSpan;
-  index: number;
+  /** The bar's row position in the body, in pixels from the top (band-aware). */
+  top: number;
+}
+
+/** A collapsible Gantt swimlane band (when the timeline groups by a property). */
+interface Band {
+  key: string;
+  label: string;
+  /** Swatch hex when the band is a select option, for the header dot. */
+  color?: string;
+  count: number;
+  /** Pixel offset of the band's header row in the body. */
+  top: number;
+  collapsed: boolean;
 }
 
 type DragMode = 'move' | 'start' | 'end';
@@ -64,6 +81,7 @@ const TimelineBody: React.FC<{
   bodyW: number;
   bodyH: number;
   months: {label: string; left: number; width: number}[];
+  bands: Band[];
   todayX: number | null;
   depProp: DatabaseProperty | undefined;
   startProp: DatabaseProperty;
@@ -72,7 +90,7 @@ const TimelineBody: React.FC<{
   barColor: (row: DatabaseRow) => string;
   rowH: number;
   db: UseDatabase;
-}> = ({laid, dayW, min, bodyW, bodyH, months, todayX, depProp, startProp, endProp, canResize, barColor, rowH, db}) => {
+}> = ({laid, dayW, min, bodyW, bodyH, months, bands, todayX, depProp, startProp, endProp, canResize, barColor, rowH, db}) => {
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
@@ -154,9 +172,9 @@ const TimelineBody: React.FC<{
         if (!pred) continue;
         arrows.push({
           x1: xOf(addDays(pred.span.end, 1)),
-          y1: pred.index * rowH + rowH / 2,
+          y1: pred.top + rowH / 2,
           x2: xOf(l.span.start),
-          y2: l.index * rowH + rowH / 2,
+          y2: l.top + rowH / 2,
         });
       }
     }
@@ -166,6 +184,16 @@ const TimelineBody: React.FC<{
     <div className="relative" style={{height: bodyH}}>
       {months.map((m, i) => (
         <div key={i} className="absolute top-0 h-full border-l border-border/30" style={{left: m.left}} />
+      ))}
+      {/* Swimlane band bars: a full-width horizontal bar across the body at each
+          band header, continuing the left-column header so the lane reads as one
+          long horizontal bar demarcating the swimlane. */}
+      {bands.map((b) => (
+        <div
+          key={b.key}
+          className="absolute left-0 z-[1] border-b border-border/60 bg-muted/20"
+          style={{top: b.top, width: bodyW, height: BAND_H}}
+        />
       ))}
       {todayX !== null && <div className="absolute top-0 z-10 h-full border-l border-brand/60" style={{left: todayX}} title="Today" />}
 
@@ -202,7 +230,7 @@ const TimelineBody: React.FC<{
             style={{
               left,
               width,
-              top: l.index * rowH + BAR_PAD,
+              top: l.top + BAR_PAD,
               height: rowH - BAR_PAD * 2,
               backgroundColor: barColor(l.row),
               touchAction: 'none',
@@ -273,6 +301,19 @@ export const TimelineView: React.FC<{
   /** Properties to show as chips under each rail label (the dates drive placement). */
   cardProperties?: DatabaseProperty[];
 }> = ({db, view, properties, cardProperties}) => {
+  // Collapsed swimlane bands persist per view (declared first — hooks can't sit
+  // behind the early returns below, which the component otherwise relies on to
+  // keep `TimelineBody`'s drag hooks isolated).
+  const [collapsedBands, setCollapsedBands] = useState<Set<string>>(() => readBandFolds(view.id));
+  const toggleBand = (key: string): void =>
+    setCollapsedBands((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      writeBandFolds(view.id, next);
+      return next;
+    });
+
   // Bars colour by the view's chosen colour property (a select/status), falling
   // back to the first select property.
   const configuredColor = view.cardColorPropertyId ? properties.find((p) => p.id === view.cardColorPropertyId) : undefined;
@@ -288,14 +329,18 @@ export const TimelineView: React.FC<{
     return <Hint>Choose a start date property in the view options to lay rows out on a timeline.</Hint>;
   }
 
-  // Resolve every row's span; keep dated rows (in view order) for the bars.
-  const laid: Laid[] = [];
+  // Resolve every row's span; keep only dated rows (their bars go on the timeline).
+  const spanOf = new Map<string, DateSpan>();
+  const datedRows: DatabaseRow[] = [];
   db.visibleRows.forEach((row) => {
     const span = rowDateSpan(row, view, properties);
-    if (span) laid.push({row, span, index: laid.length});
+    if (span) {
+      spanOf.set(row.id, span);
+      datedRows.push(row);
+    }
   });
 
-  if (laid.length === 0) {
+  if (datedRows.length === 0) {
     return (
       <Hint>
         No rows have a date yet. Set the start date property on a row to place it on the timeline.
@@ -306,19 +351,51 @@ export const TimelineView: React.FC<{
     );
   }
 
-  // Overall range (padded a day each side for breathing room).
-  let min = laid[0].span.start;
-  let max = laid[0].span.end;
-  for (const l of laid) {
-    if (l.span.start < min) min = l.span.start;
-    if (l.span.end > max) max = l.span.end;
+  // Swimlane bands: timeline grouping reuses `groupByPropertyId` (unused by the
+  // timeline before). Each band is a labelled, collapsible Gantt row band; bars
+  // sit by date within their band. Ungrouped → a single implicit band.
+  const grouped = !!view.groupByPropertyId;
+  const groups = grouped
+    ? groupRowsBy(datedRows, view.groupByPropertyId, properties).filter((g) => g.rows.length > 0)
+    : [{key: '__all__', label: 'All', color: undefined, rows: datedRows}];
+
+  // Lay bars out band by band, tracking each bar's pixel `top` and each band's
+  // header offset. A collapsed band shows only its header (its bars are skipped).
+  const laid: Laid[] = [];
+  const bands: Band[] = [];
+  let y = 0;
+  for (const g of groups) {
+    const collapsed = grouped && collapsedBands.has(g.key);
+    if (grouped) {
+      bands.push({key: g.key, label: g.label, color: g.color, count: g.rows.length, top: y, collapsed});
+      y += BAND_H;
+    }
+    if (!collapsed) {
+      for (const row of g.rows) {
+        const span = spanOf.get(row.id);
+        if (span) {
+          laid.push({row, span, top: y});
+          y += rowH;
+        }
+      }
+    }
+  }
+  const bodyH = Math.max(y, rowH);
+
+  // Overall range (padded a day each side for breathing room). Spans the full
+  // dated set so collapsing a band doesn't reflow the day axis.
+  let min = datedRows[0] && spanOf.get(datedRows[0].id) ? spanOf.get(datedRows[0].id)!.start : new Date();
+  let max = min;
+  for (const row of datedRows) {
+    const span = spanOf.get(row.id)!;
+    if (span.start < min) min = span.start;
+    if (span.end > max) max = span.end;
   }
   min = addDays(min, -1);
   max = addDays(max, 1);
   const totalDays = diffDays(min, max) + 1;
   const dayW = dayWidthFor(totalDays);
   const bodyW = totalDays * dayW;
-  const bodyH = laid.length * rowH;
   const canResize = !!endProp || !!startProp.dateRange;
 
   const xOf = (d: Date): number => diffDays(min, d) * dayW;
@@ -350,28 +427,49 @@ export const TimelineView: React.FC<{
 
   return (
     <div className="flex overflow-hidden rounded-md border border-border">
-      {/* Fixed label column. */}
+      {/* Fixed label column: band headers (when grouped) interleaved with row labels. */}
       <div className="shrink-0 border-r border-border" style={{width: LABEL_W}}>
         <div className="border-b border-border bg-muted/30" style={{height: HEADER_H}} />
-        {laid.map((l) => (
-          <RowContextMenu key={l.row.id} db={db} rowId={l.row.id}>
-            <button
-              onClick={() => db.openRow(l.row.id)}
-              className="flex w-full flex-col justify-center gap-0.5 border-b border-border/60 px-2 text-left text-sm last:border-0 hover:bg-accent/30"
-              style={{height: rowH}}
-            >
-              <span className="flex w-full items-center gap-1.5">
-                <span className="shrink-0 text-sm leading-none">{readPageIcon(l.row.id)}</span>
-                <span className="truncate">{l.row.name?.trim() || 'Untitled'}</span>
-              </span>
-              {railProps.length > 0 && (
-                <span className="flex h-[18px] items-center overflow-hidden">
-                  <RowChips row={l.row} properties={railProps} rows={db.rows} />
-                </span>
+        {groups.map((g) => {
+          const collapsed = grouped && collapsedBands.has(g.key);
+          return (
+            <div key={g.key}>
+              {grouped && (
+                <button
+                  onClick={() => toggleBand(g.key)}
+                  aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${g.label} band`}
+                  className="flex w-full items-center gap-1 border-b border-border/60 bg-muted/20 px-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground"
+                  style={{height: BAND_H}}
+                >
+                  <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
+                  {g.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[g.color] ?? '#9ca3af'}} />}
+                  <span className="truncate">{g.label}</span>
+                  <span className="ml-auto shrink-0 text-muted-foreground/60">{g.rows.length}</span>
+                </button>
               )}
-            </button>
-          </RowContextMenu>
-        ))}
+              {!collapsed &&
+                g.rows.map((row) => (
+                  <RowContextMenu key={row.id} db={db} rowId={row.id}>
+                    <button
+                      onClick={() => db.openRow(row.id)}
+                      className="flex w-full flex-col justify-center gap-0.5 border-b border-border/60 px-2 text-left text-sm last:border-0 hover:bg-accent/30"
+                      style={{height: rowH}}
+                    >
+                      <span className="flex w-full items-center gap-1.5">
+                        <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+                        <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
+                      </span>
+                      {railProps.length > 0 && (
+                        <span className="flex h-[18px] items-center overflow-hidden">
+                          <RowChips row={row} properties={railProps} rows={db.rows} />
+                        </span>
+                      )}
+                    </button>
+                  </RowContextMenu>
+                ))}
+            </div>
+          );
+        })}
       </div>
 
       {/* Scrollable timeline. */}
@@ -397,6 +495,7 @@ export const TimelineView: React.FC<{
             bodyW={bodyW}
             bodyH={bodyH}
             months={months}
+            bands={bands}
             todayX={todayX}
             depProp={depProp}
             startProp={startProp}
@@ -420,5 +519,24 @@ const NewRowButton: React.FC<{onClick: () => void}> = ({onClick}) => (
     <Plus className="h-4 w-4" /> New row
   </button>
 );
+
+/** Per-view persistence of collapsed swimlane bands (mirrors the board's lane folds). */
+const bandFoldsKey = (viewId: string): string => `ob.timeline.bands.${viewId}`;
+function readBandFolds(viewId: string): Set<string> {
+  if (typeof localStorage === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(bandFoldsKey(viewId));
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+function writeBandFolds(viewId: string, folds: Set<string>): void {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(bandFoldsKey(viewId), JSON.stringify([...folds]));
+  } catch {
+    /* quota / private mode — fold still works in-session. */
+  }
+}
 
 export default TimelineView;

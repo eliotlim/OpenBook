@@ -1,9 +1,11 @@
 import {useCallback, useEffect, useState} from 'react';
-import type {AiConfig, AiProvider, AiStatus} from '@open-book/sdk';
-import {SettingsField, SettingsScreen, SettingsSection} from '@/components/settings/primitives';
+import {Trash2} from 'lucide-react';
+import type {AiConfig, AiEffort, AiProvider, AiSkill, AiStatus} from '@open-book/sdk';
+import {SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
 import {Button} from '@/components/ui/button';
+import {Select} from '@/components/ui/select';
 import {useData} from '@/data';
-import {useTranslation} from '@/providers';
+import {useConfirm, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
 
 const fieldClass =
@@ -18,10 +20,12 @@ const fieldClass =
 export default function AiSettings() {
   const client = useData();
   const {t} = useTranslation();
+  const confirm = useConfirm();
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [draft, setDraft] = useState<AiConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [indexing, setIndexing] = useState(false);
+  const [skills, setSkills] = useState<AiSkill[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -33,9 +37,18 @@ export default function AiSettings() {
     }
   }, [client]);
 
+  const refreshSkills = useCallback(async () => {
+    try {
+      setSkills(await client.aiSkills());
+    } catch {
+      setSkills([]);
+    }
+  }, [client]);
+
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void refreshSkills();
+  }, [refresh, refreshSkills]);
 
   // Poll while a model download is in flight.
   useEffect(() => {
@@ -166,6 +179,35 @@ export default function AiSettings() {
         </SettingsSection>
       )}
 
+      {provider !== 'off' && (
+        <SettingsSection title={t('ai.assistant')} description={t('ai.assistantHint')}>
+          <SettingsField label={t('ai.effort')} hint={t('ai.effortHint')}>
+            <Select
+              value={draft.effort ?? 'med'}
+              wrapperClassName="w-[180px]"
+              data-ai-effort
+              onChange={(e) => void apply({...draft, effort: e.target.value as AiEffort})}
+              disabled={busy}
+            >
+              <option value="low">{t('ai.effortLow')}</option>
+              <option value="med">{t('ai.effortMed')}</option>
+              <option value="high">{t('ai.effortHigh')}</option>
+            </Select>
+          </SettingsField>
+          <SettingsToggle
+            label={t('ai.thinking')}
+            hint={t('ai.thinkingHint')}
+            checked={draft.thinking ?? true}
+            disabled={busy}
+            onCheckedChange={(checked) => void apply({...draft, thinking: checked})}
+          />
+        </SettingsSection>
+      )}
+
+      <SettingsSection title={t('ai.skills')} description={t('ai.skillsHint')}>
+        <SkillsEditor skills={skills} onChange={refreshSkills} confirm={confirm} />
+      </SettingsSection>
+
       <SettingsSection title={t('ai.search')} description={t('ai.searchHint')}>
         <div className="flex items-center gap-3">
           <Button
@@ -188,5 +230,102 @@ export default function AiSettings() {
         </div>
       </SettingsSection>
     </SettingsScreen>
+  );
+}
+
+/** The prompt/recipe skills list + an inline editor for one new skill. */
+function SkillsEditor({
+  skills,
+  onChange,
+  confirm,
+}: {
+  skills: AiSkill[];
+  onChange: () => Promise<void>;
+  confirm: ReturnType<typeof useConfirm>;
+}) {
+  const client = useData();
+  const {t} = useTranslation();
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [instructions, setInstructions] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const reset = (): void => {
+    setName('');
+    setDescription('');
+    setInstructions('');
+    setAdding(false);
+  };
+
+  const save = async (): Promise<void> => {
+    if (!name.trim() || saving) return;
+    setSaving(true);
+    try {
+      await client.aiSaveSkill({name, description, instructions});
+      await onChange();
+      reset();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (skill: AiSkill): Promise<void> => {
+    if (!(await confirm({title: t('ai.skillDelete'), description: skill.name, destructive: true, confirmText: t('ai.skillDelete')}))) return;
+    await client.aiDeleteSkill(skill.name);
+    await onChange();
+  };
+
+  return (
+    <div className="flex flex-col gap-2" data-ai-skills>
+      {skills.length === 0 && !adding && <p className="text-xs text-muted-foreground">{t('ai.skillEmpty')}</p>}
+      {skills.map((skill) => (
+        <div key={skill.name} className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2.5">
+          <span className="flex min-w-0 flex-col">
+            <span className="font-mono text-sm font-medium">{skill.name}</span>
+            {skill.description && <span className="text-xs text-muted-foreground">{skill.description}</span>}
+          </span>
+          <Button size="icon" variant="ghost" className="size-7 shrink-0" onClick={() => void remove(skill)} aria-label={t('ai.skillDelete')}>
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      ))}
+
+      {adding ? (
+        <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-3">
+          <SettingsField label={t('ai.skillName')}>
+            <input className={fieldClass} value={name} placeholder={t('ai.skillNamePlaceholder')} onChange={(e) => setName(e.target.value)} />
+          </SettingsField>
+          <SettingsField label={t('ai.skillDescription')}>
+            <input
+              className={fieldClass}
+              value={description}
+              placeholder={t('ai.skillDescriptionPlaceholder')}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </SettingsField>
+          <SettingsField label={t('ai.skillInstructions')}>
+            <textarea
+              className={cn(fieldClass, 'min-h-24 resize-y')}
+              value={instructions}
+              placeholder={t('ai.skillInstructionsPlaceholder')}
+              onChange={(e) => setInstructions(e.target.value)}
+            />
+          </SettingsField>
+          <div className="flex items-center gap-2">
+            <Button size="sm" disabled={!name.trim() || saving} onClick={() => void save()}>
+              {t('ai.skillSave')}
+            </Button>
+            <Button size="sm" variant="outline" onClick={reset}>
+              {t('ai.skillCancel')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button size="sm" variant="outline" className="self-start" onClick={() => setAdding(true)}>
+          {t('ai.skillAdd')}
+        </Button>
+      )}
+    </div>
   );
 }

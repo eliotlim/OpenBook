@@ -30,6 +30,9 @@ import {setPageSaveStatus} from '@/lib/pageSaveStatus';
 import {pageHasPluginManifest} from '@/plugins';
 import {registerPageDocActions, type ExportKind} from '@/lib/pageDocActions';
 import {registerOpenDoc} from '@/lib/openDocs';
+import {registerBlockEditorDoc} from '@/lib/aiBridge';
+import {SuggestHost} from '@/components/review/SuggestHost';
+import {BlockReviewMarkers} from '@/components/review/BlockReviewMarkers';
 import {useConfirm, usePreferences, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
@@ -75,6 +78,8 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'save failed'>('idle');
   const lastSnapshot = useRef<PageSnapshot | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The editor's positioned wrapper — inline review indicators portal into it.
+  const editorWrapRef = useRef<HTMLDivElement | null>(null);
 
   // ── Load (or migrate) ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -239,6 +244,14 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     return registerOpenDoc(pageId, doc);
   }, [pageId, doc]);
 
+  // Expose the live doc to the AI write path so approved agent proposals apply
+  // as one undoable CRDT transaction against this editor (rather than the
+  // savePage fallback). Unregisters on unmount / page change.
+  useEffect(() => {
+    if (!pageId || !doc) return;
+    return registerBlockEditorDoc(pageId, doc);
+  }, [pageId, doc]);
+
   // Publish this document's capabilities to the shell page menu (NavContextMenu).
   // The handlers route through refs so the registration only churns when the
   // *shape* changes (page or plugin-ness), not on every keystroke.
@@ -296,7 +309,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
           />
           {pageId && <PageProperties pageId={pageId} />}
 
-          <div className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'pt-2')}>
+          <div ref={editorWrapRef} className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'relative pt-2')}>
             {doc && (
               <BlockEditor
                 doc={doc}
@@ -307,7 +320,14 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
                 pageId={pageId}
               />
             )}
+            {/* Inline review affordances (provider-aware, portaled into the
+                editor wrapper since the editor's own root is provider-less). */}
+            {pageId && doc && <BlockReviewMarkers pageId={pageId} containerRef={editorWrapRef} />}
           </div>
+
+          {/* Bridges the editor's inline "Suggest edit"/"Comment" menu items to
+              the data client + Review pane. */}
+          {pageId && doc && <SuggestHost />}
 
           {footer}
         </div>

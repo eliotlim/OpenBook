@@ -13,6 +13,7 @@ export type {
   DatabaseSelectOption,
   DatabaseProperty,
   DateRange,
+  LocationValue,
   PropertyGroup,
   RowTemplate,
   DatabaseViewType,
@@ -82,6 +83,8 @@ export {
   dateEnd,
   parseDay,
   rowDateSpan,
+  rowLocation,
+  asLocation,
   dependencyGraph,
   syncInverseUpdates,
   buildRowTree,
@@ -109,7 +112,7 @@ export {
   type VerificationValue,
 } from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride} from './connection';
-export {snapshotText, paragraphBlocks, textSnapshot, appendTextToSnapshot} from './content';
+export {snapshotText, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock} from './content';
 export {
   canonicalDigest,
   generateRegistryKeys,
@@ -118,11 +121,24 @@ export {
   validateManifest,
   OPENBOOK_REGISTRY,
   type PluginManifest,
+  type PluginAgentTool,
   type PluginPackage,
   type PluginSignature,
   type StoredPlugin,
 } from './plugins';
 export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';
+export type {
+  CommentRun,
+  SuggestionAuthorKind,
+  SuggestionKind,
+  SuggestionStatus,
+  SuggestionTarget,
+  StoredSuggestion,
+  SuggestionInput,
+  SuggestionUpdate,
+  StoredComment,
+  CommentInput,
+} from './suggestions';
 export {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from './templates';
 export {
   BACKUP_VERSION,
@@ -135,8 +151,12 @@ export {
 export type {
   AgentChatEvent,
   AgentChatMessage,
+  AgentChatOptions,
+  AgentProposal,
   AiProvider,
   AiConfig,
+  AiEffort,
+  AiSkill,
   AiStatus,
   AiSearchResult,
   AiSearchResponse,

@@ -13,6 +13,31 @@
  * registry keys, which is all a "third-party registry" needs to be.
  */
 
+/**
+ * An agent tool a plugin contributes. Declared in the manifest (so the server
+ * can read it from the stored manifest JSON and surface it to the agent without
+ * running any plugin code). The tool's `action` maps to a built-in write
+ * primitive that the confirm-gate then applies — so a plugin tool can propose
+ * workspace changes, but it cannot execute arbitrary server code. Signing
+ * provides provenance, NOT sandboxing — see the module trust note.
+ */
+export interface PluginAgentTool {
+  /** Tool name the agent calls (namespaced to avoid clashing with built-ins). */
+  name: string;
+  /** What the tool does (shown to the model). */
+  description: string;
+  /** JSON-Schema for the tool's arguments object. */
+  parameters?: Record<string, unknown>;
+  /**
+   * The built-in primitive this tool drives. `append_blocks` proposes adding
+   * the given blocks to a page; `prompt` simply inlines `instructions` into the
+   * agent's context (a recipe). Kept deliberately small — no code execution.
+   */
+  action: 'append_blocks' | 'prompt';
+  /** For `action: 'prompt'`: the instructions inlined when the tool is invoked. */
+  instructions?: string;
+}
+
 export interface PluginManifest {
   /** Stable reverse-DNS-ish identifier, e.g. `openbook.hello-world`. */
   id: string;
@@ -24,6 +49,8 @@ export interface PluginManifest {
   icon?: string;
   /** Entry file inside the package, e.g. `src/index.ts`. */
   main: string;
+  /** Agent tools this plugin contributes (read server-side from the manifest). */
+  agentTools?: PluginAgentTool[];
 }
 
 /** A plugin as stored/transported: manifest + its TypeScript source files. */

@@ -44,6 +44,34 @@ export const ConfigTextarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaE
 );
 
 /**
+ * A labelled on/off row for the settings panel — the same layout the built-in
+ * "Compact" / "Stays interactive when locked" toggles use, lifted out so the
+ * new blocks (multi-select, free-entry, gating…) can reuse it instead of
+ * re-laying-out a checkbox each time.
+ */
+export const ConfigToggle: React.FC<{
+  label: string;
+  hint?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (next: boolean) => void;
+}> = ({label, hint, checked, disabled, onChange}) => (
+  <label className="flex cursor-pointer items-center justify-between gap-3">
+    <span className="flex flex-col">
+      <span className="text-xs font-medium text-foreground/80">{label}</span>
+      {hint && <span className="text-[0.7rem] text-muted-foreground">{hint}</span>}
+    </span>
+    <input
+      type="checkbox"
+      checked={checked}
+      disabled={disabled}
+      aria-label={label}
+      onChange={(e) => onChange(e.target.checked)}
+    />
+  </label>
+);
+
+/**
  * A label that reads as plain text but is editable in place — the WYSIWYG way
  * to set a block's display name (and titles) right on the canvas, without
  * opening the settings popover. A borderless auto-sizing input (`field-sizing`)
@@ -179,33 +207,21 @@ const CommonFields: React.FC<{block: BlockMap; editor: BlockEditorController; de
   <>
     <NameDescriptionFields block={block} editor={editor} symbol defaultName={defaultName} namePlaceholder={defaultName} />
     {supportsWide && (
-      <label className="flex cursor-pointer items-center justify-between gap-3">
-        <span className="flex flex-col">
-          <span className="text-xs font-medium text-foreground/80">Compact</span>
-          <span className="text-[0.7rem] text-muted-foreground">Lay the control out on one row.</span>
-        </span>
-        <input
-          type="checkbox"
-          checked={Boolean(blockProp<boolean>(block, 'compact'))}
-          disabled={editor.readOnly}
-          aria-label="Compact layout"
-          onChange={(e) => kitSet(editor, block, 'compact', e.target.checked || undefined)}
-        />
-      </label>
-    )}
-    <label className="flex cursor-pointer items-center justify-between gap-3">
-      <span className="flex flex-col">
-        <span className="text-xs font-medium text-foreground/80">Stays interactive when locked</span>
-        <span className="text-[0.7rem] text-muted-foreground">Readers can still change it inside a locked group.</span>
-      </span>
-      <input
-        type="checkbox"
-        checked={Boolean(blockProp<boolean>(block, 'interactive'))}
+      <ConfigToggle
+        label="Compact"
+        hint="Lay the control out on one row."
+        checked={Boolean(blockProp<boolean>(block, 'compact'))}
         disabled={editor.readOnly}
-        aria-label="Stays interactive when locked"
-        onChange={(e) => kitSet(editor, block, 'interactive', e.target.checked || undefined)}
+        onChange={(next) => kitSet(editor, block, 'compact', next || undefined)}
       />
-    </label>
+    )}
+    <ConfigToggle
+      label="Stays interactive when locked"
+      hint="Readers can still change it inside a locked group."
+      checked={Boolean(blockProp<boolean>(block, 'interactive'))}
+      disabled={editor.readOnly}
+      onChange={(next) => kitSet(editor, block, 'interactive', next || undefined)}
+    />
   </>
 );
 
@@ -273,11 +289,13 @@ export const KitFrame: React.FC<KitFrameProps> = ({
             ariaLabel="Display name"
             onCommit={(v) => kitSet(editor, block, 'label', v)}
           />
-          {(!editor.readOnly || description) && (
+          {/* Only render the inline description when it HAS content — an empty
+              field that unfurled on hover shifted the layout. Add/edit a
+              description from the settings gear (NameDescriptionFields). */}
+          {description && (
             <KitInlineText
               className="obe-kit-desc obe-kit-desc-edit"
-              value={description ?? ''}
-              placeholder="Add a description…"
+              value={description}
               readOnly={editor.readOnly}
               ariaLabel="Description"
               onCommit={(v) => kitSet(editor, block, 'description', v)}

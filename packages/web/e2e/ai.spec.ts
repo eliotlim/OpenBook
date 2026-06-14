@@ -152,10 +152,10 @@ test('assistant panel: ask a question, watch the tool run, get a grounded answer
   await panel.locator('[data-agent-tool="search_notes"]').click();
   await expect(panel.locator('[data-agent-tool-result]')).toContainText(name);
 
-  // New conversation clears the thread; closing hides the panel.
+  // New conversation clears the thread; closing the side pane hides the panel.
   await panel.getByRole('button', {name: 'New conversation'}).click();
   await expect(panel.locator('[data-agent-item]')).toHaveCount(0);
-  await panel.getByRole('button', {name: 'Close assistant'}).click();
+  await page.getByRole('button', {name: 'Hide split pane'}).click();
   await expect(panel).toHaveCount(0);
 });
 

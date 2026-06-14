@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   });
   const dbHost = await seed.savePage({name: 'Tasks board', data: {editorjs: {blocks: []}, values: [], names: []}});
   const database = await seed.createDatabase({pageId: dbHost.id, name: 'Tasks', schema: defaultDatabaseSchema()});
-  await seed.createRow(database.id, {name: 'Write the report'});
+  const seededRow = await seed.createRow(database.id, {name: 'Write the report'});
 
   // Connect to the stdio binary as a real MCP client.
   const transport = new StdioClientTransport({
@@ -70,9 +70,13 @@ async function main(): Promise<void> {
   const tools = await client.listTools();
   const names = tools.tools.map((t) => t.name).sort();
   check(
-    'all eight tools are listed',
+    'all sixteen tools are listed',
     JSON.stringify(names) ===
-      JSON.stringify(['append_to_page', 'create_artifact_page', 'create_database_row', 'create_page', 'list_database_rows', 'list_pages', 'read_page', 'search_notes']),
+      JSON.stringify([
+        'append_blocks', 'append_to_page', 'create_artifact_page', 'create_database_row', 'create_page',
+        'get_db_row', 'get_kit_values', 'inspect_page_structure', 'list_database_rows', 'list_db_views',
+        'list_pages', 'read_page', 'search_notes', 'set_db_cell', 'set_kit_value', 'update_block',
+      ]),
   );
   check('tools carry descriptions', tools.tools.every((t) => (t.description ?? '').length > 10));
 
@@ -144,6 +148,53 @@ async function main(): Promise<void> {
 
   const noDb = await client.callTool({name: 'list_database_rows', arguments: {pageId: note.id}});
   check('list_database_rows flags a page without a database', noDb.isError === true);
+
+  console.log('\nInspection tools (T11)');
+  const tree = await client.callTool({name: 'inspect_page_structure', arguments: {pageId: artifactId!}});
+  check('inspect_page_structure shows the block tree', resultText(tree).includes('heading') && resultText(tree).includes('number'));
+  const headingId = /- \[([^\]]+)\] heading/.exec(resultText(tree))?.[1];
+  check('inspect_page_structure exposes block ids', Boolean(headingId));
+
+  const kitVals = await client.callTool({name: 'get_kit_values', arguments: {pageId: artifactId!}});
+  check('get_kit_values reads the published input', resultText(kitVals).includes('n = 3'));
+  const noKit = await client.callTool({name: 'get_kit_values', arguments: {pageId: note.id}});
+  check('get_kit_values reports a page with no kit values', resultText(noKit).includes('no named kit values'));
+
+  const views = await client.callTool({name: 'list_db_views', arguments: {pageId: dbHost.id}});
+  check('list_db_views lists the database views', resultText(views).includes('board') && resultText(views).includes('table'));
+
+  const getRow = await client.callTool({name: 'get_db_row', arguments: {pageId: dbHost.id, rowId: seededRow.id}});
+  check('get_db_row reads the row by id', resultText(getRow).includes('Write the report'));
+
+  console.log('\nWrite tools (T11)');
+  const setKit = await client.callTool({name: 'set_kit_value', arguments: {pageId: artifactId!, name: 'n', value: 7}});
+  check('set_kit_value confirms', resultText(setKit).includes('"n"') && resultText(setKit).includes('7'));
+  const kitAfter = await client.callTool({name: 'get_kit_values', arguments: {pageId: artifactId!}});
+  check('set_kit_value persisted the new value', resultText(kitAfter).includes('n = 7'));
+  const setKitMissing = await client.callTool({name: 'set_kit_value', arguments: {pageId: artifactId!, name: 'nope', value: 1}});
+  check('set_kit_value rejects an unknown input', setKitMissing.isError === true);
+
+  const updateBlock = await client.callTool({name: 'update_block', arguments: {pageId: artifactId!, blockId: headingId!, text: 'Renamed demo'}});
+  check('update_block confirms', resultText(updateBlock).includes('Updated block'));
+  const treeAfter = await client.callTool({name: 'inspect_page_structure', arguments: {pageId: artifactId!}});
+  check('update_block changed the heading text', resultText(treeAfter).includes('Renamed demo'));
+  const updateMissing = await client.callTool({name: 'update_block', arguments: {pageId: artifactId!, blockId: 'no-such-block', text: 'x'}});
+  check('update_block rejects an unknown block id', updateMissing.isError === true);
+
+  const appended = await client.callTool({name: 'append_blocks', arguments: {pageId: artifactId!, blocks: [{type: 'paragraph', text: 'Appended via MCP.'}]}});
+  check('append_blocks confirms', resultText(appended).includes('Appended 1 block'));
+  const readAppended = await client.callTool({name: 'read_page', arguments: {pageId: artifactId!}});
+  check('append_blocks added the paragraph', resultText(readAppended).includes('Appended via MCP.'));
+  const appendGuard = await client.callTool({name: 'append_blocks', arguments: {pageId: note.id, blocks: [{type: 'paragraph', text: 'x'}]}});
+  check('append_blocks refuses legacy editor pages', appendGuard.isError === true);
+
+  const textProp = (database.schema.properties ?? []).find((p) => p.type === 'text');
+  const setCell = await client.callTool({name: 'set_db_cell', arguments: {pageId: dbHost.id, rowId: seededRow.id, propertyId: textProp!.id, value: 'set via mcp'}});
+  check('set_db_cell confirms', resultText(setCell).includes('set via mcp'));
+  const rowAfter = await client.callTool({name: 'get_db_row', arguments: {pageId: dbHost.id, rowId: seededRow.id}});
+  check('set_db_cell persisted the cell', resultText(rowAfter).includes('set via mcp'));
+  const setCellMissing = await client.callTool({name: 'set_db_cell', arguments: {pageId: dbHost.id, rowId: seededRow.id, propertyId: 'nope', value: 'x'}});
+  check('set_db_cell rejects an unknown property', setCellMissing.isError === true);
 
   await client.close();
   await server.close();

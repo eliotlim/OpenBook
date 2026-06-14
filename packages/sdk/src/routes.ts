@@ -71,10 +71,24 @@ export const API = {
   aiComplete: '/api/ai/complete',
   /** Download a model file for the in-process engine: `POST` `{url?}`. */
   aiModelDownload: '/api/ai/models/download',
-  /** The agent harness: `POST` `{messages}` → SSE tool/final events. */
+  /** The agent harness: `POST` `{messages, effort?, thinking?, skills?}` → SSE tool/reasoning/proposal/final events. */
   agentChat: '/api/agent/chat',
+  /** User-authored prompt/recipe skills: `GET` (list) / `PUT` `{skill}` (upsert). */
+  aiSkills: '/api/ai/skills',
+  /** One skill by name: `DELETE`. */
+  aiSkill: (name: string) => `/api/ai/skills/${encodeURIComponent(name)}`,
   plugins: '/api/plugins',
   plugin: (id: string) => `/api/plugins/${id}`,
+
+  // ── Suggestions + comments (the review layer) ────────────────────────────────
+  /** A page's suggestions: `GET` (list, optionally `?status=open`) / `POST` (create). */
+  suggestions: (pageId: string): string => `/api/pages/${encodeURIComponent(pageId)}/suggestions`,
+  /** A single suggestion: `PATCH` (status: accepted/rejected) / `DELETE`. */
+  suggestion: (id: string): string => `/api/suggestions/${encodeURIComponent(id)}`,
+  /** A page's comments (standalone block comments + suggestion threads): `GET` / `POST` (create). */
+  comments: (pageId: string): string => `/api/pages/${encodeURIComponent(pageId)}/comments`,
+  /** A single comment: `DELETE`. */
+  comment: (id: string): string => `/api/comments/${encodeURIComponent(id)}`,
 } as const;
 
 /** Error body shape returned by the API for non-2xx responses. */
