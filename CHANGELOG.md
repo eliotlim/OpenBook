@@ -1,3 +1,13 @@
+## 1.53.1 (2026-06-15)
+
+### 🩹 Fixes
+
+- html and pdf exports ([cf39d7e](https://github.com/eliotlim/OpenBook/commit/cf39d7e))
+
+### ❤️ Thank You
+
+- Eliot Lim
+
 ## 1.53.0 (2026-06-15)
 
 ### 🚀 Features
