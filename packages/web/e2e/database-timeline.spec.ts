@@ -80,6 +80,41 @@ test('timeline drag: dragging a bar reschedules the row', async ({page}) => {
   await expect(page.getByLabel('When').first()).not.toHaveValue('2026-03-15');
 });
 
+// Drag from one bar's link handle onto another to create a dependency edge.
+test('timeline drag-to-link: drag one bar onto another to add a dependency', async ({page}) => {
+  await newDatabase(page);
+  await addColumn(page, 'When', 'date');
+  await addColumn(page, 'Depends', 'dependency');
+
+  await page.getByRole('button', {name: 'New row'}).click();
+  await page.getByLabel('When').first().fill('2026-03-10');
+  await page.getByRole('button', {name: 'New row'}).click();
+  await page.getByLabel('When').nth(1).fill('2026-03-20');
+
+  await page.getByRole('button', {name: 'Add view'}).click();
+  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+
+  const bars = page.getByTitle(/drag to reschedule/);
+  await expect(bars).toHaveCount(2);
+  // No dependency arrow yet.
+  await expect(page.locator('svg path[marker-end]')).toHaveCount(0);
+
+  // Drag the first bar's link handle onto the second bar.
+  await bars.nth(0).hover();
+  const handle = bars.nth(0).getByLabel('Link dependency');
+  const h = (await handle.boundingBox())!;
+  const target = (await bars.nth(1).boundingBox())!;
+  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, {steps: 14});
+  await page.mouse.up();
+
+  // The dependency now draws an arrow, and the second row carries the link.
+  await expect(page.locator('svg path[marker-end]')).toHaveCount(1);
+  await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Remove dependency'})).toBeVisible();
+});
+
 // A dependency graph view lays rows out as connected nodes.
 test('dependency graph: shows rows as connected nodes', async ({page}) => {
   await newDatabase(page);

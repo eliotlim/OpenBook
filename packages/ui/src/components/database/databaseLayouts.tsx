@@ -31,6 +31,7 @@ import {pageLinks} from '@/lib/pageLinks';
 import type {UseDatabase} from './useDatabase';
 import {cellValue, formatCellValue, SelectChip} from './databaseCells';
 import {SWATCH_HEX} from './databaseColors';
+import {RowHoverCard} from './DatabaseCard';
 
 /**
  * Compact, read-only chips summarising a row's property values. Shared by the
@@ -60,12 +61,18 @@ export const RowChips: React.FC<{row: DatabaseRow; properties: DatabaseProperty[
           </span>
         ) : null;
       }
-      if (property.type === 'relation') {
+      if (property.type === 'relation' || property.type === 'dependency') {
         const ids = Array.isArray(value) ? (value as string[]) : [];
         if (ids.length === 0) return null;
         return (
-          <span key={property.id} className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
-            {ids.map((id) => pageLinks.label(id)).join(', ')}
+          <span key={property.id} className="flex flex-wrap items-center gap-1">
+            {ids.map((id) => (
+              <RowHoverCard key={id} rowId={id}>
+                <span className="truncate rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  {pageLinks.label(id)}
+                </span>
+              </RowHoverCard>
+            ))}
           </span>
         );
       }

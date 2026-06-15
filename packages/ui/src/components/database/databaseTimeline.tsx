@@ -68,6 +68,16 @@ interface DragState {
   delta: number;
 }
 
+/** An in-progress drag-to-link of one bar onto another (a dependency edge). */
+interface LinkState {
+  sourceRowId: string;
+  /** Current pointer position, in body coordinates. */
+  toX: number;
+  toY: number;
+  /** The bar currently under the pointer (highlighted as the drop target). */
+  targetId: string | null;
+}
+
 /**
  * The scrollable bar area: gridlines, today marker, draggable bars, and
  * dependency arrows. Owns the pointer-drag state (move the whole bar, or drag an
@@ -162,6 +172,66 @@ const TimelineBody: React.FC<{
     setDrag({rowId, mode, startX: e.clientX, delta: 0});
   };
 
+  // ── Drag-to-link dependencies ──────────────────────────────────────────────
+  // Drag from a bar's link handle (its finish edge) onto another bar to make
+  // that bar depend on this one (a finish→start dependency).
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [link, setLink] = useState<LinkState | null>(null);
+  const linkRef = useRef<LinkState | null>(null);
+  linkRef.current = link;
+
+  /** The finish-edge anchor of a bar, in body coordinates. */
+  const linkAnchor = (rowId: string): {x: number; y: number} | null => {
+    const l = byId.get(rowId);
+    return l ? {x: xOf(addDays(l.span.end, 1)), y: l.top + rowH / 2} : null;
+  };
+  /** The bar under a body-coordinate point, excluding the drag's source. */
+  const targetAt = (x: number, y: number, sourceRowId: string): string | null => {
+    for (const l of laid) {
+      if (l.row.id === sourceRowId) continue;
+      if (y < l.top + BAR_PAD || y > l.top + rowH - BAR_PAD) continue;
+      const left = xOf(l.span.start);
+      const w = Math.max(dayW, (diffDays(l.span.start, l.span.end) + 1) * dayW);
+      if (x >= left && x <= left + w) return l.row.id;
+    }
+    return null;
+  };
+  const toBody = (e: PointerEvent | React.PointerEvent): {x: number; y: number} => {
+    const rect = bodyRef.current?.getBoundingClientRect();
+    return {x: e.clientX - (rect?.left ?? 0), y: e.clientY - (rect?.top ?? 0)};
+  };
+  const beginLink = (e: React.PointerEvent, rowId: string): void => {
+    e.preventDefault();
+    e.stopPropagation();
+    const {x, y} = toBody(e);
+    setLink({sourceRowId: rowId, toX: x, toY: y, targetId: null});
+  };
+
+  useEffect(() => {
+    if (!link || !depProp) return;
+    const onMove = (e: PointerEvent) => {
+      const cur = linkRef.current;
+      if (!cur) return;
+      const {x, y} = toBody(e);
+      setLink({...cur, toX: x, toY: y, targetId: targetAt(x, y, cur.sourceRowId)});
+    };
+    const onUp = () => {
+      const cur = linkRef.current;
+      if (cur?.targetId) {
+        const target = byId.get(cur.targetId);
+        const deps = Array.isArray(target?.row.properties[depProp.id]) ? (target!.row.properties[depProp.id] as string[]) : [];
+        if (!deps.includes(cur.sourceRowId)) void db.setRowProperty(cur.targetId, depProp.id, [...deps, cur.sourceRowId]);
+      }
+      setLink(null);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+  }, [link?.sourceRowId, depProp, dayW]);
+
   // Dependency arrows: predecessor bar end → dependent bar start.
   const arrows: {x1: number; y1: number; x2: number; y2: number}[] = [];
   if (depProp) {
@@ -181,7 +251,7 @@ const TimelineBody: React.FC<{
   }
 
   return (
-    <div className="relative" style={{height: bodyH}}>
+    <div ref={bodyRef} className="relative" style={{height: bodyH}}>
       {months.map((m, i) => (
         <div key={i} className="absolute top-0 h-full border-l border-border/30" style={{left: m.left}} />
       ))}
@@ -226,7 +296,7 @@ const TimelineBody: React.FC<{
               db.openRow(l.row.id);
             }}
             onKeyDown={(e) => e.key === 'Enter' && db.openRow(l.row.id)}
-            className={cnBar(!!preview)}
+            className={cn(cnBar(!!preview), link?.targetId === l.row.id && 'ring-2 ring-brand')}
             style={{
               left,
               width,
@@ -252,9 +322,29 @@ const TimelineBody: React.FC<{
                 aria-hidden
               />
             )}
+            {depProp && (
+              <span
+                onPointerDown={(e) => beginLink(e, l.row.id)}
+                onClick={(e) => e.stopPropagation()}
+                // Inside the bar's right edge — the bar is `overflow-hidden`, so a
+                // handle placed outside would be clipped.
+                className="absolute right-0.5 top-1/2 z-20 h-2.5 w-2.5 -translate-y-1/2 cursor-crosshair rounded-full border-2 border-white bg-white/30 opacity-0 transition-opacity group-hover/bar:opacity-100"
+                aria-label="Link dependency"
+                title="Drag onto another row to add a dependency"
+              />
+            )}
           </div>
         );
       })}
+
+      {link && (() => {
+        const a = linkAnchor(link.sourceRowId);
+        return a ? (
+          <svg className="pointer-events-none absolute inset-0 z-30" width={bodyW} height={bodyH}>
+            <path d={`M ${a.x} ${a.y} L ${link.toX} ${link.toY}`} className="stroke-brand" strokeWidth={2} strokeDasharray="4 3" fill="none" />
+          </svg>
+        ) : null;
+      })()}
 
       {arrows.length > 0 && (
         <svg className="pointer-events-none absolute inset-0" width={bodyW} height={bodyH}>
@@ -318,7 +408,12 @@ export const TimelineView: React.FC<{
   // back to the first select property.
   const configuredColor = view.cardColorPropertyId ? properties.find((p) => p.id === view.cardColorPropertyId) : undefined;
   const selectProp = configuredColor ?? properties.find((p) => p.type === 'select');
-  const depProp = view.dependencyPropertyId ? properties.find((p) => p.id === view.dependencyPropertyId) : undefined;
+  // Use the view's chosen dependency property, else the first `dependency` column
+  // so a timeline with a dependency column draws arrows (and allows drag-to-link)
+  // out of the box.
+  const depProp =
+    (view.dependencyPropertyId ? properties.find((p) => p.id === view.dependencyPropertyId) : undefined) ??
+    properties.find((p) => p.type === 'dependency');
   const startProp = view.datePropertyId ? properties.find((p) => p.id === view.datePropertyId) : undefined;
   const endProp = view.endDatePropertyId ? properties.find((p) => p.id === view.endDatePropertyId) : undefined;
   const railProps = (cardProperties ?? []).filter((p) => p.id !== view.datePropertyId && p.id !== view.endDatePropertyId);

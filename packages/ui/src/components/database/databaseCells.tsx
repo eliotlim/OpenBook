@@ -34,6 +34,7 @@ import {useData} from '@/data';
 import {pageLinks, subscribePageLinks} from '@/lib/pageLinks';
 import {cn} from '@/lib/utils';
 import {SWATCH_HEX} from './databaseColors';
+import {RowHoverCard} from './DatabaseCard';
 
 /**
  * The raw value to feed a property cell: the stored value for editable types,
@@ -1046,8 +1047,12 @@ const RelationCell: React.FC<{property: DatabaseProperty; value: unknown; onChan
     <div className="flex min-h-[28px] flex-wrap items-center gap-1 px-2 py-1">
       {ids.map((id) => (
         <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs">
-          <span className="leading-none">{pageLinks.icon(id)}</span>
-          <span className="max-w-[120px] truncate">{labelFor(id)}</span>
+          <RowHoverCard rowId={id}>
+            <span className="inline-flex min-w-0 items-center gap-1">
+              <span className="leading-none">{pageLinks.icon(id)}</span>
+              <span className="max-w-[120px] truncate">{labelFor(id)}</span>
+            </span>
+          </RowHoverCard>
           <button
             type="button"
             onClick={() => remove(id)}

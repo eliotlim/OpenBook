@@ -54,7 +54,14 @@ test('database relations: a relation column links rows from a target database', 
 
   // The linked row shows as a chip (scope to the table — it also appears in the tree).
   await expect(page.getByRole('table').getByText(projectRow)).toBeVisible();
-  await takeSnapshot(page, testInfo); // visual: a cross-database relation
+
+  // Hovering the chip reveals the related row's database card (#8) — a popover
+  // preview whose clickable title opens the row.
+  await page.getByRole('table').getByText(projectRow).hover();
+  await expect(
+    page.locator('[data-radix-popper-content-wrapper]').getByRole('button', {name: new RegExp(projectRow)}),
+  ).toBeVisible();
+  await takeSnapshot(page, testInfo); // visual: a cross-database relation + hover card
 });
 
 test('database relations: a two-way link adds a reverse column and mirrors links', async ({page}) => {
