@@ -1,3 +1,13 @@
+## 1.47.1 (2026-06-15)
+
+### 🩹 Fixes
+
+- ui, code block, and accent improvements ([44b212a](https://github.com/eliotlim/open-book/commit/44b212a))
+
+### ❤️ Thank You
+
+- Eliot Lim
+
 ## 1.47.0 (2026-06-14)
 
 ### 🚀 Features
