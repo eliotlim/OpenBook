@@ -1,3 +1,13 @@
+## 1.51.0 (2026-06-15)
+
+### 🚀 Features
+
+- db timeline and cards ([4676cd7](https://github.com/eliotlim/OpenBook/commit/4676cd7))
+
+### ❤️ Thank You
+
+- Eliot Lim
+
 ## 1.50.0 (2026-06-15)
 
 ### 🚀 Features
