@@ -64,9 +64,11 @@ test('timeline drag: dragging a bar reschedules the row', async ({page}) => {
   await page.getByRole('button', {name: 'Add view'}).click();
   await page.getByRole('menuitem', {name: 'Timeline'}).click();
 
-  // Drag the bar to the right (later in time).
+  // Drag the bar to the right (later in time). The timeline centres on today, so
+  // a bar dated months earlier starts scrolled off-screen — reveal it first.
   const bar = page.getByTitle(/drag to reschedule/);
   await expect(bar).toBeVisible();
+  await bar.scrollIntoViewIfNeeded();
   const box = (await bar.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
@@ -113,6 +115,76 @@ test('timeline drag-to-link: drag one bar onto another to add a dependency', asy
   await expect(page.locator('svg path[marker-end]')).toHaveCount(1);
   await page.getByRole('button', {name: 'Table', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Remove dependency'})).toBeVisible();
+});
+
+// With no dated rows, clicking the empty canvas places a new item at that date.
+test('timeline click-to-place: clicking the empty canvas adds a dated item', async ({page}) => {
+  await newDatabase(page);
+  await addColumn(page, 'Due', 'date');
+
+  await page.getByRole('button', {name: 'Add view'}).click();
+  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+
+  // Nothing is placed yet; the empty state invites a click.
+  await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(0);
+  await expect(page.getByText(/click anywhere on the timeline to add one/i)).toBeVisible();
+
+  // The today marker is a pointer-through guide; clicking through it onto the
+  // canvas creates a row dated there, which renders as a bar.
+  const todayBar = page.locator('div[title="Today"]');
+  const tb = (await todayBar.boundingBox())!;
+  await page.mouse.click(tb.x, tb.y + 90);
+  await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(1);
+});
+
+// A dateless row sits in the "Unscheduled" tray; arm it, then click to drop it.
+test('timeline unscheduled tray: arm a dateless row and click to place it', async ({page, request}) => {
+  await reclaimNames(request, 'Floating'); // row titles are workspace-unique
+  await newDatabase(page);
+  await addColumn(page, 'Due', 'date');
+
+  // A named row, left without a date.
+  await page.getByRole('button', {name: 'New row'}).click();
+  const title = page.getByRole('table').getByPlaceholder('Untitled').first();
+  await title.fill('Floating');
+  await title.blur();
+  await expect(title).toHaveValue('Floating');
+
+  await page.getByRole('button', {name: 'Add view'}).click();
+  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+
+  // It shows in the tray and isn't placed.
+  const chip = page.getByRole('button', {name: 'Place Floating on the timeline'});
+  await expect(chip).toBeVisible();
+  await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(0);
+
+  // Arm it, then click the canvas — it gets a date, becomes a bar, and leaves the tray.
+  await chip.click();
+  await expect(page.getByText('Click the timeline to place it')).toBeVisible();
+  const todayBar = page.locator('div[title="Today"]');
+  const tb = (await todayBar.boundingBox())!;
+  await page.mouse.click(tb.x, tb.y + 60);
+  await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(1);
+  await expect(chip).toHaveCount(0);
+});
+
+// The zoom selector switches the axis between daily…yearly granularities.
+test('timeline scale: switching zoom updates the axis', async ({page}) => {
+  await newDatabase(page);
+  await addColumn(page, 'Due', 'date');
+  await page.getByRole('button', {name: 'New row'}).click();
+  await page.getByLabel('Due').first().fill('2026-03-15');
+
+  await page.getByRole('button', {name: 'Add view'}).click();
+  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+
+  // A fine default zoom shows a month context tier.
+  await expect(page.getByText('Mar 2026')).toBeVisible();
+
+  // Yearly zoom labels whole years and drops the month context.
+  await chooseValue(page, page.getByLabel('Timeline scale'), 'year');
+  await expect(page.getByText('2026', {exact: true})).toBeVisible();
+  await expect(page.getByText('Mar 2026')).toHaveCount(0);
 });
 
 // A dependency graph view lays rows out as connected nodes.
