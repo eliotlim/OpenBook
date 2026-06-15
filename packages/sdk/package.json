@@ -1,6 +1,6 @@
 {
   "name": "@open-book/sdk",
-  "version": "1.49.0",
+  "version": "1.50.0",
   "description": "Shared OpenBook types and HTTP client used by the server, desktop, and web.",
   "private": true,
   "type": "module",

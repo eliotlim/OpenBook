@@ -1,3 +1,13 @@
+## 1.50.0 (2026-06-15)
+
+### 🚀 Features
+
+- relations and theming improvements ([d3674ba](https://github.com/eliotlim/OpenBook/commit/d3674ba))
+
+### ❤️ Thank You
+
+- Eliot Lim
+
 ## 1.49.0 (2026-06-15)
 
 ### 🚀 Features
