@@ -137,8 +137,8 @@ test('timeline click-to-place: clicking the empty canvas adds a dated item', asy
   await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(1);
 });
 
-// A dateless row sits in the "Unscheduled" tray; arm it, then click to drop it.
-test('timeline unscheduled tray: arm a dateless row and click to place it', async ({page, request}) => {
+// A dateless row appears as its own lane (no bar) that you click to schedule.
+test('timeline unscheduled row: a dateless row gets a click-to-place lane', async ({page, request}) => {
   await reclaimNames(request, 'Floating'); // row titles are workspace-unique
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
@@ -153,19 +153,19 @@ test('timeline unscheduled tray: arm a dateless row and click to place it', asyn
   await page.getByRole('button', {name: 'Add view'}).click();
   await page.getByRole('menuitem', {name: 'Timeline'}).click();
 
-  // It shows in the tray and isn't placed.
-  const chip = page.getByRole('button', {name: 'Place Floating on the timeline'});
-  await expect(chip).toBeVisible();
+  // It has a lane (clickable to schedule), but no bar yet.
+  const lane = page.getByRole('button', {name: 'Schedule Floating on the timeline'});
+  await expect(lane).toBeVisible();
   await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(0);
 
-  // Arm it, then click the canvas — it gets a date, becomes a bar, and leaves the tray.
-  await chip.click();
-  await expect(page.getByText('Click the timeline to place it')).toBeVisible();
+  // Click the lane at today's marker — the row gets a date, becomes a bar, and the
+  // lane is gone.
+  const laneBox = (await lane.boundingBox())!;
   const todayBar = page.locator('div[title="Today"]');
   const tb = (await todayBar.boundingBox())!;
-  await page.mouse.click(tb.x, tb.y + 60);
+  await page.mouse.click(tb.x, laneBox.y + laneBox.height / 2);
   await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(1);
-  await expect(chip).toHaveCount(0);
+  await expect(lane).toHaveCount(0);
 });
 
 // The zoom selector switches the axis between daily…yearly granularities.

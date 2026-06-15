@@ -181,8 +181,10 @@ const buildAxis = (scale: TimelineScale, min: Date, max: Date, xOf: (d: Date) =>
 
 interface Laid {
   row: DatabaseRow;
-  span: DateSpan;
-  /** The bar's row position in the body, in pixels from the top (band-aware). */
+  /** The resolved date span (a bar), or `null` for an unscheduled row (an empty,
+   *  click-to-place lane). */
+  span: DateSpan | null;
+  /** The row's position in the body, in pixels from the top (band-aware). */
   top: number;
 }
 
@@ -278,27 +280,24 @@ const TimelineCanvas: React.FC<{
   const rowH = railProps.length > 0 ? 52 : ROW_H;
   const canResize = !!endProp || !!startProp.dateRange;
 
-  // Resolve every visible row's span; split into dated (placed as bars) and
-  // unscheduled (offered in the tray to drop onto the timeline).
+  // Resolve every visible row's span. Dated rows become bars; the rest still get
+  // a lane (label + empty track) you can click to place them on the timeline.
   const spanOf = new Map<string, DateSpan>();
   const datedRows: DatabaseRow[] = [];
-  const undatedRows: DatabaseRow[] = [];
   db.visibleRows.forEach((row) => {
     const span = rowDateSpan(row, view, properties);
     if (span) {
       spanOf.set(row.id, span);
       datedRows.push(row);
-    } else {
-      undatedRows.push(row);
     }
   });
 
   // Swimlane bands: timeline grouping reuses `groupByPropertyId`. Each band is a
-  // labelled, collapsible Gantt row band; bars sit by date within their band.
+  // labelled, collapsible Gantt row band; every row gets a lane within its band.
   const grouped = !!view.groupByPropertyId;
   const groups = grouped
-    ? groupRowsBy(datedRows, view.groupByPropertyId, properties).filter((g) => g.rows.length > 0)
-    : [{key: '__all__', label: 'All', color: undefined, rows: datedRows}];
+    ? groupRowsBy(db.visibleRows, view.groupByPropertyId, properties).filter((g) => g.rows.length > 0)
+    : [{key: '__all__', label: 'All', color: undefined, rows: db.visibleRows}];
 
   const laid: Laid[] = [];
   const bands: Band[] = [];
@@ -311,11 +310,8 @@ const TimelineCanvas: React.FC<{
     }
     if (!collapsed) {
       for (const row of g.rows) {
-        const span = spanOf.get(row.id);
-        if (span) {
-          laid.push({row, span, top: y});
-          y += rowH;
-        }
+        laid.push({row, span: spanOf.get(row.id) ?? null, top: y});
+        y += rowH;
       }
     }
   }
@@ -411,20 +407,20 @@ const TimelineCanvas: React.FC<{
   };
 
   // ── Click-to-place ──────────────────────────────────────────────────────────
-  const [armedRowId, setArmedRowId] = useState<string | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
   // The start value shaped for the configured date property (a range vs a plain day).
   const startValueAt = (date: Date): unknown => (startProp.dateRange ? {start: fmtDay(date), end: null} : fmtDay(date));
-  const placeOrCreate = (date: Date): void => {
-    if (armedRowId) {
-      void db.setRowProperty(armedRowId, startProp.id, startValueAt(date));
-      setArmedRowId(null);
-    } else {
-      void db.addRow({[startProp.id]: startValueAt(date)});
-    }
+  /** The day under a horizontal client x, in the body's date space. */
+  const dayAtClientX = (clientX: number): Date => {
+    const rect = bodyRef.current?.getBoundingClientRect();
+    return addDays(min, Math.floor((clientX - (rect?.left ?? 0)) / dayW));
+  };
+  /** Schedule an unscheduled row by clicking its lane (gives its start date a value). */
+  const scheduleRow = (rowId: string, clientX: number): void => {
+    void db.setRowProperty(rowId, startProp.id, startValueAt(dayAtClientX(clientX)));
   };
 
   // ── Drag-to-reschedule + drag-to-link (pointer drags on the body) ────────────
-  const bodyRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const dragRef = useRef<DragState | null>(null);
   dragRef.current = drag;
@@ -433,7 +429,7 @@ const TimelineCanvas: React.FC<{
 
   const commit = (d: DragState): void => {
     const item = byId.get(d.rowId);
-    if (!item) return;
+    if (!item?.span) return;
     let ns = item.span.start;
     let ne = item.span.end;
     if (d.mode === 'move') {
@@ -494,11 +490,11 @@ const TimelineCanvas: React.FC<{
 
   const linkAnchor = (rowId: string): {x: number; y: number} | null => {
     const l = byId.get(rowId);
-    return l ? {x: xOf(addDays(l.span.end, 1)), y: l.top + rowH / 2} : null;
+    return l?.span ? {x: xOf(addDays(l.span.end, 1)), y: l.top + rowH / 2} : null;
   };
   const targetAt = (px: number, py: number, sourceRowId: string): string | null => {
     for (const l of laid) {
-      if (l.row.id === sourceRowId) continue;
+      if (l.row.id === sourceRowId || !l.span) continue;
       if (py < l.top + BAR_PAD || py > l.top + rowH - BAR_PAD) continue;
       const left = xOf(l.span.start);
       const w = Math.max(BAR_MIN, (diffDays(l.span.start, l.span.end) + 1) * dayW);
@@ -542,26 +538,24 @@ const TimelineCanvas: React.FC<{
     };
   }, [link?.sourceRowId, depProp, dayW]);
 
-  // Background click → place an item at the clicked day.
-  const onBackgroundClick = (e: React.MouseEvent): void => {
+  // Click empty canvas (no row's lane) → create a new row dated there.
+  const onCreateClick = (e: React.MouseEvent): void => {
     if (movedRef.current) {
       movedRef.current = false;
       return;
     }
-    const rect = bodyRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const day = Math.floor((e.clientX - rect.left) / dayW);
-    placeOrCreate(addDays(min, day));
+    void db.addRow({[startProp.id]: startValueAt(dayAtClientX(e.clientX))});
   };
 
-  // Dependency arrows: predecessor bar end → dependent bar start.
+  // Dependency arrows: predecessor bar end → dependent bar start (dated rows only).
   const arrows: {x1: number; y1: number; x2: number; y2: number}[] = [];
   if (depProp) {
     for (const l of laid) {
+      if (!l.span) continue;
       const deps = Array.isArray(l.row.properties[depProp.id]) ? (l.row.properties[depProp.id] as string[]) : [];
       for (const predId of deps) {
         const pred = byId.get(predId);
-        if (!pred) continue;
+        if (!pred?.span) continue;
         arrows.push({
           x1: xOf(addDays(pred.span.end, 1)),
           y1: pred.top + rowH / 2,
@@ -574,7 +568,7 @@ const TimelineCanvas: React.FC<{
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Toolbar: zoom + recentre, then the unscheduled tray. */}
+      {/* Toolbar: zoom + recentre on today. */}
       <div className="flex flex-wrap items-center gap-2">
         <Select
           aria-label="Timeline scale"
@@ -595,30 +589,6 @@ const TimelineCanvas: React.FC<{
         >
           <CalendarCheck className="h-3.5 w-3.5" /> Today
         </button>
-        {undatedRows.length > 0 && (
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-            <span className="shrink-0 text-xs font-medium text-muted-foreground">Unscheduled</span>
-            {undatedRows.map((row) => {
-              const name = row.name?.trim() || 'Untitled';
-              const armed = armedRowId === row.id;
-              return (
-                <button
-                  key={row.id}
-                  onClick={() => setArmedRowId(armed ? null : row.id)}
-                  aria-label={`Place ${name} on the timeline`}
-                  className={cn(
-                    'inline-flex max-w-[12rem] items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors',
-                    armed ? 'border-brand bg-brand/10 text-foreground ring-1 ring-brand' : 'border-border text-muted-foreground hover:bg-hover hover:text-foreground',
-                  )}
-                >
-                  <span className="shrink-0 leading-none">{readPageIcon(row.id)}</span>
-                  <span className="truncate">{name}</span>
-                </button>
-              );
-            })}
-            {armedRowId && <span className="text-xs text-brand">Click the timeline to place it</span>}
-          </div>
-        )}
       </div>
 
       <div className="flex overflow-hidden rounded-md border border-border">
@@ -700,13 +670,8 @@ const TimelineCanvas: React.FC<{
             </div>
 
             <div ref={bodyRef} className="relative" style={{height: bodyH}}>
-              {/* Background click target (placement). Sits behind everything; bars
-                  and the tray drive the foreground interactions. */}
-              <div
-                className={cn('absolute inset-0 z-0', armedRowId ? 'cursor-copy' : 'cursor-default')}
-                onClick={onBackgroundClick}
-                title={armedRowId ? 'Click to place the selected item here' : 'Click to add an item here'}
-              />
+              {/* Background: clicking empty canvas (no row lane) adds a new row here. */}
+              <div className="absolute inset-0 z-0" onClick={onCreateClick} title="Click to add a new item here" />
               {gridTicks.map((t) => (
                 <div key={t.key} className="pointer-events-none absolute top-0 h-full border-l border-border/25" style={{left: t.left}} />
               ))}
@@ -726,6 +691,31 @@ const TimelineCanvas: React.FC<{
               )}
 
               {laid.map((l) => {
+                const name = l.row.name?.trim() || 'Untitled';
+                // Unscheduled row: an empty lane spanning the width — click anywhere
+                // on it to give this row a date (place its bar there).
+                if (!l.span) {
+                  return (
+                    <button
+                      key={l.row.id}
+                      onClick={(e) => {
+                        if (movedRef.current) {
+                          movedRef.current = false;
+                          return;
+                        }
+                        scheduleRow(l.row.id, e.clientX);
+                      }}
+                      aria-label={`Schedule ${name} on the timeline`}
+                      title="Click to place this item on the timeline"
+                      className="group/lane absolute left-0 z-[1] flex cursor-copy items-center"
+                      style={{top: l.top + BAR_PAD, height: rowH - BAR_PAD * 2, width: bodyW}}
+                    >
+                      <span className="sticky left-2 rounded border border-dashed border-border bg-background/70 px-2 py-0.5 text-xs text-muted-foreground/70 transition-colors group-hover/lane:border-brand group-hover/lane:text-brand">
+                        Click to schedule
+                      </span>
+                    </button>
+                  );
+                }
                 const preview = drag && drag.rowId === l.row.id ? drag : null;
                 let left = xOf(l.span.start);
                 let width = Math.max(BAR_MIN, (diffDays(l.span.start, l.span.end) + 1) * dayW);
@@ -739,7 +729,6 @@ const TimelineCanvas: React.FC<{
                     width = Math.max(BAR_MIN, width + dpx);
                   }
                 }
-                const name = l.row.name?.trim() || 'Untitled';
                 return (
                   <div
                     key={l.row.id}
