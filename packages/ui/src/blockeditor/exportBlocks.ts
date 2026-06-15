@@ -1,5 +1,8 @@
 import type {BlockJSON, InlineAttrs, TextRun} from './model';
+import {decodeSnapshot} from './model';
+import {COLOR_EXPORT_HEX} from './colors';
 import {resolveOptionsFromProps} from './kit/options';
+import {computeExportCells, type ExportCell} from './kit/scope';
 
 // TextRun is referenced in the kit emit cases below.
 
@@ -21,6 +24,8 @@ function runToHtml(run: TextRun): string {
   if (a.i) out = `<em>${out}</em>`;
   if (a.u) out = `<u>${out}</u>`;
   if (a.s) out = `<s>${out}</s>`;
+  if (a.hl) out = `<mark${COLOR_EXPORT_HEX[a.hl] ? ` style="background:${COLOR_EXPORT_HEX[a.hl].hl}"` : ''}>${out}</mark>`;
+  if (a.tc && COLOR_EXPORT_HEX[a.tc]) out = `<span style="color:${COLOR_EXPORT_HEX[a.tc].fg}">${out}</span>`;
   if (a.m) out = `<a class="ob-mention" data-page-id="${escapeHtml(a.m)}">${out}</a>`;
   else if (a.a) out = `<a href="${escapeHtml(a.a)}">${out}</a>`;
   return out;
@@ -314,8 +319,14 @@ const KIT_INPUT_VALUE: Record<string, (props: Record<string, unknown>) => unknow
   richtext: (p) => (Array.isArray(p.runs) ? (p.runs as Array<{t?: string}>).map((r) => r?.t ?? '').join('') : ''),
 };
 
-export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
+export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, ExportCell>): EditorJsOut {
   const out: EditorJsOut = {blocks: [], values: [], names: []};
+  // Seed a reactive cell's CURRENT value (resolved by the editor's evaluator) so
+  // static exports show the same numbers/series/states as the live window. Only
+  // when a value was actually computed — never a spurious `undefined` entry.
+  const pushCell = (id: string): void => {
+    if (computed?.has(id)) out.values.push([id, computed.get(id)!.value]);
+  };
 
   // First pass: every named input AND named live-code output → block id (for
   // expression re-tokenizing; the export runtime evaluates exprs in document
@@ -351,13 +362,13 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
     if (b.props?.name) out.names.push([String(b.props.name), b.id]);
   };
 
-  const emit = (list: BlockJSON[]): void => {
+  const emit = (list: BlockJSON[], sink: EditorJsOut['blocks'] = out.blocks): void => {
     let i = 0;
     while (i < list.length) {
       const b = list[i];
       switch (b.type) {
       case 'heading':
-        out.blocks.push({id: b.id, type: 'header', data: {text: textHtml(b.text), level: Number(b.props?.level ?? 2)}});
+        sink.push({id: b.id, type: 'header', data: {text: textHtml(b.text), level: Number(b.props?.level ?? 2)}});
         i += 1;
         break;
       case 'list': {
@@ -367,7 +378,7 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
           items.push(textHtml(list[i].text));
           i += 1;
         }
-        out.blocks.push({type: 'list', data: {style: kind === 'number' ? 'ordered' : 'unordered', items}});
+        sink.push({type: 'list', data: {style: kind === 'number' ? 'ordered' : 'unordered', items}});
         break;
       }
       case 'todo': {
@@ -376,26 +387,29 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
           items.push({text: textHtml(list[i].text), checked: Boolean(list[i].props?.checked)});
           i += 1;
         }
-        out.blocks.push({type: 'checklist', data: {items}});
+        sink.push({type: 'checklist', data: {items}});
         break;
       }
       case 'quote':
-        out.blocks.push({id: b.id, type: 'quote', data: {text: textHtml(b.text)}});
+        sink.push({id: b.id, type: 'quote', data: {text: textHtml(b.text)}});
         i += 1;
         break;
       case 'callout':
-        out.blocks.push({id: b.id, type: 'callout', data: {variant: (b.props?.variant as string) ?? 'info', text: textHtml(b.text)}});
+        sink.push({id: b.id, type: 'callout', data: {variant: (b.props?.variant as string) ?? 'info', text: textHtml(b.text)}});
         i += 1;
         break;
       case 'code': {
         const codeText = (b.text ?? []).map((r) => r.t).join('');
         if (b.props?.live) {
           // Live code exports as a computed cell — named, so later expressions
-          // (and charts) keep referencing it in the standalone HTML.
-          out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.name ?? ''), source: tokenize(codeText)}});
+          // (and charts) keep referencing it in the standalone HTML. Seed its
+          // resolved value so the static export (and pre-hydration HTML) reads
+          // the same result the editor shows.
+          sink.push({id: b.id, type: 'expr', data: {name: String(b.props?.name ?? ''), source: tokenize(codeText)}});
+          pushCell(b.id);
           if (b.props?.name) out.names.push([String(b.props.name), b.id]);
         } else {
-          out.blocks.push({id: b.id, type: 'code', data: {code: codeText, language: b.props?.language}});
+          sink.push({id: b.id, type: 'code', data: {code: codeText, language: b.props?.language}});
         }
         i += 1;
         break;
@@ -404,20 +418,28 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         i += 1;
         break;
       case 'divider':
-        out.blocks.push({id: b.id, type: 'divider', data: {style: 'line'}});
+        sink.push({id: b.id, type: 'divider', data: {style: 'line'}});
         i += 1;
         break;
       case 'table': {
         const content = (b.children ?? []).map((row) => (row.children ?? []).map((cell) => textHtml(cell.text)));
-        out.blocks.push({id: b.id, type: 'table', data: {withHeadings: Boolean(b.props?.header), content}});
+        sink.push({id: b.id, type: 'table', data: {withHeadings: Boolean(b.props?.header), content}});
         i += 1;
         break;
       }
-      case 'columns':
-        // The export model is single-column: flatten in reading order.
-        for (const col of b.children ?? []) emit(col.children ?? []);
+      case 'columns': {
+        // Keep columns as a nested block so the HTML export lays them
+        // side-by-side (PDF/Markdown flatten them later). Inner reactive blocks
+        // still publish via emit, so charts/formulas stay live wherever they sit.
+        const columns = (b.children ?? []).map((col) => {
+          const sub: EditorJsOut['blocks'] = [];
+          emit(col.children ?? [], sub);
+          return sub;
+        });
+        sink.push({id: b.id, type: 'columns', data: {columns}});
         i += 1;
         break;
+      }
       case 'tabs':
       case 'accordion':
         // No tab/accordion widget in the standalone runtime — flatten each
@@ -425,15 +447,15 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         // section keeps them legible). Inputs inside still publish/stay live.
         for (const section of b.children ?? []) {
           const heading = String(section.props?.label ?? '').trim();
-          if (heading) out.blocks.push({type: 'header', data: {text: textHtml([{t: heading}]), level: 3}});
-          emit(section.children ?? []);
+          if (heading) sink.push({type: 'header', data: {text: textHtml([{t: heading}]), level: 3}});
+          emit(section.children ?? [], sink);
         }
         i += 1;
         break;
       case 'slider': {
         const name = String(b.props?.name ?? 'x');
         const value = Number(b.props?.value ?? 50);
-        out.blocks.push({
+        sink.push({
           id: b.id,
           type: 'slider',
           data: {name, min: Number(b.props?.min ?? 0), max: Number(b.props?.max ?? 100), step: 1, initial: value},
@@ -448,32 +470,49 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         const value = Number(b.props?.value ?? 0);
         const min = Number(b.props?.min ?? Math.min(0, value));
         const max = Number(b.props?.max ?? Math.max(100, value * 2 || 10));
-        out.blocks.push({id: b.id, type: 'slider', data: {name, min, max, step: Number(b.props?.step ?? 1), initial: value}});
+        sink.push({id: b.id, type: 'slider', data: {name, min, max, step: Number(b.props?.step ?? 1), initial: value}});
         publish(b);
         i += 1;
         break;
       }
       case 'formula': {
-        out.blocks.push({id: b.id, type: 'expr', data: {name: '', source: tokenize(String(b.props?.source ?? ''))}});
+        sink.push({id: b.id, type: 'expr', data: {name: '', source: tokenize(String(b.props?.source ?? ''))}});
+        pushCell(b.id);
         i += 1;
         break;
       }
       case 'statuslight': {
-        // A computed cell drives a real light (dot + label) in the export.
-        out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.label ?? 'Status'), source: tokenize(String(b.props?.source ?? '')), hidden: true}});
-        out.blocks.push({id: `${b.id}-light`, type: 'kitlight', data: {refCellId: b.id, label: String(b.props?.label ?? 'Status')}});
+        // A computed cell drives a real light (dot + label) in the export. The
+        // expr is hidden (the light IS the readout); the light carries the
+        // thresholds so the runtime recomputes its 3-state colour live, plus the
+        // resolved status for the static (PDF/Markdown) render.
+        sink.push({id: b.id, type: 'expr', data: {name: String(b.props?.label ?? 'Status'), source: tokenize(String(b.props?.source ?? '')), hidden: true}});
+        pushCell(b.id);
+        sink.push({
+          id: `${b.id}-light`,
+          type: 'kitlight',
+          data: {
+            refCellId: b.id,
+            label: String(b.props?.label ?? 'Status'),
+            okAt: Number(b.props?.okAt ?? 1),
+            warnAt: Number(b.props?.warnAt ?? 0),
+            status: computed?.get(b.id)?.status ?? 'off',
+          },
+        });
         i += 1;
         break;
       }
       case 'kitchart': {
-        // The chart's data expression becomes a computed cell, and a chart
-        // block draws that cell — so exported charts stay LIVE: moving an
-        // exported slider recomputes the cell and the plot redraws.
-        out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.title ?? 'chart'), source: tokenize(String(b.props?.source ?? ''))}});
-        out.blocks.push({
+        // The chart's data expression becomes a HIDDEN computed cell (the chart
+        // is the readout — no `title = value` line), and a chart block draws it.
+        // Exported charts stay LIVE: moving a slider recomputes the cell and the
+        // plot redraws; the seeded value renders the static export + first paint.
+        sink.push({id: b.id, type: 'expr', data: {name: String(b.props?.title ?? 'chart'), source: tokenize(String(b.props?.source ?? '')), hidden: true}});
+        pushCell(b.id);
+        sink.push({
           id: `${b.id}-plot`,
           type: 'chart',
-          data: {refCellIds: [b.id], kind: String(b.props?.kind ?? 'line'), labels: String(b.props?.labels ?? '')},
+          data: {refCellIds: [b.id], kind: String(b.props?.kind ?? 'line'), title: String(b.props?.title ?? ''), labels: String(b.props?.labels ?? '')},
         });
         i += 1;
         break;
@@ -486,7 +525,7 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         // These stay INTERACTIVE in the export — flipping a choice offline
         // recomputes everything downstream, exactly like the editor.
         const read = KIT_INPUT_VALUE[b.type];
-        out.blocks.push({
+        sink.push({
           id: b.id,
           type: 'kitinput',
           data: {
@@ -510,13 +549,13 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         const lng = b.props?.lng;
         const place = String(b.props?.labeltext ?? '');
         const coords = typeof lat === 'number' && typeof lng === 'number' ? `<a href="https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}">${lat}, ${lng}</a>` : '';
-        out.blocks.push({id: b.id, type: 'paragraph', data: {text: [`<b>${String(b.props?.name ?? 'place')}</b>:`, place, coords].filter(Boolean).join(' ')}});
+        sink.push({id: b.id, type: 'paragraph', data: {text: [`<b>${String(b.props?.name ?? 'place')}</b>:`, place, coords].filter(Boolean).join(' ')}});
         publish(b);
         i += 1;
         break;
       }
       case 'tooltipcard':
-        out.blocks.push({id: b.id, type: 'paragraph', data: {text: `<b>${String(b.props?.term ?? '')}</b> — ${String(b.props?.tip ?? '')}`}});
+        sink.push({id: b.id, type: 'paragraph', data: {text: `<b>${String(b.props?.term ?? '')}</b> — ${String(b.props?.tip ?? '')}`}});
         i += 1;
         break;
       case 'linkcard': {
@@ -524,7 +563,7 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         const href = url && (/^https?:\/\//.test(url) ? url : `https://${url}`);
         const title = String(b.props?.title ?? 'Untitled');
         const desc = String(b.props?.description ?? '');
-        out.blocks.push({id: b.id, type: 'paragraph', data: {text: [href ? `<a href="${href}">${title}</a>` : `<b>${title}</b>`, desc].filter(Boolean).join(' — ')}});
+        sink.push({id: b.id, type: 'paragraph', data: {text: [href ? `<a href="${href}">${title}</a>` : `<b>${title}</b>`, desc].filter(Boolean).join(' — ')}});
         i += 1;
         break;
       }
@@ -533,14 +572,14 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         const label = String(b.props?.btnlabel ?? 'Button');
         if (action === 'link') {
           const url = String(b.props?.url ?? '');
-          if (url) out.blocks.push({id: b.id, type: 'kitbutton', data: {label, action, url: /^https?:\/\//.test(url) ? url : `https://${url}`}});
+          if (url) sink.push({id: b.id, type: 'kitbutton', data: {label, action, url: /^https?:\/\//.test(url) ? url : `https://${url}`}});
           i += 1;
           break;
         }
         const target = inputs.find((x) => x.name === String(b.props?.target ?? ''));
         if (target) {
           const tprops = propsById.get(target.id) ?? {};
-          out.blocks.push({
+          sink.push({
             id: b.id,
             type: 'kitbutton',
             data: {label, action, target: target.id, amount: Number(b.props?.amount ?? 1), min: tprops.min, max: tprops.max},
@@ -562,7 +601,7 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         const labelFor = (v: string): string => opts.find((o) => o.value === v)?.label ?? v;
         const shown = Array.isArray(val) ? val.map(labelFor).join(', ') : val ? labelFor(String(val)) : '—';
         const label = String(b.props?.label ?? b.props?.name ?? b.type);
-        out.blocks.push({id: b.id, type: 'paragraph', data: {text: `<b>${label}:</b> ${textHtml([{t: shown}])}`}});
+        sink.push({id: b.id, type: 'paragraph', data: {text: `<b>${label}:</b> ${textHtml([{t: shown}])}`}});
         publish(b);
         i += 1;
         break;
@@ -573,22 +612,29 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         // markup (the runs already carry b/i/u/links), plain long text is
         // escaped. Both publish their value (plain string) for expressions.
         const runs = b.type === 'richtext' && Array.isArray(b.props?.runs) ? (b.props!.runs as TextRun[]) : [{t: String(b.props?.value ?? '')}];
-        out.blocks.push({id: b.id, type: 'paragraph', data: {text: textHtml(runs)}});
+        sink.push({id: b.id, type: 'paragraph', data: {text: textHtml(runs)}});
         publish(b);
         i += 1;
         break;
       }
       case 'progressbar': {
-        // A computed cell drives the readout; the bar itself has no standalone
-        // widget, so render a labelled progress line via a hidden expr + text.
-        out.blocks.push({id: b.id, type: 'expr', data: {name: String(b.props?.label ?? 'Progress'), source: tokenize(String(b.props?.source ?? '')), hidden: true}});
+        // A hidden computed cell drives a real progress bar (label + track +
+        // readout) that recomputes live; the seeded value renders the static
+        // export and first paint.
+        sink.push({id: b.id, type: 'expr', data: {name: String(b.props?.label ?? 'Progress'), source: tokenize(String(b.props?.source ?? '')), hidden: true}});
+        pushCell(b.id);
+        sink.push({
+          id: `${b.id}-bar`,
+          type: 'kitprogress',
+          data: {refCellId: b.id, label: String(b.props?.label ?? 'Progress'), max: Number(b.props?.max ?? 100), format: String(b.props?.format ?? 'percent')},
+        });
         i += 1;
         break;
       }
       case 'dbview':
         // Embedded databases export as a link to their page (the standalone
         // runtime has no database engine).
-        out.blocks.push({
+        sink.push({
           id: b.id,
           type: 'paragraph',
           data: {text: textHtml([{t: `🗃 ${String(b.props?.name ?? 'Database')}`, a: {m: String(b.props?.pageId ?? '')}}])},
@@ -596,7 +642,7 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
         i += 1;
         break;
       default:
-        out.blocks.push({id: b.id, type: 'paragraph', data: {text: textHtml(b.text)}});
+        sink.push({id: b.id, type: 'paragraph', data: {text: textHtml(b.text)}});
         i += 1;
       }
     }
@@ -611,7 +657,19 @@ export function blocksToEditorJs(blocks: BlockJSON[]): EditorJsOut {
  *  subpages, or vice versa) export every page faithfully. */
 export function blockSnapshotToEditorJs<T extends {editor?: string; blockdoc?: unknown}>(snapshot: T): T {
   if (!snapshot || snapshot.editor !== 'blocks' || !snapshot.blockdoc) return snapshot;
-  const blocks = ((snapshot.blockdoc as {blocks?: BlockJSON[]}).blocks ?? []) as BlockJSON[];
-  const projected = blocksToEditorJs(blocks);
+  const blockdoc = snapshot.blockdoc as {blocks?: BlockJSON[]; update?: string};
+  const blocks = (blockdoc.blocks ?? []) as BlockJSON[];
+  // Resolve the reactive graph the way the editor does, so the export carries the
+  // same computed values (numbers, chart series, light/progress states) the
+  // window shows — not empty cells. Falls back to an empty map if the CRDT update
+  // can't be decoded (the projection still works, just without precomputed
+  // values; the interactive HTML recomputes them anyway).
+  let computed: Map<string, ExportCell> | undefined;
+  try {
+    computed = computeExportCells(decodeSnapshot(blockdoc as never));
+  } catch {
+    computed = undefined;
+  }
+  const projected = blocksToEditorJs(blocks, computed);
   return {...snapshot, editorjs: {blocks: projected.blocks}, values: projected.values, names: projected.names};
 }

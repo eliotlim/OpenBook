@@ -119,15 +119,26 @@ export {expect, takeSnapshot} from '@chromatic-com/playwright';
  * native `<select>`): open the trigger, then click the option. `chooseValue`
  * targets by the option's `data-value` (mirrors the old `selectOption(value)`);
  * `chooseLabel` targets by its visible text (mirrors `selectOption({label})`).
+ *
+ * The option is force-clicked once visible: the popover plays an entrance
+ * animation, so under parallel-run load Playwright's stability gate can loop on
+ * "element is not stable" / "detached" until the test times out. The animation
+ * never changes WHICH button sits under the pointer, so skipping the gate is
+ * safe — and it makes every Select-driven spec far less flaky.
  */
+async function pickOption(option: Locator): Promise<void> {
+  await option.first().waitFor({state: 'visible'});
+  await option.first().click({force: true});
+}
+
 export async function chooseValue(page: Page, trigger: Locator | string, value: string): Promise<void> {
   const t = typeof trigger === 'string' ? page.locator(trigger) : trigger;
   await t.click();
-  await page.locator(`[role="option"][data-value="${value}"]`).click();
+  await pickOption(page.locator(`[role="option"][data-value="${value}"]`));
 }
 
 export async function chooseLabel(page: Page, trigger: Locator | string, label: string): Promise<void> {
   const t = typeof trigger === 'string' ? page.locator(trigger) : trigger;
   await t.click();
-  await page.getByRole('option', {name: label, exact: true}).click();
+  await pickOption(page.getByRole('option', {name: label, exact: true}));
 }

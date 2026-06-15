@@ -83,7 +83,7 @@ describe('blocksToHtml', () => {
 });
 
 describe('blocksToEditorJs (export pipeline adapter)', () => {
-  it('projects core blocks, merging lists and flattening columns', async () => {
+  it('projects core blocks, merging lists and nesting columns', async () => {
     const {blocksToEditorJs} = await import('../../blockeditor/exportBlocks');
     const out = blocksToEditorJs(
       docToJSON(
@@ -102,9 +102,14 @@ describe('blocksToEditorJs (export pipeline adapter)', () => {
         ]),
       ),
     );
-    expect(out.blocks.map((b) => b.type)).toEqual(['header', 'list', 'checklist', 'paragraph', 'paragraph']);
+    // Columns are kept nested (the HTML export lays them side-by-side; PDF/MD flatten).
+    expect(out.blocks.map((b) => b.type)).toEqual(['header', 'list', 'checklist', 'columns']);
     expect(out.blocks[1].data.items).toEqual(['a', 'b']);
     expect(out.blocks[2].data.items).toEqual([{text: 'do', checked: true}]);
+    const columns = out.blocks[3].data.columns as Array<Array<{type: string; data: {text: string}}>>;
+    expect(columns).toHaveLength(2);
+    expect(columns[0][0]).toMatchObject({type: 'paragraph', data: {text: 'left'}});
+    expect(columns[1][0]).toMatchObject({type: 'paragraph', data: {text: 'right'}});
   });
 
   it('re-tokenizes formula sources and exports slider state', async () => {

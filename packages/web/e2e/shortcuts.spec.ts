@@ -64,13 +64,13 @@ test('sidebar: hover row actions add a subpage and open the page menu', async ({
 // page title field.
 test('page menu: rename, copy link, duplicate, split — and rename focuses the title', async ({page}, testInfo) => {
   await page.goto('/');
-  await page.locator('main .px-6').first().click({button: 'right'});
+  // Right-click the page title (page chrome, not a block) — the page menu lives
+  // on the non-block areas of the body; a block shows its own context menu.
+  await page.getByLabel('Page title').click({button: 'right'});
 
   const menu = page.getByRole('menu');
   await expect(menu.getByText('Rename')).toBeVisible();
   await expect(menu.getByText('Copy link')).toBeVisible();
-  // Both the Block and Page sections offer Duplicate when the right-click
-  // lands on a block — assert at least one is shown.
   await expect(menu.getByText('Duplicate').first()).toBeVisible();
   await expect(menu.getByText('Open in split view')).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: enriched page context menu

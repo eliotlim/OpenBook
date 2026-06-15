@@ -29,6 +29,13 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   const [title, setTitle] = useState('');
   const [icon, setIcon] = useState(DEFAULT_PAGE_ICON);
   const [incoming, setIncoming] = useState<{data: PageSnapshot; version: number} | undefined>(undefined);
+  // The hosted-database id resolved from the page record itself (getPage /
+  // subscribePage both join it). This is independent of the nav `pages` list, so
+  // it's available right after a database page is created — before the list has
+  // re-streamed to include it — which keeps the editor in `compact` layout from
+  // the first paint instead of briefly reserving a document's worth of trailing
+  // whitespace above the view. `undefined` = not yet known (probe by page id).
+  const [resolvedHostedDbId, setResolvedHostedDbId] = useState<string | null | undefined>(undefined);
 
   const nameRef = useRef<string | null>(null);
   const renameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -49,6 +56,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
         nameRef.current = page.name ?? null;
         setPageHint(pageId, page.name);
       }
+      setResolvedHostedDbId(page.hostedDatabaseId);
       versionRef.current += 1;
       setIncoming({data: page.data, version: versionRef.current});
     },
@@ -65,6 +73,9 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     nameRef.current = meta?.name ?? null;
     setIcon(readPageIcon(pageId));
     setIncoming(undefined);
+    // Seed from the nav-list meta when we have it; otherwise leave `undefined`
+    // until getPage/subscribePage resolves it (don't carry the prior page's id).
+    setResolvedHostedDbId(meta ? meta.hostedDatabaseId : undefined);
     lastUpdatedRef.current = meta?.updatedAt ?? '';
     return () => {
       if (renameTimer.current) clearTimeout(renameTimer.current);
@@ -76,7 +87,10 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     nameRef.current = page?.name ?? null;
     setTitle(page?.name ?? '');
     setPageHint(pageId, page?.name ?? null);
-    if (page) lastUpdatedRef.current = page.updatedAt;
+    if (page) {
+      lastUpdatedRef.current = page.updatedAt;
+      setResolvedHostedDbId(page.hostedDatabaseId);
+    }
     return page ? page.data : null;
   }, [client, pageId, setPageHint]);
 
@@ -146,10 +160,13 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     });
   }, [client, pageId, applyPage, closePage]);
 
-  // Whether this page hosts a database. Known definitively for top-level pages
-  // (in the nav list); `undefined` for subpages so the view probes by page id.
+  // Whether this page hosts a database. The nav `pages` list knows this for
+  // top-level pages, but not for freshly-created pages (not yet re-streamed) or
+  // subpages (database rows, never listed). So prefer the list value when present
+  // and fall back to the id resolved from the page record itself — keeping both
+  // the `compact` editor layout and the hosted view correct from the first paint.
   const meta = pages.find((p) => p.id === pageId);
-  const databaseIdHint = meta ? meta.hostedDatabaseId : undefined;
+  const databaseIdHint = meta ? meta.hostedDatabaseId : resolvedHostedDbId;
 
   return (
     <BlockPageDocument

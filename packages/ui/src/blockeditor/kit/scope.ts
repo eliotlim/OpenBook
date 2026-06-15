@@ -1,5 +1,5 @@
 import type * as Y from 'yjs';
-import {blockChildren, blockProp, blockType, rootBlocks, setBlockProp, type TextRun, walkBlocks, type BlockMap} from '../model';
+import {blockChildren, blockId, blockProp, blockType, rootBlocks, setBlockProp, type TextRun, walkBlocks, type BlockMap} from '../model';
 import {varNameFromLabel} from './options';
 import {containerCompletions} from './completion';
 
@@ -300,4 +300,67 @@ export function formatValue(value: unknown): string {
   if (Array.isArray(value)) return value.map(formatValue).join(', ');
   if (typeof value === 'object') return JSON.stringify(value);
   return String(value);
+}
+
+// ── Status light status (shared with the export pipeline) ────────────────────
+
+/** The status-light state. `off` = neutral (no/unevaluable value). */
+export type Status = 'ok' | 'warn' | 'bad' | 'off';
+
+/**
+ * Map a status-light expression result to a state. Booleans → ok/bad; numbers
+ * → ok at/above `okAt`, warn at/above `warnAt`, else bad; the strings
+ * ok/warn/bad pass through; anything else is neutral. Shared by the live block
+ * and the exporters so a light's colour is identical in the window and a PDF.
+ */
+export function statusOf(value: unknown, error: string | undefined, okAt: number, warnAt: number): Status {
+  if (error || value === undefined || value === null) return 'off';
+  if (typeof value === 'boolean') return value ? 'ok' : 'bad';
+  if (typeof value === 'string') return value === 'ok' || value === 'warn' || value === 'bad' ? value : 'off';
+  if (typeof value === 'number') {
+    if (value >= okAt) return 'ok';
+    if (value >= warnAt) return 'warn';
+    return 'bad';
+  }
+  return 'off';
+}
+
+// ── Export value resolution ──────────────────────────────────────────────────
+
+/** One reactive block's resolved value for export (and a status light's state). */
+export interface ExportCell {
+  value: unknown;
+  /** Status lights only: the resolved ok/warn/bad/off state. */
+  status?: Status;
+}
+
+/**
+ * Resolve every reactive block's CURRENT value the way the editor does, keyed by
+ * block id — so static exports (PDF / Markdown) and the pre-hydration HTML show
+ * the same numbers, charts, lights and bars as the live window. Inputs publish
+ * their value; live code / formulas come from {@link computeScope}; charts,
+ * status lights, and progress bars evaluate their expression over the same
+ * scope (mirroring their block components).
+ */
+export function computeExportCells(doc: Y.Doc): Map<string, ExportCell> {
+  const {scope, results} = computeScope(doc);
+  const cells = new Map<string, ExportCell>();
+  for (const {block} of walkBlocks(rootBlocks(doc))) {
+    const id = blockId(block);
+    const type = blockType(block) as string;
+    if (INPUT_TYPES.has(type)) {
+      cells.set(id, {value: inputValue(block)});
+    } else if (type === 'formula' || (type === 'code' && Boolean(blockProp<boolean>(block, 'live')))) {
+      const r = results.get(id);
+      cells.set(id, {value: r?.error ? undefined : r?.value});
+    } else if (type === 'kitchart' || type === 'progressbar') {
+      cells.set(id, {value: evalExpr(blockProp<string>(block, 'source') ?? '', scope).value});
+    } else if (type === 'statuslight') {
+      const {value, error} = evalExpr(blockProp<string>(block, 'source') ?? '', scope);
+      const okAt = Number(blockProp<number>(block, 'okAt') ?? 1);
+      const warnAt = Number(blockProp<number>(block, 'warnAt') ?? 0);
+      cells.set(id, {value, status: statusOf(value, error, okAt, warnAt)});
+    }
+  }
+  return cells;
 }

@@ -645,10 +645,12 @@ const TimelineCanvas: React.FC<{
               {axis.top.map((t) => (
                 <div
                   key={t.key}
-                  className="absolute top-0 flex items-center border-l border-border/60 px-2 text-xs font-medium text-muted-foreground"
+                  className="absolute top-0 flex items-center border-l border-border/60 text-xs font-medium text-muted-foreground"
                   style={{left: t.left, width: t.width, height: topH}}
                 >
-                  {t.width > 48 ? t.label : ''}
+                  {/* Sticky so the year/month stays visible while scrolling within it
+                      (the label slides to the segment's edge instead of off-screen). */}
+                  {t.width > 48 && <span className="sticky left-2 whitespace-nowrap pr-2">{t.label}</span>}
                 </div>
               ))}
               {axis.bottom.map((t) => (

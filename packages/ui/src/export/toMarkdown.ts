@@ -17,12 +17,51 @@ function runToMd(r: InlineRun): string {
   let t = escapeMd(r.text);
   if (r.bold) t = `**${t}**`;
   if (r.italic) t = `*${t}*`;
+  if (r.strike) t = `~~${t}~~`;
+  if (r.underline) t = `<u>${t}</u>`;
   if (r.marker) t = `==${t}==`;
   if (r.link) t = `[${t}](${r.link})`;
   return t;
 }
 
 const inlineToMd = (runs: InlineRun[]): string => runs.map(runToMd).join('');
+
+const numList = (a: number[]): string => a.map((n) => formatValue(n)).slice(0, 16).join(', ') + (a.length > 16 ? ', …' : '');
+
+/** A textual summary of a chart's data — the Markdown counterpart of the
+ *  rendered chart. Handles every value shape the kit accepts. */
+function chartRows(value: unknown, labels: string[]): string[] {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const obj = value as Record<string, unknown>;
+    if (Array.isArray(obj.series)) {
+      return (obj.series as Array<{name?: unknown; data?: unknown}>)
+        .filter((s) => Array.isArray(s?.data))
+        .map((s) => `- ${escapeMd(String(s.name ?? 'series'))}: ${numList(s.data as number[])}`);
+    }
+    // Object of number arrays (multi-series, e.g. {Invested:[…], Projected:[…]}).
+    const seriesEntries = Object.entries(obj).filter(([, v]) => Array.isArray(v) && v.length && v.every((n) => typeof n === 'number'));
+    if (seriesEntries.length) return seriesEntries.map(([k, v]) => `- ${escapeMd(k)}: ${numList(v as number[])}`);
+    // Object of numbers (pie/donut/labelled): key → value.
+    return Object.entries(obj)
+      .filter(([, v]) => typeof v === 'number')
+      .map(([k, v]) => `- ${escapeMd(k)}: ${formatValue(v)}`);
+  }
+  if (Array.isArray(value)) {
+    if (value.length && value.every((p) => p && typeof p === 'object' && 'x' in p && 'y' in p)) {
+      return (value as Array<{x: number; y: number}>).slice(0, 16).map((p) => `- (${formatValue(p.x)}, ${formatValue(p.y)})`);
+    }
+    if (value.every((n) => typeof n === 'number')) {
+      // Labelled → one row per label; bare numbers → a single compact row.
+      return labels.length
+        ? (value as number[]).map((v, i) => `- ${labels[i] ? `${escapeMd(labels[i])}: ` : ''}${formatValue(v)}`)
+        : [`- ${numList(value as number[])}`];
+    }
+    if (value.every((a) => Array.isArray(a))) {
+      return (value as number[][]).map((a, i) => `- s${i + 1}: ${numList(a)}`);
+    }
+  }
+  return [];
+}
 
 function listToMd(items: ListItem[], ordered: boolean, depth = 0): string {
   const indent = '  '.repeat(depth);
@@ -90,10 +129,18 @@ function blockToMd(block: DocBlock): string {
   case 'slider':
   case 'expr':
     return `**${block.name}** = ${formatValue(block.value)}`;
+  case 'kvalue':
+    return `**${escapeMd(block.label)}:** ${formatValue(block.value)}`;
+  case 'light': {
+    const icon = {ok: '🟢', warn: '🟡', bad: '🔴', off: '⚪'}[block.status] ?? '⚪';
+    return `${icon} **${escapeMd(block.label)}** — ${formatValue(block.value)}`;
+  }
+  case 'progress':
+    return `**${escapeMd(block.label)}:** ${block.readout}`;
   case 'chart': {
-    if (block.series.length === 0) return '_(chart)_';
-    const lines = block.series.map((s) => `- ${s.name} (${s.data.length} points)`);
-    return `**Chart**\n${lines.join('\n')}`;
+    const title = block.title ? `**${escapeMd(block.title)}**` : '**Chart**';
+    const rows = chartRows(block.value, block.labels);
+    return rows.length ? `${title}\n${rows.join('\n')}` : title;
   }
   case 'unknown':
     return `_(${block.raw} block)_`;

@@ -131,15 +131,16 @@ test('interactive HTML: option inputs and buttons drive code, charts, lights off
   await viewer.setContent(html, {waitUntil: 'load'});
 
   const total = viewer.locator('[data-cell="lc"] [data-val]');
-  // Pro(100) + turbo(20) + 4 × EU(10) = 160 → the light is on.
+  // Pro(100) + turbo(20) + 4 × EU(10) = 160 → total > 150 → the light reads ok.
   await expect(total).toHaveText('160');
-  await expect(viewer.locator('.kitlight')).toHaveClass(/kit-light-on/);
+  await expect(viewer.locator('.kitlight')).toHaveAttribute('data-status', 'ok');
 
   // Wide radio: full-width pills with dots; flipping recomputes.
   await expect(viewer.locator('.kit-radio.kit-wide .kit-dot')).toHaveCount(2);
   await viewer.locator('.kit-radio [data-opt="Basic"]').click();
   await expect(total).toHaveText('110');
-  await expect(viewer.locator('.kitlight')).not.toHaveClass(/kit-light-on/);
+  // 110 ≤ 150 → false → the light flips to bad (no longer ok).
+  await expect(viewer.locator('.kitlight')).toHaveAttribute('data-status', 'bad');
 
   // Dropdown + toggle + button all keep working offline.
   await viewer.locator('.kit-dropdown select').selectOption('US');

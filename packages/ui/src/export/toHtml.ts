@@ -19,6 +19,8 @@ import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 import d3Umd from './vendor/d3.min.js?raw';
 import plotUmd from './vendor/plot.umd.min.js?raw';
 import {parseInline, type InlineRun, type ListItem} from './documentModel';
+import {COLOR_EXPORT_HEX} from '../blockeditor/colors';
+import {KIT_CHART_JS, kitChartSvg} from './kitChart';
 import {formatValue} from './format';
 import {cellValue, formatCellValue} from '@/components/database/databaseCells';
 import {SWATCH_HEX} from '@/components/database/databaseColors';
@@ -69,6 +71,14 @@ interface KitButtonSpec {
 }
 interface KitLightSpec {
   cell: string;
+  /** Thresholds so the runtime recomputes the 3-state colour (ok/warn/bad). */
+  okAt: number;
+  warnAt: number;
+}
+interface ProgressSpec {
+  cell: string;
+  max: number;
+  format: string;
 }
 
 interface RenderCtx {
@@ -80,6 +90,7 @@ interface RenderCtx {
   inputs: KitInputSpec[];
   buttons: KitButtonSpec[];
   lights: KitLightSpec[];
+  progress: ProgressSpec[];
   initialValues: Record<string, unknown>;
   /** Global chart counter (chart ids must be unique across the whole document). */
   chartSeq: {n: number};
@@ -92,6 +103,17 @@ interface RenderCtx {
   /** The database hosted by a page id, when that page is in the bundle. */
   databaseOf: (hostPageId: string) => SiteDatabase | undefined;
 }
+
+/**
+ * Reverse map from a baked text-colour hex back to its palette token. The runs
+ * carry concrete light-theme hex (resolved upstream in `exportBlocks`), but the
+ * self-contained HTML also supports dark mode — and the light-tuned hex go muddy
+ * on a dark background (brown/purple especially). So we re-emit text colour as a
+ * `var(--obtc-<token>, <light hex>)`: light mode falls back to the hex, dark mode
+ * picks up the brighter override defined in `STYLES`. (Highlights need no such
+ * map — their tints are light pastels in both themes, with forced-dark text.)
+ */
+const FG_TOKEN = new Map(Object.entries(COLOR_EXPORT_HEX).map(([token, v]) => [v.fg, token]));
 
 function runToHtml(r: InlineRun, ctx: RenderCtx): string {
   if (r.text === '\n') return '<br>';
@@ -106,7 +128,14 @@ function runToHtml(r: InlineRun, ctx: RenderCtx): string {
   }
   if (r.bold) html = `<strong>${html}</strong>`;
   if (r.italic) html = `<em>${html}</em>`;
-  if (r.marker) html = `<mark>${html}</mark>`;
+  if (r.underline) html = `<u>${html}</u>`;
+  if (r.strike) html = `<s>${html}</s>`;
+  if (r.marker) html = `<mark${r.markerColor ? ` style="background:${escapeHtml(r.markerColor)}"` : ''}>${html}</mark>`;
+  if (r.color) {
+    const token = FG_TOKEN.get(r.color);
+    const value = token ? `var(--obtc-${token}, ${escapeHtml(r.color)})` : escapeHtml(r.color);
+    html = `<span style="color:${value}">${html}</span>`;
+  }
   if (r.link) html = `<a href="${escapeHtml(r.link)}">${html}</a>`;
   return html;
 }
@@ -253,6 +282,15 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
       html.push(`<table class="block-table">${rowsHtml.join('')}</table>`);
       break;
     }
+    case 'columns': {
+      // Side-by-side columns (the projection keeps them nested for HTML; PDF/MD
+      // flatten). Each column's blocks render through the shared context so any
+      // reactive widgets inside stay live.
+      const cols = Array.isArray(d.columns) ? (d.columns as RawBlock[][]) : [];
+      const colHtml = cols.map((col) => `<div class="col">${renderBlocks(col, ctx)}</div>`).join('');
+      if (colHtml) html.push(`<div class="cols">${colHtml}</div>`);
+      break;
+    }
     case 'callout':
       html.push(
         `<div class="callout" data-variant="${escapeHtml(str(d.variant) || 'info')}"><div class="callout__body">${inlineToHtml(parseInline(str(d.text)), ctx)}</div></div>`,
@@ -344,8 +382,17 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean);
+      const title = str(d.title);
       ctx.charts.push({id: cid, cells, ...(d.kind ? {kind: str(d.kind), labels} : {})});
-      html.push(`<figure class="chart" data-chart="${cid}"></figure>`);
+      // Kit charts (with a kind) are drawn at build time too, so the chart shows
+      // on first paint and without JS — the runtime then redraws it live. Classic
+      // (Plot) charts need d3/Plot at runtime, so they hydrate from empty.
+      const initial = d.kind && cells.length && ctx.values.has(cells[0]) ? kitChartSvg(ctx.values.get(cells[0]), str(d.kind), labels) : '';
+      // The title is a sibling of the plotted node — the runtime replaces the
+      // `[data-chart]` node's innerHTML, so a caption inside it would be wiped.
+      html.push(
+        `<figure class="chart">${title ? `<figcaption class="chart-title">${escapeHtml(title)}</figcaption>` : ''}<div data-chart="${cid}">${initial}</div></figure>`,
+      );
       break;
     }
     case 'kitinput': {
@@ -407,9 +454,26 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
     }
     case 'kitlight': {
       const cell = str(d.refCellId);
-      ctx.lights.push({cell});
+      const okAt = num(d.okAt, 1);
+      const warnAt = num(d.warnAt, 0);
+      const status = str(d.status) || 'off';
+      ctx.lights.push({cell, okAt, warnAt});
+      const readout = ctx.values.has(cell) ? formatValue(ctx.values.get(cell)) : '';
       html.push(
-        `<p class="reactive kitlight" data-light="${cell}"><span class="kit-light-dot"></span> ${escapeHtml(str(d.label))}</p>`,
+        `<p class="reactive kitlight" data-light="${cell}" data-status="${escapeHtml(status)}"><span class="kit-light-dot"></span> <span class="kit-light-label">${escapeHtml(str(d.label))}</span> <span class="kit-light-val" data-val>${escapeHtml(readout)}</span></p>`,
+      );
+      break;
+    }
+    case 'kitprogress': {
+      const cell = str(d.refCellId);
+      const max = num(d.max, 100) || 100;
+      const format = str(d.format) || 'percent';
+      ctx.progress.push({cell, max, format});
+      const {pct, readout} = progressOf(ctx.values.get(cell), max, format);
+      html.push(
+        `<div class="reactive kitprogress" data-progress="${cell}" data-max="${max}" data-format="${escapeHtml(format)}">` +
+          `<div class="kit-prog-head"><span class="kit-prog-label">${escapeHtml(str(d.label))}</span><span class="kit-prog-val" data-val>${escapeHtml(readout)}</span></div>` +
+          `<div class="kit-prog-track"><div class="kit-prog-fill" data-fill style="width:${pct}%"></div></div></div>`,
       );
       break;
     }
@@ -418,6 +482,15 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
     }
   }
   return html.join('\n');
+}
+
+/** Coerce a progress cell value to {pct, readout} the way the editor's bar does. */
+function progressOf(value: unknown, max: number, format: string): {pct: number; readout: string} {
+  const raw = typeof value === 'boolean' ? (value ? max : 0) : Number(value ?? 0);
+  const fraction = Number.isFinite(raw) ? Math.max(0, Math.min(1, max === 0 ? 0 : raw / max)) : 0;
+  const pct = Math.round(fraction * 100);
+  const trim = (n: number): string => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100));
+  return {pct, readout: format === 'fraction' ? `${trim(raw)} / ${trim(max)}` : `${pct}%`};
 }
 
 /** Seed a context's reactive lookups from a page snapshot's persisted cell data. */
@@ -436,7 +509,13 @@ function document_(
   extra?: {styles?: string; script?: string},
 ): string {
   const live =
-    ctx.sliders.length > 0 || ctx.exprs.length > 0 || ctx.charts.length > 0 || ctx.inputs.length > 0 || ctx.buttons.length > 0;
+    ctx.sliders.length > 0 ||
+    ctx.exprs.length > 0 ||
+    ctx.charts.length > 0 ||
+    ctx.inputs.length > 0 ||
+    ctx.buttons.length > 0 ||
+    ctx.lights.length > 0 ||
+    ctx.progress.length > 0;
   // Seed EVERY persisted cell value, then overlay the render-time ones: an
   // expression may read a name whose block isn't itself reactive in the
   // export, and an unseeded cell poisons whole dependency chains (undefined
@@ -449,6 +528,7 @@ function document_(
     inputs: ctx.inputs,
     buttons: ctx.buttons,
     lights: ctx.lights,
+    progress: ctx.progress,
   };
   // Kit charts draw themselves (drawKit in the runtime) — only classic
   // cell-driven charts need the vendored d3 + Observable Plot bundles.
@@ -488,6 +568,7 @@ export function toHtml(rawSnapshot: PageSnapshot, title: string, icon: string): 
     inputs: [],
     buttons: [],
     lights: [],
+    progress: [],
     initialValues: {},
     chartSeq: {n: 0},
     anchorPrefix: '',
@@ -557,6 +638,7 @@ export function toSlideDeck(rawSnapshot: PageSnapshot, title: string, icon: stri
     inputs: [],
     buttons: [],
     lights: [],
+    progress: [],
     initialValues: {},
     chartSeq: {n: 0},
     anchorPrefix: '',
@@ -581,7 +663,9 @@ export function toSlideDeck(rawSnapshot: PageSnapshot, title: string, icon: stri
         idx === 0
           ? `<header class="slide-title"><h1>${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1></header>\n`
           : '';
-      return `<section class="slide">${head}${renderBlocks(g, ctx)}</section>`;
+      // Mark the first slide current at build time so it shows on first paint
+      // (and without JS / when printing); the nav runtime then takes over.
+      return `<section class="slide"${idx === 0 ? ' data-current' : ''}>${head}${renderBlocks(g, ctx)}</section>`;
     })
     .join('\n');
   const body = `<main class="ob-deck">\n${sections}\n<nav class="deck-nav"><button id="deck-prev" aria-label="Previous slide">‹</button><span id="deck-counter"></span><button id="deck-next" aria-label="Next slide">›</button></nav>\n</main>`;
@@ -608,6 +692,7 @@ export function toHtmlSite(bundle: SiteBundle): string {
     inputs: [],
     buttons: [],
     lights: [],
+    progress: [],
     initialValues: {},
     chartSeq: {n: 0},
     anchorPrefix: '',
@@ -640,7 +725,17 @@ const STYLES = `
 :root { color-scheme: light dark; }
 * { box-sizing: border-box; }
 body { margin: 0; background: #fff; color: #1a1a1a; font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
-@media (prefers-color-scheme: dark) { body { background: #18181b; color: #e7e7ea; } }
+@media (prefers-color-scheme: dark) {
+  body { background: #18181b; color: #e7e7ea; }
+  /* Brighter text-colour tokens so palette colours stay legible on the dark page
+     (the light-theme hex go muddy). Inline runs reference these via var(); when
+     this query is inactive the var() falls back to the baked light hex. */
+  :root {
+    --obtc-gray: #9ca3af; --obtc-brown: #c8956b; --obtc-orange: #fb923c;
+    --obtc-yellow: #fcd34d; --obtc-green: #4ade80; --obtc-blue: #60a5fa;
+    --obtc-purple: #c084fc; --obtc-pink: #f472b6; --obtc-red: #f87171;
+  }
+}
 main { max-width: 720px; margin: 0 auto; padding: 48px 24px 120px; }
 section.page[hidden] { display: none; }
 .ob-nav { position: sticky; top: 0; z-index: 10; padding: 8px 24px; backdrop-filter: blur(8px); background: rgba(127,127,127,.06); border-bottom: 1px solid rgba(127,127,127,.18); }
@@ -653,7 +748,9 @@ ul,ol { margin: .4em 0; padding-left: 1.4em; }
 blockquote { margin: 1em 0; padding: .2em 0 .2em 1em; border-left: 3px solid currentColor; opacity: .85; font-style: italic; }
 pre { background: rgba(127,127,127,.12); padding: 12px 14px; border-radius: 8px; overflow-x: auto; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
-mark { background: #fde68a; color: inherit; padding: 0 .1em; }
+/* Highlight tints are always light pastels (in both themes), so the marked text
+   must stay dark. An inherited colour would be light-on-light (unreadable) in dark mode. */
+mark { background: #fde68a; color: #1c1917; padding: 0 .1em; border-radius: 2px; }
 hr { border: none; border-top: 1px solid rgba(127,127,127,.3); width: 30%; margin: 2em auto; }
 a.mention { font-weight: 600; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; color: inherit; }
 span.mention { font-weight: 600; opacity: .7; }
@@ -661,6 +758,10 @@ a.subpage, span.subpage { display: flex; align-items: center; gap: 8px; margin: 
 a.subpage:hover { background: rgba(127,127,127,.08); }
 .subpage.is-missing { opacity: .55; cursor: default; }
 .subpage__icon { font-size: 1.1em; line-height: 1; }
+.cols { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; margin: 1em 0; }
+.cols > .col { flex: 1 1 12rem; min-width: 0; }
+.cols > .col > :first-child { margin-top: 0; }
+@media (max-width: 640px) { .cols { flex-direction: column; gap: .25rem; } }
 .reactive { background: rgba(127,127,127,.06); border: 1px solid rgba(127,127,127,.16); border-radius: 8px; padding: 10px 12px; margin: 1em 0; }
 .kitinput { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .kit-label { font-weight: 600; font-size: .92rem; }
@@ -684,12 +785,22 @@ a.subpage:hover { background: rgba(127,127,127,.08); }
 .kit-btn { font: inherit; font-size: .9rem; font-weight: 600; cursor: pointer; border: 1px solid rgba(127,127,127,.35); background: rgba(127,127,127,.08); color: inherit; border-radius: 8px; padding: 6px 16px; text-decoration: none; display: inline-block; }
 .kit-btn:hover { background: rgba(127,127,127,.16); }
 .kitlight { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.kit-light-val { font-weight: 500; opacity: .6; font-size: .9em; }
 .kit-light-dot { width: 12px; height: 12px; border-radius: 999px; background: #9ca3af; box-shadow: 0 0 0 3px rgba(156,163,175,.25); }
-.kit-light-on .kit-light-dot { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
+.kitlight[data-status=ok] .kit-light-dot { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
+.kitlight[data-status=warn] .kit-light-dot { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.25); }
+.kitlight[data-status=bad] .kit-light-dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.25); }
+.kitprogress { display: flex; flex-direction: column; gap: 6px; }
+.kit-prog-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.kit-prog-label { font-weight: 600; font-size: .92rem; }
+.kit-prog-val { font-variant-numeric: tabular-nums; opacity: .65; font-size: .9em; }
+.kit-prog-track { height: 8px; border-radius: 999px; background: rgba(127,127,127,.18); overflow: hidden; }
+.kit-prog-fill { height: 100%; border-radius: 999px; background: #6366f1; transition: width .25s ease; }
 .slider input[type=range] { vertical-align: middle; width: 60%; }
 .expr code { color: #4f46e5; }
 figure.chart { margin: 1.2em 0; }
 figure.chart svg { max-width: 100%; height: auto; }
+figure.chart .chart-title { font-weight: 600; font-size: .92rem; margin-bottom: 6px; }
 table.block-table, table.db-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
 table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; vertical-align: top; }
 table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; }
@@ -730,7 +841,7 @@ hr.divider[data-style=thick] { border-top-width: 3px; }
 // Inlined live runtime: recomputes expressions from slider values and redraws
 // charts. Reuses the saved \`__C__{cellId}__\` reference tokens. Observable Plot
 // (and d3) are inlined as classic scripts above, so this works offline.
-const RUNTIME = `
+const RUNTIME = KIT_CHART_JS + `
 const Plot = (typeof window !== "undefined" && window.Plot) || null;
 const D = JSON.parse(document.getElementById("ob-data").textContent);
 const store = new Map(Object.entries(D.values));
@@ -739,60 +850,13 @@ const fmt = (v) => v === undefined ? "—" : typeof v === "number" ? (Number.isI
 function evalExpr(src){ const code = src.replace(/__C__\\{([^}]+)\\}__/g, (_,id)=>"get("+JSON.stringify(id)+")"); try { return new Function("get","return ("+code+");")(get); } catch(e){ if(!(e instanceof SyntaxError)) return undefined; } try { return new Function("get",code)(get); } catch(e){ return undefined; } }
 function normalize(v,name){ if(Array.isArray(v)&&v.every(n=>typeof n==="number")) return [{name,data:v}]; if(v&&Array.isArray(v.series)) return v.series.map(s=>({name:String(s.name),data:(s.data||[]).filter(n=>typeof n==="number")})); return []; }
 
-// Kind-faithful drawing for kit charts (mirrors the editor's chartMath
-// geometry): line, area, bar, pie, donut, scatter, funnel — no libraries.
-const KIT_PALETTE=["#6366f1","#f59e0b","#10b981","#ef4444","#8b5cf6","#06b6d4","#f97316","#14b8a6"];
-function kitSeries(v){ if(v&&typeof v==="object"&&Array.isArray(v.series)) return v.series.filter(s=>Array.isArray(s.data)&&s.data.every(n=>typeof n==="number")&&s.data.length).map(s=>({name:String(s.name??""),values:s.data})); if(Array.isArray(v)&&v.every(n=>typeof n==="number")) return v.length?[{name:"",values:v}]:[]; if(Array.isArray(v)&&v.length&&v.every(p=>p&&typeof p==="object"&&isFinite(p.x)&&isFinite(p.y))) return [{name:"",values:v.map(p=>p.y)}]; if(Array.isArray(v)&&v.every(a=>Array.isArray(a)&&a.every(n=>typeof n==="number"))) return v.filter(a=>a.length).map((a,i)=>({name:"s"+(i+1),values:a})); if(v&&typeof v==="object"&&!Array.isArray(v)) return Object.entries(v).filter(([,a])=>Array.isArray(a)&&a.every(n=>typeof n==="number")&&a.length).map(([n,a])=>({name:n,values:a})); if(typeof v==="number"&&isFinite(v)) return [{name:"",values:[v]}]; return []; }
-function kitLabelled(v,labels){ if(v&&typeof v==="object"&&!Array.isArray(v)){ const e=Object.entries(v).filter(([,n])=>typeof n==="number"&&isFinite(n)); if(e.length) return e.map(([label,value])=>({label,value})); } if(Array.isArray(v)&&v.every(n=>typeof n==="number")) return v.map((value,i)=>({label:labels[i]||("#"+(i+1)),value})); return []; }
-function kitExtent(vals){ if(!vals.length) return {min:0,max:1}; let min=Math.min.apply(null,vals.concat([0])), max=Math.max.apply(null,vals); if(min===max){min-=1;max+=1;} return {min,max}; }
-function kitScale(v,d,r0,r1){ return r0+((v-d.min)/(d.max-d.min))*(r1-r0); }
-function kitTicks(d){ const span=d.max-d.min, step0=Math.pow(10,Math.floor(Math.log10(span/3))); const step=[step0,step0*2,step0*5,step0*10].find(s=>span/s<=4)||step0*10; const out=[]; for(let v=Math.ceil(d.min/step)*step; v<=d.max+1e-9; v+=step) out.push(Math.round(v*1e6)/1e6); return out; }
-function drawKit(v,kind,labels){
-  const W=660,H=300,PAD=34,P=KIT_PALETTE;
-  const grid=(d)=>kitTicks(d).map(t=>{const y=kitScale(t,d,H-PAD,PAD);return '<line x1="'+PAD+'" x2="'+(W-PAD)+'" y1="'+y+'" y2="'+y+'" stroke="currentColor" opacity="0.15" stroke-dasharray="2 4"/><text x="'+(PAD-6)+'" y="'+(y+3)+'" font-size="10" fill="currentColor" opacity="0.55" text-anchor="end">'+t+'</text>';}).join('');
-  let body='';
-  if(kind==='pie'||kind==='donut'){
-    const slices=kitLabelled(v,labels).filter(s=>s.value>0); if(!slices.length) return '';
-    const total=slices.reduce((a,s)=>a+s.value,0), r=H/2-16, r0=kind==='donut'?r*0.55:0, cx=H/2, cy=H/2; let ang=-Math.PI/2;
-    body=slices.map((s,i)=>{ const sweep=s.value/total*Math.PI*2, a0=ang, a1=ang+sweep; ang=a1; const end=sweep>=Math.PI*2-1e-6?a1-1e-4:a1, large=sweep>Math.PI?1:0; const pt=(a,rad)=>(cx+Math.cos(a)*rad)+','+(cy+Math.sin(a)*rad);
-      const path=r0>0?'M '+pt(a0,r)+' A '+r+' '+r+' 0 '+large+' 1 '+pt(end,r)+' L '+pt(end,r0)+' A '+r0+' '+r0+' 0 '+large+' 0 '+pt(a0,r0)+' Z':'M '+cx+','+cy+' L '+pt(a0,r)+' A '+r+' '+r+' 0 '+large+' 1 '+pt(end,r)+' Z';
-      return '<path d="'+path+'" fill="'+P[i%P.length]+'"/>';
-    }).join('')+slices.map((s,i)=>'<g transform="translate('+(H+24)+','+(28+i*20)+')"><rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/><text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+s.label+' · '+Math.round(s.value/total*100)+'%</text></g>').join('');
-  } else if(kind==='funnel'){
-    const stages=kitLabelled(v,labels); const max=Math.max.apply(null,stages.map(s=>Math.max(0,s.value)).concat([0])); if(!stages.length||max<=0) return '';
-    const gap=3, rowH=(H-PAD-gap*(stages.length-1))/stages.length;
-    body=stages.map((s,i)=>{ const w=Math.max(Math.max(0,s.value)/max*(W-PAD*2),2), x=PAD+((W-PAD*2)-w)/2, y=12+i*(rowH+gap);
-      return '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+rowH+'" rx="4" fill="'+P[i%P.length]+'" opacity="0.85"/><text x="'+(W/2)+'" y="'+(y+rowH/2+4)+'" font-size="11" font-weight="600" text-anchor="middle" fill="#fff">'+s.label+' · '+s.value+'</text>';
-    }).join('');
-  } else if(kind==='scatter'){
-    const pts=Array.isArray(v)&&v.length&&v.every(p=>p&&typeof p==="object"&&isFinite(p.x)&&isFinite(p.y))?v:(Array.isArray(v)&&v.every(n=>typeof n==="number")?v.map((y,x)=>({x,y})):[]); if(!pts.length) return '';
-    const dx=kitExtent(pts.map(p=>p.x)), dy=kitExtent(pts.map(p=>p.y));
-    body=grid(dy)+pts.map(p=>'<circle cx="'+kitScale(p.x,dx,PAD,W-PAD)+'" cy="'+kitScale(p.y,dy,H-PAD,PAD)+'" r="4" fill="'+P[0]+'" opacity="0.75"/>').join('');
-  } else if(kind==='bar'){
-    const series=kitSeries(v); if(!series.length) return '';
-    const d=kitExtent(series.flatMap(s=>s.values)), n=Math.max.apply(null,series.map(s=>s.values.length)), groupW=(W-PAD*2)/n, barW=Math.max(groupW*0.7/series.length,2), zero=kitScale(Math.max(d.min,0),d,H-PAD,PAD);
-    body=grid(d)+series.map((s,si)=>s.values.map((val,i)=>{ const y=kitScale(val,d,H-PAD,PAD), x=PAD+i*groupW+groupW*0.15+si*barW; return '<rect x="'+x+'" y="'+Math.min(y,zero)+'" width="'+(barW-1)+'" height="'+Math.max(Math.abs(zero-y),1)+'" rx="2" fill="'+P[si%P.length]+'"/>'; }).join('')).join('')+labels.slice(0,n).map((l,i)=>'<text x="'+(PAD+i*groupW+groupW/2)+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.55">'+l+'</text>').join('');
-  } else { // line / area
-    const series=kitSeries(v); if(!series.length) return '';
-    const d=kitExtent(series.flatMap(s=>s.values)), base=kitScale(Math.max(d.min,0),d,H-PAD,PAD);
-    const n=Math.max.apply(null,series.map(s=>s.values.length));
-    body=grid(d)+series.map((s,i)=>{ const len=s.values.length; const pts=s.values.map((val,j)=>{ const x=len===1?W/2:PAD+(j/(len-1))*(W-PAD*2); return (Math.round(x*10)/10)+','+(Math.round(kitScale(val,d,H-PAD,PAD)*10)/10); }).join(' ');
-      const first=pts.split(' ')[0].split(',')[0], parts=pts.split(' '), last=parts[parts.length-1].split(',')[0];
-      return (kind==='area'?'<polygon points="'+first+','+base+' '+pts+' '+last+','+base+'" fill="'+P[i%P.length]+'" opacity="0.15"/>':'')+'<polyline points="'+pts+'" fill="none" stroke="'+P[i%P.length]+'" stroke-width="2" stroke-linejoin="round"/>';
-    }).join('')+labels.slice(0,n).map((l,i)=>'<text x="'+(n===1?W/2:PAD+(i/(n-1))*(W-PAD*2))+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.55">'+l+'</text>').join('');
-  }
-  // Named multi-series → a compact top-right legend (line/area/bar).
-  if(kind!=='pie'&&kind!=='donut'&&kind!=='funnel'&&kind!=='scatter'){
-    const named=kitSeries(v).filter(s=>s.name);
-    if(named.length>1) body+=named.map((s,i)=>'<g transform="translate('+(W-PAD-90)+','+(16+i*18)+')"><rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/><text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+s.name+'</text></g>').join('');
-  }
-  return '<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto">'+body+'</svg>';
-}
-
+function statusOf(v, okAt, warnAt){ if(v===undefined||v===null) return "off"; if(typeof v==="boolean") return v?"ok":"bad"; if(typeof v==="string") return (v==="ok"||v==="warn"||v==="bad")?v:"off"; if(typeof v==="number"){ if(v>=okAt) return "ok"; if(v>=warnAt) return "warn"; return "bad"; } return "off"; }
+function progressOf(v, max, format){ const raw = typeof v==="boolean"?(v?max:0):Number(v==null?0:v); const fr = isFinite(raw)?Math.max(0,Math.min(1, max===0?0:raw/max)):0; const pct=Math.round(fr*100); const trim=(n)=>Number.isInteger(n)?(""+n):(""+(Math.round(n*100)/100)); return {pct:pct, readout: format==="fraction"?(trim(raw)+" / "+trim(max)):(pct+"%")}; }
 function recompute(){
   for (const e of D.exprs) store.set(e.cell, evalExpr(e.source));
   for (const e of D.exprs){ const el=document.querySelector('[data-cell="'+e.cell+'"] [data-val]'); if(el) el.textContent = fmt(get(e.cell)); }
-  for (const l of (D.lights||[])){ const el=document.querySelector('[data-light="'+l.cell+'"]'); if(el) el.classList.toggle("kit-light-on", !!get(l.cell)); }
+  for (const l of (D.lights||[])){ const el=document.querySelector('[data-light="'+l.cell+'"]'); if(el){ const v=get(l.cell); el.setAttribute("data-status", statusOf(v, l.okAt, l.warnAt)); const val=el.querySelector("[data-val]"); if(val) val.textContent = fmt(v); } }
+  for (const p of (D.progress||[])){ const el=document.querySelector('[data-progress="'+p.cell+'"]'); if(el){ const r=progressOf(get(p.cell), p.max, p.format); const fill=el.querySelector("[data-fill]"); if(fill) fill.style.width = r.pct+"%"; const val=el.querySelector("[data-val]"); if(val) val.textContent = r.readout; } }
   for (const c of D.charts){
     const fig = document.querySelector('[data-chart="'+c.id+'"]'); if(!fig) continue;
     if (c.kind){ fig.innerHTML = drawKit(get(c.cells[0]), c.kind, c.labels||[]); continue; }

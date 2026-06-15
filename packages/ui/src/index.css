@@ -1146,7 +1146,11 @@ a.obe-mention {
 .ob-present .obe-kit-gear,
 .ob-present .obe-cnt-add,
 .ob-present .obe-table-add,
+.ob-present .obe-code-actions,
 .ob-present .obe-handle-anchor { display: none !important; }
+/* Empty editable fields (chart title/description, kit labels) would otherwise
+   show their "Add a description…" edit placeholder on the read-only stage. */
+.ob-present .obe-kit-inline:placeholder-shown { display: none; }
 
 /* Top-right exit / view toggle — auto-hidden in full screen until hover. */
 .ob-present-topbar { display: flex; gap: 0.35rem; }

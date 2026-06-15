@@ -42,9 +42,9 @@ test('inputs publish to the scope; live code reads them all', async ({page}) => 
 
   // Flip the toggle (the LIVE switch is inside the code bar — use the kit one).
   await page.locator('.obe-kit-toggle').getByRole('switch').click();
-  await expect(code.locator('.obe-code-out')).toContainText('result = One');
+  await expect(code.locator('.obe-code-out')).toContainText('result = one');
   await page.getByRole('radio', {name: 'Two'}).click();
-  await expect(code.locator('.obe-code-out')).toContainText('result = Two');
+  await expect(code.locator('.obe-code-out')).toContainText('result = two');
 });
 
 test('checklist publishes its selection as an array', async ({page}) => {
@@ -87,9 +87,11 @@ test('chart + status light + button: the full artifact loop', async ({page}, tes
   const chart = page.locator('.obe-kit-chart');
   await chart.hover();
   await chart.locator('.obe-kit-gear').click();
-  await chart.getByLabel('Chart data expression').fill('[n, n*2, 10]');
-  await chooseValue(page, chart.getByLabel('Chart kind'), 'bar');
-  await chart.getByLabel('Labels (comma-separated)').fill('n, 2n, ten');
+  // The kit config fields live in a portaled popover, so they're page-scoped
+  // (not under .obe-kit-chart). The gear + svg stay scoped to the block.
+  await page.getByLabel('Chart data expression').fill('[n, n*2, 10]');
+  await chooseValue(page, page.getByLabel('Chart kind'), 'bar');
+  await page.getByLabel('Labels (comma-separated)').fill('n, 2n, ten');
   await chart.locator('.obe-kit-gear').click();
   await expect(chart.locator('svg rect')).toHaveCount(3);
   await expect(chart.locator('svg text', {hasText: 'ten'})).toBeVisible();
@@ -98,9 +100,9 @@ test('chart + status light + button: the full artifact loop', async ({page}, tes
   const status = page.locator('.obe-kit-status');
   await status.hover();
   await status.locator('.obe-kit-gear').click();
-  await status.getByLabel('Status expression').fill('n');
-  await status.getByLabel('Ok threshold').fill('5');
-  await status.getByLabel('Warn threshold').fill('2');
+  await page.getByLabel('Status expression').fill('n');
+  await page.getByLabel('Ok threshold').fill('5');
+  await page.getByLabel('Warn threshold').fill('2');
   await status.locator('.obe-kit-gear').click();
   await expect(status).toHaveAttribute('data-status', 'bad');
 
@@ -180,7 +182,7 @@ test('compound growth: a live-code series drives a multi-series chart', async ({
   const chart = page.locator('.obe-kit-chart');
   await chart.hover();
   await chart.locator('.obe-kit-gear').click();
-  await chart.getByLabel('Chart data expression').fill('growth');
+  await page.getByLabel('Chart data expression').fill('growth');
   await chart.locator('.obe-kit-gear').click();
 
   // Two named series drawn, with the legend.
@@ -194,11 +196,12 @@ test('pie chart renders labelled slices with a legend', async ({page}) => {
   const chart = page.locator('.obe-kit-chart');
   await chart.hover();
   await chart.locator('.obe-kit-gear').click();
-  await chart.getByLabel('Chart data expression').fill('{Won: 8, Lost: 2, Open: 5}');
-  await chooseValue(page, chart.getByLabel('Chart kind'), 'pie');
+  await page.getByLabel('Chart data expression').fill('{Won: 8, Lost: 2, Open: 5}');
+  await chooseValue(page, page.getByLabel('Chart kind'), 'pie');
   await chart.locator('.obe-kit-gear').click();
-  await expect(chart.locator('svg path')).toHaveCount(3);
-  await expect(chart.locator('svg text', {hasText: 'Won · 53%'})).toBeVisible();
+  // Scope to the plot svg — the block's ⚙ gear icon is also an svg with paths.
+  await expect(chart.locator('.obe-chart-svg path')).toHaveCount(3);
+  await expect(chart.locator('.obe-chart-svg text', {hasText: 'Won · 53%'})).toBeVisible();
 });
 
 test('tooltip reveals on focus; link card carries its URL', async ({page}) => {
@@ -207,14 +210,15 @@ test('tooltip reveals on focus; link card carries its URL', async ({page}) => {
   await insert(page, 'link card', 'Link card');
 
   const term = page.locator('.obe-kit-term');
-  await expect(term).toContainText('Term');
+  // The term is an editable inline input (its text is the input's value).
+  await expect(term.getByRole('textbox')).toHaveValue('Term');
   await term.focus();
   await expect(page.getByRole('tooltip')).toHaveText('Explanation shown on hover.');
 
   const card = page.locator('.obe-kit-linkcard');
   await card.hover();
   await page.locator('.obe-kit-linkcard-wrap .obe-kit-gear').click();
-  await page.getByLabel('Card title').fill('OpenBook');
+  await page.getByLabel('Display name').fill('OpenBook'); // the link card's title field
   await page.getByLabel('Card URL').fill('example.com/docs');
   await expect(card).toHaveAttribute('href', 'https://example.com/docs');
   await expect(card).toContainText('OpenBook');
@@ -248,7 +252,8 @@ test('HTML export keeps a kit artifact computing offline', async ({page, request
 
   await page.getByRole('button', {name: 'Page actions'}).click();
   await page.getByRole('menuitem', {name: 'Export'}).hover();
-  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', {name: /HTML/}).click()]);
+  // Exact name — the export menu now also offers "HTML slides", so /HTML/ is ambiguous.
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('menuitem', {name: 'Interactive HTML'}).click()]);
 
   // Open the standalone file: the stepper rides as a range input, and moving
   // it recomputes both expressions with no server anywhere. (Save under a
@@ -259,11 +264,11 @@ test('HTML export keeps a kit artifact computing offline', async ({page, request
   await page.goto(`file://${file}`);
   const exprs = page.locator('.reactive.expr [data-val]');
   await expect(exprs.nth(0)).toHaveText('70'); // the formula readout
-  // The status light renders as a LIVE dot (its expr is hidden): 70 ≥ truthy.
-  await expect(page.locator('.kitlight')).toHaveClass(/kit-light-on/);
+  // The status light renders as a LIVE dot (its expr is hidden): done*10 = 70 ≥ okAt 50 → ok.
+  await expect(page.locator('.kitlight')).toHaveAttribute('data-status', 'ok');
   // The kit chart exports as a DRAWN, kind-faithful plot over its cell:
   // three bars with their x labels, redrawn when the input moves.
-  const fig = page.locator('figure[data-chart]');
+  const fig = page.locator('[data-chart]'); // the chart's title is a sibling; the plot node carries data-chart
   await expect(fig.locator('svg rect')).toHaveCount(3);
   await expect(fig.locator('svg text', {hasText: 'b'})).toBeVisible();
   // y-axis ticks prove the redraw: data max 21 → a "20" tick…
@@ -284,17 +289,20 @@ test('dropdown publishes its pick; full-width radio renders stacked rows', async
   const code = page.locator('.obe-codeblock-live');
   await code.locator('.obe-text').click();
   await page.keyboard.type('pick');
-  await expect(code.locator('.obe-code-out')).toContainText('result = One');
+  await expect(code.locator('.obe-code-out')).toContainText('result = one');
   await chooseLabel(page, page.locator('.obe-kit-dropdown [role="combobox"]'), 'Two');
-  await expect(code.locator('.obe-code-out')).toContainText('result = Two');
+  await expect(code.locator('.obe-code-out')).toContainText('result = two');
 
-  // Full width: the ⚙ toggle relays out the radio as stacked rows with dots.
+  // A radio is full-width by default: stacked rows, each with a dot. (The ⚙
+  // offers the inverse "Compact" toggle.)
   await insert(page, 'radio', 'Radio group');
   const radio = page.locator('.obe-kit-radio');
-  await radio.getByRole('button', {name: 'Configure block'}).click();
-  await radio.getByLabel('Full width').check();
   await expect(radio).toHaveClass(/obe-kit-wide/);
   await expect(radio.locator('.obe-kit-pill-dot')).toHaveCount(3);
+  await radio.getByRole('button', {name: 'Configure block'}).click();
+  await page.getByLabel('Compact').check();
+  await expect(radio).not.toHaveClass(/obe-kit-wide/);
+  await radio.getByRole('button', {name: 'Configure block'}).click(); // close the popover
   await radio.getByRole('radio', {name: 'Three'}).click();
   await expect(radio.getByRole('radio', {name: 'Three'})).toHaveAttribute('aria-checked', 'true');
 });

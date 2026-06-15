@@ -8,7 +8,7 @@ test('favorites: pin from the page menu, see it in the sidebar + palette, then u
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   await expect(page.getByText('Favorites', {exact: true})).toHaveCount(0); // none yet
 
-  await page.locator('main .px-6').first().click({button: 'right'});
+  await page.getByLabel('Page title').click({button: 'right'}); // page chrome → the page menu (blocks show their own menu)
   await page.getByRole('menuitem', {name: 'Add to favorites'}).click();
 
   // Sidebar Favourites section now exists.
@@ -21,7 +21,7 @@ test('favorites: pin from the page menu, see it in the sidebar + palette, then u
   await page.keyboard.press('Escape');
 
   // Unpin via the menu (now labelled "Remove from favorites").
-  await page.locator('main .px-6').first().click({button: 'right'});
+  await page.getByLabel('Page title').click({button: 'right'}); // page chrome → the page menu (blocks show their own menu)
   await page.getByRole('menuitem', {name: 'Remove from favorites'}).click();
   await expect(page.getByText('Favorites', {exact: true})).toHaveCount(0);
 });

@@ -16,8 +16,14 @@ export interface InlineRun {
   text: string;
   bold?: boolean;
   italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
   code?: boolean;
   marker?: boolean;
+  /** Text colour (CSS hex) — from the editor's `tc` palette token. */
+  color?: string;
+  /** Highlight colour (CSS hex) when a `<mark>` carries one. */
+  markerColor?: string;
   link?: string;
   mention?: {pageId: string; label: string};
 }
@@ -43,7 +49,10 @@ export type DocBlock =
   | {type: 'divider'; style: string; label: string}
   | {type: 'slider'; name: string; value: unknown}
   | {type: 'expr'; name: string; value: unknown; source: string}
-  | {type: 'chart'; series: NormalizedSeries[]}
+  | {type: 'chart'; series: NormalizedSeries[]; kind: string; labels: string[]; title: string; value: unknown}
+  | {type: 'kvalue'; label: string; value: unknown}
+  | {type: 'light'; label: string; status: string; value: unknown}
+  | {type: 'progress'; label: string; pct: number; readout: string}
   | {type: 'unknown'; raw: string};
 
 export interface DocModel {
@@ -59,6 +68,20 @@ interface RawBlock {
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+/** The HTML export keeps `columns` nested for side-by-side layout; the linear
+ *  PDF/Markdown model flattens each column's blocks into reading order. */
+function flattenColumns(blocks: RawBlock[]): RawBlock[] {
+  const out: RawBlock[] = [];
+  for (const b of blocks) {
+    if (b.type === 'columns' && Array.isArray(b.data?.columns)) {
+      for (const col of b.data!.columns as RawBlock[][]) out.push(...flattenColumns(col));
+    } else {
+      out.push(b);
+    }
+  }
+  return out;
+}
 
 /** Parse a block's inline HTML into formatting runs. */
 export function parseInline(html: string): InlineRun[] {
@@ -84,11 +107,20 @@ export function parseInline(html: string): InlineRun[] {
       return;
     }
     const next: Omit<InlineRun, 'text'> = {...fmt};
+    const style = el.getAttribute('style') ?? '';
     if (tag === 'b' || tag === 'strong') next.bold = true;
     else if (tag === 'i' || tag === 'em') next.italic = true;
-    else if (tag === 'mark') next.marker = true;
-    else if (tag === 'code') next.code = true;
-    else if (tag === 'a') next.link = el.getAttribute('href') ?? undefined;
+    else if (tag === 'u') next.underline = true;
+    else if (tag === 's' || tag === 'del' || tag === 'strike') next.strike = true;
+    else if (tag === 'mark') {
+      next.marker = true;
+      const bg = style.match(/background(?:-color)?:\s*([^;]+)/i);
+      if (bg) next.markerColor = bg[1].trim();
+    } else if (tag === 'code') next.code = true;
+    else if (tag === 'span') {
+      const c = style.match(/(?:^|[^-])color:\s*([^;]+)/i);
+      if (c) next.color = c[1].trim();
+    } else if (tag === 'a') next.link = el.getAttribute('href') ?? undefined;
     el.childNodes.forEach((c) => walk(c, next));
   };
   doc.body.childNodes.forEach((c) => walk(c, {}));
@@ -126,7 +158,7 @@ export function buildDocumentModel({title, icon, snapshot: rawSnapshot}: BuildMo
   // Pages written by the CRDT block editor project into the EditorJS shape
   // first, so every exporter below works on one block dialect.
   const snapshot = blockSnapshotToEditorJs(rawSnapshot);
-  const blocks = ((snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? []) as RawBlock[];
+  const blocks = flattenColumns(((snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? []) as RawBlock[]);
   const values = new Map<string, unknown>(snapshot.values as Array<[string, unknown]>);
   const nameByCell = new Map<string, string>();
   for (const [name, cellId] of snapshot.names as Array<[string, string]>) nameByCell.set(cellId, name);
@@ -195,6 +227,9 @@ export function buildDocumentModel({title, icon, snapshot: rawSnapshot}: BuildMo
       out.push({type: 'slider', name: str(data.name) || nameByCell.get(id) || 'value', value: values.get(id)});
       break;
     case 'expr':
+      // Hidden cells feed other blocks (a chart, light, or progress bar) — they
+      // have no readout of their own, so they don't appear in the document.
+      if (data.hidden === true) break;
       out.push({
         type: 'expr',
         name: str(data.name) || nameByCell.get(id) || 'expr',
@@ -212,9 +247,39 @@ export function buildDocumentModel({title, icon, snapshot: rawSnapshot}: BuildMo
       for (const cellId of ids) {
         series.push(...normalizeChartInput(values.get(cellId), nameByCell.get(cellId) ?? cellId));
       }
-      out.push({type: 'chart', series});
+      const labels = str(data.labels)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      out.push({type: 'chart', series, kind: str(data.kind) || 'line', labels, title: str(data.title), value: ids.length ? values.get(ids[0]) : undefined});
       break;
     }
+    case 'kitinput':
+      out.push({type: 'kvalue', label: str(data.label) || str(data.name) || 'Field', value: values.has(id) ? values.get(id) : data.value});
+      break;
+    case 'kitlight':
+      out.push({
+        type: 'light',
+        label: str(data.label) || 'Status',
+        status: str(data.status) || 'off',
+        value: values.get(str(data.refCellId)),
+      });
+      break;
+    case 'kitprogress': {
+      const cell = str(data.refCellId);
+      const max = Number(data.max ?? 100) || 100;
+      const format = str(data.format) || 'percent';
+      const raw = typeof values.get(cell) === 'boolean' ? (values.get(cell) ? max : 0) : Number(values.get(cell) ?? 0);
+      const fraction = Number.isFinite(raw) ? Math.max(0, Math.min(1, max === 0 ? 0 : raw / max)) : 0;
+      const pct = Math.round(fraction * 100);
+      const trim = (n: number): string => (Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100));
+      out.push({type: 'progress', label: str(data.label) || 'Progress', pct, readout: format === 'fraction' ? `${trim(raw)} / ${trim(max)}` : `${pct}%`});
+      break;
+    }
+    case 'kitbutton':
+      // A static document can't run the action; show link buttons, drop the rest.
+      if (str(data.action) === 'link' && str(data.url)) out.push({type: 'button', label: str(data.label) || str(data.url), url: str(data.url)});
+      break;
     case 'subpage':
       // An inline link to a nested page; represent as a paragraph mention run.
       out.push({

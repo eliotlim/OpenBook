@@ -2,7 +2,7 @@ import React from 'react';
 import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
-import {computeScope, evalExpr, formatValue} from './scope';
+import {computeScope, evalExpr, formatValue, statusOf} from './scope';
 import {ConfigField, ConfigInput, KitInlineText, NameDescriptionFields} from './KitFrame';
 import {KitSettings} from './KitSettings';
 
@@ -21,20 +21,6 @@ const set = (editor: BlockEditorController, block: BlockMap, key: string, value:
 // The expression decides the colour: booleans → ok/bad; numbers → ok at or
 // above `okAt`, warn at or above `warnAt`, bad below; strings ok/warn/bad
 // pass through. Anything unevaluable shows as neutral.
-
-type Status = 'ok' | 'warn' | 'bad' | 'off';
-
-function statusOf(value: unknown, error: string | undefined, okAt: number, warnAt: number): Status {
-  if (error || value === undefined || value === null) return 'off';
-  if (typeof value === 'boolean') return value ? 'ok' : 'bad';
-  if (typeof value === 'string') return value === 'ok' || value === 'warn' || value === 'bad' ? value : 'off';
-  if (typeof value === 'number') {
-    if (value >= okAt) return 'ok';
-    if (value >= warnAt) return 'warn';
-    return 'bad';
-  }
-  return 'off';
-}
 
 const StatusLightBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const label = blockProp<string>(block, 'label') ?? 'Status';
