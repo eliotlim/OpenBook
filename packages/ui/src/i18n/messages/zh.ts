@@ -380,11 +380,11 @@ export const zh: PartialMessages = {
     },
     taskBoard: {
       name: '项目任务看板',
-      description: '可拖拽的看板，加上实时产能检查与燃尽图，让冲刺不再超额承诺。',
+      description: '带状态、优先级、负责人和工作量的任务——按状态分组的看板，外加表格视图。',
     },
     readingList: {
       name: '阅读清单',
-      description: '书架、年度目标和进度状态灯——登记一本书，进度环随之更新。',
+      description: '按书架分组的书籍画廊——含作者与星级评分，并提供表格视图。',
     },
     projectIntake: {
       name: '项目受理',

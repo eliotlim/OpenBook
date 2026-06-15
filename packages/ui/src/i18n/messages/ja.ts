@@ -380,11 +380,11 @@ export const ja: PartialMessages = {
     },
     taskBoard: {
       name: 'プロジェクトタスクボード',
-      description: 'ドラッグ＆ドロップのボードに、ライブの稼働量チェックとバーンダウン。スプリントの抱え込みを防ぎます。',
+      description: 'ステータス・優先度・担当・工数つきのタスク — ステータスで分けたかんばんボードとテーブル。',
     },
     readingList: {
       name: '読書リスト',
-      description: '本棚・年間目標・ペースライト — 本を記録すると進捗リングが追従します。',
+      description: '本棚ごとに並ぶ本のギャラリー — 著者と星評価つき、テーブルビューも。',
     },
     projectIntake: {
       name: 'プロジェクト受付',

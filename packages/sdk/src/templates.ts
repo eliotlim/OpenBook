@@ -147,172 +147,7 @@ const GROCERY_BLOCKS = [
   {id: 'g-notes-3', type: 'notes', text: [{t: 'Close on the habit, not the app: re-price monthly, shop the cheapest staples, top up fresh locally.'}]},
 ];
 
-// ── 🗂️ Project task board ────────────────────────────────────────────────────
-const TASK_BOARD_BLOCKS = [
-  // Slide 1 — title
-  {id: 't-tag', type: 'paragraph', text: [{t: 'A board to '}, {t: 'see the work', a: {b: true}}, {t: ', plus a live capacity check so the sprint never quietly over-commits.'}]},
-  {id: 't-call', type: 'callout', text: [{t: 'Drag tasks between columns as they move. The capacity light and burndown on the last slide update from the numbers you set.'}], props: {variant: 'info'}},
-  {id: 't-notes-1', type: 'notes', text: [{t: 'Frame it: the board is the “what”, the capacity slide is the “can we actually finish it”.'}]},
-  {id: 't-div-1', type: 'divider'},
-
-  // Slide 2 — the board
-  {id: 't-h2', type: 'heading', text: [{t: 'Sprint board'}], props: {level: 2}},
-  {
-    id: 't-board',
-    type: 'columns',
-    children: [
-      {
-        id: 't-col-backlog',
-        type: 'column',
-        props: {span: 4},
-        children: [
-          {id: 't-bh', type: 'heading', text: [{t: '📋 Backlog'}], props: {level: 3}},
-          {id: 't-b1', type: 'todo', text: [{t: 'Draft the API contract'}], props: {checked: false}},
-          {id: 't-b2', type: 'todo', text: [{t: 'Spike: auth options'}], props: {checked: false}},
-          {id: 't-b3', type: 'todo', text: [{t: 'Write the migration plan'}], props: {checked: false}},
-        ],
-      },
-      {
-        id: 't-col-doing',
-        type: 'column',
-        props: {span: 4},
-        children: [
-          {id: 't-dh', type: 'heading', text: [{t: '🔨 In progress'}], props: {level: 3}},
-          {id: 't-d1', type: 'todo', text: [{t: 'Build the onboarding flow'}], props: {checked: false}},
-          {id: 't-d2', type: 'todo', text: [{t: 'Wire up billing'}], props: {checked: false}},
-        ],
-      },
-      {
-        id: 't-col-done',
-        type: 'column',
-        props: {span: 4},
-        children: [
-          {id: 't-nh', type: 'heading', text: [{t: '✅ Done'}], props: {level: 3}},
-          {id: 't-n1', type: 'todo', text: [{t: 'Set up CI'}], props: {checked: true}},
-          {id: 't-n2', type: 'todo', text: [{t: 'Design review'}], props: {checked: true}},
-        ],
-      },
-    ],
-  },
-  {id: 't-notes-2', type: 'notes', text: [{t: 'Walk the columns left to right; flag anything stuck in progress for more than two days.'}]},
-  {id: 't-div-2', type: 'divider'},
-
-  // Slide 3 — capacity & burndown
-  {id: 't-h3', type: 'heading', text: [{t: 'Capacity & burndown'}], props: {level: 2}},
-  {id: 't-burndown-code', type: 'code', text: [{t: 'const remaining = committed - done;\nreturn {\n  Ideal: [committed, Math.round(committed * 0.8), Math.round(committed * 0.6), Math.round(committed * 0.4), Math.round(committed * 0.2), 0],\n  Actual: [committed, Math.round(committed * 0.85), Math.round(committed * 0.7), Math.round(committed * 0.55), remaining, remaining],\n};'}], props: {live: true, name: 'burndown', language: 'js', collapsed: true}},
-  {id: 't-headline', type: 'code', text: [{t: 'const remaining = committed - done;\nreturn done + " of " + committed + " points done — " + remaining + " to go";'}], props: {live: true, name: 'headline', language: 'js', collapsed: true}},
-  {
-    id: 't-cols',
-    type: 'columns',
-    children: [
-      {
-        id: 't-col-in',
-        type: 'column',
-        props: {span: 5},
-        children: [
-          {id: 't-cap', type: 'number', props: {name: 'capacity', label: 'Team capacity (pts)', value: 20, min: 0, max: 60, step: 1}},
-          {id: 't-com', type: 'number', props: {name: 'committed', label: 'Committed (pts)', value: 24, min: 0, max: 60, step: 1}},
-          {id: 't-done', type: 'slider', props: {name: 'done', label: 'Completed', value: 9, min: 0, max: 60}},
-          {id: 't-btn', type: 'actionbutton', props: {btnlabel: 'Pull in a teammate (+5 capacity)', action: 'increment', target: 'capacity', amount: 5}},
-        ],
-      },
-      {
-        id: 't-col-out',
-        type: 'column',
-        props: {span: 7},
-        children: [
-          {id: 't-status', type: 'statuslight', props: {label: 'Capacity vs commitment', source: 'capacity - committed', okAt: 0, warnAt: -6}},
-          {id: 't-prog', type: 'progressbar', props: {label: 'Sprint progress', source: 'done / committed', max: 1, format: 'percent'}},
-          {id: 't-donut', type: 'kitchart', props: {kind: 'donut', title: 'Done vs remaining', source: '{Done: done, Left: committed - done}'}},
-        ],
-      },
-    ],
-  },
-  {id: 't-line', type: 'kitchart', props: {kind: 'line', title: 'Burndown', source: 'burndown'}},
-  {id: 't-notes-3', type: 'notes', text: [{t: 'If the capacity light is amber, either pull in help (the +5 button) or move a card back to Backlog before committing.'}]},
-];
-
-// ── 📚 Reading list ──────────────────────────────────────────────────────────
-const READING_BLOCKS = [
-  // Slide 1 — title
-  {id: 'r-tag', type: 'paragraph', text: [{t: 'A year of reading, tracked: a '}, {t: 'goal', a: {b: true}}, {t: ', three shelves, and a pace light that tells you if you’re on track.'}]},
-  {id: 'r-call', type: 'callout', text: [{t: 'Set your target, log finished books, and the progress ring and pace light follow along.'}], props: {variant: 'info'}},
-  {id: 'r-notes-1', type: 'notes', text: [{t: 'Personal demo — swap the genres and shelves for your own before sharing.'}]},
-  {id: 'r-div-1', type: 'divider'},
-
-  // Slide 2 — the year
-  {id: 'r-h2', type: 'heading', text: [{t: 'My reading year'}], props: {level: 2}},
-  {id: 'r-headline', type: 'code', text: [{t: 'read + " of " + goal + " books this year (" + Math.round(read / goal * 100) + "%)"'}], props: {live: true, name: 'headline', language: 'js', collapsed: true}},
-  {
-    id: 'r-cols',
-    type: 'columns',
-    children: [
-      {
-        id: 'r-col-l',
-        type: 'column',
-        props: {span: 5},
-        children: [
-          {id: 'r-goal', type: 'number', props: {name: 'goal', label: 'Books this year', value: 24, min: 1, max: 200, step: 1}},
-          {id: 'r-read', type: 'number', props: {name: 'read', label: 'Finished so far', value: 10, min: 0, max: 200, step: 1}},
-          {id: 'r-btn', type: 'actionbutton', props: {btnlabel: 'Log a finished book', action: 'increment', target: 'read', amount: 1}},
-        ],
-      },
-      {
-        id: 'r-col-r',
-        type: 'column',
-        props: {span: 7},
-        children: [
-          {id: 'r-status', type: 'statuslight', props: {label: 'On pace for the year', source: 'read - goal * 0.4', okAt: 0, warnAt: -3}},
-          {id: 'r-prog', type: 'progressbar', props: {label: 'Year goal', source: 'read / goal', max: 1, format: 'percent'}},
-          {id: 'r-donut', type: 'kitchart', props: {kind: 'donut', title: 'Read vs to-go', source: '{Read: read, "To go": Math.max(0, goal - read)}'}},
-        ],
-      },
-    ],
-  },
-  {id: 'r-bar', type: 'kitchart', props: {kind: 'bar', title: 'Books by genre', labels: 'Fiction, Nonfiction, Sci‑fi, History', source: '[4, 3, 2, 1]'}},
-  {id: 'r-notes-2', type: 'notes', text: [{t: 'The pace light assumes a steady read through the year — adjust the 0.4 in the code for a different cadence.'}]},
-  {id: 'r-div-2', type: 'divider'},
-
-  // Slide 3 — shelves
-  {id: 'r-h3', type: 'heading', text: [{t: 'Shelves'}], props: {level: 2}},
-  {
-    id: 'r-shelves',
-    type: 'columns',
-    children: [
-      {
-        id: 'r-sh-reading',
-        type: 'column',
-        props: {span: 4},
-        children: [
-          {id: 'r-rh', type: 'heading', text: [{t: '📖 Reading'}], props: {level: 3}},
-          {id: 'r-r1', type: 'list', text: [{t: 'The Design of Everyday Things — Don Norman'}], props: {kind: 'bullet'}},
-        ],
-      },
-      {
-        id: 'r-sh-next',
-        type: 'column',
-        props: {span: 4},
-        children: [
-          {id: 'r-nh', type: 'heading', text: [{t: '🔖 Up next'}], props: {level: 3}},
-          {id: 'r-n1', type: 'list', text: [{t: 'Thinking, Fast and Slow — Kahneman'}], props: {kind: 'bullet'}},
-          {id: 'r-n2', type: 'list', text: [{t: 'Project Hail Mary — Andy Weir'}], props: {kind: 'bullet'}},
-        ],
-      },
-      {
-        id: 'r-sh-done',
-        type: 'column',
-        props: {span: 4},
-        children: [
-          {id: 'r-fh', type: 'heading', text: [{t: '✅ Finished'}], props: {level: 3}},
-          {id: 'r-f1', type: 'list', text: [{t: 'The Pragmatic Programmer ★★★★★'}], props: {kind: 'bullet'}},
-        ],
-      },
-    ],
-  },
-  {id: 'r-tip', type: 'tooltipcard', props: {term: 'DNF', tip: 'Did not finish — life’s too short for a book you’re not enjoying. Shelve it without guilt.'}},
-  {id: 'r-link', type: 'linkcard', props: {title: 'Find your next read', description: 'Recommendations, shelves, and reviews.', url: 'https://www.goodreads.com'}},
-  {id: 'r-notes-3', type: 'notes', text: [{t: 'Encourage DNF-ing — a tracker should reward finishing the right books, not grinding through the wrong ones.'}]},
-];
+// (🗂️ Project task board and 📚 Reading list are databases — see below.)
 
 // ── 📋 Project intake ────────────────────────────────────────────────────────
 // A guided brief: a gated accordion (each stage unlocks the next) whose
@@ -518,8 +353,87 @@ const SAVINGS_BLOCKS = [
 ];
 
 // ════════════════════════════════════════════════════════════════════════════
-// Databases (swimlane + map e2e fixtures)
+// Databases (the task board, reading list, and the swimlane + map e2e fixtures)
 // ════════════════════════════════════════════════════════════════════════════
+
+// ── 🗂️ Project task board ────────────────────────────────────────────────────
+// A kanban: a `status` property drives the board columns; priority, assignee,
+// due date and a bar-style effort number round it out. Opens on the board.
+const TASK_BOARD_SCHEMA: DatabaseSchema = {
+  properties: [
+    {
+      id: 'p_status',
+      name: 'Status',
+      type: 'status',
+      options: [
+        {id: 'opt_todo', label: 'Backlog', color: 'gray', group: 'todo'},
+        {id: 'opt_doing', label: 'In progress', color: 'blue', group: 'in_progress'},
+        {id: 'opt_done', label: 'Done', color: 'green', group: 'complete'},
+      ],
+    },
+    {
+      id: 'p_priority',
+      name: 'Priority',
+      type: 'select',
+      options: [
+        {id: 'opt_high', label: 'High', color: 'red'},
+        {id: 'opt_med', label: 'Medium', color: 'yellow'},
+        {id: 'opt_low', label: 'Low', color: 'gray'},
+      ],
+    },
+    {id: 'p_assignee', name: 'Assignee', type: 'text'},
+    {id: 'p_due', name: 'Due', type: 'date'},
+    {id: 'p_effort', name: 'Effort', type: 'number', numberDisplay: 'bar', numberTarget: 8},
+  ],
+  views: [
+    // Board first → the page opens as a kanban grouped by status; a table backs it.
+    {id: 'v_board', name: 'Board', type: 'board', filters: [], sorts: [], groupByPropertyId: 'p_status'},
+    {id: 'v_table', name: 'Table', type: 'table', filters: [], sorts: []},
+  ],
+};
+
+const TASK_BOARD_ROWS = [
+  {name: 'Draft the API contract', properties: {p_status: 'opt_doing', p_priority: 'opt_high', p_assignee: 'Ada', p_due: day(2), p_effort: 3}},
+  {name: 'Build the onboarding flow', properties: {p_status: 'opt_doing', p_priority: 'opt_med', p_assignee: 'Lin', p_due: day(4), p_effort: 5}},
+  {name: 'Spike: auth options', properties: {p_status: 'opt_todo', p_priority: 'opt_high', p_assignee: 'Ada', p_due: day(1), p_effort: 2}},
+  {name: 'Write the migration plan', properties: {p_status: 'opt_todo', p_priority: 'opt_low', p_assignee: 'Sam', p_due: day(6), p_effort: 5}},
+  {name: 'Wire up billing', properties: {p_status: 'opt_todo', p_priority: 'opt_med', p_assignee: 'Lin', p_due: day(9), p_effort: 8}},
+  {name: 'Set up CI', properties: {p_status: 'opt_done', p_priority: 'opt_med', p_assignee: 'Sam', p_effort: 3}},
+  {name: 'Design review', properties: {p_status: 'opt_done', p_priority: 'opt_low', p_assignee: 'Ada', p_effort: 1}},
+];
+
+// ── 📚 Reading list ──────────────────────────────────────────────────────────
+// A shelf-grouped gallery of books, with authors and star ratings; a table backs it.
+const READING_SCHEMA: DatabaseSchema = {
+  properties: [
+    {
+      id: 'p_shelf',
+      name: 'Shelf',
+      type: 'select',
+      options: [
+        {id: 'opt_toread', label: 'To read', color: 'gray'},
+        {id: 'opt_reading', label: 'Reading', color: 'blue'},
+        {id: 'opt_done', label: 'Finished', color: 'green'},
+      ],
+    },
+    {id: 'p_author', name: 'Author', type: 'text'},
+    {id: 'p_rating', name: 'Rating', type: 'rating'},
+    {id: 'p_cover', name: 'Cover', type: 'files'},
+  ],
+  views: [
+    {id: 'v_gallery', name: 'Gallery', type: 'gallery', filters: [], sorts: [], groupByPropertyId: 'p_shelf', coverPropertyId: 'p_cover'},
+    {id: 'v_table', name: 'Table', type: 'table', filters: [], sorts: []},
+  ],
+};
+
+const READING_ROWS = [
+  {name: 'The Design of Everyday Things', properties: {p_shelf: 'opt_reading', p_author: 'Don Norman', p_rating: 4}},
+  {name: 'Project Hail Mary', properties: {p_shelf: 'opt_reading', p_author: 'Andy Weir', p_rating: 5}},
+  {name: 'Thinking, Fast and Slow', properties: {p_shelf: 'opt_toread', p_author: 'Daniel Kahneman'}},
+  {name: 'Designing Data-Intensive Applications', properties: {p_shelf: 'opt_toread', p_author: 'Martin Kleppmann'}},
+  {name: 'The Pragmatic Programmer', properties: {p_shelf: 'opt_done', p_author: 'Hunt & Thomas', p_rating: 5}},
+  {name: 'Deep Work', properties: {p_shelf: 'opt_done', p_author: 'Cal Newport', p_rating: 4}},
+];
 
 // ── Product roadmap ──────────────────────────────────────────────────────────
 const ROADMAP_SCHEMA: DatabaseSchema = {
@@ -665,8 +579,8 @@ const createDatabasePage =
 
 export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'grocery-tracker', icon: '🛒', pageName: 'Grocery price tracker', create: createBlockDocPage(GROCERY_BLOCKS)},
-  {id: 'task-board', icon: '🗂️', pageName: 'Project task board', create: createBlockDocPage(TASK_BOARD_BLOCKS)},
-  {id: 'reading-list', icon: '📚', pageName: 'Reading list', create: createBlockDocPage(READING_BLOCKS)},
+  {id: 'task-board', icon: '🗂️', pageName: 'Project task board', create: createDatabasePage(TASK_BOARD_SCHEMA, TASK_BOARD_ROWS)},
+  {id: 'reading-list', icon: '📚', pageName: 'Reading list', create: createDatabasePage(READING_SCHEMA, READING_ROWS)},
   {id: 'project-intake', icon: '📋', pageName: 'Project intake', create: createBlockDocPage(PROJECT_INTAKE_BLOCKS)},
   {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', create: createBlockDocPage(SAVINGS_BLOCKS)},
   {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS)},

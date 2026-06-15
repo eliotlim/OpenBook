@@ -29,8 +29,8 @@ function stubClient(existing: string[]): DataClient {
   } as unknown as DataClient;
 }
 
-const BLOCK_DOC_IDS = ['grocery-tracker', 'task-board', 'reading-list', 'project-intake', 'savings-planner'] as const;
-const DATABASE_IDS = ['roadmap', 'field-map'] as const;
+const BLOCK_DOC_IDS = ['grocery-tracker', 'project-intake', 'savings-planner'] as const;
+const DATABASE_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map'] as const;
 
 /** Run a template against a stub and return the schema it created (database templates). */
 async function schemaOf(id: PageTemplate['id']): Promise<DatabaseSchema> {
@@ -135,20 +135,34 @@ describe('grocery price tracker', () => {
   });
 });
 
-describe('project task board', () => {
-  it('narrates progress and seeds a burndown from capacity/commitment', async () => {
-    const {scope} = computeScope(await docOf('task-board'));
-    expect(String(scope.headline)).toContain('9 of 24 points done');
-    const burndown = scope.burndown as {Ideal: number[]; Actual: number[]};
-    expect(burndown.Ideal[0]).toBe(24);
-    expect(burndown.Ideal[burndown.Ideal.length - 1]).toBe(0);
+describe('project task board (database)', () => {
+  it('opens on a board grouped by status, with a table and seeded rows', async () => {
+    const schema = await schemaOf('task-board');
+    const status = schema.properties.find((p) => p.id === 'p_status')!;
+    expect(status.type).toBe('status');
+    expect(schema.views[0].type).toBe('board'); // the default view is the board
+    const board = schema.views.find((v) => v.type === 'board')!;
+    expect(board.groupByPropertyId).toBe('p_status');
+    expect(schema.views.some((v) => v.type === 'table')).toBe(true);
+
+    const template = PAGE_TEMPLATES.find((t) => t.id === 'task-board') as PageTemplate;
+    const client = stubClient([]);
+    await template.create(client, template.pageName);
+    const rows = (client.createRow as ReturnType<typeof vi.fn>).mock.calls;
+    expect(rows.length).toBeGreaterThanOrEqual(6);
   });
 });
 
-describe('reading list', () => {
-  it('narrates the yearly goal from the counters', async () => {
-    const {scope} = computeScope(await docOf('reading-list'));
-    expect(String(scope.headline)).toContain('10 of 24 books');
+describe('reading list (database)', () => {
+  it('exposes a shelf-grouped gallery with covers, plus a table', async () => {
+    const schema = await schemaOf('reading-list');
+    const shelf = schema.properties.find((p) => p.id === 'p_shelf')!;
+    expect(shelf.type).toBe('select');
+    expect(schema.properties.some((p) => p.type === 'rating')).toBe(true);
+    const gallery = schema.views.find((v) => v.type === 'gallery')!;
+    expect(gallery.groupByPropertyId).toBe('p_shelf');
+    expect(gallery.coverPropertyId).toBe('p_cover');
+    expect(schema.views.some((v) => v.type === 'table')).toBe(true);
   });
 });
 

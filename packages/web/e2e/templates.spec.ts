@@ -54,39 +54,37 @@ test('grocery price tracker: baskets steer the cheapest pick and the budget ligh
   await expect(status).toHaveAttribute('data-status', 'bad');
 });
 
-test('project task board: capacity check flips with the team size', async ({page}) => {
+test('project task board: a kanban database grouped by status', async ({page}) => {
   await hydrated(page);
   await pick(page, 'task-board');
 
   await expect(page.getByLabel('Page title')).toHaveValue(/^Project task board/);
-  // The board's three columns.
-  for (const col of ['Backlog', 'In progress', 'Done']) {
-    await expect(page.getByRole('heading', {name: new RegExp(col)})).toBeVisible();
-  }
-  // Donut + burndown line.
-  await expect(page.locator('.obe-kit-chart')).toHaveCount(2);
-  await expect(page.locator('.obe-code-out', {hasText: 'points done'}).first()).toBeVisible();
+  // Opens on the board with the status columns; a table view backs it.
+  await expect(page.getByRole('button', {name: 'Board', exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Table', exact: true})).toBeVisible();
+  await expect(page.getByText('In progress', {exact: true})).toBeVisible();
+  await expect(page.locator('[data-col-key]').filter({hasText: 'Backlog'}).first()).toBeVisible();
 
-  // capacity 20 < committed 24 → amber; pulling in a teammate (+5) clears it.
-  const status = page.locator('.obe-kit-status');
-  await expect(status).toHaveAttribute('data-status', 'warn');
-  await page.getByRole('button', {name: /Pull in a teammate/}).click();
-  await expect(page.getByLabel('capacity value')).toHaveValue('25');
-  await expect(status).toHaveAttribute('data-status', 'ok');
+  // The table view shows the schema columns and every seeded row.
+  await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await expect(page.getByRole('columnheader', {name: /Priority/})).toBeVisible();
+  await expect(page.getByRole('columnheader', {name: /Due/})).toBeVisible();
+  await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(7);
 });
 
-test('reading list: logging a book moves the year goal', async ({page}) => {
+test('reading list: a shelf-grouped gallery database', async ({page}) => {
   await hydrated(page);
   await pick(page, 'reading-list');
 
   await expect(page.getByLabel('Page title')).toHaveValue(/^Reading list/);
-  await expect(page.locator('.obe-kit-chart')).toHaveCount(2); // read-vs-to-go donut + genre bar
-  await expect(page.locator('.obe-kit-status')).toHaveAttribute('data-status', 'ok');
-  await expect(page.locator('.obe-code-out', {hasText: 'of 24 books'}).first()).toBeVisible();
+  // Opens on the gallery; a table view backs it.
+  await expect(page.getByRole('button', {name: 'Gallery', exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Table', exact: true})).toBeVisible();
 
-  // Log a finished book → the counter steps and the narration follows.
-  await page.getByRole('button', {name: 'Log a finished book'}).click();
-  await expect(page.getByLabel('read value')).toHaveValue('11');
+  // The table view lists every seeded book with its author column.
+  await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await expect(page.getByRole('columnheader', {name: /Author/})).toBeVisible();
+  await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(6);
 });
 
 test('project intake: a gated wizard with a live prioritisation', async ({page}) => {
@@ -119,13 +117,20 @@ test('savings & investing: sliders steer a live compounding projection', async (
   await expect(page.locator('.obe-code-out', {hasText: 'After 30 years'}).first()).toBeVisible();
 });
 
-test('instantiating a template twice suffixes the page name (names are unique)', async ({page}) => {
+test('instantiating a template twice suffixes the page and row names (names are unique)', async ({page}) => {
+  // A database template is the hard case: its sample-row pages share the
+  // workspace-unique name space too, so both runs must fully materialize.
   await hydrated(page);
-  await pick(page, 'grocery-tracker');
-  await expect(page.getByLabel('Page title')).toHaveValue(/^Grocery price tracker/);
+  await pick(page, 'task-board');
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Project task board/);
   const first = await page.getByLabel('Page title').inputValue();
+  await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(7);
 
-  await pick(page, 'grocery-tracker');
+  await pick(page, 'task-board');
   await expect(page.getByLabel('Page title')).not.toHaveValue(first);
-  await expect(page.getByLabel('Page title')).toHaveValue(/^Grocery price tracker \d+$/);
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Project task board \d+$/);
+  // The second copy carries all seven sample rows despite the name collisions.
+  await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(7);
 });

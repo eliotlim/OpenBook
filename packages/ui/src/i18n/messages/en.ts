@@ -515,11 +515,11 @@ export const en = {
     },
     taskBoard: {
       name: 'Project task board',
-      description: 'A drag-and-drop board plus a live capacity check and burndown, so the sprint never over-commits.',
+      description: 'Tasks with status, priority, owner and effort — a kanban board grouped by status, plus a table.',
     },
     readingList: {
       name: 'Reading list',
-      description: 'Shelves, a yearly goal, and a pace light — log a book and the progress ring follows.',
+      description: 'A gallery of books grouped by shelf, with authors and star ratings — plus a table view.',
     },
     projectIntake: {
       name: 'Project intake',

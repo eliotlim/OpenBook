@@ -380,11 +380,11 @@ export const de: PartialMessages = {
     },
     taskBoard: {
       name: 'Projekt-Aufgabenboard',
-      description: 'Ein Drag-and-drop-Board plus Live-Kapazitätscheck und Burndown, damit der Sprint sich nie übernimmt.',
+      description: 'Aufgaben mit Status, Priorität, Verantwortlichem und Aufwand — ein Kanban-Board nach Status, plus Tabelle.',
     },
     readingList: {
       name: 'Leseliste',
-      description: 'Regale, ein Jahresziel und eine Tempo-Leuchte — ein Buch eintragen, der Fortschrittsring folgt.',
+      description: 'Eine Galerie von Büchern nach Regal, mit Autoren und Sternebewertungen — plus Tabellenansicht.',
     },
     projectIntake: {
       name: 'Projektaufnahme',
