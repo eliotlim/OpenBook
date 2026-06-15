@@ -59,6 +59,6 @@ export default function BreadcrumbCluster() {
 }
 
 const cnCrumb = (last: boolean): string =>
-  `flex min-w-0 max-w-[200px] items-center gap-1.5 rounded px-1.5 py-0.5 transition-colors hover:bg-accent ${
+  `flex min-w-0 max-w-[200px] items-center gap-1.5 rounded px-1.5 py-0.5 transition-colors hover:bg-hover ${
     last ? 'text-foreground' : 'text-foreground/60'
   }`;

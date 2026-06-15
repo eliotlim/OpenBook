@@ -62,7 +62,7 @@ export const KitSettings: React.FC<{
             <span className="text-sm font-semibold">{title || 'Settings'}</span>
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
               aria-label="Expand to side panel"
               onClick={() => {
                 setOpen(false);

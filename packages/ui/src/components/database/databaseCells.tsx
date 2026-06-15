@@ -285,7 +285,7 @@ export function parseCsv(text: string): string[][] {
    focused — a table of mostly-empty cells reads as calm whitespace, not a grid
    of grey "Empty" labels. Rows (and the page property panel) carry `group`. */
 const inputClass =
-  'w-full bg-transparent px-2 py-1 text-sm outline-hidden placeholder:text-muted-foreground/40 placeholder:opacity-0 placeholder:transition-opacity group-hover:placeholder:opacity-100 focus:placeholder:opacity-100 focus:bg-accent/40';
+  'w-full bg-transparent px-2 py-1 text-sm outline-hidden placeholder:text-muted-foreground/40 placeholder:opacity-0 placeholder:transition-opacity group-hover:placeholder:opacity-100 focus:placeholder:opacity-100 focus:bg-hover';
 
 /** The hover-revealed "Empty" label for button-style cells (select, date…). */
 const emptyHint = 'text-muted-foreground/40 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100';
@@ -523,7 +523,7 @@ const VerificationCell: React.FC<{value: unknown; onChange: (value: unknown) => 
     <button
       type="button"
       onClick={toggle}
-      className="flex w-full items-center px-2 py-1 text-left hover:bg-accent/40"
+      className="flex w-full items-center px-2 py-1 text-left hover:bg-hover"
       title={verified && (value as VerificationValue).by ? `Verified by ${(value as VerificationValue).by}` : 'Toggle verification'}
     >
       <VerificationBadge value={value} />
@@ -557,7 +557,7 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
     return (
       <button
         onClick={() => setEditing(true)}
-        className="flex w-full items-center px-2 py-1 text-left text-sm outline-hidden hover:bg-accent/30"
+        className="flex w-full items-center px-2 py-1 text-left text-sm outline-hidden hover:bg-hover"
         aria-label={property.name}
       >
         {text || <span className={emptyHint}>Empty</span>}
@@ -601,7 +601,7 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
         required={!start}
         defaultValue={start ?? ''}
         onChange={(e) => emit({start: e.target.value || null, end})}
-        className="ob-date-empty bg-transparent py-1 outline-hidden focus:bg-accent/40"
+        className="ob-date-empty bg-transparent py-1 outline-hidden focus:bg-hover"
         aria-label={`${property.name} start`}
       />
       {/* Visible whenever either end has a value, otherwise only on hover/edit. */}
@@ -611,7 +611,7 @@ const DateCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: 
         required={!end}
         defaultValue={end ?? ''}
         onChange={(e) => emit({start, end: e.target.value || null})}
-        className="ob-date-empty bg-transparent py-1 outline-hidden focus:bg-accent/40"
+        className="ob-date-empty bg-transparent py-1 outline-hidden focus:bg-hover"
         aria-label={`${property.name} end`}
       />
     </div>
@@ -655,7 +655,7 @@ const DependencyCell: React.FC<{
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
             aria-label="Add dependency"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -690,7 +690,7 @@ const DependencyCell: React.FC<{
                   onChange([...ids, o.id]);
                   setQuery('');
                 }}
-                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-accent"
+                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-hover"
               >
                 {o.icon && <span className="leading-none">{o.icon}</span>}
                 <span className="truncate">{o.label}</span>
@@ -764,7 +764,7 @@ const FilesCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> 
       )}
       <Popover>
         <PopoverTrigger asChild>
-          <button type="button" className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Add file">
+          <button type="button" className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Add file">
             <Plus className="h-3.5 w-3.5" />
           </button>
         </PopoverTrigger>
@@ -860,7 +860,7 @@ const LocationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="group flex w-full items-center gap-1.5 px-2 py-1 text-left text-sm transition-colors hover:bg-accent/40"
+          className="group flex w-full items-center gap-1.5 px-2 py-1 text-left text-sm transition-colors hover:bg-hover"
           aria-label="Location"
         >
           <MapPin className="h-3.5 w-3.5 shrink-0 text-muted-foreground/70" />
@@ -932,7 +932,7 @@ const MultiSelectCell: React.FC<PropertyValueCellProps> = ({property, value, onC
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex min-h-[28px] w-full flex-wrap items-center gap-1 px-2 py-1 text-left text-sm hover:bg-accent/40">
+        <button className="flex min-h-[28px] w-full flex-wrap items-center gap-1 px-2 py-1 text-left text-sm hover:bg-hover">
           {selected.length > 0 ? (
             selected.map((o) => <SelectChip key={o.id} option={o} />)
           ) : (
@@ -1019,7 +1019,7 @@ const RelationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
             aria-label="Link a page"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -1040,7 +1040,7 @@ const RelationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
                 key={r.id}
                 type="button"
                 onClick={() => add(r.id)}
-                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-accent"
+                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-hover"
               >
                 <span className="leading-none">{r.icon}</span>
                 <span className="truncate">{r.label}</span>
@@ -1066,7 +1066,7 @@ const SelectCell: React.FC<PropertyValueCellProps> = ({property, value, onChange
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex w-full items-center justify-between gap-1 px-2 py-1 text-left text-sm hover:bg-accent/40">
+        <button className="flex w-full items-center justify-between gap-1 px-2 py-1 text-left text-sm hover:bg-hover">
           {selected ? <SelectChip option={selected} /> : <span className={emptyHint}>Empty</span>}
           <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" />
         </button>
@@ -1134,7 +1134,7 @@ const StatusCell: React.FC<{property: DatabaseProperty; value: unknown; onChange
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="flex w-full items-center justify-between gap-1 px-2 py-1 text-left text-sm hover:bg-accent/40">
+        <button className="flex w-full items-center justify-between gap-1 px-2 py-1 text-left text-sm hover:bg-hover">
           {selected ? (
             <span className="inline-flex items-center gap-1.5 text-xs">
               {dot(selected.color)}

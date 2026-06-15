@@ -37,6 +37,13 @@
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
 
+  /* The interactive highlight: a translucent tint of the accent colour (the
+     same one the sidebar items use), so hover/focus states across the whole
+     interface read as the theme colour rather than a flat neutral gray.
+     `--hover` already carries its alpha, so `bg-hover` needs no /opacity. */
+  --color-hover: var(--hover);
+  --color-hover-strong: var(--hover-strong);
+
   --color-popover: hsl(var(--popover));
   --color-popover-foreground: hsl(var(--popover-foreground));
 
@@ -133,6 +140,10 @@
     --muted-foreground: 40 3% 48%;
     --accent: 40 12% 93%;
     --accent-foreground: 34 9% 19%;
+    /* Accent-derived interactive highlight (see --color-hover). Mirrors the
+       sidebar's hover/active tints so the whole UI highlights consistently. */
+    --hover: hsl(var(--primary) / 0.1);
+    --hover-strong: hsl(var(--primary) / 0.15);
     --destructive: 4 74% 53%;
     --destructive-foreground: 0 0% 100%;
     --border: 40 8% 90%;
@@ -177,6 +188,8 @@
     --muted-foreground: 0 0% 56%;
     --accent: 0 0% 22%;
     --accent-foreground: 0 0% 86%;
+    --hover: hsl(var(--primary) / 0.2);
+    --hover-strong: hsl(var(--primary) / 0.25);
     --destructive: 4 58% 52%;
     --destructive-foreground: 0 0% 100%;
     --border: 0 0% 22%;
@@ -1041,7 +1054,7 @@ a.obe-mention {
   border-radius: 6px;
   padding: 0 2px;
 }
-.obe-callout-icon:hover { background: hsl(var(--accent)); }
+.obe-callout-icon:hover { background: var(--hover); }
 .obe-divider {
   flex: 1;
   border: 0;
@@ -1161,7 +1174,7 @@ a.obe-mention {
   cursor: pointer;
   transition: background 120ms, color 120ms;
 }
-.ob-present-modebtn:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.ob-present-modebtn:hover { background: var(--hover); color: hsl(var(--foreground)); }
 
 /* Bottom navigation. */
 .ob-present-controls { display: flex; align-items: center; justify-content: center; gap: 1rem; padding: 0.75rem; }
@@ -1240,6 +1253,19 @@ a.obe-mention {
   line-height: 1.55;
 }
 
+/* Syntax-highlight tokens (blockeditor/highlight.ts). The tokenizer only wraps
+   runs in these spans — never alters the character stream — so highlighting is
+   purely cosmetic and the caret math is untouched. */
+.obe-tok-com { color: hsl(var(--muted-foreground)); font-style: italic; }
+.obe-tok-kw { color: hsl(265 60% 46%); }
+.obe-tok-str { color: hsl(140 46% 32%); }
+.obe-tok-num { color: hsl(28 78% 42%); }
+.obe-tok-lit { color: hsl(210 72% 45%); }
+.dark .obe-tok-kw { color: hsl(264 72% 78%); }
+.dark .obe-tok-str { color: hsl(140 48% 66%); }
+.dark .obe-tok-num { color: hsl(30 80% 66%); }
+.dark .obe-tok-lit { color: hsl(208 78% 70%); }
+
 /* Columns: a 12-col grid that collapses on small screens */
 .obe-columns {
   flex: 1;
@@ -1294,7 +1320,7 @@ a.obe-mention {
   color: hsl(var(--muted-foreground));
   transition: color 120ms, background 120ms;
 }
-.obe-group-btn:hover:not(:disabled) { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.obe-group-btn:hover:not(:disabled) { color: hsl(var(--foreground)); background: var(--hover); }
 .obe-group-btn-on { color: hsl(var(--primary)); }
 .obe-group-btn:disabled { opacity: 0.4; cursor: default; }
 .obe-group-body { padding: 0.35rem 0.6rem; }
@@ -1332,7 +1358,7 @@ a.obe-mention {
   cursor: pointer;
 }
 .obe-table-wrap:hover .obe-table-add { opacity: 1; }
-.obe-table-add:hover { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.obe-table-add:hover { background: var(--hover); color: hsl(var(--foreground)); }
 .obe-table-add-row { left: 0; right: 1.4rem; bottom: 0.1rem; height: 1.1rem; }
 .obe-table-add-col { top: 2px; bottom: 1.4rem; right: 0.1rem; width: 1.1rem; }
 .obe-table-tools {
@@ -1352,7 +1378,7 @@ a.obe-mention {
   padding: 1px 7px;
   cursor: pointer;
 }
-.obe-table-tools button:hover { background: hsl(var(--accent)); }
+.obe-table-tools button:hover { background: var(--hover); }
 .obe-table-tools button[aria-pressed='true'] { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
 
 /* Slash menu */
@@ -1450,7 +1476,7 @@ a.obe-mention {
   cursor: pointer;
   padding: 0 0.35rem;
 }
-.obe-tb-btn:hover { background: hsl(var(--accent)); }
+.obe-tb-btn:hover { background: var(--hover); }
 .obe-tb-on { background: hsl(var(--accent)); color: hsl(var(--primary)); }
 .obe-tb-bold { font-weight: 700; }
 .obe-tb-italic { font-style: italic; }
@@ -1856,7 +1882,7 @@ a.obe-mention {
   cursor: pointer;
   transition: background 120ms, color 120ms;
 }
-.obe-kit-stepper button:hover:not(:disabled) { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.obe-kit-stepper button:hover:not(:disabled) { background: var(--hover); color: hsl(var(--foreground)); }
 .obe-kit-stepper input {
   width: 4.5rem;
   text-align: center;
@@ -2293,7 +2319,7 @@ a.obe-mention {
   color: hsl(var(--muted-foreground));
   cursor: pointer;
 }
-.obe-kit-tag-x:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.obe-kit-tag-x:hover { color: hsl(var(--foreground)); background: var(--hover); }
 .obe-kit-tag-entry { flex: 1; min-width: 4rem; }
 .obe-kit-tag-input {
   width: 100%;
@@ -2360,7 +2386,7 @@ a.obe-mention {
   cursor: pointer;
   transition: all 120ms;
 }
-.obe-cnt-add:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.obe-cnt-add:hover { color: hsl(var(--foreground)); background: var(--hover); }
 
 .obe-tabs-strip { display: flex; align-items: center; gap: 0.2rem; flex-wrap: wrap; flex: 1; }
 .obe-tab {
@@ -2376,7 +2402,7 @@ a.obe-mention {
   cursor: pointer;
   transition: all 120ms;
 }
-.obe-tab:hover:not(:disabled) { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.obe-tab:hover:not(:disabled) { background: var(--hover); color: hsl(var(--foreground)); }
 .obe-tab-on {
   background: hsl(var(--card));
   border-color: hsl(var(--border));
@@ -2402,7 +2428,7 @@ a.obe-mention {
   border-radius: 5px;
   cursor: pointer;
 }
-.obe-acc-toggle:hover:not(:disabled) { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
+.obe-acc-toggle:hover:not(:disabled) { color: hsl(var(--foreground)); background: var(--hover); }
 .obe-acc-toggle:disabled { opacity: 0.5; cursor: default; }
 .obe-acc-label { font-size: 0.9rem; font-weight: 550; }
 .obe-acc-body { padding: 0.1rem 0.6rem 0.5rem 1.7rem; }
@@ -2453,7 +2479,7 @@ a.obe-mention {
   cursor: pointer;
   transition: color 120ms, background 120ms, border-color 120ms;
 }
-.obe-code-btn:hover:not(:disabled) { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+.obe-code-btn:hover:not(:disabled) { background: var(--hover); color: hsl(var(--foreground)); }
 .obe-code-btn:disabled { opacity: 0.45; cursor: default; }
 /* The shared kit gear floats top-right on other blocks; in the code toolbar it
    flows inline as the last action and stays visible. */

@@ -8,10 +8,10 @@ import { cn } from "@/lib/utils"
  * The muted ghost icon button used throughout the chrome (sidebar, toolbars,
  * page actions, pane controls). One definition so every small icon control has
  * the same hover, radius, focus ring, and muted-by-default color — instead of
- * the `rounded p-1 … hover:bg-accent` snippet copy-pasted per call site.
+ * the `rounded p-1 … hover:bg-hover` snippet copy-pasted per call site.
  */
 const iconButtonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-hover hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       size: {

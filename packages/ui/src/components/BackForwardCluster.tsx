@@ -7,7 +7,7 @@ export default function BackForwardCluster() {
   const {t} = useTranslation();
 
   const buttonClass =
-    'flex h-7 w-7 items-center justify-center text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:text-muted-foreground/35';
+    'flex h-7 w-7 items-center justify-center text-muted-foreground transition-colors hover:bg-hover hover:text-foreground disabled:pointer-events-none disabled:text-muted-foreground/35';
 
   return (
     <div className="flex items-center overflow-hidden rounded-md">

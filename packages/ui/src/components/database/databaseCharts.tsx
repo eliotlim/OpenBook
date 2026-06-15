@@ -106,7 +106,7 @@ const DrillPanel: React.FC<{db: UseDatabase; drill: NonNullable<Drill>; onClose:
       <button
         onClick={onClose}
         aria-label="Close drill-down"
-        className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        className="shrink-0 cursor-pointer rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
       >
         <X className="h-3.5 w-3.5" />
       </button>
@@ -117,7 +117,7 @@ const DrillPanel: React.FC<{db: UseDatabase; drill: NonNullable<Drill>; onClose:
         <button
           key={row.id}
           onClick={() => db.openRow(row.id)}
-          className="flex w-full cursor-pointer items-center gap-2 border-b border-border/60 px-3 py-1.5 text-left text-sm last:border-0 hover:bg-accent/40"
+          className="flex w-full cursor-pointer items-center gap-2 border-b border-border/60 px-3 py-1.5 text-left text-sm last:border-0 hover:bg-hover"
         >
           <span className="shrink-0 text-base leading-none">{readPageIcon(row.id)}</span>
           <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
@@ -408,7 +408,7 @@ export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
                               title={`${s.label || '—'}: ${fmt(seg.value)}`}
                               className={cn(
                                 'flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors',
-                                hoverKey === sk ? 'bg-accent text-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-accent hover:text-foreground',
+                                hoverKey === sk ? 'bg-accent text-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-hover hover:text-foreground',
                               )}
                             >
                               <span className="h-2 w-2 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si)}} />

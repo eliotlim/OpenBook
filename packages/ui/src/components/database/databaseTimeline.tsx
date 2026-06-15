@@ -438,7 +438,7 @@ export const TimelineView: React.FC<{
                 <button
                   onClick={() => toggleBand(g.key)}
                   aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${g.label} band`}
-                  className="flex w-full items-center gap-1 border-b border-border/60 bg-muted/20 px-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground"
+                  className="flex w-full items-center gap-1 border-b border-border/60 bg-muted/20 px-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
                   style={{height: BAND_H}}
                 >
                   <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
@@ -452,7 +452,7 @@ export const TimelineView: React.FC<{
                   <RowContextMenu key={row.id} db={db} rowId={row.id}>
                     <button
                       onClick={() => db.openRow(row.id)}
-                      className="flex w-full flex-col justify-center gap-0.5 border-b border-border/60 px-2 text-left text-sm last:border-0 hover:bg-accent/30"
+                      className="flex w-full flex-col justify-center gap-0.5 border-b border-border/60 px-2 text-left text-sm last:border-0 hover:bg-hover"
                       style={{height: rowH}}
                     >
                       <span className="flex w-full items-center gap-1.5">
@@ -514,7 +514,7 @@ export const TimelineView: React.FC<{
 const NewRowButton: React.FC<{onClick: () => void}> = ({onClick}) => (
   <button
     onClick={onClick}
-    className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
   >
     <Plus className="h-4 w-4" /> New row
   </button>

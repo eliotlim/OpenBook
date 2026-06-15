@@ -5,6 +5,7 @@ import {DialogPortal} from '@/components/ui/dialog';
 import {useHud, useNavigation} from '@/providers';
 import {openDoc, subscribeOpenDocs} from '@/lib/openDocs';
 import {readPageIcon} from '@/lib/pageIcon';
+import {usePageThemeStyle} from '@/components/appearance/PageCustomiseBody';
 import {splitSlides} from '@/blockeditor/present';
 import {PresentBlocks} from '@/blockeditor/PresentBlocks';
 import type {PresentMode as PresentModeKind} from '@/lib/hud';
@@ -48,6 +49,10 @@ const Deck: React.FC<{
 }> = ({pageId, mode, onClose, onSetMode}) => {
   const {pageLabel} = useNavigation();
   const rootRef = useRef<HTMLDivElement>(null);
+  // The deck adopts the page's own appearance override first; where the page
+  // sets nothing it stays undefined, so the overlay inherits the global theme
+  // from the document root (the portal lives under it).
+  const themeStyle = usePageThemeStyle(pageId ?? '');
 
   // Track the live doc (it may register a tick after the overlay opens) and
   // re-split when its structure changes (a divider added mid-present).
@@ -165,7 +170,7 @@ const Deck: React.FC<{
 
   if (mode === 'presenter') {
     return (
-      <div ref={rootRef} className="ob-present ob-present-presenter">
+      <div ref={rootRef} className="ob-present ob-present-presenter" style={themeStyle}>
         <main className="ob-present-main">
           {stage}
           {controls}
@@ -200,7 +205,7 @@ const Deck: React.FC<{
 
   // Full screen: immersive; the top bar + controls fade in on hover.
   return (
-    <div ref={rootRef} className="ob-present ob-present-full" onClick={(e) => advanceOnBackground(e, () => go(1))}>
+    <div ref={rootRef} className="ob-present ob-present-full" style={themeStyle} onClick={(e) => advanceOnBackground(e, () => go(1))}>
       {topbar}
       {stage}
       {controls}

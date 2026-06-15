@@ -243,7 +243,7 @@ function importCsvFile(importCsv: (text: string) => Promise<number>): void {
 
 const fieldClass = 'rounded border border-border bg-background px-1.5 py-1 text-sm outline-hidden';
 const toolButtonClass =
-  'flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground';
+  'flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground';
 const sectionLabel = 'text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70';
 
 /** The `+` column header: add a new property to the database. */
@@ -287,7 +287,7 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
-          className="flex h-full w-full items-center justify-center px-2 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          className="flex h-full w-full items-center justify-center px-2 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
           aria-label="Add column"
           title="Add a column"
         >
@@ -586,7 +586,7 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button
-          className="rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-accent hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
+          className="rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-hover hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
           aria-label="Property options"
         >
           <MoreHorizontal className="h-3.5 w-3.5" />
@@ -949,7 +949,7 @@ const GroupEditor: React.FC<{
             <button
               key={c}
               onClick={() => onChange({...group, conjunction: c})}
-              className={cn('px-2 py-0.5 transition-colors', group.conjunction === c ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/40')}
+              className={cn('px-2 py-0.5 transition-colors', group.conjunction === c ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-hover')}
             >
               {c === 'and' ? 'All' : 'Any'}
             </button>
@@ -1175,7 +1175,7 @@ const ColorRuleRow: React.FC<{db: UseDatabase; view: DatabaseView; rule: ColorRu
           </option>
         ))}
       </select>
-      <button onClick={remove} aria-label="Remove rule" className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground">
+      <button onClick={remove} aria-label="Remove rule" className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground">
         <X className="h-3.5 w-3.5" />
       </button>
     </div>
@@ -1371,7 +1371,7 @@ export const FilterChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db
             <span className="max-w-[16rem] truncate text-muted-foreground" title={filterChipText(f, properties)}>
               {filterChipText(f, properties)}
             </span>
-            <button onClick={() => removeLeaf(f.id)} aria-label="Remove filter" className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground">
+            <button onClick={() => removeLeaf(f.id)} aria-label="Remove filter" className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground">
               <X className="h-3 w-3" />
             </button>
           </span>
@@ -1411,7 +1411,7 @@ export const SortChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, 
             <span className="max-w-[12rem] truncate">{name(sort.propertyId)}</span>
             {sort.direction === 'asc' ? <ArrowDownAZ className="h-3 w-3 shrink-0" /> : <ArrowUpAZ className="h-3 w-3 shrink-0" />}
           </button>
-          <button onClick={() => remove(i)} aria-label="Remove sort" className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground">
+          <button onClick={() => remove(i)} aria-label="Remove sort" className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground">
             <X className="h-3 w-3" />
           </button>
         </span>
@@ -1424,7 +1424,7 @@ export const SortChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, 
 export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = ({onAdd}) => (
   <DropdownMenu>
     <DropdownMenuTrigger asChild>
-      <button className="flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground" aria-label="Add view">
+      <button className="flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Add view">
         <Plus className="h-3.5 w-3.5" />
       </button>
     </DropdownMenuTrigger>
@@ -1550,7 +1550,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                 title={label}
                 className={cn(
                   'flex flex-col items-center gap-1 rounded border px-1 py-1.5 text-[10px] transition-colors',
-                  view.type === value ? 'border-brand/50 bg-accent text-foreground' : 'border-border text-muted-foreground hover:bg-accent/50',
+                  view.type === value ? 'border-brand/50 bg-accent text-foreground' : 'border-border text-muted-foreground hover:bg-hover',
                 )}
               >
                 <Icon className="h-4 w-4" />
@@ -1827,7 +1827,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
             <div className={cn(sectionLabel, 'mb-1')}>Properties</div>
             <div className="max-h-40 space-y-0.5 overflow-y-auto">
               {properties.map((p) => (
-                <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-accent/40">
+                <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-hover">
                   <input type="checkbox" checked={isVisible(p.id)} onChange={() => toggleVisible(p.id)} className="h-3.5 w-3.5 accent-primary" />
                   <span className="truncate">{p.name}</span>
                 </label>

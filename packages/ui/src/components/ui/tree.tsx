@@ -332,9 +332,9 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttrib
         onDragEnd={dnd.enabled ? dnd.onDragEnd : undefined}
         style={{ paddingLeft: depth * 12 + 4 }}
         className={cn(
-          "group/row flex items-center mx-1 py-1 pr-1.5 rounded-md cursor-pointer text-sm text-foreground/75 transition-colors hover:bg-accent",
-          isSelected && "bg-accent text-foreground font-medium",
-          where === "inside" && "ring-2 ring-inset ring-primary bg-accent",
+          "group/row flex items-center mx-1 py-1 pr-1.5 rounded-md cursor-pointer text-sm text-foreground/75 transition-colors hover:bg-hover",
+          isSelected && "bg-hover-strong text-foreground font-medium",
+          where === "inside" && "ring-2 ring-inset ring-primary bg-hover",
           isDragged && "opacity-50",
         )}
       >

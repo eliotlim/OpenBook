@@ -80,7 +80,7 @@ function ProfileChip({onClick}: {onClick: () => void}) {
     <button
       type="button"
       onClick={onClick}
-      className="mt-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
+      className="mt-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-hover"
     >
       <ProfileAvatar profile={profile} className="h-7 w-7 text-[11px] [&[data-avatar-kind=emoji]]:text-base" />
       <span className="truncate text-sm font-medium">{name}</span>

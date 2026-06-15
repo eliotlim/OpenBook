@@ -174,7 +174,7 @@ export default function TrashDialog() {
                 return (
                   <li
                     key={item.id}
-                    className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-accent/50"
+                    className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-hover"
                   >
                     <Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">

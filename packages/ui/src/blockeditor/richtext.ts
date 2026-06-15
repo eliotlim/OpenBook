@@ -1,6 +1,7 @@
 import type * as Y from 'yjs';
 import type {InlineAttrs} from './model';
 import {isColorToken} from './colors';
+import {escapeAttr, escapeText, highlightCode} from './highlight';
 
 /**
  * The DOM half of text editing: rendering Y.Text runs into a contenteditable
@@ -11,16 +12,19 @@ import {isColorToken} from './colors';
  * a caret is always "the number of characters before it".
  */
 
-const escapeHtml = (s: string): string =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-/** Render Y.Text (or a delta) to the innerHTML of a text block. */
-export function runsToHtml(text: Y.Text): string {
+/**
+ * Render Y.Text (or a delta) to the innerHTML of a text block. For code blocks
+ * (`opts.code`) the text carries no inline attributes, so it goes straight
+ * through the syntax highlighter — which, like this path, only wraps runs and
+ * preserves the exact character stream (newlines as `<br>`).
+ */
+export function runsToHtml(text: Y.Text, opts?: {code?: boolean; language?: string}): string {
+  if (opts?.code) return highlightCode(text.toString(), opts.language);
   const delta = text.toDelta() as {insert: string; attributes?: InlineAttrs}[];
   if (delta.length === 0) return '';
   let html = '';
   for (const op of delta) {
-    let piece = escapeHtml(op.insert).replace(/\n/g, '<br>');
+    let piece = escapeText(op.insert);
     const a = op.attributes ?? {};
     if (a.c) piece = `<code class="obe-code">${piece}</code>`;
     if (a.b) piece = `<strong>${piece}</strong>`;
@@ -29,8 +33,8 @@ export function runsToHtml(text: Y.Text): string {
     if (a.s) piece = `<s>${piece}</s>`;
     if (isColorToken(a.tc)) piece = `<span class="obe-fg-${a.tc}">${piece}</span>`;
     if (isColorToken(a.hl)) piece = `<span class="obe-hl-${a.hl}">${piece}</span>`;
-    if (a.m) piece = `<a class="obe-mention" data-page-id="${escapeHtml(a.m)}" contenteditable="false">${piece}</a>`;
-    else if (a.a) piece = `<a class="obe-link" href="${escapeHtml(a.a)}" target="_blank" rel="noreferrer">${piece}</a>`;
+    if (a.m) piece = `<a class="obe-mention" data-page-id="${escapeAttr(a.m)}" contenteditable="false">${piece}</a>`;
+    else if (a.a) piece = `<a class="obe-link" href="${escapeAttr(a.a)}" target="_blank" rel="noreferrer">${piece}</a>`;
     html += piece;
   }
   return html;

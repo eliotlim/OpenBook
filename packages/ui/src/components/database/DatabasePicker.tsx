@@ -35,7 +35,7 @@ const DatabasePicker: React.FC<{onPick: (pageId: string) => void; onBack: () => 
             key={p.id}
             type="button"
             onClick={() => onPick(p.id)}
-            className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+            className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-hover"
           >
             <span className="shrink-0 leading-none">{readPageIcon(p.id)}</span>
             <span className="truncate">{p.name?.trim() || pageLabel(p.id)}</span>
@@ -73,14 +73,14 @@ export const InlineDatabaseChooser: React.FC<{onCreate: () => void; onPick: (pag
         <div className="flex flex-col gap-1">
           <button
             onClick={onCreate}
-            className="flex items-center gap-2 rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+            className="flex items-center gap-2 rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-hover"
           >
             <Plus className="h-4 w-4 text-muted-foreground" />
             New database
           </button>
           <button
             onClick={() => setLinking(true)}
-            className="flex items-center gap-2 rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+            className="flex items-center gap-2 rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-hover"
           >
             <Link2 className="h-4 w-4 text-muted-foreground" />
             Link existing database

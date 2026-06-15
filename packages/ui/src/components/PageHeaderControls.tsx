@@ -54,7 +54,7 @@ export function PageHeaderControls({pageId}: {pageId: string}) {
         <CoverPicker pageId={pageId}>
           <button
             type="button"
-            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
           >
             <ImageIcon className="h-3.5 w-3.5" />
             {t('page.addCover')}

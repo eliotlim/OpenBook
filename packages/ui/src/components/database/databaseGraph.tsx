@@ -80,7 +80,7 @@ export const GraphView: React.FC<{db: UseDatabase; view: DbView; properties: Dat
             <button
               key={n.id}
               onClick={() => db.openRow(n.id)}
-              className="absolute flex flex-col justify-center gap-0.5 rounded-md border border-border bg-card px-2.5 text-left shadow-sm transition-colors hover:border-foreground/30 hover:bg-accent/30"
+              className="absolute flex flex-col justify-center gap-0.5 rounded-md border border-border bg-card px-2.5 text-left shadow-sm transition-colors hover:border-foreground/30 hover:bg-hover"
               style={{left: p.x, top: p.y, width: NODE_W, height: NODE_H}}
               title={row?.name?.trim() || 'Untitled'}
             >

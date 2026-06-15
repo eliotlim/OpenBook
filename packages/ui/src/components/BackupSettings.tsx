@@ -208,7 +208,7 @@ function RestoreDialog({
         <ul className="max-h-64 overflow-y-auto rounded-md border border-border">
           {roots.map((p) => (
             <li key={p.id}>
-              <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-accent">
+              <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-hover">
                 <input type="checkbox" className="cursor-pointer" checked={checked.has(p.id)} onChange={() => toggle(p.id)} />
                 <span className="text-base leading-none">{bundle.icons?.[p.id] ?? DEFAULT_PAGE_ICON}</span>
                 <span className="truncate">{displayName(p.name)}</span>

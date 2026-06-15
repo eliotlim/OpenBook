@@ -131,7 +131,7 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React
     {tree?.hasChildren ? (
       <button
         onClick={tree.onToggle}
-        className="shrink-0 rounded p-0.5 text-muted-foreground/60 transition hover:bg-accent hover:text-foreground"
+        className="shrink-0 rounded p-0.5 text-muted-foreground/60 transition hover:bg-hover hover:text-foreground"
         aria-label={tree.collapsed ? 'Expand sub-items' : 'Collapse sub-items'}
       >
         <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !tree.collapsed && 'rotate-90')} />
@@ -379,7 +379,7 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
       }}
       onDrop={() => drag.drop(row.id)}
       className={cn(
-        'group border-b border-border/70 last:border-0 hover:bg-accent/20',
+        'group border-b border-border/70 last:border-0 hover:bg-hover',
         drag.dragRow === row.id && 'opacity-40',
         drag.overRow === row.id && drag.dragRow !== row.id && 'border-t-2 border-t-brand/60',
       )}
@@ -495,7 +495,7 @@ const NewRowRow: React.FC<{colSpan: number; onClick: () => void; label?: string}
     <td colSpan={colSpan} className="p-0">
       <button
         onClick={onClick}
-        className="flex w-full items-center gap-1 px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        className="flex w-full items-center gap-1 px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
       >
         <Plus className="h-4 w-4" /> {label ?? 'New row'}
       </button>
@@ -688,7 +688,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
         <div className="mb-2 flex justify-end">
           <button
             onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(groups.map((g) => g.key)))}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
           >
             <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !allCollapsed && 'rotate-90')} />
             {allCollapsed ? 'Expand all' : 'Collapse all'}
@@ -859,7 +859,7 @@ const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: Data
     <RowContextMenu db={db} rowId={row.id}>
       <div
         style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
-        className="group flex cursor-pointer items-center justify-between gap-2 border-b border-border/70 px-3 py-2 last:border-0 hover:bg-accent/30"
+        className="group flex cursor-pointer items-center justify-between gap-2 border-b border-border/70 px-3 py-2 last:border-0 hover:bg-hover"
         onClick={() => db.openRow(row.id)}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -930,7 +930,7 @@ const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, vi
       )}
       <button
         onClick={() => void db.addRow()}
-        className="flex w-full items-center gap-1 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        className="flex w-full items-center gap-1 px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
       >
         <Plus className="h-4 w-4" /> New row
       </button>
@@ -1005,14 +1005,14 @@ const NewRowMenu: React.FC<{db: UseDatabase}> = ({db}) => {
     <div className="flex items-center overflow-hidden rounded-md border border-border">
       <button
         onClick={() => void db.addRow()}
-        className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        className="flex items-center gap-1 px-2 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
       >
         <Plus className="h-3.5 w-3.5" /> New
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="border-l border-border px-1 py-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="border-l border-border px-1 py-1 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
             aria-label="New from template"
           >
             <ChevronDown className="h-3.5 w-3.5" />
@@ -1112,7 +1112,7 @@ const Toolbar: React.FC<{db: UseDatabase; view: DbView; renamingId: string | nul
               onClick={() => db.setActiveViewId(v.id)}
               className={cn(
                 'flex items-center gap-1 rounded px-2 py-1 text-sm transition-colors',
-                active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground',
+                active ? 'bg-accent font-medium text-foreground' : 'text-muted-foreground hover:bg-hover hover:text-foreground',
                 dragView === v.id && 'opacity-40',
                 overView === v.id && dragView !== v.id && 'ring-1 ring-brand/50',
               )}

@@ -174,7 +174,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
         <button
           onClick={() => db.openRow(row.id)}
           style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
-          className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20 hover:bg-accent/30"
+          className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20 hover:bg-hover"
         >
           <CardCover src={cover} heightClass={GALLERY_COVER[size]} icon={readPageIcon(row.id)} />
           <div className="flex flex-col gap-2 px-3 pb-3">
@@ -503,7 +503,7 @@ export const BoardView: React.FC<{
             <button
               onClick={() => toggleCol(group.key)}
               aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${group.label} column`}
-              className={cn('shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground', !isCollapsed && 'ml-auto')}
+              className={cn('shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-hover hover:text-foreground', !isCollapsed && 'ml-auto')}
             >
               {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
             </button>
@@ -571,7 +571,7 @@ export const BoardView: React.FC<{
                 <button
                   onClick={() => toggleLane(lane.key)}
                   aria-label={`${laneCollapsed ? 'Expand' : 'Collapse'} ${lane.label} lane`}
-                  className="flex w-full items-center gap-1.5 rounded-md border-b border-border/70 bg-muted/40 px-2.5 py-1.5 text-left text-xs font-medium transition-colors hover:bg-accent/40"
+                  className="flex w-full items-center gap-1.5 rounded-md border-b border-border/70 bg-muted/40 px-2.5 py-1.5 text-left text-xs font-medium transition-colors hover:bg-hover"
                 >
                   <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !laneCollapsed && 'rotate-90')} />
                   {lane.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[lane.color] ?? '#9ca3af'}} />}
@@ -601,7 +601,7 @@ export const BoardView: React.FC<{
         <div className="mb-2 flex justify-end">
           <button
             onClick={() => setCollapsedCols(allCollapsed ? new Set() : new Set(groups.map((g) => g.key)))}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
           >
             <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !allCollapsed && 'rotate-90')} />
             {allCollapsed ? 'Expand all' : 'Collapse all'}
@@ -669,7 +669,7 @@ export const BoardView: React.FC<{
                     <button
                       onClick={() => toggleCol(group.key)}
                       aria-label={`Collapse ${group.label} column`}
-                      className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-accent hover:text-foreground"
+                      className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-hover hover:text-foreground"
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
@@ -869,13 +869,13 @@ export const CalendarView: React.FC<{
           {MONTHS[cursor.month]} {cursor.year}
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={() => setCursor({year: today.getFullYear(), month: today.getMonth()})} className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+          <button onClick={() => setCursor({year: today.getFullYear(), month: today.getMonth()})} className="rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground">
             Today
           </button>
-          <button onClick={() => shift(-1)} className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Previous month">
+          <button onClick={() => shift(-1)} className="rounded p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Previous month">
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <button onClick={() => shift(1)} className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground" aria-label="Next month">
+          <button onClick={() => shift(1)} className="rounded p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Next month">
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
@@ -914,7 +914,7 @@ export const CalendarView: React.FC<{
                     <button
                       onClick={() => createOn(key!)}
                       aria-label={`Add on ${key}`}
-                      className="rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-accent hover:text-foreground group-hover/day:opacity-100"
+                      className="rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-hover hover:text-foreground group-hover/day:opacity-100"
                     >
                       <Plus className="h-3 w-3" />
                     </button>

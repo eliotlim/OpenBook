@@ -42,7 +42,7 @@ function PageTile({page, onOpen}: {page: PageMeta; onOpen: (id: string) => void}
     <button
       type="button"
       onClick={() => onOpen(page.id)}
-      className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors hover:bg-accent"
+      className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors hover:bg-hover"
     >
       <span className="text-lg leading-none" aria-hidden>
         {readPageIcon(page.id)}
@@ -183,7 +183,7 @@ export default function HomeScreen() {
                     key={label}
                     type="button"
                     onClick={run}
-                    className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:border-solid hover:bg-accent hover:text-foreground"
+                    className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:border-solid hover:bg-hover hover:text-foreground"
                   >
                     <Icon className="h-4 w-4 shrink-0" />
                     {label}
@@ -224,7 +224,7 @@ export default function HomeScreen() {
                     key={page.id}
                     type="button"
                     onClick={() => selectPage(page.id)}
-                    className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
+                    className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-hover"
                   >
                     <span className="text-base leading-none" aria-hidden>
                       {readPageIcon(page.id)}

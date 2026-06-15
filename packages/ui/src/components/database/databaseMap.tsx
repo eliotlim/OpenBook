@@ -184,7 +184,7 @@ const UnplacedRows: React.FC<{
             onClick={() => void runGeocode()}
             disabled={busy || geocodable.length === 0}
             className={cn(
-              'ml-auto rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+              'ml-auto rounded border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground',
               (busy || geocodable.length === 0) && 'opacity-40',
             )}
             title={`Look up coordinates from ${addressProp.name} (a network call)`}
@@ -199,7 +199,7 @@ const UnplacedRows: React.FC<{
             <RowContextMenu key={row.id} db={db} rowId={row.id}>
               <button
                 onClick={() => db.openRow(row.id)}
-                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-accent/40"
+                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-hover"
               >
                 <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
                 <span className="truncate">{row.name?.trim() || 'Untitled'}</span>

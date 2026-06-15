@@ -137,7 +137,7 @@ export const OwnerEditor: React.FC<{owner: string; onChange: (value: string | nu
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger asChild>
-        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-sm transition-colors hover:bg-accent">
+        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-sm transition-colors hover:bg-hover">
           {owner ? <PersonChip name={owner} /> : <span className="text-muted-foreground/50">{t('properties.setOwner')}</span>}
         </button>
       </DropdownMenuTrigger>
@@ -211,7 +211,7 @@ export const VerificationEditor: React.FC<{value?: VerificationValue; onChange: 
     <button
       type="button"
       onClick={() => onChange(makeVerification(identity, new Date().toISOString()))}
-      className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
     >
       <ShieldCheck className="h-3.5 w-3.5" />
       {t('properties.verify')}
@@ -242,7 +242,7 @@ const Backlinks: React.FC<{links: PageMeta[]; onRefresh: () => void}> = ({links,
           key={p.id}
           type="button"
           onClick={() => selectPage(p.id)}
-          className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs transition-colors hover:bg-accent"
+          className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs transition-colors hover:bg-hover"
           title={p.name?.trim() || pageLabel(p.id)}
         >
           <span className="leading-none">{readPageIcon(p.id)}</span>

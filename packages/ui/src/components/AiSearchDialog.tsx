@@ -113,7 +113,7 @@ export function AiSearchDialog() {
               onClick={() => pick(result)}
               className={cn(
                 'flex flex-col gap-0.5 rounded-md px-3 py-2 text-left',
-                i === active ? 'bg-accent' : 'hover:bg-accent/50',
+                i === active ? 'bg-accent' : 'hover:bg-hover',
               )}
             >
               <span className="flex items-center gap-1.5 text-sm font-medium">

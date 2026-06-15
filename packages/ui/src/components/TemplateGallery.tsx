@@ -59,7 +59,7 @@ export function TemplateGallery() {
               data-template={template.id}
               disabled={busyId !== null}
               onClick={() => void pick(template)}
-              className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-accent/40 disabled:opacity-60"
+              className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-hover disabled:opacity-60"
             >
               <span aria-hidden className="text-2xl leading-none">
                 {template.icon}

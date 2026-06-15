@@ -209,7 +209,7 @@ export function AgentPanel() {
                     setInput(t(key));
                     inputRef.current?.focus();
                   }}
-                  className="rounded-md border border-border px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+                  className="rounded-md border border-border px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
                 >
                   {t(key)}
                 </button>
@@ -230,7 +230,7 @@ export function AgentPanel() {
                   aria-expanded={item.expanded ?? false}
                   className={cn(
                     'inline-flex max-w-full items-center gap-1.5 self-start rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground',
-                    item.result !== undefined && 'transition-colors hover:bg-accent/40 hover:text-foreground',
+                    item.result !== undefined && 'transition-colors hover:bg-hover hover:text-foreground',
                   )}
                 >
                   {item.running ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <Chevron className="size-3" aria-hidden />}
@@ -259,7 +259,7 @@ export function AgentPanel() {
                   data-agent-reasoning
                   onClick={() => toggleExpand(i)}
                   aria-expanded={item.expanded ?? false}
-                  className="inline-flex max-w-full items-center gap-1.5 self-start rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+                  className="inline-flex max-w-full items-center gap-1.5 self-start rounded-full border border-border px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
                 >
                   <Brain className="size-3" aria-hidden />
                   <Chevron className="size-3" aria-hidden />
@@ -373,7 +373,7 @@ export function AgentPanel() {
             title={t('agent.thinkingToggle')}
             className={cn(
               'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors',
-              thinking ? 'border-ring bg-accent/40 text-foreground' : 'border-border text-muted-foreground hover:bg-accent/20',
+              thinking ? 'border-ring bg-accent/40 text-foreground' : 'border-border text-muted-foreground hover:bg-hover',
             )}
           >
             <Brain className="size-3.5" />

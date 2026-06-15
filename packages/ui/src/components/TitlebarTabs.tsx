@@ -74,7 +74,7 @@ export default function TitlebarTabs() {
                   aria-label={t('tabs.close')}
                   className={cn(
                     'ml-0.5 shrink-0 rounded p-0.5 text-muted-foreground/70 transition',
-                    'opacity-0 hover:bg-accent hover:text-foreground group-hover:opacity-100',
+                    'opacity-0 hover:bg-hover hover:text-foreground group-hover:opacity-100',
                     active && 'opacity-100',
                   )}
                 >

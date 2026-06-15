@@ -26,7 +26,7 @@ export function Segmented<T extends string | number>({
           onClick={() => onChange(v)}
           className={cn(
             'flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-md border px-2.5 py-2 text-sm transition-colors',
-            v === value ? 'border-primary bg-accent' : 'border-border hover:bg-accent',
+            v === value ? 'border-primary bg-accent' : 'border-border hover:bg-hover',
           )}
         >
           {Icon && <Icon className="h-4 w-4" />}
@@ -87,7 +87,7 @@ export function AccentPicker({
                     onClick={() => onChange(theme.id)}
                     className={cn(
                       'flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-sm transition-colors',
-                      active ? 'border-primary bg-accent' : 'border-border hover:bg-accent',
+                      active ? 'border-primary bg-accent' : 'border-border hover:bg-hover',
                     )}
                   >
                     <span

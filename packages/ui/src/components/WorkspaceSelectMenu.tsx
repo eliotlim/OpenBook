@@ -119,7 +119,7 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
                     type="button"
                     aria-label={t('workspace.removeWorkspace', {name: ws.name})}
                     title={t('common.remove')}
-                    className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-destructive group-hover:flex"
+                    className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-hover hover:text-destructive group-hover:flex"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.preventDefault();
@@ -163,7 +163,7 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
                   onPick={setIcon}
                   fallback="📓"
                   ariaLabel={t('workspace.icon')}
-                  className="flex h-9 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-accent"
+                  className="flex h-9 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
                 />
               </div>
               <div className="flex flex-1 flex-col gap-1.5">

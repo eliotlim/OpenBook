@@ -27,7 +27,7 @@ export default function WindowControls() {
         type="button"
         onClick={windowControls.minimize}
         aria-label="Minimize"
-        className={cn(button, 'hover:bg-accent hover:text-foreground')}
+        className={cn(button, 'hover:bg-hover hover:text-foreground')}
       >
         <Minus className="h-4 w-4" />
       </button>
@@ -35,7 +35,7 @@ export default function WindowControls() {
         type="button"
         onClick={windowControls.toggleMaximize}
         aria-label={maximized ? 'Restore' : 'Maximize'}
-        className={cn(button, 'hover:bg-accent hover:text-foreground')}
+        className={cn(button, 'hover:bg-hover hover:text-foreground')}
       >
         {maximized ? <Copy className="h-3.5 w-3.5 -scale-x-100" /> : <Square className="h-3.5 w-3.5" />}
       </button>

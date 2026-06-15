@@ -159,7 +159,7 @@ const CommandItem = React.forwardRef<
         // data-[disabled=true] (not bare data-disabled): cmdk ≥1.0 sets
         // data-disabled="false" on ENABLED items, and the presence-matching
         // variant greyed out + pointer-disabled every row.
-        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden aria-selected:bg-accent aria-selected:text-accent-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_*]:pointer-events-none",
+        "relative flex cursor-pointer select-none items-center rounded-sm px-2 py-1.5 text-sm outline-hidden aria-selected:bg-hover aria-selected:text-accent-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_*]:pointer-events-none",
         className
       )}
     />

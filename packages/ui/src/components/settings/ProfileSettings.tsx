@@ -45,7 +45,7 @@ export default function ProfileSettings() {
                 onPick={(emoji) => update({profile: {avatar: emoji, avatarImage: ''}})}
                 ariaLabel={t('profile.avatarEmoji')}
                 fallback="🙂"
-                className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-transparent px-3 text-base transition-colors hover:bg-accent"
+                className="inline-flex h-8 items-center justify-center rounded-md border border-input bg-transparent px-3 text-base transition-colors hover:bg-hover"
               />
               <input
                 ref={fileRef}

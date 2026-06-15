@@ -48,6 +48,7 @@ export const TextBlockView: React.FC<{
   const type = blockType(block);
   const text = blockText(block)!;
   const isCode = type === 'code';
+  const language = isCode ? (blockProp<string>(block, 'language') ?? '') : '';
 
   // Native beforeinput binding (always calling the latest render's handler).
   const beforeInputRef = useRef<(ev: InputEvent) => void>(() => {});
@@ -63,8 +64,20 @@ export const TextBlockView: React.FC<{
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || composing.current) return;
-    const target = runsToHtml(text);
-    if (el.innerHTML !== target) el.innerHTML = target;
+    const target = runsToHtml(text, isCode ? {code: true, language} : undefined);
+    if (el.innerHTML !== target) {
+      // A model-driven re-render with no caret request — a live recompute, an
+      // autosave, a remote edit, or a re-highlight as you type — still has to
+      // replace innerHTML, and that resets the browser's selection to the
+      // element start. Preserve the caret when this block is the focused one so
+      // the edit isn't interrupted.
+      const keep = !editor.pendingCaret.current && document.activeElement === el ? readSelection(el) : null;
+      el.innerHTML = target;
+      if (keep) {
+        el.focus({preventScroll: true});
+        writeSelection(el, keep.start, keep.end);
+      }
+    }
 
     const pending = editor.pendingCaret.current;
     if (pending && pending.blockId === id) {

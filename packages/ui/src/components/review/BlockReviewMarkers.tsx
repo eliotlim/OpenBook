@@ -98,7 +98,7 @@ export function BlockReviewMarkers({pageId, containerRef}: {pageId: string; cont
             setReviewTarget(pageId, {suggestionId: row.suggestionId ?? null, blockId: row.suggestionId ? null : row.blockId});
             openInSplit(REVIEW_PANE_ID);
           }}
-          className="ob-review-indicator absolute right-0 z-10 inline-flex items-center gap-0.5 rounded-md border border-border bg-background/90 px-1.5 py-0.5 text-[11px] text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-foreground"
+          className="ob-review-indicator absolute right-0 z-10 inline-flex items-center gap-0.5 rounded-md border border-border bg-background/90 px-1.5 py-0.5 text-[11px] text-muted-foreground shadow-sm transition-colors hover:bg-hover hover:text-foreground"
           style={{top: row.top}}
         >
           {row.suggestionId ? <PencilLine className="size-3" aria-hidden /> : <MessageSquare className="size-3" aria-hidden />}

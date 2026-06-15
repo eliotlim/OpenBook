@@ -97,7 +97,7 @@ export default function AiSettings() {
               key={p.id}
               className={cn(
                 'flex cursor-pointer items-center justify-between gap-6 rounded-md border px-3.5 py-3',
-                provider === p.id ? 'border-ring bg-accent/40' : 'border-border hover:bg-accent/20',
+                provider === p.id ? 'border-ring bg-accent/40' : 'border-border hover:bg-hover',
               )}
             >
               <span className="flex min-w-0 flex-col">

@@ -89,7 +89,7 @@ export const PageHeader: React.FC<{
         value={icon}
         onPick={(emoji) => onIconChange?.(emoji)}
         ariaLabel={t('page.changeIcon')}
-        className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-accent"
+        className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-hover"
       />
       {/* A textarea (not an input) so long titles wrap instead of clipping;
           auto-grown to fit, Enter commits rather than inserting a newline. */}

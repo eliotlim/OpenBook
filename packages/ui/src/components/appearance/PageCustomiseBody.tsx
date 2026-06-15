@@ -86,7 +86,7 @@ function CoverField({pageId}: {pageId: string}) {
       <CoverPicker pageId={pageId}>
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+          className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-sm transition-colors hover:bg-hover"
         >
           <ImageIcon className="h-3.5 w-3.5" />
           {cover ? 'Change' : 'Add cover'}
@@ -96,7 +96,7 @@ function CoverField({pageId}: {pageId: string}) {
         <button
           type="button"
           onClick={() => writePageCover(pageId, null)}
-          className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-destructive"
         >
           <Trash2 className="h-3.5 w-3.5" />
           Remove

@@ -50,7 +50,7 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
   <Popover>
     <PopoverTrigger asChild>
       <button
-        className="rounded p-1 text-muted-foreground/50 opacity-0 transition hover:bg-accent hover:text-foreground group-hover/props:opacity-100"
+        className="rounded p-1 text-muted-foreground/50 opacity-0 transition hover:bg-hover hover:text-foreground group-hover/props:opacity-100"
         aria-label="Configure properties"
         title="Show, hide & group properties"
       >
@@ -62,7 +62,7 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
         <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Properties</div>
         <div className="max-h-56 space-y-0.5 overflow-y-auto">
           {properties.map((p) => (
-            <div key={p.id} className="flex items-center gap-1.5 rounded px-1 py-0.5 text-sm hover:bg-accent/40">
+            <div key={p.id} className="flex items-center gap-1.5 rounded px-1 py-0.5 text-sm hover:bg-hover">
               <button
                 onClick={() => void db.updateProperty(p.id, {pageHidden: !p.pageHidden})}
                 className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
@@ -95,7 +95,7 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Groups</span>
           <button
             onClick={() => void db.addPropertyGroup()}
-            className="flex items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="flex items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
           >
             <FolderPlus className="h-3.5 w-3.5" /> Add
           </button>
@@ -210,7 +210,7 @@ export const DatabaseRowProperties: React.FC<{pageId: string; databaseId: string
       {hiddenCount > 0 && (
         <button
           onClick={() => setShowHidden((v) => !v)}
-          className="mt-1 inline-flex w-fit items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground/70 transition-colors hover:bg-accent hover:text-foreground"
+          className="mt-1 inline-flex w-fit items-center gap-1 rounded px-1 py-0.5 text-xs text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground"
         >
           {showHidden ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
           {showHidden ? 'Hide' : `${hiddenCount} hidden`}

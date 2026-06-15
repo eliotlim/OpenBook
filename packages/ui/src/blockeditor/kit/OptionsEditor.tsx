@@ -102,7 +102,7 @@ export const OptionsEditor: React.FC<{block: BlockMap; editor: BlockEditorContro
               {!editor.readOnly && (
                 <button
                   type="button"
-                  className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                  className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
                   aria-label={`Remove option ${i + 1}`}
                   onClick={() => remove(i)}
                 >
@@ -116,7 +116,7 @@ export const OptionsEditor: React.FC<{block: BlockMap; editor: BlockEditorContro
         {!editor.readOnly && (
           <button
             type="button"
-            className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="mt-0.5 inline-flex w-fit items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
             onClick={add}
           >
             <Plus className="h-3.5 w-3.5" /> Add option
@@ -162,7 +162,7 @@ const MediaRow: React.FC<{
           />
           <button
             type="button"
-            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
             aria-label={`Upload option ${index + 1} image`}
             title="Upload image"
             onClick={() => fileRef.current?.click()}
