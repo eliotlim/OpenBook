@@ -1,3 +1,13 @@
+## 1.53.0 (2026-06-15)
+
+### 🚀 Features
+
+- db timeline improvements 2 ([26b8c2b](https://github.com/eliotlim/OpenBook/commit/26b8c2b))
+
+### ❤️ Thank You
+
+- Eliot Lim
+
 ## 1.52.0 (2026-06-15)
 
 ### 🚀 Features
