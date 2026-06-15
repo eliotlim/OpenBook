@@ -1,6 +1,6 @@
 // Behavioural (non-visual) tests — use plain Playwright to skip the Chromatic
 // per-test snapshot (its archive helper is flaky in headless CI runs).
-import {test, expect} from './fixtures';
+import {test, expect, chooseValue, chooseLabel} from './fixtures';
 import {readFileSync} from 'node:fs';
 import {reclaimNames} from './seed';
 
@@ -37,8 +37,8 @@ async function addColumn(page: import('@playwright/test').Page, name: string, ty
   // popover), then fill the name and submit with Enter. Submitting via the name
   // field's keydown avoids clicking the "Add property" button while the popover
   // is still animating into place — that race left the click waiting forever.
-  await popover.locator('select').first().selectOption(type);
-  await expect(popover.locator('select').first()).toHaveValue(type);
+  await chooseValue(page, popover.getByLabel('Property type'), type);
+  await expect(popover.getByLabel('Property type')).toHaveAttribute('data-value', type);
   const nameField = popover.getByPlaceholder('Property name');
   await nameField.fill(name);
   await nameField.press('Enter');
@@ -314,7 +314,7 @@ test('number show-as-bar: renders a progress fill scaled to the value', async ({
 
   // Switch the Score column to "Show as Bar".
   await page.getByRole('columnheader', {name: 'Score Property options'}).getByLabel('Property options').click();
-  await page.getByLabel('Show number as').selectOption('bar');
+  await chooseValue(page, page.getByLabel('Show number as'), 'bar');
   await page.keyboard.press('Escape');
 
   // A row scored 50/100 → the bar fills to 50%.
@@ -378,7 +378,7 @@ test('per-group summaries: each group footer shows its own sum', async ({page}) 
 
   // Group the table by Status.
   await page.getByRole('button', {name: 'View options'}).click();
-  await page.getByLabel('Group by').selectOption({label: 'Status'});
+  await chooseLabel(page, page.getByLabel('Group by'), 'Status');
   await page.keyboard.press('Escape');
 
   // Set the Amount column's footer calculation to Sum (last footer picker).
@@ -466,7 +466,7 @@ test('hide empty groups: empty Status groups disappear when toggled', async ({pa
 
   // Group the table by Status → three group headers, two of them empty.
   await page.getByRole('button', {name: 'View options'}).click();
-  await page.getByLabel('Group by').selectOption({label: 'Status'});
+  await chooseLabel(page, page.getByLabel('Group by'), 'Status');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('table').getByText('In progress')).toBeVisible();
   await expect(page.getByRole('table').getByText('Done')).toBeVisible();
@@ -511,7 +511,7 @@ test('gallery card size: switches the card grid width', async ({page}) => {
 
   // Switch to Large → the grid track widens.
   await page.getByRole('button', {name: 'View options'}).click();
-  await page.getByLabel('Card size').selectOption('large');
+  await chooseValue(page, page.getByLabel('Card size'), 'large');
   await page.keyboard.press('Escape');
   await expect(page.locator('[class*="minmax(300px"]')).toHaveCount(1);
   await expect(page.locator('[class*="minmax(210px"]')).toHaveCount(0);
@@ -566,7 +566,7 @@ test('list view grouping: group a list by Status', async ({page, request}) => {
   // Switch to the List view and group it by Status.
   await page.getByRole('button', {name: 'List', exact: true}).click();
   await page.getByRole('button', {name: 'View options'}).click();
-  await page.getByLabel('Group by').selectOption({label: 'Status'});
+  await chooseLabel(page, page.getByLabel('Group by'), 'Status');
   await page.keyboard.press('Escape');
 
   // A Todo group header (label + count) now wraps the row.
@@ -644,7 +644,7 @@ test('currency format: pound shows in the summary footer', async ({page}) => {
   // Set the Price column's number format to Pound (£).
   await page.getByRole('columnheader', {name: 'Price Property options'}).getByLabel('Property options').click();
   const popover = page.locator('[data-radix-popper-content-wrapper]');
-  await popover.locator('select:has(option[value="pound"])').selectOption('pound');
+  await chooseValue(page, popover.getByLabel('Number format'), 'pound');
   await page.keyboard.press('Escape');
 
   // A row priced 10, then sum the column in the footer.
@@ -771,7 +771,7 @@ test('collapse all groups: folds and unfolds every group', async ({page}) => {
 
   // Group by Status → one row under the Todo group.
   await page.getByRole('button', {name: 'View options'}).click();
-  await page.getByLabel('Group by').selectOption({label: 'Status'});
+  await chooseLabel(page, page.getByLabel('Group by'), 'Status');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(1);
 

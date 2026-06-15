@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from './fixtures';
+import {test, expect, takeSnapshot, chooseValue} from './fixtures';
 import {reclaimNames} from './seed';
 
 /** Create a fresh database via the command palette and wait for its view. */
@@ -20,7 +20,7 @@ test('database formula: a formula column computes from other properties', async 
   // Add a formula column that greets the row's title.
   await page.getByRole('button', {name: 'Add column'}).click();
   await page.getByPlaceholder('Property name').fill('Greeting');
-  await page.locator('select').first().selectOption('formula');
+  await chooseValue(page, page.getByLabel('Property type'), 'formula');
   // The page title is also a textarea now — target the formula source field.
   await page.getByPlaceholder(/prop\(/).fill('concat("Hi ", Name)');
   await page.getByRole('button', {name: 'Add property'}).click();

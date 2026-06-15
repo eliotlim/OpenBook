@@ -3,7 +3,7 @@ import {SunIcon} from '@heroicons/react/24/outline';
 import {MoonIcon, DesktopIcon} from '@radix-ui/react-icons';
 import {ColorMode, useTheme, useTranslation} from '@/providers';
 import {Switch} from '@/components/ui/switch';
-import {AccentPicker, Field, LevelPicker, NeutralPicker, Segmented} from '@/components/appearance/AppearanceControls';
+import {AccentPicker, Field, LevelPicker, Segmented} from '@/components/appearance/AppearanceControls';
 import type {TKey} from '@/i18n';
 
 const MODES: Array<{value: ColorMode; key: TKey; icon: ComponentType<{className?: string}>}> = [
@@ -39,19 +39,16 @@ export default function AppearanceSettings() {
       </Field>
 
       <Field label={t('appearance.interfaceIntensity')} hint={t('appearance.interfaceIntensityHint')}>
-        <NeutralPicker value={appearance.neutral} onChange={(neutral) => setAppearance({neutral})} />
-        <div className="mt-1.5">
-          <LevelPicker
-            value={appearance.interfaceIntensity}
-            onChange={(interfaceIntensity) => setAppearance({interfaceIntensity})}
-            labels={[
-              t('appearance.levelOff'),
-              t('appearance.levelSubtle'),
-              t('appearance.levelMedium'),
-              t('appearance.levelStrong'),
-            ]}
-          />
-        </div>
+        <LevelPicker
+          value={appearance.interfaceIntensity}
+          onChange={(interfaceIntensity) => setAppearance({interfaceIntensity})}
+          labels={[
+            t('appearance.levelOff'),
+            t('appearance.levelSubtle'),
+            t('appearance.levelMedium'),
+            t('appearance.levelStrong'),
+          ]}
+        />
       </Field>
 
       <Field label={t('appearance.controlIntensity')} hint={t('appearance.controlIntensityHint')}>

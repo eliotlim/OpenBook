@@ -29,7 +29,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {IconButton} from '@/components/ui/icon-button';
-import {usePreferences} from '@/providers';
+import {usePreferences, useNavigation} from '@/providers';
+import {useData} from '@/data';
 import {pageLinks, subscribePageLinks} from '@/lib/pageLinks';
 import {cn} from '@/lib/utils';
 import {SWATCH_HEX} from './databaseColors';
@@ -365,7 +366,7 @@ export const PropertyValueCell: React.FC<PropertyValueCellProps> = ({
   case 'multi_select':
     return <MultiSelectCell property={property} value={value} onChange={onChange} onAddOption={onAddOption} />;
   case 'relation':
-    return <RelationCell value={value} onChange={onChange} />;
+    return <RelationCell property={property} value={value} onChange={onChange} />;
   case 'dependency':
     return <DependencyCell value={value} onChange={onChange} rowOptions={rowOptions ?? []} />;
   case 'files':
@@ -984,27 +985,69 @@ const MultiSelectCell: React.FC<PropertyValueCellProps> = ({property, value, onC
   );
 };
 
-/** Relation: link the row to any pages — chips you can remove + a search to add. */
-const RelationCell: React.FC<{value: unknown; onChange: (value: unknown) => void}> = ({value, onChange}) => {
+/**
+ * Relation: link the row to rows of the property's **target database** — chips
+ * you can remove + a search to add. When `relationDatabaseId` is set the picker
+ * lists that database's rows (fetched on open); a single relation caps at one
+ * link. A legacy relation (no target db) falls back to searching any page.
+ */
+const RelationCell: React.FC<{property: DatabaseProperty; value: unknown; onChange: (value: unknown) => void}> = ({
+  property,
+  value,
+  onChange,
+}) => {
   const ids = Array.isArray(value) ? (value as string[]) : [];
   const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const [targetRows, setTargetRows] = useState<{id: string; label: string; icon: string}[] | null>(null);
+  const client = useData();
+  const {setPageHint} = useNavigation();
+  const targetDb = property.relationDatabaseId;
+  const single = Boolean(property.relationSingle);
   // Page titles/icons resolve through the live bridge; refresh on change.
   const [, bump] = React.useReducer((x: number) => x + 1, 0);
   React.useEffect(() => subscribePageLinks(bump), []);
 
-  const results = pageLinks.searchPages(query).filter((r) => !ids.includes(r.id));
-  const add = (id: string) => {
-    onChange([...ids, id]);
+  // Load the target database's rows once the picker opens or the cell has links
+  // to label (a cross-db fetch). The titles are also registered as nav hints so
+  // the same rows resolve in board/gallery chips and exports.
+  React.useEffect(() => {
+    if (!targetDb || targetRows !== null || (!open && ids.length === 0)) return;
+    let alive = true;
+    void client
+      .listRows(targetDb)
+      .then((rows) => {
+        if (!alive) return;
+        const mapped = rows.map((r) => ({id: r.id, label: r.name?.trim() || pageLinks.label(r.id), icon: pageLinks.icon(r.id)}));
+        setTargetRows(mapped);
+        mapped.forEach((r) => setPageHint(r.id, r.label));
+      })
+      .catch(() => alive && setTargetRows([]));
+    return () => {
+      alive = false;
+    };
+  }, [open, targetDb, ids.length, targetRows, client, setPageHint]);
+
+  const labelFor = (id: string): string => targetRows?.find((r) => r.id === id)?.label ?? pageLinks.label(id);
+  const q = query.trim().toLowerCase();
+  const results = targetDb
+    ? (targetRows ?? []).filter((r) => !ids.includes(r.id) && (!q || r.label.toLowerCase().includes(q)))
+    : pageLinks.searchPages(query).filter((r) => !ids.includes(r.id));
+
+  const add = (id: string): void => {
+    onChange(single ? [id] : [...ids, id]);
     setQuery('');
+    if (single) setOpen(false);
   };
-  const remove = (id: string) => onChange(ids.filter((x) => x !== id));
+  const remove = (id: string): void => onChange(ids.filter((x) => x !== id));
+  const noun = targetDb ? 'row' : 'page';
 
   return (
     <div className="flex min-h-[28px] flex-wrap items-center gap-1 px-2 py-1">
       {ids.map((id) => (
         <span key={id} className="inline-flex max-w-full items-center gap-1 rounded-md border border-border/60 px-1.5 py-0.5 text-xs">
           <span className="leading-none">{pageLinks.icon(id)}</span>
-          <span className="max-w-[120px] truncate">{pageLinks.label(id)}</span>
+          <span className="max-w-[120px] truncate">{labelFor(id)}</span>
           <button
             type="button"
             onClick={() => remove(id)}
@@ -1015,40 +1058,46 @@ const RelationCell: React.FC<{value: unknown; onChange: (value: unknown) => void
           </button>
         </span>
       ))}
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
-            aria-label="Link a page"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="start" className="w-60 p-1">
-          <input
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Link a page…"
-            className="mb-1 w-full rounded bg-accent/40 px-1.5 py-1 text-sm outline-hidden"
-          />
-          <div className="max-h-52 overflow-y-auto">
-            {results.length === 0 && <div className="px-1.5 py-1.5 text-xs text-muted-foreground">No pages found</div>}
-            {results.map((r) => (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => add(r.id)}
-                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-hover"
-              >
-                <span className="leading-none">{r.icon}</span>
-                <span className="truncate">{r.label}</span>
-              </button>
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
+      {(!single || ids.length === 0) && (
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+              aria-label={`Link a ${noun}`}
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-60 p-1">
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={`Link a ${noun}…`}
+              className="mb-1 w-full rounded bg-accent/40 px-1.5 py-1 text-sm outline-hidden"
+            />
+            <div className="max-h-52 overflow-y-auto">
+              {results.length === 0 && (
+                <div className="px-1.5 py-1.5 text-xs text-muted-foreground">
+                  {targetDb && targetRows === null ? 'Loading…' : `No ${noun}s found`}
+                </div>
+              )}
+              {results.map((r) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => add(r.id)}
+                  className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-hover"
+                >
+                  <span className="leading-none">{r.icon}</span>
+                  <span className="truncate">{r.label}</span>
+                </button>
+              ))}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
     </div>
   );
 };

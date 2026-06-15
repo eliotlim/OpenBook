@@ -1,4 +1,5 @@
 import React from 'react';
+import {Select} from '@/components/ui/select';
 import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
@@ -260,7 +261,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
         <div className="flex flex-col gap-3">
           <NameDescriptionFields block={block} editor={editor} nameKey="title" namePlaceholder="Chart title" />
           <ConfigField label="Kind">
-            <select
+            <Select unstyled
               className="w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
               value={kind}
               disabled={editor.readOnly}
@@ -272,7 +273,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
                   {k}
                 </option>
               ))}
-            </select>
+            </Select>
           </ConfigField>
           <ConfigField label="Data" hint="An expression over the page's inputs.">
             <ConfigInput

@@ -51,6 +51,9 @@ export const zh: PartialMessages = {
   },
   theme: {
     default: '默认',
+    warm: '暖色',
+    neutral: '中性',
+    cool: '冷色',
     ocean: '海洋',
     forest: '森林',
     violet: '紫罗兰',

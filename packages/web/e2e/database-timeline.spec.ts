@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from './fixtures';
+import {test, expect, takeSnapshot, chooseValue} from './fixtures';
 import {reclaimNames, SERVER} from './seed';
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
@@ -13,7 +13,7 @@ async function newDatabase(page: import('@playwright/test').Page): Promise<void>
 async function addColumn(page: import('@playwright/test').Page, name: string, type: string): Promise<void> {
   await page.getByRole('button', {name: 'Add column'}).click();
   await page.getByPlaceholder('Property name').fill(name);
-  await page.locator('select').first().selectOption(type);
+  await chooseValue(page, page.getByLabel('Property type'), type);
   await page.getByRole('button', {name: 'Add property'}).click();
   await expect(page.getByText(name, {exact: true})).toBeVisible();
 }

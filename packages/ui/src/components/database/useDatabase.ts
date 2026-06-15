@@ -4,6 +4,7 @@ import {
   defaultStatusOptions,
   defaultView,
   FormulaError,
+  relationSides,
   removeProperty,
   rowValue,
   SELECT_COLORS,
@@ -11,6 +12,7 @@ import {
   syncInverseUpdates,
   TITLE_PROPERTY_ID,
   type DatabaseProperty,
+  type RelationCardinality,
   type DatabasePropertyType,
   type DatabaseRow,
   type DatabaseSelectOption,
@@ -42,6 +44,10 @@ export interface NewPropertyInput {
   numberFormat?: NumberFormat;
   /** For `date`: store a start→end range. */
   dateRange?: boolean;
+  /** For `relation`: the target database whose rows this links to. */
+  relationDatabaseId?: string;
+  /** For `relation`: the cardinality (drives the single/many cap per side). */
+  relationCardinality?: RelationCardinality;
   /** A short helper description. */
   description?: string;
 }
@@ -64,6 +70,9 @@ export interface PropertyPatch {
   groupId?: string | null;
   pageHidden?: boolean;
   rollup?: RollupConfig;
+  relationDatabaseId?: string;
+  relationSingle?: boolean;
+  relationCardinality?: RelationCardinality;
 }
 
 export interface UseDatabase {
@@ -127,6 +136,9 @@ export interface UseDatabase {
   addSelectOption: (propertyId: string, label: string) => Promise<DatabaseSelectOption | null>;
   /** Pair a `dependency` property with a new inverse column (two-way / synced links). */
   makeDependencyTwoWay: (propertyId: string) => Promise<void>;
+  /** Pair a `relation` property with a new reverse column on its target database
+   *  (a two-way, cross-database link). No-op if it isn't a relation or is already paired. */
+  pairRelation: (propertyId: string, opts?: {name?: string; reverseSingle?: boolean}) => Promise<void>;
 
   // Schema mutations — property groups (page-view organisation)
   addPropertyGroup: (name?: string) => Promise<string | undefined>;
@@ -471,6 +483,28 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
           }
         }
       }
+
+      // Two-way relation: mirror onto the TARGET database's rows' reverse column.
+      // The reverse rows live in another database, so fetch them and write across.
+      if (prop?.type === 'relation' && prop.reversePropertyId && prop.relationDatabaseId) {
+        const oldIds = Array.isArray(row?.properties[propertyId]) ? (row!.properties[propertyId] as string[]) : [];
+        const newIds = Array.isArray(value) ? (value as string[]) : [];
+        if (oldIds.join(' ') !== newIds.join(' ')) {
+          try {
+            const targetRows = await client.listRows(prop.relationDatabaseId);
+            const updates = syncInverseUpdates(rowId, oldIds, newIds, targetRows, prop.reversePropertyId);
+            const byId = new Map(targetRows.map((r) => [r.id, r]));
+            for (const u of updates) {
+              const t = byId.get(u.rowId);
+              await client.updateRow(prop.relationDatabaseId, u.rowId, {
+                properties: {...(t?.properties ?? {}), [prop.reversePropertyId]: u.value},
+              });
+            }
+          } catch {
+            // Target database unreachable or row gone — keep the forward link.
+          }
+        }
+      }
     },
     [client, database],
   );
@@ -572,6 +606,12 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
         // Default to counting whatever the first relation/dependency points at.
         const rel = database.schema.properties.find((p) => p.type === 'relation' || p.type === 'dependency');
         property.rollup = {relationPropertyId: rel?.id ?? '', targetPropertyId: TITLE_PROPERTY_ID, function: 'count'};
+      }
+      if (input.type === 'relation') {
+        if (input.relationDatabaseId) property.relationDatabaseId = input.relationDatabaseId;
+        const card = input.relationCardinality ?? 'n:n';
+        property.relationCardinality = card;
+        if (relationSides(card).forwardSingle) property.relationSingle = true;
       }
       if (input.numberFormat) property.numberFormat = input.numberFormat;
       if (input.dateRange) property.dateRange = true;
@@ -679,6 +719,36 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
       });
     },
     [database, saveSchema],
+  );
+
+  const pairRelation = useCallback(
+    async (propertyId: string, opts?: {name?: string; reverseSingle?: boolean}): Promise<void> => {
+      if (!database) return;
+      const prop = database.schema.properties.find((p) => p.id === propertyId);
+      if (!prop || prop.type !== 'relation' || !prop.relationDatabaseId || prop.reversePropertyId) return;
+      const target = await client.getDatabase(prop.relationDatabaseId);
+      if (!target) return;
+      const reverseId = shortId('prop');
+      const reverseSingle = opts?.reverseSingle ?? (prop.relationCardinality ? relationSides(prop.relationCardinality).reverseSingle : false);
+      const reverse: DatabaseProperty = {
+        id: reverseId,
+        name: opts?.name?.trim() || database.name?.trim() || 'Related',
+        type: 'relation',
+        relationDatabaseId: database.id,
+        reversePropertyId: prop.id,
+        ...(reverseSingle ? {relationSingle: true} : {}),
+      };
+      // Add the reverse column to the TARGET database (a cross-database schema
+      // write), then pair this database's forward property to it.
+      await client.updateDatabase(target.id, {
+        schema: {...target.schema, properties: [...target.schema.properties, reverse]},
+      });
+      await saveSchema({
+        ...database.schema,
+        properties: database.schema.properties.map((p) => (p.id === propertyId ? {...p, reversePropertyId: reverseId} : p)),
+      });
+    },
+    [database, client, saveSchema],
   );
 
   const saveAsTemplate = useCallback(
@@ -882,6 +952,7 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     deleteProperty,
     addSelectOption,
     makeDependencyTwoWay,
+    pairRelation,
     addPropertyGroup,
     updatePropertyGroup,
     deletePropertyGroup,

@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import {Select} from '@/components/ui/select';
 import {
   ArrowDownAZ,
   ArrowLeft,
@@ -34,6 +35,7 @@ import {
   isFilterGroup,
   PARENT_GROUP_ID,
   RELATIVE_DATE_OPS,
+  relationSides,
   SELECT_COLORS,
   STATUS_GROUPS,
   TITLE_PROPERTY_ID,
@@ -53,12 +55,14 @@ import {
   type DatabaseViewType,
   type FilterOperator,
   type NumberFormat,
+  type RelationCardinality,
   type RollupConfig,
   type RollupFunction,
   type StatusGroup,
   type StoredDatabase,
   type SummaryType,
 } from '@open-book/sdk';
+import {useNavigation} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {
   DropdownMenu,
@@ -247,6 +251,44 @@ const toolButtonClass =
 const sectionLabel = 'text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70';
 
 /** The `+` column header: add a new property to the database. */
+/** Relation cardinality choices (forward-side perspective). */
+const CARDINALITIES: {value: RelationCardinality; label: string}[] = [
+  {value: 'n:n', label: 'Many ↔ many (n:n)'},
+  {value: '1:n', label: 'One ↔ many (1:n)'},
+  {value: '1:1', label: 'One ↔ one (1:1)'},
+];
+
+/** Target-database + cardinality pickers, shared by the add/edit property menus. */
+const RelationConfigFields: React.FC<{
+  databaseId: string | undefined;
+  cardinality: RelationCardinality;
+  onDatabase: (id: string) => void;
+  onCardinality: (c: RelationCardinality) => void;
+  lockDatabase?: boolean;
+}> = ({databaseId, cardinality, onDatabase, onCardinality, lockDatabase}) => {
+  const {pages, pageLabel} = useNavigation();
+  const databases = pages.filter((p) => p.hostedDatabaseId);
+  return (
+    <>
+      <Select unstyled aria-label="Related database" value={databaseId ?? ''} disabled={lockDatabase} onChange={(e) => onDatabase(e.target.value)} className={cn(fieldClass, 'w-full')}>
+        <option value="">Pick a database…</option>
+        {databases.map((p) => (
+          <option key={p.hostedDatabaseId!} value={p.hostedDatabaseId!}>
+            {p.name?.trim() || pageLabel(p.id)}
+          </option>
+        ))}
+      </Select>
+      <Select unstyled aria-label="Relation cardinality" value={cardinality} onChange={(e) => onCardinality(e.target.value as RelationCardinality)} className={cn(fieldClass, 'w-full')}>
+        {CARDINALITIES.map((c) => (
+          <option key={c.value} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+      </Select>
+    </>
+  );
+};
+
 export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void}> = ({onAdd}) => {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
@@ -257,6 +299,8 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
   const [numberFormat, setNumberFormat] = useState<NumberFormat>('plain');
   const [dateRange, setDateRange] = useState(false);
   const [description, setDescription] = useState('');
+  const [relTarget, setRelTarget] = useState('');
+  const [relCard, setRelCard] = useState<RelationCardinality>('n:n');
 
   const numeric = type === 'number' || type === 'formula' || type === 'expr' || type === 'rollup';
 
@@ -270,6 +314,8 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
       formula: type === 'formula' ? formula : undefined,
       numberFormat: numeric && numberFormat !== 'plain' ? numberFormat : undefined,
       dateRange: type === 'date' && dateRange ? true : undefined,
+      relationDatabaseId: type === 'relation' ? relTarget || undefined : undefined,
+      relationCardinality: type === 'relation' ? relCard : undefined,
       description: description.trim() || undefined,
     });
     setName('');
@@ -278,6 +324,8 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
     setFormula('');
     setNumberFormat('plain');
     setDateRange(false);
+    setRelTarget('');
+    setRelCard('n:n');
     setDescription('');
     setType('text');
     setOpen(false);
@@ -304,13 +352,13 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
           placeholder="Property name"
           className={cn(fieldClass, 'w-full')}
         />
-        <select value={type} onChange={(e) => setType(e.target.value as DatabasePropertyType)} className={cn(fieldClass, 'w-full')}>
+        <Select unstyled aria-label="Property type" value={type} onChange={(e) => setType(e.target.value as DatabasePropertyType)} className={cn(fieldClass, 'w-full')}>
           {PROPERTY_TYPES.map((t) => (
             <option key={t.value} value={t.value}>
               {t.label}
             </option>
           ))}
-        </select>
+        </Select>
         {(type === 'select' || type === 'multi_select') && (
           <input
             value={options}
@@ -318,6 +366,9 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
             placeholder="Options, comma separated"
             className={cn(fieldClass, 'w-full')}
           />
+        )}
+        {type === 'relation' && (
+          <RelationConfigFields databaseId={relTarget} cardinality={relCard} onDatabase={setRelTarget} onCardinality={setRelCard} />
         )}
         {type === 'expr' && (
           <input
@@ -340,13 +391,13 @@ export const AddPropertyMenu: React.FC<{onAdd: (input: NewPropertyInput) => void
           </>
         )}
         {numeric && (
-          <select value={numberFormat} onChange={(e) => setNumberFormat(e.target.value as NumberFormat)} className={cn(fieldClass, 'w-full')}>
+          <Select unstyled aria-label="Number format" value={numberFormat} onChange={(e) => setNumberFormat(e.target.value as NumberFormat)} className={cn(fieldClass, 'w-full')}>
             {NUMBER_FORMATS.map((f) => (
               <option key={f.value} value={f.value}>
                 {f.label}
               </option>
             ))}
-          </select>
+          </Select>
         )}
         {type === 'date' && (
           <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -487,7 +538,7 @@ const OptionsEditor: React.FC<{property: DatabaseProperty; db: UseDatabase}> = (
             className={cn(fieldClass, 'min-w-0 flex-1')}
           />
           {isStatus && (
-            <select
+            <Select unstyled
               value={option.group ?? 'todo'}
               onChange={(e) => setOption(option.id, {group: e.target.value as StatusGroup})}
               className={cn(fieldClass, 'w-24')}
@@ -498,7 +549,7 @@ const OptionsEditor: React.FC<{property: DatabaseProperty; db: UseDatabase}> = (
                   {g.label}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
           <IconButton size="sm" onClick={() => removeOption(option.id)} aria-label="Remove option">
             <Trash2 className="h-3.5 w-3.5" />
@@ -534,35 +585,35 @@ const RollupEditor: React.FC<{property: DatabaseProperty; db: UseDatabase}> = ({
       <div className={sectionLabel}>Rollup</div>
       <label className="block">
         <span className="text-xs text-muted-foreground">Relation</span>
-        <select value={cfg.relationPropertyId} onChange={(e) => set({relationPropertyId: e.target.value})} className={cn(fieldClass, 'mt-0.5 w-full')}>
+        <Select unstyled value={cfg.relationPropertyId} onChange={(e) => set({relationPropertyId: e.target.value})} className={cn(fieldClass, 'mt-0.5 w-full')}>
           <option value="">—</option>
           {relations.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label className="block">
         <span className="text-xs text-muted-foreground">Property</span>
-        <select value={cfg.targetPropertyId} onChange={(e) => set({targetPropertyId: e.target.value})} className={cn(fieldClass, 'mt-0.5 w-full')}>
+        <Select unstyled value={cfg.targetPropertyId} onChange={(e) => set({targetPropertyId: e.target.value})} className={cn(fieldClass, 'mt-0.5 w-full')}>
           <option value={TITLE_PROPERTY_ID}>Title</option>
           {targets.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <label className="block">
         <span className="text-xs text-muted-foreground">Calculate</span>
-        <select value={cfg.function} onChange={(e) => set({function: e.target.value as RollupFunction})} className={cn(fieldClass, 'mt-0.5 w-full')}>
+        <Select unstyled value={cfg.function} onChange={(e) => set({function: e.target.value as RollupFunction})} className={cn(fieldClass, 'mt-0.5 w-full')}>
           {ROLLUP_FUNCTIONS.map((f) => (
             <option key={f.value} value={f.value}>
               {f.label}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
     </div>
   );
@@ -599,7 +650,7 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
           className={cn(fieldClass, 'w-full font-medium')}
           aria-label="Property name"
         />
-        <select
+        <Select unstyled
           value={property.type}
           onChange={(e) => void db.updateProperty(property.id, {type: e.target.value as DatabasePropertyType})}
           className={cn(fieldClass, 'w-full')}
@@ -609,13 +660,39 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
               {t.label}
             </option>
           ))}
-        </select>
+        </Select>
 
         {(property.type === 'select' || property.type === 'multi_select' || property.type === 'status') && (
           <OptionsEditor property={property} db={db} />
         )}
 
         {property.type === 'rollup' && <RollupEditor property={property} db={db} />}
+
+        {property.type === 'relation' && (
+          <>
+            <RelationConfigFields
+              databaseId={property.relationDatabaseId}
+              cardinality={property.relationCardinality ?? 'n:n'}
+              lockDatabase={Boolean(property.reversePropertyId)}
+              onDatabase={(id) => void db.updateProperty(property.id, {relationDatabaseId: id || undefined})}
+              onCardinality={(card) =>
+                void db.updateProperty(property.id, {relationCardinality: card, relationSingle: relationSides(card).forwardSingle})
+              }
+            />
+            {property.reversePropertyId ? (
+              <p className="text-[11px] text-muted-foreground">Two-way link — edits sync to the related database.</p>
+            ) : (
+              <button
+                type="button"
+                disabled={!property.relationDatabaseId}
+                onClick={() => void db.pairRelation(property.id)}
+                className={cn('flex w-full items-center justify-center gap-1.5 rounded border border-border px-2 py-1.5 text-xs transition-colors hover:bg-hover disabled:opacity-50')}
+              >
+                <Link2 className="h-3.5 w-3.5" /> Add a two-way (reverse) link
+              </button>
+            )}
+          </>
+        )}
 
         {property.type === 'formula' && (
           <>
@@ -661,7 +738,7 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
             </label>
             <label className="block">
               <span className={sectionLabel}>Display</span>
-              <select
+              <Select unstyled
                 value={property.dateDisplay ?? 'absolute'}
                 onChange={(e) => void db.updateProperty(property.id, {dateDisplay: e.target.value as 'absolute' | 'relative'})}
                 className={cn(fieldClass, 'mt-1 w-full')}
@@ -669,7 +746,7 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
               >
                 <option value="absolute">Absolute (Jun 12, 2026)</option>
                 <option value="relative">Relative (In 3 days)</option>
-              </select>
+              </Select>
             </label>
           </>
         )}
@@ -685,7 +762,8 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
         )}
 
         {numeric && (
-          <select
+          <Select unstyled
+            aria-label="Number format"
             value={property.numberFormat ?? 'plain'}
             onChange={(e) => void db.updateProperty(property.id, {numberFormat: e.target.value as NumberFormat})}
             className={cn(fieldClass, 'w-full')}
@@ -695,12 +773,12 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
                 {f.label}
               </option>
             ))}
-          </select>
+          </Select>
         )}
 
         {property.type === 'number' && (
           <div className="flex items-center gap-1.5">
-            <select
+            <Select unstyled
               value={property.numberDisplay ?? 'number'}
               onChange={(e) => void db.updateProperty(property.id, {numberDisplay: e.target.value as NumberDisplay})}
               className={cn(fieldClass, 'flex-1')}
@@ -711,7 +789,7 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
                   Show as {d.label}
                 </option>
               ))}
-            </select>
+            </Select>
             {property.numberDisplay && property.numberDisplay !== 'number' && (
               <input
                 type="number"
@@ -873,7 +951,7 @@ const ConditionRow: React.FC<{
 
   return (
     <div className="flex items-center gap-1">
-      <select
+      <Select unstyled
         value={filter.propertyId}
         onChange={(e) => {
           const nextProp = database.schema.properties.find((p) => p.id === e.target.value);
@@ -887,17 +965,17 @@ const ConditionRow: React.FC<{
             {c.name}
           </option>
         ))}
-      </select>
-      <select value={operator} onChange={(e) => onChange({operator: e.target.value as FilterOperator})} className={cn(fieldClass, 'min-w-0 flex-1')}>
+      </Select>
+      <Select unstyled value={operator} onChange={(e) => onChange({operator: e.target.value as FilterOperator})} className={cn(fieldClass, 'min-w-0 flex-1')}>
         {ops.map((op) => (
           <option key={op} value={op}>
             {OPERATOR_LABEL[op]}
           </option>
         ))}
-      </select>
+      </Select>
       {!VALUELESS.has(operator) &&
         (isChoice ? (
-          <select
+          <Select unstyled
             value={typeof filter.value === 'string' ? filter.value : ''}
             onChange={(e) => onChange({value: e.target.value})}
             className={cn(fieldClass, 'w-24')}
@@ -908,7 +986,7 @@ const ConditionRow: React.FC<{
                 {o.label}
               </option>
             ))}
-          </select>
+          </Select>
         ) : (
           <input
             type={DATE_OPS.has(operator) ? 'date' : 'text'}
@@ -1033,13 +1111,13 @@ export const SortMenu: React.FC<MenuProps> = ({database, view, onChange}) => {
         {sorts.length === 0 && <div className="text-xs text-muted-foreground">No sorts yet.</div>}
         {sorts.map((sort, index) => (
           <div key={index} className="flex items-center gap-1">
-            <select value={sort.propertyId} onChange={(e) => setSort(index, {propertyId: e.target.value})} className={cn(fieldClass, 'min-w-0 flex-1')}>
+            <Select unstyled value={sort.propertyId} onChange={(e) => setSort(index, {propertyId: e.target.value})} className={cn(fieldClass, 'min-w-0 flex-1')}>
               {choices.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
                 </option>
               ))}
-            </select>
+            </Select>
             <button
               onClick={() => setSort(index, {direction: sort.direction === 'asc' ? 'desc' : 'asc'})}
               className={cn(fieldClass, 'flex items-center gap-1')}
@@ -1127,7 +1205,7 @@ const ColorRuleRow: React.FC<{db: UseDatabase; view: DatabaseView; rule: ColorRu
   return (
     <div className="flex items-center gap-1">
       <span className="h-4 w-1.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[rule.color] ?? '#9ca3af'}} />
-      <select
+      <Select unstyled
         value={rule.propertyId}
         onChange={(e) => {
           const next = properties.find((p) => p.id === e.target.value);
@@ -1141,24 +1219,24 @@ const ColorRuleRow: React.FC<{db: UseDatabase; view: DatabaseView; rule: ColorRu
             {p.name}
           </option>
         ))}
-      </select>
-      <select value={rule.operator} onChange={(e) => update({operator: e.target.value as FilterOperator})} className={cn(fieldClass, 'min-w-0')} aria-label="Rule operator">
+      </Select>
+      <Select unstyled value={rule.operator} onChange={(e) => update({operator: e.target.value as FilterOperator})} className={cn(fieldClass, 'min-w-0')} aria-label="Rule operator">
         {ops.map((o) => (
           <option key={o} value={o}>
             {OPERATOR_LABEL[o]}
           </option>
         ))}
-      </select>
+      </Select>
       {!VALUELESS.has(rule.operator) &&
         (isSelect ? (
-          <select value={typeof rule.value === 'string' ? rule.value : ''} onChange={(e) => update({value: e.target.value})} className={cn(fieldClass, 'min-w-0 flex-1')} aria-label="Rule value">
+          <Select unstyled value={typeof rule.value === 'string' ? rule.value : ''} onChange={(e) => update({value: e.target.value})} className={cn(fieldClass, 'min-w-0 flex-1')} aria-label="Rule value">
             <option value="">—</option>
             {(prop?.options ?? []).map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
               </option>
             ))}
-          </select>
+          </Select>
         ) : (
           <input
             value={typeof rule.value === 'string' || typeof rule.value === 'number' ? String(rule.value) : ''}
@@ -1168,13 +1246,13 @@ const ColorRuleRow: React.FC<{db: UseDatabase; view: DatabaseView; rule: ColorRu
             aria-label="Rule value"
           />
         ))}
-      <select value={rule.color} onChange={(e) => update({color: e.target.value})} className={cn(fieldClass, 'w-16')} aria-label="Rule colour">
+      <Select unstyled value={rule.color} onChange={(e) => update({color: e.target.value})} className={cn(fieldClass, 'w-16')} aria-label="Rule colour">
         {SELECT_COLORS.map((c) => (
           <option key={c} value={c}>
             {c}
           </option>
         ))}
-      </select>
+      </Select>
       <button onClick={remove} aria-label="Remove rule" className="shrink-0 rounded p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground">
         <X className="h-3.5 w-3.5" />
       </button>
@@ -1249,7 +1327,7 @@ const MetricCard: React.FC<{db: UseDatabase; view: DatabaseView; metric: Databas
       <PopoverContent align="start" className="w-56 space-y-2 p-2.5">
         <label className="block">
           <span className={sectionLabel}>Property</span>
-          <select
+          <Select unstyled
             value={metric.propertyId}
             onChange={(e) => patch({propertyId: e.target.value})}
             className={cn(fieldClass, 'mt-1 w-full')}
@@ -1260,17 +1338,17 @@ const MetricCard: React.FC<{db: UseDatabase; view: DatabaseView; metric: Databas
                 {p.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="block">
           <span className={sectionLabel}>Calculate</span>
-          <select value={metric.type} onChange={(e) => patch({type: e.target.value as SummaryType})} className={cn(fieldClass, 'mt-1 w-full')}>
+          <Select unstyled value={metric.type} onChange={(e) => patch({type: e.target.value as SummaryType})} className={cn(fieldClass, 'mt-1 w-full')}>
             {METRIC_TYPES.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <input
           defaultValue={metric.label ?? ''}
@@ -1452,7 +1530,7 @@ const GroupByPicker: React.FC<{
 }> = ({label, value, properties, onChange}) => (
   <label className="block">
     <span className={sectionLabel}>{label}</span>
-    <select value={value ?? ''} onChange={(e) => onChange(e.target.value || undefined)} className={cn(fieldClass, 'mt-1 w-full')}>
+    <Select unstyled value={value ?? ''} onChange={(e) => onChange(e.target.value || undefined)} className={cn(fieldClass, 'mt-1 w-full')}>
       <option value="">—</option>
       <option value={PARENT_GROUP_ID}>Sub-items (parent)</option>
       {properties.map((p) => (
@@ -1460,7 +1538,7 @@ const GroupByPicker: React.FC<{
           {p.name}
         </option>
       ))}
-    </select>
+    </Select>
   </label>
 );
 
@@ -1595,7 +1673,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
         {showMap && (
           <label className="block">
             <span className={sectionLabel}>Location property</span>
-            <select
+            <Select unstyled
               value={view.geoPropertyId ?? ''}
               onChange={(e) => db.updateView(view.id, {geoPropertyId: e.target.value || undefined})}
               className={cn(fieldClass, 'mt-1 w-full')}
@@ -1606,14 +1684,14 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                   {p.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
 
         {showMap && (
           <label className="block">
             <span className={sectionLabel}>Geocode address (optional)</span>
-            <select
+            <Select unstyled
               value={view.addressPropertyId ?? ''}
               onChange={(e) => db.updateView(view.id, {addressPropertyId: e.target.value || undefined})}
               className={cn(fieldClass, 'mt-1 w-full')}
@@ -1624,7 +1702,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                   {p.name}
                 </option>
               ))}
-            </select>
+            </Select>
             <span className="mt-1 block text-[11px] text-muted-foreground/70">
               Lets you look up coordinates from an address column on demand (a network call).
             </span>
@@ -1647,7 +1725,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
           <div className="flex gap-1">
             <label className="flex-1">
               <span className={sectionLabel}>Measure</span>
-              <select
+              <Select unstyled
                 value={aggregate.type}
                 onChange={(e) => db.updateView(view.id, {aggregate: {...aggregate, type: e.target.value as ChartAggregate['type']}})}
                 className={cn(fieldClass, 'mt-1 w-full')}
@@ -1657,12 +1735,12 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                     {t}
                   </option>
                 ))}
-              </select>
+              </Select>
             </label>
             {aggregate.type !== 'count' && (
               <label className="flex-1">
                 <span className={sectionLabel}>Of</span>
-                <select
+                <Select unstyled
                   value={aggregate.propertyId ?? ''}
                   onChange={(e) => db.updateView(view.id, {aggregate: {...aggregate, propertyId: e.target.value || undefined}})}
                   className={cn(fieldClass, 'mt-1 w-full')}
@@ -1673,7 +1751,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                       {p.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
             )}
           </div>
@@ -1682,7 +1760,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
         {showChart && (
           <label className="block">
             <span className={sectionLabel}>Break down by</span>
-            <select
+            <Select unstyled
               value={view.breakdownPropertyId ?? ''}
               onChange={(e) => db.updateView(view.id, {breakdownPropertyId: e.target.value || undefined})}
               className={cn(fieldClass, 'mt-1 w-full')}
@@ -1696,7 +1774,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                     {p.name}
                   </option>
                 ))}
-            </select>
+            </Select>
           </label>
         )}
 
@@ -1715,7 +1793,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
         {showDate && (
           <label className="block">
             <span className={sectionLabel}>{showTimeline ? 'Start date' : 'Date property'}</span>
-            <select
+            <Select unstyled
               value={view.datePropertyId ?? ''}
               onChange={(e) => db.updateView(view.id, {datePropertyId: e.target.value || undefined})}
               className={cn(fieldClass, 'mt-1 w-full')}
@@ -1726,14 +1804,14 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                   {p.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
 
         {showTimeline && (
           <label className="block">
             <span className={sectionLabel}>End date</span>
-            <select
+            <Select unstyled
               value={view.endDatePropertyId ?? ''}
               onChange={(e) => db.updateView(view.id, {endDatePropertyId: e.target.value || undefined})}
               className={cn(fieldClass, 'mt-1 w-full')}
@@ -1746,14 +1824,14 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                     {p.name}
                   </option>
                 ))}
-            </select>
+            </Select>
           </label>
         )}
 
         {showDependency && (
           <label className="block">
             <span className={sectionLabel}>Dependencies</span>
-            <select
+            <Select unstyled
               value={view.dependencyPropertyId ?? ''}
               onChange={(e) => db.updateView(view.id, {dependencyPropertyId: e.target.value || undefined})}
               className={cn(fieldClass, 'mt-1 w-full')}
@@ -1764,14 +1842,14 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                   {p.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
 
         {showCover && (
           <label className="block">
             <span className={sectionLabel}>Card cover</span>
-            <select
+            <Select unstyled
               value={view.coverPropertyId ?? ''}
               onChange={(e) => db.updateView(view.id, {coverPropertyId: e.target.value || undefined})}
               className={cn(fieldClass, 'mt-1 w-full')}
@@ -1782,14 +1860,14 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                   {p.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
 
         {showCover && (
           <label className="block">
             <span className={sectionLabel}>Card size</span>
-            <select
+            <Select unstyled
               value={view.cardSize ?? 'medium'}
               onChange={(e) => db.updateView(view.id, {cardSize: e.target.value as 'small' | 'medium' | 'large'})}
               className={cn(fieldClass, 'mt-1 w-full')}
@@ -1798,14 +1876,14 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
               <option value="small">Small</option>
               <option value="medium">Medium</option>
               <option value="large">Large</option>
-            </select>
+            </Select>
           </label>
         )}
 
         {showCardColor && colorProps.length > 0 && (
           <label className="block">
             <span className={sectionLabel}>Color by</span>
-            <select
+            <Select unstyled
               value={view.cardColorPropertyId ?? ''}
               onChange={(e) => db.updateView(view.id, {cardColorPropertyId: e.target.value || undefined})}
               className={cn(fieldClass, 'mt-1 w-full')}
@@ -1816,7 +1894,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                   {p.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
 

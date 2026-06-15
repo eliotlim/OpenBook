@@ -43,18 +43,19 @@ describe('themes', () => {
 });
 
 describe('composeAppearance', () => {
-  it('reproduces the legacy light palette at the defaults (no-op)', () => {
+  it('reproduces the legacy content surfaces at the defaults', () => {
     const t = composeAppearance(DEFAULT_APPEARANCE, 'light');
     expect(t.muted).toBe('40 9% 96%');
     expect(t.secondary).toBe('40 9% 96%');
     expect(t.border).toBe('40 8% 90%');
     expect(t.input).toBe('40 8% 87%');
     expect(t.accent).toBe('40 12% 93%');
-    expect(t.sheet1).toBe('40 14% 97.5%');
-    expect(t.sheet2).toBe('40 11% 93.5%');
     expect(t.primary).toBe('207 75% 49%');
     // The canvas stays white (saturation 0 reads identical to the old `0 0% 100%`).
     expect(satOf(t.background)).toBe(0);
+    // The one intended departure (#7): the sidebar sheets are tinted by default.
+    expect(hueOf(t.sheet1)).toBe(207);
+    expect(satOf(t.sheet1)).toBeGreaterThan(0);
   });
 
   it('keeps the dark surfaces neutral at the defaults', () => {
@@ -65,17 +66,23 @@ describe('composeAppearance', () => {
     expect(t.primary).toBe('207 68% 55%');
   });
 
-  it('"cool" swings the neutral surfaces to a cool hue', () => {
-    const t = composeAppearance({...DEFAULT_APPEARANCE, neutral: 'cool'}, 'light');
+  it('the "cool" gray accent swings the neutral surfaces to a cool hue', () => {
+    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'cool'}, 'light');
     expect(hueOf(t.muted)).toBe(220); // cool, not warm 40
     expect(satOf(t.muted)).toBeGreaterThan(0);
   });
 
-  it('"neutral" fully desaturates the surfaces (true gray)', () => {
-    const t = composeAppearance({...DEFAULT_APPEARANCE, neutral: 'neutral', interfaceIntensity: 3}, 'light');
+  it('the "neutral" gray accent fully desaturates the surfaces (true gray)', () => {
+    // tintedSidebar off so the sheets aren't re-tinted with the accent hue.
+    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'neutral', interfaceIntensity: 3, tintedSidebar: false}, 'light');
     expect(satOf(t.muted)).toBe(0);
     expect(satOf(t.sheet1)).toBe(0);
     expect(satOf(t.accent)).toBe(0);
+  });
+
+  it('a coloured accent keeps the warm-minimal neutral base', () => {
+    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'forest'}, 'light');
+    expect(hueOf(t.muted)).toBe(40); // warm, regardless of the green accent
   });
 
   it('interface intensity scales the surface saturation', () => {
@@ -101,10 +108,10 @@ describe('composeAppearance', () => {
 
 describe('mergeAppearance', () => {
   it('overlays only the provided keys and ignores undefined', () => {
-    const merged = mergeAppearance(DEFAULT_APPEARANCE, {neutral: 'cool', interfaceIntensity: undefined});
-    expect(merged.neutral).toBe('cool');
+    const merged = mergeAppearance(DEFAULT_APPEARANCE, {themeId: 'cool', interfaceIntensity: undefined});
+    expect(merged.themeId).toBe('cool');
     expect(merged.interfaceIntensity).toBe(DEFAULT_APPEARANCE.interfaceIntensity);
-    expect(merged.themeId).toBe(DEFAULT_APPEARANCE.themeId);
+    expect(merged.controlIntensity).toBe(DEFAULT_APPEARANCE.controlIntensity);
   });
 
   it('returns the base unchanged for a null override', () => {
@@ -113,14 +120,13 @@ describe('mergeAppearance', () => {
 });
 
 describe('normalizeAppearance (migration)', () => {
-  it('maps the old tint / accentIntensity / neutral keys to the new model', () => {
-    const out = normalizeAppearance({tint: 3, accentIntensity: 1, neutral: 'gray'});
-    expect(out).toEqual({interfaceIntensity: 3, controlIntensity: 1, neutral: 'neutral'});
-    expect(normalizeAppearance({neutral: 'match'}).neutral).toBe('warm');
+  it('maps the old tint / accentIntensity keys and drops the retired neutral knob', () => {
+    const out = normalizeAppearance({tint: 3, accentIntensity: 1, neutral: 'cool'});
+    expect(out).toEqual({interfaceIntensity: 3, controlIntensity: 1}); // neutral dropped
   });
 
   it('leaves an already-current override untouched', () => {
-    const cur = {neutral: 'cool', interfaceIntensity: 1, controlIntensity: 2};
+    const cur = {themeId: 'cool', interfaceIntensity: 1, controlIntensity: 2};
     expect(normalizeAppearance(cur)).toEqual(cur);
   });
 });

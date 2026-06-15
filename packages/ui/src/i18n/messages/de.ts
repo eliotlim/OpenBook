@@ -51,6 +51,9 @@ export const de: PartialMessages = {
   },
   theme: {
     default: 'Standard',
+    warm: 'Warm',
+    neutral: 'Neutral',
+    cool: 'Kühl',
     ocean: 'Ozean',
     forest: 'Wald',
     violet: 'Violett',

@@ -2,13 +2,14 @@ import {Image as ImageIcon, Trash2} from 'lucide-react';
 import {useEffect, useMemo, useState, type CSSProperties} from 'react';
 import {useTheme, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
-import {mergeAppearance, PAGE_BACKGROUNDS, type AppearanceOverride} from '@/lib/themes';
+import {getTheme, mergeAppearance, PAGE_BACKGROUNDS, type AppearanceOverride} from '@/lib/themes';
 import {composePageAppearance, hasPageTheme, usePageTheme, writePageTheme} from '@/lib/pageTheme';
 import {FONT_PRESETS, readPageFonts, usePageFonts, writePageFonts, type PageFonts} from '@/lib/pageFont';
+import {PAGE_THEME_PRESETS, type PageThemePreset} from '@/lib/pageThemePresets';
 import {getPageCustomiseTarget, subscribePageCustomise} from '@/lib/pageCustomise';
 import {usePageCover, writePageCover} from '@/lib/pageCover';
 import {CoverPicker} from '@/components/PageCover';
-import {AccentPicker, Field, LevelPicker, NeutralPicker, Segmented} from './AppearanceControls';
+import {AccentPicker, Field, LevelPicker, Segmented} from './AppearanceControls';
 
 /**
  * Compose this page's effective appearance (the app's appearance with the
@@ -137,11 +138,49 @@ function TypefacePicker({value, onChange}: {value: string | undefined; onChange:
 }
 
 /**
- * The full set of per-page customisation controls: accent palette, neutral
- * temperature, interface + control intensity, and the primary / secondary
- * typefaces. Writes page-scoped overrides (theme to localStorage via
- * {@link writePageTheme}, fonts via {@link writePageFonts}); the app chrome is
- * intentionally out of scope — a page override only restyles that page.
+ * Whole-page theme presets (#4): each tile sets the accent, background, fonts,
+ * and cover together in one click — a coordinated look you then refine with the
+ * per-aspect pickers below. The tile previews the cover (or an accent wash) plus
+ * the accent dot.
+ */
+function PresetPicker({pageId, scheme}: {pageId: string; scheme: 'light' | 'dark'}) {
+  const {t} = useTranslation();
+  const apply = (preset: PageThemePreset): void => {
+    writePageTheme(pageId, preset.override); // an empty override clears (= follow app)
+    writePageFonts(pageId, preset.fonts);
+    writePageCover(pageId, preset.cover);
+  };
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {PAGE_THEME_PRESETS.map((preset) => {
+        const accent = getTheme(preset.override.themeId ?? 'default');
+        const swatch = (scheme === 'dark' ? accent.dark : accent.light).primary;
+        const wash = preset.cover?.kind === 'gradient' ? preset.cover.css : `hsl(${swatch} / 0.14)`;
+        return (
+          <button
+            key={preset.id}
+            type="button"
+            onClick={() => apply(preset)}
+            className="flex cursor-pointer flex-col gap-1.5 rounded-md border border-border p-1.5 text-xs transition-colors hover:bg-hover"
+          >
+            <span className="h-8 w-full rounded" style={{background: wash}} aria-hidden />
+            <span className="flex items-center gap-1.5">
+              <span className="h-3 w-3 shrink-0 rounded-full border border-border" style={{backgroundColor: `hsl(${swatch})`}} aria-hidden />
+              <span className="truncate">{t(preset.labelKey as Parameters<typeof t>[0])}</span>
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Per-page customisation. A whole-page theme preset (#4) sets control colour,
+ * font, background, and cover at once; the individual pickers (#5) then tweak
+ * each aspect. Writes page-scoped overrides (theme via {@link writePageTheme},
+ * fonts via {@link writePageFonts}, cover via {@link writePageCover}); the app
+ * chrome is out of scope — a page override only restyles that page.
  */
 export function PageAppearanceControls({pageId}: {pageId: string}) {
   const {appearance, colorScheme} = useTheme();
@@ -173,6 +212,7 @@ export function PageAppearanceControls({pageId}: {pageId: string}) {
             onClick={() => {
               writePageTheme(pageId, null);
               writePageFonts(pageId, null);
+              writePageCover(pageId, null);
             }}
             className="shrink-0 cursor-pointer text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
@@ -181,39 +221,24 @@ export function PageAppearanceControls({pageId}: {pageId: string}) {
         )}
       </div>
 
-      <Field label={t('appearance.cover')} hint={t('appearance.coverHint')}>
-        <CoverField pageId={pageId} />
+      <Field label={t('appearance.presets')} hint={t('appearance.presetsHint')}>
+        <PresetPicker pageId={pageId} scheme={colorScheme} />
       </Field>
 
-      <AccentPicker value={eff.themeId} onChange={(themeId) => setTheme({themeId})} scheme={colorScheme} />
-
-      <Field label={t('appearance.interfaceIntensity')}>
-        <NeutralPicker value={eff.neutral} onChange={(neutral) => setTheme({neutral})} />
+      <Field label={t('appearance.controlColor')} hint={t('appearance.controlColorHint')}>
+        <AccentPicker value={eff.themeId} onChange={(themeId) => setTheme({themeId})} scheme={colorScheme} />
         <div className="mt-1.5">
           <LevelPicker
-            value={eff.interfaceIntensity}
-            onChange={(interfaceIntensity) => setTheme({interfaceIntensity})}
+            value={eff.controlIntensity}
+            onChange={(controlIntensity) => setTheme({controlIntensity})}
             labels={[
-              t('appearance.levelOff'),
-              t('appearance.levelSubtle'),
+              t('appearance.levelSoft'),
               t('appearance.levelMedium'),
               t('appearance.levelStrong'),
+              t('appearance.levelVivid'),
             ]}
           />
         </div>
-      </Field>
-
-      <Field label={t('appearance.controlIntensity')}>
-        <LevelPicker
-          value={eff.controlIntensity}
-          onChange={(controlIntensity) => setTheme({controlIntensity})}
-          labels={[
-            t('appearance.levelSoft'),
-            t('appearance.levelMedium'),
-            t('appearance.levelStrong'),
-            t('appearance.levelVivid'),
-          ]}
-        />
       </Field>
 
       <Field label={t('appearance.background')} hint={t('appearance.backgroundHint')}>
@@ -226,6 +251,10 @@ export function PageAppearanceControls({pageId}: {pageId: string}) {
 
       <Field label={t('appearance.fontHeading')} hint={t('appearance.fontHeadingHint')}>
         <TypefacePicker value={fonts?.heading} onChange={(heading) => setFont({heading})} />
+      </Field>
+
+      <Field label={t('appearance.cover')} hint={t('appearance.coverHint')}>
+        <CoverField pageId={pageId} />
       </Field>
     </div>
   );

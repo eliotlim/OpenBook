@@ -1,4 +1,5 @@
 import React, {useRef} from 'react';
+import {Select} from '@/components/ui/select';
 import {ImagePlus, Plus, X} from 'lucide-react';
 import {blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
@@ -179,7 +180,7 @@ const MediaRow: React.FC<{
         placeholder="🙂"
         onChange={(e) => onChange({icon: e.target.value.trim() || undefined})}
       />
-      <select
+      <Select unstyled
         className="rounded-md border border-border bg-card px-1.5 py-1 text-sm"
         value={row.color ?? ''}
         disabled={editor.readOnly}
@@ -192,7 +193,7 @@ const MediaRow: React.FC<{
             {c.label}
           </option>
         ))}
-      </select>
+      </Select>
     </div>
   );
 };

@@ -2,7 +2,7 @@ import {type ComponentType, type ReactNode} from 'react';
 import {CheckIcon} from '@radix-ui/react-icons';
 import {cn} from '@/lib/utils';
 import {useTranslation} from '@/providers';
-import {themes, type AccentGroup, type NeutralFamily, type Level} from '@/lib/themes';
+import {themes, type AccentGroup, type Level} from '@/lib/themes';
 import type {TKey} from '@/i18n';
 
 /** A compact segmented button row — the shared shape for every appearance knob. */
@@ -49,11 +49,11 @@ export function Field({label, hint, children}: {label: string; hint?: string; ch
 }
 
 const GROUP_LABEL: Record<AccentGroup, TKey> = {
+  gray: 'appearance.accentGray',
   bold: 'appearance.accentBold',
   pastel: 'appearance.accentPastel',
-  neutral: 'appearance.accentNeutral',
 };
-const GROUP_ORDER: AccentGroup[] = ['bold', 'pastel', 'neutral'];
+const GROUP_ORDER: AccentGroup[] = ['gray', 'bold', 'pastel'];
 
 /** The accent-palette picker: swatches grouped by bold / pastel / neutral. */
 export function AccentPicker({
@@ -111,17 +111,6 @@ export function AccentPicker({
       })}
     </div>
   );
-}
-
-/** Neutral gray temperature (warm / cool / neutral). */
-export function NeutralPicker({value, onChange}: {value: NeutralFamily; onChange: (v: NeutralFamily) => void}) {
-  const {t} = useTranslation();
-  const opts: Array<{value: NeutralFamily; label: string}> = [
-    {value: 'warm', label: t('appearance.neutralWarm')},
-    {value: 'cool', label: t('appearance.neutralCool')},
-    {value: 'neutral', label: t('appearance.neutralNeutral')},
-  ];
-  return <Segmented options={opts} value={value} onChange={onChange} />;
 }
 
 /** A 0–3 level picker (interface intensity / control intensity). */

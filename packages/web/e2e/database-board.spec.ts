@@ -1,4 +1,4 @@
-import {test, expect} from './fixtures';
+import {test, expect, chooseValue} from './fixtures';
 import type {APIRequestContext} from '@playwright/test';
 import {SERVER} from './seed';
 
@@ -36,7 +36,7 @@ test('board column footer: configurable calculation', async ({page, request}) =>
 
   // Switch the calculation to Count → the Done footer now shows the row count (2).
   await doneFooter.click();
-  await page.locator('select').nth(1).selectOption('count_all');
+  await chooseValue(page, page.getByLabel('Summary calculation'), 'count_all');
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', {name: /Count.*Cost.*2/})).toBeVisible();
 });

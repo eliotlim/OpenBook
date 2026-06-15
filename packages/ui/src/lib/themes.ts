@@ -14,9 +14,9 @@
  * writes it onto an element (the document root globally, or a page wrapper for a
  * per-page override).
  *
- * The crucial invariant: {@link DEFAULT_APPEARANCE} composes to the *exact*
- * legacy palette (verbatim from index.css) in both schemes, so the parametric
- * system is a no-op until the user actually turns a knob.
+ * The content surfaces of {@link DEFAULT_APPEARANCE} match the legacy palette
+ * (verbatim from index.css) in both schemes; the one intended departure is the
+ * sidebar, which is now tinted by default (the sheets adopt the accent hue).
  *
  * `--radius` is intentionally not themed (it's part of the brand geometry).
  */
@@ -51,8 +51,9 @@ export interface ThemeTokens {
   brandSubtle: string;
 }
 
-/** Accent palettes are grouped in the picker so bold and soft hues don't mix. */
-export type AccentGroup = 'bold' | 'pastel' | 'neutral';
+/** Accent palettes are grouped in the picker so bold and soft hues don't mix.
+ *  `gray` holds the whole-application gray accents (warm / neutral / cool). */
+export type AccentGroup = 'gray' | 'bold' | 'pastel';
 
 export interface Theme {
   id: string;
@@ -60,6 +61,11 @@ export interface Theme {
   nameKey: string;
   /** Picker grouping (default `bold`). */
   group?: AccentGroup;
+  /** The neutral gray *temperature* this accent carries (warm / neutral / cool).
+   *  Gray accents set it explicitly; coloured accents leave it `warm` (the
+   *  warm-minimal brand). It's a property of the accent now, not a separate
+   *  control — so picking "Cool" makes the whole app a cool gray. */
+  neutral?: NeutralFamily;
   light: ThemeTokens;
   dark: ThemeTokens;
 }
@@ -133,8 +139,9 @@ interface Accent {
   primaryForeground?: string;
 }
 
-/** Build a theme that swaps only the accent family over the shared base. */
-function accentTheme(id: string, group: AccentGroup, light: Accent, dark: Accent): Theme {
+/** Build a theme that swaps only the accent family over the shared base.
+ *  `neutral` sets the gray temperature the accent carries (default warm). */
+function accentTheme(id: string, group: AccentGroup, light: Accent, dark: Accent, neutral?: NeutralFamily): Theme {
   const apply = (base: ThemeTokens, a: Accent): ThemeTokens => ({
     ...base,
     primary: a.primary,
@@ -144,13 +151,36 @@ function accentTheme(id: string, group: AccentGroup, light: Accent, dark: Accent
     brandForeground: a.primaryForeground ?? '0 0% 100%',
     brandSubtle: a.brandSubtle,
   });
-  return {id, nameKey: `theme.${id}`, group, light: apply(DEFAULT_LIGHT, light), dark: apply(DEFAULT_DARK, dark)};
+  return {id, nameKey: `theme.${id}`, group, neutral, light: apply(DEFAULT_LIGHT, light), dark: apply(DEFAULT_DARK, dark)};
 }
 
 export const DEFAULT_THEME_ID = 'default';
 
 export const themes: Theme[] = [
   {id: 'default', nameKey: 'theme.default', group: 'bold', light: DEFAULT_LIGHT, dark: DEFAULT_DARK},
+  // ── Gray accents (whole-application grays; each sets its own neutral
+  //    temperature so the entire app — accent included — reads warm/neutral/cool) ─
+  accentTheme(
+    'warm',
+    'gray',
+    {primary: '28 12% 34%', brandSubtle: '30 24% 92%'},
+    {primary: '30 10% 70%', primaryForeground: '30 16% 12%', brandSubtle: '30 12% 22%'},
+    'warm',
+  ),
+  accentTheme(
+    'neutral',
+    'gray',
+    {primary: '0 0% 34%', brandSubtle: '0 0% 92%'},
+    {primary: '0 0% 72%', primaryForeground: '0 0% 12%', brandSubtle: '0 0% 22%'},
+    'neutral',
+  ),
+  accentTheme(
+    'cool',
+    'gray',
+    {primary: '220 14% 36%', brandSubtle: '216 24% 92%'},
+    {primary: '218 12% 72%', primaryForeground: '220 22% 12%', brandSubtle: '218 16% 22%'},
+    'cool',
+  ),
   // ── Bold accents ─────────────────────────────────────────────────────────
   accentTheme(
     'ocean',
@@ -231,12 +261,13 @@ export const themes: Theme[] = [
     {primary: '46 80% 70%', primaryForeground: '40 55% 24%', brandSubtle: '46 84% 92%'},
     {primary: '46 66% 62%', primaryForeground: '40 50% 12%', brandSubtle: '44 42% 22%'},
   ),
-  // ── Neutral accent ───────────────────────────────────────────────────────
+  // Graphite: a cool blue-gray, grouped with the other grays.
   accentTheme(
     'graphite',
-    'neutral',
+    'gray',
     {primary: '215 25% 35%', brandSubtle: '215 25% 92%'},
     {primary: '215 20% 65%', primaryForeground: '215 28% 12%', brandSubtle: '215 18% 24%'},
+    'cool',
   ),
 ];
 
@@ -265,10 +296,10 @@ export type Level = 0 | 1 | 2 | 3;
  * palette exactly, so any field left at its default is a visual no-op.
  */
 export interface AppearanceOptions {
-  /** Accent palette id (see {@link themes}). */
+  /** Accent palette id (see {@link themes}). The accent also carries the neutral
+   *  gray temperature — the gray accents (warm / neutral / cool) make the whole
+   *  app that temperature; coloured accents stay warm. */
   themeId: string;
-  /** Temperature of the neutral grays (warm / cool / neutral). */
-  neutral: NeutralFamily;
   /** How saturated the neutral surfaces are. */
   interfaceIntensity: Level;
   /** How colored the faded control surface (`--accent`) is. */
@@ -294,10 +325,11 @@ export const PAGE_BACKGROUNDS: Record<string, {light: string; dark: string}> = {
 
 export const DEFAULT_APPEARANCE: AppearanceOptions = {
   themeId: DEFAULT_THEME_ID,
-  neutral: 'warm',
   interfaceIntensity: 2,
   controlIntensity: 2,
-  tintedSidebar: false,
+  // The sidebar is tinted by default — it reads as a soft accent panel rather
+  // than a flat neutral sheet.
+  tintedSidebar: true,
 };
 
 /** A per-page override: any subset of the global appearance. */
@@ -305,9 +337,10 @@ export type AppearanceOverride = Partial<AppearanceOptions>;
 
 /**
  * Migrate a persisted (possibly older-shape) appearance to the current model:
- * `tint`→`interfaceIntensity`, `accentIntensity`→`controlIntensity`, and the
- * dropped neutral families (`gray`→`neutral`, `match`→`warm`). Unknown keys are
- * dropped by the `{...DEFAULT_APPEARANCE, ...}` merge at the call site.
+ * `tint`→`interfaceIntensity`, `accentIntensity`→`controlIntensity`. The old
+ * `neutral` temperature knob is gone — it's now carried by the accent theme —
+ * so any persisted `neutral` is dropped. Unknown keys are dropped by the
+ * `{...DEFAULT_APPEARANCE, ...}` merge at the call site.
  */
 export function normalizeAppearance(raw: Record<string, unknown>): AppearanceOverride {
   const out: Record<string, unknown> = {...raw};
@@ -315,8 +348,7 @@ export function normalizeAppearance(raw: Record<string, unknown>): AppearanceOve
   if (out.accentIntensity !== undefined && out.controlIntensity === undefined) out.controlIntensity = out.accentIntensity;
   delete out.tint;
   delete out.accentIntensity;
-  if (out.neutral === 'gray') out.neutral = 'neutral';
-  if (out.neutral === 'match') out.neutral = 'warm';
+  delete out.neutral; // neutral is now derived from the accent theme
   return out as AppearanceOverride;
 }
 
@@ -399,8 +431,11 @@ export function composeAppearance(opts: AppearanceOptions, scheme: 'light' | 'da
   const tokens: ThemeTokens = {...base};
 
   const accentHue = hueOf(base.primary);
-  const familyHue = FAMILY_HUE[opts.neutral];
-  const gray = opts.neutral === 'neutral';
+  // The neutral temperature now rides on the accent theme (gray accents set it;
+  // coloured accents keep the warm-minimal brand).
+  const family = theme.neutral ?? 'warm';
+  const familyHue = FAMILY_HUE[family];
+  const gray = family === 'neutral';
   const tintFloor = (scheme === 'dark' ? TINT_FLOOR_DARK : TINT_FLOOR_LIGHT)[opts.interfaceIntensity];
 
   // Neutral surfaces: keep their base lightness, restyle hue + saturation.

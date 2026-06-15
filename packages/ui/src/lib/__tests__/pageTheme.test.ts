@@ -27,9 +27,9 @@ describe('pageTheme storage', () => {
 
   it('keeps per-page overrides independent', () => {
     writePageTheme('a', {themeId: 'ocean'});
-    writePageTheme('b', {neutral: 'cool'});
+    writePageTheme('b', {themeId: 'cool'});
     expect(readPageTheme('a')).toEqual({themeId: 'ocean'});
-    expect(readPageTheme('b')).toEqual({neutral: 'cool'});
+    expect(readPageTheme('b')).toEqual({themeId: 'cool'});
   });
 });
 

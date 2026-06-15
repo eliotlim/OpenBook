@@ -2,6 +2,7 @@ import {spawn} from 'node:child_process';
 import {rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {test as base} from '@chromatic-com/playwright';
+import type {Locator, Page} from '@playwright/test';
 
 /**
  * Worker isolation for the e2e suite: every Playwright worker runs its own
@@ -112,3 +113,21 @@ export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
 });
 
 export {expect, takeSnapshot} from '@chromatic-com/playwright';
+
+/**
+ * Drive the custom {@link Select} (the Popover-based dropdown that replaced the
+ * native `<select>`): open the trigger, then click the option. `chooseValue`
+ * targets by the option's `data-value` (mirrors the old `selectOption(value)`);
+ * `chooseLabel` targets by its visible text (mirrors `selectOption({label})`).
+ */
+export async function chooseValue(page: Page, trigger: Locator | string, value: string): Promise<void> {
+  const t = typeof trigger === 'string' ? page.locator(trigger) : trigger;
+  await t.click();
+  await page.locator(`[role="option"][data-value="${value}"]`).click();
+}
+
+export async function chooseLabel(page: Page, trigger: Locator | string, label: string): Promise<void> {
+  const t = typeof trigger === 'string' ? page.locator(trigger) : trigger;
+  await t.click();
+  await page.getByRole('option', {name: label, exact: true}).click();
+}

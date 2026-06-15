@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from './fixtures';
+import {test, expect, takeSnapshot, chooseValue} from './fixtures';
 
 const primary = (page: import('@playwright/test').Page) =>
   page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim());
@@ -25,7 +25,7 @@ test('language: switching translates the chrome and persists', async ({page}, te
 
   await page.getByRole('button', {name: 'Settings'}).first().click();
   await page.getByRole('button', {name: 'General'}).click();
-  await page.locator('#ob-language').selectOption('de');
+  await chooseValue(page, '#ob-language', 'de');
 
   // The settings tab rail re-labels in German ("Darstellung" = Appearance).
   await expect(page.getByRole('button', {name: 'Darstellung'})).toBeVisible();

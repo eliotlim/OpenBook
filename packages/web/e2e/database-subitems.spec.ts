@@ -1,4 +1,4 @@
-import {test, expect} from './fixtures';
+import {test, expect, chooseValue} from './fixtures';
 import {SERVER} from './seed';
 
 // Sub-items as first-class groups: a view's group-by can be the parent item
@@ -116,7 +116,7 @@ test('table grouped by sub-items via view options: children under parent heading
   await expect(page.getByRole('button', {name: 'Table', exact: true})).toBeVisible();
 
   await page.getByRole('button', {name: 'View options'}).click();
-  await page.getByLabel('Group by').selectOption('__parent__');
+  await chooseValue(page, page.getByLabel('Group by'), '__parent__');
   await page.keyboard.press('Escape');
 
   // Group headers carry the parent names; the loose row gets the trailing group.

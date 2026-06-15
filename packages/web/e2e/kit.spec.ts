@@ -1,4 +1,4 @@
-import {test, expect, takeSnapshot} from './fixtures';
+import {test, expect, takeSnapshot, chooseValue, chooseLabel} from './fixtures';
 import {SERVER} from './seed';
 
 // The block editor's artifact kit: named inputs publish onto a shared
@@ -88,7 +88,7 @@ test('chart + status light + button: the full artifact loop', async ({page}, tes
   await chart.hover();
   await chart.locator('.obe-kit-gear').click();
   await chart.getByLabel('Chart data expression').fill('[n, n*2, 10]');
-  await chart.getByLabel('Chart kind').selectOption('bar');
+  await chooseValue(page, chart.getByLabel('Chart kind'), 'bar');
   await chart.getByLabel('Labels (comma-separated)').fill('n, 2n, ten');
   await chart.locator('.obe-kit-gear').click();
   await expect(chart.locator('svg rect')).toHaveCount(3);
@@ -195,7 +195,7 @@ test('pie chart renders labelled slices with a legend', async ({page}) => {
   await chart.hover();
   await chart.locator('.obe-kit-gear').click();
   await chart.getByLabel('Chart data expression').fill('{Won: 8, Lost: 2, Open: 5}');
-  await chart.getByLabel('Chart kind').selectOption('pie');
+  await chooseValue(page, chart.getByLabel('Chart kind'), 'pie');
   await chart.locator('.obe-kit-gear').click();
   await expect(chart.locator('svg path')).toHaveCount(3);
   await expect(chart.locator('svg text', {hasText: 'Won · 53%'})).toBeVisible();
@@ -285,7 +285,7 @@ test('dropdown publishes its pick; full-width radio renders stacked rows', async
   await code.locator('.obe-text').click();
   await page.keyboard.type('pick');
   await expect(code.locator('.obe-code-out')).toContainText('result = One');
-  await page.locator('.obe-kit-dropdown select').selectOption('Two');
+  await chooseLabel(page, page.locator('.obe-kit-dropdown [role="combobox"]'), 'Two');
   await expect(code.locator('.obe-code-out')).toContainText('result = Two');
 
   // Full width: the ⚙ toggle relays out the radio as stacked rows with dots.

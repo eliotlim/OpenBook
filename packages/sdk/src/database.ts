@@ -157,6 +157,41 @@ export interface DatabaseProperty {
    * (same database). Linking A→B via this property also lists A on B's inverse.
    */
   syncedPropertyId?: string;
+  /**
+   * `relation` only: the id of the **target database** whose rows this column
+   * links to. A relation is database↔database — the cell picks rows from this
+   * database. (A legacy relation without it links arbitrary pages.)
+   */
+  relationDatabaseId?: string;
+  /**
+   * `relation` only: cap the cell at a single linked row (the "one" side of a
+   * 1:1 or 1:n relation). Many (the default) is the "n" side. Read by the cell
+   * editor on every relation property (forward and reverse).
+   */
+  relationSingle?: boolean;
+  /**
+   * `relation` (forward side) only: the chosen cardinality, kept for display and
+   * to derive the reverse property's multiplicity when pairing a two-way link.
+   */
+  relationCardinality?: RelationCardinality;
+  /**
+   * `relation` only: the id of the paired reverse `relation` property on the
+   * {@link relationDatabaseId target database} (a two-way link). Mirrors
+   * {@link syncedPropertyId} but across databases — setting A→B also lists A on
+   * B's reverse column.
+   */
+  reversePropertyId?: string;
+}
+
+/** Relation cardinality, from the perspective of the forward property: how many
+ *  rows this side links, and how many the reverse side links back. */
+export type RelationCardinality = '1:1' | '1:n' | 'n:n';
+
+/** Whether each side of a relation cardinality holds a single row. `1:1` is
+ *  single both ways; `1:n` links many but each target points back to one; `n:n`
+ *  is many both ways. */
+export function relationSides(card: RelationCardinality): {forwardSingle: boolean; reverseSingle: boolean} {
+  return {forwardSingle: card === '1:1', reverseSingle: card !== 'n:n'};
 }
 
 /** The stored value of a `date` property configured as a range. */

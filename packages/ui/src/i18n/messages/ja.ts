@@ -51,6 +51,9 @@ export const ja: PartialMessages = {
   },
   theme: {
     default: 'デフォルト',
+    warm: 'ウォーム',
+    neutral: 'ニュートラル',
+    cool: 'クール',
     ocean: 'オーシャン',
     forest: 'フォレスト',
     violet: 'バイオレット',

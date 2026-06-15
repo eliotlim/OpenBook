@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import {Select} from '@/components/ui/select';
 import {ChevronRight, Eye, EyeOff, FolderPlus, Settings2, Trash2} from 'lucide-react';
 import type {DatabaseProperty, PropertyGroup} from '@open-book/sdk';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
@@ -72,7 +73,7 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
                 {p.pageHidden ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               </button>
               <span className={cn('min-w-0 flex-1 truncate', p.pageHidden && 'text-muted-foreground/60')}>{p.name}</span>
-              <select
+              <Select unstyled
                 value={p.groupId && groups.some((g) => g.id === p.groupId) ? p.groupId : ''}
                 onChange={(e) => void db.updateProperty(p.id, {groupId: e.target.value || null})}
                 className="max-w-[7rem] rounded border border-border bg-background px-1 py-0.5 text-xs outline-hidden"
@@ -84,7 +85,7 @@ const ConfigMenu: React.FC<{db: UseDatabase; properties: DatabaseProperty[]; gro
                     {g.name}
                   </option>
                 ))}
-              </select>
+              </Select>
             </div>
           ))}
         </div>

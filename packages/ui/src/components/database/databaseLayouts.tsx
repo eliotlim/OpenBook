@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import {Select} from '@/components/ui/select';
 import {ChevronLeft, ChevronRight, Copy, PanelRightOpen, Plus, Trash2} from 'lucide-react';
 import {
   dateEnd,
@@ -257,24 +258,24 @@ const BoardColumnFooter: React.FC<{db: UseDatabase; view: DbView; properties: Da
       <PopoverContent align="start" className="w-48 space-y-2 p-2.5">
         <label className="block">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Property</span>
-          <select value={summary.propertyId} onChange={(e) => update({propertyId: e.target.value})} className={cn(fieldClass, 'mt-1')}>
+          <Select unstyled aria-label="Summary property" value={summary.propertyId} onChange={(e) => update({propertyId: e.target.value})} className={cn(fieldClass, 'mt-1')}>
             <option value={TITLE_PROPERTY_ID}>Rows (count)</option>
             {properties.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         <label className="block">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">Calculate</span>
-          <select value={summary.type} onChange={(e) => update({type: e.target.value as SummaryType})} className={cn(fieldClass, 'mt-1')}>
+          <Select unstyled aria-label="Summary calculation" value={summary.type} onChange={(e) => update({type: e.target.value as SummaryType})} className={cn(fieldClass, 'mt-1')}>
             {BOARD_CALCS.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       </PopoverContent>
     </Popover>

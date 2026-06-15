@@ -1,4 +1,5 @@
 import React, {useState} from 'react';
+import {Select} from '@/components/ui/select';
 import {blockProp, setBlockProp} from '../model';
 import type {CustomBlockProps} from '../registry';
 import {setNamedNumber} from './scope';
@@ -192,7 +193,7 @@ const DropdownBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const known = options.some((o) => o.value === value);
 
   const control = (
-    <select
+    <Select unstyled
       className="obe-kit-select obe-kit-dropdown-select"
       value={known ? value : ''}
       aria-label={`${name} value`}
@@ -205,7 +206,7 @@ const DropdownBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
           {opt.label}
         </option>
       ))}
-    </select>
+    </Select>
   );
 
   return (
@@ -327,7 +328,7 @@ const ButtonBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
         <ConfigInput value={label} readOnly={editor.readOnly} aria-label="Button label" onChange={(e) => kitSet(editor, block, 'btnlabel', e.target.value)} />
       </ConfigField>
       <ConfigField label="Action">
-        <select
+        <Select unstyled
           className="obe-kit-select w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
           value={action}
           disabled={editor.readOnly}
@@ -338,7 +339,7 @@ const ButtonBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
           <option value="set">set input</option>
           <option value="toggle">flip toggle</option>
           <option value="link">open link</option>
-        </select>
+        </Select>
       </ConfigField>
       {action === 'link' ? (
         <ConfigField label="URL">

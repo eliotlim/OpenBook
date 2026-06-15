@@ -1,4 +1,5 @@
 import React from 'react';
+import {Select} from '@/components/ui/select';
 import {blockId, blockProp} from '../model';
 import type {CustomBlockProps} from '../registry';
 import {computeScope, evalExpr} from './scope';
@@ -74,7 +75,7 @@ const ProgressBarBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               />
             </ConfigField>
             <ConfigField label="Format">
-              <select
+              <Select unstyled
                 className="w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
                 value={format}
                 disabled={editor.readOnly}
@@ -83,7 +84,7 @@ const ProgressBarBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               >
                 <option value="percent">percent</option>
                 <option value="fraction">fraction</option>
-              </select>
+              </Select>
             </ConfigField>
           </div>
         </div>
