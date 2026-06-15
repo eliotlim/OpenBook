@@ -374,41 +374,33 @@ export const ja: PartialMessages = {
     title: 'テンプレートから始める',
     description: '構成済みのページ — 選んで自分用に編集できます。',
     creating: '作成中…',
-    tasks: {
-      name: 'タスクトラッカー',
-      description: 'ステータス・優先度・期限をテーブルとボードで。',
+    groceryTracker: {
+      name: '食料品の価格トラッカー',
+      description: '毎週の買い物かごを店ごとに比較 — ライブチャート、予算ライト、計算はコードブロックに。',
     },
-    roadmap: {
-      name: 'プロダクトロードマップ',
-      description: 'タイムライン・ボード・テーブルで計画を管理。',
+    taskBoard: {
+      name: 'プロジェクトタスクボード',
+      description: 'ドラッグ＆ドロップのボードに、ライブの稼働量チェックとバーンダウン。スプリントの抱え込みを防ぎます。',
     },
     readingList: {
       name: '読書リスト',
-      description: '本棚・著者・評価つきのギャラリー。',
+      description: '本棚・年間目標・ペースライト — 本を記録すると進捗リングが追従します。',
     },
-    meetingNotes: {
-      name: '議事録',
-      description: 'アジェンダ・メモ・アクションアイテムのひな形。',
+    projectIntake: {
+      name: 'プロジェクト受付',
+      description: '段階ごとに解放される要件ブリーフと、労力対効果のライブ優先度づけ。',
     },
-    compoundGrowth: {
-      name: '複利成長',
-      description: 'スライダーがライブコードの予測を更新 — 元本と成長をドラッグしながらプロット。',
+    savingsPlanner: {
+      name: '貯蓄と投資',
+      description: 'まず生活防衛資金をチェック、次にスライダーが目標へ向けた複利のライブ予測を更新。',
     },
-    loanCalculator: {
-      name: 'ローン返済',
-      description: '金額・金利・期間から返済額と残高曲線を計算。予算がステータスライトを制御します。',
+    roadmap: {
+      name: 'プロダクトロードマップ',
+      description: 'タイムラインとボードで計画を管理。どちらも領域ごとのスイムレーンに分割。',
     },
-    pricingEstimator: {
-      name: '料金見積もり',
-      description: 'シート数・プラン・請求サイクルから価格を計算し、コスト内訳をライブ表示。',
-    },
-    interactiveDashboard: {
-      name: 'プロジェクトパルス',
-      description: 'ライブのミニダッシュボード：入力がチャート・ステータスライト・数式を動かします。',
-    },
-    weeklyPlanner: {
-      name: '週間プランナー',
-      description: '平日ごとのチェックリストと今週のフォーカス。',
+    fieldMap: {
+      name: '拠点マップ',
+      description: 'オフィスやパートナーを地図にピン留めし、地域ごとに色分け — テーブルビュー付き。',
     },
   },
   blocks: {

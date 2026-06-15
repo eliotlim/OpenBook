@@ -3,17 +3,26 @@ import type {PageSnapshot, StoredPage} from './types';
 import type {DatabaseSchema} from './database';
 
 /**
- * The built-in **template gallery**: a handful of ready-made pages — documents
- * with pre-arranged blocks, and databases with a schema, views, and a few
- * sample rows — instantiated client-side through the normal data APIs (no
- * server involvement, same as the sample document). The UI shows them in a
- * gallery dialog; ids are stable so the gallery, its i18n keys, and the e2e
- * suite can reference a template without depending on display strings.
+ * The built-in **template gallery**: ready-made pages instantiated client-side
+ * through the normal data APIs (no server involvement, same as the sample
+ * document). Two shapes:
+ *
+ *  - **Block-doc artifacts** (the five showcases) ship a native block-editor
+ *    JSON projection in `blockdoc: {blocks}`. They lean on the whole editor:
+ *    reactive inputs feeding *collapsed* live-code, status lights, info/link/
+ *    tooltip cards, charts, progress bars, multi-column layouts, callouts, and
+ *    `divider`/`notes` blocks so every page doubles as a slide deck with
+ *    speaker notes (see blockeditor/present.ts).
+ *  - **Databases** (roadmap, field map) ship a schema, views, and sample rows;
+ *    they back the swimlane and map e2e fixtures.
+ *
+ * Ids are stable so the gallery, its i18n keys, and the e2e suite can reference
+ * a template without depending on display strings.
  */
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
-  id: 'tasks' | 'meeting-notes' | 'roadmap' | 'reading-list' | 'weekly-planner' | 'interactive-dashboard' | 'compound-growth' | 'loan-calculator' | 'pricing-estimator' | 'field-map' | 'intake-form';
+  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map';
   /** Emoji shown on the gallery card and applied to the created page. */
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
@@ -35,48 +44,484 @@ const day = (days: number): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-// ── Task tracker ─────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════════════════
+// Block-doc artifacts
+//
+// Authoring notes (the reactive contract, from blockeditor/kit/scope.ts):
+//  • Every input block publishes a value under its `name` (or one derived from
+//    `label`). All inputs are gathered *before* code runs, so a chart can read
+//    an input no matter where it sits — even inside a column.
+//  • LIVE code (`code` + `props.live`) and the charts/status/progress that read
+//    its output are evaluated in document (depth-first) order: a consumer must
+//    appear AFTER the code it reads. So each slide leads with a small "engine"
+//    of collapsed code, then a two-column inputs/results layout below it.
+//  • `collapsed: true` hides the code by default (the live readout still shows).
+//  • Top-level `divider`s cut slides; top-level `notes` are speaker-only.
+// ════════════════════════════════════════════════════════════════════════════
 
-const TASKS_SCHEMA: DatabaseSchema = {
-  properties: [
-    {
-      id: 'p_status',
-      name: 'Status',
-      type: 'status',
-      options: [
-        {id: 'opt_todo', label: 'Todo', color: 'gray', group: 'todo'},
-        {id: 'opt_doing', label: 'In progress', color: 'blue', group: 'in_progress'},
-        {id: 'opt_done', label: 'Done', color: 'green', group: 'complete'},
-      ],
-    },
-    {
-      id: 'p_priority',
-      name: 'Priority',
-      type: 'select',
-      options: [
-        {id: 'opt_high', label: 'High', color: 'red'},
-        {id: 'opt_med', label: 'Medium', color: 'yellow'},
-        {id: 'opt_low', label: 'Low', color: 'gray'},
-      ],
-    },
-    {id: 'p_due', name: 'Due', type: 'date'},
-    {id: 'p_effort', name: 'Effort', type: 'number', numberDisplay: 'bar', numberTarget: 8},
-  ],
-  views: [
-    {id: 'v_table', name: 'Table', type: 'table', filters: [], sorts: []},
-    {id: 'v_board', name: 'Board', type: 'board', filters: [], sorts: [], groupByPropertyId: 'p_status'},
-  ],
-};
+// ── 🛒 Grocery price tracker ─────────────────────────────────────────────────
+const GROCERY_BLOCKS = [
+  // Slide 1 — title
+  {id: 'g-tag', type: 'paragraph', text: [{t: 'A weekly basket, priced across three shops — '}, {t: 'live', a: {b: true}}, {t: '. Drag a shop’s total and the cheapest pick, your savings, and the budget light all recompute.'}]},
+  {id: 'g-call', type: 'callout', text: [{t: 'Nothing here is a screenshot. The numbers are computed by code blocks tucked below each slide — click one to see (and change) the maths.'}], props: {variant: 'info'}},
+  {id: 'g-notes-1', type: 'notes', text: [{t: 'Open the “…” menu → Present. Each divider is a slide; these notes only show in the presenter view.'}]},
+  {id: 'g-div-1', type: 'divider'},
 
-const TASKS_ROWS = [
-  {name: 'Outline the launch announcement', properties: {p_status: 'opt_doing', p_priority: 'opt_high', p_due: day(2), p_effort: 3}},
-  {name: 'Review onboarding feedback', properties: {p_status: 'opt_todo', p_priority: 'opt_med', p_due: day(5), p_effort: 5}},
-  {name: 'Fix the signup form validation', properties: {p_status: 'opt_todo', p_priority: 'opt_high', p_due: day(1), p_effort: 2}},
-  {name: 'Archive last sprint’s board', properties: {p_status: 'opt_done', p_priority: 'opt_low', p_effort: 1}},
+  // Slide 2 — compare shops
+  {id: 'g-h2', type: 'heading', text: [{t: 'This week’s shop'}], props: {level: 2}},
+  // engine (collapsed)
+  {id: 'g-best', type: 'code', text: [{t: 'Math.min(aldi, tesco, ocado)'}], props: {live: true, name: 'best', language: 'js', collapsed: true}},
+  {id: 'g-store', type: 'code', text: [{t: 'const m = {Aldi: aldi, Tesco: tesco, Ocado: ocado};\nreturn Object.keys(m).sort((a, b) => m[a] - m[b])[0];'}], props: {live: true, name: 'store', language: 'js', collapsed: true}},
+  {id: 'g-saving', type: 'code', text: [{t: 'Math.max(aldi, tesco, ocado) - best'}], props: {live: true, name: 'saving', language: 'js', collapsed: true}},
+  {id: 'g-headline', type: 'code', text: [{t: '"Cheapest: " + store + " at £" + best + " — £" + saving + " less than the priciest shop"'}], props: {live: true, name: 'headline', language: 'js', collapsed: true}},
+  {
+    id: 'g-cols',
+    type: 'columns',
+    children: [
+      {
+        id: 'g-col-l',
+        type: 'column',
+        props: {span: 5},
+        children: [
+          {id: 'g-budget', type: 'number', props: {name: 'budget', label: 'Weekly budget (£)', value: 120, min: 40, max: 300, step: 5}},
+          {id: 'g-aldi', type: 'slider', props: {name: 'aldi', label: 'Aldi basket', value: 86, min: 30, max: 200}},
+          {id: 'g-tesco', type: 'slider', props: {name: 'tesco', label: 'Tesco basket', value: 99, min: 30, max: 200}},
+          {id: 'g-ocado', type: 'slider', props: {name: 'ocado', label: 'Ocado basket', value: 112, min: 30, max: 200}},
+        ],
+      },
+      {
+        id: 'g-col-r',
+        type: 'column',
+        props: {span: 7},
+        children: [
+          {id: 'g-bar', type: 'kitchart', props: {kind: 'bar', title: 'Basket by shop (£)', labels: 'Aldi, Tesco, Ocado', source: '[aldi, tesco, ocado]'}},
+          {id: 'g-status', type: 'statuslight', props: {label: 'Within the weekly budget', source: 'budget - best', okAt: 0, warnAt: -20}},
+          {id: 'g-prog', type: 'progressbar', props: {label: 'Budget used by the cheapest shop', source: 'best / budget', max: 1, format: 'percent'}},
+        ],
+      },
+    ],
+  },
+  {id: 'g-line', type: 'kitchart', props: {kind: 'line', title: 'Cheapest-basket trend (£)', labels: 'W‑3, W‑2, W‑1, Now', source: '[Math.round(best * 1.18), Math.round(best * 1.07), Math.round(best * 0.98), best]'}},
+  {id: 'g-notes-2', type: 'notes', text: [{t: 'Demo the budget light: push the budget below the cheapest basket and it flips amber, then red.'}]},
+  {id: 'g-div-2', type: 'divider'},
+
+  // Slide 3 — shop smarter
+  {id: 'g-h3', type: 'heading', text: [{t: 'Shop smarter'}], props: {level: 2}},
+  {
+    id: 'g-cols2',
+    type: 'columns',
+    children: [
+      {
+        id: 'g-col2-l',
+        type: 'column',
+        props: {span: 6},
+        children: [
+          {id: 'g-tip', type: 'tooltipcard', props: {term: 'Unit price', tip: 'Price per kg or per litre — compare that, not the sticker price, or pack sizes fool you.'}},
+          {id: 'g-li1', type: 'list', text: [{t: 'Compare own-label vs branded — usually 15–20% cheaper.'}], props: {kind: 'bullet'}},
+          {id: 'g-li2', type: 'list', text: [{t: 'Buy staples in the cheapest shop; top up fresh nearby.'}], props: {kind: 'bullet'}},
+          {id: 'g-li3', type: 'list', text: [{t: 'Re-price the basket monthly — prices drift.'}], props: {kind: 'bullet'}},
+        ],
+      },
+      {
+        id: 'g-col2-r',
+        type: 'column',
+        props: {span: 6},
+        children: [
+          {id: 'g-link', type: 'linkcard', props: {title: 'Compare unit prices', description: 'Track grocery prices across UK supermarkets.', url: 'https://www.trolley.co.uk'}},
+        ],
+      },
+    ],
+  },
+  {
+    id: 'g-table',
+    type: 'table',
+    props: {header: true},
+    children: [
+      {id: 'g-tr0', type: 'row', children: [{id: 'g-c00', type: 'cell', text: [{t: 'Item'}]}, {id: 'g-c01', type: 'cell', text: [{t: 'Aldi'}]}, {id: 'g-c02', type: 'cell', text: [{t: 'Tesco'}]}, {id: 'g-c03', type: 'cell', text: [{t: 'Ocado'}]}]},
+      {id: 'g-tr1', type: 'row', children: [{id: 'g-c10', type: 'cell', text: [{t: 'Milk (2L)'}]}, {id: 'g-c11', type: 'cell', text: [{t: '£1.45'}]}, {id: 'g-c12', type: 'cell', text: [{t: '£1.65'}]}, {id: 'g-c13', type: 'cell', text: [{t: '£1.70'}]}]},
+      {id: 'g-tr2', type: 'row', children: [{id: 'g-c20', type: 'cell', text: [{t: 'Eggs (12)'}]}, {id: 'g-c21', type: 'cell', text: [{t: '£1.99'}]}, {id: 'g-c22', type: 'cell', text: [{t: '£2.30'}]}, {id: 'g-c23', type: 'cell', text: [{t: '£2.55'}]}]},
+      {id: 'g-tr3', type: 'row', children: [{id: 'g-c30', type: 'cell', text: [{t: 'Coffee (200g)'}]}, {id: 'g-c31', type: 'cell', text: [{t: '£3.49'}]}, {id: 'g-c32', type: 'cell', text: [{t: '£3.80'}]}, {id: 'g-c33', type: 'cell', text: [{t: '£4.20'}]}]},
+    ],
+  },
+  {id: 'g-call2', type: 'callout', text: [{t: 'Swap one branded staple for the shop’s own label and a £100 basket usually drops to £80–£85.'}], props: {variant: 'success'}},
+  {id: 'g-notes-3', type: 'notes', text: [{t: 'Close on the habit, not the app: re-price monthly, shop the cheapest staples, top up fresh locally.'}]},
 ];
 
-// ── Product roadmap ──────────────────────────────────────────────────────────
+// ── 🗂️ Project task board ────────────────────────────────────────────────────
+const TASK_BOARD_BLOCKS = [
+  // Slide 1 — title
+  {id: 't-tag', type: 'paragraph', text: [{t: 'A board to '}, {t: 'see the work', a: {b: true}}, {t: ', plus a live capacity check so the sprint never quietly over-commits.'}]},
+  {id: 't-call', type: 'callout', text: [{t: 'Drag tasks between columns as they move. The capacity light and burndown on the last slide update from the numbers you set.'}], props: {variant: 'info'}},
+  {id: 't-notes-1', type: 'notes', text: [{t: 'Frame it: the board is the “what”, the capacity slide is the “can we actually finish it”.'}]},
+  {id: 't-div-1', type: 'divider'},
 
+  // Slide 2 — the board
+  {id: 't-h2', type: 'heading', text: [{t: 'Sprint board'}], props: {level: 2}},
+  {
+    id: 't-board',
+    type: 'columns',
+    children: [
+      {
+        id: 't-col-backlog',
+        type: 'column',
+        props: {span: 4},
+        children: [
+          {id: 't-bh', type: 'heading', text: [{t: '📋 Backlog'}], props: {level: 3}},
+          {id: 't-b1', type: 'todo', text: [{t: 'Draft the API contract'}], props: {checked: false}},
+          {id: 't-b2', type: 'todo', text: [{t: 'Spike: auth options'}], props: {checked: false}},
+          {id: 't-b3', type: 'todo', text: [{t: 'Write the migration plan'}], props: {checked: false}},
+        ],
+      },
+      {
+        id: 't-col-doing',
+        type: 'column',
+        props: {span: 4},
+        children: [
+          {id: 't-dh', type: 'heading', text: [{t: '🔨 In progress'}], props: {level: 3}},
+          {id: 't-d1', type: 'todo', text: [{t: 'Build the onboarding flow'}], props: {checked: false}},
+          {id: 't-d2', type: 'todo', text: [{t: 'Wire up billing'}], props: {checked: false}},
+        ],
+      },
+      {
+        id: 't-col-done',
+        type: 'column',
+        props: {span: 4},
+        children: [
+          {id: 't-nh', type: 'heading', text: [{t: '✅ Done'}], props: {level: 3}},
+          {id: 't-n1', type: 'todo', text: [{t: 'Set up CI'}], props: {checked: true}},
+          {id: 't-n2', type: 'todo', text: [{t: 'Design review'}], props: {checked: true}},
+        ],
+      },
+    ],
+  },
+  {id: 't-notes-2', type: 'notes', text: [{t: 'Walk the columns left to right; flag anything stuck in progress for more than two days.'}]},
+  {id: 't-div-2', type: 'divider'},
+
+  // Slide 3 — capacity & burndown
+  {id: 't-h3', type: 'heading', text: [{t: 'Capacity & burndown'}], props: {level: 2}},
+  {id: 't-burndown-code', type: 'code', text: [{t: 'const remaining = committed - done;\nreturn {\n  Ideal: [committed, Math.round(committed * 0.8), Math.round(committed * 0.6), Math.round(committed * 0.4), Math.round(committed * 0.2), 0],\n  Actual: [committed, Math.round(committed * 0.85), Math.round(committed * 0.7), Math.round(committed * 0.55), remaining, remaining],\n};'}], props: {live: true, name: 'burndown', language: 'js', collapsed: true}},
+  {id: 't-headline', type: 'code', text: [{t: 'const remaining = committed - done;\nreturn done + " of " + committed + " points done — " + remaining + " to go";'}], props: {live: true, name: 'headline', language: 'js', collapsed: true}},
+  {
+    id: 't-cols',
+    type: 'columns',
+    children: [
+      {
+        id: 't-col-in',
+        type: 'column',
+        props: {span: 5},
+        children: [
+          {id: 't-cap', type: 'number', props: {name: 'capacity', label: 'Team capacity (pts)', value: 20, min: 0, max: 60, step: 1}},
+          {id: 't-com', type: 'number', props: {name: 'committed', label: 'Committed (pts)', value: 24, min: 0, max: 60, step: 1}},
+          {id: 't-done', type: 'slider', props: {name: 'done', label: 'Completed', value: 9, min: 0, max: 60}},
+          {id: 't-btn', type: 'actionbutton', props: {btnlabel: 'Pull in a teammate (+5 capacity)', action: 'increment', target: 'capacity', amount: 5}},
+        ],
+      },
+      {
+        id: 't-col-out',
+        type: 'column',
+        props: {span: 7},
+        children: [
+          {id: 't-status', type: 'statuslight', props: {label: 'Capacity vs commitment', source: 'capacity - committed', okAt: 0, warnAt: -6}},
+          {id: 't-prog', type: 'progressbar', props: {label: 'Sprint progress', source: 'done / committed', max: 1, format: 'percent'}},
+          {id: 't-donut', type: 'kitchart', props: {kind: 'donut', title: 'Done vs remaining', source: '{Done: done, Left: committed - done}'}},
+        ],
+      },
+    ],
+  },
+  {id: 't-line', type: 'kitchart', props: {kind: 'line', title: 'Burndown', source: 'burndown'}},
+  {id: 't-notes-3', type: 'notes', text: [{t: 'If the capacity light is amber, either pull in help (the +5 button) or move a card back to Backlog before committing.'}]},
+];
+
+// ── 📚 Reading list ──────────────────────────────────────────────────────────
+const READING_BLOCKS = [
+  // Slide 1 — title
+  {id: 'r-tag', type: 'paragraph', text: [{t: 'A year of reading, tracked: a '}, {t: 'goal', a: {b: true}}, {t: ', three shelves, and a pace light that tells you if you’re on track.'}]},
+  {id: 'r-call', type: 'callout', text: [{t: 'Set your target, log finished books, and the progress ring and pace light follow along.'}], props: {variant: 'info'}},
+  {id: 'r-notes-1', type: 'notes', text: [{t: 'Personal demo — swap the genres and shelves for your own before sharing.'}]},
+  {id: 'r-div-1', type: 'divider'},
+
+  // Slide 2 — the year
+  {id: 'r-h2', type: 'heading', text: [{t: 'My reading year'}], props: {level: 2}},
+  {id: 'r-headline', type: 'code', text: [{t: 'read + " of " + goal + " books this year (" + Math.round(read / goal * 100) + "%)"'}], props: {live: true, name: 'headline', language: 'js', collapsed: true}},
+  {
+    id: 'r-cols',
+    type: 'columns',
+    children: [
+      {
+        id: 'r-col-l',
+        type: 'column',
+        props: {span: 5},
+        children: [
+          {id: 'r-goal', type: 'number', props: {name: 'goal', label: 'Books this year', value: 24, min: 1, max: 200, step: 1}},
+          {id: 'r-read', type: 'number', props: {name: 'read', label: 'Finished so far', value: 10, min: 0, max: 200, step: 1}},
+          {id: 'r-btn', type: 'actionbutton', props: {btnlabel: 'Log a finished book', action: 'increment', target: 'read', amount: 1}},
+        ],
+      },
+      {
+        id: 'r-col-r',
+        type: 'column',
+        props: {span: 7},
+        children: [
+          {id: 'r-status', type: 'statuslight', props: {label: 'On pace for the year', source: 'read - goal * 0.4', okAt: 0, warnAt: -3}},
+          {id: 'r-prog', type: 'progressbar', props: {label: 'Year goal', source: 'read / goal', max: 1, format: 'percent'}},
+          {id: 'r-donut', type: 'kitchart', props: {kind: 'donut', title: 'Read vs to-go', source: '{Read: read, "To go": Math.max(0, goal - read)}'}},
+        ],
+      },
+    ],
+  },
+  {id: 'r-bar', type: 'kitchart', props: {kind: 'bar', title: 'Books by genre', labels: 'Fiction, Nonfiction, Sci‑fi, History', source: '[4, 3, 2, 1]'}},
+  {id: 'r-notes-2', type: 'notes', text: [{t: 'The pace light assumes a steady read through the year — adjust the 0.4 in the code for a different cadence.'}]},
+  {id: 'r-div-2', type: 'divider'},
+
+  // Slide 3 — shelves
+  {id: 'r-h3', type: 'heading', text: [{t: 'Shelves'}], props: {level: 2}},
+  {
+    id: 'r-shelves',
+    type: 'columns',
+    children: [
+      {
+        id: 'r-sh-reading',
+        type: 'column',
+        props: {span: 4},
+        children: [
+          {id: 'r-rh', type: 'heading', text: [{t: '📖 Reading'}], props: {level: 3}},
+          {id: 'r-r1', type: 'list', text: [{t: 'The Design of Everyday Things — Don Norman'}], props: {kind: 'bullet'}},
+        ],
+      },
+      {
+        id: 'r-sh-next',
+        type: 'column',
+        props: {span: 4},
+        children: [
+          {id: 'r-nh', type: 'heading', text: [{t: '🔖 Up next'}], props: {level: 3}},
+          {id: 'r-n1', type: 'list', text: [{t: 'Thinking, Fast and Slow — Kahneman'}], props: {kind: 'bullet'}},
+          {id: 'r-n2', type: 'list', text: [{t: 'Project Hail Mary — Andy Weir'}], props: {kind: 'bullet'}},
+        ],
+      },
+      {
+        id: 'r-sh-done',
+        type: 'column',
+        props: {span: 4},
+        children: [
+          {id: 'r-fh', type: 'heading', text: [{t: '✅ Finished'}], props: {level: 3}},
+          {id: 'r-f1', type: 'list', text: [{t: 'The Pragmatic Programmer ★★★★★'}], props: {kind: 'bullet'}},
+        ],
+      },
+    ],
+  },
+  {id: 'r-tip', type: 'tooltipcard', props: {term: 'DNF', tip: 'Did not finish — life’s too short for a book you’re not enjoying. Shelve it without guilt.'}},
+  {id: 'r-link', type: 'linkcard', props: {title: 'Find your next read', description: 'Recommendations, shelves, and reviews.', url: 'https://www.goodreads.com'}},
+  {id: 'r-notes-3', type: 'notes', text: [{t: 'Encourage DNF-ing — a tracker should reward finishing the right books, not grinding through the wrong ones.'}]},
+];
+
+// ── 📋 Project intake ────────────────────────────────────────────────────────
+// A guided brief: a gated accordion (each stage unlocks the next) whose
+// auto-computed completion (`intake.ratio` / `intake.complete`) drives a
+// progress bar and a status light, plus a live effort-vs-impact prioritisation.
+const PROJECT_INTAKE_BLOCKS = [
+  // Slide 1 — title
+  {id: 'i-tag', type: 'paragraph', text: [{t: 'Tell us about the work. Each stage '}, {t: 'unlocks the next', a: {b: true}}, {t: ' once it’s filled in — the bar tracks how far along you are.'}]},
+  {id: 'i-call', type: 'callout', text: [{t: 'Fill the brief, then check the prioritisation slide to see if it’s worth doing now.'}], props: {variant: 'info'}},
+  {id: 'i-notes-1', type: 'notes', text: [{t: 'Use this live in intake calls — fill it in together so scope and priority are agreed before anyone writes code.'}]},
+  {id: 'i-div-1', type: 'divider'},
+
+  // Slide 2 — the brief (gated wizard)
+  {id: 'i-h2', type: 'heading', text: [{t: 'The brief'}], props: {level: 2}},
+  {id: 'i-progress', type: 'progressbar', props: {label: 'Completed', source: 'intake.ratio', max: 1, format: 'percent'}},
+  {
+    id: 'i-acc',
+    type: 'accordion',
+    props: {name: 'intake', gated: true},
+    children: [
+      {
+        id: 'i-basics',
+        type: 'accordionsection',
+        props: {label: 'Basics'},
+        children: [
+          {id: 'i-basics-p', type: 'paragraph', text: [{t: 'What kind of project is this, and what’s the one-line goal?'}]},
+          {
+            id: 'i-type',
+            type: 'choicecards',
+            props: {
+              name: 'projectType',
+              value: null,
+              opts: [
+                {label: 'New feature', value: 'feature', icon: '✨', color: 'blue'},
+                {label: 'Bug fix', value: 'bugfix', icon: '🐞', color: 'red'},
+                {label: 'Research spike', value: 'research', icon: '🔬', color: 'purple'},
+                {label: 'Migration', value: 'migration', icon: '📦', color: 'orange'},
+              ],
+            },
+          },
+          {id: 'i-summary', type: 'longtext', props: {name: 'summary', value: '', placeholder: 'One sentence: what does done look like?'}},
+        ],
+      },
+      {
+        id: 'i-scope',
+        type: 'accordionsection',
+        props: {label: 'Scope', collapsed: true},
+        children: [
+          {id: 'i-scope-p', type: 'paragraph', text: [{t: 'Where does it land, and who needs to be in the loop?'}]},
+          {
+            id: 'i-platform',
+            type: 'searchselect',
+            props: {
+              name: 'platform',
+              value: null,
+              opts: [
+                {label: 'Web', value: 'web'},
+                {label: 'Desktop', value: 'desktop'},
+                {label: 'Mobile', value: 'mobile'},
+                {label: 'API', value: 'api'},
+                {label: 'All surfaces', value: 'all'},
+              ],
+            },
+          },
+          {id: 'i-teams', type: 'tagfield', props: {name: 'teams', selected: [], freeEntry: true, opts: [{label: 'Design'}, {label: 'Engineering'}, {label: 'Product'}, {label: 'Data'}, {label: 'Support'}]}},
+        ],
+      },
+      {
+        id: 'i-details',
+        type: 'accordionsection',
+        props: {label: 'Details', collapsed: true},
+        children: [
+          {id: 'i-details-p', type: 'paragraph', text: [{t: 'Spell out the requirements and confirm the pre-flight checks.'}]},
+          {id: 'i-req', type: 'richtext', props: {name: 'requirements', runs: [], placeholder: 'Requirements, constraints, links…'}},
+          {id: 'i-check-spec', type: 'todo', text: [{t: 'Spec reviewed with the lead'}], props: {checked: false}},
+          {id: 'i-check-est', type: 'todo', text: [{t: 'Rough estimate agreed'}], props: {checked: false}},
+        ],
+      },
+    ],
+  },
+  {id: 'i-notes-2', type: 'notes', text: [{t: 'Don’t skip Scope — naming the platform and teams up front is what stops the surprise re-scoping later.'}]},
+  {id: 'i-div-2', type: 'divider'},
+
+  // Slide 3 — prioritisation
+  {id: 'i-h3', type: 'heading', text: [{t: 'Worth doing now?'}], props: {level: 2}},
+  {id: 'i-verdict', type: 'code', text: [{t: 'impact >= effort * 1.5 ? "Do it now" : impact >= effort ? "Schedule it" : "Park it"'}], props: {live: true, name: 'verdict', language: 'js', collapsed: true}},
+  {
+    id: 'i-cols',
+    type: 'columns',
+    children: [
+      {
+        id: 'i-col-l',
+        type: 'column',
+        props: {span: 5},
+        children: [
+          {id: 'i-impact', type: 'slider', props: {name: 'impact', label: 'Impact', value: 7, min: 1, max: 10}},
+          {id: 'i-effort', type: 'slider', props: {name: 'effort', label: 'Effort', value: 4, min: 1, max: 10}},
+        ],
+      },
+      {
+        id: 'i-col-r',
+        type: 'column',
+        props: {span: 7},
+        children: [
+          {id: 'i-status', type: 'statuslight', props: {label: 'Quick win', source: 'impact - effort', okAt: 3, warnAt: 0}},
+          {id: 'i-bar', type: 'kitchart', props: {kind: 'bar', title: 'Effort vs impact', labels: 'Effort, Impact', source: '[effort, impact]'}},
+        ],
+      },
+    ],
+  },
+  {id: 'i-tip', type: 'tooltipcard', props: {term: 'Quick win', tip: 'High impact for low effort — the top-left of an effort/impact grid. Do these first.'}},
+  {id: 'i-notes-3', type: 'notes', text: [{t: 'The verdict is a heuristic, not a mandate — use it to start the conversation, not end it.'}]},
+  {id: 'i-div-3', type: 'divider'},
+
+  // Slide 4 — submit
+  {id: 'i-h4', type: 'heading', text: [{t: 'Ready to submit'}], props: {level: 2}},
+  {id: 'i-submit-status', type: 'statuslight', props: {label: 'All required fields complete', source: 'intake.complete', okAt: 1, warnAt: 1}},
+  {id: 'i-call2', type: 'callout', text: [{t: 'When the light turns green, every stage is filled — share this page with the team to kick off.'}], props: {variant: 'success'}},
+  {id: 'i-notes-4', type: 'notes', text: [{t: 'Hand-off close: green light → assign an owner and a target date, then move it onto the task board.'}]},
+];
+
+// ── 💰 Savings & investing ───────────────────────────────────────────────────
+const SAVINGS_BLOCKS = [
+  // Slide 1 — title
+  {id: 's-tag', type: 'paragraph', text: [{t: 'A plan in two parts: a '}, {t: 'safety net', a: {b: true}}, {t: ' first, then watch contributions '}, {t: 'compound', a: {b: true}}, {t: ' toward a goal.'}]},
+  {id: 's-call', type: 'callout', text: [{t: 'Drag the contribution, rate and horizon — the projection, goal light and shortfall all recompute. The maths sits in a code block you can open.'}], props: {variant: 'info'}},
+  {id: 's-notes-1', type: 'notes', text: [{t: 'Caveat up front: illustrative compounding, not advice. Real returns vary and aren’t guaranteed.'}]},
+  {id: 's-div-1', type: 'divider'},
+
+  // Slide 2 — the projection
+  {id: 's-h2', type: 'heading', text: [{t: 'Your money, compounding'}], props: {level: 2}},
+  {id: 's-proj', type: 'code', text: [{t: 'const r = rate / 100;\nlet bal = initial;\nconst Invested = [Math.round(initial)], Projected = [Math.round(initial)];\nfor (let y = 1; y <= years; y++) {\n  bal = (bal + monthly * 12) * (1 + r);\n  Invested.push(Math.round(initial + monthly * 12 * y));\n  Projected.push(Math.round(bal));\n}\nreturn {Invested, Projected};'}], props: {live: true, name: 'projection', language: 'js', collapsed: true}},
+  {id: 's-final', type: 'code', text: [{t: 'projection.Projected[projection.Projected.length - 1]'}], props: {live: true, name: 'final', language: 'js', collapsed: true}},
+  {id: 's-headline', type: 'code', text: [{t: '"After " + years + " years: £" + Math.round(final).toLocaleString() + " — you put in £" + Math.round(initial + monthly * 12 * years).toLocaleString()'}], props: {live: true, name: 'headline', language: 'js', collapsed: true}},
+  {
+    id: 's-cols',
+    type: 'columns',
+    children: [
+      {
+        id: 's-col-l',
+        type: 'column',
+        props: {span: 5},
+        children: [
+          {id: 's-initial', type: 'number', props: {name: 'initial', label: 'Starting savings (£)', value: 2000, min: 0, max: 100000, step: 500}},
+          {id: 's-monthly', type: 'slider', props: {name: 'monthly', label: 'Monthly contribution (£)', value: 300, min: 0, max: 2000}},
+          {id: 's-rate', type: 'slider', props: {name: 'rate', label: 'Annual return (%)', value: 6, min: 0, max: 12}},
+          {id: 's-years', type: 'slider', props: {name: 'years', label: 'Years', value: 20, min: 1, max: 40}},
+          {id: 's-goal', type: 'number', props: {name: 'goal', label: 'Goal (£)', value: 150000, min: 0, max: 1000000, step: 5000}},
+        ],
+      },
+      {
+        id: 's-col-r',
+        type: 'column',
+        props: {span: 7},
+        children: [
+          {id: 's-area', type: 'kitchart', props: {kind: 'area', title: 'Balance by year', source: 'projection'}},
+          {id: 's-status', type: 'statuslight', props: {label: 'On track for your goal', source: 'final - goal', okAt: 0, warnAt: -60000}},
+          {id: 's-prog', type: 'progressbar', props: {label: 'Progress to goal', source: 'final / goal', max: 1, format: 'percent'}},
+        ],
+      },
+    ],
+  },
+  {id: 's-notes-2', type: 'notes', text: [{t: 'The gap between the two curves is growth doing the work. Drag the rate slider to show how much the return matters over 20 years.'}]},
+  {id: 's-div-2', type: 'divider'},
+
+  // Slide 3 — safety net first
+  {id: 's-h3', type: 'heading', text: [{t: 'Safety net first'}], props: {level: 2}},
+  {id: 's-months', type: 'code', text: [{t: 'Math.round(savings / expenses * 10) / 10'}], props: {live: true, name: 'months', language: 'js', collapsed: true}},
+  {
+    id: 's-cols2',
+    type: 'columns',
+    children: [
+      {
+        id: 's-col2-l',
+        type: 'column',
+        props: {span: 5},
+        children: [
+          {id: 's-savings', type: 'number', props: {name: 'savings', label: 'Easy-access savings (£)', value: 8000, min: 0, max: 100000, step: 500}},
+          {id: 's-expenses', type: 'number', props: {name: 'expenses', label: 'Monthly expenses (£)', value: 1800, min: 200, max: 10000, step: 100}},
+        ],
+      },
+      {
+        id: 's-col2-r',
+        type: 'column',
+        props: {span: 7},
+        children: [
+          {id: 's-emergency', type: 'statuslight', props: {label: 'Emergency fund', source: 'savings / expenses', okAt: 6, warnAt: 3}},
+          {id: 's-emprog', type: 'progressbar', props: {label: 'Months covered (target 6)', source: 'savings / expenses / 6', max: 1, format: 'percent'}},
+          {id: 's-runway', type: 'kitchart', props: {kind: 'bar', title: 'Months of runway', labels: 'You, Target', source: '[months, 6]'}},
+        ],
+      },
+    ],
+  },
+  {id: 's-call2', type: 'callout', text: [{t: 'Aim for 3–6 months of expenses in easy-access savings before investing the rest. The light goes green at six.'}], props: {variant: 'warn'}},
+  {id: 's-notes-3', type: 'notes', text: [{t: 'Order of operations: safety net → high-interest debt → invest. Don’t skip to the fun slide first.'}]},
+  {id: 's-div-3', type: 'divider'},
+
+  // Slide 4 — recap
+  {id: 's-h4', type: 'heading', text: [{t: 'The plan'}], props: {level: 2}},
+  {id: 's-quote', type: 'quote', text: [{t: 'Do not save what is left after spending; spend what is left after saving.'}]},
+  {id: 's-link', type: 'linkcard', props: {title: 'How compound interest works', description: 'A plain-English primer.', url: 'https://www.investor.gov/financial-tools-calculators/calculators/compound-interest-calculator'}},
+  {id: 's-notes-4', type: 'notes', text: [{t: 'One ask to close on: automate the monthly contribution so the plan happens without willpower.'}]},
+];
+
+// ════════════════════════════════════════════════════════════════════════════
+// Databases (swimlane + map e2e fixtures)
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── Product roadmap ──────────────────────────────────────────────────────────
 const ROADMAP_SCHEMA: DatabaseSchema = {
   properties: [
     {
@@ -184,276 +629,6 @@ const FIELD_MAP_ROWS = [
   {name: 'Sydney partner', properties: {p_region: 'opt_apac', p_kind: 'opt_partner', p_headcount: 15, p_address: 'Circular Quay, Sydney', p_place: {lat: -33.8610, lng: 151.2100, label: 'Sydney partner'}}},
 ];
 
-// ── Reading list ─────────────────────────────────────────────────────────────
-
-const READING_SCHEMA: DatabaseSchema = {
-  properties: [
-    {
-      id: 'p_shelf',
-      name: 'Shelf',
-      type: 'select',
-      options: [
-        {id: 'opt_toread', label: 'To read', color: 'gray'},
-        {id: 'opt_reading', label: 'Reading', color: 'blue'},
-        {id: 'opt_done', label: 'Finished', color: 'green'},
-      ],
-    },
-    {id: 'p_author', name: 'Author', type: 'text'},
-    {id: 'p_rating', name: 'Rating', type: 'rating'},
-    {id: 'p_cover', name: 'Cover', type: 'files'},
-  ],
-  views: [
-    {id: 'v_gallery', name: 'Gallery', type: 'gallery', filters: [], sorts: [], groupByPropertyId: 'p_shelf', coverPropertyId: 'p_cover'},
-    {id: 'v_table', name: 'Table', type: 'table', filters: [], sorts: []},
-  ],
-};
-
-const READING_ROWS = [
-  {name: 'The Design of Everyday Things', properties: {p_shelf: 'opt_reading', p_author: 'Don Norman', p_rating: 4}},
-  {name: 'Thinking, Fast and Slow', properties: {p_shelf: 'opt_toread', p_author: 'Daniel Kahneman'}},
-  {name: 'The Pragmatic Programmer', properties: {p_shelf: 'opt_done', p_author: 'Hunt & Thomas', p_rating: 5}},
-];
-
-// ── Document templates ───────────────────────────────────────────────────────
-
-const MEETING_NOTES_BLOCKS = [
-  {id: 'mn-toc', type: 'toc', data: {}},
-  {id: 'mn-agenda-h', type: 'header', data: {text: 'Agenda', level: 2}},
-  {
-    id: 'mn-agenda',
-    type: 'checklist',
-    data: {items: [
-      {text: 'Review last week’s action items', checked: false},
-      {text: 'Project status round-up', checked: false},
-      {text: 'Open questions', checked: false},
-    ]},
-  },
-  {id: 'mn-notes-h', type: 'header', data: {text: 'Notes', level: 2}},
-  {id: 'mn-notes', type: 'paragraph', data: {text: 'Capture discussion points here…'}},
-  {id: 'mn-actions-h', type: 'header', data: {text: 'Action items', level: 2}},
-  {
-    id: 'mn-actions',
-    type: 'checklist',
-    data: {items: [{text: 'Add an owner and a due date to each action', checked: false}]},
-  },
-  {id: 'mn-div', type: 'divider', data: {style: 'line'}},
-  {
-    id: 'mn-tip',
-    type: 'callout',
-    data: {variant: 'info', text: 'Tip: link people and pages inline by typing <b>@</b>.'},
-  },
-];
-
-const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-const WEEKLY_PLANNER_BLOCKS = [
-  {
-    id: 'wp-focus',
-    type: 'callout',
-    data: {variant: 'success', text: 'This week’s focus: write it down — one sentence keeps the week honest.'},
-  },
-  ...WEEKDAYS.flatMap((dayName) => [
-    {id: `wp-${dayName.toLowerCase()}-h`, type: 'header', data: {text: dayName, level: 3}},
-    {
-      id: `wp-${dayName.toLowerCase()}-list`,
-      type: 'checklist',
-      data: {items: [{text: '', checked: false}]},
-    },
-  ]),
-  {id: 'wp-div', type: 'divider', data: {style: 'labeled', label: 'weekend'}},
-  {id: 'wp-notes', type: 'paragraph', data: {text: 'Loose notes, wins, and anything to carry into next week.'}},
-];
-
-
-// Compound growth: three sliders feed a live-code projection (the classic
-// sample, rebuilt on the unified system) — invested vs grown, plotted live.
-const COMPOUND_GROWTH_BLOCKS = [
-  {id: 'tpl-cg-h', type: 'heading', text: [{t: 'Compound growth'}], props: {level: 2}},
-  {id: 'tpl-cg-p', type: 'paragraph', text: [{t: 'Drag the sliders — the projection recomputes live. Open the code block to see (and change) the maths.'}]},
-  {id: 'tpl-cg-m', type: 'slider', props: {name: 'monthly', value: 300, min: 50, max: 2000}},
-  {id: 'tpl-cg-y', type: 'slider', props: {name: 'years', value: 20, min: 1, max: 40}},
-  {id: 'tpl-cg-r', type: 'slider', props: {name: 'rate', value: 7, min: 1, max: 12}},
-  {
-    id: 'tpl-cg-code',
-    type: 'code',
-    text: [
-      {
-        t: 'const r = rate / 100 / 12;\nconst months = years * 12;\nlet bal = 0;\nconst invested = [], grown = [];\nfor (let m = 1; m <= months; m++) {\n  bal = (bal + monthly) * (1 + r);\n  if (m % 12 === 0) { invested.push(monthly * m); grown.push(Math.round(bal)); }\n}\nreturn {series: [{name: \'Invested\', data: invested}, {name: \'With growth\', data: grown}]};',
-      },
-    ],
-    props: {live: true, name: 'projection', language: 'js'},
-  },
-  {id: 'tpl-cg-chart', type: 'kitchart', props: {kind: 'area', title: 'Balance by year', source: 'projection'}},
-  {
-    id: 'tpl-cg-final',
-    type: 'code',
-    text: [{t: '\'After \' + years + \' years: \' + projection.series[1].data[projection.series[1].data.length - 1].toLocaleString()'}],
-    props: {live: true, name: 'summary', language: 'js'},
-  },
-];
-
-// Loan repayment: amount/rate/term feed a payment + balance schedule; a
-// budget stepper drives the affordability status light (chained live code).
-const LOAN_BLOCKS = [
-  {id: 'tpl-loan-h', type: 'heading', text: [{t: 'Loan repayment'}], props: {level: 2}},
-  {id: 'tpl-loan-a', type: 'slider', props: {name: 'amount', value: 400000, min: 50000, max: 1000000}},
-  {id: 'tpl-loan-r', type: 'slider', props: {name: 'rate', value: 5, min: 1, max: 10}},
-  {id: 'tpl-loan-y', type: 'slider', props: {name: 'years', value: 25, min: 5, max: 35}},
-  {id: 'tpl-loan-b', type: 'number', props: {name: 'budget', label: 'Monthly budget', value: 2500, min: 0, step: 100}},
-  {
-    id: 'tpl-loan-pay',
-    type: 'code',
-    text: [{t: 'const r = rate / 100 / 12;\nconst n = years * 12;\nreturn Math.round((amount * r) / (1 - Math.pow(1 + r, -n)));'}],
-    props: {live: true, name: 'payment', language: 'js'},
-  },
-  {
-    id: 'tpl-loan-sched',
-    type: 'code',
-    text: [
-      {t: 'const r = rate / 100 / 12;\nlet bal = amount;\nconst out = [];\nfor (let y = 1; y <= years; y++) {\n  for (let m = 0; m < 12; m++) bal = bal * (1 + r) - payment;\n  out.push(Math.max(0, Math.round(bal)));\n}\nreturn out;'},
-    ],
-    props: {live: true, name: 'balance', language: 'js'},
-  },
-  {id: 'tpl-loan-chart', type: 'kitchart', props: {kind: 'area', title: 'Remaining balance', source: 'balance'}},
-  {id: 'tpl-loan-status', type: 'statuslight', props: {label: 'Within budget', source: 'payment <= budget', okAt: 1, warnAt: 0}},
-];
-
-// Pricing estimator: a stepper, a radio, and a toggle feed one price
-// computation; a bar chart breaks the total down.
-const PRICING_BLOCKS = [
-  {id: 'tpl-price-h', type: 'heading', text: [{t: 'Pricing estimator'}], props: {level: 2}},
-  {id: 'tpl-price-s', type: 'number', props: {name: 'seats', label: 'Seats', value: 25, min: 1, max: 500, step: 1}},
-  {id: 'tpl-price-plan', type: 'radio', props: {name: 'plan', label: 'Plan', options: 'Basic, Pro, Scale', value: 'Pro'}},
-  {id: 'tpl-price-an', type: 'toggle', props: {name: 'annual', label: 'Annual billing', value: true}},
-  {
-    id: 'tpl-price-code',
-    type: 'code',
-    text: [
-      {t: 'const unit = {Basic: 6, Pro: 12, Scale: 20}[plan];\nconst volume = seats > 100 ? 0.8 : seats > 25 ? 0.9 : 1;\nconst billing = annual ? 0.85 : 1;\nconst list = seats * unit;\nconst total = Math.round(list * volume * billing);\nreturn {list, total, saving: list - total};'},
-    ],
-    props: {live: true, name: 'price', language: 'js'},
-  },
-  {id: 'tpl-price-chart', type: 'kitchart', props: {kind: 'bar', title: 'Monthly cost', labels: 'List, You pay, Saving', source: '[price.list, price.total, price.saving]'}},
-  {
-    id: 'tpl-price-sum',
-    type: 'code',
-    text: [{t: 'price.total.toLocaleString() + \' / month for \' + seats + \' seats on \' + plan'}],
-    props: {live: true, name: 'quote', language: 'js'},
-  },
-];
-
-// A live artifact built from the block editor's kit: inputs feed a shared
-// reactive scope; the charts, status light, and formula compute over it.
-// Plain JSON projection with stable ids — the block editor seeds a CRDT doc
-// from it on first open.
-const DASHBOARD_BLOCKS = [
-  {id: 'tpl-dash-h', type: 'heading', text: [{t: 'Project pulse'}], props: {level: 2}},
-  {id: 'tpl-dash-p', type: 'paragraph', text: [{t: 'Steer the inputs — everything below computes live. Open ⚙ on any block to rewire it.'}]},
-  {id: 'tpl-dash-done', type: 'number', props: {name: 'done', label: 'Tasks done', value: 7, min: 0, max: 20, step: 1}},
-  {id: 'tpl-dash-risk', type: 'slider', props: {name: 'risk', value: 35, min: 0, max: 100}},
-  {
-    id: 'tpl-dash-phase',
-    type: 'choicecards',
-    props: {
-      name: 'phase',
-      value: 'beta',
-      opts: [
-        {label: 'Alpha', value: 'alpha', icon: '🧪', color: 'purple'},
-        {label: 'Beta', value: 'beta', icon: '🚧', color: 'orange'},
-        {label: 'GA', value: 'ga', icon: '🚀', color: 'green'},
-      ],
-    },
-  },
-  {id: 'tpl-dash-progress', type: 'progressbar', props: {label: 'Sprint progress', source: 'done / 20', max: 1, format: 'percent'}},
-  {id: 'tpl-dash-donut', type: 'kitchart', props: {kind: 'donut', title: 'Progress', source: '{Done: done, Left: 20 - done}'}},
-  {id: 'tpl-dash-line', type: 'kitchart', props: {kind: 'line', title: 'Risk trend', source: '[risk*0.6, risk*0.8, risk, risk*1.15, risk*0.9]'}},
-  {id: 'tpl-dash-status', type: 'statuslight', props: {label: 'Ship readiness', source: 'done - risk/10', okAt: 4, warnAt: 1}},
-  {id: 'tpl-dash-btn', type: 'actionbutton', props: {btnlabel: 'Mark one done', action: 'increment', target: 'done', amount: 1}},
-  {id: 'tpl-dash-rem', type: 'formula', props: {source: '20 - done'}},
-];
-
-// A guided intake wizard built from the June-2026 kit: a gated accordion holds
-// the stages, each stage a coherent set of the new inputs (choice cards with
-// icon covers, a searchable select, a free-entry tag field, long + rich text),
-// and a progress bar bound to the accordion's auto-computed completion
-// (`intake.ratio`). Gating locks later stages until earlier ones are filled, so
-// it reads as a real onboarding form rather than a control dump. Stable ids and
-// option values keep it queryable as a Playwright fixture.
-const INTAKE_FORM_BLOCKS = [
-  {id: 'tpl-intake-h', type: 'heading', text: [{t: 'New project intake'}], props: {level: 2}},
-  {id: 'tpl-intake-p', type: 'paragraph', text: [{t: 'Tell us about the work. Each stage unlocks the next once it’s filled in — the bar tracks how far along you are.'}]},
-  {id: 'tpl-intake-progress', type: 'progressbar', props: {label: 'Completed', source: 'intake.ratio', max: 1, format: 'percent'}},
-  {
-    id: 'tpl-intake-acc',
-    type: 'accordion',
-    props: {name: 'intake', gated: true},
-    children: [
-      {
-        id: 'tpl-intake-basics',
-        type: 'accordionsection',
-        props: {label: 'Basics'},
-        children: [
-          {id: 'tpl-intake-basics-p', type: 'paragraph', text: [{t: 'What kind of project is this, and what’s the one-line goal?'}]},
-          {
-            id: 'tpl-intake-type',
-            type: 'choicecards',
-            props: {
-              name: 'projectType',
-              value: null,
-              opts: [
-                {label: 'New feature', value: 'feature', icon: '✨', color: 'blue'},
-                {label: 'Bug fix', value: 'bugfix', icon: '🐞', color: 'red'},
-                {label: 'Research spike', value: 'research', icon: '🔬', color: 'purple'},
-                {label: 'Migration', value: 'migration', icon: '📦', color: 'orange'},
-              ],
-            },
-          },
-          {id: 'tpl-intake-summary', type: 'longtext', props: {name: 'summary', value: '', placeholder: 'One sentence: what does done look like?'}},
-        ],
-      },
-      {
-        id: 'tpl-intake-scope',
-        type: 'accordionsection',
-        props: {label: 'Scope', collapsed: true},
-        children: [
-          {id: 'tpl-intake-scope-p', type: 'paragraph', text: [{t: 'Where does it land, and who needs to be in the loop?'}]},
-          {
-            id: 'tpl-intake-platform',
-            type: 'searchselect',
-            props: {
-              name: 'platform',
-              value: null,
-              opts: [
-                {label: 'Web', value: 'web'},
-                {label: 'Desktop', value: 'desktop'},
-                {label: 'Mobile', value: 'mobile'},
-                {label: 'API', value: 'api'},
-                {label: 'All surfaces', value: 'all'},
-              ],
-            },
-          },
-          {
-            id: 'tpl-intake-teams',
-            type: 'tagfield',
-            props: {name: 'teams', selected: [], freeEntry: true, opts: [{label: 'Design'}, {label: 'Engineering'}, {label: 'Product'}, {label: 'Data'}, {label: 'Support'}]},
-          },
-        ],
-      },
-      {
-        id: 'tpl-intake-details',
-        type: 'accordionsection',
-        props: {label: 'Details', collapsed: true},
-        children: [
-          {id: 'tpl-intake-details-p', type: 'paragraph', text: [{t: 'Spell out the requirements and confirm the pre-flight checks.'}]},
-          {id: 'tpl-intake-req', type: 'richtext', props: {name: 'requirements', runs: [], placeholder: 'Requirements, constraints, links…'}},
-          {id: 'tpl-intake-check-spec', type: 'todo', text: [{t: 'Spec reviewed with the lead'}], props: {checked: false}},
-          {id: 'tpl-intake-check-est', type: 'todo', text: [{t: 'Rough estimate agreed'}], props: {checked: false}},
-        ],
-      },
-    ],
-  },
-  {id: 'tpl-intake-status', type: 'statuslight', props: {label: 'Ready to submit', source: 'intake.complete', okAt: 1, warnAt: 1}},
-];
-
 // ── The gallery ──────────────────────────────────────────────────────────────
 
 /** Create a block-editor template page from a JSON block projection. */
@@ -461,12 +636,6 @@ const createBlockDocPage =
   (blocks: object[]) =>
     (client: DataClient, name: string): Promise<StoredPage> =>
       client.savePage({name, data: {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: {blocks}}});
-
-/** Create a document-only template page. */
-const createDocPage =
-  (blocks: object[]) =>
-    (client: DataClient, name: string): Promise<StoredPage> =>
-      client.savePage({name, data: emptySnapshot(blocks)});
 
 /** Create a database template: host page + database + sample rows. Row pages
  *  share the workspace-unique name space, so re-instantiating a template would
@@ -495,17 +664,13 @@ const createDatabasePage =
     };
 
 export const PAGE_TEMPLATES: PageTemplate[] = [
-  {id: 'tasks', icon: '✅', pageName: 'Task tracker', create: createDatabasePage(TASKS_SCHEMA, TASKS_ROWS)},
+  {id: 'grocery-tracker', icon: '🛒', pageName: 'Grocery price tracker', create: createBlockDocPage(GROCERY_BLOCKS)},
+  {id: 'task-board', icon: '🗂️', pageName: 'Project task board', create: createBlockDocPage(TASK_BOARD_BLOCKS)},
+  {id: 'reading-list', icon: '📚', pageName: 'Reading list', create: createBlockDocPage(READING_BLOCKS)},
+  {id: 'project-intake', icon: '📋', pageName: 'Project intake', create: createBlockDocPage(PROJECT_INTAKE_BLOCKS)},
+  {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', create: createBlockDocPage(SAVINGS_BLOCKS)},
   {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS)},
   {id: 'field-map', icon: '📍', pageName: 'Field map', create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS)},
-  {id: 'reading-list', icon: '📚', pageName: 'Reading list', create: createDatabasePage(READING_SCHEMA, READING_ROWS)},
-  {id: 'meeting-notes', icon: '📝', pageName: 'Meeting notes', create: createDocPage(MEETING_NOTES_BLOCKS)},
-  {id: 'weekly-planner', icon: '🗓️', pageName: 'Weekly planner', create: createDocPage(WEEKLY_PLANNER_BLOCKS)},
-  {id: 'interactive-dashboard', icon: '📊', pageName: 'Project pulse', create: createBlockDocPage(DASHBOARD_BLOCKS)},
-  {id: 'intake-form', icon: '📋', pageName: 'New project intake', create: createBlockDocPage(INTAKE_FORM_BLOCKS)},
-  {id: 'compound-growth', icon: '📈', pageName: 'Compound growth', create: createBlockDocPage(COMPOUND_GROWTH_BLOCKS)},
-  {id: 'loan-calculator', icon: '🏦', pageName: 'Loan repayment', create: createBlockDocPage(LOAN_BLOCKS)},
-  {id: 'pricing-estimator', icon: '🧮', pageName: 'Pricing estimator', create: createBlockDocPage(PRICING_BLOCKS)},
 ];
 
 /** Page names are unique among live pages — pick `name`, `name 2`, `name 3`… */

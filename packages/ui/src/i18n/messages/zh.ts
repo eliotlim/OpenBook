@@ -374,41 +374,33 @@ export const zh: PartialMessages = {
     title: '从模板开始',
     description: '结构合理的现成页面 — 选一个，改成你的。',
     creating: '创建中…',
-    tasks: {
-      name: '任务追踪',
-      description: '状态、优先级和截止日期 — 表格与看板视图。',
+    groceryTracker: {
+      name: '杂货价格追踪',
+      description: '把每周购物篮在多家商店比价——实时图表、预算状态灯，计算都藏在代码块里。',
     },
-    roadmap: {
-      name: '产品路线图',
-      description: '在时间线、看板和表格中规划事项。',
+    taskBoard: {
+      name: '项目任务看板',
+      description: '可拖拽的看板，加上实时产能检查与燃尽图，让冲刺不再超额承诺。',
     },
     readingList: {
       name: '阅读清单',
-      description: '带书架、作者和评分的画廊。',
+      description: '书架、年度目标和进度状态灯——登记一本书，进度环随之更新。',
     },
-    meetingNotes: {
-      name: '会议记录',
-      description: '议程、笔记和行动项，开箱即用。',
+    projectIntake: {
+      name: '项目受理',
+      description: '逐阶段解锁的需求简报，配合实时的“投入对收益”优先级评估。',
     },
-    compoundGrowth: {
-      name: '复利增长',
-      description: '滑块驱动实时代码预测——拖动即绘制投入与增值曲线。',
+    savingsPlanner: {
+      name: '储蓄与投资',
+      description: '先做应急金检查，再用滑块驱动面向目标的实时复利预测。',
     },
-    loanCalculator: {
-      name: '贷款偿还',
-      description: '金额、利率与期限计算月供与余额曲线；预算驱动状态灯。',
+    roadmap: {
+      name: '产品路线图',
+      description: '在时间线和看板中规划事项，二者都按领域分成泳道。',
     },
-    pricingEstimator: {
-      name: '定价估算',
-      description: '席位、套餐与计费周期驱动价格计算，并实时拆解成本。',
-    },
-    interactiveDashboard: {
-      name: '项目脉搏',
-      description: '实时迷你仪表盘：输入驱动图表、状态灯和公式。',
-    },
-    weeklyPlanner: {
-      name: '每周计划',
-      description: '每个工作日的清单加本周重点。',
+    fieldMap: {
+      name: '据点地图',
+      description: '把办公室与合作伙伴标在地图上，按区域着色——并提供表格视图。',
     },
   },
   blocks: {

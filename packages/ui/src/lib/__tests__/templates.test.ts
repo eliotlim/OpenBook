@@ -1,6 +1,8 @@
 import {describe, expect, it, vi} from 'vitest';
 import {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from '@open-book/sdk';
 import type {DatabaseSchema, DataClient, PageMeta, StoredPage} from '@open-book/sdk';
+import {decodeSnapshot, rootBlocks, walkBlocks, blockProp, blockType, type BlockDocSnapshot, type BlockMap} from '@/blockeditor/model';
+import {computeScope, evalExpr} from '@/blockeditor/kit/scope';
 
 const page = (over: Partial<StoredPage> = {}): StoredPage =>
   ({
@@ -27,39 +29,8 @@ function stubClient(existing: string[]): DataClient {
   } as unknown as DataClient;
 }
 
-describe('PAGE_TEMPLATES', () => {
-  it('has unique ids, names, and icons', () => {
-    const ids = PAGE_TEMPLATES.map((t) => t.id);
-    const names = PAGE_TEMPLATES.map((t) => t.pageName);
-    expect(new Set(ids).size).toBe(PAGE_TEMPLATES.length);
-    expect(new Set(names).size).toBe(PAGE_TEMPLATES.length);
-    for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
-  });
-
-  it('covers both document and database kinds', async () => {
-    // Database templates call createDatabase; document templates don't.
-    const kinds = await Promise.all(
-      PAGE_TEMPLATES.map(async (t) => {
-        const client = stubClient([]);
-        await t.create(client, t.pageName);
-        return (client.createDatabase as ReturnType<typeof vi.fn>).mock.calls.length > 0 ? 'database' : 'doc';
-      }),
-    );
-    expect(kinds).toContain('database');
-    expect(kinds).toContain('doc');
-  });
-
-  it('database templates seed at least one sample row', async () => {
-    for (const t of PAGE_TEMPLATES) {
-      const client = stubClient([]);
-      await t.create(client, t.pageName);
-      const dbCalls = (client.createDatabase as ReturnType<typeof vi.fn>).mock.calls.length;
-      if (dbCalls > 0) {
-        expect((client.createRow as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
-      }
-    }
-  });
-});
+const BLOCK_DOC_IDS = ['grocery-tracker', 'task-board', 'reading-list', 'project-intake', 'savings-planner'] as const;
+const DATABASE_IDS = ['roadmap', 'field-map'] as const;
 
 /** Run a template against a stub and return the schema it created (database templates). */
 async function schemaOf(id: PageTemplate['id']): Promise<DatabaseSchema> {
@@ -76,12 +47,142 @@ async function blockdocOf(id: PageTemplate['id']): Promise<Array<Record<string, 
   const client = stubClient([]);
   await template.create(client, template.pageName);
   const call = (client.savePage as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
-    data: {blockdoc?: {blocks: Array<Record<string, unknown>>}};
+    data: {editor?: string; blockdoc?: {blocks: Array<Record<string, unknown>>}};
   };
+  expect(call.data.editor).toBe('blocks');
   return call.data.blockdoc?.blocks ?? [];
 }
 
-describe('roadmap swimlanes', () => {
+/** Decode a block-doc template into a live Y.Doc, exactly as the app does on load. */
+async function docOf(id: PageTemplate['id']) {
+  const blocks = await blockdocOf(id);
+  return decodeSnapshot({v: 1, update: '', blocks} as unknown as BlockDocSnapshot);
+}
+
+/** Every block in the doc (depth-first, including nested), as a flat list. */
+function allBlocks(doc: ReturnType<typeof decodeSnapshot>): BlockMap[] {
+  return [...walkBlocks(rootBlocks(doc))].map((w) => w.block);
+}
+
+describe('PAGE_TEMPLATES', () => {
+  it('has seven templates with unique ids, names, and icons', () => {
+    const ids = PAGE_TEMPLATES.map((t) => t.id);
+    const names = PAGE_TEMPLATES.map((t) => t.pageName);
+    expect(PAGE_TEMPLATES).toHaveLength(7);
+    expect(new Set(ids)).toEqual(new Set([...BLOCK_DOC_IDS, ...DATABASE_IDS]));
+    expect(new Set(names).size).toBe(PAGE_TEMPLATES.length);
+    for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
+  });
+
+  it('builds block-doc artifacts for the five showcases and databases for the two fixtures', async () => {
+    for (const t of PAGE_TEMPLATES) {
+      const client = stubClient([]);
+      await t.create(client, t.pageName);
+      const madeDb = (client.createDatabase as ReturnType<typeof vi.fn>).mock.calls.length > 0;
+      if ((DATABASE_IDS as readonly string[]).includes(t.id)) {
+        expect(madeDb).toBe(true);
+        expect((client.createRow as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+      } else {
+        expect(madeDb).toBe(false);
+      }
+    }
+  });
+});
+
+describe('block-doc artifacts', () => {
+  it('every showcase is slide-able (dividers), has speaker notes, and hides its code by default', async () => {
+    for (const id of BLOCK_DOC_IDS) {
+      const doc = await docOf(id);
+      const roots = [...rootBlocks(doc)];
+      const topTypes = roots.map((b) => blockType(b));
+      expect(topTypes.filter((t) => t === 'divider').length, `${id}: dividers`).toBeGreaterThanOrEqual(1);
+      expect(topTypes.filter((t) => t === 'notes').length, `${id}: notes`).toBeGreaterThanOrEqual(2);
+
+      const code = allBlocks(doc).filter((b) => blockType(b) === 'code' && blockProp<boolean>(b, 'live'));
+      expect(code.length, `${id}: live code`).toBeGreaterThanOrEqual(1);
+      // The brief: interactive code is present but hidden by default.
+      for (const c of code) expect(blockProp<boolean>(c, 'collapsed'), `${id}: collapsed code`).toBe(true);
+    }
+  });
+
+  it('every showcase carries the visual kit (charts, status lights, columns, callouts)', async () => {
+    for (const id of BLOCK_DOC_IDS) {
+      const types = new Set(allBlocks(await docOf(id)).map((b) => blockType(b) as string));
+      expect(types.has('kitchart'), `${id}: chart`).toBe(true);
+      expect(types.has('statuslight'), `${id}: status light`).toBe(true);
+      expect(types.has('columns'), `${id}: columns`).toBe(true);
+      expect(types.has('callout'), `${id}: callout`).toBe(true);
+    }
+  });
+
+  it('every reactive expression evaluates without error', async () => {
+    for (const id of BLOCK_DOC_IDS) {
+      const {results} = computeScope(await docOf(id));
+      for (const [blockId, res] of results) {
+        expect(res.error, `${id}: live block ${blockId} → ${res.error}`).toBeUndefined();
+      }
+    }
+  });
+});
+
+describe('grocery price tracker', () => {
+  it('picks the cheapest shop and its saving from the basket sliders', async () => {
+    const {scope} = computeScope(await docOf('grocery-tracker'));
+    expect(scope.best).toBe(86); // min(86, 99, 112)
+    expect(scope.store).toBe('Aldi');
+    expect(scope.saving).toBe(26); // 112 − 86
+    expect(String(scope.headline)).toContain('Aldi');
+  });
+});
+
+describe('project task board', () => {
+  it('narrates progress and seeds a burndown from capacity/commitment', async () => {
+    const {scope} = computeScope(await docOf('task-board'));
+    expect(String(scope.headline)).toContain('9 of 24 points done');
+    const burndown = scope.burndown as {Ideal: number[]; Actual: number[]};
+    expect(burndown.Ideal[0]).toBe(24);
+    expect(burndown.Ideal[burndown.Ideal.length - 1]).toBe(0);
+  });
+});
+
+describe('reading list', () => {
+  it('narrates the yearly goal from the counters', async () => {
+    const {scope} = computeScope(await docOf('reading-list'));
+    expect(String(scope.headline)).toContain('10 of 24 books');
+  });
+});
+
+describe('project intake', () => {
+  it('keeps the gated wizard and prioritises effort vs impact live', async () => {
+    const doc = await docOf('project-intake');
+    const {scope} = computeScope(doc);
+    // The gated accordion with its three stages (the kit-blocks e2e fixture).
+    const accordion = allBlocks(doc).find((b) => blockType(b) === 'accordion')!;
+    const sections = allBlocks(doc).filter((b) => blockType(b) === 'accordionsection');
+    expect(blockProp<boolean>(accordion, 'gated')).toBe(true);
+    expect(sections.map((s) => blockProp<string>(s, 'label'))).toEqual(['Basics', 'Scope', 'Details']);
+    expect(allBlocks(doc).some((b) => (blockType(b) as string) === 'choicecards')).toBe(true);
+    // Live prioritisation + the accordion's auto-computed completion signals.
+    expect(scope.verdict).toBe('Do it now'); // impact 7 ≥ effort 4 × 1.5 (= 6)
+    expect(evalExpr('intake.ratio', scope).error).toBeUndefined();
+    expect(evalExpr('intake.complete', scope).error).toBeUndefined();
+  });
+});
+
+describe('savings & investing', () => {
+  it('projects a compounding balance and an emergency-fund runway', async () => {
+    const {scope} = computeScope(await docOf('savings-planner'));
+    const projection = scope.projection as {Invested: number[]; Projected: number[]};
+    expect(projection.Projected).toHaveLength(21); // years 20 → 21 points incl. year 0
+    expect(scope.final).toBe(projection.Projected[projection.Projected.length - 1]);
+    expect(typeof scope.final).toBe('number');
+    expect(scope.final as number).toBeGreaterThan(0);
+    expect(String(scope.headline)).toContain('After 20 years');
+    expect(scope.months).toBe(4.4); // 8000 / 1800
+  });
+});
+
+describe('roadmap swimlanes (database fixture)', () => {
   it('groups the board by a second select and bands the timeline', async () => {
     const schema = await schemaOf('roadmap');
     const board = schema.views.find((v) => v.type === 'board')!;
@@ -92,7 +193,7 @@ describe('roadmap swimlanes', () => {
   });
 });
 
-describe('field-map template', () => {
+describe('field-map (database fixture)', () => {
   it('exposes a location property and a configured map view', async () => {
     const schema = await schemaOf('field-map');
     const place = schema.properties.find((p) => p.id === 'p_place')!;
@@ -120,50 +221,18 @@ describe('field-map template', () => {
   });
 });
 
-describe('intake-form wizard', () => {
-  it('binds a progress bar to a gated accordion of new kit inputs', async () => {
-    const blocks = await blockdocOf('intake-form');
-    const types = blocks.map((b) => b.type);
-    expect(types).toContain('progressbar');
-    const acc = blocks.find((b) => b.type === 'accordion') as {
-      props: {name: string; gated: boolean};
-      children: Array<{type: string; props: {label: string}; children: Array<{type: string}>}>;
-    };
-    expect(acc.props.name).toBe('intake');
-    expect(acc.props.gated).toBe(true);
-    expect(acc.children.map((s) => s.props.label)).toEqual(['Basics', 'Scope', 'Details']);
-    // The progress bar reads the accordion's auto-computed completion.
-    const progress = blocks.find((b) => b.type === 'progressbar') as {props: {source: string}};
-    expect(progress.props.source).toBe('intake.ratio');
-    // The new kit inputs all appear inside the accordion's sections.
-    const inner = acc.children.flatMap((s) => s.children.map((c) => c.type));
-    for (const t of ['choicecards', 'longtext', 'searchselect', 'tagfield', 'richtext']) {
-      expect(inner).toContain(t);
-    }
-  });
-});
-
-describe('interactive-dashboard new kit', () => {
-  it('adds a choice-card phase picker and a progress bar', async () => {
-    const blocks = await blockdocOf('interactive-dashboard');
-    const phase = blocks.find((b) => (b.props as {name?: string} | undefined)?.name === 'phase') as {type: string};
-    expect(phase.type).toBe('choicecards');
-    expect(blocks.some((b) => b.type === 'progressbar')).toBe(true);
-  });
-});
-
 describe('instantiateTemplate', () => {
-  const tasks = PAGE_TEMPLATES.find((t) => t.id === 'tasks') as PageTemplate;
+  const grocery = PAGE_TEMPLATES.find((t) => t.id === 'grocery-tracker') as PageTemplate;
 
   it('uses the canonical name when free', async () => {
     const client = stubClient(['Something else']);
-    await instantiateTemplate(client, tasks);
-    expect(client.savePage).toHaveBeenCalledWith(expect.objectContaining({name: 'Task tracker'}));
+    await instantiateTemplate(client, grocery);
+    expect(client.savePage).toHaveBeenCalledWith(expect.objectContaining({name: 'Grocery price tracker'}));
   });
 
   it('suffixes the name when taken (names are workspace-unique)', async () => {
-    const client = stubClient(['Task tracker', 'Task tracker 2']);
-    await instantiateTemplate(client, tasks);
-    expect(client.savePage).toHaveBeenCalledWith(expect.objectContaining({name: 'Task tracker 3'}));
+    const client = stubClient(['Grocery price tracker', 'Grocery price tracker 2']);
+    await instantiateTemplate(client, grocery);
+    expect(client.savePage).toHaveBeenCalledWith(expect.objectContaining({name: 'Grocery price tracker 3'}));
   });
 });

@@ -509,9 +509,25 @@ export const en = {
     title: 'Start with a template',
     description: 'Ready-made pages with sensible structure — pick one and make it yours.',
     creating: 'Creating…',
-    tasks: {
-      name: 'Task tracker',
-      description: 'Statuses, priorities and due dates — as a table and a board.',
+    groceryTracker: {
+      name: 'Grocery price tracker',
+      description: 'Price a weekly basket across shops — live charts, a budget light, and the maths tucked in a code block.',
+    },
+    taskBoard: {
+      name: 'Project task board',
+      description: 'A drag-and-drop board plus a live capacity check and burndown, so the sprint never over-commits.',
+    },
+    readingList: {
+      name: 'Reading list',
+      description: 'Shelves, a yearly goal, and a pace light — log a book and the progress ring follows.',
+    },
+    projectIntake: {
+      name: 'Project intake',
+      description: 'A gated brief that unlocks stage by stage, with a live effort-vs-impact prioritisation.',
+    },
+    savingsPlanner: {
+      name: 'Savings & investing',
+      description: 'A safety-net check, then sliders feed a live compound-growth projection toward a goal.',
     },
     roadmap: {
       name: 'Product roadmap',
@@ -520,38 +536,6 @@ export const en = {
     fieldMap: {
       name: 'Field map',
       description: 'Offices and partners pinned on a map, coloured by region — with a table view.',
-    },
-    intakeForm: {
-      name: 'New project intake',
-      description: 'A guided wizard: gated stages of choice cards, tags, and rich text, tracked by a progress bar.',
-    },
-    readingList: {
-      name: 'Reading list',
-      description: 'A gallery of books with shelves, authors, and ratings.',
-    },
-    meetingNotes: {
-      name: 'Meeting notes',
-      description: 'Agenda, notes, and action items, ready to fill in.',
-    },
-    compoundGrowth: {
-      name: 'Compound growth',
-      description: 'Sliders feed a live-code projection — invested vs grown, plotted as you drag.',
-    },
-    loanCalculator: {
-      name: 'Loan repayment',
-      description: 'Amount, rate and term compute the payment and balance curve; a budget drives the status light.',
-    },
-    pricingEstimator: {
-      name: 'Pricing estimator',
-      description: 'Seats, plan and billing cycle feed one price computation with a live cost breakdown.',
-    },
-    interactiveDashboard: {
-      name: 'Project pulse',
-      description: 'A live mini-dashboard: steppers and sliders feeding charts, a status light, and a formula.',
-    },
-    weeklyPlanner: {
-      name: 'Weekly planner',
-      description: 'A checklist for every weekday plus a weekly focus.',
     },
   },
   blocks: {

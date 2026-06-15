@@ -374,41 +374,33 @@ export const de: PartialMessages = {
     title: 'Mit einer Vorlage starten',
     description: 'Fertige Seiten mit sinnvoller Struktur — auswählen und anpassen.',
     creating: 'Wird erstellt…',
-    tasks: {
-      name: 'Aufgaben-Tracker',
-      description: 'Status, Prioritäten und Fälligkeiten — als Tabelle und Board.',
+    groceryTracker: {
+      name: 'Lebensmittelpreis-Tracker',
+      description: 'Einen Wocheneinkauf über mehrere Läden bepreisen — Live-Diagramme, eine Budgetleuchte und die Rechnung im Code-Block.',
     },
-    roadmap: {
-      name: 'Produkt-Roadmap',
-      description: 'Vorhaben auf Timeline, Board und Tabelle.',
+    taskBoard: {
+      name: 'Projekt-Aufgabenboard',
+      description: 'Ein Drag-and-drop-Board plus Live-Kapazitätscheck und Burndown, damit der Sprint sich nie übernimmt.',
     },
     readingList: {
       name: 'Leseliste',
-      description: 'Eine Galerie von Büchern mit Regalen, Autoren und Bewertungen.',
+      description: 'Regale, ein Jahresziel und eine Tempo-Leuchte — ein Buch eintragen, der Fortschrittsring folgt.',
     },
-    meetingNotes: {
-      name: 'Meeting-Notizen',
-      description: 'Agenda, Notizen und Aufgaben — bereit zum Ausfüllen.',
+    projectIntake: {
+      name: 'Projektaufnahme',
+      description: 'Ein gestuftes Briefing, das sich Schritt für Schritt freischaltet, mit Live-Priorisierung nach Aufwand vs. Wirkung.',
     },
-    compoundGrowth: {
-      name: 'Zinseszins',
-      description: 'Regler speisen eine Live-Code-Projektion — eingezahlt vs. verzinst, beim Ziehen geplottet.',
+    savingsPlanner: {
+      name: 'Sparen & Anlegen',
+      description: 'Erst der Notgroschen-Check, dann speisen Regler eine Live-Zinseszins-Projektion auf ein Ziel hin.',
     },
-    loanCalculator: {
-      name: 'Kredittilgung',
-      description: 'Betrag, Zins und Laufzeit berechnen Rate und Restschuldkurve; ein Budget steuert die Statusleuchte.',
+    roadmap: {
+      name: 'Produkt-Roadmap',
+      description: 'Vorhaben auf Timeline und Board, beide nach Bereich in Swimlanes aufgeteilt.',
     },
-    pricingEstimator: {
-      name: 'Preisrechner',
-      description: 'Plätze, Tarif und Abrechnung speisen eine Preisberechnung mit Live-Kostenaufschlüsselung.',
-    },
-    interactiveDashboard: {
-      name: 'Projektpuls',
-      description: 'Ein lebendiges Mini-Dashboard: Eingaben speisen Diagramme, eine Statusleuchte und eine Formel.',
-    },
-    weeklyPlanner: {
-      name: 'Wochenplaner',
-      description: 'Eine Checkliste je Wochentag plus Wochenfokus.',
+    fieldMap: {
+      name: 'Standortkarte',
+      description: 'Büros und Partner auf einer Karte, nach Region eingefärbt — mit Tabellenansicht.',
     },
   },
   blocks: {

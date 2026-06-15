@@ -1,9 +1,12 @@
 import {test, expect, takeSnapshot} from './fixtures';
 import {} from './seed';
 
-// The template gallery: ready-made pages (documents and databases with sample
-// rows) created client-side. These tests drive it exactly as a user would —
-// open the gallery from the sidebar, pick a card, land on the created page.
+// The template gallery: ready-made pages created client-side. Five are rich
+// block-doc "artifacts" — reactive inputs feeding collapsed live-code, status
+// lights, charts, cards, multi-column layouts, callouts, and divider/notes
+// blocks so each doubles as a slide deck. Two are database fixtures (roadmap,
+// field map) exercised by the swimlane and map specs. These tests drive the
+// gallery as a user would: open it, pick a card, land on the created page.
 
 async function hydrated(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
@@ -15,11 +18,16 @@ async function openGallery(page: import('@playwright/test').Page): Promise<void>
   await expect(page.getByText('Start with a template')).toBeVisible();
 }
 
+async function pick(page: import('@playwright/test').Page, id: string): Promise<void> {
+  await openGallery(page);
+  await page.locator(`[data-template="${id}"]`).click();
+}
+
 test('gallery: lists every template with names and descriptions', async ({page}, testInfo) => {
   await hydrated(page);
   await openGallery(page);
 
-  for (const name of ['Task tracker', 'Product roadmap', 'Reading list', 'Meeting notes', 'Weekly planner', 'Project pulse', 'Compound growth', 'Loan repayment', 'Pricing estimator']) {
+  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map']) {
     await expect(page.getByRole('button', {name: new RegExp(name)})).toBeVisible();
   }
   await takeSnapshot(page, testInfo); // visual: the template gallery
@@ -29,113 +37,95 @@ test('gallery: lists every template with names and descriptions', async ({page},
   await expect(page.getByText('Start with a template')).toBeHidden();
 });
 
-test('task tracker template: creates a database page with views and sample rows', async ({page}) => {
+test('grocery price tracker: baskets steer the cheapest pick and the budget light', async ({page}) => {
   await hydrated(page);
-  await openGallery(page);
-  await page.locator('[data-template="tasks"]').click();
+  await pick(page, 'grocery-tracker');
 
-  // Lands on the created page: title, both views, schema columns, sample rows.
-  await expect(page.getByLabel('Page title')).toHaveValue(/^Task tracker/);
-  await expect(page.getByRole('button', {name: 'Table', exact: true})).toBeVisible();
-  await expect(page.getByRole('button', {name: 'Board', exact: true})).toBeVisible();
-  await expect(page.getByRole('columnheader', {name: /Priority/})).toBeVisible();
-  await expect(page.getByRole('columnheader', {name: /Due/})).toBeVisible();
-  const titles = page.getByRole('table').getByPlaceholder('Untitled');
-  await expect(titles).toHaveCount(4);
-
-  // The board view groups by status with the seeded columns.
-  await page.getByRole('button', {name: 'Board', exact: true}).click();
-  await expect(page.getByText('In progress', {exact: true})).toBeVisible();
-  await expect(page.locator('[data-col-key]').filter({hasText: 'Todo'}).first()).toBeVisible();
-});
-
-test('roadmap template: opens on the timeline with ranged bars', async ({page}) => {
-  await hydrated(page);
-  await openGallery(page);
-  await page.locator('[data-template="roadmap"]').click();
-
-  await expect(page.getByLabel('Page title')).toHaveValue(/^Product roadmap/);
-  // The first view is the timeline; the seeded initiatives render as bars.
-  await expect(page.getByTitle(/drag to reschedule/).first()).toBeVisible();
-  await expect(page.getByRole('button', {name: 'Timeline', exact: true})).toBeVisible();
-});
-
-test('meeting notes template: a document with agenda, notes, and action items', async ({page}) => {
-  await hydrated(page);
-  await openGallery(page);
-  await page.locator('[data-template="meeting-notes"]').click();
-
-  await expect(page.getByLabel('Page title')).toHaveValue(/^Meeting notes/);
-  for (const heading of ['Agenda', 'Notes', 'Action items']) {
-    await expect(page.getByRole('heading', {name: heading})).toBeVisible();
-  }
-  // The agenda checklist seeded its items.
-  await expect(page.getByText('Review last week’s action items')).toBeVisible();
-});
-
-test('instantiating a template twice suffixes the page and row names (names are unique)', async ({page}) => {
-  // A database template is the hard case: its sample-row pages share the
-  // workspace-unique name space too, so both runs must fully materialize.
-  await hydrated(page);
-  await openGallery(page);
-  await page.locator('[data-template="tasks"]').click();
-  await expect(page.getByLabel('Page title')).toHaveValue(/^Task tracker/);
-  const first = await page.getByLabel('Page title').inputValue();
-  await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(4);
-
-  await openGallery(page);
-  await page.locator('[data-template="tasks"]').click();
-  await expect(page.getByLabel('Page title')).not.toHaveValue(first);
-  await expect(page.getByLabel('Page title')).toHaveValue(/^Task tracker \d+$/);
-  // The second copy carries all four sample rows despite the name collisions.
-  await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(4);
-});
-
-test('project pulse template: a live kit artifact, ready to steer', async ({page}) => {
-  await hydrated(page);
-  await openGallery(page);
-  await page.locator('[data-template="interactive-dashboard"]').click();
-
-  // Lands on the created block page with the whole artifact wired up.
-  await expect(page.getByLabel('Page title')).toHaveValue(/^Project pulse/);
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Grocery price tracker/);
+  // A bar (basket by shop) and a line (trend) — both live.
   await expect(page.locator('.obe-kit-chart')).toHaveCount(2);
+  // Aldi (86) is the cheapest of 86/99/112 → the narration names it, light is green.
+  await expect(page.locator('.obe-code-out', {hasText: 'Aldi'}).first()).toBeVisible();
   const status = page.locator('.obe-kit-status');
-  await expect(status).toHaveAttribute('data-status', 'warn'); // done 7 − risk 35/10 = 3.5
+  await expect(status).toHaveAttribute('data-status', 'ok'); // budget 120 − best 86 = 34
 
-  // The action button steps `done` → the readiness crosses its ok threshold.
-  await page.getByRole('button', {name: 'Mark one done'}).click();
-  await expect(page.getByLabel('done value')).toHaveValue('8');
+  // Drop the budget below the cheapest basket → the light goes red.
+  await page.getByLabel('budget value').fill('60');
+  await expect(status).toHaveAttribute('data-status', 'bad');
+});
+
+test('project task board: capacity check flips with the team size', async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'task-board');
+
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Project task board/);
+  // The board's three columns.
+  for (const col of ['Backlog', 'In progress', 'Done']) {
+    await expect(page.getByRole('heading', {name: new RegExp(col)})).toBeVisible();
+  }
+  // Donut + burndown line.
+  await expect(page.locator('.obe-kit-chart')).toHaveCount(2);
+  await expect(page.locator('.obe-code-out', {hasText: 'points done'}).first()).toBeVisible();
+
+  // capacity 20 < committed 24 → amber; pulling in a teammate (+5) clears it.
+  const status = page.locator('.obe-kit-status');
+  await expect(status).toHaveAttribute('data-status', 'warn');
+  await page.getByRole('button', {name: /Pull in a teammate/}).click();
+  await expect(page.getByLabel('capacity value')).toHaveValue('25');
   await expect(status).toHaveAttribute('data-status', 'ok');
 });
 
-test('compound growth template: sliders steer a live-code projection', async ({page}) => {
+test('reading list: logging a book moves the year goal', async ({page}) => {
   await hydrated(page);
-  await openGallery(page);
-  await page.locator('[data-template="compound-growth"]').click();
+  await pick(page, 'reading-list');
 
-  await expect(page.getByLabel('Page title')).toHaveValue(/^Compound growth/);
-  // Two named series drawn from the live-code output, with a legend.
-  const chart = page.locator('.obe-kit-chart');
-  await expect(chart.locator('svg polyline')).toHaveCount(2);
-  await expect(chart.locator('.obe-chart-legend text', {hasText: 'With growth'})).toBeVisible();
-  // The summary live block narrates the final balance.
-  await expect(page.locator('.obe-code-out').last()).toContainText('After 20 years:');
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Reading list/);
+  await expect(page.locator('.obe-kit-chart')).toHaveCount(2); // read-vs-to-go donut + genre bar
+  await expect(page.locator('.obe-kit-status')).toHaveAttribute('data-status', 'ok');
+  await expect(page.locator('.obe-code-out', {hasText: 'of 24 books'}).first()).toBeVisible();
 
-  // Drag the years slider → the narration tracks it.
-  await page.locator('.obe-kit-slider input[type=range]').nth(1).fill('30');
-  await expect(page.locator('.obe-code-out').last()).toContainText('After 30 years:');
+  // Log a finished book → the counter steps and the narration follows.
+  await page.getByRole('button', {name: 'Log a finished book'}).click();
+  await expect(page.getByLabel('read value')).toHaveValue('11');
 });
 
-test('pricing estimator template: plan and billing steer the quote', async ({page}) => {
+test('project intake: a gated wizard with a live prioritisation', async ({page}) => {
   await hydrated(page);
-  await openGallery(page);
-  await page.locator('[data-template="pricing-estimator"]').click();
+  await pick(page, 'project-intake');
 
-  await expect(page.getByLabel('Page title')).toHaveValue(/^Pricing estimator/);
-  // Pro · 25 seats · annual: 25 × 12 × 0.85 = 255 (volume tier starts ABOVE 25).
-  await expect(page.locator('.obe-code-out').last()).toContainText('255 / month for 25 seats on Pro');
-  await page.getByRole('radio', {name: 'Scale'}).click();
-  await expect(page.locator('.obe-code-out').last()).toContainText('425 / month for 25 seats on Scale');
-  // Bars redraw from the price breakdown.
-  await expect(page.locator('.obe-kit-chart svg rect')).toHaveCount(3);
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Project intake/);
+  // The progress bar (bound to the accordion completion) and the three stages.
+  await expect(page.getByRole('progressbar').first()).toBeVisible();
+  await expect(page.locator('.obe-acc-label')).toHaveCount(3);
+  // Prioritisation: impact 7 vs effort 4 → a quick win (green), with its bar chart.
+  await expect(page.locator('.obe-kit-chart')).toHaveCount(1);
+  await expect(page.locator('.obe-kit-status').first()).toHaveAttribute('data-status', 'ok');
+});
+
+test('savings & investing: sliders steer a live compounding projection', async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'savings-planner');
+
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Savings & investing/);
+  // An area projection (two named series + legend) and a runway bar.
+  await expect(page.locator('.obe-kit-chart')).toHaveCount(2);
+  const area = page.locator('.obe-kit-chart[data-chart-kind="area"]');
+  await expect(area.locator('svg polyline')).toHaveCount(2); // Invested + Projected
+  await expect(area.locator('.obe-chart-legend text', {hasText: 'Projected'})).toBeVisible();
+  await expect(page.locator('.obe-code-out', {hasText: 'After 20 years'}).first()).toBeVisible();
+
+  // Stretch the horizon → the narration tracks it.
+  await page.getByLabel('years value').fill('30');
+  await expect(page.locator('.obe-code-out', {hasText: 'After 30 years'}).first()).toBeVisible();
+});
+
+test('instantiating a template twice suffixes the page name (names are unique)', async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'grocery-tracker');
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Grocery price tracker/);
+  const first = await page.getByLabel('Page title').inputValue();
+
+  await pick(page, 'grocery-tracker');
+  await expect(page.getByLabel('Page title')).not.toHaveValue(first);
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Grocery price tracker \d+$/);
 });

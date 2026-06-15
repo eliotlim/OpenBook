@@ -2,19 +2,19 @@ import {test, expect} from './fixtures';
 
 // The new interactive kit blocks (T10): choice cards, long text, rich text,
 // searchable select, tag field, progress bar, and the tabs/accordion containers.
-// Exercised two ways — through the `intake-form` template, and inserted directly
-// in the editor-lab sandbox.
+// Exercised two ways — through the `project-intake` template, and inserted
+// directly in the editor-lab sandbox.
 
 test.describe.configure({mode: 'parallel'});
 
-// ── Template-driven: the intake-form wizard ──────────────────────────────────
+// ── Template-driven: the project-intake wizard ───────────────────────────────
 
-test('intake-form template: choice cards, accordion stages, and a progress bar', async ({page}) => {
+test('project-intake template: choice cards, accordion stages, and a progress bar', async ({page}) => {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   await page.getByRole('button', {name: 'Templates'}).click();
   await expect(page.getByText('Start with a template')).toBeVisible();
-  await page.locator('[data-template="intake-form"]').click();
+  await page.locator('[data-template="project-intake"]').click();
   await expect(page.getByLabel('Page title')).toHaveValue(/intake/i);
 
   // Choice cards render as a grid (the post-fix layout) with selectable cards.
