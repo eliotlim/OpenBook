@@ -1,3 +1,13 @@
+## 1.49.0 (2026-06-15)
+
+### 🚀 Features
+
+- better templates 2 ([83ce689](https://github.com/eliotlim/OpenBook/commit/83ce689))
+
+### ❤️ Thank You
+
+- Eliot Lim
+
 ## 1.48.0 (2026-06-15)
 
 ### 🚀 Features
