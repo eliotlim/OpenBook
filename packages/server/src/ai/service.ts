@@ -234,10 +234,14 @@ export class AiService {
   async tasks(goal: string, context?: string): Promise<AiTasksResponse> {
     const engine = await this.readyEngine();
     const raw = await engine.generate(
-      `Goal: ${goal}\n${context ? `Context:\n${context.slice(0, 2000)}\n` : ''}List the concrete tasks required to accomplish this goal.`,
+      `Goal: ${goal}\n${context ? `Context:\n${context.slice(0, 2000)}\n` : ''}Break this goal into its concrete tasks.`,
       {
         system:
-          'You break goals down into small actionable tasks. Respond ONLY with a numbered list of 3-10 short imperative tasks. No preamble, no explanations.',
+          'You turn a goal into a short checklist of concrete, doable tasks.\n' +
+          'Reply with ONLY a numbered list of 3–8 tasks — nothing else (no title, no preamble, no explanation, no sub-bullets).\n' +
+          'Each task is one short line that starts with an imperative verb and names a specific, independently-doable step.\n' +
+          'Example — for the goal "Launch the beta":\n' +
+          '1. Finalize the beta feature list\n2. Write the landing page copy\n3. Set up the sign-up form\n4. Email the waitlist',
         maxTokens: 400,
         temperature: 0.4,
         onToken: () => undefined,
@@ -250,12 +254,14 @@ export class AiService {
   async complete(text: string, instruction: string | undefined, opts: GenerateOptions): Promise<string> {
     const engine = await this.readyEngine();
     return engine.generate(
-      `${instruction ? `Instruction: ${instruction}\n\n` : ''}Document so far:\n---\n${text.slice(-4000)}\n---\nContinue the document naturally from where it ends.`,
+      `${instruction ? `Instruction: ${instruction}\n\n` : ''}Document so far:\n---\n${text.slice(-4000)}\n---\nContinue the document from exactly where it ends.`,
       {
         ...opts,
         system:
           opts.system ??
-          'You continue documents. Write the continuation text only — match the document\'s tone and format. No preamble, no quotes around the answer.',
+          'You continue the user\'s document from where it stops.\n' +
+            'Write ONLY the next part of the text — no preamble, no labels, no surrounding quotes, no markdown code fences.\n' +
+            'Match the document\'s language, tone, formatting, and point of view, and pick up the current sentence or section naturally.',
       },
     );
   }

@@ -415,8 +415,9 @@ export class AgentRunner {
       .map((t) => `- ${t.name}${t.args === '{}' ? '' : ` args ${t.args}`}: ${t.description}`)
       .join('\n');
     const lines = [
-      'You are the OpenBook assistant: you help the user work with their local note workspace using TOOLS.',
-      'Tools that change the workspace only PROPOSE a change — the user approves before anything is applied.',
+      'You are the OpenBook assistant. You work inside the user\'s private note workspace and help them find, read, and edit their notes.',
+      'You have TOOLS to search and read pages and to propose edits. Use a tool to get facts from the workspace — never invent note contents, page titles, or ids.',
+      'Any change you make is PROPOSED for the user to approve; nothing is applied automatically. Keep replies short, specific, and grounded in what the tools return.',
     ];
     // Ambient context: the page the user is viewing + their selection, so replies
     // are grounded in what they're looking at without spending a tool call.
@@ -437,19 +438,38 @@ export class AgentRunner {
     if (!useNative) {
       lines.push(
         '',
-        'Available tools:',
+        'TOOLS YOU CAN CALL:',
         catalogue,
         '',
-        'Respond with EXACTLY ONE JSON object and nothing else:',
-        '- To use a tool: {"tool": "<name>", "args": {...}}',
-        '- To answer the user: {"final": "<your answer>"}',
-        'Use tools to ground your answers in the workspace. Search before answering questions about notes.',
+        'Reply in exactly two sections every turn:',
         SCRATCHPAD_INSTRUCTION,
+        'The "### answer" section must contain EXACTLY ONE JSON object and nothing else — one of:',
+        '  {"tool": "<tool name>", "args": { ... }}   — to run a tool',
+        '  {"final": "<your reply to the user>"}        — when you are finished',
+        '',
+        'RULES:',
+        '- For any question about the notes or workspace, call search_notes (or read_page) BEFORE answering. Do not guess what a note says.',
+        '- Use ONE tool per turn. A line starting "TOOL RESULT" gives you what it returned; then write your next reasoning + answer.',
+        '- As soon as the results let you answer, reply with {"final": ...} and stop calling tools.',
+        '- "args" must be valid JSON using only the argument names listed above. Never wrap the JSON in markdown or code fences.',
+        '',
+        'EXAMPLE turn (call a tool):',
+        '### reasoning',
+        'They\'re asking about onboarding notes, so I should search first.',
+        '### answer',
+        '{"tool": "search_notes", "args": {"query": "onboarding"}}',
+        '',
+        'EXAMPLE turn (ready to answer):',
+        '### reasoning',
+        'The search returned the onboarding page and it has what I need.',
+        '### answer',
+        '{"final": "Your onboarding note lists three steps: invite the user, set up SSO, and book a welcome call."}',
       );
     } else {
       lines.push(
         '',
-        'Call the provided tools to ground your work. When you are done, reply with your final answer as plain text.',
+        'Use the provided tools to ground your work: search or read the workspace before answering questions about the notes, and use the write tools to PROPOSE edits (the user approves them — nothing is applied directly).',
+        'Call one tool at a time. When you have enough information, stop and reply with a short, direct answer in plain text.',
       );
     }
     return lines.join('\n');
