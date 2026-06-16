@@ -1,3 +1,4 @@
+import {randomUUID} from 'node:crypto';
 import {
   snapshotText,
   textSnapshot,
@@ -5,6 +6,10 @@ import {
   type AiEffort,
   type AiProvider,
   type AiSkill,
+  type DatabaseProperty,
+  type DatabasePropertyType,
+  type DatabaseSchema,
+  type DatabaseSelectOption,
   type PluginAgentTool,
   type StoredSuggestion,
   type SuggestionKind,
@@ -13,7 +18,7 @@ import type {PageStore} from '../store';
 import {effortProfile} from './effort';
 import type {AiEngine, NativeTool, NativeToolCall} from './providers';
 import type {AiService} from './service';
-import {SCRATCHPAD_INSTRUCTION, splitReasoning} from './thinking';
+import {ReasoningSplitter, SCRATCHPAD_INSTRUCTION, splitReasoning} from './thinking';
 
 /**
  * A small agent harness over the configured AI engine.
@@ -43,6 +48,8 @@ export interface AgentMessage {
 export type AgentEvent =
   | {type: 'tool'; name: string; args: Record<string, unknown>}
   | {type: 'tool_result'; name: string; result: string}
+  /** A chunk of the answer, streamed live (native tool-calling engines only). */
+  | {type: 'token'; text: string}
   | {type: 'reasoning'; text: string}
   /**
    * The write tools persisted these suggestions for review (NOT applied). The
@@ -110,7 +117,7 @@ export class AgentRunner {
     private readonly store: PageStore,
     private readonly options: AgentRunOptions = {},
   ) {
-    this.tools = [...this.readTools(), ...this.writeTools(), ...this.pluginToolDefs()];
+    this.tools = [...this.readTools(), ...this.writeTools(), ...this.databaseTools(), ...this.pluginToolDefs()];
   }
 
   // ── Read tools ──────────────────────────────────────────────────────────────
@@ -206,6 +213,222 @@ export class AgentRunner {
             `Properties: ${JSON.stringify(row.properties)}`,
             `Exports: ${JSON.stringify(row.exports)}`,
           ].join('\n');
+        },
+      },
+      {
+        name: 'describe_database',
+        description:
+          'Describe the database hosted on a page: every column (id, name, type, and select options) plus its rows (id + title). Call this before creating or updating rows/columns so you use the right ids.',
+        args: '{"pageId": string}',
+        schema: obj({pageId: str('The page hosting the database.')}, ['pageId']),
+        run: async (args) => {
+          const db = await this.store.getDatabaseByPage(String(args.pageId ?? ''));
+          if (!db) return 'That page hosts no database.';
+          const props = (db.schema.properties ?? []).map((p) => {
+            const opts = p.options?.length ? ` options=[${p.options.map((o) => `${o.id}:${o.label}`).join(', ')}]` : '';
+            return `  - [${p.id}] ${p.name} (${p.type})${opts}`;
+          });
+          const rows = await this.store.listRows(db.id);
+          const rowLines = rows.slice(0, 40).map((r) => `  - [${r.id}] ${r.name ?? 'Untitled'}`);
+          return [
+            `Database "${db.name ?? 'Untitled'}" (database id ${db.id}).`,
+            'Columns:',
+            ...(props.length ? props : ['  (none)']),
+            `Rows (${rows.length}):`,
+            ...(rowLines.length ? rowLines : ['  (none)']),
+          ].join('\n');
+        },
+      },
+    ];
+  }
+
+  // ── Database tools (structural CRUD — applied directly, like create_page) ─────
+
+  /**
+   * Tools that create and edit databases, their columns, and their rows. Unlike
+   * the document write tools (which persist reviewable suggestions), these are
+   * structural store operations with no inline-suggestion representation, so —
+   * like `create_page` — they apply immediately. Rows/columns are always
+   * addressed by their host **page id** (the same handle the read tools use), and
+   * cell values may be given by column id or name (and select values by option
+   * label) — they are resolved against the live schema before writing.
+   */
+  private databaseTools(): ToolDef[] {
+    /** Resolve the database hosted on a page, or null with a message. */
+    const dbForPage = async (pageId: string): Promise<{db: Awaited<ReturnType<PageStore['getDatabaseByPage']>>; err?: string}> => {
+      const db = await this.store.getDatabaseByPage(pageId);
+      return db ? {db} : {db: null, err: 'That page hosts no database.'};
+    };
+    return [
+      {
+        name: 'create_database',
+        description:
+          'Create a new database on a brand-new page, optionally seeding its columns. Applied immediately. Returns the new page id — pass it to create_row / describe_database. Add rows with create_row afterwards.',
+        args: '{"title": string, "properties"?: [{"name": string, "type": string, "options"?: string[]}]}',
+        schema: obj(
+          {
+            title: str('The database title (also the host page name; must be unique).'),
+            properties: {
+              type: 'array',
+              description: 'Optional initial columns.',
+              items: obj(
+                {
+                  name: str('Column name.'),
+                  type: {type: 'string', enum: [...CREATABLE_PROP_TYPES], description: 'Column type.'},
+                  options: {type: 'array', items: {type: 'string'}, description: 'Choices, for select / multi_select / status columns.'},
+                },
+                ['name', 'type'],
+              ),
+            },
+          },
+          ['title'],
+        ),
+        run: async (args) => {
+          const title = String(args.title ?? '').trim();
+          if (!title) return 'A title is required.';
+          const specs = Array.isArray(args.properties) ? args.properties : [];
+          const properties = specs.map((s) => buildProperty(s as Record<string, unknown>)).filter((p): p is DatabaseProperty => p !== null);
+          const schema: DatabaseSchema = {
+            properties,
+            views: [{id: shortId('v'), name: 'Table', type: 'table', filters: [], sorts: []}],
+          };
+          try {
+            const page = await this.store.upsertPage({name: title, data: textSnapshot('', 'agent')});
+            await this.store.createDatabase({pageId: page.id, name: title, schema});
+            const cols = properties.length ? ` Columns: ${properties.map((p) => `${p.name} [${p.id}]`).join(', ')}.` : '';
+            return `Created database "${title}" on page ${page.id}.${cols} Use pageId ${page.id} to add rows (create_row) or columns (create_property).`;
+          } catch (err) {
+            return `Could not create the database: ${err instanceof Error ? err.message : String(err)}`;
+          }
+        },
+      },
+      {
+        name: 'update_database',
+        description: 'Rename an existing database (found by its host page id). Applied immediately.',
+        args: '{"pageId": string, "name": string}',
+        schema: obj({pageId: str('The page hosting the database.'), name: str('The new database name.')}, ['pageId', 'name']),
+        run: async (args) => {
+          const {db, err} = await dbForPage(String(args.pageId ?? ''));
+          if (!db) return err!;
+          const name = String(args.name ?? '').trim();
+          if (!name) return 'A name is required.';
+          await this.store.updateDatabase(db.id, {name});
+          return `Renamed the database to "${name}".`;
+        },
+      },
+      {
+        name: 'create_property',
+        description: 'Add a column to a database. Applied immediately. Returns the new column id.',
+        args: '{"pageId": string, "name": string, "type": string, "options"?: string[]}',
+        schema: obj(
+          {
+            pageId: str('The page hosting the database.'),
+            name: str('Column name.'),
+            type: {type: 'string', enum: [...CREATABLE_PROP_TYPES], description: 'Column type.'},
+            options: {type: 'array', items: {type: 'string'}, description: 'Choices, for select / multi_select / status columns.'},
+          },
+          ['pageId', 'name', 'type'],
+        ),
+        run: async (args) => {
+          const {db, err} = await dbForPage(String(args.pageId ?? ''));
+          if (!db) return err!;
+          const prop = buildProperty(args);
+          if (!prop) return `Unsupported column type "${String(args.type)}". Use one of: ${[...CREATABLE_PROP_TYPES].join(', ')}.`;
+          const schema: DatabaseSchema = {...db.schema, properties: [...(db.schema.properties ?? []), prop]};
+          await this.store.updateDatabase(db.id, {schema});
+          return `Added column "${prop.name}" [${prop.id}] (${prop.type}) to "${db.name ?? 'Untitled'}".`;
+        },
+      },
+      {
+        name: 'update_property',
+        description: 'Rename a column and/or replace its choices (select / multi_select / status). Applied immediately. Find the column id via describe_database.',
+        args: '{"pageId": string, "propertyId": string, "name"?: string, "options"?: string[]}',
+        schema: obj(
+          {
+            pageId: str('The page hosting the database.'),
+            propertyId: str('The column id (from describe_database).'),
+            name: str('A new name for the column.'),
+            options: {type: 'array', items: {type: 'string'}, description: 'Replacement choices (existing option ids are kept where labels match).'},
+          },
+          ['pageId', 'propertyId'],
+        ),
+        run: async (args) => {
+          const {db, err} = await dbForPage(String(args.pageId ?? ''));
+          if (!db) return err!;
+          const propId = String(args.propertyId ?? '');
+          const props = db.schema.properties ?? [];
+          const idx = props.findIndex((p) => p.id === propId);
+          if (idx === -1) return `No column "${propId}" on this database — use describe_database.`;
+          const next: DatabaseProperty = {...props[idx]};
+          const name = args.name === undefined ? '' : String(args.name).trim();
+          if (name) next.name = name;
+          if (Array.isArray(args.options)) next.options = buildOptions(args.options, next.options ?? []);
+          if (!name && !Array.isArray(args.options)) return 'Nothing to update — pass a new name and/or options.';
+          const schema: DatabaseSchema = {...db.schema, properties: props.map((p, i) => (i === idx ? next : p))};
+          await this.store.updateDatabase(db.id, {schema});
+          return `Updated column "${next.name}" [${next.id}].`;
+        },
+      },
+      {
+        name: 'create_row',
+        description:
+          'Add a row to a database. Cell values may be keyed by column id or name, and select/status values may be the option label. Applied immediately. Returns the new row id.',
+        args: '{"pageId": string, "name"?: string, "properties"?: object}',
+        schema: obj(
+          {
+            pageId: str('The page hosting the database.'),
+            name: str('The row title.'),
+            properties: {type: 'object', description: 'Cell values keyed by column id or name.'},
+          },
+          ['pageId'],
+        ),
+        run: async (args) => {
+          const {db, err} = await dbForPage(String(args.pageId ?? ''));
+          if (!db) return err!;
+          const name = args.name === undefined ? null : String(args.name);
+          const input = args.properties && typeof args.properties === 'object' ? (args.properties as Record<string, unknown>) : {};
+          const {values, unknown} = resolveRowValues(db.schema, input);
+          try {
+            const row = await this.store.createRow(db.id, {name, properties: values});
+            const warn = unknown.length ? ` (ignored unknown column(s): ${unknown.join(', ')})` : '';
+            return `Added row "${name ?? 'Untitled'}" [${row.id}] to "${db.name ?? 'Untitled'}".${warn}`;
+          } catch (e) {
+            return `Could not add the row: ${e instanceof Error ? e.message : String(e)}`;
+          }
+        },
+      },
+      {
+        name: 'update_row',
+        description:
+          'Update a row\'s title and/or cell values (keyed by column id or name; select values may be option labels). Other cells are left untouched. Applied immediately. Find row ids via describe_database.',
+        args: '{"pageId": string, "rowId": string, "name"?: string, "properties"?: object}',
+        schema: obj(
+          {
+            pageId: str('The page hosting the database.'),
+            rowId: str('The row (page) id, from describe_database.'),
+            name: str('A new title for the row.'),
+            properties: {type: 'object', description: 'Cell values to set, keyed by column id or name.'},
+          },
+          ['pageId', 'rowId'],
+        ),
+        run: async (args) => {
+          const {db, err} = await dbForPage(String(args.pageId ?? ''));
+          if (!db) return err!;
+          const rowId = String(args.rowId ?? '');
+          const rows = await this.store.listRows(db.id);
+          const existing = rows.find((r) => r.id === rowId);
+          if (!existing) return 'Row not found in this database.';
+          const patch: {name?: string | null; properties?: Record<string, unknown>} = {};
+          if (args.name !== undefined) patch.name = String(args.name);
+          let warn = '';
+          if (args.properties && typeof args.properties === 'object') {
+            const {values, unknown} = resolveRowValues(db.schema, args.properties as Record<string, unknown>);
+            patch.properties = {...existing.properties, ...values};
+            if (unknown.length) warn = ` (ignored unknown column(s): ${unknown.join(', ')})`;
+          }
+          if (patch.name === undefined && patch.properties === undefined) return 'Nothing to update — pass a name and/or properties.';
+          const updated = await this.store.updateRow(db.id, rowId, patch);
+          return updated ? `Updated row "${updated.name ?? 'Untitled'}".${warn}` : 'Could not update the row.';
         },
       },
     ];
@@ -415,9 +638,11 @@ export class AgentRunner {
       .map((t) => `- ${t.name}${t.args === '{}' ? '' : ` args ${t.args}`}: ${t.description}`)
       .join('\n');
     const lines = [
-      'You are the OpenBook assistant. You work inside the user\'s private note workspace and help them find, read, and edit their notes.',
-      'You have TOOLS to search and read pages and to propose edits. Use a tool to get facts from the workspace — never invent note contents, page titles, or ids.',
-      'Any change you make is PROPOSED for the user to approve; nothing is applied automatically. Keep replies short, specific, and grounded in what the tools return.',
+      'You are the OpenBook assistant. You work inside the user\'s private note workspace and help them find, read, edit, and organise their notes and databases.',
+      'You have TOOLS to search and read pages, to propose edits, and to build databases. Use a tool to get facts from the workspace — never invent note contents, page titles, database columns, or ids.',
+      'Two kinds of change: edits to existing note text, inputs, and cells are PROPOSED for the user to review and approve. Structural actions — creating pages, creating databases, adding rows, and adding or editing database columns — APPLY IMMEDIATELY, so do them deliberately and only when asked.',
+      'When building a database, work in order: create_database → describe_database (to learn the column ids) → create_property for any extra columns → create_row for each row. Reference rows and columns by the ids the tools return.',
+      'Format replies in Markdown — use headings, bullet/numbered lists, **bold**, `code`, links, and tables where they make the answer clearer. Keep replies specific and grounded in what the tools return.',
     ];
     // Ambient context: the page the user is viewing + their selection, so replies
     // are grounded in what they're looking at without spending a tool call.
@@ -445,7 +670,7 @@ export class AgentRunner {
         SCRATCHPAD_INSTRUCTION,
         'The "### answer" section must contain EXACTLY ONE JSON object and nothing else — one of:',
         '  {"tool": "<tool name>", "args": { ... }}   — to run a tool',
-        '  {"final": "<your reply to the user>"}        — when you are finished',
+        '  {"final": "<your reply to the user, in Markdown>"}   — when you are finished',
         '',
         'RULES:',
         '- For any question about the notes or workspace, call search_notes (or read_page) BEFORE answering. Do not guess what a note says.',
@@ -468,8 +693,8 @@ export class AgentRunner {
     } else {
       lines.push(
         '',
-        'Use the provided tools to ground your work: search or read the workspace before answering questions about the notes, and use the write tools to PROPOSE edits (the user approves them — nothing is applied directly).',
-        'Call one tool at a time. When you have enough information, stop and reply with a short, direct answer in plain text.',
+        'Use the provided tools to ground your work: search or read the workspace before answering questions about the notes, use the document write tools to PROPOSE edits (the user approves those), and use the database tools to build/edit databases (those apply directly).',
+        'Call one tool at a time. When you have enough information, stop and reply with a clear, well-structured answer in Markdown.',
       );
     }
     return lines.join('\n');
@@ -537,36 +762,60 @@ export class AgentRunner {
     }
 
     // Prefer native tool-calling when the endpoint advertises it; fall back to
-    // the JSON protocol on any failure.
+    // the JSON protocol on any failure. Streaming the answer live only makes
+    // sense on the native path — there the final answer is plain text/Markdown,
+    // whereas the JSON-protocol answer is a `{"final": …}` object surfaced once.
     let useNative = false;
     try {
       useNative = engine.supportsTools ? await engine.supportsTools() : false;
     } catch {
       useNative = false;
     }
+    const streaming = useNative;
+
+    // Serialize emissions: token writes are fired (not awaited) from the engine's
+    // synchronous onToken, so chain every emit to preserve SSE frame order.
+    let emitChain: Promise<void> = Promise.resolve();
+    const emitSeq = (event: AgentEvent): Promise<void> => {
+      emitChain = emitChain.then(() => emit(event)).catch(() => undefined);
+      return emitChain;
+    };
 
     const runTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
       const tool = this.tools.find((t) => t.name === name);
       if (!tool) return `unknown tool "${name}". Use one of: ${this.tools.map((t) => t.name).join(', ')}.`;
-      await emit({type: 'tool', name: tool.name, args});
+      await emitSeq({type: 'tool', name: tool.name, args});
       let result: string;
       try {
         result = await tool.run(args);
       } catch (err) {
         result = `Tool failed: ${err instanceof Error ? err.message : String(err)}`;
       }
-      await emit({type: 'tool_result', name: tool.name, result: clip(result, 400)});
+      await emitSeq({type: 'tool_result', name: tool.name, result: clip(result, 400)});
       return result;
     };
 
     const finish = async (text: string): Promise<void> => {
-      if (this.suggestions.length > 0) await emit({type: 'suggestions', suggestions: this.suggestions});
-      await emit({type: 'final', text: text.trim()});
+      if (this.suggestions.length > 0) await emitSeq({type: 'suggestions', suggestions: this.suggestions});
+      await emitSeq({type: 'final', text: text.trim()});
     };
 
     try {
       for (let step = 0; step < maxSteps; step += 1) {
         const calls: NativeToolCall[] = [];
+        // When streaming, route tokens live: answer text → `token` events,
+        // reasoning (think tags / scratchpad) → `reasoning` events. The splitter
+        // is a streaming state machine, so split markers spanning chunks are safe.
+        const splitter = streaming
+          ? new ReasoningSplitter(
+            (text) => {
+              if (text) void emitSeq({type: 'token', text});
+            },
+            (text) => {
+              if (showThinking && text) void emitSeq({type: 'reasoning', text});
+            },
+          )
+          : null;
         const genOpts = {
           system: this.systemPrompt(useNative),
           maxTokens,
@@ -574,11 +823,14 @@ export class AgentRunner {
           thinkingBudget,
           effort: this.options.effort,
           ...(useNative ? {tools: this.nativeTools(), onToolCalls: (c: NativeToolCall[]) => calls.push(...c)} : {}),
-          onToken: () => undefined,
+          onToken: splitter ? (token: string) => splitter.push(token) : () => undefined,
         };
         const raw = await engine.generate(this.transcript(messages, toolTrace), genOpts);
+        splitter?.flush();
         const {answer, reasoning} = splitReasoning(raw);
-        if (showThinking && reasoning) await emit({type: 'reasoning', text: reasoning});
+        // Non-streaming path surfaces reasoning once, after the turn (the
+        // streaming path already emitted it incrementally above).
+        if (!streaming && showThinking && reasoning) await emitSeq({type: 'reasoning', text: reasoning});
 
         // Native path: the model emitted structured tool calls.
         if (useNative && calls.length > 0) {
@@ -607,12 +859,108 @@ export class AgentRunner {
       }
       await finish('I ran out of steps before finishing — try a more specific request.');
     } catch (err) {
-      await emit({type: 'error', error: err instanceof Error ? err.message : String(err)});
+      await emitSeq({type: 'error', error: err instanceof Error ? err.message : String(err)});
     } finally {
+      // Flush any fire-and-forget token writes before the route sends `done`.
+      await emitChain.catch(() => undefined);
       // A per-conversation override built a transient engine — release it.
       if (transient) await engine.dispose().catch(() => undefined);
     }
   }
+}
+
+// ── Database tool helpers (build/coerce schema + cell values) ────────────────────
+
+/** Column types the agent may create — the manual (per-row) types, excluding the
+ *  computed/relational ones (relation/rollup/formula/expr…) that need extra wiring. */
+const CREATABLE_PROP_TYPES = new Set<DatabasePropertyType>([
+  'text',
+  'number',
+  'rating',
+  'select',
+  'multi_select',
+  'status',
+  'checkbox',
+  'date',
+  'url',
+  'email',
+  'phone',
+]);
+
+/** A short, collision-safe id with a readable prefix (e.g. `p_3f2a9c1b`). */
+const shortId = (prefix: string): string => `${prefix}_${randomUUID().slice(0, 8)}`;
+
+/** Build select/status options from labels, keeping ids/colours of existing
+ *  options whose label still matches (so editing choices doesn't orphan cells). */
+function buildOptions(labels: unknown[], existing: DatabaseSelectOption[]): DatabaseSelectOption[] {
+  return labels
+    .map((raw) => String(raw).trim())
+    .filter(Boolean)
+    .map((label) => {
+      const prev = existing.find((o) => o.label.toLowerCase() === label.toLowerCase());
+      return {id: prev?.id ?? shortId('opt'), label, ...(prev?.color ? {color: prev.color} : {})};
+    });
+}
+
+/** Build a new column from a `{name, type, options?}` spec, or null if invalid. */
+function buildProperty(spec: Record<string, unknown>): DatabaseProperty | null {
+  const name = String(spec.name ?? '').trim();
+  const type = String(spec.type ?? '').trim() as DatabasePropertyType;
+  if (!name || !CREATABLE_PROP_TYPES.has(type)) return null;
+  const prop: DatabaseProperty = {id: shortId('p'), name, type};
+  if ((type === 'select' || type === 'multi_select' || type === 'status') && Array.isArray(spec.options)) {
+    prop.options = buildOptions(spec.options, []);
+  }
+  return prop;
+}
+
+/** Resolve a select/status value (an option id OR label) to its option id. */
+function resolveOptionId(prop: DatabaseProperty, value: unknown): string {
+  const s = String(value);
+  const opts = prop.options ?? [];
+  return (opts.find((o) => o.id === s) ?? opts.find((o) => o.label.toLowerCase() === s.toLowerCase()))?.id ?? s;
+}
+
+/** Coerce a raw cell value to the column's stored shape (numbers, booleans,
+ *  option ids), so values the model gives loosely still land correctly. */
+function coerceCell(prop: DatabaseProperty, value: unknown): unknown {
+  if (value === null || value === undefined) return null;
+  switch (prop.type) {
+  case 'number':
+  case 'rating': {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  case 'checkbox':
+    return Boolean(value);
+  case 'select':
+  case 'status':
+    return resolveOptionId(prop, value);
+  case 'multi_select':
+    return (Array.isArray(value) ? value : [value]).map((v) => resolveOptionId(prop, v));
+  default:
+    return typeof value === 'string' ? value : String(value);
+  }
+}
+
+/**
+ * Resolve a loose `{column: value}` map (keys may be column ids OR names) into
+ * `{propertyId: coercedValue}` for the store, collecting any keys that match no
+ * column so the tool can report them.
+ */
+function resolveRowValues(schema: DatabaseSchema, input: Record<string, unknown>): {values: Record<string, unknown>; unknown: string[]} {
+  const props = schema.properties ?? [];
+  const values: Record<string, unknown> = {};
+  const unknown: string[] = [];
+  for (const [key, val] of Object.entries(input)) {
+    const prop = props.find((p) => p.id === key) ?? props.find((p) => p.name.toLowerCase() === String(key).toLowerCase());
+    if (!prop) {
+      unknown.push(key);
+      continue;
+    }
+    values[prop.id] = coerceCell(prop, val);
+  }
+  return {values, unknown};
 }
 
 // ── Snapshot helpers (read-only inspection over the JSON projection) ─────────────

@@ -479,11 +479,16 @@ export class AnthropicEngine implements AiEngine {
   readonly kind = 'claude';
   /** Default when the user hasn't pinned a model — a current, balanced Claude. */
   static readonly DEFAULT_MODEL = 'claude-sonnet-4-6';
-  constructor(
-    private readonly apiKey: string,
-    private readonly model: string,
-    private readonly baseUrl = 'https://api.anthropic.com',
-  ) {}
+  private readonly apiKey: string;
+  private readonly model: string;
+  private readonly baseUrl: string;
+  constructor(apiKey: string, model: string, baseUrl = 'https://api.anthropic.com') {
+    // Trim pasted whitespace/newlines (a stray newline in x-api-key → a 401),
+    // and drop any trailing slash so `${baseUrl}/v1/...` doesn't double up.
+    this.apiKey = apiKey.trim();
+    this.model = model.trim();
+    this.baseUrl = (baseUrl.trim() || 'https://api.anthropic.com').replace(/\/+$/, '');
+  }
 
   private headers(): Record<string, string> {
     return {'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01'};
@@ -491,12 +496,23 @@ export class AnthropicEngine implements AiEngine {
 
   async ensureReady(): Promise<void> {
     if (!this.apiKey) throw new Error('Set an Anthropic API key in AI settings.');
+    // `claude setup-token` mints a Claude Code OAuth token (`sk-ant-oat…`) — it
+    // authenticates as Claude Code (Bearer + an OAuth beta), NOT via the Messages
+    // API's x-api-key, so it can't be used here. Catch it with a clear message
+    // rather than a bare 401.
+    if (this.apiKey.startsWith('sk-ant-oat')) {
+      throw new Error(
+        'That is a Claude Code OAuth token (from `claude setup-token`), not an API key. Create an API key at console.anthropic.com (it starts with “sk-ant-api…”) and paste that instead.',
+      );
+    }
     // The Models API is a cheap key check — it bills no tokens.
     const res = await fetch(`${this.baseUrl}/v1/models?limit=1`, {headers: this.headers(), signal: AbortSignal.timeout(5000)}).catch(
       () => null,
     );
     if (!res) throw new Error(`Can't reach the Anthropic API at ${this.baseUrl}.`);
-    if (res.status === 401) throw new Error('Anthropic API key was rejected (401).');
+    if (res.status === 401) {
+      throw new Error('Anthropic API key was rejected (401). Use an API key from console.anthropic.com (“sk-ant-api…”), not a Claude Code/setup-token.');
+    }
     if (!res.ok) throw new Error(`Anthropic API error: HTTP ${res.status}.`);
   }
 

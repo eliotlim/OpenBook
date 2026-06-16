@@ -2,6 +2,7 @@ import {useEffect, useRef, useState} from 'react';
 import {ArrowUp, Bot, Brain, ChevronDown, ChevronRight, ClipboardCheck, Loader2, Plus, Square} from 'lucide-react';
 import {providerSettings, type AgentChatEvent, type AgentChatMessage, type AiConfig, type AiEffort, type AiProvider, type StoredSuggestion} from '@open-book/sdk';
 import {Button} from '@/components/ui/button';
+import {Markdown} from '@/components/ui/markdown';
 import {Select} from '@/components/ui/select';
 import {useData} from '@/data';
 import type {TKey} from '@/i18n';
@@ -22,14 +23,36 @@ import {cn} from '@/lib/utils';
  * engine; with none, the panel links straight to Settings → AI.
  */
 
-/** One rendered entry in the thread (richer than the wire conversation). */
+/** One rendered entry in the thread (richer than the wire conversation). The
+ *  `streaming` flag marks the assistant/reasoning item currently being filled in
+ *  token-by-token, so the next chunk appends to it instead of starting a new one. */
 type ThreadItem =
   | {kind: 'user'; text: string}
-  | {kind: 'assistant'; text: string}
-  | {kind: 'reasoning'; text: string; expanded?: boolean}
+  | {kind: 'assistant'; text: string; streaming?: boolean}
+  | {kind: 'reasoning'; text: string; expanded?: boolean; streaming?: boolean}
   | {kind: 'tool'; name: string; detail?: string; running: boolean; result?: string; expanded?: boolean}
   | {kind: 'suggestions'; suggestions: StoredSuggestion[]}
   | {kind: 'error'; text: string};
+
+/** Clear the `streaming` flag on any in-progress assistant/reasoning items. */
+const settle = (items: ThreadItem[]): ThreadItem[] =>
+  items.map((it) => ((it.kind === 'assistant' || it.kind === 'reasoning') && it.streaming ? {...it, streaming: false} : it));
+
+/**
+ * Append a streamed chunk to the trailing item of `kind` when it is still
+ * streaming, else start a new streaming item — settling any in-progress item of
+ * the other kind first (answer and reasoning never interleave within a turn).
+ */
+const appendStream = (items: ThreadItem[], kind: 'assistant' | 'reasoning', text: string): ThreadItem[] => {
+  const base = items.map((it) =>
+    (it.kind === 'assistant' || it.kind === 'reasoning') && it.streaming && it.kind !== kind ? {...it, streaming: false} : it,
+  );
+  const last = base[base.length - 1];
+  if (last && last.kind === kind && last.streaming) {
+    return [...base.slice(0, -1), {...last, text: last.text + text}];
+  }
+  return [...base, kind === 'assistant' ? {kind: 'assistant', text, streaming: true} : {kind: 'reasoning', text, streaming: true}];
+};
 
 /** A one-line human summary of a tool call's arguments. */
 const argSummary = (args: Record<string, unknown>): string | undefined => {
@@ -110,8 +133,11 @@ export function AgentPanel() {
   };
 
   const handleEvent = (event: AgentChatEvent): void => {
-    if (event.type === 'tool') {
-      setThread((items) => [...items, {kind: 'tool', name: event.name, detail: argSummary(event.args), running: true}]);
+    if (event.type === 'token') {
+      // A live answer chunk — append to the streaming assistant bubble.
+      setThread((items) => appendStream(items, 'assistant', event.text));
+    } else if (event.type === 'tool') {
+      setThread((items) => [...settle(items), {kind: 'tool', name: event.name, detail: argSummary(event.args), running: true}]);
     } else if (event.type === 'tool_result') {
       setThread((items) => {
         const next = [...items];
@@ -125,16 +151,33 @@ export function AgentPanel() {
         return next;
       });
     } else if (event.type === 'reasoning') {
-      setThread((items) => [...items, {kind: 'reasoning', text: event.text}]);
+      // Reasoning arrives whole (JSON protocol) or chunked (streaming); either
+      // way accumulate into a single collapsible block per burst.
+      setThread((items) => appendStream(items, 'reasoning', event.text));
     } else if (event.type === 'suggestions') {
       if (event.suggestions.length > 0) {
         setThread((items) => [...items, {kind: 'suggestions', suggestions: event.suggestions}]);
       }
     } else if (event.type === 'final') {
-      setThread((items) => [...items, {kind: 'assistant', text: event.text}]);
+      // Replace the streamed answer with the authoritative final text (it was
+      // streamed live on the native path; on the JSON path it arrives only now).
+      setThread((items) => {
+        const settled = settle(items);
+        for (let i = settled.length - 1; i >= 0; i -= 1) {
+          if (settled[i].kind === 'assistant') {
+            const next = [...settled];
+            next[i] = {kind: 'assistant', text: event.text};
+            return next;
+          }
+          // A non-answer step (tool/suggestions) between us and any streamed
+          // bubble means this turn produced no streamed answer — append fresh.
+          if (settled[i].kind === 'tool' || settled[i].kind === 'reasoning') break;
+        }
+        return [...settled, {kind: 'assistant', text: event.text}];
+      });
       setConversation((turns) => [...turns, {role: 'assistant', content: event.text}]);
     } else {
-      setThread((items) => [...items, {kind: 'error', text: t('agent.error', {error: event.error})}]);
+      setThread((items) => [...settle(items), {kind: 'error', text: t('agent.error', {error: event.error})}]);
     }
   };
 
@@ -339,13 +382,13 @@ export function AgentPanel() {
               key={i}
               data-agent-item={item.kind}
               className={cn(
-                'max-w-[90%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm',
-                item.kind === 'user' && 'self-end bg-primary text-primary-foreground',
+                'max-w-[90%] rounded-lg px-3 py-2 text-sm',
+                item.kind === 'user' && 'self-end whitespace-pre-wrap bg-primary text-primary-foreground',
                 item.kind === 'assistant' && 'self-start bg-accent/50',
-                item.kind === 'error' && 'self-start border border-destructive/40 text-destructive',
+                item.kind === 'error' && 'self-start whitespace-pre-wrap border border-destructive/40 text-destructive',
               )}
             >
-              {item.text}
+              {item.kind === 'assistant' ? <Markdown content={item.text} /> : item.text}
             </div>
           );
         })}

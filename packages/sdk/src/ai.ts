@@ -162,6 +162,14 @@ export interface AgentProposal {
 export type AgentChatEvent =
   | {type: 'tool'; name: string; args: Record<string, unknown>}
   | {type: 'tool_result'; name: string; result: string}
+  /**
+   * A chunk of the assistant's answer, streamed live as the model writes it
+   * (engines that support native tool-calling only; the JSON-protocol fallback
+   * surfaces the answer once, via {@link final}). The UI appends these to the
+   * in-progress answer bubble; the matching {@link final} carries the complete,
+   * authoritative text.
+   */
+  | {type: 'token'; text: string}
   | {type: 'reasoning'; text: string}
   /**
    * The agent's write tools persisted these suggestions for review (NOT
