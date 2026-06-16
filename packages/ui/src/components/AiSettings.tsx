@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useState} from 'react';
 import {Trash2} from 'lucide-react';
-import type {AiConfig, AiEffort, AiProvider, AiSkill, AiStatus} from '@open-book/sdk';
+import {providerSettings, type AiConfig, type AiEffort, type AiProvider, type AiProviderSettings, type AiSkill, type AiStatus} from '@open-book/sdk';
 import {SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
@@ -10,6 +10,24 @@ import {cn} from '@/lib/utils';
 
 const fieldClass =
   'w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring';
+
+/** Providers that carry connection settings (everything except off/mock). */
+const CONFIGURABLE: AiProvider[] = ['llama', 'mlx', 'openai', 'claude'];
+
+/**
+ * Migrate a legacy single-provider config (flat model/baseUrl/apiKey, which
+ * belonged to the then-active provider) into the per-provider `providers` map,
+ * so the UI always edits the new shape and switching the default can't lose a
+ * provider's settings.
+ */
+function normalize(c: AiConfig): AiConfig {
+  const providers: Partial<Record<AiProvider, AiProviderSettings>> = {...(c.providers ?? {})};
+  const hasLegacy = c.model !== undefined || c.baseUrl !== undefined || c.apiKey !== undefined || c.autoStart !== undefined;
+  if (hasLegacy && !providers[c.provider]) {
+    providers[c.provider] = {model: c.model, baseUrl: c.baseUrl, apiKey: c.apiKey, autoStart: c.autoStart};
+  }
+  return {provider: c.provider, providers, effort: c.effort, thinking: c.thinking};
+}
 
 /**
  * Settings → AI: the optional local model engine. Everything here talks to
@@ -31,7 +49,7 @@ export default function AiSettings() {
     try {
       const next = await client.aiStatus();
       setStatus(next);
-      setDraft((d) => d ?? next.config);
+      setDraft((d) => d ?? normalize(next.config));
     } catch {
       setStatus(null);
     }
@@ -89,9 +107,105 @@ export default function AiSettings() {
     {id: 'claude', label: t('ai.provider.claude'), hint: t('ai.provider.claudeHint')},
   ];
 
+  // Edit one provider's stored settings (merged into draft.providers[p]); apply
+  // on blur. Read through providerSettings so a not-yet-migrated config works.
+  const set = (p: AiProvider, patch: Partial<AiProviderSettings>): AiConfig => ({
+    ...draft,
+    providers: {...draft.providers, [p]: {...providerSettings(draft, p), ...patch}},
+  });
+  const modelInput = (p: AiProvider, placeholder: string, hint: string) => (
+    <SettingsField label={t('ai.modelName')} hint={hint}>
+      <input
+        className={fieldClass}
+        value={providerSettings(draft, p).model ?? ''}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(set(p, {model: e.target.value}))}
+        onBlur={() => void apply(draft)}
+      />
+    </SettingsField>
+  );
+
+  // Every provider's connection settings, shown together so all are configurable
+  // at once (the radio above only picks which is the default).
+  const renderProviderConfig = (p: AiProvider) => {
+    const s = providerSettings(draft, p);
+    return (
+      <SettingsSection key={p} title={t(`ai.providerShort.${p}` as Parameters<typeof t>[0])}>
+        {p === 'llama' && (
+          <>
+            <SettingsField label={t('ai.modelFile')} hint={t('ai.modelFileHint')}>
+              <input
+                className={fieldClass}
+                value={s.model ?? ''}
+                placeholder="qwen2.5-1.5b-instruct-q4_k_m.gguf"
+                onChange={(e) => setDraft(set(p, {model: e.target.value}))}
+                onBlur={() => void apply(draft)}
+              />
+            </SettingsField>
+            <div className="flex items-center gap-3">
+              <Button size="sm" variant="outline" disabled={downloading} onClick={() => void client.aiDownloadModel().then(() => refresh())}>
+                {downloading
+                  ? progress !== null
+                    ? t('ai.downloading', {progress: String(progress)})
+                    : t('ai.downloadingNoPct')
+                  : t('ai.downloadDefault')}
+              </Button>
+              {download?.error && <span className="text-xs text-destructive">{download.error}</span>}
+              {download?.done && <span className="text-xs text-muted-foreground">{t('ai.downloadDone')}</span>}
+            </div>
+          </>
+        )}
+        {p === 'mlx' && (
+          <>
+            <SettingsField label={t('ai.baseUrl')} hint={t('ai.mlxUrlHint')}>
+              <input
+                className={fieldClass}
+                value={s.baseUrl ?? ''}
+                placeholder="http://127.0.0.1:8080"
+                onChange={(e) => setDraft(set(p, {baseUrl: e.target.value}))}
+                onBlur={() => void apply(draft)}
+              />
+            </SettingsField>
+            {modelInput(p, 'mlx-community/Qwen2.5-1.5B-Instruct-4bit', t('ai.mlxModelHint'))}
+          </>
+        )}
+        {p === 'openai' && (
+          <>
+            <SettingsField label={t('ai.baseUrl')} hint={t('ai.openaiUrlHint')}>
+              <input
+                className={fieldClass}
+                value={s.baseUrl ?? ''}
+                placeholder="http://127.0.0.1:11434"
+                onChange={(e) => setDraft(set(p, {baseUrl: e.target.value}))}
+                onBlur={() => void apply(draft)}
+              />
+            </SettingsField>
+            {modelInput(p, 'qwen2.5:1.5b', t('ai.openaiModelHint'))}
+          </>
+        )}
+        {p === 'claude' && (
+          <>
+            <SettingsField label={t('ai.apiKey')} hint={t('ai.apiKeyHint')}>
+              <input
+                type="password"
+                autoComplete="off"
+                className={fieldClass}
+                value={s.apiKey ?? ''}
+                placeholder="sk-ant-…"
+                onChange={(e) => setDraft(set(p, {apiKey: e.target.value}))}
+                onBlur={() => void apply(draft)}
+              />
+            </SettingsField>
+            {modelInput(p, 'claude-sonnet-4-6', t('ai.claudeModelHint'))}
+          </>
+        )}
+      </SettingsSection>
+    );
+  };
+
   return (
     <SettingsScreen title={t('settings.tab.ai')} description={t('ai.description')}>
-      <SettingsSection>
+      <SettingsSection title={t('ai.defaultEngine')} description={t('ai.defaultEngineHint')}>
         <div className="flex flex-col gap-1.5" role="radiogroup" aria-label={t('ai.providerLabel')}>
           {providers.map((p) => (
             <label
@@ -127,83 +241,7 @@ export default function AiSettings() {
         )}
       </SettingsSection>
 
-      {provider === 'llama' && (
-        <SettingsSection title={t('ai.model')}>
-          <SettingsField label={t('ai.modelFile')} hint={t('ai.modelFileHint')}>
-            <input
-              className={fieldClass}
-              value={draft.model ?? ''}
-              placeholder="qwen2.5-1.5b-instruct-q4_k_m.gguf"
-              onChange={(e) => setDraft({...draft, model: e.target.value})}
-              onBlur={() => void apply(draft)}
-            />
-          </SettingsField>
-          <div className="flex items-center gap-3">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={downloading}
-              onClick={() => void client.aiDownloadModel().then(() => refresh())}
-            >
-              {downloading
-                ? progress !== null
-                  ? t('ai.downloading', {progress: String(progress)})
-                  : t('ai.downloadingNoPct')
-                : t('ai.downloadDefault')}
-            </Button>
-            {download?.error && <span className="text-xs text-destructive">{download.error}</span>}
-            {download?.done && <span className="text-xs text-muted-foreground">{t('ai.downloadDone')}</span>}
-          </div>
-        </SettingsSection>
-      )}
-
-      {(provider === 'mlx' || provider === 'openai') && (
-        <SettingsSection title={t('ai.endpoint')}>
-          <SettingsField label={t('ai.baseUrl')} hint={provider === 'mlx' ? t('ai.mlxUrlHint') : t('ai.openaiUrlHint')}>
-            <input
-              className={fieldClass}
-              value={draft.baseUrl ?? ''}
-              placeholder={provider === 'mlx' ? 'http://127.0.0.1:8080' : 'http://127.0.0.1:11434'}
-              onChange={(e) => setDraft({...draft, baseUrl: e.target.value})}
-              onBlur={() => void apply(draft)}
-            />
-          </SettingsField>
-          <SettingsField label={t('ai.modelName')} hint={provider === 'mlx' ? t('ai.mlxModelHint') : t('ai.openaiModelHint')}>
-            <input
-              className={fieldClass}
-              value={draft.model ?? ''}
-              placeholder={provider === 'mlx' ? 'mlx-community/Qwen2.5-1.5B-Instruct-4bit' : 'qwen2.5:1.5b'}
-              onChange={(e) => setDraft({...draft, model: e.target.value})}
-              onBlur={() => void apply(draft)}
-            />
-          </SettingsField>
-        </SettingsSection>
-      )}
-
-      {provider === 'claude' && (
-        <SettingsSection title={t('ai.endpoint')}>
-          <SettingsField label={t('ai.apiKey')} hint={t('ai.apiKeyHint')}>
-            <input
-              type="password"
-              autoComplete="off"
-              className={fieldClass}
-              value={draft.apiKey ?? ''}
-              placeholder="sk-ant-…"
-              onChange={(e) => setDraft({...draft, apiKey: e.target.value})}
-              onBlur={() => void apply(draft)}
-            />
-          </SettingsField>
-          <SettingsField label={t('ai.modelName')} hint={t('ai.claudeModelHint')}>
-            <input
-              className={fieldClass}
-              value={draft.model ?? ''}
-              placeholder="claude-sonnet-4-6"
-              onChange={(e) => setDraft({...draft, model: e.target.value})}
-              onBlur={() => void apply(draft)}
-            />
-          </SettingsField>
-        </SettingsSection>
-      )}
+      {CONFIGURABLE.map(renderProviderConfig)}
 
       {provider !== 'off' && (
         <SettingsSection title={t('ai.assistant')} description={t('ai.assistantHint')}>

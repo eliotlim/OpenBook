@@ -3,6 +3,7 @@ import {
   textSnapshot,
   type AgentProposal,
   type AiEffort,
+  type AiProvider,
   type AiSkill,
   type PluginAgentTool,
   type StoredSuggestion,
@@ -10,7 +11,7 @@ import {
 } from '@open-book/sdk';
 import type {PageStore} from '../store';
 import {effortProfile} from './effort';
-import type {NativeTool, NativeToolCall} from './providers';
+import type {AiEngine, NativeTool, NativeToolCall} from './providers';
 import type {AiService} from './service';
 import {SCRATCHPAD_INSTRUCTION, splitReasoning} from './thinking';
 
@@ -54,6 +55,8 @@ export type AgentEvent =
 
 export interface AgentRunOptions {
   effort?: AiEffort;
+  /** Per-conversation provider/model override (else the configured default). */
+  engineOverride?: {provider?: AiProvider; model?: string};
   /** Surface reasoning to the UI (default true). */
   thinking?: boolean;
   /** Prompt/recipe skills to inline into the system prompt. */
@@ -499,11 +502,25 @@ export class AgentRunner {
     const toolTrace: string[] = [];
     this.suggestions = [];
 
+    // Resolve the engine for this run — the configured default, or a transient
+    // engine for a per-conversation provider/model override. A bad key / off
+    // provider surfaces as an error event (not a thrown rejection).
+    let engine: AiEngine;
+    let transient = false;
+    try {
+      const resolved = await this.ai.engineForRequest(this.options.engineOverride);
+      engine = resolved.engine;
+      transient = resolved.transient;
+    } catch (err) {
+      await emit({type: 'error', error: err instanceof Error ? err.message : String(err)});
+      return;
+    }
+
     // Prefer native tool-calling when the endpoint advertises it; fall back to
     // the JSON protocol on any failure.
     let useNative = false;
     try {
-      useNative = await this.ai.supportsTools();
+      useNative = engine.supportsTools ? await engine.supportsTools() : false;
     } catch {
       useNative = false;
     }
@@ -539,7 +556,7 @@ export class AgentRunner {
           ...(useNative ? {tools: this.nativeTools(), onToolCalls: (c: NativeToolCall[]) => calls.push(...c)} : {}),
           onToken: () => undefined,
         };
-        const raw = await this.ai.generate(this.transcript(messages, toolTrace), genOpts);
+        const raw = await engine.generate(this.transcript(messages, toolTrace), genOpts);
         const {answer, reasoning} = splitReasoning(raw);
         if (showThinking && reasoning) await emit({type: 'reasoning', text: reasoning});
 
@@ -571,6 +588,9 @@ export class AgentRunner {
       await finish('I ran out of steps before finishing — try a more specific request.');
     } catch (err) {
       await emit({type: 'error', error: err instanceof Error ? err.message : String(err)});
+    } finally {
+      // A per-conversation override built a transient engine — release it.
+      if (transient) await engine.dispose().catch(() => undefined);
     }
   }
 }

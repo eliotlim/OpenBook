@@ -1,7 +1,7 @@
 import {createWriteStream, existsSync, mkdirSync} from 'node:fs';
 import {rename, unlink} from 'node:fs/promises';
 import path from 'node:path';
-import type {AiConfig, AiSearchResponse, AiStatus, AiTasksResponse} from '@open-book/sdk';
+import {providerSettings, type AiConfig, type AiProvider, type AiSearchResponse, type AiStatus, type AiTasksResponse} from '@open-book/sdk';
 import type {Db} from '../db';
 import {createEngine, type AiEngine, type GenerateOptions} from './providers';
 import {bm25Scores, buildIndex, chunkText, cosine, parseTaskList, snapshotText, snippetFor, type Bm25Index, type IndexedDoc} from './search';
@@ -191,6 +191,28 @@ export class AiService {
     if (!this.engine) throw new Error('AI is turned off — pick a provider in Settings → AI.');
     await this.engine.ensureReady();
     return this.engine;
+  }
+
+  /**
+   * Resolve the engine for an agent run. With no override (or one that matches
+   * the configured default) returns the cached default engine. A per-conversation
+   * override builds a TRANSIENT engine from that provider's stored settings —
+   * the caller must `dispose()` it when `transient` is true. Either way the
+   * engine is readied (so a bad key / unreachable endpoint surfaces here).
+   */
+  async engineForRequest(override?: {provider?: AiProvider; model?: string}): Promise<{engine: AiEngine; transient: boolean}> {
+    await this.loadConfig();
+    const provider = override?.provider;
+    const model = override?.model;
+    const defaultModel = providerSettings(this.config, this.config.provider).model ?? '';
+    const usesDefault = (!provider || provider === this.config.provider) && (!model || model === defaultModel);
+    if (usesDefault) {
+      return {engine: await this.readyEngine(), transient: false};
+    }
+    const engine = createEngine(this.config, this.modelsDir, {provider, model});
+    if (!engine) throw new Error('That AI provider is turned off — configure it in Settings → AI.');
+    await engine.ensureReady();
+    return {engine, transient: true};
   }
 
   async generate(prompt: string, opts: GenerateOptions): Promise<string> {

@@ -157,6 +157,7 @@ export type {
   AgentProposal,
   AiProvider,
   AiConfig,
+  AiProviderSettings,
   AiEffort,
   AiSkill,
   AiStatus,
@@ -165,3 +166,4 @@ export type {
   AiTasksResponse,
   AiStreamEvent,
 } from './ai';
+export {providerSettings} from './ai';

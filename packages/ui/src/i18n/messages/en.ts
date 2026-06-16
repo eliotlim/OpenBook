@@ -331,6 +331,8 @@ export const en = {
   ai: {
     description: 'An optional model powers note search, task breakdown, and document completion. Run a local model — nothing leaves your machine — or connect the Claude API.',
     providerLabel: 'Engine',
+    defaultEngine: 'Default engine',
+    defaultEngineHint: 'Used everywhere by default. Each provider below is configured separately — the agent can switch between them per conversation.',
     provider: {
       off: 'Off',
       offHint: 'No model. Note search still works (keyword ranking).',
@@ -342,6 +344,15 @@ export const en = {
       openaiHint: 'Ollama, LM Studio, llama-server, or any compatible endpoint.',
       claude: 'Claude (Anthropic API)',
       claudeHint: 'Anthropic’s hosted Claude models. Needs an API key — prompts are sent to Anthropic.',
+      mock: 'Mock (test)',
+    },
+    // Short provider names for the per-provider config section headings (the
+    // radio above carries the full label, so these avoid repeating it).
+    providerShort: {
+      llama: 'Built-in',
+      mlx: 'MLX',
+      openai: 'Local server',
+      claude: 'Claude',
     },
     ready: 'Engine ready · {embeddings}',
     semantic: 'semantic search enabled',
@@ -432,6 +443,9 @@ export const en = {
     effortMed: 'Medium',
     effortHigh: 'High',
     thinkingToggle: 'Reasoning',
+    provider: 'Provider for this conversation',
+    model: 'Model for this conversation',
+    modelPlaceholder: 'Default model',
     tool: {
       search_notes: 'Searching notes',
       read_page: 'Reading a page',

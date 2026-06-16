@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import {ArrowUp, Bot, Brain, ChevronDown, ChevronRight, ClipboardCheck, Loader2, Plus, Square} from 'lucide-react';
-import type {AgentChatEvent, AgentChatMessage, AiEffort, StoredSuggestion} from '@open-book/sdk';
+import {providerSettings, type AgentChatEvent, type AgentChatMessage, type AiConfig, type AiEffort, type AiProvider, type StoredSuggestion} from '@open-book/sdk';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {useData} from '@/data';
@@ -54,6 +54,9 @@ export function AgentPanel() {
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [engineReady, setEngineReady] = useState(true);
+  const [config, setConfig] = useState<AiConfig | null>(null);
+  const [provider, setProviderState] = useState<AiProvider>('off');
+  const [model, setModel] = useState('');
   const [effort, setEffort] = useState<AiEffort>('med');
   const [thinking, setThinking] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -76,6 +79,9 @@ export function AgentPanel() {
       .aiStatus()
       .then((status) => {
         setEngineReady(status.ready);
+        setConfig(status.config);
+        setProviderState(status.config.provider);
+        setModel(providerSettings(status.config, status.config.provider).model ?? '');
         if (status.config.effort) setEffort(status.config.effort);
         if (typeof status.config.thinking === 'boolean') setThinking(status.config.thinking);
       })
@@ -145,6 +151,8 @@ export function AgentPanel() {
     void client
       .agentChat(turns, handleEvent, {
         signal: abort.signal,
+        provider,
+        model: model || undefined,
         effort,
         thinking,
         // The agent grounds replies in the page the user is viewing + their
@@ -172,6 +180,24 @@ export function AgentPanel() {
     if (suggestions.length === 0) return;
     setReviewTarget(suggestions[0].pageId, {suggestionId: suggestions[0].id});
     openInSplit(REVIEW_PANE_ID);
+  };
+
+  // The providers worth offering in the drawer: the configured default plus any
+  // other provider that has a model (or a Claude key) set up in Settings → AI.
+  const providerOptions: AiProvider[] = (() => {
+    if (!config) return provider === 'off' ? [] : [provider];
+    const picks = new Set<AiProvider>();
+    if (config.provider !== 'off') picks.add(config.provider);
+    for (const p of ['llama', 'mlx', 'openai', 'claude'] as AiProvider[]) {
+      const s = providerSettings(config, p);
+      if (s.model || (p === 'claude' && s.apiKey)) picks.add(p);
+    }
+    return [...picks];
+  })();
+  // Switching provider in the drawer pre-fills that provider's configured model.
+  const changeProvider = (p: AiProvider): void => {
+    setProviderState(p);
+    setModel(config ? providerSettings(config, p).model ?? '' : '');
   };
 
   return (
@@ -350,6 +376,32 @@ export function AgentPanel() {
           aria-label={t('agent.placeholder')}
           className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring"
         />
+        {providerOptions.length > 0 && (
+          <div className="flex items-center gap-2">
+            <Select
+              inputSize="sm"
+              value={provider}
+              onChange={(e) => changeProvider(e.target.value as AiProvider)}
+              wrapperClassName="w-[120px]"
+              data-agent-provider
+              aria-label={t('agent.provider')}
+            >
+              {providerOptions.map((p) => (
+                <option key={p} value={p}>
+                  {t(`ai.provider.${p}` as TKey)}
+                </option>
+              ))}
+            </Select>
+            <input
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+              placeholder={t('agent.modelPlaceholder')}
+              data-agent-model
+              aria-label={t('agent.model')}
+              className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-hidden focus:border-ring"
+            />
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Select
             inputSize="sm"

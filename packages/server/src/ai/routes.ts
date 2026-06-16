@@ -1,6 +1,6 @@
 import {Hono} from 'hono';
 import {streamSSE} from 'hono/streaming';
-import {API, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiSkill, type PluginAgentTool} from '@open-book/sdk';
+import {API, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiProvider, type AiSkill, type PluginAgentTool} from '@open-book/sdk';
 import type {PageStore} from '../store';
 import {AgentRunner, type AgentMessage} from './agent';
 import type {AiService} from './service';
@@ -92,6 +92,8 @@ export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore): void 
   app.post(API.agentChat, async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       messages?: AgentChatMessage[];
+      provider?: AiProvider;
+      model?: string;
       effort?: AiEffort;
       thinking?: boolean;
       skills?: string[];
@@ -122,7 +124,9 @@ export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore): void 
       }
     }
 
-    const runner = new AgentRunner(ai, store, {effort, thinking, skills, pluginTools, context});
+    // Per-conversation engine override (the agent drawer's provider/model pickers).
+    const engineOverride = body.provider || body.model ? {provider: body.provider, model: body.model} : undefined;
+    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, context});
     return streamSSE(c, async (stream) => {
       const abort = new AbortController();
       stream.onAbort(() => abort.abort());

@@ -30,24 +30,54 @@ export type AiProvider = 'off' | 'mock' | 'llama' | 'mlx' | 'openai' | 'claude';
  */
 export type AiEffort = 'low' | 'med' | 'high';
 
-export interface AiConfig {
-  provider: AiProvider;
-  /** Model identifier: a GGUF filename (llama), an MLX model id (mlx), a
-   *  served model name (openai), or a Claude model id (claude, e.g.
-   *  `claude-sonnet-4-6`). */
+/** Per-provider connection settings. Every provider is configured independently
+ *  (in `AiConfig.providers`), so a workspace can have llama, mlx, openai and
+ *  claude all set up at once and switch between them per agent run. */
+export interface AiProviderSettings {
+  /** Model identifier: a GGUF filename (llama), an MLX model id (mlx), a served
+   *  model name (openai), or a Claude model id (e.g. `claude-sonnet-4-6`). */
   model?: string;
-  /** Base URL for `mlx` / `openai` / `claude` providers. Defaults: mlx
+  /** Base URL for `mlx` / `openai` / `claude`. Defaults: mlx
    *  http://127.0.0.1:8080, openai http://127.0.0.1:11434, claude
    *  https://api.anthropic.com (override for a proxy/gateway). */
   baseUrl?: string;
-  /** `claude` only: the Anthropic API key (stored in the workspace settings). */
+  /** `claude` only: the Anthropic API key. */
   apiKey?: string;
-  /** mlx only: spawn `mlx_lm.server` automatically when possible. */
+  /** `mlx` only: spawn `mlx_lm.server` automatically when possible. */
   autoStart?: boolean;
+}
+
+export interface AiConfig {
+  /** The default provider — used unless an agent run overrides it. */
+  provider: AiProvider;
+  /** Per-provider settings, so every provider can be configured at once. */
+  providers?: Partial<Record<AiProvider, AiProviderSettings>>;
   /** Default agent effort (low/med/high). Falls back to 'med'. */
   effort?: AiEffort;
   /** Whether the agent surfaces its reasoning (collapsible). Default true. */
   thinking?: boolean;
+  // ── Legacy single-provider fields (pre-`providers`) ──────────────────────────
+  // Read only for migration: they belonged to whatever provider was active when
+  // they were saved. New code reads/writes `providers` via {@link providerSettings}.
+  /** @deprecated use `providers[provider].model` */ model?: string;
+  /** @deprecated use `providers[provider].baseUrl` */ baseUrl?: string;
+  /** @deprecated use `providers[provider].apiKey` */ apiKey?: string;
+  /** @deprecated use `providers[provider].autoStart` */ autoStart?: boolean;
+}
+
+/**
+ * The effective settings for one provider: its `providers` entry, or — for a
+ * legacy config saved before per-provider settings existed — the flat top-level
+ * fields (which belonged to the then-active provider). Server engine creation
+ * and both UIs read settings through this, so old configs keep working.
+ */
+export function providerSettings(config: AiConfig, provider: AiProvider): AiProviderSettings {
+  const entry = config.providers?.[provider];
+  if (entry) return entry;
+  if (provider === config.provider) {
+    return {model: config.model, baseUrl: config.baseUrl, apiKey: config.apiKey, autoStart: config.autoStart};
+  }
+  return {};
 }
 
 export interface AiStatus {
@@ -145,6 +175,10 @@ export type AgentChatEvent =
 /** Options for one agent run. */
 export interface AgentChatOptions {
   signal?: AbortSignal;
+  /** Override the default provider for this run (else the configured default). */
+  provider?: AiProvider;
+  /** Override the model for this run (else the provider's configured model). */
+  model?: string;
   /** Override the configured default effort for this run. */
   effort?: AiEffort;
   /** Override whether reasoning is surfaced for this run. */

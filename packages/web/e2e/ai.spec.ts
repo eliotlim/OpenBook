@@ -31,20 +31,29 @@ test('settings: AI tab shows providers and engine status', async ({page, request
   await page.keyboard.press('Escape');
 });
 
-test('settings: choosing Claude reveals the API-key field', async ({page, request}) => {
+test('settings: every provider is configurable at once + the radio picks the default', async ({page, request}) => {
   await setProvider(request, 'off');
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   await page.keyboard.press('ControlOrMeta+,');
   await page.getByRole('button', {name: 'AI', exact: true}).click();
 
-  // Selecting Claude (no key yet) reveals the API-key + model fields without a
-  // network call (the empty key short-circuits the readiness probe).
-  await page.getByText('Claude (Anthropic API)').click();
+  // All providers' connection fields are shown together — Claude's API key, the
+  // OpenAI/MLX model fields, and llama's download button — no selection needed.
+  await expect(page.getByText('Default engine')).toBeVisible();
   await expect(page.getByPlaceholder('sk-ant-…')).toBeVisible();
   await expect(page.getByPlaceholder('claude-sonnet-4-6')).toBeVisible();
-  // The model file picker / download button (llama-only) is NOT shown.
-  await expect(page.getByRole('button', {name: /Download recommended model/})).toHaveCount(0);
+  await expect(page.getByPlaceholder('qwen2.5:1.5b')).toBeVisible();
+  await expect(page.getByRole('button', {name: /Download recommended model/})).toBeVisible();
+
+  // Configure Claude's key without changing the default (stays off → no
+  // readiness network call); it persists under providers.claude.
+  await page.getByPlaceholder('sk-ant-…').fill('sk-ant-test-key');
+  await page.getByPlaceholder('sk-ant-…').blur();
+  await page.waitForTimeout(300);
+  const status = await (await request.get(`${SERVER}/api/ai/status`)).json();
+  expect(status.config.providers?.claude?.apiKey).toBe('sk-ant-test-key');
+  expect(status.config.provider).toBe('off');
   await page.keyboard.press('Escape');
 });
 
@@ -152,6 +161,13 @@ test('assistant panel: ask a question, watch the tool run, get a grounded answer
   await expect(panel).toBeVisible();
   const input = panel.locator('[data-agent-input]');
   await expect(input).toBeFocused();
+
+  // The drawer carries per-conversation provider + model pickers (alongside
+  // effort), defaulting to the configured engine. (The Select forwards only
+  // aria-label, not data-*, so target the provider/effort pickers by label.)
+  await expect(panel.getByLabel('Provider for this conversation')).toBeVisible();
+  await expect(panel.locator('[data-agent-model]')).toBeVisible();
+  await expect(panel.getByLabel('Effort')).toBeVisible();
 
   // Starter suggestions fill the input (without sending).
   await expect(panel.locator('[data-agent-suggestion]')).toHaveCount(3);

@@ -1,7 +1,7 @@
 import {spawn, type ChildProcess} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
-import type {AiConfig} from '@open-book/sdk';
+import {providerSettings, type AiConfig, type AiProvider} from '@open-book/sdk';
 
 /**
  * Inference engines behind one interface. Generation streams tokens;
@@ -604,18 +604,30 @@ export class AnthropicEngine implements AiEngine {
 
 // ── Factory ──────────────────────────────────────────────────────────────────
 
-export function createEngine(config: AiConfig, modelsDir: string): AiEngine | null {
-  switch (config.provider) {
+/**
+ * Build the engine for a provider. With no `override`, builds the configured
+ * default; an `override` (from a per-conversation agent choice) selects a
+ * different provider/model, reading that provider's stored connection settings.
+ */
+export function createEngine(
+  config: AiConfig,
+  modelsDir: string,
+  override?: {provider?: AiProvider; model?: string},
+): AiEngine | null {
+  const provider = override?.provider ?? config.provider;
+  const s = providerSettings(config, provider);
+  const model = override?.model || s.model || '';
+  switch (provider) {
   case 'mock':
     return new MockEngine();
   case 'openai':
-    return new OpenAiCompatEngine(config.baseUrl || 'http://127.0.0.1:11434', config.model || 'default');
+    return new OpenAiCompatEngine(s.baseUrl || 'http://127.0.0.1:11434', model || 'default');
   case 'mlx':
-    return new MlxEngine(config.baseUrl || 'http://127.0.0.1:8080', config.model || '', config.autoStart ?? true);
+    return new MlxEngine(s.baseUrl || 'http://127.0.0.1:8080', model, s.autoStart ?? true);
   case 'llama':
-    return new LlamaEngine(modelsDir, config.model || '');
+    return new LlamaEngine(modelsDir, model);
   case 'claude':
-    return new AnthropicEngine(config.apiKey || '', config.model || '', config.baseUrl || 'https://api.anthropic.com');
+    return new AnthropicEngine(s.apiKey || '', model, s.baseUrl || 'https://api.anthropic.com');
   default:
     return null;
   }
