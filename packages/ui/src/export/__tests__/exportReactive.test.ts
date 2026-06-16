@@ -1,10 +1,10 @@
 import {describe, it, expect} from 'vitest';
 import type {PageSnapshot} from '@open-book/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
+import {blockSnapshotToEditorJs} from '../../blockeditor/exportBlocks';
 import {buildDocumentModel} from '../documentModel';
 import {toHtml, toSlideDeck} from '../toHtml';
 import {toMarkdown} from '../toMarkdown';
-import {toPdf} from '../toPdf';
 
 /**
  * Exports start from a CRDT block document (`editor: 'blocks'` + `blockdoc`), not
@@ -96,14 +96,9 @@ describe('reactive export from a block document', () => {
 
   });
 
-  it('produces valid paged + continuous PDFs', async () => {
-    const model = buildDocumentModel({title: 'T', icon: '🛒', snapshot: blockSnapshot()});
-    for (const mode of ['paged', 'continuous'] as const) {
-      const blob = await toPdf(model, mode);
-      const head = new Uint8Array(await blob.arrayBuffer()).subarray(0, 5);
-      expect(String.fromCharCode(...head)).toBe('%PDF-');
-    }
-  });
+  // PDF is now rendered from the HTML in a real browser (dom-to-svg → svg2pdf),
+  // so it can't run under happy-dom — its coverage lives in the e2e suite
+  // (export.spec.ts downloads + validates the paged/continuous PDFs).
 });
 
 // Inline marks, columns, and every chart kind must survive the projection into
@@ -206,5 +201,42 @@ describe('export block fidelity', () => {
     expect(md).toContain('**Balance**');
     expect(md).toContain('- Invested: 10, 20, 30');
     expect(md).toContain('- Projected: 10, 25, 44');
+  });
+});
+
+// The interactive HTML runtime resolves reactive references by rewriting names to
+// cell tokens (the static seed alone isn't enough — `recompute()` runs on load and
+// in a real browser overwrites any reference it can't resolve with `undefined`).
+// These guard the two gaps that made real docs export as "everything undefined":
+// formula→formula references, and reactive content nested inside a `group`.
+describe('export runtime reference resolution', () => {
+  type Out = {editorjs: {blocks: Array<{type?: string; data?: Record<string, unknown>}>}; names: Array<[string, string]>};
+  const project = (blocks: NewBlock[]): Out =>
+    blockSnapshotToEditorJs({editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(createDoc(blocks))} as never) as unknown as Out;
+
+  it('tokenizes formula→formula references so dependents stay live (not undefined)', () => {
+    const out = project([
+      {type: 'slider', props: {name: 'price', label: 'Price', value: 50, min: 0, max: 100}},
+      {type: 'formula', props: {name: 'total', source: 'price * 2'}},
+      {type: 'formula', props: {name: 'withTax', source: 'total * 1.2'}},
+    ]);
+    const withTax = out.editorjs.blocks.find((b) => b.type === 'expr' && b.data?.name === 'withTax');
+    // `total` (a formula) must be rewritten to a cell token, not left as a bare
+    // name the runtime can't resolve → undefined.
+    expect(String(withTax?.data?.source)).toMatch(/__C__\{[^}]+\}__ \* 1\.2/);
+    // And the formula publishes its name (cell→name), like live code does.
+    expect(out.names.some(([n]) => n === 'total')).toBe(true);
+    expect(out.editorjs.blocks.find((b) => b.type === 'expr' && b.data?.name === 'total')).toBeTruthy();
+  });
+
+  it('emits reactive children of a group (they were dropped entirely before)', () => {
+    const out = project([
+      {type: 'group', props: {name: 'box'}, children: [
+        {type: 'number', props: {name: 'b', label: 'B', value: 5, min: 0, max: 100}},
+        {type: 'code', text: [{t: 'b + 1'}], props: {live: true, name: 'inc', language: 'js'}},
+      ]},
+    ]);
+    expect(out.editorjs.blocks.some((b) => b.type === 'slider')).toBe(true); // the number input
+    expect(out.editorjs.blocks.some((b) => b.type === 'expr' && b.data?.name === 'inc')).toBe(true);
   });
 });

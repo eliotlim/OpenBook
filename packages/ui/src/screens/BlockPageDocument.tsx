@@ -224,12 +224,16 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       if (kind === 'md') {
         downloadText(`${base}.md`, toMarkdown(buildDocumentModel({title, icon, snapshot})), 'text/markdown');
       } else if (kind === 'pdf-paged' || kind === 'pdf-continuous' || kind === 'pdf-slides') {
-        const {toPdf} = await import('@/export/toPdf');
-        const blob = await toPdf(
-          buildDocumentModel({title, icon, snapshot}),
-          kind === 'pdf-continuous' ? 'continuous' : 'paged',
-          kind === 'pdf-slides' ? {slides: true} : undefined,
-        );
+        // PDF mirrors the HTML export (vector, selectable) rather than a separate
+        // hand-drawn renderer — so it looks like the window. See export/toPdf.ts.
+        const [{toPdf, toPdfSlides}, {toHtml, toSlideDeck}] = await Promise.all([
+          import('@/export/toPdf'),
+          import('@/export/toHtml'),
+        ]);
+        const blob =
+          kind === 'pdf-slides'
+            ? await toPdfSlides(toSlideDeck(snapshot, title, icon))
+            : await toPdf(toHtml(snapshot, title, icon), kind === 'pdf-continuous' ? 'continuous' : 'paged');
         downloadBlob(`${base}${kind === 'pdf-slides' ? '-slides' : ''}.pdf`, blob);
       } else if (kind === 'html-slides') {
         const {toSlideDeck} = await import('@/export/toHtml');

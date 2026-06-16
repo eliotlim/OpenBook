@@ -340,6 +340,10 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
         propsById.set(b.id, b.props ?? {});
       }
       if (b.type === 'code' && b.props?.live && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
+      // Formula blocks publish a named value too (computeScope treats them the
+      // same as live code) — so a formula referencing another formula/input must
+      // be tokenizable, or its dependents resolve to `undefined` in the runtime.
+      if (b.type === 'formula' && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
       if (b.children) for (const child of b.children) collect([child, ...(child.children ?? [])]);
     }
   };
@@ -452,6 +456,14 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
         }
         i += 1;
         break;
+      case 'group':
+        // A group is a container (lock / cross-page sync in the editor); the
+        // standalone runtime has no frame widget, so flatten its children inline.
+        // Without this the group fell through to `default` and ALL its reactive
+        // content (inputs, code, charts) was silently dropped from the export.
+        emit(b.children ?? [], sink);
+        i += 1;
+        break;
       case 'slider': {
         const name = String(b.props?.name ?? 'x');
         const value = Number(b.props?.value ?? 50);
@@ -476,8 +488,12 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
         break;
       }
       case 'formula': {
-        sink.push({id: b.id, type: 'expr', data: {name: '', source: tokenize(String(b.props?.source ?? ''))}});
+        const name = String(b.props?.name ?? '');
+        sink.push({id: b.id, type: 'expr', data: {name, source: tokenize(String(b.props?.source ?? ''))}});
         pushCell(b.id);
+        // Publish the name so the runtime maps cell→name (and downstream
+        // tokenized refs to this formula resolve live), matching computeScope.
+        if (name) out.names.push([name, b.id]);
         i += 1;
         break;
       }
