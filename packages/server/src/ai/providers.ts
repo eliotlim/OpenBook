@@ -470,6 +470,138 @@ export class LlamaEngine implements AiEngine {
   }
 }
 
+// ── Anthropic (hosted Claude API) ────────────────────────────────────────────
+
+/** The Anthropic Messages API (`/v1/messages`). The only cloud provider —
+ *  content leaves the machine. Streams text + (extended) thinking and supports
+ *  native tool-calling. No embeddings endpoint, so search falls back to lexical. */
+export class AnthropicEngine implements AiEngine {
+  readonly kind = 'claude';
+  /** Default when the user hasn't pinned a model — a current, balanced Claude. */
+  static readonly DEFAULT_MODEL = 'claude-sonnet-4-6';
+  constructor(
+    private readonly apiKey: string,
+    private readonly model: string,
+    private readonly baseUrl = 'https://api.anthropic.com',
+  ) {}
+
+  private headers(): Record<string, string> {
+    return {'content-type': 'application/json', 'x-api-key': this.apiKey, 'anthropic-version': '2023-06-01'};
+  }
+
+  async ensureReady(): Promise<void> {
+    if (!this.apiKey) throw new Error('Set an Anthropic API key in AI settings.');
+    // The Models API is a cheap key check — it bills no tokens.
+    const res = await fetch(`${this.baseUrl}/v1/models?limit=1`, {headers: this.headers(), signal: AbortSignal.timeout(5000)}).catch(
+      () => null,
+    );
+    if (!res) throw new Error(`Can't reach the Anthropic API at ${this.baseUrl}.`);
+    if (res.status === 401) throw new Error('Anthropic API key was rejected (401).');
+    if (!res.ok) throw new Error(`Anthropic API error: HTTP ${res.status}.`);
+  }
+
+  // Claude supports native tool-calling.
+  async supportsTools(): Promise<boolean> {
+    return true;
+  }
+
+  async generate(prompt: string, opts: GenerateOptions): Promise<string> {
+    const useTools = Boolean(opts.tools && opts.tools.length > 0);
+    const maxTokens = opts.maxTokens ?? 1024;
+    // Extended thinking needs a ≥1024-token budget below max_tokens, and forbids
+    // a custom temperature — so enable it only when the budget allows.
+    const think = opts.thinkingBudget && opts.thinkingBudget >= 1024 ? Math.min(opts.thinkingBudget, maxTokens + 4096) : 0;
+    const body: Record<string, unknown> = {
+      model: this.model || AnthropicEngine.DEFAULT_MODEL,
+      max_tokens: think ? think + maxTokens : maxTokens,
+      stream: true,
+      messages: [{role: 'user', content: prompt}],
+      ...(opts.system ? {system: opts.system} : {}),
+      ...(think
+        ? {thinking: {type: 'enabled', budget_tokens: think}}
+        : opts.temperature !== undefined
+          ? {temperature: opts.temperature}
+          : {}),
+      ...(useTools ? {tools: opts.tools!.map((tool) => ({name: tool.name, description: tool.description, input_schema: tool.parameters}))} : {}),
+    };
+    const res = await fetch(`${this.baseUrl}/v1/messages`, {method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal: opts.signal});
+    if (!res.ok || !res.body) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Generation failed: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
+    }
+
+    let full = '';
+    let streamError: string | undefined;
+    // Tool-use blocks accumulate their streamed JSON input by block index.
+    const toolAcc = new Map<number, {id: string; name: string; args: string}>();
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const {done, value} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data:')) continue; // ignore `event:` lines + blanks
+        const data = line.slice(5).trim();
+        if (!data) continue;
+        try {
+          const ev = JSON.parse(data) as {
+            type?: string;
+            index?: number;
+            content_block?: {type?: string; id?: string; name?: string};
+            delta?: {type?: string; text?: string; thinking?: string; partial_json?: string};
+            error?: {message?: string};
+          };
+          if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+            toolAcc.set(ev.index ?? 0, {id: ev.content_block.id ?? '', name: ev.content_block.name ?? '', args: ''});
+          } else if (ev.type === 'content_block_delta') {
+            const d = ev.delta;
+            if (d?.type === 'text_delta' && d.text) {
+              full += d.text;
+              opts.onToken(d.text);
+            } else if (d?.type === 'thinking_delta' && d.thinking) {
+              // Route reasoning to the <think> channel (never document content).
+              full += `<think>${d.thinking}</think>`;
+              opts.onToken(`<think>${d.thinking}</think>`);
+            } else if (d?.type === 'input_json_delta' && d.partial_json) {
+              const acc = toolAcc.get(ev.index ?? 0);
+              if (acc) acc.args += d.partial_json;
+            }
+          } else if (ev.type === 'error') {
+            streamError = ev.error?.message ?? 'stream error';
+          }
+        } catch {
+          // partial frame — wait for more
+        }
+      }
+    }
+    if (useTools && toolAcc.size > 0 && opts.onToolCalls) {
+      const calls: NativeToolCall[] = [];
+      for (const acc of toolAcc.values()) {
+        if (!acc.name) continue;
+        let args: Record<string, unknown> = {};
+        try {
+          args = acc.args ? (JSON.parse(acc.args) as Record<string, unknown>) : {};
+        } catch {
+          // malformed args — pass empty; the tool reports its own error
+        }
+        calls.push({id: acc.id || `call_${calls.length}`, name: acc.name, args});
+      }
+      if (calls.length > 0) opts.onToolCalls(calls);
+    }
+    // A mid-stream error with nothing produced is a real failure; surface it.
+    if (streamError && !full && toolAcc.size === 0) throw new Error(`Anthropic: ${streamError}`);
+    return full;
+  }
+
+  async dispose(): Promise<void> {
+    // stateless
+  }
+}
+
 // ── Factory ──────────────────────────────────────────────────────────────────
 
 export function createEngine(config: AiConfig, modelsDir: string): AiEngine | null {
@@ -482,6 +614,8 @@ export function createEngine(config: AiConfig, modelsDir: string): AiEngine | nu
     return new MlxEngine(config.baseUrl || 'http://127.0.0.1:8080', config.model || '', config.autoStart ?? true);
   case 'llama':
     return new LlamaEngine(modelsDir, config.model || '');
+  case 'claude':
+    return new AnthropicEngine(config.apiKey || '', config.model || '', config.baseUrl || 'https://api.anthropic.com');
   default:
     return null;
   }

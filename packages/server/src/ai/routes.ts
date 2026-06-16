@@ -16,7 +16,7 @@ export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore): void 
 
   app.put(API.aiConfig, async (c) => {
     const body = (await c.req.json()) as AiConfig;
-    if (!['off', 'mock', 'llama', 'mlx', 'openai'].includes(body.provider)) {
+    if (!['off', 'mock', 'llama', 'mlx', 'openai', 'claude'].includes(body.provider)) {
       return c.json({error: `Unknown provider: ${String(body.provider)}`}, 400);
     }
     return c.json(await ai.setConfig(body));

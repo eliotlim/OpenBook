@@ -26,7 +26,25 @@ test('settings: AI tab shows providers and engine status', async ({page, request
   await expect(page.getByText('Built-in (llama.cpp)')).toBeVisible();
   await expect(page.getByText('MLX (Apple Silicon)')).toBeVisible();
   await expect(page.getByText('Local server (OpenAI-compatible)')).toBeVisible();
+  await expect(page.getByText('Claude (Anthropic API)')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Rebuild index'})).toBeVisible();
+  await page.keyboard.press('Escape');
+});
+
+test('settings: choosing Claude reveals the API-key field', async ({page, request}) => {
+  await setProvider(request, 'off');
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+,');
+  await page.getByRole('button', {name: 'AI', exact: true}).click();
+
+  // Selecting Claude (no key yet) reveals the API-key + model fields without a
+  // network call (the empty key short-circuits the readiness probe).
+  await page.getByText('Claude (Anthropic API)').click();
+  await expect(page.getByPlaceholder('sk-ant-…')).toBeVisible();
+  await expect(page.getByPlaceholder('claude-sonnet-4-6')).toBeVisible();
+  // The model file picker / download button (llama-only) is NOT shown.
+  await expect(page.getByRole('button', {name: /Download recommended model/})).toHaveCount(0);
   await page.keyboard.press('Escape');
 });
 

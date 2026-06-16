@@ -86,6 +86,7 @@ export default function AiSettings() {
     {id: 'llama', label: t('ai.provider.llama'), hint: t('ai.provider.llamaHint')},
     {id: 'mlx', label: t('ai.provider.mlx'), hint: t('ai.provider.mlxHint')},
     {id: 'openai', label: t('ai.provider.openai'), hint: t('ai.provider.openaiHint')},
+    {id: 'claude', label: t('ai.provider.claude'), hint: t('ai.provider.claudeHint')},
   ];
 
   return (
@@ -172,6 +173,31 @@ export default function AiSettings() {
               className={fieldClass}
               value={draft.model ?? ''}
               placeholder={provider === 'mlx' ? 'mlx-community/Qwen2.5-1.5B-Instruct-4bit' : 'qwen2.5:1.5b'}
+              onChange={(e) => setDraft({...draft, model: e.target.value})}
+              onBlur={() => void apply(draft)}
+            />
+          </SettingsField>
+        </SettingsSection>
+      )}
+
+      {provider === 'claude' && (
+        <SettingsSection title={t('ai.endpoint')}>
+          <SettingsField label={t('ai.apiKey')} hint={t('ai.apiKeyHint')}>
+            <input
+              type="password"
+              autoComplete="off"
+              className={fieldClass}
+              value={draft.apiKey ?? ''}
+              placeholder="sk-ant-…"
+              onChange={(e) => setDraft({...draft, apiKey: e.target.value})}
+              onBlur={() => void apply(draft)}
+            />
+          </SettingsField>
+          <SettingsField label={t('ai.modelName')} hint={t('ai.claudeModelHint')}>
+            <input
+              className={fieldClass}
+              value={draft.model ?? ''}
+              placeholder="claude-sonnet-4-6"
               onChange={(e) => setDraft({...draft, model: e.target.value})}
               onBlur={() => void apply(draft)}
             />

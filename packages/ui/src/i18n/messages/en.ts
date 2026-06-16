@@ -329,7 +329,7 @@ export const en = {
     thisDevice: 'This device',
   },
   ai: {
-    description: 'An optional local model powers note search, task breakdown, and document completion. Everything runs on your machine — nothing leaves it.',
+    description: 'An optional model powers note search, task breakdown, and document completion. Run a local model — nothing leaves your machine — or connect the Claude API.',
     providerLabel: 'Engine',
     provider: {
       off: 'Off',
@@ -340,6 +340,8 @@ export const en = {
       mlxHint: 'Uses mlx_lm.server for the fastest local inference on Apple Silicon.',
       openai: 'Local server (OpenAI-compatible)',
       openaiHint: 'Ollama, LM Studio, llama-server, or any compatible endpoint.',
+      claude: 'Claude (Anthropic API)',
+      claudeHint: 'Anthropic’s hosted Claude models. Needs an API key — prompts are sent to Anthropic.',
     },
     ready: 'Engine ready · {embeddings}',
     semantic: 'semantic search enabled',
@@ -359,6 +361,9 @@ export const en = {
     modelName: 'Model',
     mlxModelHint: 'An MLX model id, e.g. mlx-community/Qwen2.5-1.5B-Instruct-4bit.',
     openaiModelHint: 'The model name your server expects.',
+    apiKey: 'API key',
+    apiKeyHint: 'Your Anthropic API key (from console.anthropic.com). Stored in this workspace.',
+    claudeModelHint: 'A Claude model id, e.g. claude-sonnet-4-6 or claude-haiku-4-5.',
     search: 'Note search',
     searchHint: 'Notes are indexed for search automatically; rebuild if results look stale.',
     reindex: 'Rebuild index',

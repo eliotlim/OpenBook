@@ -15,11 +15,13 @@
  *               API (optionally auto-started by the server).
  *  - `openai` — any OpenAI-compatible local endpoint (Ollama, LM Studio,
  *               llama-server, vLLM…).
+ *  - `claude` — Anthropic's hosted Claude API (cloud; needs an API key). The
+ *               only provider that sends content off the machine.
  */
 
 import type {StoredSuggestion} from './suggestions';
 
-export type AiProvider = 'off' | 'mock' | 'llama' | 'mlx' | 'openai';
+export type AiProvider = 'off' | 'mock' | 'llama' | 'mlx' | 'openai' | 'claude';
 
 /**
  * How hard the agent works on a turn. One knob maps (server-side, in one
@@ -30,11 +32,16 @@ export type AiEffort = 'low' | 'med' | 'high';
 
 export interface AiConfig {
   provider: AiProvider;
-  /** Model identifier: a GGUF filename (llama), an MLX model id (mlx), or a
-   *  served model name (openai). */
+  /** Model identifier: a GGUF filename (llama), an MLX model id (mlx), a
+   *  served model name (openai), or a Claude model id (claude, e.g.
+   *  `claude-sonnet-4-6`). */
   model?: string;
-  /** Base URL for `mlx` / `openai` providers (e.g. http://127.0.0.1:8080). */
+  /** Base URL for `mlx` / `openai` / `claude` providers. Defaults: mlx
+   *  http://127.0.0.1:8080, openai http://127.0.0.1:11434, claude
+   *  https://api.anthropic.com (override for a proxy/gateway). */
   baseUrl?: string;
+  /** `claude` only: the Anthropic API key (stored in the workspace settings). */
+  apiKey?: string;
   /** mlx only: spawn `mlx_lm.server` automatically when possible. */
   autoStart?: boolean;
   /** Default agent effort (low/med/high). Falls back to 'med'. */
