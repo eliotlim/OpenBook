@@ -74,6 +74,32 @@ function deEmoji(root: Element): void {
 }
 
 /**
+ * Native `<input type=range>` renders badly through dom-to-svg — its track/thumb
+ * live in UA shadow DOM (unreachable) and a stray value glyph leaks in. Replace
+ * each with a static styled track (filled to the current value) so the PDF shows
+ * a clean slider. The HTML export keeps the live range input.
+ */
+function staticizeSliders(root: Element): void {
+  const doc = root.ownerDocument;
+  for (const input of Array.from(root.querySelectorAll('input[type="range"]'))) {
+    const el = input as HTMLInputElement;
+    const min = Number(el.getAttribute('min') ?? '0');
+    const max = Number(el.getAttribute('max') ?? '100');
+    const val = Number(el.value || el.getAttribute('value') || '0');
+    const pct = (max > min ? Math.max(0, Math.min(1, (val - min) / (max - min))) : 0) * 100;
+    const track = doc.createElement('span');
+    track.setAttribute('style', 'position:relative;display:inline-block;width:60%;height:8px;background:rgba(127,127,127,.18);border-radius:999px;vertical-align:middle');
+    const fill = doc.createElement('span');
+    fill.setAttribute('style', `position:absolute;left:0;top:0;height:8px;width:${pct.toFixed(2)}%;background:#6366f1;border-radius:999px`);
+    const thumb = doc.createElement('span');
+    thumb.setAttribute('style', `position:absolute;top:-3px;left:${pct.toFixed(2)}%;width:14px;height:14px;margin-left:-7px;background:#6366f1;border-radius:999px`);
+    track.appendChild(fill);
+    track.appendChild(thumb);
+    el.replaceWith(track);
+  }
+}
+
+/**
  * Lay the HTML out in a hidden iframe (real layout + the reactive runtime, so
  * computed values and charts render), and hand back its `<main>` element.
  */
@@ -100,6 +126,7 @@ async function layout(html: string): Promise<{frame: HTMLIFrameElement; el: Elem
   await new Promise((r) => setTimeout(r, 300)); // let the reactive runtime recompute + draw charts
   const el = idoc.querySelector('main') ?? idoc.body;
   deEmoji(el);
+  staticizeSliders(el);
   return {frame, el};
 }
 
