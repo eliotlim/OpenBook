@@ -1,7 +1,7 @@
 import type {BlockJSON, InlineAttrs, TextRun} from './model';
 import {decodeSnapshot} from './model';
 import {COLOR_EXPORT_HEX} from './colors';
-import {resolveOptionsFromProps} from './kit/options';
+import {resolveOptionsFromProps, varNameFromLabel} from './kit/options';
 import {computeExportCells, type ExportCell} from './kit/scope';
 
 // TextRun is referenced in the kit emit cases below.
@@ -333,10 +333,16 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
   // order, so chained references resolve there exactly as in the editor).
   const inputs: Array<{id: string; name: string}> = [];
   const propsById = new Map<string, Record<string, unknown>>();
-  const collect = (list: BlockJSON[]): void => {
+  // Mirror the editor's scope exactly (kit/scope.ts): an INPUT inside a named
+  // `group` is addressable as `<group>.<field>.value` (inputScope namespaces it);
+  // a top-level input as the bare `<field>`. Live code / formulas publish their
+  // bare name regardless of nesting (computeScope does NOT namespace them). `group`
+  // tracks the nearest enclosing group's key (`varNameFromLabel` of its name).
+  const collect = (list: BlockJSON[], group: string): void => {
     for (const b of list) {
       if (KIT_INPUT_VALUE[b.type] && b.props?.name) {
-        inputs.push({id: b.id, name: String(b.props.name)});
+        const field = String(b.props.name);
+        inputs.push({id: b.id, name: group ? `${group}.${field}.value` : field});
         propsById.set(b.id, b.props ?? {});
       }
       if (b.type === 'code' && b.props?.live && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
@@ -344,10 +350,10 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
       // same as live code) — so a formula referencing another formula/input must
       // be tokenizable, or its dependents resolve to `undefined` in the runtime.
       if (b.type === 'formula' && b.props?.name) inputs.push({id: b.id, name: String(b.props.name)});
-      if (b.children) for (const child of b.children) collect([child, ...(child.children ?? [])]);
+      if (b.children) collect(b.children, b.type === 'group' ? varNameFromLabel(String(b.props?.name ?? '')) || group : group);
     }
   };
-  collect(blocks);
+  collect(blocks, '');
   inputs.sort((a, b) => b.name.length - a.name.length); // longest names first
 
   const tokenize = (source: string): string => {

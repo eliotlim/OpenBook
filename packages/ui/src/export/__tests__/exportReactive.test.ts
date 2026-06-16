@@ -239,4 +239,18 @@ describe('export runtime reference resolution', () => {
     expect(out.editorjs.blocks.some((b) => b.type === 'slider')).toBe(true); // the number input
     expect(out.editorjs.blocks.some((b) => b.type === 'expr' && b.data?.name === 'inc')).toBe(true);
   });
+
+  it('tokenizes a grouped input by its namespaced ref (group.field.value)', () => {
+    const out = project([
+      {type: 'group', props: {name: 'inputs'}, children: [
+        {type: 'slider', props: {name: 'revenue', label: 'Revenue', value: 240, min: 0, max: 500}},
+      ]},
+      // The editor scopes the grouped slider as `inputs.revenue.value`; the export
+      // must rewrite that WHOLE reference to a cell token — not the bare `revenue`
+      // word mid-path (which would leave `inputs.<token>.value` → undefined).
+      {type: 'code', text: [{t: 'inputs.revenue.value * 2'}], props: {live: true, name: 'doubled', language: 'js'}},
+    ]);
+    const doubled = out.editorjs.blocks.find((b) => b.type === 'expr' && b.data?.name === 'doubled');
+    expect(String(doubled?.data?.source)).toMatch(/^__C__\{[^}]+\}__ \* 2$/);
+  });
 });
