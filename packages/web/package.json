@@ -1,6 +1,6 @@
 {
   "name": "@open-book/web",
-  "version": "1.53.1",
+  "version": "1.53.2",
   "private": true,
   "scripts": {
     "dev": "next dev",

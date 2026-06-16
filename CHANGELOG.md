@@ -1,3 +1,16 @@
+## 1.53.2 (2026-06-16)
+
+### 🩹 Fixes
+
+- reactive HTML export refs + vector PDF rendered from HTML ([de37b29](https://github.com/eliotlim/OpenBook/commit/de37b29))
+- render sliders cleanly in PDF export ([31a6c08](https://github.com/eliotlim/OpenBook/commit/31a6c08))
+- resolve grouped-input references consistently in exports ([197d2f9](https://github.com/eliotlim/OpenBook/commit/197d2f9))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8
+- Eliot Lim
+
 ## 1.53.1 (2026-06-15)
 
 ### 🩹 Fixes
