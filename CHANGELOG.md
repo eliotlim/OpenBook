@@ -1,3 +1,16 @@
+## 1.54.0 (2026-06-16)
+
+### 🚀 Features
+
+- add Claude (Anthropic API) as an AI engine option ([bec64a0](https://github.com/eliotlim/OpenBook/commit/bec64a0))
+- add multi-provider support ([5437621](https://github.com/eliotlim/OpenBook/commit/5437621))
+- improve system prompt ([c25d424](https://github.com/eliotlim/OpenBook/commit/c25d424))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8
+- Eliot Lim
+
 ## 1.53.2 (2026-06-16)
 
 ### 🩹 Fixes
