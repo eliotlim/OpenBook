@@ -1,3 +1,14 @@
+## 1.55.0 (2026-06-17)
+
+### 🚀 Features
+
+- md streaming and db improvements ([f8cb0c5](https://github.com/eliotlim/OpenBook/commit/f8cb0c5))
+- page structure, appearance settings, and agent tools ([6258f7c](https://github.com/eliotlim/OpenBook/commit/6258f7c))
+
+### ❤️ Thank You
+
+- Eliot Lim
+
 ## 1.54.0 (2026-06-16)
 
 ### 🚀 Features
