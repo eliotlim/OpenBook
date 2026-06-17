@@ -110,6 +110,9 @@ export function AiBridgeHost() {
             .filter((b): b is NewBlock => b !== null)
             .map(makeBlock);
           if (built.length > 0) list.push(built);
+        } else if (p.kind === 'delete_block') {
+          const found = findBlock(doc, String(payload.blockId));
+          if (found) found.parent.delete(found.index, 1);
         }
       }, 'local');
     };

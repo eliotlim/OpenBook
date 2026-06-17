@@ -99,6 +99,7 @@ export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore): void 
       skills?: string[];
       pageId?: string;
       selection?: string;
+      allowDirectEdits?: boolean;
     };
     const turns = (body.messages ?? []).filter(
       (m): m is AgentMessage => (m?.role === 'user' || m?.role === 'assistant') && typeof m?.content === 'string',
@@ -126,7 +127,7 @@ export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore): void 
 
     // Per-conversation engine override (the agent drawer's provider/model pickers).
     const engineOverride = body.provider || body.model ? {provider: body.provider, model: body.model} : undefined;
-    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, context});
+    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, context, allowDirectEdits: body.allowDirectEdits === true});
     return streamSSE(c, async (stream) => {
       const abort = new AbortController();
       stream.onAbort(() => abort.abort());

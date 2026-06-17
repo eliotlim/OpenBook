@@ -162,6 +162,7 @@ export type {
   AgentChatMessage,
   AgentChatOptions,
   AgentProposal,
+  InterviewStep,
   AiProvider,
   AiConfig,
   AiProviderSettings,

@@ -10,6 +10,7 @@ import {
   type DatabasePropertyType,
   type DatabaseSchema,
   type DatabaseSelectOption,
+  type InterviewStep,
   type PluginAgentTool,
   type StoredSuggestion,
   type SuggestionKind,
@@ -57,6 +58,14 @@ export type AgentEvent =
    * side pane, where a human accepts/rejects each.
    */
   | {type: 'suggestions'; suggestions: StoredSuggestion[]}
+  /** The agent is asking the user to grant direct (review-free) edit access. */
+  | {type: 'permission_request'; summary: string}
+  /** The agent is asking the user a multi-step interview (answers come back as
+   *  the user's next message). */
+  | {type: 'interview'; title?: string; steps: InterviewStep[]}
+  /** Edits applied DIRECTLY (the user granted edit access); the client replays
+   *  them through the editor bridge. */
+  | {type: 'apply'; proposals: Array<AgentProposal>}
   | {type: 'final'; text: string}
   | {type: 'error'; error: string};
 
@@ -73,6 +82,10 @@ export interface AgentRunOptions {
   /** Ambient context: the page the user is viewing + their current selection,
    *  injected into the system prompt so replies are grounded without a tool call. */
   context?: {pageTitle?: string; pageId?: string; pageText?: string; selection?: string};
+  /** The user granted direct edit access (via request_edit_access): the write
+   *  tools apply changes immediately (an `apply` event) instead of proposing
+   *  review suggestions. Sticky for the conversation. */
+  allowDirectEdits?: boolean;
 }
 
 interface ToolDef {
@@ -106,19 +119,35 @@ const SUGGESTION_KIND: Record<AgentProposal['kind'], SuggestionKind> = {
   set_kit_value: 'replace-text',
   set_db_cell: 'set-cell',
   set_page_theme: 'set-theme',
+  delete_block: 'delete',
 };
 
 export class AgentRunner {
   private readonly tools: ToolDef[];
   /** Suggestions persisted across this run's write-tool calls (reviewed later). */
   private suggestions: StoredSuggestion[] = [];
+  /** Whether the user has granted direct (review-free) edit access this run. */
+  private readonly directEdits: boolean;
+  /** Proposals to apply DIRECTLY this run (when {@link directEdits}). */
+  private pendingApply: AgentProposal[] = [];
+  /** A pending interactive request (permission / interview) that pauses the run
+   *  until the user responds (via their next message). */
+  private interactive: {type: 'permission_request'; summary: string} | {type: 'interview'; title?: string; steps: InterviewStep[]} | null = null;
 
   constructor(
     private readonly ai: AiService,
     private readonly store: PageStore,
     private readonly options: AgentRunOptions = {},
   ) {
-    this.tools = [...this.readTools(), ...this.writeTools(), ...this.databaseTools(), ...this.layoutTools(), ...this.pluginToolDefs()];
+    this.directEdits = options.allowDirectEdits === true;
+    this.tools = [
+      ...this.readTools(),
+      ...this.writeTools(),
+      ...this.databaseTools(),
+      ...this.layoutTools(),
+      ...this.interactiveTools(),
+      ...this.pluginToolDefs(),
+    ];
   }
 
   // ── Read tools ──────────────────────────────────────────────────────────────
@@ -468,7 +497,7 @@ export class AgentRunner {
           const page = await this.store.getPage(pageId);
           if (!page) return 'Page not found.';
           if (!content.trim()) return 'Nothing to append.';
-          return this.enqueue({
+          return this.propose({
             kind: 'append_blocks',
             summary: `Append ${content.split('\n').filter(Boolean).length} paragraph(s) to "${page.name ?? 'Untitled'}"`,
             pageId,
@@ -491,7 +520,7 @@ export class AgentRunner {
           if (!page) return 'Page not found.';
           const before = blockTextById(page.data, blockId);
           if (before === null) return `No block "${blockId}" on that page — use inspect_page_structure.`;
-          return this.enqueue({
+          return this.propose({
             kind: 'update_block',
             summary: `Edit block ${blockId} on "${page.name ?? 'Untitled'}"`,
             pageId,
@@ -501,6 +530,29 @@ export class AgentRunner {
             // base, so accepting this alongside another edit to the same block
             // combines them instead of clobbering. See the bridge's update_block.
             payload: {pageId, blockId, text, before},
+          });
+        },
+      },
+      {
+        name: 'delete_block',
+        description: 'Propose removing one block from a page (find its id via inspect_page_structure). The user approves first.',
+        args: '{"pageId": string, "blockId": string}',
+        schema: obj({pageId: str('The page id.'), blockId: str('The block id from inspect_page_structure.')}, ['pageId', 'blockId']),
+        write: true,
+        run: async (args) => {
+          const pageId = String(args.pageId ?? '');
+          const blockId = String(args.blockId ?? '');
+          const page = await this.store.getPage(pageId);
+          if (!page) return 'Page not found.';
+          const before = blockTextById(page.data, blockId);
+          if (before === null) return `No block "${blockId}" on that page — use inspect_page_structure.`;
+          return this.propose({
+            kind: 'delete_block',
+            summary: `Delete block ${blockId} on "${page.name ?? 'Untitled'}"`,
+            pageId,
+            before: clip(before || '(non-text block)', 200),
+            after: '',
+            payload: {pageId, blockId},
           });
         },
       },
@@ -518,7 +570,7 @@ export class AgentRunner {
           if (!page) return 'Page not found.';
           const scope = kitValues(page.data);
           if (!(name in scope)) return `No input named "${name}" on that page — use get_kit_values.`;
-          return this.enqueue({
+          return this.propose({
             kind: 'set_kit_value',
             summary: `Set "${name}" = ${JSON.stringify(value)}`,
             pageId,
@@ -554,7 +606,7 @@ export class AgentRunner {
           if (!row) return 'Row not found in this database.';
           const prop = (db.schema.properties ?? []).find((p) => p.id === propertyId);
           if (!prop) return `No property "${propertyId}" on this database — use list_db_views/get_db_row.`;
-          return this.enqueue({
+          return this.propose({
             kind: 'set_db_cell',
             summary: `Set ${prop.name} = ${JSON.stringify(value)} on "${row.name ?? 'Untitled'}"`,
             pageId,
@@ -607,7 +659,7 @@ export class AgentRunner {
           if (blocks.length === 0) return 'No blocks to add.';
           const bad = invalidBlockType(blocks);
           if (bad) return `Unsupported block type "${bad}". Allowed: ${[...KNOWN_BLOCK_TYPES].join(', ')}.`;
-          return this.enqueue({
+          return this.propose({
             kind: 'append_blocks',
             summary: `Add ${blocks.length} block(s) to "${page.name ?? 'Untitled'}": ${summarizeBlocks(blocks)}`,
             pageId,
@@ -657,13 +709,78 @@ export class AgentRunner {
             ...Object.entries(theme).map(([k, v]) => `${k}=${v}`),
             ...(coverGradientId ? [`cover=${coverGradientId}`] : []),
           ];
-          return this.enqueue({
+          return this.propose({
             kind: 'set_page_theme',
             summary: `Restyle "${page.name ?? 'Untitled'}": ${parts.join(', ')}`,
             pageId,
             after: parts.join(', '),
             payload: {pageId, ...(Object.keys(theme).length ? {theme} : {}), ...(coverGradientId ? {coverGradientId} : {})},
           });
+        },
+      },
+    ];
+  }
+
+  // ── Interactive tools (pause the run and wait for the user) ──────────────────
+
+  /**
+   * Tools that ask the user something and PAUSE the run: `request_edit_access`
+   * (ask to apply edits directly, without the review pane) and `ask_user` (a
+   * short multi-step interview). They set {@link interactive}; the run loop then
+   * emits the request and stops — the user's reply arrives as their next message
+   * (and, for permission, flips the sticky direct-edit flag).
+   */
+  private interactiveTools(): ToolDef[] {
+    return [
+      {
+        name: 'request_edit_access',
+        description:
+          'Ask the user for permission to apply your edits DIRECTLY, without the review pane. Call this ONCE, before editing, when the user wants changes made for them. After they grant it, your write tools apply immediately. Skip it to keep proposing changes for review.',
+        args: '{"summary"?: string}',
+        schema: obj({summary: str('One line on what you want to edit (shown to the user).')}),
+        write: false,
+        run: async (args) => {
+          if (this.directEdits) return 'You already have direct edit access — go ahead and edit.';
+          if (this.interactive) return 'Already waiting on the user.';
+          this.interactive = {type: 'permission_request', summary: String(args.summary ?? '').trim() || 'apply changes directly'};
+          return 'Asked the user for direct edit access. Stop now and wait for their answer.';
+        },
+      },
+      {
+        name: 'ask_user',
+        description:
+          'Ask the user a short multi-step interview to gather the input you need before acting — each step is one question, with options to choose from and/or a typed answer. Their answers arrive as their next message. Prefer this over guessing when a request is underspecified.',
+        args: '{"title"?: string, "steps": [{"question": string, "options"?: [{"label": string, "value"?: string}], "multiple"?: boolean, "freeText"?: boolean}]}',
+        schema: obj(
+          {
+            title: str('Optional heading for the interview.'),
+            steps: {
+              type: 'array',
+              description: 'The questions, asked one per step (1–8).',
+              items: obj(
+                {
+                  question: str('The question to ask.'),
+                  options: {
+                    type: 'array',
+                    description: 'Choices to pick from. Omit for a typed-only answer.',
+                    items: obj({label: str('The option shown to the user.'), value: str('Optional value (defaults to the label).')}, ['label']),
+                  },
+                  multiple: {type: 'boolean', description: 'Allow selecting more than one option.'},
+                  freeText: {type: 'boolean', description: 'Allow a typed answer too.'},
+                },
+                ['question'],
+              ),
+            },
+          },
+          ['steps'],
+        ),
+        write: false,
+        run: async (args) => {
+          if (this.interactive) return 'Already waiting on the user.';
+          const steps = buildInterviewSteps(args.steps);
+          if (steps.length === 0) return 'An interview needs at least one step with a question.';
+          this.interactive = {type: 'interview', title: typeof args.title === 'string' && args.title.trim() ? args.title.trim() : undefined, steps};
+          return 'Posed the interview. Stop now and wait for the user\'s answers.';
         },
       },
     ];
@@ -689,7 +806,7 @@ export class AgentRunner {
         const page = await this.store.getPage(pageId);
         if (!page) return 'Page not found (the plugin tool needs a valid pageId).';
         if (blocks.length === 0) return 'The plugin tool produced no blocks.';
-        return this.enqueue({
+        return this.propose({
           kind: 'append_blocks',
           summary: `${tool.name}: add ${blocks.length} block(s) to "${page.name ?? 'Untitled'}"`,
           pageId,
@@ -697,6 +814,23 @@ export class AgentRunner {
         });
       },
     }));
+  }
+
+  /**
+   * Route a write tool's change. With direct edit access granted
+   * (request_edit_access), collect it to apply immediately at the end of the run
+   * (an `apply` event the client replays through the editor bridge); otherwise
+   * persist it as a reviewable suggestion — the default, nothing applied without
+   * the user's approval.
+   */
+  private async propose(proposal: Omit<AgentProposal, 'id'>): Promise<string> {
+    if (this.directEdits) {
+      const pageId = proposal.pageId ?? String(proposal.payload.pageId ?? '');
+      if (!pageId) return 'No target page for the edit.';
+      this.pendingApply.push({...proposal, id: shortId('chg')});
+      return `Applying directly (you granted edit access): ${proposal.summary}. Do not repeat it; continue or answer.`;
+    }
+    return this.enqueue(proposal);
   }
 
   /**
@@ -729,7 +863,7 @@ export class AgentRunner {
   /** Derive a suggestion's structured target from a write-tool proposal. */
   private suggestionTarget(proposal: Omit<AgentProposal, 'id'>): StoredSuggestion['target'] {
     const p = proposal.payload;
-    if (proposal.kind === 'update_block') return {blockId: String(p.blockId ?? '')};
+    if (proposal.kind === 'update_block' || proposal.kind === 'delete_block') return {blockId: String(p.blockId ?? '')};
     if (proposal.kind === 'set_db_cell') {
       return {databaseId: String(p.databaseId ?? ''), rowId: String(p.rowId ?? ''), propertyId: String(p.propertyId ?? '')};
     }
@@ -746,7 +880,11 @@ export class AgentRunner {
     const lines = [
       'You are the OpenBook assistant. You work inside the user\'s private note workspace and help them find, read, edit, and organise their notes and databases.',
       'You have TOOLS to search and read pages, to propose edits, and to build databases. Use a tool to get facts from the workspace — never invent note contents, page titles, database columns, or ids.',
-      'Two kinds of change: edits to existing note text, inputs, and cells are PROPOSED for the user to review and approve. Structural actions — creating pages, creating databases, adding rows, and adding or editing database columns — APPLY IMMEDIATELY, so do them deliberately and only when asked.',
+      'Two kinds of change: edits to existing note text, inputs, and cells (update_block, delete_block, append_to_page, add_blocks, set_kit_value, set_db_cell) are PROPOSED for the user to review and approve. Structural actions — creating pages, creating databases, adding rows, and adding or editing database columns — APPLY IMMEDIATELY, so do them deliberately and only when asked.',
+      this.directEdits
+        ? 'The user has GRANTED you DIRECT EDIT ACCESS this conversation, so those edit tools now apply IMMEDIATELY (no review) — make changes confidently, and remove blocks with delete_block when asked.'
+        : 'If the user wants you to make edits FOR them (rather than just suggestions to review), call request_edit_access ONCE to ask permission to apply edits directly; otherwise your edits are queued for their review.',
+      'When a request is underspecified — missing details, or with several reasonable directions — call ask_user to run a short multi-step interview (questions with options and/or typed answers) instead of guessing. Their answers come back as their next message.',
       'When building a database, work in order: create_database → describe_database (to learn the column ids) → create_property for any extra columns → create_row for each row. Reference rows and columns by the ids the tools return.',
       'To build rich, interactive pages, use add_blocks: it appends headings, interactive inputs (sliders, toggles, dropdowns, choice cards…), charts, and layout containers (columns/groups/accordions/tabs with nested children). Give each input a name or label, and have charts/status lights reference those names in their source expression. Use set_page_appearance to theme a page (accent, background tint, cover banner).',
       'Format replies in Markdown — use headings, bullet/numbered lists, **bold**, `code`, links, and tables where they make the answer clearer. Keep replies specific and grounded in what the tools return.',
@@ -853,6 +991,8 @@ export class AgentRunner {
     const showThinking = this.options.thinking !== false;
     const toolTrace: string[] = [];
     this.suggestions = [];
+    this.pendingApply = [];
+    this.interactive = null;
 
     // Resolve the engine for this run — the configured default, or a transient
     // engine for a per-conversation provider/model override. A bad key / off
@@ -902,9 +1042,23 @@ export class AgentRunner {
       return result;
     };
 
-    const finish = async (text: string): Promise<void> => {
+    // Flush whatever changes the write tools produced this run: directly-applied
+    // edits (the user granted access) as one `apply`, reviewable ones as `suggestions`.
+    const flushChanges = async (): Promise<void> => {
+      if (this.pendingApply.length > 0) await emitSeq({type: 'apply', proposals: this.pendingApply});
       if (this.suggestions.length > 0) await emitSeq({type: 'suggestions', suggestions: this.suggestions});
+    };
+
+    const finish = async (text: string): Promise<void> => {
+      await flushChanges();
       await emitSeq({type: 'final', text: text.trim()});
+    };
+
+    // An interactive tool asked the user something — flush any changes so far,
+    // emit the request, and end the turn (the user replies via their next message).
+    const pause = async (): Promise<void> => {
+      await flushChanges();
+      if (this.interactive) await emitSeq(this.interactive);
     };
 
     try {
@@ -946,6 +1100,11 @@ export class AgentRunner {
             toolTrace.push(`Assistant: ${JSON.stringify({tool: call.name, args: call.args})}`);
             toolTrace.push(`TOOL RESULT (${call.name}):\n${clip(result)}`);
           }
+          // An interactive tool paused the run to ask the user something.
+          if (this.interactive) {
+            await pause();
+            return;
+          }
           continue;
         }
 
@@ -963,6 +1122,10 @@ export class AgentRunner {
         const result = await runTool(String(action.tool), args);
         toolTrace.push(`Assistant: ${JSON.stringify({tool: action.tool, args})}`);
         toolTrace.push(`TOOL RESULT (${String(action.tool)}):\n${clip(result)}`);
+        if (this.interactive) {
+          await pause();
+          return;
+        }
       }
       await finish('I ran out of steps before finishing — try a more specific request.');
     } catch (err) {
@@ -1116,6 +1279,36 @@ function summarizeBlocks(blocks: unknown[]): string {
     counts.set(type, (counts.get(type) ?? 0) + 1);
   }
   return [...counts].map(([type, n]) => (n > 1 ? `${type} ×${n}` : type)).join(', ');
+}
+
+/** Normalize the agent's `ask_user` step args into validated interview steps
+ *  (capped at 8; a step with no options becomes free-text so it's answerable). */
+function buildInterviewSteps(raw: unknown): InterviewStep[] {
+  if (!Array.isArray(raw)) return [];
+  const steps: InterviewStep[] = [];
+  for (const item of raw.slice(0, 8)) {
+    if (!item || typeof item !== 'object') continue;
+    const s = item as Record<string, unknown>;
+    const question = String(s.question ?? '').trim();
+    if (!question) continue;
+    const options = (Array.isArray(s.options) ? s.options : [])
+      .filter((o): o is Record<string, unknown> => !!o && typeof o === 'object')
+      .map((o) => {
+        const label = String(o.label ?? '').trim();
+        return label ? {label, value: String(o.value ?? label)} : null;
+      })
+      .filter((o): o is {label: string; value: string} => o !== null);
+    const hasOptions = options.length > 0;
+    const freeText = s.freeText === true || !hasOptions;
+    steps.push({
+      id: shortId('q'),
+      question,
+      ...(hasOptions ? {options} : {}),
+      ...(hasOptions && s.multiple === true ? {multiple: true} : {}),
+      ...(freeText ? {freeText: true} : {}),
+    });
+  }
+  return steps;
 }
 
 /** The `add_blocks` tool description: the full block catalogue the model builds against. */

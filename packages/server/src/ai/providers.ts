@@ -83,10 +83,28 @@ export class MockEngine implements AiEngine {
   async generate(prompt: string, opts: GenerateOptions): Promise<string> {
     let out: string;
     if (/OpenBook assistant/i.test(opts.system ?? '')) {
-      // Scripted agent turn: search first, then answer from the result. The
-      // leading <think> block exercises the reasoning-channel splitter.
-      if (!prompt.includes('TOOL RESULT')) {
-        const lastUser = prompt.split('User:').pop()?.split('\n')[0]?.trim() ?? '';
+      const lastUser = prompt.split('User:').pop()?.split('\n')[0]?.trim() ?? '';
+      // Interactive-flow scripts (exercise the ask_user / request_edit_access
+      // tools end to end): the agent asks, the panel collects the reply, and a
+      // follow-up message resumes here.
+      if (prompt.includes('Here are my answers') || prompt.includes('without the review step')) {
+        out = JSON.stringify({final: 'Thanks — I have what I need now.'});
+      } else if (/interview/i.test(lastUser)) {
+        out = JSON.stringify({
+          tool: 'ask_user',
+          args: {
+            title: 'Quick interview',
+            steps: [
+              {question: 'Which tone do you want?', options: [{label: 'Formal'}, {label: 'Casual'}]},
+              {question: 'Anything else to add?', freeText: true},
+            ],
+          },
+        });
+      } else if (/edit directly/i.test(lastUser)) {
+        out = JSON.stringify({tool: 'request_edit_access', args: {summary: 'edit this page'}});
+        // Scripted agent turn: search first, then answer from the result. The
+        // leading <think> block exercises the reasoning-channel splitter.
+      } else if (!prompt.includes('TOOL RESULT')) {
         out = `<think>The user asked: ${lastUser.slice(0, 40)}. I'll search the notes.</think>${JSON.stringify({tool: 'search_notes', args: {query: lastUser.slice(0, 60)}})}`;
       } else {
         const hits = (prompt.match(/^- \[/gm) ?? []).length;

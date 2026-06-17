@@ -1,6 +1,15 @@
 import {useEffect, useRef, useState} from 'react';
-import {ArrowUp, Bot, Brain, ChevronDown, ChevronRight, ClipboardCheck, Loader2, Plus, Square} from 'lucide-react';
-import {providerSettings, type AgentChatEvent, type AgentChatMessage, type AiConfig, type AiEffort, type AiProvider, type StoredSuggestion} from '@open-book/sdk';
+import {ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, ClipboardCheck, Loader2, Pencil, Plus, ShieldCheck, Square} from 'lucide-react';
+import {
+  providerSettings,
+  type AgentChatEvent,
+  type AgentChatMessage,
+  type AiConfig,
+  type AiEffort,
+  type AiProvider,
+  type InterviewStep,
+  type StoredSuggestion,
+} from '@open-book/sdk';
 import {Button} from '@/components/ui/button';
 import {Markdown} from '@/components/ui/markdown';
 import {Select} from '@/components/ui/select';
@@ -9,6 +18,7 @@ import type {TKey} from '@/i18n';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {REVIEW_PANE_ID} from '@/lib/homePage';
 import {setReviewTarget} from '@/lib/reviewPane';
+import {aiBridge} from '@/lib/aiBridge';
 import {lastSelection} from '@/lib/selection';
 import {cn} from '@/lib/utils';
 
@@ -32,6 +42,12 @@ type ThreadItem =
   | {kind: 'reasoning'; text: string; expanded?: boolean; streaming?: boolean}
   | {kind: 'tool'; name: string; detail?: string; running: boolean; result?: string; expanded?: boolean}
   | {kind: 'suggestions'; suggestions: StoredSuggestion[]}
+  /** The agent asked to apply edits directly; awaiting allow/deny. */
+  | {kind: 'permission'; summary: string; resolved?: 'allowed' | 'denied'}
+  /** The agent posed a multi-step interview; `resolved` once answers were sent. */
+  | {kind: 'interview'; title?: string; steps: InterviewStep[]; resolved?: boolean}
+  /** Edits the agent applied directly (granted access). */
+  | {kind: 'applied'; text: string}
   | {kind: 'error'; text: string};
 
 /** Clear the `streaming` flag on any in-progress assistant/reasoning items. */
@@ -82,6 +98,8 @@ export function AgentPanel() {
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState<AiEffort>('med');
   const [thinking, setThinking] = useState(true);
+  // Sticky once the agent's "apply directly" request is granted this conversation.
+  const [directEdits, setDirectEdits] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -128,6 +146,7 @@ export function AgentPanel() {
     abortRef.current?.abort();
     setThread([]);
     setConversation([]);
+    setDirectEdits(false);
     setBusy(false);
     inputRef.current?.focus();
   };
@@ -158,6 +177,24 @@ export function AgentPanel() {
       if (event.suggestions.length > 0) {
         setThread((items) => [...items, {kind: 'suggestions', suggestions: event.suggestions}]);
       }
+    } else if (event.type === 'permission_request') {
+      setThread((items) => [...settle(items), {kind: 'permission', summary: event.summary}]);
+    } else if (event.type === 'interview') {
+      setThread((items) => [...settle(items), {kind: 'interview', title: event.title, steps: event.steps}]);
+    } else if (event.type === 'apply') {
+      // The user granted direct edits: replay the proposals through the editor
+      // bridge (CRDT-first, server fallback) — the same path an accepted
+      // suggestion takes — and report how many landed.
+      void aiBridge
+        .applyProposals(event.proposals)
+        .then((res) => {
+          const text =
+            res.failed.length > 0
+              ? t('agent.appliedPartial', {applied: res.applied, failed: res.failed.length})
+              : t('agent.applied', {count: res.applied});
+          setThread((items) => [...items, {kind: 'applied', text}]);
+        })
+        .catch(() => setThread((items) => [...items, {kind: 'error', text: t('agent.applyFailed')}]));
     } else if (event.type === 'final') {
       // Replace the streamed answer with the authoritative final text (it was
       // streamed live on the native path; on the JSON path it arrives only now).
@@ -181,13 +218,10 @@ export function AgentPanel() {
     }
   };
 
-  const send = (): void => {
-    const text = input.trim();
-    if (!text || busy) return;
-    const turns: AgentChatMessage[] = [...conversation, {role: 'user', content: text}];
-    setConversation(turns);
-    setThread((items) => [...items, {kind: 'user', text}]);
-    setInput('');
+  // Stream one agent run over `turns`. `direct` carries the edit-access grant for
+  // this run (passed explicitly so a freshly-granted permission applies at once,
+  // before the `directEdits` state has flushed).
+  const runAgent = (turns: AgentChatMessage[], direct: boolean): void => {
     setBusy(true);
     const abort = new AbortController();
     abortRef.current = abort;
@@ -202,12 +236,47 @@ export function AgentPanel() {
         // current selection, on top of whatever they typed.
         pageId: currentPageId ?? undefined,
         selection: lastSelection() || undefined,
+        allowDirectEdits: direct,
       })
       .catch((err: unknown) => {
         if (abort.signal.aborted) return;
         setThread((items) => [...items, {kind: 'error', text: t('agent.error', {error: err instanceof Error ? err.message : String(err)})}]);
       })
       .finally(() => setBusy(false));
+  };
+
+  // Append a user turn and run the agent. Used by the composer and by the
+  // interactive cards (permission grant / interview answers) to resume the agent.
+  const sendUser = (text: string, direct = directEdits): void => {
+    if (busy) return;
+    const turns: AgentChatMessage[] = [...conversation, {role: 'user', content: text}];
+    setConversation(turns);
+    setThread((items) => [...items, {kind: 'user', text}]);
+    runAgent(turns, direct);
+  };
+
+  const send = (): void => {
+    const text = input.trim();
+    if (!text || busy) return;
+    setInput('');
+    sendUser(text);
+  };
+
+  // Resolve the agent's request to edit directly: granting flips the sticky flag
+  // and resumes the agent with edit access; declining keeps the review flow.
+  const resolvePermission = (index: number, allow: boolean): void => {
+    if (busy) return;
+    setThread((items) => items.map((it, i) => (i === index && it.kind === 'permission' ? {...it, resolved: allow ? 'allowed' : 'denied'} : it)));
+    if (allow) setDirectEdits(true);
+    sendUser(allow ? t('agent.permissionGrantedMsg') : t('agent.permissionDeniedMsg'), allow);
+  };
+
+  // The user finished the interview: send their answers back as a tidy message.
+  const submitInterview = (index: number, answers: Array<{question: string; answer: string}>): void => {
+    if (busy) return;
+    setThread((items) => items.map((it, i) => (i === index && it.kind === 'interview' ? {...it, resolved: true} : it)));
+    const body = answers.map((a) => `- ${a.question}\n  ${a.answer || '(no answer)'}`).join('\n');
+    sendUser(`${t('agent.interviewAnswersHeader')}\n${body}`);
   };
 
   const toggleExpand = (index: number): void =>
@@ -377,6 +446,59 @@ export function AgentPanel() {
               </div>
             );
           }
+          if (item.kind === 'permission') {
+            return (
+              <div
+                key={i}
+                data-agent-permission
+                className="flex max-w-full flex-col gap-2 self-start rounded-lg border border-primary/30 bg-primary/5 px-3 py-2.5"
+              >
+                <p className="flex items-center gap-1.5 text-xs font-medium">
+                  <ShieldCheck className="size-3.5 text-primary" aria-hidden />
+                  {t('agent.permissionTitle')}
+                </p>
+                <p className="text-[11px] text-muted-foreground">{t('agent.permissionHint', {summary: item.summary})}</p>
+                {item.resolved ? (
+                  <p className="text-[11px] font-medium text-muted-foreground">
+                    {item.resolved === 'allowed' ? t('agent.permissionAllowed') : t('agent.permissionDeclined')}
+                  </p>
+                ) : (
+                  <div className="flex gap-2">
+                    <Button size="sm" data-agent-permission-allow onClick={() => resolvePermission(i, true)} disabled={busy}>
+                      {t('agent.permissionAllow')}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => resolvePermission(i, false)} disabled={busy}>
+                      {t('agent.permissionKeepReview')}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          }
+          if (item.kind === 'interview') {
+            return (
+              <InterviewCard
+                key={i}
+                title={item.title}
+                steps={item.steps}
+                resolved={item.resolved}
+                disabled={busy}
+                onSubmit={(answers) => submitInterview(i, answers)}
+              />
+            );
+          }
+          if (item.kind === 'applied') {
+            return (
+              <div
+                key={i}
+                data-agent-applied
+                className="inline-flex items-center gap-1.5 self-start rounded-md border border-emerald-500/30 bg-emerald-500/5 px-2.5 py-1 text-[11px] text-emerald-700 dark:text-emerald-300"
+              >
+                <Check className="size-3.5" aria-hidden />
+                {item.text}
+              </div>
+            );
+          }
           return (
             <div
               key={i}
@@ -494,6 +616,119 @@ export function AgentPanel() {
           )}
         </div>
       </footer>
+    </div>
+  );
+}
+
+/**
+ * The agent's `ask_user` interview: one question per step, each with options
+ * (single or multi-select) and/or a typed answer. Collects the answers locally
+ * and hands them back on the last step — the panel sends them as the user's
+ * next message so the agent can continue.
+ */
+function InterviewCard({
+  title,
+  steps,
+  resolved,
+  disabled,
+  onSubmit,
+}: {
+  title?: string;
+  steps: InterviewStep[];
+  resolved?: boolean;
+  disabled?: boolean;
+  onSubmit: (answers: Array<{question: string; answer: string}>) => void;
+}) {
+  const {t} = useTranslation();
+  const [stepIdx, setStepIdx] = useState(0);
+  const [picks, setPicks] = useState<Record<string, string[]>>({});
+  const [texts, setTexts] = useState<Record<string, string>>({});
+
+  if (resolved) {
+    return (
+      <div data-agent-interview className="self-start rounded-lg border border-border bg-background/60 px-3 py-2 text-[11px] text-muted-foreground">
+        {t('agent.interviewSent')}
+      </div>
+    );
+  }
+
+  const step = steps[stepIdx];
+  const sel = picks[step.id] ?? [];
+  const choose = (value: string): void =>
+    setPicks((prev) => {
+      const cur = prev[step.id] ?? [];
+      if (step.multiple) return {...prev, [step.id]: cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value]};
+      return {...prev, [step.id]: cur.includes(value) ? [] : [value]}; // single-select toggle/replace
+    });
+  const answerFor = (s: InterviewStep): string => {
+    const chosen = (s.options ?? []).filter((o) => (picks[s.id] ?? []).includes(o.value)).map((o) => o.label);
+    const typed = (texts[s.id] ?? '').trim();
+    return [chosen.join(', '), typed].filter(Boolean).join(' — ');
+  };
+  const last = stepIdx === steps.length - 1;
+  const advance = (): void => {
+    if (last) onSubmit(steps.map((s) => ({question: s.question, answer: answerFor(s)})));
+    else setStepIdx((n) => n + 1);
+  };
+
+  return (
+    <div data-agent-interview className="flex w-full max-w-full flex-col gap-2 self-start rounded-lg border border-border bg-background/60 px-3 py-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-xs font-medium">
+          <Pencil className="size-3.5 text-primary" aria-hidden />
+          {title || t('agent.interviewTitle')}
+        </p>
+        <span className="shrink-0 text-[10px] text-muted-foreground">{t('agent.interviewStep', {current: stepIdx + 1, total: steps.length})}</span>
+      </div>
+      <p className="text-sm">{step.question}</p>
+      {step.options && step.options.length > 0 && (
+        <div className="flex flex-col gap-1">
+          {step.options.map((o) => {
+            const picked = sel.includes(o.value);
+            return (
+              <button
+                key={o.value}
+                type="button"
+                data-agent-interview-option
+                onClick={() => choose(o.value)}
+                className={cn(
+                  'flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-sm transition-colors',
+                  picked ? 'border-primary bg-primary/10' : 'border-border hover:bg-hover',
+                )}
+              >
+                <span
+                  className={cn(
+                    'flex size-3.5 shrink-0 items-center justify-center border',
+                    step.multiple ? 'rounded' : 'rounded-full',
+                    picked ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40',
+                  )}
+                >
+                  {picked && <Check className="size-2.5" />}
+                </span>
+                <span className="truncate">{o.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {step.freeText && (
+        <textarea
+          rows={2}
+          value={texts[step.id] ?? ''}
+          onChange={(e) => setTexts((prev) => ({...prev, [step.id]: e.target.value}))}
+          placeholder={t('agent.interviewPlaceholder')}
+          aria-label={step.question}
+          className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring"
+        />
+      )}
+      <div className="flex items-center justify-between gap-2">
+        <Button size="sm" variant="ghost" disabled={stepIdx === 0 || disabled} onClick={() => setStepIdx((n) => Math.max(0, n - 1))}>
+          {t('agent.interviewBack')}
+        </Button>
+        <Button size="sm" data-agent-interview-next disabled={disabled} onClick={advance}>
+          {last ? t('agent.interviewSubmit') : t('agent.interviewNext')}
+        </Button>
+      </div>
     </div>
   );
 }

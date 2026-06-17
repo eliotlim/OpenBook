@@ -145,7 +145,7 @@ export interface AgentProposal {
   /** Stable id within the turn's change set. */
   id: string;
   /** Which write tool produced it (drives how the bridge applies it). */
-  kind: 'set_kit_value' | 'set_db_cell' | 'update_block' | 'append_blocks' | 'set_page_theme';
+  kind: 'set_kit_value' | 'set_db_cell' | 'update_block' | 'append_blocks' | 'set_page_theme' | 'delete_block';
   /** One-line human summary, e.g. `Set "budget" = 1200`. */
   summary: string;
   /** The page this change targets (for block/kit writes). */
@@ -158,10 +158,43 @@ export interface AgentProposal {
   payload: Record<string, unknown>;
 }
 
+/**
+ * One step of a multi-step interview the agent asks the user (the `ask_user`
+ * tool). Each step is one question; the user answers all steps, and the answers
+ * return to the agent as their next message.
+ */
+export interface InterviewStep {
+  id: string;
+  /** The question text. */
+  question: string;
+  /** Choices to pick from. Omit (or set `freeText`) for a typed answer. */
+  options?: Array<{label: string; value: string}>;
+  /** Allow selecting more than one option. */
+  multiple?: boolean;
+  /** Allow a typed answer (on its own, or in addition to the options). */
+  freeText?: boolean;
+}
+
 /** One streamed step of an agent run. */
 export type AgentChatEvent =
   | {type: 'tool'; name: string; args: Record<string, unknown>}
   | {type: 'tool_result'; name: string; result: string}
+  /**
+   * The agent is asking to apply its edits DIRECTLY (without the review pane).
+   * The UI shows an allow/keep-reviewing prompt; granting it makes subsequent
+   * edits in this conversation apply immediately (see {@link apply}).
+   */
+  | {type: 'permission_request'; summary: string}
+  /** The agent is asking the user a multi-step interview; answers return as the
+   *  user's next message. */
+  | {type: 'interview'; title?: string; steps: InterviewStep[]}
+  /**
+   * Edits the agent applied DIRECTLY (the user granted edit access). The UI
+   * replays them through the editor bridge — the same path an accepted
+   * suggestion takes — and shows a short "applied" summary instead of a review
+   * card.
+   */
+  | {type: 'apply'; proposals: AgentProposal[]}
   /**
    * A chunk of the assistant's answer, streamed live as the model writes it
    * (engines that support native tool-calling only; the JSON-protocol fallback
@@ -197,6 +230,10 @@ export interface AgentChatOptions {
   pageId?: string;
   /** The user's current text selection — added as context on top of the message. */
   selection?: string;
+  /** When true (the user granted edit access), the agent's edits apply directly
+   *  via an {@link AgentChatEvent.apply} event instead of becoming review
+   *  suggestions. Sticky for the conversation once granted. */
+  allowDirectEdits?: boolean;
 }
 
 // ── Skills (user-authored prompt/recipe skills) ─────────────────────────────────

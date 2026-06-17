@@ -12,6 +12,18 @@ const setProvider = async (request: import('@playwright/test').APIRequestContext
   expect(res.ok()).toBeTruthy();
 };
 
+/** Open the assistant side panel via the command palette. */
+async function openAssistant(page: import('@playwright/test').Page) {
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByPlaceholder(/Search pages or run a command/).fill('Ask the assistant');
+  await page.keyboard.press('Enter');
+  const panel = page.locator('[data-agent-panel]');
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
 test.afterAll(async ({request}) => {
   await setProvider(request, 'off');
 });
@@ -191,6 +203,46 @@ test('assistant panel: ask a question, watch the tool run, get a grounded answer
   await expect(panel.locator('[data-agent-item]')).toHaveCount(0);
   await page.getByRole('button', {name: 'Hide split pane'}).click();
   await expect(panel).toHaveCount(0);
+});
+
+test('assistant panel: a multi-step interview collects answers and resumes the agent', async ({page, request}) => {
+  await setProvider(request, 'mock');
+  const panel = await openAssistant(page);
+  await panel.locator('[data-agent-input]').fill('interview me about the doc');
+  await panel.locator('[data-agent-send]').click();
+
+  // The agent's ask_user tool renders the interview card (question + options).
+  const interview = panel.locator('[data-agent-interview]');
+  await expect(interview).toBeVisible();
+  await expect(interview).toContainText('Which tone');
+  await interview.locator('[data-agent-interview-option]', {hasText: 'Formal'}).click();
+  await interview.locator('[data-agent-interview-next]').click();
+
+  // Step two is a free-text question; answering it sends the answers back.
+  await expect(interview).toContainText('Anything else');
+  await interview.getByRole('textbox').fill('Keep it short');
+  await interview.locator('[data-agent-interview-next]').click();
+
+  await expect(panel.locator('[data-agent-item="user"]').filter({hasText: 'Here are my answers'})).toBeVisible();
+  await expect(panel.locator('[data-agent-item="user"]').last()).toContainText('Formal');
+  await expect(panel.locator('[data-agent-item="assistant"]').last()).toContainText('I have what I need');
+});
+
+test('assistant panel: granting direct edit access resumes the agent', async ({page, request}) => {
+  await setProvider(request, 'mock');
+  const panel = await openAssistant(page);
+  await panel.locator('[data-agent-input]').fill('edit directly please');
+  await panel.locator('[data-agent-send]').click();
+
+  // The agent's request_edit_access tool renders the permission prompt.
+  const perm = panel.locator('[data-agent-permission]');
+  await expect(perm).toBeVisible();
+  await expect(perm).toContainText('Apply changes directly');
+  await perm.locator('[data-agent-permission-allow]').click();
+
+  // Granting flips the sticky flag and resumes the agent.
+  await expect(perm).toContainText('Direct edits allowed');
+  await expect(panel.locator('[data-agent-item="assistant"]').last()).toContainText('I have what I need');
 });
 
 test('with AI off, the slash menu hides AI actions but search stays lexical', async ({page, request}) => {

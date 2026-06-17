@@ -527,7 +527,7 @@ export class HttpDataClient implements DataClient {
     const res = await fetch(`${this.baseUrl}${API.agentChat}`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({messages, provider: opts.provider, model: opts.model, effort: opts.effort, thinking: opts.thinking, skills: opts.skills, pageId: opts.pageId, selection: opts.selection}),
+      body: JSON.stringify({messages, provider: opts.provider, model: opts.model, effort: opts.effort, thinking: opts.thinking, skills: opts.skills, pageId: opts.pageId, selection: opts.selection, allowDirectEdits: opts.allowDirectEdits}),
       cache: 'no-store',
       signal: opts.signal,
     });
