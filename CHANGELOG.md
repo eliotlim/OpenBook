@@ -1,3 +1,14 @@
+## 1.57.0 (2026-06-17)
+
+### 🚀 Features
+
+- agent interviews and block deletion ([3858079](https://github.com/eliotlim/OpenBook/commit/3858079))
+- block updates and replacement ([b9a5dd5](https://github.com/eliotlim/OpenBook/commit/b9a5dd5))
+
+### ❤️ Thank You
+
+- Eliot Lim
+
 ## 1.56.0 (2026-06-17)
 
 ### 🚀 Features
