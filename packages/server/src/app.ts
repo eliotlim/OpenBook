@@ -57,7 +57,7 @@ export function createApp(store: PageStore, ai?: AiService): Hono {
 
   // Optional local-AI subsystem (status/search/generate). Mounted only when
   // the host passed a service; document APIs never depend on it.
-  if (ai) mountAiRoutes(app, ai, store);
+  if (ai) mountAiRoutes(app, ai, store, broadcastList);
   mountPluginRoutes(app, store);
 
   app.get(API.health, (c) => c.text('ok'));

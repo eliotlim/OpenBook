@@ -11,7 +11,7 @@ import type {AiService} from './service';
  * everything else is plain JSON. Engine failures return 503 with a
  * human-readable `error` so the UI can guide the user to Settings → AI.
  */
-export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore): void {
+export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore, onPagesChanged?: () => Promise<void>): void {
   app.get(API.aiStatus, async (c) => c.json(await ai.status()));
 
   app.put(API.aiConfig, async (c) => {
@@ -127,7 +127,7 @@ export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore): void 
 
     // Per-conversation engine override (the agent drawer's provider/model pickers).
     const engineOverride = body.provider || body.model ? {provider: body.provider, model: body.model} : undefined;
-    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, context, allowDirectEdits: body.allowDirectEdits === true});
+    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, context, allowDirectEdits: body.allowDirectEdits === true, onPagesChanged});
     return streamSSE(c, async (stream) => {
       const abort = new AbortController();
       stream.onAbort(() => abort.abort());

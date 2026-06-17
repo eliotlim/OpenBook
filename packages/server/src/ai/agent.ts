@@ -86,6 +86,9 @@ export interface AgentRunOptions {
    *  tools apply changes immediately (an `apply` event) instead of proposing
    *  review suggestions. Sticky for the conversation. */
   allowDirectEdits?: boolean;
+  /** Called once after a run that created, moved, or otherwise restructured pages
+   *  — so the host can re-broadcast the page list (the sidebar stays live). */
+  onPagesChanged?: () => void | Promise<void>;
 }
 
 interface ToolDef {
@@ -120,6 +123,7 @@ const SUGGESTION_KIND: Record<AgentProposal['kind'], SuggestionKind> = {
   set_db_cell: 'set-cell',
   set_page_theme: 'set-theme',
   delete_block: 'delete',
+  set_block_props: 'replace-text',
 };
 
 export class AgentRunner {
@@ -128,6 +132,8 @@ export class AgentRunner {
   private suggestions: StoredSuggestion[] = [];
   /** Whether the user has granted direct (review-free) edit access this run. */
   private readonly directEdits: boolean;
+  /** Set when a tool changed the page tree (create/move) → broadcast on finish. */
+  private pagesTouched = false;
   /** Proposals to apply DIRECTLY this run (when {@link directEdits}). */
   private pendingApply: AgentProposal[] = [];
   /** A pending interactive request (permission / interview) that pauses the run
@@ -144,6 +150,7 @@ export class AgentRunner {
       ...this.readTools(),
       ...this.writeTools(),
       ...this.databaseTools(),
+      ...this.pageTools(),
       ...this.layoutTools(),
       ...this.interactiveTools(),
       ...this.pluginToolDefs(),
@@ -325,6 +332,7 @@ export class AgentRunner {
           try {
             const page = await this.store.upsertPage({name: title, data: textSnapshot('', 'agent')});
             await this.store.createDatabase({pageId: page.id, name: title, schema});
+            this.pagesTouched = true;
             const cols = properties.length ? ` Columns: ${properties.map((p) => `${p.name} [${p.id}]`).join(', ')}.` : '';
             return `Created database "${title}" on page ${page.id}.${cols} Use pageId ${page.id} to add rows (create_row) or columns (create_property).`;
           } catch (err) {
@@ -479,6 +487,7 @@ export class AgentRunner {
           if (!title) return 'A title is required.';
           try {
             const page = await this.store.upsertPage({name: title, data: textSnapshot(String(args.content ?? ''), 'agent')});
+            this.pagesTouched = true;
             return `Created page "${title}" with id ${page.id}.`;
           } catch (err) {
             return `Could not create the page: ${err instanceof Error ? err.message : String(err)}`;
@@ -530,6 +539,47 @@ export class AgentRunner {
             // base, so accepting this alongside another edit to the same block
             // combines them instead of clobbering. See the bridge's update_block.
             payload: {pageId, blockId, text, before},
+          });
+        },
+      },
+      {
+        name: 'update_block_props',
+        description:
+          'Propose changing a block\'s TYPE and/or its props — e.g. heading level, list kind, todo checked, callout variant, code language, or an input\'s value/min/max/options. Use update_block for the TEXT, this for the format/type. Find the block id, current type, and props via inspect_page_structure. User approves first.',
+        args: '{"pageId": string, "blockId": string, "type"?: string, "props"?: object}',
+        schema: obj(
+          {
+            pageId: str('The page id.'),
+            blockId: str('The block id from inspect_page_structure.'),
+            type: {type: 'string', description: 'Optional new block type (e.g. heading, list, todo, callout). Omit to keep the current type.'},
+            props: {
+              type: 'object',
+              description: 'Props to merge, e.g. {"level":2} / {"kind":"number"} / {"checked":true} / {"variant":"warn"} / {"language":"python"} / {"min":0,"max":100,"value":40}.',
+            },
+          },
+          ['pageId', 'blockId'],
+        ),
+        write: true,
+        run: async (args) => {
+          const pageId = String(args.pageId ?? '');
+          const blockId = String(args.blockId ?? '');
+          const page = await this.store.getPage(pageId);
+          if (!page) return 'Page not found.';
+          const info = blockInfoById(page.data, blockId);
+          if (!info) return `No block "${blockId}" on that page — use inspect_page_structure.`;
+          const type = typeof args.type === 'string' && args.type.trim() ? args.type.trim() : undefined;
+          if (type && !KNOWN_BLOCK_TYPES.has(type)) return `Unsupported block type "${type}". Allowed: ${[...KNOWN_BLOCK_TYPES].join(', ')}.`;
+          const props = args.props && typeof args.props === 'object' && !Array.isArray(args.props) ? (args.props as Record<string, unknown>) : undefined;
+          if (!type && !props) return 'Provide a new type and/or props to change.';
+          const describe = (t: string, p: Record<string, unknown>): string =>
+            `${t}${Object.keys(p).length ? ` ${JSON.stringify(p)}` : ''}`;
+          return this.propose({
+            kind: 'set_block_props',
+            summary: `Update block ${blockId} on "${page.name ?? 'Untitled'}"${type ? ` → ${type}` : ''}`,
+            pageId,
+            before: clip(describe(info.type, info.props), 200),
+            after: clip(describe(type ?? info.type, {...info.props, ...(props ?? {})}), 200),
+            payload: {pageId, blockId, ...(type ? {type} : {}), ...(props ? {props} : {})},
           });
         },
       },
@@ -721,6 +771,53 @@ export class AgentRunner {
     ];
   }
 
+  // ── Page tools (workspace tree rearrangement) ────────────────────────────────
+
+  /**
+   * Rearrange pages in the sidebar tree: `move_page` reparents a page and/or
+   * positions it among its siblings. A structural store operation (like
+   * create_page / the database tools), so it applies immediately.
+   */
+  private pageTools(): ToolDef[] {
+    return [
+      {
+        name: 'move_page',
+        description:
+          'Rearrange a page in the workspace tree: nest it under another page (or move it to the top level with parentId null), and/or position it among its siblings. Applied immediately. Use list_pages for ids.',
+        args: '{"pageId": string, "parentId"?: string|null, "beforePageId"?: string}',
+        schema: obj(
+          {
+            pageId: str('The page to move.'),
+            parentId: {type: ['string', 'null'], description: 'New parent page id, or null for the top level. Omit to keep the current parent.'},
+            beforePageId: str('Position it just before this sibling; omit to place it last among its siblings.'),
+          },
+          ['pageId'],
+        ),
+        run: async (args) => {
+          const pageId = String(args.pageId ?? '');
+          const page = await this.store.getPage(pageId);
+          if (!page) return 'Page not found.';
+          const pages = await this.store.listPages();
+          if (!pages.some((p) => p.id === pageId)) return 'move_page handles workspace pages, not database rows.';
+          const parentId = args.parentId === undefined ? page.parentId ?? null : args.parentId === null ? null : String(args.parentId);
+          if (parentId === pageId) return 'A page cannot be its own parent.';
+          if (parentId && !pages.some((p) => p.id === parentId)) return `Parent page "${parentId}" not found.`;
+          // The target parent's children, in order, with the moved page inserted.
+          const siblings = pages.filter((p) => (p.parentId ?? null) === parentId && p.id !== pageId).map((p) => p.id);
+          const before = typeof args.beforePageId === 'string' ? args.beforePageId : '';
+          const at = before ? siblings.indexOf(before) : -1;
+          if (at >= 0) siblings.splice(at, 0, pageId);
+          else siblings.push(pageId);
+          const moved = await this.store.movePage(pageId, parentId, siblings);
+          if (!moved) return 'Could not move the page (it would create a cycle — a page cannot nest under its own descendant).';
+          this.pagesTouched = true;
+          const where = parentId ? `under "${pages.find((p) => p.id === parentId)?.name ?? parentId}"` : 'to the top level';
+          return `Moved "${page.name ?? 'Untitled'}" ${where}${before ? `, before ${before}` : ''}.`;
+        },
+      },
+    ];
+  }
+
   // ── Interactive tools (pause the run and wait for the user) ──────────────────
 
   /**
@@ -863,7 +960,9 @@ export class AgentRunner {
   /** Derive a suggestion's structured target from a write-tool proposal. */
   private suggestionTarget(proposal: Omit<AgentProposal, 'id'>): StoredSuggestion['target'] {
     const p = proposal.payload;
-    if (proposal.kind === 'update_block' || proposal.kind === 'delete_block') return {blockId: String(p.blockId ?? '')};
+    if (proposal.kind === 'update_block' || proposal.kind === 'delete_block' || proposal.kind === 'set_block_props') {
+      return {blockId: String(p.blockId ?? '')};
+    }
     if (proposal.kind === 'set_db_cell') {
       return {databaseId: String(p.databaseId ?? ''), rowId: String(p.rowId ?? ''), propertyId: String(p.propertyId ?? '')};
     }
@@ -880,7 +979,7 @@ export class AgentRunner {
     const lines = [
       'You are the OpenBook assistant. You work inside the user\'s private note workspace and help them find, read, edit, and organise their notes and databases.',
       'You have TOOLS to search and read pages, to propose edits, and to build databases. Use a tool to get facts from the workspace — never invent note contents, page titles, database columns, or ids.',
-      'Two kinds of change: edits to existing note text, inputs, and cells (update_block, delete_block, append_to_page, add_blocks, set_kit_value, set_db_cell) are PROPOSED for the user to review and approve. Structural actions — creating pages, creating databases, adding rows, and adding or editing database columns — APPLY IMMEDIATELY, so do them deliberately and only when asked.',
+      'Two kinds of change: edits to existing note text, inputs, blocks, and cells (update_block for text, update_block_props for a block\'s type/format, delete_block, append_to_page, add_blocks, set_kit_value, set_db_cell) are PROPOSED for the user to review and approve. Structural actions — creating pages, rearranging pages in the tree (move_page), creating databases, adding rows, and adding or editing database columns — APPLY IMMEDIATELY, so do them deliberately and only when asked.',
       this.directEdits
         ? 'The user has GRANTED you DIRECT EDIT ACCESS this conversation, so those edit tools now apply IMMEDIATELY (no review) — make changes confidently, and remove blocks with delete_block when asked.'
         : 'If the user wants you to make edits FOR them (rather than just suggestions to review), call request_edit_access ONCE to ask permission to apply edits directly; otherwise your edits are queued for their review.',
@@ -993,6 +1092,7 @@ export class AgentRunner {
     this.suggestions = [];
     this.pendingApply = [];
     this.interactive = null;
+    this.pagesTouched = false;
 
     // Resolve the engine for this run — the configured default, or a transient
     // engine for a per-conversation provider/model override. A bad key / off
@@ -1133,6 +1233,9 @@ export class AgentRunner {
     } finally {
       // Flush any fire-and-forget token writes before the route sends `done`.
       await emitChain.catch(() => undefined);
+      // Re-broadcast the page list when the run restructured the tree (create /
+      // move), so the sidebar reflects it live rather than on the next refresh.
+      if (this.pagesTouched) await Promise.resolve(this.options.onPagesChanged?.()).catch(() => undefined);
       // A per-conversation override built a transient engine — release it.
       if (transient) await engine.dispose().catch(() => undefined);
     }
@@ -1377,6 +1480,28 @@ function blockTextById(data: {editor?: string; blockdoc?: unknown} | null | unde
       if (found !== null) return;
       if (b.id === id) {
         found = runText(b);
+        return;
+      }
+      if (b.children) walk(b.children);
+    }
+  };
+  walk(blocks);
+  return found;
+}
+
+/** A block's current type + props (block-editor pages only), or null if absent. */
+function blockInfoById(
+  data: {editor?: string; blockdoc?: unknown} | null | undefined,
+  id: string,
+): {type: string; props: Record<string, unknown>} | null {
+  const blocks = blockdocBlocks(data);
+  if (!blocks) return null;
+  let found: {type: string; props: Record<string, unknown>} | null = null;
+  const walk = (list: AnyJsonBlock[]): void => {
+    for (const b of list) {
+      if (found) return;
+      if (b.id === id) {
+        found = {type: b.type ?? '?', props: b.props ?? {}};
         return;
       }
       if (b.children) walk(b.children);

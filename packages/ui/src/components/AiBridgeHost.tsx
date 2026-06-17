@@ -10,6 +10,7 @@ import {
   encodeSnapshot,
   findBlock,
   makeBlock,
+  patchBlock,
   replaceText,
   rootBlocks,
   type BlockDocSnapshot,
@@ -113,6 +114,14 @@ export function AiBridgeHost() {
         } else if (p.kind === 'delete_block') {
           const found = findBlock(doc, String(payload.blockId));
           if (found) found.parent.delete(found.index, 1);
+        } else if (p.kind === 'set_block_props') {
+          const found = findBlock(doc, String(payload.blockId));
+          if (found) {
+            patchBlock(found.block, {
+              type: typeof payload.type === 'string' ? payload.type : undefined,
+              props: payload.props && typeof payload.props === 'object' ? (payload.props as Record<string, unknown>) : undefined,
+            });
+          }
         }
       }, 'local');
     };

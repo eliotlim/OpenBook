@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {blockChildren, blockText, blockToJSON, coerceNewBlock, createDoc, findBlock, makeBlock, replaceText, rootBlocks} from '../model';
+import {blockChildren, blockText, blockToJSON, coerceNewBlock, createDoc, findBlock, makeBlock, patchBlock, replaceText, rootBlocks} from '../model';
 import {merge3} from '@/lib/textMerge';
 
 /**
@@ -38,6 +38,32 @@ describe('AI apply: update_block merge', () => {
     // "world" keeps its bold run because the suffix was never deleted.
     expect(runs.some((r) => r.t.includes('world') && r.a?.b)).toBe(true);
     expect(t.toString()).toBe('Hello brave world');
+  });
+});
+
+describe('AI apply: patchBlock changes type and/or props', () => {
+  it('turns a block into a new type, keeping its text, and merges props', () => {
+    const doc = createDoc([{id: 'b1', type: 'paragraph', text: 'A point'}]);
+    patchBlock(findBlock(doc, 'b1')!.block, {type: 'heading', props: {level: 2}});
+    const json = blockToJSON(findBlock(doc, 'b1')!.block);
+    expect(json.type).toBe('heading');
+    expect(json.props?.level).toBe(2);
+    expect(blockText(findBlock(doc, 'b1')!.block)?.toString()).toBe('A point'); // text preserved
+  });
+
+  it('updates props without a type, merging onto existing props', () => {
+    const doc = createDoc([{id: 's1', type: 'slider', props: {name: 'n', value: 10, min: 0, max: 100}}]);
+    patchBlock(findBlock(doc, 's1')!.block, {props: {value: 42}});
+    const json = blockToJSON(findBlock(doc, 's1')!.block);
+    expect(json.type).toBe('slider'); // unchanged
+    expect(json.props?.value).toBe(42); // updated
+    expect(json.props?.max).toBe(100); // other props kept
+  });
+
+  it('adds a text container when turning a non-text block into a text type', () => {
+    const doc = createDoc([{id: 'd1', type: 'divider'}]);
+    patchBlock(findBlock(doc, 'd1')!.block, {type: 'paragraph'});
+    expect(blockText(findBlock(doc, 'd1')!.block)).toBeDefined(); // Y.Text was created
   });
 });
 

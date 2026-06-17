@@ -424,6 +424,21 @@ export function turnInto(doc: Y.Doc, id: string, type: BlockType, props?: Record
   }, 'local');
 }
 
+/**
+ * Apply an optional `{type, props}` patch to a block IN PLACE — call from inside
+ * a transaction. Like {@link turnInto} but the type is optional (props-only
+ * updates keep the type) and there's no own transaction, so the agent bridge can
+ * fold it into its single 'local' transaction. Turning into a text block adds an
+ * empty Y.Text when missing.
+ */
+export function patchBlock(block: BlockMap, patch: {type?: string; props?: Record<string, unknown>}): void {
+  if (patch.type) {
+    block.set('type', patch.type);
+    if (TEXT_BLOCKS.has(patch.type as BlockType) && !blockText(block)) block.set('text', new Y.Text());
+  }
+  if (patch.props) for (const [k, v] of Object.entries(patch.props)) setBlockProp(block, k, v);
+}
+
 /** Most columns a layout can hold (a 12-unit grid stays legible up to six). */
 export const MAX_COLUMNS = 6;
 
