@@ -1,5 +1,5 @@
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {CalendarCheck, ChevronRight} from 'lucide-react';
+import {CalendarCheck, ChevronRight, GripVertical} from 'lucide-react';
 import {
   groupRowsBy,
   rowDateSpan,
@@ -264,6 +264,26 @@ const TimelineCanvas: React.FC<{
       writeBandFolds(view.id, next);
       return next;
     });
+
+  // Band (swimlane) reorder by dragging the gutter, mirroring the board lanes.
+  const [dragBand, setDragBand] = useState<string | null>(null);
+  const [overBand, setOverBand] = useState<string | null>(null);
+  const groupProp = view.groupByPropertyId ? properties.find((p) => p.id === view.groupByPropertyId) : undefined;
+  const canMoveBand = groupProp?.type === 'select' || groupProp?.type === 'status';
+  const isBandOption = (key: string): boolean => canMoveBand && key !== '__none__' && key !== '__all__';
+  const reorderBand = (fromKey: string, toKey: string): void => {
+    if (!groupProp || !canMoveBand) return;
+    const opts = [...(groupProp.options ?? [])];
+    const from = opts.findIndex((o) => o.id === fromKey);
+    const to = opts.findIndex((o) => o.id === toKey);
+    if (from >= 0 && to >= 0 && from !== to) {
+      const [moved] = opts.splice(from, 1);
+      opts.splice(to, 0, moved);
+      void db.updateProperty(groupProp.id, {options: opts});
+    }
+    setDragBand(null);
+    setOverBand(null);
+  };
 
   // Bars colour by the view's chosen colour property (a select/status), falling
   // back to the first select property.
@@ -600,17 +620,53 @@ const TimelineCanvas: React.FC<{
             return (
               <div key={g.key}>
                 {grouped && (
-                  <button
-                    onClick={() => toggleBand(g.key)}
-                    aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${g.label} band`}
-                    className="flex w-full items-center gap-1 border-b border-border/60 bg-muted/20 px-2 text-left text-xs font-medium text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+                  <div
+                    data-band-key={g.key}
+                    onDragOver={(e) => {
+                      if (dragBand && isBandOption(g.key)) {
+                        e.preventDefault();
+                        setOverBand(g.key);
+                      }
+                    }}
+                    onDrop={() => dragBand && reorderBand(dragBand, g.key)}
+                    className={cn(
+                      'flex w-full items-center border-b border-border/60 bg-muted/20 text-xs font-medium text-muted-foreground transition-colors',
+                      dragBand === g.key && 'opacity-40',
+                      overBand === g.key && 'ring-1 ring-inset ring-brand/40',
+                    )}
                     style={{height: BAND_H}}
                   >
-                    <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
-                    {g.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[g.color] ?? '#9ca3af'}} />}
-                    <span className="truncate">{g.label}</span>
-                    <span className="ml-auto shrink-0 text-muted-foreground/60">{g.rows.length}</span>
-                  </button>
+                    {isBandOption(g.key) && (
+                      <span
+                        draggable
+                        onDragStart={(e) => {
+                          e.stopPropagation();
+                          setDragBand(g.key);
+                        }}
+                        onDragEnd={() => {
+                          setDragBand(null);
+                          setOverBand(null);
+                        }}
+                        aria-label={`Reorder ${g.label} band`}
+                        className="flex h-full cursor-grab items-center pl-1 text-muted-foreground/30 transition-colors hover:text-muted-foreground active:cursor-grabbing"
+                      >
+                        <GripVertical className="h-3.5 w-3.5" />
+                      </span>
+                    )}
+                    <button
+                      onClick={() => toggleBand(g.key)}
+                      aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${g.label} band`}
+                      className={cn(
+                        'flex h-full flex-1 items-center gap-1 px-2 text-left transition-colors hover:bg-hover hover:text-foreground',
+                        isBandOption(g.key) && 'pl-1',
+                      )}
+                    >
+                      <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
+                      {g.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[g.color] ?? '#9ca3af'}} />}
+                      <span className="truncate">{g.label}</span>
+                      <span className="ml-auto shrink-0 text-muted-foreground/60">{g.rows.length}</span>
+                    </button>
+                  </div>
                 )}
                 {!collapsed &&
                   g.rows.map((row) => (

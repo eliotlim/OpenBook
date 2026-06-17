@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import {Select} from '@/components/ui/select';
-import {ChevronLeft, ChevronRight, Copy, PanelRightOpen, Plus, Trash2} from 'lucide-react';
+import {ChevronLeft, ChevronRight, Copy, GripVertical, PanelRightOpen, Plus, Trash2} from 'lucide-react';
 import {
   dateEnd,
   dateStart,
@@ -391,6 +391,9 @@ export const BoardView: React.FC<{
   const [dragRow, setDragRow] = useState<string | null>(null);
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
+  // Swimlane (sub-group) reorder, mirroring the column dragCol/overKey pair.
+  const [dragLane, setDragLane] = useState<string | null>(null);
+  const [overLane, setOverLane] = useState<string | null>(null);
   const [collapsedCols, setCollapsedCols] = useState<Set<string>>(new Set());
   // Collapsed lanes persist per view (a board with many swimlanes is unwieldy
   // until folded — remember the fold across reloads), mirroring activeViewKey.
@@ -455,6 +458,24 @@ export const BoardView: React.FC<{
     }
     setDragCol(null);
     setOverKey(null);
+  };
+
+  // A swimlane backed by a real sub-group option (not "No value") can be reordered.
+  const isLaneOption = (key: string): boolean => canMoveLane && key !== '__none__' && key !== '__all__';
+
+  // Drop a lane (swimlane) gutter on another → reorder the sub-group's options.
+  const reorderLane = (fromKey: string, toKey: string): void => {
+    if (!subProp || !canMoveLane) return;
+    const opts = [...(subProp.options ?? [])];
+    const from = opts.findIndex((o) => o.id === fromKey);
+    const to = opts.findIndex((o) => o.id === toKey);
+    if (from >= 0 && to >= 0 && from !== to) {
+      const [moved] = opts.splice(from, 1);
+      opts.splice(to, 0, moved);
+      void db.updateProperty(subProp.id, {options: opts});
+    }
+    setDragLane(null);
+    setOverLane(null);
   };
 
   /** Create a row seeded to a (column, lane) cell. */
@@ -574,18 +595,55 @@ export const BoardView: React.FC<{
             const byCol = new Map(groups.map((g) => [g.key, new Set(g.rows.map((r) => r.id))]));
             return (
               <div key={lane.key} className="space-y-2">
-                {/* Full-width horizontal lane bar above the cards: chevron, dot,
-                    label, count. Spans every column so it reads as a swimlane. */}
-                <button
-                  onClick={() => toggleLane(lane.key)}
-                  aria-label={`${laneCollapsed ? 'Expand' : 'Collapse'} ${lane.label} lane`}
-                  className="flex w-full items-center gap-1.5 rounded-md border-b border-border/70 bg-muted/40 px-2.5 py-1.5 text-left text-xs font-medium transition-colors hover:bg-hover"
+                {/* Full-width horizontal lane bar above the cards: a drag gutter,
+                    chevron, dot, label, count. Spans every column so it reads as a
+                    swimlane; drag the gutter to reorder the sub-group's options. */}
+                <div
+                  data-lane-key={lane.key}
+                  onDragOver={(e) => {
+                    if (dragLane && isLaneOption(lane.key)) {
+                      e.preventDefault();
+                      setOverLane(lane.key);
+                    }
+                  }}
+                  onDrop={() => dragLane && reorderLane(dragLane, lane.key)}
+                  className={cn(
+                    'flex w-full items-center rounded-md border-b border-border/70 bg-muted/40 text-xs font-medium transition-colors',
+                    dragLane === lane.key && 'opacity-40',
+                    overLane === lane.key && 'ring-1 ring-brand/40',
+                  )}
                 >
-                  <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !laneCollapsed && 'rotate-90')} />
-                  {lane.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[lane.color] ?? '#9ca3af'}} />}
-                  <span className="truncate text-foreground/80">{lane.label}</span>
-                  <span className="text-muted-foreground/60">{lane.rows.length}</span>
-                </button>
+                  {isLaneOption(lane.key) && (
+                    <span
+                      draggable
+                      onDragStart={(e) => {
+                        e.stopPropagation();
+                        setDragLane(lane.key);
+                      }}
+                      onDragEnd={() => {
+                        setDragLane(null);
+                        setOverLane(null);
+                      }}
+                      aria-label={`Reorder ${lane.label} lane`}
+                      className="flex cursor-grab items-center self-stretch rounded-l-md px-1 text-muted-foreground/30 transition-colors hover:bg-hover hover:text-muted-foreground active:cursor-grabbing"
+                    >
+                      <GripVertical className="h-3.5 w-3.5" />
+                    </span>
+                  )}
+                  <button
+                    onClick={() => toggleLane(lane.key)}
+                    aria-label={`${laneCollapsed ? 'Expand' : 'Collapse'} ${lane.label} lane`}
+                    className={cn(
+                      'flex flex-1 items-center gap-1.5 py-1.5 pr-2.5 text-left transition-colors hover:bg-hover',
+                      isLaneOption(lane.key) ? 'rounded-r-md' : 'rounded-md pl-2.5',
+                    )}
+                  >
+                    <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !laneCollapsed && 'rotate-90')} />
+                    {lane.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[lane.color] ?? '#9ca3af'}} />}
+                    <span className="truncate text-foreground/80">{lane.label}</span>
+                    <span className="text-muted-foreground/60">{lane.rows.length}</span>
+                  </button>
+                </div>
                 {!laneCollapsed && (
                   <div className="flex gap-3">
                     {groups.map((group) => {
