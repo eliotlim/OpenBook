@@ -1,14 +1,15 @@
 /**
  * Per-page typefaces. A page can override the **body** (primary) and **heading**
  * (secondary) typeface independently of the app default. Like the per-page theme
- * and cover, the choice lives in localStorage (keyed by page id) — it's a local
- * reading preference, applied via scoped CSS variables on the page wrapper.
+ * and cover, the choice persists on the page document (`page.properties`, see
+ * {@link lib/pageAppearance}) and is applied via scoped CSS variables on the
+ * page wrapper.
  *
  * Each choice is either a preset id (`sans` / `serif` / `mono`) or a raw custom
  * `font-family` string. {@link fontCss} resolves it to a CSS value; the presets
  * map to the app's `--font-*` stacks so a page stays consistent with the brand.
  */
-import {useSyncExternalStore} from 'react';
+import {readAppearanceFacet, subscribePageAppearance, useAppearanceFacet, writeAppearanceFacet} from '@/lib/pageAppearance';
 
 export interface PageFonts {
   /** Primary typeface — body / prose text. */
@@ -36,42 +37,18 @@ export function fontCss(choice: string | undefined | null): string | undefined {
   return PRESET_CSS[choice] ?? choice;
 }
 
-const fontKey = (pageId: string): string => `openbook.pagefont.${pageId}`;
-
-const listeners = new Set<() => void>();
-
 /** Subscribe to per-page font changes (any page). Returns an unsubscribe fn. */
-export const subscribePageFonts = (cb: () => void): (() => void) => {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
-};
-
-function parseFonts(raw: string | null): PageFonts | null {
-  if (!raw) return null;
-  try {
-    const v = JSON.parse(raw) as PageFonts;
-    const out: PageFonts = {};
-    if (typeof v.body === 'string' && v.body) out.body = v.body;
-    if (typeof v.heading === 'string' && v.heading) out.heading = v.heading;
-    return out.body || out.heading ? out : null;
-  } catch {
-    return null;
-  }
-}
+export const subscribePageFonts = subscribePageAppearance;
 
 /** The fonts stored for a page, or `null` when it follows the app default. */
 export function readPageFonts(pageId: string): PageFonts | null {
-  if (typeof localStorage === 'undefined' || !pageId) return null;
-  return parseFonts(localStorage.getItem(fontKey(pageId)));
+  return readAppearanceFacet<PageFonts>(pageId, 'fonts');
 }
 
-/** Persist (or clear, when empty) a page's font override and notify views. */
+/** Persist (or clear, when empty) a page's font override. */
 export function writePageFonts(pageId: string, fonts: PageFonts | null): void {
-  if (typeof localStorage === 'undefined' || !pageId) return;
   const clean = fonts && (fonts.body || fonts.heading) ? fonts : null;
-  if (!clean) localStorage.removeItem(fontKey(pageId));
-  else localStorage.setItem(fontKey(pageId), JSON.stringify(clean));
-  listeners.forEach((cb) => cb());
+  writeAppearanceFacet(pageId, 'fonts', clean);
 }
 
 /** A page's fonts as scoped CSS variables, or `undefined` when none are set
@@ -87,22 +64,7 @@ export function pageFontStyle(fonts: PageFonts | null): Record<string, string> |
   return out;
 }
 
-const snapCache = new Map<string, {raw: string | null; value: PageFonts | null}>();
-function fontsSnapshot(pageId: string): PageFonts | null {
-  if (typeof localStorage === 'undefined' || !pageId) return null;
-  const raw = localStorage.getItem(fontKey(pageId));
-  const cached = snapCache.get(pageId);
-  if (cached && cached.raw === raw) return cached.value;
-  const value = parseFonts(raw);
-  snapCache.set(pageId, {raw, value});
-  return value;
-}
-
 /** React-subscribe to one page's fonts; re-renders when they change. */
 export function usePageFonts(pageId: string): PageFonts | null {
-  return useSyncExternalStore(
-    subscribePageFonts,
-    () => fontsSnapshot(pageId),
-    () => null,
-  );
+  return useAppearanceFacet<PageFonts>(pageId, 'fonts');
 }

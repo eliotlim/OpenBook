@@ -36,6 +36,10 @@ export const emptyPageSnapshot = (): PageSnapshot => ({
 export interface PageMeta {
   id: string;
   name: string | null;
+  /** The page's emoji icon, or `null` when none is set — projected from
+   *  `page.properties` so lists (sidebar, tabs, mentions) resolve it directly,
+   *  without a per-page fetch. */
+  icon: string | null;
   /**
    * If this page *hosts* a database (contains a collection of row pages), the
    * id of that database; otherwise `null`. Lets the sidebar mark database

@@ -5,6 +5,7 @@ import {planTreeMove} from '../treeMove';
 const page = (id: string, parentId: string | null = null): PageMeta => ({
   id,
   name: id,
+  icon: null,
   parentId,
   hostedDatabaseId: null,
   deletedAt: null,

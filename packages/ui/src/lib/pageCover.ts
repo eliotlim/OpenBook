@@ -1,14 +1,10 @@
 /**
- * Per-page cover images — the wide banner above a page's title. Like the page
- * icon and per-page theme, a cover is a local presentation choice stored in
- * localStorage (keyed by page id), so it shows instantly and offline without a
- * document save round-trip.
- *
- * A cover is either one of the curated {@link COVER_GRADIENTS} (a CSS background
- * string) or an image URL with a vertical focal point (`position`, 0–100%) so
- * the banner can be repositioned to frame the right part of a tall photo.
+ * Per-page cover images — the wide banner above a page's title (a gradient or an
+ * image URL with a vertical focal point). Covers persist on the page document
+ * (`page.properties`, see {@link lib/pageAppearance}) so they travel with the
+ * page and sync across devices.
  */
-import {useSyncExternalStore} from 'react';
+import {readAppearanceFacet, subscribePageAppearance, useAppearanceFacet, writeAppearanceFacet} from '@/lib/pageAppearance';
 
 export type PageCover =
   | {kind: 'gradient'; css: string}
@@ -30,61 +26,20 @@ export const COVER_GRADIENTS: ReadonlyArray<{id: string; css: string}> = [
   {id: 'night', css: 'linear-gradient(120deg, #232526 0%, #414345 100%)'},
 ];
 
-const coverKey = (pageId: string): string => `openbook.cover.${pageId}`;
-
-const listeners = new Set<() => void>();
-
 /** Subscribe to cover changes (any page). Returns an unsubscribe fn. */
-export const subscribePageCover = (cb: () => void): (() => void) => {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
-};
-
-function parseCover(raw: string | null): PageCover | null {
-  if (!raw) return null;
-  try {
-    const v = JSON.parse(raw) as PageCover;
-    if (v && v.kind === 'gradient' && typeof v.css === 'string') return v;
-    if (v && v.kind === 'image' && typeof v.url === 'string') return v;
-  } catch {
-    // fall through
-  }
-  return null;
-}
+export const subscribePageCover = subscribePageAppearance;
 
 /** The cover stored for a page, or `null` when none is set. */
 export function readPageCover(pageId: string): PageCover | null {
-  if (typeof localStorage === 'undefined' || !pageId) return null;
-  return parseCover(localStorage.getItem(coverKey(pageId)));
+  return readAppearanceFacet<PageCover>(pageId, 'cover');
 }
 
-/** Persist (or, with `null`, clear) a page's cover and notify views. */
+/** Persist (or, with `null`, clear) a page's cover. */
 export function writePageCover(pageId: string, cover: PageCover | null): void {
-  if (typeof localStorage === 'undefined' || !pageId) return;
-  if (!cover) localStorage.removeItem(coverKey(pageId));
-  else localStorage.setItem(coverKey(pageId), JSON.stringify(cover));
-  listeners.forEach((cb) => cb());
-}
-
-// useSyncExternalStore needs a *stable* snapshot reference between renders, so
-// we cache the parsed cover per page and only re-parse when the raw string
-// changes — returning a fresh object every read would loop the store.
-const snapCache = new Map<string, {raw: string | null; value: PageCover | null}>();
-function coverSnapshot(pageId: string): PageCover | null {
-  if (typeof localStorage === 'undefined' || !pageId) return null;
-  const raw = localStorage.getItem(coverKey(pageId));
-  const cached = snapCache.get(pageId);
-  if (cached && cached.raw === raw) return cached.value;
-  const value = parseCover(raw);
-  snapCache.set(pageId, {raw, value});
-  return value;
+  writeAppearanceFacet(pageId, 'cover', cover);
 }
 
 /** React-subscribe to one page's cover; re-renders when it changes. */
 export function usePageCover(pageId: string): PageCover | null {
-  return useSyncExternalStore(
-    subscribePageCover,
-    () => coverSnapshot(pageId),
-    () => null,
-  );
+  return useAppearanceFacet<PageCover>(pageId, 'cover');
 }

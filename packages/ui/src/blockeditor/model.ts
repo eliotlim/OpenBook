@@ -152,6 +152,39 @@ export function makeBlock(input: NewBlock): BlockMap {
   return block;
 }
 
+/**
+ * Coerce an untrusted plain object (e.g. from an AI `append_blocks` proposal)
+ * into a {@link NewBlock}, recursing into `children`. Returns null for anything
+ * that isn't a usable block. Keeps {@link makeBlock} fed only well-formed input
+ * so a malformed model response can't corrupt the document — and unlike the old
+ * flat `{type, text}` handling, it preserves rich-text runs, props, and nested
+ * children, so the agent can build interactive kit inputs and layouts.
+ */
+export function coerceNewBlock(value: unknown): NewBlock | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  const type = typeof v.type === 'string' && v.type ? v.type : 'paragraph';
+  const block: NewBlock = {type};
+  if (typeof v.id === 'string') block.id = v.id;
+  if (typeof v.text === 'string') {
+    block.text = v.text;
+  } else if (Array.isArray(v.text)) {
+    const runs: TextRun[] = [];
+    for (const r of v.text) {
+      if (!r || typeof r !== 'object') continue;
+      const run = r as {t?: unknown; a?: unknown};
+      runs.push({t: String(run.t ?? ''), ...(run.a && typeof run.a === 'object' ? {a: run.a as InlineAttrs} : {})});
+    }
+    if (runs.length > 0) block.text = runs;
+  }
+  if (v.props && typeof v.props === 'object' && !Array.isArray(v.props)) block.props = v.props as Record<string, unknown>;
+  if (Array.isArray(v.children)) {
+    const kids = v.children.map(coerceNewBlock).filter((b): b is NewBlock => b !== null);
+    if (kids.length > 0) block.children = kids;
+  }
+  return block;
+}
+
 /** A fresh empty document (one empty paragraph, like a new page). */
 export function createDoc(blocks?: NewBlock[]): Y.Doc {
   const doc = new Y.Doc();
@@ -197,6 +230,28 @@ export const blockType = (b: BlockMap): BlockType => b.get('type') as BlockType;
 export const blockText = (b: BlockMap): Y.Text | undefined => b.get('text') as Y.Text | undefined;
 export const blockChildren = (b: BlockMap): Y.Array<BlockMap> | undefined =>
   b.get('children') as Y.Array<BlockMap> | undefined;
+
+/**
+ * Rewrite a Y.Text to `next` with a MINIMAL splice: the shared leading prefix
+ * and trailing suffix are left untouched, so only the changed middle is deleted
+ * and reinserted. Better for cursors, collaboration, and inline formatting on
+ * the unchanged ends than a full delete-all + reinsert.
+ */
+export function replaceText(text: Y.Text, next: string): void {
+  const current = text.toString();
+  if (current === next) return;
+  let start = 0;
+  const max = Math.min(current.length, next.length);
+  while (start < max && current[start] === next[start]) start += 1;
+  let endC = current.length;
+  let endN = next.length;
+  while (endC > start && endN > start && current[endC - 1] === next[endN - 1]) {
+    endC -= 1;
+    endN -= 1;
+  }
+  if (endC > start) text.delete(start, endC - start);
+  if (endN > start) text.insert(start, next.slice(start, endN));
+}
 
 export function blockProp<T>(b: BlockMap, key: string): T | undefined {
   const props = b.get('props') as Y.Map<unknown> | undefined;

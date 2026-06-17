@@ -27,6 +27,7 @@ import {
 } from '@open-book/sdk';
 import {useData} from '@/data';
 import {useNavigation} from '@/providers';
+import {hydratePageIcons, ICON_PROPERTY_ID} from '@/lib/pageIcon';
 import {parseCsv} from './databaseCells';
 
 const activeViewKey = (databaseId: string): string => `openbook.dbview.${databaseId}`;
@@ -270,6 +271,13 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     },
     [database],
   );
+
+  // Rows are pages too: their icons (page.properties[sys_icon]) aren't in the
+  // sidebar list, so hydrate them from the loaded rows for the views that show
+  // a row icon (board/gallery/cards/…).
+  useEffect(() => {
+    if (rows.length > 0) hydratePageIcons(rows.map((r) => ({id: r.id, icon: r.properties[ICON_PROPERTY_ID] as string | null | undefined})));
+  }, [rows]);
 
   const activeView = useMemo<DatabaseView | null>(() => {
     if (!database) return null;

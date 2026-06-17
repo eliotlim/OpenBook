@@ -5,14 +5,21 @@ import {useData} from '@/data';
 import {getBlockEditorDoc, setAiBridge, suggestionToProposal, type ProposalApplyResult} from '@/lib/aiBridge';
 import {
   blockText,
+  coerceNewBlock,
   decodeSnapshot,
   encodeSnapshot,
   findBlock,
   makeBlock,
+  replaceText,
   rootBlocks,
   type BlockDocSnapshot,
+  type NewBlock,
 } from '@/blockeditor/model';
 import {findInput, setInputValue} from '@/blockeditor/kit/scope';
+import {merge3} from '@/lib/textMerge';
+import {readPageTheme, writePageTheme} from '@/lib/pageTheme';
+import {COVER_GRADIENTS, writePageCover} from '@/lib/pageCover';
+import type {AppearanceOverride} from '@/lib/themes';
 
 /**
  * Installs the AI bridge (lib/aiBridge) for the provider-less block editor
@@ -57,6 +64,14 @@ export function AiBridgeHost() {
 
       const pageId = String(payload.pageId ?? p.pageId ?? '');
       if (!pageId) throw new Error('proposal has no target page');
+
+      if (p.kind === 'set_page_theme') {
+        // Appearance is a per-page viewing preference (localStorage), not CRDT
+        // content — apply it directly here on the client.
+        applyPageAppearance(pageId, payload);
+        return;
+      }
+
       const liveDoc = getBlockEditorDoc(pageId);
 
       if (liveDoc) {
@@ -78,17 +93,37 @@ export function AiBridgeHost() {
           const found = findBlock(doc, String(payload.blockId));
           const text = found && blockText(found.block);
           if (text) {
-            text.delete(0, text.length);
-            text.insert(0, String(payload.text));
+            const theirs = String(payload.text ?? '');
+            // `payload.before` is the block text when the suggestion was made.
+            // Merging against it (rather than replacing wholesale) means a second
+            // suggestion accepted on the same block keeps the first one's edit
+            // instead of clobbering it; with no base we fall back to a replace.
+            const base = typeof payload.before === 'string' ? payload.before : null;
+            const next = base === null ? theirs : merge3(base, text.toString(), theirs);
+            replaceText(text, next);
           }
         } else if (p.kind === 'append_blocks') {
           const list = rootBlocks(doc);
-          const blocks = Array.isArray(payload.blocks) ? payload.blocks : [];
-          for (const b of blocks as Array<{type?: string; text?: string; props?: Record<string, unknown>}>) {
-            list.push([makeBlock({type: b.type ?? 'paragraph', text: b.text, props: b.props})]);
-          }
+          const raw = Array.isArray(payload.blocks) ? payload.blocks : [];
+          const built = raw
+            .map(coerceNewBlock)
+            .filter((b): b is NewBlock => b !== null)
+            .map(makeBlock);
+          if (built.length > 0) list.push(built);
         }
       }, 'local');
+    };
+
+    /** Apply a per-page appearance proposal (theme + optional cover gradient). */
+    const applyPageAppearance = (pageId: string, payload: Record<string, unknown>): void => {
+      if (payload.theme && typeof payload.theme === 'object') {
+        // Merge over any existing override so we only change the named knobs.
+        writePageTheme(pageId, {...readPageTheme(pageId), ...(payload.theme as AppearanceOverride)});
+      }
+      if (typeof payload.coverGradientId === 'string' && payload.coverGradientId) {
+        const gradient = COVER_GRADIENTS.find((c) => c.id === payload.coverGradientId);
+        if (gradient) writePageCover(pageId, {kind: 'gradient', css: gradient.css});
+      }
     };
 
     /** Fallback: fetch, mutate the snapshot's block doc, and save. */

@@ -105,6 +105,7 @@ const SUGGESTION_KIND: Record<AgentProposal['kind'], SuggestionKind> = {
   append_blocks: 'insert',
   set_kit_value: 'replace-text',
   set_db_cell: 'set-cell',
+  set_page_theme: 'set-theme',
 };
 
 export class AgentRunner {
@@ -117,7 +118,7 @@ export class AgentRunner {
     private readonly store: PageStore,
     private readonly options: AgentRunOptions = {},
   ) {
-    this.tools = [...this.readTools(), ...this.writeTools(), ...this.databaseTools(), ...this.pluginToolDefs()];
+    this.tools = [...this.readTools(), ...this.writeTools(), ...this.databaseTools(), ...this.layoutTools(), ...this.pluginToolDefs()];
   }
 
   // ── Read tools ──────────────────────────────────────────────────────────────
@@ -496,7 +497,10 @@ export class AgentRunner {
             pageId,
             before: clip(before, 200),
             after: clip(text, 200),
-            payload: {pageId, blockId, text},
+            // The full prior text (not the clipped diff `before`) is the merge
+            // base, so accepting this alongside another edit to the same block
+            // combines them instead of clobbering. See the bridge's update_block.
+            payload: {pageId, blockId, text, before},
           });
         },
       },
@@ -557,6 +561,108 @@ export class AgentRunner {
             before: JSON.stringify(row.properties[propertyId] ?? null),
             after: JSON.stringify(value),
             payload: {databaseId: db.id, rowId, propertyId, value},
+          });
+        },
+      },
+    ];
+  }
+
+  // ── Layout / rich-block + appearance tools ───────────────────────────────────
+
+  /**
+   * Tools for building rich pages: `add_blocks` proposes interactive kit inputs,
+   * layout containers, charts, and headings (any block the editor supports), and
+   * `set_page_appearance` proposes a per-page theme. Both go through review like
+   * the other document write tools — the rich blocks are appended to the page
+   * (the bridge builds them, nested children and all) when the user accepts.
+   */
+  private layoutTools(): ToolDef[] {
+    const blockSchema = obj(
+      {
+        type: {type: 'string', description: 'Block type — see the catalogue in this tool\'s description.'},
+        text: {description: 'For text blocks: a plain string, or rich runs like [{"t":"bold","a":{"b":true}}].'},
+        props: {type: 'object', description: 'Type-specific props (level, value, min/max, opts, source, …).'},
+        children: {type: 'array', items: {type: 'object'}, description: 'Child blocks, for containers (columns/column/group/accordion/tabs).'},
+      },
+      ['type'],
+    );
+    return [
+      {
+        name: 'add_blocks',
+        description: BLOCK_CATALOGUE,
+        args: '{"pageId": string, "blocks": Block[]}',
+        schema: obj(
+          {
+            pageId: str('The page to add the blocks to.'),
+            blocks: {type: 'array', items: blockSchema, description: 'The blocks to append, in order.'},
+          },
+          ['pageId', 'blocks'],
+        ),
+        write: true,
+        run: async (args) => {
+          const pageId = String(args.pageId ?? '');
+          const page = await this.store.getPage(pageId);
+          if (!page) return 'Page not found.';
+          const blocks = Array.isArray(args.blocks) ? (args.blocks as unknown[]) : [];
+          if (blocks.length === 0) return 'No blocks to add.';
+          const bad = invalidBlockType(blocks);
+          if (bad) return `Unsupported block type "${bad}". Allowed: ${[...KNOWN_BLOCK_TYPES].join(', ')}.`;
+          return this.enqueue({
+            kind: 'append_blocks',
+            summary: `Add ${blocks.length} block(s) to "${page.name ?? 'Untitled'}": ${summarizeBlocks(blocks)}`,
+            pageId,
+            after: summarizeBlocks(blocks),
+            payload: {pageId, blocks},
+          });
+        },
+      },
+      {
+        name: 'set_page_appearance',
+        description:
+          'Propose a per-page theme: accent palette, canvas tint, control/interface intensity, tinted sidebar, and an optional gradient cover banner. User approves first.',
+        args: '{"pageId": string, "themeId"?: string, "background"?: string, "controlIntensity"?: 0-3, "interfaceIntensity"?: 0-3, "tintedSidebar"?: boolean, "cover"?: string}',
+        schema: obj(
+          {
+            pageId: str('The page to restyle.'),
+            themeId: {type: 'string', enum: [...THEME_IDS], description: 'Accent palette.'},
+            background: {type: 'string', enum: [...BACKGROUND_TOKENS], description: 'Page canvas tint.'},
+            controlIntensity: {type: 'integer', minimum: 0, maximum: 3, description: 'How colourful controls are (0–3).'},
+            interfaceIntensity: {type: 'integer', minimum: 0, maximum: 3, description: 'How saturated neutral surfaces are (0–3).'},
+            tintedSidebar: {type: 'boolean', description: 'Whether the sidebar adopts the accent hue.'},
+            cover: {type: 'string', enum: [...COVER_GRADIENT_IDS], description: 'A gradient cover banner.'},
+          },
+          ['pageId'],
+        ),
+        write: true,
+        run: async (args) => {
+          const pageId = String(args.pageId ?? '');
+          const page = await this.store.getPage(pageId);
+          if (!page) return 'Page not found.';
+          const theme: Record<string, unknown> = {};
+          if (typeof args.themeId === 'string' && THEME_IDS.has(args.themeId)) theme.themeId = args.themeId;
+          if (typeof args.background === 'string' && BACKGROUND_TOKENS.has(args.background)) theme.background = args.background;
+          if (typeof args.tintedSidebar === 'boolean') theme.tintedSidebar = args.tintedSidebar;
+          const level = (v: unknown): number | undefined => {
+            const n = Math.round(Number(v));
+            return Number.isFinite(n) && n >= 0 && n <= 3 ? n : undefined;
+          };
+          if (level(args.controlIntensity) !== undefined) theme.controlIntensity = level(args.controlIntensity);
+          if (level(args.interfaceIntensity) !== undefined) theme.interfaceIntensity = level(args.interfaceIntensity);
+          const coverGradientId =
+            typeof args.cover === 'string' && COVER_GRADIENT_IDS.has(args.cover) ? args.cover : undefined;
+          if (Object.keys(theme).length === 0 && !coverGradientId) {
+            return `Nothing to set. Themes: ${[...THEME_IDS].join(', ')}. Backgrounds: ${[...BACKGROUND_TOKENS].join(', ')}. Covers: ${[...COVER_GRADIENT_IDS].join(', ')}.`;
+          }
+          const parts = [
+            ...Object.entries(theme).map(([k, v]) => `${k}=${v}`),
+            ...(coverGradientId ? [`cover=${coverGradientId}`] : []),
+          ];
+          return this.enqueue({
+            kind: 'set_page_theme',
+            summary: `Restyle "${page.name ?? 'Untitled'}": ${parts.join(', ')}`,
+            pageId,
+            after: parts.join(', '),
+            payload: {pageId, ...(Object.keys(theme).length ? {theme} : {}), ...(coverGradientId ? {coverGradientId} : {})},
           });
         },
       },
@@ -642,6 +748,7 @@ export class AgentRunner {
       'You have TOOLS to search and read pages, to propose edits, and to build databases. Use a tool to get facts from the workspace — never invent note contents, page titles, database columns, or ids.',
       'Two kinds of change: edits to existing note text, inputs, and cells are PROPOSED for the user to review and approve. Structural actions — creating pages, creating databases, adding rows, and adding or editing database columns — APPLY IMMEDIATELY, so do them deliberately and only when asked.',
       'When building a database, work in order: create_database → describe_database (to learn the column ids) → create_property for any extra columns → create_row for each row. Reference rows and columns by the ids the tools return.',
+      'To build rich, interactive pages, use add_blocks: it appends headings, interactive inputs (sliders, toggles, dropdowns, choice cards…), charts, and layout containers (columns/groups/accordions/tabs with nested children). Give each input a name or label, and have charts/status lights reference those names in their source expression. Use set_page_appearance to theme a page (accent, background tint, cover banner).',
       'Format replies in Markdown — use headings, bullet/numbered lists, **bold**, `code`, links, and tables where they make the answer clearer. Keep replies specific and grounded in what the tools return.',
     ];
     // Ambient context: the page the user is viewing + their selection, so replies
@@ -962,6 +1069,65 @@ function resolveRowValues(schema: DatabaseSchema, input: Record<string, unknown>
   }
   return {values, unknown};
 }
+
+// ── Layout / rich-block + appearance helpers ─────────────────────────────────────
+
+/** Block types `add_blocks` may create — mirrors the editor's registry (core +
+ *  kit). Kept here so the agent can reject unknown types with a clear list. */
+const KNOWN_BLOCK_TYPES = new Set<string>([
+  // Text + structure.
+  'paragraph', 'heading', 'list', 'todo', 'quote', 'callout', 'code', 'divider',
+  // Layout containers.
+  'columns', 'column', 'group', 'accordion', 'accordionsection', 'tabs', 'tab',
+  // Interactive kit inputs.
+  'slider', 'number', 'textfield', 'longtext', 'toggle', 'radio', 'checklist',
+  'dropdown', 'choicecards', 'searchselect', 'tagfield', 'location',
+  // Reactive display.
+  'kitchart', 'statuslight', 'progressbar', 'formula', 'linkcard',
+]);
+
+/** Per-page theme values the agent may set (mirror `lib/themes`, `lib/pageCover`). */
+const THEME_IDS = new Set<string>([
+  'default', 'amber', 'bold', 'cool', 'forest', 'graphite', 'gray', 'neutral', 'ocean', 'pastel', 'rose', 'sunset', 'teal', 'violet', 'warm',
+]);
+const BACKGROUND_TOKENS = new Set<string>(['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink']);
+const COVER_GRADIENT_IDS = new Set<string>(['dawn', 'ocean', 'dusk', 'forest', 'ember', 'slate', 'citrus', 'mint', 'grape', 'sand', 'rose', 'night']);
+
+/** The first block type (anywhere in the tree) that isn't creatable, or null. */
+function invalidBlockType(blocks: unknown[]): string | null {
+  for (const raw of blocks) {
+    if (!raw || typeof raw !== 'object') return '(not a block)';
+    const b = raw as {type?: unknown; children?: unknown};
+    const type = String(b.type ?? '');
+    if (!KNOWN_BLOCK_TYPES.has(type)) return type || '(missing type)';
+    if (Array.isArray(b.children)) {
+      const nested = invalidBlockType(b.children);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+/** A short "type ×n" summary of a block list (for the review card). */
+function summarizeBlocks(blocks: unknown[]): string {
+  const counts = new Map<string, number>();
+  for (const raw of blocks) {
+    const type = raw && typeof raw === 'object' ? String((raw as {type?: unknown}).type ?? '?') : '?';
+    counts.set(type, (counts.get(type) ?? 0) + 1);
+  }
+  return [...counts].map(([type, n]) => (n > 1 ? `${type} ×${n}` : type)).join(', ');
+}
+
+/** The `add_blocks` tool description: the full block catalogue the model builds against. */
+const BLOCK_CATALOGUE = [
+  'Append rich blocks to a page — interactive inputs, layouts, charts, and headings. User approves before they are added.',
+  'Each block is {type, text?, props?, children?}. `text` is a plain string (or rich runs [{"t","a":{b,i,u,s,c,a}}]); `children` nests blocks inside containers.',
+  'TEXT/STRUCTURE: paragraph; heading {level:1|2|3}; list {kind:"bullet"|"number"}; todo {checked?}; quote; callout {variant:"info"|"warn"|"success"}; code {language?,live?,name?,collapsed?}; divider.',
+  'LAYOUT (use children): columns → column {span:1-12} → blocks (side-by-side, spans sum to 12); group {name?,locked?}; accordion {name?,gated?} → accordionsection {label,collapsed?} → blocks; tabs → tab {label} → blocks.',
+  'INPUTS (give each a props.name OR props.label so charts/formulas can reference it): slider/number {name,label,value,min,max,step}; textfield/longtext {name,label,value,placeholder}; toggle {name,label,value:boolean}; dropdown/radio {name,label,value,opts:[{label,value}]}; checklist {name,label,selected:[],opts}; choicecards {name,label,value,opts:[{label,value,icon?}],multi?}; searchselect {name,label,value,opts,multi?}; tagfield {name,label,selected:[],freeEntry?}; location {name,label}.',
+  'REACTIVE DISPLAY (props.source is a JS expression over input names): kitchart {kind:"line"|"area"|"bar"|"pie"|"donut"|"scatter"|"funnel",title?,labels?,source}; statuslight {label?,source,okAt,warnAt}; progressbar {label?,source,max?,format?}; formula {source}; linkcard {title,url,description?}.',
+  'Example: a budget widget → [{"type":"heading","text":"Budget","props":{"level":2}},{"type":"columns","children":[{"type":"column","props":{"span":5},"children":[{"type":"slider","props":{"name":"spent","label":"Spent","value":80,"min":0,"max":200}},{"type":"number","props":{"name":"budget","label":"Budget","value":120}}]},{"type":"column","props":{"span":7},"children":[{"type":"kitchart","props":{"kind":"bar","title":"Spent vs budget","labels":"Spent, Budget","source":"[spent, budget]"}},{"type":"statuslight","props":{"label":"On track","source":"budget - spent","okAt":0,"warnAt":-20}}]}]}].',
+].join('\n');
 
 // ── Snapshot helpers (read-only inspection over the JSON projection) ─────────────
 

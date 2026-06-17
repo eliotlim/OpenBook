@@ -1,34 +1,23 @@
 /**
- * Per-page full-width preference. Like {@link lib/pageIcon} and
- * {@link lib/pageTheme}, this lives in localStorage keyed by page id rather than
- * a global app setting — full width is a property of *this page's* layout (a
- * wide table reads better full-bleed; a prose page reads better in a column),
- * so each page remembers its own choice instead of one switch flipping them all.
+ * Per-page full-width preference — a property of *this page's* layout (a wide
+ * table reads better full-bleed; a prose page reads better in a column). Like
+ * the per-page theme/cover/fonts it now persists on the page document
+ * (`page.properties`, see {@link lib/pageAppearance}) so the choice travels with
+ * the page and syncs across devices.
  */
-import {useSyncExternalStore} from 'react';
-
-const widthKey = (pageId: string): string => `openbook.fullwidth.${pageId}`;
-
-const listeners = new Set<() => void>();
+import {readAppearanceFacet, subscribePageAppearance, useAppearanceFacet, writeAppearanceFacet} from '@/lib/pageAppearance';
 
 /** Subscribe to full-width changes (any page). Returns an unsubscribe fn. */
-export const subscribePageFullWidth = (cb: () => void): (() => void) => {
-  listeners.add(cb);
-  return () => listeners.delete(cb);
-};
+export const subscribePageFullWidth = subscribePageAppearance;
 
 /** Whether a page is set to full width (defaults to the centered column). */
 export function readPageFullWidth(pageId: string): boolean {
-  if (typeof localStorage === 'undefined' || !pageId) return false;
-  return localStorage.getItem(widthKey(pageId)) === '1';
+  return readAppearanceFacet<boolean>(pageId, 'fullWidth') === true;
 }
 
-/** Persist (or clear, when false) a page's full-width preference, notifying views. */
+/** Persist (or clear, when false) a page's full-width preference. */
 export function writePageFullWidth(pageId: string, value: boolean): void {
-  if (typeof localStorage === 'undefined' || !pageId) return;
-  if (value) localStorage.setItem(widthKey(pageId), '1');
-  else localStorage.removeItem(widthKey(pageId));
-  listeners.forEach((cb) => cb());
+  writeAppearanceFacet(pageId, 'fullWidth', value ? true : null);
 }
 
 /** Flip a page between full-width and the centered column. */
@@ -38,9 +27,5 @@ export function togglePageFullWidth(pageId: string): void {
 
 /** React-subscribe to one page's full-width flag; re-renders when it changes. */
 export function usePageFullWidth(pageId: string): boolean {
-  return useSyncExternalStore(
-    subscribePageFullWidth,
-    () => readPageFullWidth(pageId),
-    () => false,
-  );
+  return useAppearanceFacet<boolean>(pageId, 'fullWidth') === true;
 }

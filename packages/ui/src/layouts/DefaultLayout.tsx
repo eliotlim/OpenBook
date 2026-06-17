@@ -7,6 +7,7 @@ import {AiSearchDialog} from '@/components/AiSearchDialog';
 import {SplitPane} from '@/components/SplitPane';
 import PluginBoot from '@/components/PluginBoot';
 import {AiBridgeHost} from '@/components/AiBridgeHost';
+import {PageAppearanceHost} from '@/components/PageAppearanceHost';
 import Settings from '@/components/Settings';
 import PresentMode from '@/components/PresentMode';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
@@ -47,6 +48,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <TemplateGallery/>
           <AiSearchDialog/>
           <AiBridgeHost/>
+          <PageAppearanceHost/>
           <EmojiPickerHost/>
           <SideNav/>
           {/* The book cover: the primary page and the split pane sit on it as

@@ -37,6 +37,8 @@ interface PageRow {
   properties?: Record<string, unknown> | string | null;
   // Populated by a LEFT JOIN onto `databases` — the database this page hosts.
   hosted_database_id?: string | null;
+  // Projected from `properties->>'sys_icon'` by the meta queries (PageMeta only).
+  icon?: string | null;
   created_at: Date | string;
   updated_at: Date | string;
   // Set when the page is in the trash (soft-deleted); null for live pages.
@@ -76,6 +78,7 @@ const parseSnapshot = (value: PageSnapshot | string | null | undefined): PageSna
 const metaFromRow = (row: PageRow): PageMeta => ({
   id: row.id,
   name: row.name,
+  icon: row.icon ?? null,
   hostedDatabaseId: row.hosted_database_id ?? null,
   parentId: row.parent_id ?? null,
   deletedAt: toIsoOrNull(row.deleted_at),
@@ -181,7 +184,8 @@ export class PageStore {
    */
   async listPages(): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id
+      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id,
+              (p.properties->>'sys_icon') AS icon
        FROM ${PAGE_FROM}
        WHERE p.database_id IS NULL AND p.deleted_at IS NULL
        ORDER BY p.position ASC, p.created_at ASC`,
@@ -434,7 +438,7 @@ export class PageStore {
   async listBacklinks(id: string): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
       `SELECT p.id, p.name, p.parent_id, p.properties, p.deleted_at, p.created_at, p.updated_at, p.data,
-              d.id AS hosted_database_id
+              d.id AS hosted_database_id, (p.properties->>'sys_icon') AS icon
          FROM pages p LEFT JOIN databases d ON d.page_id = p.id
         WHERE p.deleted_at IS NULL AND p.id <> $1
           AND (p.data::text LIKE $2 OR p.properties::text LIKE $2)
@@ -529,7 +533,8 @@ export class PageStore {
    */
   async listTrash(): Promise<PageMeta[]> {
     const rows = await this.db.query<PageRow>(
-      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id
+      `SELECT p.id, p.name, p.parent_id, p.deleted_at, p.created_at, p.updated_at, d.id AS hosted_database_id,
+              (p.properties->>'sys_icon') AS icon
        FROM pages p
        LEFT JOIN databases d ON d.page_id = p.id
        LEFT JOIN pages par ON par.id = p.parent_id

@@ -11,17 +11,15 @@ beforeEach(() => {
 
 describe('pageFullWidth', () => {
   it('defaults to false and round-trips a true value', () => {
-    expect(readPageFullWidth('p1')).toBe(false);
-    writePageFullWidth('p1', true);
-    expect(readPageFullWidth('p1')).toBe(true);
-    expect(localStorage.getItem('openbook.fullwidth.p1')).toBe('1');
+    expect(readPageFullWidth('fw1')).toBe(false);
+    writePageFullWidth('fw1', true);
+    expect(readPageFullWidth('fw1')).toBe(true);
   });
 
-  it('clears the key when set back to false', () => {
-    writePageFullWidth('p1', true);
-    writePageFullWidth('p1', false);
-    expect(readPageFullWidth('p1')).toBe(false);
-    expect(localStorage.getItem('openbook.fullwidth.p1')).toBeNull();
+  it('clears when set back to false', () => {
+    writePageFullWidth('fw2', true);
+    writePageFullWidth('fw2', false);
+    expect(readPageFullWidth('fw2')).toBe(false);
   });
 
   it('toggle flips the value and is scoped per page', () => {

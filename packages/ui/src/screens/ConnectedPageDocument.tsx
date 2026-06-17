@@ -1,8 +1,8 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import type {PageSnapshot, StoredPage} from '@open-book/sdk';
+import {ICON_PROPERTY_ID, type PageSnapshot, type StoredPage} from '@open-book/sdk';
 import {useData} from '@/data';
 import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
-import {DEFAULT_PAGE_ICON, readPageIcon, writePageIcon} from '@/lib/pageIcon';
+import {hydratePageIcons, usePageIcon, writePageIcon} from '@/lib/pageIcon';
 import {DatabaseView} from '@/components/database/DatabaseView';
 import BlockPageDocument from './BlockPageDocument';
 
@@ -27,7 +27,9 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   const {pages, deletePage, setPageHint, closePage} = useNavigation();
 
   const [title, setTitle] = useState('');
-  const [icon, setIcon] = useState(DEFAULT_PAGE_ICON);
+  // The icon lives on page.properties (lib/pageIcon's cache); read it reactively
+  // so it updates when the page loads or the user picks a new one.
+  const icon = usePageIcon(pageId);
   const [incoming, setIncoming] = useState<{data: PageSnapshot; version: number} | undefined>(undefined);
   // The hosted-database id resolved from the page record itself (getPage /
   // subscribePage both join it). This is independent of the nav `pages` list, so
@@ -57,6 +59,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
         setPageHint(pageId, page.name);
       }
       setResolvedHostedDbId(page.hostedDatabaseId);
+      hydratePageIcons([{id: page.id, icon: page.properties[ICON_PROPERTY_ID] as string | null | undefined}]);
       versionRef.current += 1;
       setIncoming({data: page.data, version: versionRef.current});
     },
@@ -71,7 +74,6 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     const meta = pagesRef.current.find((p) => p.id === pageId);
     setTitle(meta?.name ?? '');
     nameRef.current = meta?.name ?? null;
-    setIcon(readPageIcon(pageId));
     setIncoming(undefined);
     // Seed from the nav-list meta when we have it; otherwise leave `undefined`
     // until getPage/subscribePage resolves it (don't carry the prior page's id).
@@ -90,6 +92,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     if (page) {
       lastUpdatedRef.current = page.updatedAt;
       setResolvedHostedDbId(page.hostedDatabaseId);
+      hydratePageIcons([{id: page.id, icon: page.properties[ICON_PROPERTY_ID] as string | null | undefined}]);
     }
     return page ? page.data : null;
   }, [client, pageId, setPageHint]);
@@ -122,7 +125,6 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
 
   const onIconChange = useCallback(
     (emoji: string) => {
-      setIcon(emoji);
       writePageIcon(pageId, emoji);
     },
     [pageId],

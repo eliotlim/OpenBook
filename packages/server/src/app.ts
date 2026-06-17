@@ -106,6 +106,9 @@ export function createApp(store: PageStore, ai?: AiService): Hono {
     const page = await store.setPageProperties(c.req.param('id'), body.properties ?? {});
     if (!page) return c.json({error: 'page not found'}, 404);
     hub.publishPage(page);
+    // The icon shows in the sidebar (it's part of PageMeta), so re-stream the
+    // page list when it changes; other properties don't affect the list.
+    if (body.properties && 'sys_icon' in body.properties) await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);
     return c.json(page);
   });

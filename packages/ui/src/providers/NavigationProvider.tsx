@@ -11,7 +11,7 @@ import React, {
 import {defaultDatabaseSchema, emptyPageSnapshot, type PageMeta} from '@open-book/sdk';
 import {useData} from '@/data';
 import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
-import {readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
+import {hydratePageIcons, readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {recordRecent} from '@/lib/recents';
 import {CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
 import {registerKitPanelNav} from '@/blockeditor/kit/kitPanel';
@@ -399,6 +399,13 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       }
     })();
   }, [client]);
+
+  // Icons travel on the page list now (page.properties), so hydrate the shared
+  // icon cache whenever the list changes — the sidebar, tabs, mentions, etc. read
+  // every page's icon synchronously from there.
+  useEffect(() => {
+    hydratePageIcons(pages);
+  }, [pages]);
 
   // Real-time: keep the page list live, and drop panes whose top-level page was
   // deleted by anyone. Subpage panes (ids never in the list) are handled by

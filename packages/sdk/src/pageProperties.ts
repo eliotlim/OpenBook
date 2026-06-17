@@ -24,6 +24,22 @@ export const VERIFICATION_PROPERTY_ID = 'sys_verification';
 /** Reserved, stable id for the Backlinks (computed) property. */
 export const BACKLINKS_PROPERTY_ID = 'sys_backlinks';
 
+/**
+ * Reserved ids for a page's **appearance**, stored on `page.properties` so a
+ * page's theme / cover / typefaces travel with the document (sync across
+ * devices) rather than living only in the local browser. They are appearance
+ * metadata — not panel/column properties — so they are intentionally NOT part
+ * of {@link SYSTEM_PAGE_PROPERTIES}.
+ */
+export const THEME_PROPERTY_ID = 'sys_theme';
+export const COVER_PROPERTY_ID = 'sys_cover';
+export const FONTS_PROPERTY_ID = 'sys_fonts';
+/** The page's emoji icon (a string). Projected into {@link PageMeta} so the
+ *  sidebar/tabs/mentions resolve it from the page list, not a per-page fetch. */
+export const ICON_PROPERTY_ID = 'sys_icon';
+/** The page's full-width layout flag (a boolean; absent = centered column). */
+export const FULLWIDTH_PROPERTY_ID = 'sys_fullwidth';
+
 /** The stored shape of a Verification property value. */
 export interface VerificationValue {
   verified: boolean;
@@ -31,6 +47,8 @@ export interface VerificationValue {
   by?: string | null;
   /** ISO timestamp the page was verified. */
   at?: string | null;
+  /** ISO timestamp the verification lapses; absent/`null` = never expires. */
+  expiresAt?: string | null;
 }
 
 /** The built-in properties every page carries, in panel order. */
@@ -40,14 +58,35 @@ export const SYSTEM_PAGE_PROPERTIES: DatabaseProperty[] = [
   {id: BACKLINKS_PROPERTY_ID, name: 'Backlinks', type: 'backlinks'},
 ];
 
-/** True when a stored value represents a verified page. */
+/** True when a stored value represents a verified page (ignoring expiry). */
 export function isVerified(value: unknown): boolean {
   return !!value && typeof value === 'object' && (value as VerificationValue).verified === true;
 }
 
-/** A verification value stamped as verified now (the caller supplies the time). */
-export function makeVerification(by: string | null, atIso: string): VerificationValue {
-  return {verified: true, by: by && by.trim() ? by.trim() : null, at: atIso};
+/** True when a verified page's verification has lapsed (expiry is in the past). */
+export function verificationExpired(value: unknown, nowMs: number = Date.now()): boolean {
+  if (!isVerified(value)) return false;
+  const exp = (value as VerificationValue).expiresAt;
+  return !!exp && new Date(exp).getTime() <= nowMs;
+}
+
+/** True when a page is verified AND its verification has not lapsed. */
+export function isVerificationActive(value: unknown, nowMs: number = Date.now()): boolean {
+  return isVerified(value) && !verificationExpired(value, nowMs);
+}
+
+/**
+ * A verification value stamped as verified now (the caller supplies the time).
+ * `expiresAtIso` sets an expiry; omit/`null` for a verification that never
+ * lapses.
+ */
+export function makeVerification(by: string | null, atIso: string, expiresAtIso?: string | null): VerificationValue {
+  return {
+    verified: true,
+    by: by && by.trim() ? by.trim() : null,
+    at: atIso,
+    ...(expiresAtIso ? {expiresAt: expiresAtIso} : {}),
+  };
 }
 
 /**

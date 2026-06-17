@@ -12,7 +12,8 @@ import {
 } from '@/components/ui/dialog';
 import {useData} from '@/data';
 import {useConfirm, useNavigation, useTranslation} from '@/providers';
-import {readStoredPageIcon, writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
+import {writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
+import {ICON_PROPERTY_ID} from '@open-book/sdk';
 import {downloadText} from '@/lib/download';
 import {bundleRoots, closure, overwriteCount, parseBackup} from '@/lib/backupBundle';
 import {t as bareT} from '@/i18n';
@@ -36,10 +37,12 @@ export default function BackupSettings() {
     setStatus(null);
     try {
       const {pages, databases} = await client.exportSpace();
+      // Icons travel in `page.properties` now, but keep the legacy `icons` map in
+      // the bundle too so older importers still restore them.
       const icons: Record<string, string> = {};
       for (const p of pages) {
-        const ic = readStoredPageIcon(p.id);
-        if (ic) icons[p.id] = ic;
+        const ic = p.properties?.[ICON_PROPERTY_ID];
+        if (typeof ic === 'string' && ic) icons[p.id] = ic;
       }
       const backup: SpaceBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons};
       downloadText(`openbook-backup-${new Date().toISOString().slice(0, 10)}.openbook.json`, JSON.stringify(backup), 'application/json');

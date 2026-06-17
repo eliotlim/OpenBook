@@ -26,20 +26,30 @@ async function freshPage(page: import('@playwright/test').Page): Promise<string>
   return new URL(page.url()).searchParams.get('page') as string;
 }
 
+// The owner / verification / backlinks cluster is revealed on hovering the
+// cover+title region (Notion-style), so reveal it before clicking a control.
+async function revealHeaderControls(page: import('@playwright/test').Page): Promise<void> {
+  await page.locator('.ob-page-title').hover();
+}
+
 test('page properties: set an owner and verify the page', async ({page}, testInfo) => {
   await freshPage(page);
 
-  // Owner: open the editor, type a name, commit.
+  // Owner: reveal the header controls, open the editor, type a name, commit.
+  await revealHeaderControls(page);
   await page.getByRole('button', {name: 'Set owner'}).click();
   const input = page.getByPlaceholder('Type a name…');
   await input.fill('Ada Lovelace');
   await input.press('Enter');
   await expect(page.getByText('Ada Lovelace')).toBeVisible();
 
-  // Verification: verify, then the badge shows.
+  // Verification: the Verify control opens an expiry menu; pick one, badge shows.
+  await revealHeaderControls(page);
   await page.getByRole('button', {name: 'Verify', exact: true}).click();
+  await page.getByRole('menuitem', {name: 'No expiry'}).click();
   await expect(page.getByText('Verified', {exact: true})).toBeVisible();
-  await takeSnapshot(page, testInfo); // visual: properties panel with owner + verified
+  await revealHeaderControls(page);
+  await takeSnapshot(page, testInfo); // visual: header controls with owner + verified
 
   // It persists across a reload (stored on the page, server-side).
   await page.reload();
@@ -61,7 +71,9 @@ test('page properties: backlinks list the pages that link here', async ({page, r
 
   await page.goto(`/?page=${target.id}`);
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
-  await expect(page.getByText('No backlinks yet')).toBeVisible();
+  // Backlinks live (collapsed) in the cover-area controls — opacity-hidden until
+  // hover, but present in the DOM. With none, it reads "No backlinks".
+  await expect(page.getByText('No backlinks')).toBeVisible();
 
   // Seed a page whose document links to the target (an inline mention anchor).
   const linkRes = await request.post(`${SERVER}/api/pages`, {
@@ -78,7 +90,11 @@ test('page properties: backlinks list the pages that link here', async ({page, r
   });
   expect(linkRes.ok()).toBeTruthy();
 
-  // Refresh the backlinks and see the linking page as a chip.
-  await page.getByRole('button', {name: 'Refresh'}).click();
+  // Reload so the target re-fetches its backlinks deterministically; the count
+  // collapses to a chip that opens the list of linking pages on click.
+  await page.reload();
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  await revealHeaderControls(page);
+  await page.getByRole('button', {name: /1 backlink/}).click();
   await expect(page.getByRole('button', {name: /Linking page/})).toBeVisible();
 });

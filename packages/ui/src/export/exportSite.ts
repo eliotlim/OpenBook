@@ -5,9 +5,9 @@
  * to. A breadth-first crawl from the root, deduped by id and capped, so a single
  * exported file carries a whole navigable mini-site.
  */
-import type {DataClient, DatabaseRow, DatabaseSchema, PageSnapshot} from '@open-book/sdk';
+import {ICON_PROPERTY_ID, type DataClient, type DatabaseRow, type DatabaseSchema, type PageSnapshot} from '@open-book/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
-import {readPageIcon} from '@/lib/pageIcon';
+import {DEFAULT_PAGE_ICON, readPageIcon} from '@/lib/pageIcon';
 
 /** A database hosted by a page, projected for static rendering. */
 export interface SiteDatabase {
@@ -81,7 +81,10 @@ export async function gatherSite(
 
     const snapshot = blockSnapshotToEditorJs(isRoot ? root.snapshot : stored!.data);
     const title = (isRoot ? root.title : stored!.name ?? '').trim() || 'Untitled';
-    const page: SitePage = {id, title, icon: isRoot ? root.icon : readPageIcon(id), snapshot};
+    // Prefer the icon stored on the page record (it travels in properties now);
+    // fall back to the in-memory cache / default for the unsaved root.
+    const storedIcon = (stored?.properties[ICON_PROPERTY_ID] as string | undefined) || '';
+    const page: SitePage = {id, title, icon: isRoot ? root.icon : storedIcon || readPageIcon(id) || DEFAULT_PAGE_ICON, snapshot};
     pages.set(id, page);
 
     for (const ref of referencedPageIds(snapshot)) if (!pages.has(ref)) queue.push(ref);

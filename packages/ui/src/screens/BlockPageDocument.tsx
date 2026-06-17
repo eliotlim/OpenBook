@@ -305,22 +305,30 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       className={cn('w-full pb-40', fontStyle && 'ob-page-fonts', hasBackground && 'ob-page-bg')}
       style={{...pageThemeStyle, ...fontStyle}}
     >
-      {pageId && <PageCoverBanner pageId={pageId} />}
-      <div className="px-6 pt-6 md:px-10">
+      {/* The cover + title region. Hovering it reveals the header controls
+          (customise / owner / verification / backlinks) — Notion-style — so they
+          stay out of the way while reading the body below. */}
+      <div className="group/pagehead">
+        {pageId && <PageCoverBanner pageId={pageId} />}
+        <div className="px-6 pt-6 md:px-10">
+          <div className={columnClass}>
+            {pageId && <PageHeaderControls pageId={pageId} />}
+
+            <PageHeader
+              title={title}
+              icon={icon}
+              pageId={pageId}
+              onTitleChange={onTitleChange}
+              onIconChange={onIconChange}
+              onTitleActiveChange={onTitleActiveChange}
+            />
+            {pageId && <PageProperties pageId={pageId} />}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 md:px-10">
         <div className={columnClass}>
-          {/* Cover-area controls (customise / owner / verification / add cover). */}
-          {pageId && <PageHeaderControls pageId={pageId} />}
-
-          <PageHeader
-            title={title}
-            icon={icon}
-            pageId={pageId}
-            onTitleChange={onTitleChange}
-            onIconChange={onIconChange}
-            onTitleActiveChange={onTitleActiveChange}
-          />
-          {pageId && <PageProperties pageId={pageId} />}
-
           <div ref={editorWrapRef} className={cn(hasDatabase ? 'min-h-0' : 'min-h-[40vh]', 'relative pt-2')}>
             {doc && (
               <BlockEditor

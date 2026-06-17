@@ -1,10 +1,12 @@
 import {describe, it, expect} from 'vitest';
 import type {PageMeta} from '@open-book/sdk';
 import {buildTree} from '../WorkspaceNavigationTree';
+import {writePageIcon} from '@/lib/pageIcon';
 
 const page = (id: string, name: string | null, parentId: string | null = null): PageMeta => ({
   id,
   name,
+  icon: null,
   parentId,
   hostedDatabaseId: null,
   deletedAt: null,
@@ -43,10 +45,10 @@ describe('buildTree', () => {
   });
 
   it('mirrors the page icon: chosen emoji, else the default page icon', () => {
-    localStorage.setItem('openbook.icon.a', '🔥');
-    const tree = buildTree([page('a', 'A'), page('b', 'B')]);
+    writePageIcon('icon-a', '🔥'); // the icon store (page.properties-backed) holds it
+    const tree = buildTree([page('icon-a', 'A'), page('icon-b', 'B')]);
     expect(tree[0].icon).toBe('🔥'); // chosen emoji
     expect(tree[1].icon).toBe('📄'); // DEFAULT_PAGE_ICON, same as the page header
-    localStorage.removeItem('openbook.icon.a');
+    writePageIcon('icon-a', '');
   });
 });

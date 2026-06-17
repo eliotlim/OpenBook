@@ -145,7 +145,7 @@ export interface AgentProposal {
   /** Stable id within the turn's change set. */
   id: string;
   /** Which write tool produced it (drives how the bridge applies it). */
-  kind: 'set_kit_value' | 'set_db_cell' | 'update_block' | 'append_blocks';
+  kind: 'set_kit_value' | 'set_db_cell' | 'update_block' | 'append_blocks' | 'set_page_theme';
   /** One-line human summary, e.g. `Set "budget" = 1200`. */
   summary: string;
   /** The page this change targets (for block/kit writes). */

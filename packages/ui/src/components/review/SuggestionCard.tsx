@@ -29,6 +29,7 @@ const KIND_LABEL: Record<StoredSuggestion['kind'], string> = {
   'set-cell': 'Set cell',
   insert: 'Insert',
   delete: 'Delete',
+  'set-theme': 'Page theme',
 };
 
 export function SuggestionCard({

@@ -62,6 +62,9 @@ export function SuggestHost() {
           pageId: editReq.pageId,
           blockId: editReq.blockId,
           text: draft,
+          // The block text at suggestion time → the merge base, so accepting two
+          // edits to the same block keeps both rather than clobbering one.
+          before: editReq.before,
           summary: 'Suggested edit',
         },
       };

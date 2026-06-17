@@ -40,7 +40,7 @@ export interface CommentRun {
 export type SuggestionAuthorKind = 'ai' | 'human';
 
 /** The change a suggestion proposes — mirrors the agent write-tool kinds. */
-export type SuggestionKind = 'replace-text' | 'set-cell' | 'insert' | 'delete';
+export type SuggestionKind = 'replace-text' | 'set-cell' | 'insert' | 'delete' | 'set-theme';
 
 /** Lifecycle of a suggestion. */
 export type SuggestionStatus = 'open' | 'accepted' | 'rejected';
