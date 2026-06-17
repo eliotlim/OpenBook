@@ -1,3 +1,13 @@
+## 1.56.0 (2026-06-17)
+
+### 🚀 Features
+
+- db swimlane reordering ([938f878](https://github.com/eliotlim/OpenBook/commit/938f878))
+
+### ❤️ Thank You
+
+- Eliot Lim
+
 ## 1.55.0 (2026-06-17)
 
 ### 🚀 Features
