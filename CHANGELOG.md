@@ -1,3 +1,14 @@
+## 1.57.1 (2026-06-18)
+
+### 🚀 Features
+
+- **ai:** assistant pane focus, settings sub-panels, feature visibility, model picker ([b52304b](https://github.com/eliotlim/OpenBook/commit/b52304b))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8
+- Eliot Lim
+
 ## 1.57.0 (2026-06-17)
 
 ### 🚀 Features
