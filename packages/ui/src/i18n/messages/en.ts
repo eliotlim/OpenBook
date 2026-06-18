@@ -414,6 +414,19 @@ export const en = {
     skillCancel: 'Cancel',
     skillDelete: 'Delete',
     skillEmpty: 'No skills yet. Add one to teach the assistant a repeatable recipe.',
+    features: 'Features',
+    featuresHint: 'Choose how each AI feature shows up in menus. Recommended keeps it up front; Enabled hides it until you search for it; Disabled removes it.',
+    featureVisibility: {
+      recommended: 'Recommended',
+      enabled: 'Enabled',
+      disabled: 'Disabled',
+    },
+    feature: {
+      assistant: 'Assistant',
+      search: 'AI note search',
+      continue: 'Continue writing',
+      tasks: 'Break into tasks',
+    },
   },
   aiSearch: {
     title: 'Search notes',
@@ -474,6 +487,9 @@ export const en = {
     provider: 'Provider for this conversation',
     model: 'Model for this conversation',
     modelPlaceholder: 'Default model',
+    modelAuto: 'Default',
+    modelCustom: 'Custom model',
+    modelSettings: 'Conversation model & effort',
     tool: {
       search_notes: 'Searching notes',
       read_page: 'Reading a page',

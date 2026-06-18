@@ -1,4 +1,4 @@
-import {type ComponentType} from 'react';
+import {Fragment, type ComponentType} from 'react';
 import {
   Cross2Icon,
   EnterFullScreenIcon,
@@ -24,8 +24,13 @@ import AdminSettings from '@/components/settings/AdminSettings';
 import {SignupSettings, SigninSettings, SupportSettings, IntegrationsSettings} from '@/components/settings/stubs';
 import {cn} from '@/lib/utils';
 import {usePreferences, useTranslation} from '@/providers';
+import {focusAiProvider} from '@/lib/aiSettingsNav';
 import type {TKey} from '@/i18n';
 import {SETTINGS_SECTIONS, type SettingsMode, type SettingsTab} from '@/lib/hud';
+
+/** Provider sub-items shown under the AI tab; each scrolls to + opens its
+ *  accordion in the AI settings panel. */
+const AI_PROVIDER_TABS = ['llama', 'mlx', 'openai', 'claude'] as const;
 
 const TAB_META: Record<SettingsTab, {labelKey: TKey; icon: ComponentType<{className?: string}>}> = {
   general: {labelKey: 'settings.tab.general', icon: WrenchIcon},
@@ -115,15 +120,33 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
             {section.tabs.map((id) => {
               const {labelKey, icon: Icon} = TAB_META[id];
               return (
-                <Button
-                  key={id}
-                  variant={tab === id ? 'secondary' : 'ghost'}
-                  className="flex h-7 justify-start px-2 font-normal"
-                  onClick={() => onTabChange(id)}
-                >
-                  <Icon className="mr-2 h-4 w-4 shrink-0" />
-                  <span className="truncate">{t(labelKey)}</span>
-                </Button>
+                <Fragment key={id}>
+                  <Button
+                    variant={tab === id ? 'secondary' : 'ghost'}
+                    className="flex h-7 justify-start px-2 font-normal"
+                    onClick={() => onTabChange(id)}
+                  >
+                    <Icon className="mr-2 h-4 w-4 shrink-0" />
+                    <span className="truncate">{t(labelKey)}</span>
+                  </Button>
+                  {id === 'ai' && tab === 'ai' && (
+                    <div className="mb-1 ml-7 flex flex-col gap-0.5">
+                      {AI_PROVIDER_TABS.map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => {
+                            onTabChange('ai');
+                            focusAiProvider(p);
+                          }}
+                          className="flex h-6 items-center truncate rounded-md px-2 text-left text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+                        >
+                          {t(`ai.providerShort.${p}` as TKey)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </Fragment>
               );
             })}
           </div>

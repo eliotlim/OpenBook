@@ -1,4 +1,5 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react';
+import type {FeatureVisibility} from '@/lib/aiFeatures';
 
 /** A user's identity within the app. Cosmetic today (local-first, no accounts). */
 export interface ProfilePreferences {
@@ -22,11 +23,15 @@ export interface GeneralPreferences {
 export interface Preferences {
   profile: ProfilePreferences;
   general: GeneralPreferences;
+  /** How AI entry points surface in menus, keyed by feature id. A missing entry
+   *  defaults to 'recommended' (see lib/aiFeatures). */
+  features: Record<string, FeatureVisibility>;
 }
 
 export const DEFAULT_PREFERENCES: Preferences = {
   profile: {name: '', displayName: '', avatar: '', avatarImage: '', bio: ''},
   general: {confirmOnTrash: true, spellcheck: true},
+  features: {},
 };
 
 /** A nested partial — every key optional, recursively — for `update(patch)`. */
@@ -48,6 +53,7 @@ function mergeStored(stored: DeepPartial<Preferences> | null): Preferences {
   return {
     profile: {...DEFAULT_PREFERENCES.profile, ...stored?.profile},
     general: {...DEFAULT_PREFERENCES.general, ...stored?.general},
+    features: {...DEFAULT_PREFERENCES.features, ...stored?.features} as Record<string, FeatureVisibility>,
   };
 }
 
@@ -82,6 +88,7 @@ export const PreferencesProvider: React.FC<React.PropsWithChildren<unknown>> = (
       const next: Preferences = {
         profile: {...prev.profile, ...patch.profile},
         general: {...prev.general, ...patch.general},
+        features: {...prev.features, ...patch.features} as Record<string, FeatureVisibility>,
       };
       try {
         localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(next));

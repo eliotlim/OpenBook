@@ -46,6 +46,7 @@ import {
 import {blockText, blockType, findBlock, makeTable, type BlockType, type NewBlock} from './model';
 import {customSlashItems} from './registry';
 import {aiSlashItems} from './aiBlocks';
+import {featureShown, readFeatureVisibility, type FeatureVisibility} from '@/lib/aiFeatures';
 import {pageLinks, type SubpageKind} from '@/lib/pageLinks';
 import {t, type TKey} from '../i18n';
 import type {BlockEditorController} from './useBlockEditor';
@@ -264,11 +265,26 @@ export const SlashMenu: React.FC<{
       apply: item.apply,
       icon: GROUP_ICON.ai,
     }));
+    // AI commands honour the per-feature visibility preference: disabled ones
+    // drop out, "enabled" ones surface only while searching, and recommended
+    // ones float to the top of the menu.
+    const searching = q.length > 0;
+    const aiVis = new Map<string, FeatureVisibility>(ai.map((it) => [it.id, readFeatureVisibility(it.id)]));
+    const matches = (item: SlashItem): boolean =>
+      !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q);
+    // Recommended AI sits just below the basic blocks (nearer the top) rather
+    // than at the bottom of the menu, without displacing core text blocks.
+    const recommendedAiRank = GROUP_ORDER.indexOf('basic') + 0.5;
+    const groupRank = (item: SlashItem): number =>
+      item.group === 'ai' && aiVis.get(item.id) === 'recommended' ? recommendedAiRank : GROUP_ORDER.indexOf(item.group);
     return [...core, ...custom, ...ai]
-      .filter((item) => !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q))
+      .filter((item) => {
+        if (item.group === 'ai' && !featureShown(aiVis.get(item.id) ?? 'recommended', searching)) return false;
+        return matches(item);
+      })
       // Stable sort groups into display order (Array.sort is stable), so items
       // keep their authored order within each category.
-      .sort((a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group));
+      .sort((a, b) => groupRank(a) - groupRank(b));
   }, [state.query, pageId, onLink]);
 
   // Fixed (viewport) positioning: anchored to the caret, measured after

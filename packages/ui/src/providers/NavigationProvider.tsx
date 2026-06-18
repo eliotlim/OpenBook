@@ -28,6 +28,9 @@ export interface NavigationContextValue {
   pages: PageMeta[];
   /** The page in the focused pane of this window. */
   currentPageId: string | null;
+  /** The page in the PRIMARY (left) pane — what side panes (the assistant,
+   *  review, dataflow) act on, regardless of which pane is focused. */
+  primaryPageId: string | null;
   loading: boolean;
   error: string | null;
 
@@ -458,6 +461,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   }, [pages]);
 
   const currentPageId = win ? W.currentPageId(win) : null;
+  const primaryPageId = win ? W.primaryPage(win) : null;
 
   // Track the focused page as "recently visited" (drives the palette's Recent
   // group). Covers every entry point — sidebar, palette, tabs, back/forward.
@@ -487,6 +491,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     () => ({
       pages,
       currentPageId,
+      primaryPageId,
       loading,
       error,
       inWindowTabs,
@@ -522,7 +527,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       reload,
     }),
     [
-      pages, currentPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
+      pages, currentPageId, primaryPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
       panes, focusedPaneId, splitOpen, focusPane, openInSplit,
       closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, selectPage, selectPageInPane, goBack,
       goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, duplicatePage, deletePage, renamePage,

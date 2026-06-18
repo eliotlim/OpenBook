@@ -17,6 +17,7 @@ import {formatShortcut} from '@/lib/shortcuts';
 import {readPageIcon} from '@/lib/pageIcon';
 import {readFavorites, subscribeFavorites} from '@/lib/favorites';
 import {readRecents, subscribeRecents} from '@/lib/recents';
+import {featureShown, isAiFeature, readFeatureVisibility} from '@/lib/aiFeatures';
 import {t} from '@/i18n';
 
 const displayName = (name: string | null): string =>
@@ -31,6 +32,18 @@ export function CommandMenu() {
   const {t} = useTranslation();
   const commands = useAppCommands();
   const open = hud.commandPalette.open;
+
+  // Controlled query so AI features set to "enabled" surface only while the
+  // user is searching (disabled ones never; recommended ones always).
+  const [search, setSearch] = React.useState('');
+  React.useEffect(() => {
+    if (!open) setSearch('');
+  }, [open]);
+  const searching = search.trim().length > 0;
+  const visibleCommands = React.useMemo(
+    () => commands.filter((c) => !isAiFeature(c.id) || featureShown(readFeatureVisibility(c.id), searching)),
+    [commands, searching],
+  );
 
   // Favourites + recents live in localStorage; bump on change so the palette
   // reflects a pin/visit made while it's open.
@@ -99,7 +112,7 @@ export function CommandMenu() {
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen} title={t('command.title')} description={t('command.placeholder')}>
-      <CommandInput placeholder={t('command.placeholder')} />
+      <CommandInput placeholder={t('command.placeholder')} value={search} onValueChange={setSearch} />
       <CommandList>
         <CommandEmpty>{t('command.noResults')}</CommandEmpty>
         {favorites.length > 0 && (
@@ -122,7 +135,7 @@ export function CommandMenu() {
           )}
         </CommandGroup>
         {GROUP_ORDER.map((group) => {
-          const items = commands.filter((c) => c.group === group);
+          const items = visibleCommands.filter((c) => c.group === group);
           if (items.length === 0) return null;
           return (
             <React.Fragment key={group}>

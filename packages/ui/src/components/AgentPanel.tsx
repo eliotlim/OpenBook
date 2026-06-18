@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import {ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, ClipboardCheck, Loader2, Pencil, Plus, ShieldCheck, Square} from 'lucide-react';
+import {ArrowUp, Bot, Brain, Check, ChevronDown, ChevronRight, ClipboardCheck, Loader2, Pencil, Plus, ShieldCheck, Sparkles, Square} from 'lucide-react';
 import {
   providerSettings,
   type AgentChatEvent,
@@ -12,11 +12,11 @@ import {
 } from '@open-book/sdk';
 import {Button} from '@/components/ui/button';
 import {Markdown} from '@/components/ui/markdown';
-import {Select} from '@/components/ui/select';
+import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {useData} from '@/data';
 import type {TKey} from '@/i18n';
 import {useHud, useNavigation, useTranslation} from '@/providers';
-import {REVIEW_PANE_ID} from '@/lib/homePage';
+import {HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
 import {setReviewTarget} from '@/lib/reviewPane';
 import {aiBridge} from '@/lib/aiBridge';
 import {lastSelection} from '@/lib/selection';
@@ -83,11 +83,26 @@ const EFFORTS: Array<{value: AiEffort; key: TKey}> = [
   {value: 'high', key: 'agent.effortHigh'},
 ];
 
+/** Friendly model presets per provider for the conversation picker. Providers
+ *  with free-form model ids (llama/mlx/openai) have none — the custom field
+ *  below the presets covers them. */
+const MODEL_PRESETS: Partial<Record<AiProvider, Array<{value: string; label: string}>>> = {
+  claude: [
+    {value: 'claude-opus-4-8', label: 'Opus 4.8'},
+    {value: 'claude-sonnet-4-6', label: 'Sonnet 4.6'},
+    {value: 'claude-haiku-4-5', label: 'Haiku 4.5'},
+  ],
+};
+
 export function AgentPanel() {
   const {setHud} = useHud();
   const {t} = useTranslation();
   const client = useData();
-  const {openInSplit, closeSplit, currentPageId} = useNavigation();
+  // Act on the PRIMARY (left) pane's document, not the focused pane — opening
+  // the assistant focuses its own (secondary) pane, so `currentPageId` would be
+  // the agent pane itself. The home pseudo-page carries no document.
+  const {openInSplit, closeSplit, primaryPageId} = useNavigation();
+  const targetPageId = primaryPageId && primaryPageId !== HOME_PAGE_ID ? primaryPageId : undefined;
   const [thread, setThread] = useState<ThreadItem[]>([]);
   const [conversation, setConversation] = useState<AgentChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -232,9 +247,9 @@ export function AgentPanel() {
         model: model || undefined,
         effort,
         thinking,
-        // The agent grounds replies in the page the user is viewing + their
+        // The agent grounds replies in the page in the primary pane + their
         // current selection, on top of whatever they typed.
-        pageId: currentPageId ?? undefined,
+        pageId: targetPageId,
         selection: lastSelection() || undefined,
         allowDirectEdits: direct,
       })
@@ -311,6 +326,18 @@ export function AgentPanel() {
     setProviderState(p);
     setModel(config ? providerSettings(config, p).model ?? '' : '');
   };
+
+  // The compact "provider · model (effort) · Reasoning" summary on the footer
+  // bar, which opens the picker popover. Short provider name falls back to the
+  // full label for providers without a short form (e.g. mock).
+  const providerShortLabel = (p: AiProvider): string => {
+    const short = t(`ai.providerShort.${p}` as TKey);
+    return short === `ai.providerShort.${p}` ? t(`ai.provider.${p}` as TKey) : short;
+  };
+  const presets = MODEL_PRESETS[provider];
+  const effortLabel = t(EFFORTS.find((e) => e.value === effort)?.key ?? 'agent.effortMed');
+  const modelLabel = presets?.find((m) => m.value === model)?.label ?? (model || t('agent.modelAuto'));
+  const barSummary = [providerShortLabel(provider), `${modelLabel} (${effortLabel})`, ...(thinking ? [t('agent.thinkingToggle')] : [])].join('  ·  ');
 
   return (
     <div data-agent-panel aria-label={t('agent.title')} className="flex h-full flex-col bg-sheet-1">
@@ -541,61 +568,107 @@ export function AgentPanel() {
           aria-label={t('agent.placeholder')}
           className="w-full resize-none rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring"
         />
-        {providerOptions.length > 0 && (
-          <div className="flex items-center gap-2">
-            <Select
-              inputSize="sm"
-              value={provider}
-              onChange={(e) => changeProvider(e.target.value as AiProvider)}
-              wrapperClassName="w-[120px]"
-              data-agent-provider
-              aria-label={t('agent.provider')}
-            >
-              {providerOptions.map((p) => (
-                <option key={p} value={p}>
-                  {t(`ai.provider.${p}` as TKey)}
-                </option>
-              ))}
-            </Select>
-            <input
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder={t('agent.modelPlaceholder')}
-              data-agent-model
-              aria-label={t('agent.model')}
-              className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-xs outline-hidden focus:border-ring"
-            />
-          </div>
-        )}
         <div className="flex items-center gap-2">
-          <Select
-            inputSize="sm"
-            value={effort}
-            onChange={(e) => setEffort(e.target.value as AiEffort)}
-            wrapperClassName="w-[110px]"
-            data-agent-effort
-            aria-label={t('ai.effort')}
-          >
-            {EFFORTS.map((e) => (
-              <option key={e.value} value={e.value}>
-                {t(e.key)}
-              </option>
-            ))}
-          </Select>
-          <button
-            type="button"
-            data-agent-thinking
-            aria-pressed={thinking}
-            onClick={() => setThinking((v) => !v)}
-            title={t('agent.thinkingToggle')}
-            className={cn(
-              'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs transition-colors',
-              thinking ? 'border-ring bg-accent/40 text-foreground' : 'border-border text-muted-foreground hover:bg-hover',
-            )}
-          >
-            <Brain className="size-3.5" />
-            {t('agent.thinkingToggle')}
-          </button>
+          {providerOptions.length > 0 && (
+            <Popover>
+              <PopoverTrigger asChild>
+                <button
+                  type="button"
+                  data-agent-modelbar
+                  aria-label={t('agent.modelSettings')}
+                  title={t('agent.modelSettings')}
+                  className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+                >
+                  <Sparkles className="size-3.5 shrink-0" aria-hidden />
+                  <span className="truncate">{barSummary}</span>
+                  <ChevronDown className="size-3 shrink-0" aria-hidden />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" side="top" className="w-64 p-2 text-sm">
+                <div className="flex flex-col gap-0.5" data-agent-provider aria-label={t('agent.provider')}>
+                  <p className="px-1 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('agent.provider')}</p>
+                  {providerOptions.map((p) => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => changeProvider(p)}
+                      className={cn(
+                        'flex items-center justify-between gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-hover',
+                        p === provider && 'bg-accent/50',
+                      )}
+                    >
+                      <span className="truncate">{providerShortLabel(p)}</span>
+                      {p === provider && <Check className="size-3.5 shrink-0" aria-hidden />}
+                    </button>
+                  ))}
+                </div>
+                {presets && presets.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-0.5">
+                    <p className="px-1 pb-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('agent.model')}</p>
+                    {presets.map((m) => (
+                      <button
+                        key={m.value}
+                        type="button"
+                        onClick={() => setModel(m.value)}
+                        className={cn(
+                          'flex items-center justify-between gap-2 rounded-md px-2 py-1 text-left transition-colors hover:bg-hover',
+                          m.value === model && 'bg-accent/50',
+                        )}
+                      >
+                        <span className="truncate">{m.label}</span>
+                        {m.value === model && <Check className="size-3.5 shrink-0" aria-hidden />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-2 flex flex-col gap-1">
+                  <p className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {presets ? t('agent.modelCustom') : t('agent.model')}
+                  </p>
+                  <input
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder={t('agent.modelPlaceholder')}
+                    data-agent-model
+                    aria-label={t('agent.model')}
+                    className="h-8 w-full rounded-md border border-border bg-background px-2 text-xs outline-hidden focus:border-ring"
+                  />
+                </div>
+                <div className="mt-2 flex flex-col gap-1">
+                  <p className="px-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t('ai.effort')}</p>
+                  <div className="flex gap-1" data-agent-effort aria-label={t('ai.effort')}>
+                    {EFFORTS.map((e) => (
+                      <button
+                        key={e.value}
+                        type="button"
+                        onClick={() => setEffort(e.value)}
+                        className={cn(
+                          'flex-1 rounded-md border px-2 py-1 text-xs transition-colors',
+                          effort === e.value ? 'border-ring bg-accent/40 text-foreground' : 'border-border text-muted-foreground hover:bg-hover',
+                        )}
+                      >
+                        {t(e.key)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  data-agent-thinking
+                  aria-pressed={thinking}
+                  onClick={() => setThinking((v) => !v)}
+                  className={cn(
+                    'mt-2 flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-xs transition-colors',
+                    thinking ? 'border-ring bg-accent/40 text-foreground' : 'border-border text-muted-foreground hover:bg-hover',
+                  )}
+                >
+                  <Brain className="size-3.5 shrink-0" aria-hidden />
+                  <span className="flex-1 text-left">{t('agent.thinkingToggle')}</span>
+                  {thinking && <Check className="size-3.5 shrink-0" aria-hidden />}
+                </button>
+              </PopoverContent>
+            </Popover>
+          )}
           <span className="flex-1" />
           {busy ? (
             <Button size="icon" variant="outline" className="size-7" onClick={stop} title={t('agent.stop')} aria-label={t('agent.stop')}>

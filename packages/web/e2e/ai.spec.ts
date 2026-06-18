@@ -43,16 +43,20 @@ test('settings: AI tab shows providers and engine status', async ({page, request
   await page.keyboard.press('Escape');
 });
 
-test('settings: every provider is configurable at once + the radio picks the default', async ({page, request}) => {
+test('settings: every provider is configurable in its own panel + the radio picks the default', async ({page, request}) => {
   await setProvider(request, 'off');
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   await page.keyboard.press('ControlOrMeta+,');
   await page.getByRole('button', {name: 'AI', exact: true}).click();
 
-  // All providers' connection fields are shown together — Claude's API key, the
-  // OpenAI/MLX model fields, and llama's download button — no selection needed.
+  // Each provider's connection settings live in its own collapsible accordion
+  // (Claude's API key, the OpenAI/MLX model fields, llama's download button) —
+  // expand them to configure. The default radio above is independent.
   await expect(page.getByText('Default engine')).toBeVisible();
+  await page.locator('#ai-section-claude > button').click();
+  await page.locator('#ai-section-openai > button').click();
+  await page.locator('#ai-section-llama > button').click();
   await expect(page.getByPlaceholder('sk-ant-…')).toBeVisible();
   await expect(page.getByPlaceholder('claude-sonnet-4-6')).toBeVisible();
   await expect(page.getByPlaceholder('qwen2.5:1.5b')).toBeVisible();
@@ -174,12 +178,16 @@ test('assistant panel: ask a question, watch the tool run, get a grounded answer
   const input = panel.locator('[data-agent-input]');
   await expect(input).toBeFocused();
 
-  // The drawer carries per-conversation provider + model pickers (alongside
-  // effort), defaulting to the configured engine. (The Select forwards only
-  // aria-label, not data-*, so target the provider/effort pickers by label.)
-  await expect(panel.getByLabel('Provider for this conversation')).toBeVisible();
-  await expect(panel.locator('[data-agent-model]')).toBeVisible();
-  await expect(panel.getByLabel('Effort')).toBeVisible();
+  // The footer carries a compact per-conversation picker (provider · model ·
+  // effort · reasoning) that opens a popover with the controls. The popover is
+  // portaled to the body, so assert on the page, not within the panel.
+  const modelBar = panel.locator('[data-agent-modelbar]');
+  await expect(modelBar).toBeVisible();
+  await modelBar.click();
+  await expect(page.locator('[data-agent-provider]')).toBeVisible();
+  await expect(page.locator('[data-agent-model]')).toBeVisible();
+  await expect(page.locator('[data-agent-effort]')).toBeVisible();
+  await page.keyboard.press('Escape'); // close the popover before using the panel
 
   // Starter suggestions fill the input (without sending).
   await expect(panel.locator('[data-agent-suggestion]')).toHaveCount(3);

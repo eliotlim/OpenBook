@@ -1,11 +1,13 @@
-import {useCallback, useEffect, useState} from 'react';
-import {Trash2} from 'lucide-react';
+import {useCallback, useEffect, useState, type ReactNode} from 'react';
+import {ChevronDown, ChevronRight, Trash2} from 'lucide-react';
 import {providerSettings, type AiConfig, type AiEffort, type AiProvider, type AiProviderSettings, type AiSkill, type AiStatus} from '@open-book/sdk';
 import {SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {useData} from '@/data';
-import {useConfirm, useTranslation} from '@/providers';
+import {useConfirm, usePreferences, useTranslation} from '@/providers';
+import {AI_FEATURES, type FeatureVisibility} from '@/lib/aiFeatures';
+import {registerAiProviderFocus} from '@/lib/aiSettingsNav';
 import {cn} from '@/lib/utils';
 
 const fieldClass =
@@ -39,11 +41,15 @@ export default function AiSettings() {
   const client = useData();
   const {t} = useTranslation();
   const confirm = useConfirm();
+  const {preferences, update: updatePreferences} = usePreferences();
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [draft, setDraft] = useState<AiConfig | null>(null);
   const [busy, setBusy] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [skills, setSkills] = useState<AiSkill[]>([]);
+  // Which provider accordions are expanded. The nav rail's sub-items expand and
+  // scroll to one via the aiSettingsNav bridge.
+  const [openProviders, setOpenProviders] = useState<Record<string, boolean>>({});
 
   const refresh = useCallback(async () => {
     try {
@@ -67,6 +73,25 @@ export default function AiSettings() {
     void refresh();
     void refreshSkills();
   }, [refresh, refreshSkills]);
+
+  // Open the default provider's accordion once it's known, so the active
+  // provider's settings are visible without a click.
+  useEffect(() => {
+    if (draft && CONFIGURABLE.includes(draft.provider)) {
+      setOpenProviders((o) => (draft.provider in o ? o : {...o, [draft.provider]: true}));
+    }
+  }, [draft]);
+
+  // Let the settings nav's per-provider sub-items expand + scroll to a provider.
+  useEffect(() => {
+    registerAiProviderFocus((p) => {
+      setOpenProviders((o) => ({...o, [p]: true}));
+      requestAnimationFrame(() => {
+        document.getElementById(`ai-section-${p}`)?.scrollIntoView({behavior: 'smooth', block: 'start'});
+      });
+    });
+    return () => registerAiProviderFocus(null);
+  }, []);
 
   // Poll while a model download is in flight.
   useEffect(() => {
@@ -130,7 +155,13 @@ export default function AiSettings() {
   const renderProviderConfig = (p: AiProvider) => {
     const s = providerSettings(draft, p);
     return (
-      <SettingsSection key={p} title={t(`ai.providerShort.${p}` as Parameters<typeof t>[0])}>
+      <ProviderAccordion
+        key={p}
+        id={`ai-section-${p}`}
+        title={t(`ai.providerShort.${p}` as Parameters<typeof t>[0])}
+        open={openProviders[p] ?? false}
+        onToggle={() => setOpenProviders((o) => ({...o, [p]: !(o[p] ?? false)}))}
+      >
         {p === 'llama' && (
           <>
             <SettingsField label={t('ai.modelFile')} hint={t('ai.modelFileHint')}>
@@ -199,7 +230,7 @@ export default function AiSettings() {
             {modelInput(p, 'claude-sonnet-4-6', t('ai.claudeModelHint'))}
           </>
         )}
-      </SettingsSection>
+      </ProviderAccordion>
     );
   };
 
@@ -241,7 +272,7 @@ export default function AiSettings() {
         )}
       </SettingsSection>
 
-      {CONFIGURABLE.map(renderProviderConfig)}
+      <div className="flex flex-col gap-2">{CONFIGURABLE.map(renderProviderConfig)}</div>
 
       {provider !== 'off' && (
         <SettingsSection title={t('ai.assistant')} description={t('ai.assistantHint')}>
@@ -267,6 +298,25 @@ export default function AiSettings() {
           />
         </SettingsSection>
       )}
+
+      <SettingsSection title={t('ai.features')} description={t('ai.featuresHint')}>
+        <div className="flex flex-col gap-2">
+          {AI_FEATURES.map((f) => (
+            <div key={f.id} className="flex items-center justify-between gap-4">
+              <span className="text-sm">{t(f.labelKey)}</span>
+              <Select
+                value={preferences.features[f.id] ?? 'recommended'}
+                wrapperClassName="w-[160px]"
+                onChange={(e) => updatePreferences({features: {[f.id]: e.target.value as FeatureVisibility}})}
+              >
+                <option value="recommended">{t('ai.featureVisibility.recommended')}</option>
+                <option value="enabled">{t('ai.featureVisibility.enabled')}</option>
+                <option value="disabled">{t('ai.featureVisibility.disabled')}</option>
+              </Select>
+            </div>
+          ))}
+        </div>
+      </SettingsSection>
 
       <SettingsSection title={t('ai.skills')} description={t('ai.skillsHint')}>
         <SkillsEditor skills={skills} onChange={refreshSkills} confirm={confirm} />
@@ -391,5 +441,40 @@ function SkillsEditor({
         </Button>
       )}
     </div>
+  );
+}
+
+/** A collapsible per-provider settings panel. `id` is the scroll anchor the
+ *  settings nav's provider sub-items target (`ai-section-<provider>`). */
+function ProviderAccordion({
+  id,
+  title,
+  open,
+  onToggle,
+  children,
+}: {
+  id: string;
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section id={id} className="scroll-mt-4 rounded-lg border border-border">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-lg px-3.5 py-2.5 text-left transition-colors hover:bg-hover"
+      >
+        {open ? (
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        ) : (
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        )}
+        <span className="text-sm font-medium">{title}</span>
+      </button>
+      {open && <div className="flex flex-col gap-3 border-t border-border px-3.5 py-3">{children}</div>}
+    </section>
   );
 }
