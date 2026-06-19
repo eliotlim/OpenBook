@@ -12,8 +12,18 @@ export default function SideNavToggle({className}: {className?: string}) {
       aria-label={t('nav.toggleSidebar')}
       className={cn('px-3 py-1', className)}
       onClick={() => setHud((draft) => {
-        draft.sideNav.open = !draft.sideNav.docked;
-        draft.sideNav.docked = !draft.sideNav.docked;
+        // Narrow screens: open the sidebar as a floating overlay (undocked +
+        // open) rather than docking a 256px rail that would squeeze the page.
+        // Wide screens keep the dock/undock toggle. Gated on width so the
+        // desktop/web layout — and the e2e, which run wide — are unchanged.
+        const narrow = typeof window !== 'undefined' && window.innerWidth < 768;
+        if (narrow) {
+          draft.sideNav.open = !(draft.sideNav.open && !draft.sideNav.docked);
+          draft.sideNav.docked = false;
+        } else {
+          draft.sideNav.open = !draft.sideNav.docked;
+          draft.sideNav.docked = !draft.sideNav.docked;
+        }
         return draft;
       })}
     >
