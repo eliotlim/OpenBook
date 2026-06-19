@@ -188,7 +188,7 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(function Select(
           onKeyDown={onKeyDown}
           className={cn(
             "z-50 max-h-[var(--radix-popover-content-available-height)] min-w-[var(--radix-popover-trigger-width)] max-w-[calc(100vw-1rem)]",
-            "overflow-y-auto overflow-x-hidden overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-md outline-hidden",
+            "overflow-y-auto overflow-x-hidden overscroll-contain rounded-md border bg-popover p-1 text-popover-foreground shadow-overlay outline-hidden",
             // Entrance only — no exit animation, so the content (and its dismissable
             // layer) unmounts immediately on close rather than lingering and
             // interfering with an enclosing popover.

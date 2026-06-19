@@ -70,7 +70,7 @@ export const LinkPicker: React.FC<{
   return (
     <div
       ref={rootRef}
-      className="fixed z-50 flex w-72 flex-col rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-lg"
+      className="fixed z-50 flex w-72 flex-col rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-overlay"
       style={{left: pos.left, top: pos.top}}
       role="dialog"
       aria-label={kind === 'database' ? t('link.databaseTitle') : t('link.pageTitle')}

@@ -42,7 +42,7 @@ export default function Settings() {
         <DialogOverlay />
         <DialogPrimitive.Content
           className={cn(
-            'fixed z-50 flex overflow-hidden bg-background p-0 shadow-lg duration-200',
+            'fixed z-50 flex overflow-hidden bg-background p-0 shadow-overlay duration-200',
             'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
             mode === 'fullscreen' ? FULLSCREEN_CLS : MODAL_CLS,
           )}

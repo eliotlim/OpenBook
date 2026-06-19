@@ -41,7 +41,7 @@ export default function EmojiPickerHost() {
             align="start"
             sideOffset={6}
             collisionPadding={8}
-            className="z-50 overflow-hidden rounded-md border-0 shadow-lg outline-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+            className="z-50 overflow-hidden rounded-md border-0 shadow-overlay outline-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
           >
             <Suspense fallback={<div className="h-[360px] w-[320px] rounded-md bg-popover" />}>
               <EmojiGrid

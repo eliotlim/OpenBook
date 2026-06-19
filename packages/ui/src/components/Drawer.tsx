@@ -15,7 +15,7 @@ export default function Drawer({children, ...props}: DrawerProps) {
     // Auto-hide: a floating overlay, so it carries its own edge + shadow.
     props.docked
       ? 'order-first h-full'
-      : 'fixed left-0 top-14 h-[calc(100vh-3.5rem)] -translate-x-full rounded-r-xl border border-l-0 border-border shadow-2xl',
+      : 'fixed left-0 top-14 h-[calc(100vh-3.5rem)] -translate-x-full rounded-r-xl border border-l-0 border-border shadow-overlay',
     props.open ? 'translate-x-0' : '',
   );
 
