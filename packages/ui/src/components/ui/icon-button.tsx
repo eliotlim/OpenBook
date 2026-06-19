@@ -11,7 +11,9 @@ import { cn } from "@/lib/utils"
  * the `rounded p-1 … hover:bg-hover` snippet copy-pasted per call site.
  */
 const iconButtonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-hover hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+  // Matches Button's focus + press feel so every clickable control reads alike:
+  // a crisp 2px keyboard ring inset from the control, plus a subtle press-down.
+  "inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] active:scale-[0.94] hover:bg-hover hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
   {
     variants: {
       size: {

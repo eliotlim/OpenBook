@@ -175,7 +175,7 @@ export function CoverPicker({pageId, children}: {pageId: string; children: React
                 onKeyDown={(e) => e.key === 'Enter' && applyImage()}
                 placeholder="https://…"
                 spellCheck={false}
-                className="min-w-0 flex-1 rounded-md border border-border bg-card px-2 py-1.5 text-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                className="min-w-0 flex-1 rounded-md border border-border bg-card px-2 py-1.5 text-sm outline-hidden transition-[color,border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
               />
               <button
                 type="button"

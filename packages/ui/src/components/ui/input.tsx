@@ -4,7 +4,10 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const inputVariants = cva(
-  "w-full rounded-md border border-input bg-transparent text-sm text-foreground transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
+  // Focus: the field "lights up" — its border tints to the accent and a soft 3px
+  // ring hugs it (no offset, so the glow stays flush to the rounded edge). This
+  // is the text-field focus idiom; offset rings are for clickable controls.
+  "w-full rounded-md border border-input bg-transparent text-sm text-foreground transition-[color,border-color,box-shadow] file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-hidden focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:cursor-not-allowed disabled:opacity-50",
   {
     variants: {
       // `inputSize` (not `size`, which is a native numeric input attribute).

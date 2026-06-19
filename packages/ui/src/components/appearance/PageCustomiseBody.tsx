@@ -130,7 +130,7 @@ function TypefacePicker({value, onChange}: {value: string | undefined; onChange:
           placeholder={t('appearance.fontCustomPlaceholder')}
           aria-label={t('appearance.fontCustom')}
           spellCheck={false}
-          className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+          className="w-full rounded-md border border-border bg-card px-2 py-1.5 text-sm outline-hidden transition-[color,border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/40"
         />
       )}
     </div>
