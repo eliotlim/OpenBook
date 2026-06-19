@@ -281,6 +281,35 @@
   }
 }
 
+/* ── Skeleton shimmer ───────────────────────────────────────────────────────
+   A soft highlight sweep across a muted placeholder — calmer and more "alive"
+   than an opacity pulse, the loading idiom of native apps. The base reserves
+   the content's space; the ::after sweeps a faint gradient left→right. Under
+   reduced motion the sweep is frozen off-screen, leaving a plain muted block. */
+.ob-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: hsl(var(--muted));
+}
+.ob-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    hsl(var(--foreground) / 0.07),
+    transparent
+  );
+  animation: ob-shimmer 1.6s var(--ease-in-out-soft) infinite;
+}
+@keyframes ob-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 /* Touch devices have no hover, so hover-revealed affordances would be
    invisible yet still tappable. Show them at rest instead. */
 @media (hover: none) {

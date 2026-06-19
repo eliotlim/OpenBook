@@ -95,7 +95,7 @@ export const MapView: React.FC<{
         // the rounded border. (Leaflet's sheet is `.leaflet-*`-namespaced, so it
         // doesn't bleed into the app — see the import note in databaseMapLeaflet.)
         <div className="ob-leaflet h-[480px] overflow-hidden rounded-md border border-border" style={{contain: 'paint'}}>
-          <Suspense fallback={<div className="h-full w-full animate-pulse bg-muted/40" aria-label="Loading map" />}>
+          <Suspense fallback={<div className="ob-skeleton h-full w-full" aria-label="Loading map" />}>
             <LeafletMap markers={placed} clustered={view.mapClustered !== false} onOpen={(id) => db.openRow(id)} />
           </Suspense>
         </div>
