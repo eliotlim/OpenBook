@@ -42,7 +42,7 @@ function PageTile({page, onOpen}: {page: PageMeta; onOpen: (id: string) => void}
     <button
       type="button"
       onClick={() => onOpen(page.id)}
-      className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors hover:bg-hover"
+      className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow,transform] hover:-translate-y-px hover:border-foreground/15 hover:shadow-lift active:translate-y-0 active:shadow-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <span className="text-lg leading-none" aria-hidden>
         {readPageIcon(page.id)}
@@ -183,7 +183,7 @@ export default function HomeScreen() {
                     key={label}
                     type="button"
                     onClick={run}
-                    className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:border-solid hover:bg-hover hover:text-foreground"
+                    className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-[background-color,border-color,color,box-shadow,transform] hover:-translate-y-px hover:border-solid hover:border-foreground/15 hover:bg-hover hover:text-foreground hover:shadow-lift active:translate-y-0 active:shadow-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                   >
                     <Icon className="h-4 w-4 shrink-0" />
                     {label}
