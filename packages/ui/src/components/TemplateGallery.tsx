@@ -59,7 +59,7 @@ export function TemplateGallery() {
               data-template={template.id}
               disabled={busyId !== null}
               onClick={() => void pick(template)}
-              className="flex cursor-pointer items-start gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:border-foreground/20 hover:bg-hover disabled:opacity-60"
+              className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-card p-3 text-left transition-[background-color,border-color,box-shadow,transform] hover:-translate-y-px hover:border-foreground/20 hover:shadow-lift active:translate-y-0 active:shadow-none disabled:pointer-events-none disabled:opacity-60 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               <span aria-hidden className="text-2xl leading-none">
                 {template.icon}
