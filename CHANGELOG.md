@@ -1,3 +1,15 @@
+## 1.58.0 (2026-06-19)
+
+### 🚀 Features
+
+- database groups ([c09a621](https://github.com/eliotlim/OpenBook/commit/c09a621))
+- account support ([48a908b](https://github.com/eliotlim/OpenBook/commit/48a908b))
+- tighten account handling ([01b1d47](https://github.com/eliotlim/OpenBook/commit/01b1d47))
+
+### ❤️ Thank You
+
+- Eliot Lim
+
 ## 1.57.1 (2026-06-18)
 
 ### 🚀 Features
