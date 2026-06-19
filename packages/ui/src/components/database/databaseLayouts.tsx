@@ -273,7 +273,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
         <button
           onClick={() => db.openRow(row.id)}
           style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
-          className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-colors hover:border-foreground/20 hover:bg-hover"
+          className="group flex flex-col gap-2 overflow-hidden rounded-lg border border-border bg-card text-left transition-[background-color,border-color,box-shadow] hover:border-foreground/20 hover:shadow-lift"
         >
           <CardCover src={cover} heightClass={GALLERY_COVER[size]} icon={readPageIcon(row.id)} />
           <div className="flex flex-col gap-2 px-3 pb-3">
@@ -433,7 +433,7 @@ const BoardColumnCards: React.FC<{
               onClick={() => db.openRow(row.id)}
               style={accent ? {borderLeftColor: accent, borderLeftWidth: 3} : undefined}
               className={cn(
-                'group cursor-pointer overflow-hidden rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-colors hover:border-foreground/20',
+                'group cursor-pointer overflow-hidden rounded-md border border-border bg-card p-2.5 text-left shadow-sm transition-[border-color,box-shadow] hover:border-foreground/20 hover:shadow-lift',
                 dnd.dragRow === row.id && 'opacity-50',
               )}
             >
