@@ -21,7 +21,7 @@ import type {
   SuggestionTarget,
   SuggestionUpdate,
 } from '@open-book/sdk';
-import {emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, type PluginPackage, type StoredPlugin} from '@open-book/sdk';
+import {emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@open-book/sdk';
 import type {Db} from './db';
 import {runMigrations} from './migrations';
 
@@ -298,6 +298,89 @@ export class PageStore {
     return {created, overwritten, renamed: 0, idMap};
   }
 
+  /**
+   * Re-import a page from the on-disk book mirror (OB-135/OB-136), with
+   * **DB-wins** conflict handling (the DB is canonical; the disk is a derived
+   * mirror). `base` is the DB `updatedAt` the file was rendered from (carried in
+   * the file); `data` is the file's content.
+   *
+   *  - Page missing from the DB → recreate it from the file (a restored backup
+   *    or a file dropped in) at the top level, keeping its id.
+   *  - File content identical to the DB → `unchanged` (our own write-through
+   *    echo, or an unmodified re-sync).
+   *  - DB strictly newer than the file's base → **conflict**: never overwrite
+   *    pglite; instead import the file as a new `"(conflicted copy <ts>)"` page
+   *    so nothing is silently lost.
+   *  - Otherwise (the file carries a newer/external edit, DB untouched since) →
+   *    apply it to the existing page.
+   */
+  async importBookPage(
+    record: {id: string; name: string | null; data: PageSnapshot},
+    base: string,
+    nowIso: string = new Date().toISOString(),
+  ): Promise<{action: 'created' | 'updated' | 'conflict' | 'unchanged'; page: StoredPage}> {
+    return this.db.begin(async (tx) => {
+      const existingRows = await tx.query<PageRow>(
+        `SELECT id, name, data, database_id, parent_id, properties, created_at, updated_at,
+           (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id
+         FROM pages WHERE id = $1 AND deleted_at IS NULL`,
+        [record.id],
+      );
+
+      // Not in the DB: recreate from the file (restored backup / dropped-in file).
+      if (existingRows.length === 0) {
+        const taken = new Set<string>();
+        const name = record.name ? await freeName(tx, record.name, taken, 'imported') : null;
+        const inserted = await tx.query<PageRow>(
+          `INSERT INTO pages (id, name, data, position, updated_at)
+           VALUES ($1, $2, $3::jsonb,
+             (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NULL), now())
+           ON CONFLICT (id) DO NOTHING
+           RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
+             (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
+          [record.id, name, JSON.stringify(record.data)],
+        );
+        // A trashed page with this id may exist (ON CONFLICT DO NOTHING returned
+        // nothing) — fall through to a conflict copy rather than resurrect it.
+        if (inserted.length > 0) return {action: 'created' as const, page: pageFromRow(inserted[0])};
+      } else {
+        const current = pageFromRow(existingRows[0]);
+        // Identical content → nothing to do (our own mirror write-back, or an
+        // unmodified re-sync). Compare the canonical JSON.
+        if (JSON.stringify(current.data) === JSON.stringify(record.data)) {
+          return {action: 'unchanged' as const, page: current};
+        }
+        // DB strictly newer than the file's base → conflict → DB wins.
+        const dbNewer = current.updatedAt > base;
+        if (!dbNewer) {
+          const updated = await tx.query<PageRow>(
+            `UPDATE pages SET data = $2::jsonb, updated_at = now() WHERE id = $1 AND deleted_at IS NULL
+             RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
+               (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
+            [record.id, JSON.stringify(stampSnapshotMtimes(current.data, record.data, nowIso))],
+          );
+          return {action: 'updated' as const, page: pageFromRow(updated[0])};
+        }
+      }
+
+      // Conflict (or a colliding-id trashed page): import the disk version as a
+      // brand-new, suffixed page so the user can reconcile. Fresh id so it never
+      // collides with the canonical row.
+      const baseName = (record.name ?? 'Untitled').trim() || 'Untitled';
+      const taken = new Set<string>();
+      const name = await freeName(tx, `${baseName} (conflicted copy ${nowIso})`, taken, 'conflicted copy');
+      const copy = await tx.query<PageRow>(
+        `INSERT INTO pages (id, name, data, position, updated_at)
+         VALUES ($1, $2, $3::jsonb,
+           (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NULL), now())
+         RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
+           (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
+        [randomUUID(), name, JSON.stringify(record.data)],
+      );
+      return {action: 'conflict' as const, page: pageFromRow(copy[0])};
+    });
+  }
+
   /** Fetch a single (live, non-trashed) page by id, or `null`. */
   async getPage(id: string): Promise<StoredPage | null> {
     const rows = await this.db.query<PageRow>(
@@ -325,23 +408,33 @@ export class PageStore {
    */
   async upsertPage(input: PageInput): Promise<StoredPage> {
     const id = input.id ?? randomUUID();
-    const rows = await this.db.query<PageRow>(
-      // A new page is appended to the bottom of its sibling group (one past the
-      // current max position). Like `parent_id`, `position` is set only on
-      // insert — a routine content save (ON CONFLICT) never reorders the page.
-      `INSERT INTO pages (id, name, data, parent_id, position, updated_at)
-       VALUES ($1, $2, $3::jsonb, $4,
-         (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NOT DISTINCT FROM $4),
-         now())
-       ON CONFLICT (id) DO UPDATE
-         SET name = EXCLUDED.name,
-             data = EXCLUDED.data,
-             updated_at = now()
-       RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
-         (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
-      [id, input.name ?? null, JSON.stringify(input.data ?? EMPTY_SNAPSHOT), input.parentId ?? null],
-    );
-    return pageFromRow(rows[0]);
+    // Stamp per-block mtimes relative to the page's prior content so an
+    // unchanged block keeps its timestamp and a changed one is restamped — the
+    // change signal the disk mirror, watcher, and conflict resolver read. The
+    // read + write run in one transaction (serialized by the PGlite mutex) so a
+    // concurrent save can't race the stamp.
+    return this.db.begin(async (tx) => {
+      const prior = await tx.query<PageRow>('SELECT data FROM pages WHERE id = $1', [id]);
+      const priorData = prior.length > 0 ? parseSnapshot(prior[0].data) : null;
+      const data = stampSnapshotMtimes(priorData, input.data ?? EMPTY_SNAPSHOT, new Date().toISOString());
+      const rows = await tx.query<PageRow>(
+        // A new page is appended to the bottom of its sibling group (one past the
+        // current max position). Like `parent_id`, `position` is set only on
+        // insert — a routine content save (ON CONFLICT) never reorders the page.
+        `INSERT INTO pages (id, name, data, parent_id, position, updated_at)
+         VALUES ($1, $2, $3::jsonb, $4,
+           (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NOT DISTINCT FROM $4),
+           now())
+         ON CONFLICT (id) DO UPDATE
+           SET name = EXCLUDED.name,
+               data = EXCLUDED.data,
+               updated_at = now()
+         RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
+           (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
+        [id, input.name ?? null, JSON.stringify(data), input.parentId ?? null],
+      );
+      return pageFromRow(rows[0]);
+    });
   }
 
   /**
@@ -664,6 +757,8 @@ export class PageStore {
    */
   async createRow(databaseId: string, input: RowInput = {}): Promise<StoredPage> {
     const id = randomUUID();
+    // A fresh row has no prior content, so every block is stamped "now".
+    const data = stampSnapshotMtimes(null, input.data ?? emptyPageSnapshot(), new Date().toISOString());
     const rows = await this.db.query<PageRow>(
       `INSERT INTO pages (id, name, data, database_id, parent_id, properties, position, updated_at)
        VALUES ($1, $2, $3::jsonb, $4, $6, $5::jsonb,
@@ -672,7 +767,7 @@ export class PageStore {
       [
         id,
         input.name ?? null,
-        JSON.stringify(input.data ?? emptyPageSnapshot()),
+        JSON.stringify(data),
         databaseId,
         JSON.stringify(input.properties ?? {}),
         input.parentId ?? null,

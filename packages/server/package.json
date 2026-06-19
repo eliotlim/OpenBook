@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit",
     "dev": "tsx watch src/bin.ts --data-dir ./.dev-data --port 4319",
     "start": "node dist/bin.js",
+    "test": "vitest run",
     "test:e2e": "tsx scripts/e2e.mts",
     "seed": "tsx scripts/seed.mts",
     "build:sidecar": "node scripts/build-sidecar.mjs",
@@ -37,7 +38,8 @@
     "@types/node": "^24.0.0",
     "tsup": "^8.5.1",
     "tsx": "^4.19.1",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.0"
   },
   "optionalDependencies": {
     "node-llama-cpp": "^3.13.0"

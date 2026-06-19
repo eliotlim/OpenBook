@@ -23,6 +23,15 @@ export interface PageSnapshot {
   editor?: string;
   /** CRDT block-editor document (opaque here; shaped by the ui package). */
   blockdoc?: unknown;
+  /**
+   * `[blockId, ISO mtime]` pairs — when each top-level block last changed. The
+   * server stamps these on write (see sdk `stampSnapshotMtimes`): a block whose
+   * content is unchanged keeps its old timestamp, a changed/new one is restamped
+   * `now`. This is the per-block change signal the on-disk book mirror, the
+   * external-change watcher, and conflict detection all read; absent on pages
+   * written before the feature shipped (treated as "unknown — assume changed").
+   */
+  mtimes?: Array<[string, string]>;
 }
 
 /** An empty snapshot, for initializing a brand-new page. */

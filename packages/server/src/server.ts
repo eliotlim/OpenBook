@@ -3,7 +3,10 @@ import type {PGliteOptions} from '@electric-sql/pglite';
 import {createApp} from './app';
 import {type Db, PgliteDb, PostgresDb} from './db';
 import {PageStore} from './store';
+import {PageHub} from './hub';
+import {BookMirror} from './mirror';
 import {AiService} from './ai/service';
+import {writeFileSync, rmSync} from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -34,6 +37,12 @@ export interface StartOptions {
    * `<= 0` disables the job (trash is kept until emptied manually).
    */
   trashCleanupIntervalMs?: number;
+  /**
+   * When set, mirror the workspace to a folder of HTML book files at this path
+   * (one folder per book) in near-realtime, watch it for external edits, and
+   * re-import changes (DB-wins on conflict). Off when unset. See {@link BookMirror}.
+   */
+  bookDir?: string;
 }
 
 export interface RunningServer {
@@ -99,7 +108,10 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     || (opts.dataDir ? path.join(opts.dataDir, 'models') : path.join(os.homedir(), '.openbook', 'models'));
   const ai = new AiService(db, modelsDir);
 
-  const app = createApp(store, ai);
+  // One hub is shared between the HTTP/SSE app and the disk mirror, so a
+  // re-imported page fans out to every connected client too.
+  const hub = new PageHub();
+  const app = createApp(store, ai, hub);
   const host = opts.host ?? DEFAULT_HOST;
   const port = opts.port ?? DEFAULT_PORT;
 
@@ -111,14 +123,68 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const clientHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
   const url = `http://${clientHost}:${info.port}`;
 
+  // Advertise the bound address (+ this process) for discovery and stale-lock
+  // detection. Written under the data dir (embedded mode only) and removed on a
+  // clean exit; a leftover file whose `pid` is dead marks a crashed prior run.
+  const infoFile = opts.dataDir ? path.join(opts.dataDir, 'server.json') : null;
+  if (infoFile) {
+    try {
+      writeFileSync(infoFile, JSON.stringify({url, port: info.port, pid: process.pid, startedAt: new Date().toISOString()}));
+    } catch (err) {
+      console.error('OpenBook: could not write server.json discovery file:', err);
+    }
+  }
+
+  // On-disk book-file mirror: write-through + watch + re-import (OB-134/135/136).
+  let mirror: BookMirror | null = null;
+  let mirrorUnsub: (() => void) | null = null;
+  let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
+  if (opts.bookDir) {
+    mirror = await BookMirror.create({
+      store,
+      dir: opts.bookDir,
+      // A re-imported page must reach open clients, so publish it on the hub.
+      onImported: async (page) => {
+        hub.publishPage(page);
+        hub.publishList(await store.listPages());
+      },
+      log: (m) => console.log(`[book-mirror] ${m}`),
+    });
+    const scheduleReconcile = (): void => {
+      if (reconcileTimer) return;
+      reconcileTimer = setTimeout(() => {
+        reconcileTimer = null;
+        void mirror?.reconcileAll();
+      }, 2000);
+      reconcileTimer.unref?.();
+    };
+    // Fast path: a saved page is mirrored immediately. Structural changes
+    // (deletes, moves, renames, row-property edits) ride a debounced reconcile,
+    // which diffs every page's updatedAt against what's on disk.
+    mirrorUnsub = hub.subscribeLive((event) => {
+      if (event.type === 'page') mirror!.enqueueWrite(event.page.id);
+      else if (event.type === 'deleted') {
+        mirror!.enqueueDelete(event.id);
+        scheduleReconcile();
+      } else if (event.type === 'list') scheduleReconcile();
+    });
+  }
+
   return {
     url,
     address: `${host}:${info.port}`,
     close: async () => {
       await ai.dispose();
       if (cleanupTimer) clearInterval(cleanupTimer);
+      if (reconcileTimer) clearTimeout(reconcileTimer);
+      // Stop accepting requests first so no new writes arrive mid-shutdown.
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      // Flush-on-exit (OB-132): drain the mirror journal before the store closes,
+      // so no committed write is lost. The mirror still needs the store to render.
+      mirrorUnsub?.();
+      if (mirror) await mirror.close();
       await store.close();
+      if (infoFile) rmSync(infoFile, {force: true});
     },
   };
 }

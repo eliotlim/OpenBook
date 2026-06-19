@@ -69,6 +69,43 @@ HttpDataClient  ──HTTP──►  Hono routes  ──►  PageStore  ──SQ
 > code without rebuilding it leaves the app on an old server. If a desktop bug
 > contradicts the current server source, suspect a stale sidecar first.
 
+### Desktop robustness & the on-disk book mirror
+
+The desktop is a **single, crash-safe owner** of the embedded store, with a
+durable human-readable mirror of every page on disk:
+
+- **One owner.** A `tauri-plugin-single-instance` guard means a second launch
+  focuses the running window instead of starting a competing PGlite owner
+  (`app/src-tauri/src/main.rs`). The embedded `PgliteDb` serializes every
+  top-level query and transaction through a `Mutex` (`server/src/db.ts`), so
+  concurrent writers (a second window, a local browser tab, the re-importer)
+  never interleave a read-modify-write. The server advertises its bound
+  `url`/`port`/`pid` in `<dataDir>/server.json` for discovery + stale-lock
+  detection, and the SDK's live stream re-fetches every open subscription when
+  its `EventSource` reconnects (`sdk/src/client.ts`), so clients transparently
+  re-attach after a server/app restart.
+- **Change signal.** Every page snapshot carries an `mtimes` array
+  (`[blockId, ISO]`); the store stamps it on each content write (sdk
+  `stampSnapshotMtimes`) so an unchanged block keeps its timestamp and a changed
+  one is restamped. This is what the mirror, watcher, and conflict resolver diff.
+- **Book mirror** (`server/src/mirror.ts`, off unless `--book-dir` is set; the
+  desktop points it at `<appData>/books`). pglite stays canonical; the mirror
+  writes a **folder per book** — one HTML file per page, readable but carrying a
+  canonical JSON island for a lossless round-trip (sdk `bookfile.ts`). Writes are
+  atomic (temp + rename) and journalled, so an external sync tool never sees a
+  partial file and a crash mid-flush replays on the next boot; `close()` (driven
+  by a graceful SIGTERM from the Rust host on quit) drains the journal so no
+  committed write is lost. A filesystem watcher re-imports external edits,
+  ignoring the app's own write-through by content hash.
+- **DB wins on conflict.** `PageStore.importBookPage` compares the file's base
+  `updatedAt` against the live page: an untouched DB takes the external edit; a
+  DB that advanced since wins, and the disk version is imported as a new
+  `"(conflicted copy <ts>)"` page rather than overwriting pglite.
+
+Covered by `server/src/*.test.ts` (unit) and `mirror.integration.test.ts` (a live
+server: concurrent clients, SSE fan-out, watcher re-import, conflict suffixing,
+restart durability).
+
 ---
 
 ## 3. Data model

@@ -11,6 +11,7 @@ import {startServer} from './server';
  *   --data-dir <path>   | OPENBOOK_DATA_DIR        embedded mode: PGlite location
  *   OPENBOOK_DATABASE_URL | DATABASE_URL           server mode: external Postgres
  *   --host <host>  --port <port>  | --bind <h:p> | OPENBOOK_BIND
+ *   --book-dir <path>   | OPENBOOK_BOOK_DIR        on-disk book-file mirror folder
  *   OPENBOOK_TRASH_RETENTION_MS         how long trash is kept before purge
  *   OPENBOOK_TRASH_CLEANUP_INTERVAL_MS  how often the cleanup job runs (0 = off)
  */
@@ -33,6 +34,7 @@ function numeric(value: string | undefined): number | undefined {
 export async function runCli(overrides: CliOverrides = {}): Promise<void> {
   const databaseUrl = process.env.OPENBOOK_DATABASE_URL || process.env.DATABASE_URL || undefined;
   const dataDir = flag('data-dir') || process.env.OPENBOOK_DATA_DIR;
+  const bookDir = flag('book-dir') || process.env.OPENBOOK_BOOK_DIR;
 
   const bind = flag('bind') || process.env.OPENBOOK_BIND;
   let host = flag('host');
@@ -53,6 +55,7 @@ export async function runCli(overrides: CliOverrides = {}): Promise<void> {
   const running = await startServer({
     databaseUrl,
     dataDir: dataDir ? resolve(dataDir) : undefined,
+    bookDir: bookDir ? resolve(bookDir) : undefined,
     pgliteAssets: overrides.pgliteAssets,
     // Headless defaults to all interfaces; embedded desktop to loopback.
     host: host ?? (databaseUrl ? '0.0.0.0' : '127.0.0.1'),

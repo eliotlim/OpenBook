@@ -132,6 +132,21 @@ export {
 } from './account';
 export {snapshotText, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock} from './content';
 export {
+  snapshotBlocks,
+  contentHash,
+  computeBlockMtimes,
+  stampSnapshotMtimes,
+  latestBlockMtime,
+  type BlockDigest,
+} from './mtime';
+export {
+  pageToBookHtml,
+  bookHtmlToPage,
+  readBookHtmlMeta,
+  slugify,
+  type BookPageRecord,
+} from './bookfile';
+export {
   canonicalDigest,
   generateRegistryKeys,
   signPlugin,

@@ -168,13 +168,25 @@ export interface DataClient {
  * nothing is listening. This keeps each tab to one long-lived connection so
  * several tabs don't exhaust the browser's per-origin connection limit.
  */
+/** Re-fetchers the live stream calls to resync open subscriptions after a reconnect. */
+interface ResyncFetchers {
+  listPages(): Promise<PageMeta[]>;
+  getPage(id: string): Promise<StoredPage | null>;
+  listRows(databaseId: string): Promise<DatabaseRow[]>;
+}
+
 class LiveStream {
   private source: EventSource | null = null;
   private readonly listListeners = new Set<(pages: PageMeta[]) => void>();
   private readonly pageListeners = new Map<string, Set<PageSubscription>>();
   private readonly rowsListeners = new Map<string, Set<(rows: DatabaseRow[]) => void>>();
+  // EventSource reconnects on its own after a drop (server/app restart). We track
+  // a prior disconnect so that, on the *next* successful open, we re-fetch every
+  // open subscription — the firehose only replays the page *list* on connect, so
+  // open pages/rows would otherwise show stale data until their next edit.
+  private sawError = false;
 
-  constructor(private readonly liveUrl: string) {}
+  constructor(private readonly liveUrl: string, private readonly fetchers: ResyncFetchers) {}
 
   private dispatch(raw: string): void {
     let ev: {type: string; [k: string]: unknown};
@@ -201,7 +213,45 @@ class LiveStream {
     const source = new EventSource(this.liveUrl);
     const handle = (e: Event) => this.dispatch((e as MessageEvent).data);
     for (const name of ['list', 'page', 'deleted', 'rows']) source.addEventListener(name, handle);
+    // A drop sets `sawError`; the browser auto-reconnects and fires `open` again,
+    // at which point we resync so every client transparently re-attaches after a
+    // server or app restart (OB-132).
+    source.onerror = () => {
+      this.sawError = true;
+    };
+    source.onopen = () => {
+      if (this.sawError) {
+        this.sawError = false;
+        void this.resync();
+      }
+    };
     this.source = source;
+  }
+
+  /** Re-fetch and re-dispatch every open subscription after a reconnect. */
+  private async resync(): Promise<void> {
+    try {
+      const pages = await this.fetchers.listPages();
+      this.listListeners.forEach((fn) => fn(pages));
+    } catch {
+      // Server still coming back up — the next event or resync will catch up.
+    }
+    for (const id of [...this.pageListeners.keys()]) {
+      try {
+        const page = await this.fetchers.getPage(id);
+        if (page) this.pageListeners.get(id)?.forEach((s) => s.onPage?.(page));
+      } catch {
+        /* keep going */
+      }
+    }
+    for (const dbId of [...this.rowsListeners.keys()]) {
+      try {
+        const rows = await this.fetchers.listRows(dbId);
+        this.rowsListeners.get(dbId)?.forEach((fn) => fn(rows));
+      } catch {
+        /* keep going */
+      }
+    }
   }
 
   private maybeClose(): void {
@@ -266,7 +316,13 @@ export class HttpDataClient implements DataClient {
 
   /** Lazily create the shared live connection (browser-only). */
   private liveStream(): LiveStream {
-    if (!this.live) this.live = new LiveStream(`${this.baseUrl}${API.live}`);
+    if (!this.live) {
+      this.live = new LiveStream(`${this.baseUrl}${API.live}`, {
+        listPages: () => this.listPages(),
+        getPage: (id) => this.getPage(id),
+        listRows: (databaseId) => this.listRows(databaseId),
+      });
+    }
     return this.live;
   }
 

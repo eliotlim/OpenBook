@@ -25,9 +25,8 @@ import type {AiService} from './ai/service';
  * and the SSE endpoints relay those events to connected clients — the
  * server-driven refresh loop that powers real-time collaboration.
  */
-export function createApp(store: PageStore, ai?: AiService): Hono {
+export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub()): Hono {
   const app = new Hono();
-  const hub = new PageHub();
 
   // Push the latest page list to list subscribers (nav stays live).
   const broadcastList = async (): Promise<void> => {

@@ -29,6 +29,8 @@ struct AppState {
     child: Mutex<Option<CommandChild>>,
     /// App-data directory passed to the embedded server.
     data_dir: String,
+    /// Folder the server mirrors the workspace to as on-disk book files.
+    book_dir: String,
     /// Whether this host manages the server lifecycle (true in release builds).
     managed: bool,
 }
@@ -64,6 +66,7 @@ fn build_info(state: &AppState) -> ServerInfo {
 fn spawn_sidecar(
     app: &AppHandle,
     data_dir: &str,
+    book_dir: &str,
     url_slot: Arc<Mutex<Option<String>>>,
 ) -> Result<CommandChild, String> {
     let (mut rx, child) = app
@@ -73,6 +76,10 @@ fn spawn_sidecar(
         .args([
             "--data-dir",
             data_dir,
+            // Mirror the workspace to on-disk book files (one folder per book)
+            // for external sync/backup; the server watches this for re-import.
+            "--book-dir",
+            book_dir,
             "--host",
             "127.0.0.1",
             "--port",
@@ -115,7 +122,7 @@ fn start_server(app: AppHandle, state: State<AppState>) -> Result<ServerInfo, St
     if state.managed {
         let mut guard = state.child.lock().unwrap();
         if guard.is_none() {
-            *guard = Some(spawn_sidecar(&app, &state.data_dir, state.server_url.clone())?);
+            *guard = Some(spawn_sidecar(&app, &state.data_dir, &state.book_dir, state.server_url.clone())?);
         }
     }
     Ok(build_info(&state))
@@ -135,6 +142,17 @@ fn stop_server(state: State<AppState>) -> Result<ServerInfo, String> {
 
 fn main() {
     tauri::Builder::default()
+        // Single-instance guard (registered first, before any other setup): if a
+        // second copy launches, this callback runs in the *already-running*
+        // instance instead of starting a competing PGlite owner. We focus the
+        // main window so the relaunch reads as "bring the app forward".
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_shell::init())
         // Handles `openbook://auth-callback#token=…` sign-in deep links. The JS
         // side (`@tauri-apps/plugin-deep-link` `onOpenUrl`) reads the token; here
@@ -152,7 +170,13 @@ fn main() {
                 .app_data_dir()
                 .map_err(|e| format!("could not resolve the app data directory: {e}"))?;
             std::fs::create_dir_all(&data_dir).ok();
+            // The on-disk book mirror lives next to the data, under `books/`.
+            // (A future Settings option lets the user relocate it; the server
+            // takes the folder as a flag, so only this default needs changing.)
+            let book_dir = data_dir.join("books");
+            std::fs::create_dir_all(&book_dir).ok();
             let data_dir = data_dir.to_string_lossy().to_string();
+            let book_dir = book_dir.to_string_lossy().to_string();
 
             let server_url = Arc::new(Mutex::new(Some(DEFAULT_URL.to_string())));
             let managed = !cfg!(debug_assertions);
@@ -160,13 +184,14 @@ fn main() {
             let mut child = None;
             if managed {
                 let handle = app.handle().clone();
-                child = Some(spawn_sidecar(&handle, &data_dir, server_url.clone())?);
+                child = Some(spawn_sidecar(&handle, &data_dir, &book_dir, server_url.clone())?);
             }
 
             app.manage(AppState {
                 server_url,
                 child: Mutex::new(child),
                 data_dir,
+                book_dir,
                 managed,
             });
 
@@ -191,9 +216,33 @@ fn main() {
             if let tauri::RunEvent::ExitRequested { .. } = event {
                 if let Some(state) = app_handle.try_state::<AppState>() {
                     if let Some(child) = state.child.lock().unwrap().take() {
-                        let _ = child.kill();
+                        stop_server_child(child);
                     }
                 }
             }
         });
+}
+
+/// Stop the server sidecar, giving it a chance to flush pending writes first.
+///
+/// On Unix we send SIGTERM (the server's shutdown handler drains the disk-mirror
+/// journal and closes the store) and wait briefly before a hard-kill backstop.
+/// On other platforms we kill directly — durability still holds, since the
+/// mirror writes atomically and replays its journal on the next launch.
+fn stop_server_child(child: CommandChild) {
+    #[cfg(unix)]
+    {
+        let pid = child.pid();
+        // SAFETY: a plain `kill(2)` syscall with a known child pid + signal.
+        unsafe {
+            libc::kill(pid as libc::pid_t, libc::SIGTERM);
+        }
+        // Allow the graceful drain (DB + mirror flush) to complete on exit.
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        let _ = child.kill();
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
+    }
 }

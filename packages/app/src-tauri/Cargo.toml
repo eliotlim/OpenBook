@@ -22,3 +22,12 @@ tauri-plugin-shell = "2"
 # `openbook://auth-callback` deep links carry the account.book.pub sign-in token
 # back to the running app (see `app/src/App.tsx`).
 tauri-plugin-deep-link = "2"
+# Exactly one process must own the embedded PGlite store; a second launch hands
+# off to the running instance (focus its window) instead of starting a competing
+# data layer. Registered first so it intercepts before the rest of setup.
+tauri-plugin-single-instance = "2"
+
+# On Unix we ask the server sidecar to shut down gracefully (SIGTERM) on quit so
+# it can flush pending writes before exit, rather than hard-killing it.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
