@@ -98,13 +98,29 @@ const currentIdFor = (list: Workspace[]): string => {
   return (list.find((w) => sameTarget(w.serverUrl, override)) ?? list[0]).id;
 };
 
-/** A workspace entry is well-formed enough to trust from a synced blob. */
+/** `null` (this device) or a well-formed http(s) URL — never a `javascript:`,
+ *  `file:`, or otherwise unexpected scheme that a synced/poisoned blob could use
+ *  to re-point the data client somewhere hostile when the workspace is selected. */
+const isSafeServerUrl = (u: unknown): boolean => {
+  if (u === null) return true;
+  if (typeof u !== 'string') return false;
+  try {
+    const {protocol} = new URL(u);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+};
+
+/** A workspace entry is well-formed enough to trust from a synced blob — and its
+ *  `serverUrl` is a safe scheme (the blob is untrusted input; see the account
+ *  service README). */
 const isWorkspace = (w: unknown): w is Workspace =>
   !!w &&
   typeof w === 'object' &&
   typeof (w as Workspace).id === 'string' &&
   typeof (w as Workspace).name === 'string' &&
-  ((w as Workspace).serverUrl === null || typeof (w as Workspace).serverUrl === 'string');
+  isSafeServerUrl((w as Workspace).serverUrl);
 
 export const WorkspaceContext = createContext<WorkspaceContext>({
   workspaces: [LOCAL_WORKSPACE],

@@ -81,11 +81,13 @@ const windowControls: WindowControls | undefined = IS_MAC
     },
   };
 
-// Parse `openbook://auth-callback#token=…&state=…` into the token handoff.
+// Parse `openbook://auth-callback#token=…&state=…` into the token handoff. The
+// AccountProvider still validates `state` against the in-flight sign-in; pinning
+// the host here is just defence-in-depth against stray `openbook://` links.
 function parseAuthCallback(raw: string): {token: string; state: string} | null {
   try {
     const u = new URL(raw);
-    if (u.protocol !== 'openbook:') return null;
+    if (u.protocol !== 'openbook:' || u.hostname !== 'auth-callback') return null;
     const p = new URLSearchParams(u.hash.replace(/^#/, ''));
     const token = p.get('token');
     return token ? {token, state: p.get('state') ?? ''} : null;

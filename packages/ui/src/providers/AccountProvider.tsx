@@ -117,6 +117,41 @@ function readStored(): StoredAccount | null {
   }
 }
 
+// The pending sign-in's CSRF nonce, persisted so a same-tab redirect (the
+// popup-blocked fallback) can still validate it after the app reloads.
+// sessionStorage scope means it dies with the tab/app session — an unsolicited
+// deep link that arrives with no sign-in in flight is rejected.
+const PENDING_KEY = 'openbook.account.pending';
+const PENDING_TTL_MS = 10 * 60 * 1000;
+
+function writePendingState(state: string): void {
+  try {
+    sessionStorage.setItem(PENDING_KEY, JSON.stringify({state, at: Date.now()}));
+  } catch {
+    /* ignore */
+  }
+}
+
+function readPendingState(): string | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as {state?: unknown; at?: unknown};
+    if (typeof v.state === 'string' && typeof v.at === 'number' && Date.now() - v.at < PENDING_TTL_MS) return v.state;
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
+function clearPendingState(): void {
+  try {
+    sessionStorage.removeItem(PENDING_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 /** The blob mirrored to account.book.pub. */
 interface SyncBlob {
   preferences: Preferences;
@@ -210,11 +245,19 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     [client, currentBlob, adopt, persistToken],
   );
 
-  /** Handle a token delivered by the deep link / callback page. */
+  /**
+   * Handle a token delivered by the deep link / callback page. Fails closed: a
+   * token is accepted ONLY when it answers a sign-in we started (a matching,
+   * non-empty state). On desktop the `openbook://` scheme is reachable by any web
+   * page, so an unsolicited token here would otherwise silently sign the user in
+   * to an attacker's account and upload their settings to it.
+   */
   const receive = useCallback(
     (tok: string, state: string) => {
-      if (pendingState.current && state && state !== pendingState.current) return; // reject unsolicited
+      const expected = pendingState.current ?? readPendingState();
+      if (!tok || !expected || !state || state !== expected) return;
       pendingState.current = null;
+      clearPendingState();
       void connect(tok);
     },
     [connect],
@@ -305,6 +348,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
   const signIn = useCallback(() => {
     const state = rand();
     pendingState.current = state;
+    writePendingState(state);
     setStatus('connecting');
     setError(null);
     const redirectUri =
@@ -322,6 +366,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
 
   const cancel = useCallback(() => {
     pendingState.current = null;
+    clearPendingState();
     setStatus((s) => (token ? s : 'disconnected'));
     setError(null);
   }, [token]);
@@ -332,6 +377,8 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     } catch {
       /* ignore */
     }
+    pendingState.current = null;
+    clearPendingState();
     lastSyncedBlob.current = null;
     setToken(null);
     setLastSyncedAt(null);
