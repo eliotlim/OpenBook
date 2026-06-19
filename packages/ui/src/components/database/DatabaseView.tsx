@@ -391,7 +391,7 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
       }}
       onDrop={() => drag.drop(row.id)}
       className={cn(
-        'group border-b border-border/70 last:border-0 hover:bg-hover',
+        'group border-b border-border/70 transition-[background-color] last:border-0 hover:bg-hover',
         drag.dragRow === row.id && 'opacity-40',
         drag.overRow === row.id && drag.dragRow !== row.id && 'border-t-2 border-t-brand/60',
       )}
