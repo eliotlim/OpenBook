@@ -36,6 +36,9 @@ export interface WorkspaceContext {
   removeWorkspace: (id: string) => void;
   /** Edit a workspace's name/icon/url in place. */
   updateWorkspace: (id: string, patch: Partial<Omit<Workspace, 'id'>>) => void;
+  /** Replace the whole list (account sync adopting a synced list). Always keeps a
+   *  local workspace + the active server present, and never switches servers. */
+  replaceWorkspaces: (list: Workspace[]) => void;
 }
 
 const WORKSPACES_KEY = 'openbook.workspaces';
@@ -95,6 +98,14 @@ const currentIdFor = (list: Workspace[]): string => {
   return (list.find((w) => sameTarget(w.serverUrl, override)) ?? list[0]).id;
 };
 
+/** A workspace entry is well-formed enough to trust from a synced blob. */
+const isWorkspace = (w: unknown): w is Workspace =>
+  !!w &&
+  typeof w === 'object' &&
+  typeof (w as Workspace).id === 'string' &&
+  typeof (w as Workspace).name === 'string' &&
+  ((w as Workspace).serverUrl === null || typeof (w as Workspace).serverUrl === 'string');
+
 export const WorkspaceContext = createContext<WorkspaceContext>({
   workspaces: [LOCAL_WORKSPACE],
   workspace: LOCAL_WORKSPACE,
@@ -102,6 +113,7 @@ export const WorkspaceContext = createContext<WorkspaceContext>({
   addWorkspace: () => LOCAL_WORKSPACE,
   removeWorkspace: () => undefined,
   updateWorkspace: () => undefined,
+  replaceWorkspaces: () => undefined,
 });
 
 export const useWorkspace = () => useContext(WorkspaceContext);
@@ -180,9 +192,24 @@ export const WorkspaceProvider: React.FC<PropsWithChildren<unknown>> = ({childre
     });
   }, []);
 
+  const replaceWorkspaces = useCallback((incoming: Workspace[]) => {
+    let list = (Array.isArray(incoming) ? incoming : []).filter(isWorkspace);
+    // Always keep a way back to the local server.
+    if (!list.some((w) => w.serverUrl === null)) list = [LOCAL_WORKSPACE, ...list];
+    // Keep the server we're actually talking to represented (don't yank it away).
+    const override = getServerUrlOverride();
+    if (override && !list.some((w) => sameTarget(w.serverUrl, override))) {
+      list = [...list, {id: makeId(), icon: '🌐', name: workspaceHostLabel(override), serverUrl: override}];
+    }
+    setWorkspaces(list);
+    // Re-resolve which one is active by server (ids may differ across devices).
+    setCurrentId(currentIdFor(list));
+    writeWorkspaces(list);
+  }, []);
+
   const value = useMemo<WorkspaceContext>(
-    () => ({workspaces, workspace, selectWorkspace, addWorkspace, removeWorkspace, updateWorkspace}),
-    [workspaces, workspace, selectWorkspace, addWorkspace, removeWorkspace, updateWorkspace],
+    () => ({workspaces, workspace, selectWorkspace, addWorkspace, removeWorkspace, updateWorkspace, replaceWorkspaces}),
+    [workspaces, workspace, selectWorkspace, addWorkspace, removeWorkspace, updateWorkspace, replaceWorkspaces],
   );
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;

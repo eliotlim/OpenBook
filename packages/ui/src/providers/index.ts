@@ -1,3 +1,4 @@
+export * from './AccountProvider';
 export * from './ConfirmProvider';
 export * from './HudProvider';
 export * from './I18nProvider';

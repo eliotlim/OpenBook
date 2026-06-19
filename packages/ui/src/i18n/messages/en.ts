@@ -744,8 +744,23 @@ export const en = {
       description: 'Accounts and cloud sync aren’t part of OpenBook yet. Today your pages live locally on the server you connect to.',
     },
     signin: {
-      title: 'Sign-in & email',
-      description: 'Email and connected sign-in (Google, GitHub, Apple) will arrive with accounts. There’s nothing to sign in to yet.',
+      title: 'Account & sync',
+      description: 'Sign in to account.book.pub to sync your preferences and workspaces across devices. Local-first stays the default — this is opt-in.',
+      signInButton: 'Continue with account.book.pub',
+      connecting: 'Waiting for sign-in in your browser…',
+      cancel: 'Cancel',
+      connectedTitle: 'Synced',
+      connectedAs: 'This device',
+      lastSynced: 'Last synced',
+      never: 'not yet',
+      syncing: 'Syncing…',
+      syncNow: 'Sync now',
+      signOut: 'Sign out',
+      openDashboard: 'Manage devices',
+      whatSyncs:
+        'Your profile, general preferences, feature visibility, and workspace list sync. Pages and documents are not synced here — they stay on your data server.',
+      signOutHint:
+        'Signing out forgets the token on this device. To fully revoke it, remove the device in your account dashboard.',
     },
     support: {
       title: 'Support OpenBook',

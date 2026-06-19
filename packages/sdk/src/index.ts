@@ -121,6 +121,15 @@ export {
   type VerificationValue,
 } from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride} from './connection';
+export {
+  AccountClient,
+  AccountError,
+  DEFAULT_ACCOUNT_URL,
+  getAccountUrlOverride,
+  setAccountUrlOverride,
+  resolveAccountUrl,
+  type AccountSettings,
+} from './account';
 export {snapshotText, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock} from './content';
 export {
   canonicalDigest,

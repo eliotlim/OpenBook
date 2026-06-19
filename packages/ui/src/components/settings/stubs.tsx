@@ -1,4 +1,4 @@
-import {PersonIcon, EnvelopeClosedIcon, HeartIcon, MixIcon} from '@radix-ui/react-icons';
+import {PersonIcon, HeartIcon, MixIcon} from '@radix-ui/react-icons';
 import {useTranslation} from '@/providers';
 import {SettingsStub} from '@/components/settings/primitives';
 
@@ -12,13 +12,6 @@ export function SignupSettings() {
   const {t} = useTranslation();
   return (
     <SettingsStub icon={PersonIcon} title={t('account.signup.title')} description={t('account.signup.description')} />
-  );
-}
-
-export function SigninSettings() {
-  const {t} = useTranslation();
-  return (
-    <SettingsStub icon={EnvelopeClosedIcon} title={t('account.signin.title')} description={t('account.signin.description')} />
   );
 }
 

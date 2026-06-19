@@ -23,7 +23,13 @@
   "mainBinaryName": "OpenBook",
   "version": "../package.json",
   "identifier": "dev.book.open",
-  "plugins": {},
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["openbook"]
+      }
+    }
+  },
   "app": {
     "withGlobalTauri": false,
     "windows": [

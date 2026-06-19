@@ -35,15 +35,35 @@ export interface WindowControls {
 }
 
 /**
+ * How the host completes account.book.pub's deep-link sign-in. The desktop sets
+ * a custom-scheme `redirectUri` (`openbook://auth-callback`), opens the browser
+ * itself, and delivers the minted token back through the OS deep-link
+ * (`onCallback`). The web shell leaves this undefined: it falls back to an
+ * `${origin}/account/callback` popup that hands the token back same-origin.
+ */
+export interface AccountPlatform {
+  /** The OAuth callback URI the account service redirects back to. Omit on web
+   *  (the provider defaults to `${origin}/account/callback`). */
+  redirectUri?: string;
+  /** Open the sign-in URL in the system browser. Omit on web (defaults to a popup). */
+  openSignIn?: (url: string) => void;
+  /** Subscribe to deep-link callbacks carrying the minted token; returns an
+   *  unsubscribe. Desktop only — web receives the token via its callback page. */
+  onCallback?: (cb: (params: {token: string; state: string}) => void) => () => void;
+}
+
+/**
  * Capabilities the host platform provides to the UI. The Tauri desktop app
  * supplies `serverControls` (start/stop/inspect the bundled local server),
- * `tabs` (in-window tabs), and `windowControls` (frameless min/max/close on
- * Windows/Linux); the web shell leaves these undefined.
+ * `tabs` (in-window tabs), `windowControls` (frameless min/max/close on
+ * Windows/Linux), and `account` (deep-link sign-in); the web shell leaves these
+ * undefined and the UI falls back to browser behaviour.
  */
 export interface PlatformLibrary {
   serverControls?: ServerControls;
   tabs?: TabsPlatform;
   windowControls?: WindowControls;
+  account?: AccountPlatform;
 }
 
 const PlatformLibraryContext = createContext<PlatformLibrary>({});

@@ -136,7 +136,17 @@ fn stop_server(state: State<AppState>) -> Result<ServerInfo, String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        // Handles `openbook://auth-callback#token=…` sign-in deep links. The JS
+        // side (`@tauri-apps/plugin-deep-link` `onOpenUrl`) reads the token; here
+        // we just register the plugin and, on Linux/Windows, the runtime scheme
+        // (macOS registers it from the bundle's Info.plist instead).
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let _ = app.deep_link().register_all();
+            }
             let data_dir = app
                 .path()
                 .app_data_dir()

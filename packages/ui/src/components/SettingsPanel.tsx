@@ -21,7 +21,8 @@ import {ProfileAvatar} from '@/components/ProfileAvatar';
 import CustomisationSettings from '@/components/settings/CustomisationSettings';
 import ConnectionSettings from '@/components/settings/ConnectionSettings';
 import AdminSettings from '@/components/settings/AdminSettings';
-import {SignupSettings, SigninSettings, SupportSettings, IntegrationsSettings} from '@/components/settings/stubs';
+import AccountSettings from '@/components/settings/AccountSettings';
+import {SignupSettings, SupportSettings, IntegrationsSettings} from '@/components/settings/stubs';
 import {cn} from '@/lib/utils';
 import {usePreferences, useTranslation} from '@/providers';
 import {focusAiProvider} from '@/lib/aiSettingsNav';
@@ -60,7 +61,7 @@ const PANELS: Record<SettingsTab, ComponentType> = {
   appearance: AppearanceSettings,
   customisation: CustomisationSettings,
   signup: SignupSettings,
-  signin: SigninSettings,
+  signin: AccountSettings,
   support: SupportSettings,
   connection: ConnectionSettings,
   integrations: IntegrationsSettings,

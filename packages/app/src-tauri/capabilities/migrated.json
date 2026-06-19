@@ -27,6 +27,7 @@
       ]
     },
     "shell:allow-open",
-    "shell:default"
+    "shell:default",
+    "deep-link:default"
   ]
 }

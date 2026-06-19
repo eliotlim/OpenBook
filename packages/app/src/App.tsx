@@ -2,7 +2,10 @@ import React, {useMemo} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {WebviewWindow} from '@tauri-apps/api/webviewWindow';
 import {getCurrentWindow} from '@tauri-apps/api/window';
+import {open as openExternal} from '@tauri-apps/plugin-shell';
+import {getCurrent as currentDeepLink, onOpenUrl} from '@tauri-apps/plugin-deep-link';
 import {
+  AccountProvider,
   DataProvider,
   DefaultLayout,
   DocumentArea,
@@ -78,7 +81,21 @@ const windowControls: WindowControls | undefined = IS_MAC
     },
   };
 
-// Expose the Tauri-managed local server + in-window tabs + window controls.
+// Parse `openbook://auth-callback#token=…&state=…` into the token handoff.
+function parseAuthCallback(raw: string): {token: string; state: string} | null {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'openbook:') return null;
+    const p = new URLSearchParams(u.hash.replace(/^#/, ''));
+    const token = p.get('token');
+    return token ? {token, state: p.get('state') ?? ''} : null;
+  } catch {
+    return null;
+  }
+}
+
+// Expose the Tauri-managed local server + in-window tabs + window controls +
+// the account.book.pub deep-link sign-in.
 const platform: PlatformLibrary = {
   serverControls: {
     info: () => invoke<ServerInfo>('server_info'),
@@ -87,6 +104,27 @@ const platform: PlatformLibrary = {
   },
   tabs: {inWindow: true, openWindow},
   windowControls,
+  account: {
+    redirectUri: 'openbook://auth-callback',
+    // Sign-in happens in the user's real browser (OAuth, then the deep link back).
+    openSignIn: (url) => void openExternal(url).catch((e) => console.error('OpenBook: failed to open the browser:', e)),
+    // Deliver the token from the `openbook://` deep link to the AccountProvider.
+    onCallback: (cb) => {
+      const emit = (urls: string[]): void => {
+        for (const u of urls) {
+          const parsed = parseAuthCallback(u);
+          if (parsed) cb(parsed);
+        }
+      };
+      // A link that cold-started the app, plus every link while it's running.
+      void currentDeepLink().then((urls) => urls && emit(urls)).catch(() => undefined);
+      let unlisten: (() => void) | undefined;
+      void onOpenUrl(emit).then((un) => {
+        unlisten = un;
+      });
+      return () => unlisten?.();
+    },
+  },
 };
 
 function App() {
@@ -101,11 +139,13 @@ function App() {
             <DataProvider client={client}>
               <NavigationProvider>
                 <WorkspaceProvider>
-                  <HudProvider>
-                    <DefaultLayout>
-                      <DocumentArea />
-                    </DefaultLayout>
-                  </HudProvider>
+                  <AccountProvider>
+                    <HudProvider>
+                      <DefaultLayout>
+                        <DocumentArea />
+                      </DefaultLayout>
+                    </HudProvider>
+                  </AccountProvider>
                 </WorkspaceProvider>
               </NavigationProvider>
             </DataProvider>
