@@ -6,6 +6,7 @@ import {
   dateStart,
   coverImageUrl,
   groupRowsBy,
+  ICON_PROPERTY_ID,
   PARENT_GROUP_ID,
   parseDay,
   rowMatchesCondition,
@@ -26,12 +27,92 @@ import {
 } from '@/components/ui/context-menu';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {cn} from '@/lib/utils';
-import {readPageIcon} from '@/lib/pageIcon';
-import {pageLinks} from '@/lib/pageLinks';
+import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
+import {pageLinks, subscribePageLinks} from '@/lib/pageLinks';
+import {useData} from '@/data';
+import {useNavigation} from '@/providers';
 import type {UseDatabase} from './useDatabase';
 import {cellValue, formatCellValue, SelectChip} from './databaseCells';
 import {SWATCH_HEX} from './databaseColors';
 import {RowHoverCard} from './DatabaseCard';
+
+// ── Group headings ───────────────────────────────────────────────────────────
+// A group's key is a page id when grouping by **parent item** or by a **relation**
+// (otherwise it's a select-option id or a plain value). For those the header shows
+// the linked page's emoji + title, resolved live through the icon cache and the
+// page-link bridge (see {@link useRelationGroupTitles}), like a sub-page mention.
+
+const GROUP_SENTINELS = new Set(['__none__', '__all__']);
+
+/** True when a group's key identifies a page (parent-item or relation grouping). */
+const isPageGroup = (group: RowGroup, prop: DatabaseProperty | undefined, groupByParent: boolean): boolean =>
+  !GROUP_SENTINELS.has(group.key) && (groupByParent || prop?.type === 'relation');
+
+/** The emoji to render beside a group's label, or `null` (non-page groups). */
+export const groupGlyph = (group: RowGroup, prop: DatabaseProperty | undefined, groupByParent: boolean): string | null =>
+  isPageGroup(group, prop, groupByParent) ? readPageIcon(group.key) : null;
+
+/** A group's display label — the linked page's title for relation groups (whose
+ *  SDK label is the raw page id), otherwise the group's own label (parent-item
+ *  groups already carry the row name). */
+export const groupHeading = (group: RowGroup, prop: DatabaseProperty | undefined): string =>
+  prop?.type === 'relation' && !GROUP_SENTINELS.has(group.key) ? pageLinks.label(group.key) : group.label;
+
+/**
+ * Whether a group reads as collapsed. Empty groups fold by default (the view's
+ * `collapseEmptyGroups`, on unless set false); the `collapsed` Set stores
+ * *deviations* from that default, so a user can still fold a populated group or
+ * unfold an empty one with the same toggle.
+ */
+export const groupCollapsed = (group: RowGroup, collapsed: Set<string>, collapseEmpty: boolean): boolean =>
+  collapsed.has(group.key) !== (collapseEmpty && group.rows.length === 0);
+
+/** The collapsed-Set membership that makes every group display as `collapse`
+ *  (used by the board/table "Collapse all" / "Expand all" toggles). */
+export const setAllGroupsCollapsed = (groups: RowGroup[], collapse: boolean, collapseEmpty: boolean): Set<string> =>
+  new Set(groups.filter((g) => collapse !== (collapseEmpty && g.rows.length === 0)).map((g) => g.key));
+
+/**
+ * Register the titles + icons of relation group properties' target rows so the
+ * group headers resolve to page titles/icons (mirrors the relation cell). A no-op
+ * unless a passed property is a relation with a target database; safe to pass the
+ * primary and sub-group properties together.
+ */
+export function useRelationGroupTitles(...props: Array<DatabaseProperty | undefined>): void {
+  const client = useData();
+  const {setPageHint} = useNavigation();
+  const [, bump] = React.useReducer((x: number) => x + 1, 0);
+  React.useEffect(() => {
+    const offLinks = subscribePageLinks(bump);
+    const offIcon = subscribePageIcon(bump);
+    return () => {
+      offLinks();
+      offIcon();
+    };
+  }, []);
+  // A stable key for the set of target databases, so the load runs once per change.
+  const targets = props
+    .filter((p): p is DatabaseProperty => p?.type === 'relation' && !!p.relationDatabaseId)
+    .map((p) => p.relationDatabaseId!)
+    .join(',');
+  React.useEffect(() => {
+    if (!targets) return;
+    let alive = true;
+    for (const dbId of targets.split(',')) {
+      void client
+        .listRows(dbId)
+        .then((rows) => {
+          if (!alive) return;
+          rows.forEach((r) => setPageHint(r.id, r.name?.trim() || 'Untitled'));
+          hydratePageIcons(rows.map((r) => ({id: r.id, icon: (r.properties[ICON_PROPERTY_ID] as string | undefined) ?? null})));
+        })
+        .catch(() => {});
+    }
+    return () => {
+      alive = false;
+    };
+  }, [targets, client, setPageHint]);
+}
 
 /**
  * Compact, read-only chips summarising a row's property values. Shared by the
@@ -173,6 +254,16 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
   // Grouped sections already announce the group value in their header — repeating
   // it as a chip on every card underneath is noise (the board does the same).
   const cardProps = properties.filter((p) => p.id !== groupProp?.id);
+  const collapseEmpty = view.collapseEmptyGroups ?? true;
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggle = (key: string): void =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  useRelationGroupTitles(groupProp);
 
   const card = (row: DatabaseRow): React.ReactNode => {
     const cover = view.coverPropertyId ? coverImageUrl(row.properties[view.coverPropertyId]) : null;
@@ -196,21 +287,25 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
   const grid = (rows: DatabaseRow[]): React.ReactNode => <div className={cn('grid gap-3', GALLERY_GRID[size])}>{rows.map(card)}</div>;
 
   if (groupProp || groupByParent) {
-    const all = groupRowsBy(db.visibleRows, view.groupByPropertyId, schema);
-    const groups = view.hideEmptyGroups ? all.filter((g) => g.rows.length > 0) : all;
+    const groups = groupRowsBy(db.visibleRows, view.groupByPropertyId, schema);
     return (
       <div className="space-y-5">
-        {groups.map((group) => (
-          <section key={group.key} data-group={group.key}>
-            <div className="mb-2 flex items-center gap-1.5 text-sm font-medium">
-              {group.color && <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />}
-              {groupByParent && group.key !== '__none__' && <span className="text-base leading-none">{readPageIcon(group.key)}</span>}
-              <span>{group.label}</span>
-              <span className="text-muted-foreground/60">{group.rows.length}</span>
-            </div>
-            {grid(group.rows)}
-          </section>
-        ))}
+        {groups.map((group) => {
+          const isCollapsed = groupCollapsed(group, collapsed, collapseEmpty);
+          const glyph = groupGlyph(group, groupProp, groupByParent);
+          return (
+            <section key={group.key} data-group={group.key}>
+              <button onClick={() => toggle(group.key)} className="mb-2 flex w-full items-center gap-1.5 text-sm font-medium">
+                <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !isCollapsed && 'rotate-90')} />
+                {group.color && <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />}
+                {glyph && <span className="text-base leading-none">{glyph}</span>}
+                <span className="truncate">{groupHeading(group, groupProp)}</span>
+                <span className="text-muted-foreground/60">{group.rows.length}</span>
+              </button>
+              {!isCollapsed && grid(group.rows)}
+            </section>
+          );
+        })}
         <NewRowButton onClick={() => void db.addRow()} label="New card" className="mt-3" />
       </div>
     );
@@ -408,22 +503,30 @@ export const BoardView: React.FC<{
       return next;
     });
 
-  const allGroups = groupRowsBy(db.visibleRows, view.groupByPropertyId, properties);
-  const groups = view.hideEmptyGroups ? allGroups.filter((g) => g.rows.length > 0) : allGroups;
-  const canMoveCol = groupProp?.type === 'select' || groupProp?.type === 'status' || groupByParent;
+  const collapseEmpty = view.collapseEmptyGroups ?? true;
+  useRelationGroupTitles(groupProp, subProp);
+  const groups = groupRowsBy(db.visibleRows, view.groupByPropertyId, properties);
+  // Select/status columns reorder by dragging their header (write the option order);
+  // relation columns write the linked page on drop but have no stored order.
+  const colReorderable = groupProp?.type === 'select' || groupProp?.type === 'status';
+  const colRelation = groupProp?.type === 'relation';
+  const canMoveCol = colReorderable || groupByParent || colRelation;
+  // Multi-value relations aren't offered as a sub-group, so a lane write is always
+  // a single link; select/status lanes write the option id.
+  const laneReorderable = subProp?.type === 'select' || subProp?.type === 'status';
+  const laneRelationSingle = subProp?.type === 'relation' && !!subProp?.relationSingle;
   // Cards drag at all when the primary group is movable, OR when only the lane is
   // (so a card can change lane within an unmovable column).
-  const canMoveLane = subProp?.type === 'select' || subProp?.type === 'status';
+  const canMoveLane = laneReorderable || laneRelationSingle;
   const canMove = canMoveCol || canMoveLane;
-  // Columns backed by a real option (not the trailing "No value") can be reordered;
-  // parent-item columns follow row order and aren't.
-  const isOption = (key: string): boolean => !groupByParent && canMoveCol && key !== '__none__' && key !== '__all__';
+  // Columns backed by a reorderable option (not "No value") can be reordered;
+  // parent-item and relation columns follow their own order and aren't.
+  const isOption = (key: string): boolean => colReorderable && key !== '__none__' && key !== '__all__';
   // Properties shown on a card exclude the grouping ones (they're the cell itself).
   const cardProps = (cardProperties ?? properties).filter((p) => p.id !== groupProp?.id && p.id !== subProp?.id);
 
-  // Lanes: one per sub-group value (spanning every column). Honours hideEmptyGroups.
-  const allLanes = swimlaned ? groupRowsBy(db.visibleRows, view.subGroupByPropertyId, properties) : [];
-  const lanes = view.hideEmptyGroups ? allLanes.filter((l) => l.rows.length > 0) : allLanes;
+  // Lanes: one per sub-group value (spanning every column).
+  const lanes = swimlaned ? groupRowsBy(db.visibleRows, view.subGroupByPropertyId, properties) : [];
 
   /** Persist a card's move into a (column, lane) cell — both writes in one txn. */
   const drop = (target: BoardDropTarget): void => {
@@ -433,11 +536,16 @@ export const BoardView: React.FC<{
         // Parent-item columns aren't a property write — re-parent instead. (A
         // lane sub-group, if any, can still be written alongside.)
         void db.setRowParent(dragRow, target.colKey === '__none__' ? null : target.colKey);
-      } else if (groupProp && canMoveCol) {
+      } else if (groupProp && colReorderable) {
         patch[groupProp.id] = target.colKey === '__none__' ? null : target.colKey;
+      } else if (groupProp && colRelation) {
+        // Dropping on a relation column replaces the link with that page.
+        patch[groupProp.id] = target.colKey === '__none__' ? null : [target.colKey];
       }
-      if (subProp && canMoveLane && target.subKey !== null) {
+      if (subProp && laneReorderable && target.subKey !== null) {
         patch[subProp.id] = target.subKey === '__none__' ? null : target.subKey;
+      } else if (subProp && laneRelationSingle && target.subKey !== null) {
+        patch[subProp.id] = target.subKey === '__none__' ? null : [target.subKey];
       }
       if (Object.keys(patch).length > 0) void db.setRowProperties(dragRow, patch);
     }
@@ -447,7 +555,7 @@ export const BoardView: React.FC<{
 
   // Drop a column header on another → reorder the group property's options.
   const reorderColumn = (fromKey: string, toKey: string): void => {
-    if (!groupProp || !canMoveCol) return;
+    if (!groupProp || !colReorderable) return;
     const opts = [...(groupProp.options ?? [])];
     const from = opts.findIndex((o) => o.id === fromKey);
     const to = opts.findIndex((o) => o.id === toKey);
@@ -460,12 +568,12 @@ export const BoardView: React.FC<{
     setOverKey(null);
   };
 
-  // A swimlane backed by a real sub-group option (not "No value") can be reordered.
-  const isLaneOption = (key: string): boolean => canMoveLane && key !== '__none__' && key !== '__all__';
+  // A swimlane backed by a reorderable sub-group option (not "No value") can be reordered.
+  const isLaneOption = (key: string): boolean => laneReorderable && key !== '__none__' && key !== '__all__';
 
   // Drop a lane (swimlane) gutter on another → reorder the sub-group's options.
   const reorderLane = (fromKey: string, toKey: string): void => {
-    if (!subProp || !canMoveLane) return;
+    if (!subProp || !laneReorderable) return;
     const opts = [...(subProp.options ?? [])];
     const from = opts.findIndex((o) => o.id === fromKey);
     const to = opts.findIndex((o) => o.id === toKey);
@@ -486,18 +594,22 @@ export const BoardView: React.FC<{
       return;
     }
     const initial: Record<string, unknown> = {};
-    if (groupProp && canMoveCol && colKey !== '__none__' && colKey !== '__all__') initial[groupProp.id] = colKey;
-    if (subProp && canMoveLane && subKey && subKey !== '__none__') initial[subProp.id] = subKey;
+    if (groupProp && colReorderable && colKey !== '__none__' && colKey !== '__all__') initial[groupProp.id] = colKey;
+    else if (groupProp && colRelation && colKey !== '__none__' && colKey !== '__all__') initial[groupProp.id] = [colKey];
+    if (subProp && laneReorderable && subKey && subKey !== '__none__') initial[subProp.id] = subKey;
+    else if (subProp && laneRelationSingle && subKey && subKey !== '__none__') initial[subProp.id] = [subKey];
     void db.addRow(Object.keys(initial).length ? initial : undefined);
   };
 
-  const allCollapsed = groups.length > 0 && groups.every((g) => collapsedCols.has(g.key));
+  const allCollapsed = groups.length > 0 && groups.every((g) => groupCollapsed(g, collapsedCols, collapseEmpty));
 
   /** The shared column-header strip (used once for flat, once atop swimlanes). */
   const ColumnHeaders: React.FC = () => (
     <div className="flex gap-3">
       {groups.map((group) => {
-        const isCollapsed = collapsedCols.has(group.key);
+        const isCollapsed = groupCollapsed(group, collapsedCols, collapseEmpty);
+        const glyph = groupGlyph(group, groupProp, groupByParent);
+        const heading = groupHeading(group, groupProp);
         return (
           <div
             key={group.key}
@@ -526,12 +638,12 @@ export const BoardView: React.FC<{
             )}
           >
             {group.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />}
-            {groupByParent && group.key !== '__none__' && <span className="shrink-0 text-sm leading-none">{readPageIcon(group.key)}</span>}
-            {!isCollapsed && <span className="truncate">{group.label}</span>}
+            {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
+            {!isCollapsed && <span className="truncate">{heading}</span>}
             <span className="text-muted-foreground/60">{group.rows.length}</span>
             <button
               onClick={() => toggleCol(group.key)}
-              aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${group.label} column`}
+              aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${heading} column`}
               className={cn('shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-hover hover:text-foreground', !isCollapsed && 'ml-auto')}
             >
               {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
@@ -544,7 +656,7 @@ export const BoardView: React.FC<{
 
   /** One (column, lane) cell's drop zone wrapping the cards. */
   const Cell: React.FC<{group: RowGroup; rows: DatabaseRow[]; subKey: string | null}> = ({group, rows, subKey}) => {
-    const isCollapsed = collapsedCols.has(group.key);
+    const isCollapsed = groupCollapsed(group, collapsedCols, collapseEmpty);
     const key = cellKey(group.key, subKey);
     if (isCollapsed) return <div className="w-11 shrink-0" />;
     return (
@@ -591,7 +703,9 @@ export const BoardView: React.FC<{
         <div className="w-max space-y-3">
           <ColumnHeaders />
           {lanes.map((lane) => {
-            const laneCollapsed = collapsedLanes.has(lane.key);
+            const laneCollapsed = groupCollapsed(lane, collapsedLanes, collapseEmpty);
+            const laneGlyph = groupGlyph(lane, subProp, subByParent);
+            const laneHeading = groupHeading(lane, subProp);
             const byCol = new Map(groups.map((g) => [g.key, new Set(g.rows.map((r) => r.id))]));
             return (
               <div key={lane.key} className="space-y-2">
@@ -624,7 +738,7 @@ export const BoardView: React.FC<{
                         setDragLane(null);
                         setOverLane(null);
                       }}
-                      aria-label={`Reorder ${lane.label} lane`}
+                      aria-label={`Reorder ${laneHeading} lane`}
                       className="flex cursor-grab items-center self-stretch rounded-l-md px-1 text-muted-foreground/30 transition-colors hover:bg-hover hover:text-muted-foreground active:cursor-grabbing"
                     >
                       <GripVertical className="h-3.5 w-3.5" />
@@ -632,7 +746,7 @@ export const BoardView: React.FC<{
                   )}
                   <button
                     onClick={() => toggleLane(lane.key)}
-                    aria-label={`${laneCollapsed ? 'Expand' : 'Collapse'} ${lane.label} lane`}
+                    aria-label={`${laneCollapsed ? 'Expand' : 'Collapse'} ${laneHeading} lane`}
                     className={cn(
                       'flex flex-1 items-center gap-1.5 py-1.5 pr-2.5 text-left transition-colors hover:bg-hover',
                       isLaneOption(lane.key) ? 'rounded-r-md' : 'rounded-md pl-2.5',
@@ -640,7 +754,8 @@ export const BoardView: React.FC<{
                   >
                     <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !laneCollapsed && 'rotate-90')} />
                     {lane.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[lane.color] ?? '#9ca3af'}} />}
-                    <span className="truncate text-foreground/80">{lane.label}</span>
+                    {laneGlyph && <span className="shrink-0 text-sm leading-none">{laneGlyph}</span>}
+                    <span className="truncate text-foreground/80">{laneHeading}</span>
                     <span className="text-muted-foreground/60">{lane.rows.length}</span>
                   </button>
                 </div>
@@ -666,7 +781,7 @@ export const BoardView: React.FC<{
       {groups.length > 1 && (
         <div className="mb-2 flex justify-end">
           <button
-            onClick={() => setCollapsedCols(allCollapsed ? new Set() : new Set(groups.map((g) => g.key)))}
+            onClick={() => setCollapsedCols(setAllGroupsCollapsed(groups, !allCollapsed, collapseEmpty))}
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
           >
             <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !allCollapsed && 'rotate-90')} />
@@ -676,7 +791,9 @@ export const BoardView: React.FC<{
       )}
       <div className="flex gap-3 overflow-x-auto pb-2">
         {groups.map((group) => {
-          const isCollapsed = collapsedCols.has(group.key);
+          const isCollapsed = groupCollapsed(group, collapsedCols, collapseEmpty);
+          const glyph = groupGlyph(group, groupProp, groupByParent);
+          const heading = groupHeading(group, groupProp);
           return (
             <div
               key={group.key}
@@ -697,16 +814,16 @@ export const BoardView: React.FC<{
                 <button
                   data-col-key={group.key}
                   onClick={() => toggleCol(group.key)}
-                  aria-label={`Expand ${group.label} column`}
+                  aria-label={`Expand ${heading} column`}
                   className="flex flex-1 flex-col items-center gap-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 >
                   <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                   {group.color && (
                     <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
                   )}
-                  {groupByParent && group.key !== '__none__' && <span className="text-sm leading-none">{readPageIcon(group.key)}</span>}
+                  {glyph && <span className="text-sm leading-none">{glyph}</span>}
                   <span className="text-muted-foreground/60">{group.rows.length}</span>
-                  <span className="truncate [writing-mode:vertical-rl]">{group.label}</span>
+                  <span className="truncate [writing-mode:vertical-rl]">{heading}</span>
                 </button>
               ) : (
                 <>
@@ -729,12 +846,12 @@ export const BoardView: React.FC<{
                     {group.color && (
                       <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
                     )}
-                    {groupByParent && group.key !== '__none__' && <span className="shrink-0 text-sm leading-none">{readPageIcon(group.key)}</span>}
-                    <span className="truncate">{group.label}</span>
+                    {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
+                    <span className="truncate">{heading}</span>
                     <span className="text-muted-foreground/60">{group.rows.length}</span>
                     <button
                       onClick={() => toggleCol(group.key)}
-                      aria-label={`Collapse ${group.label} column`}
+                      aria-label={`Collapse ${heading} column`}
                       className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-hover hover:text-foreground"
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
@@ -755,8 +872,8 @@ export const BoardView: React.FC<{
             </div>
           );
         })}
-        {/* New group: mint a select option without leaving the board. */}
-        {canMoveCol && groupProp && <NewGroupColumn onAdd={(label) => void db.addSelectOption(groupProp.id, label)} />}
+        {/* New group: mint a select option without leaving the board (select/status only). */}
+        {colReorderable && groupProp && <NewGroupColumn onAdd={(label) => void db.addSelectOption(groupProp.id, label)} />}
       </div>
     </div>
   );

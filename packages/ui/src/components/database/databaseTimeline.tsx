@@ -2,7 +2,9 @@ import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {CalendarCheck, ChevronRight, GripVertical} from 'lucide-react';
 import {
   groupRowsBy,
+  PARENT_GROUP_ID,
   rowDateSpan,
+  type RowGroup,
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseView as DbView,
@@ -13,7 +15,7 @@ import {cn} from '@/lib/utils';
 import {Select} from '@/components/ui/select';
 import type {UseDatabase} from './useDatabase';
 import {SWATCH_HEX} from './databaseColors';
-import {RowChips, RowContextMenu} from './databaseLayouts';
+import {groupCollapsed, groupGlyph, groupHeading, RowChips, RowContextMenu, useRelationGroupTitles} from './databaseLayouts';
 
 const DAY_MS = 86_400_000;
 const ROW_H = 34;
@@ -268,7 +270,9 @@ const TimelineCanvas: React.FC<{
   // Band (swimlane) reorder by dragging the gutter, mirroring the board lanes.
   const [dragBand, setDragBand] = useState<string | null>(null);
   const [overBand, setOverBand] = useState<string | null>(null);
-  const groupProp = view.groupByPropertyId ? properties.find((p) => p.id === view.groupByPropertyId) : undefined;
+  const groupByParent = view.groupByPropertyId === PARENT_GROUP_ID;
+  const groupProp = groupByParent ? undefined : view.groupByPropertyId ? properties.find((p) => p.id === view.groupByPropertyId) : undefined;
+  useRelationGroupTitles(groupProp);
   const canMoveBand = groupProp?.type === 'select' || groupProp?.type === 'status';
   const isBandOption = (key: string): boolean => canMoveBand && key !== '__none__' && key !== '__all__';
   const reorderBand = (fromKey: string, toKey: string): void => {
@@ -283,6 +287,24 @@ const TimelineCanvas: React.FC<{
     }
     setDragBand(null);
     setOverBand(null);
+  };
+
+  // Drag a row's gutter onto another band to re-file it: write the band's group
+  // value (select/status option, a single relation link), or re-parent it.
+  const [dragRow, setDragRow] = useState<string | null>(null);
+  const [overRowBand, setOverRowBand] = useState<string | null>(null);
+  const canMoveRow =
+    groupByParent || groupProp?.type === 'select' || groupProp?.type === 'status' || groupProp?.type === 'relation';
+  const moveRowToBand = (rowId: string, bandKey: string): void => {
+    if (groupByParent) {
+      void db.setRowParent(rowId, bandKey === '__none__' ? null : bandKey);
+    } else if (groupProp?.type === 'select' || groupProp?.type === 'status') {
+      void db.setRowProperties(rowId, {[groupProp.id]: bandKey === '__none__' ? null : bandKey});
+    } else if (groupProp?.type === 'relation') {
+      void db.setRowProperties(rowId, {[groupProp.id]: bandKey === '__none__' ? null : [bandKey]});
+    }
+    setDragRow(null);
+    setOverRowBand(null);
   };
 
   // Bars colour by the view's chosen colour property (a select/status), falling
@@ -314,16 +336,19 @@ const TimelineCanvas: React.FC<{
 
   // Swimlane bands: timeline grouping reuses `groupByPropertyId`. Each band is a
   // labelled, collapsible Gantt row band; every row gets a lane within its band.
+  // Empty bands fold by default (collapseEmptyGroups) but stay visible.
   const grouped = !!view.groupByPropertyId;
+  const collapseEmpty = view.collapseEmptyGroups ?? true;
   const groups = grouped
-    ? groupRowsBy(db.visibleRows, view.groupByPropertyId, properties).filter((g) => g.rows.length > 0)
+    ? groupRowsBy(db.visibleRows, view.groupByPropertyId, properties)
     : [{key: '__all__', label: 'All', color: undefined, rows: db.visibleRows}];
+  const bandCollapsed = (g: RowGroup): boolean => grouped && groupCollapsed(g, collapsedBands, collapseEmpty);
 
   const laid: Laid[] = [];
   const bands: Band[] = [];
   let y = 0;
   for (const g of groups) {
-    const collapsed = grouped && collapsedBands.has(g.key);
+    const collapsed = bandCollapsed(g);
     if (grouped) {
       bands.push({key: g.key, label: g.label, color: g.color, count: g.rows.length, top: y, collapsed});
       y += BAND_H;
@@ -616,9 +641,22 @@ const TimelineCanvas: React.FC<{
         <div className="shrink-0 border-r border-border" style={{width: LABEL_W}}>
           <div className="border-b border-border bg-muted/30" style={{height: HEADER_H}} />
           {groups.map((g) => {
-            const collapsed = grouped && collapsedBands.has(g.key);
+            const collapsed = bandCollapsed(g);
+            const glyph = groupGlyph(g, groupProp, groupByParent);
+            const heading = groupHeading(g, groupProp);
             return (
-              <div key={g.key}>
+              // Drop a dragged row anywhere in this band's label column to re-file it.
+              <div
+                key={g.key}
+                onDragOver={(e) => {
+                  if (dragRow && canMoveRow && grouped) {
+                    e.preventDefault();
+                    setOverRowBand(g.key);
+                  }
+                }}
+                onDrop={() => dragRow && canMoveRow && grouped && moveRowToBand(dragRow, g.key)}
+                className={cn(overRowBand === g.key && 'bg-accent/40 ring-1 ring-inset ring-brand/40')}
+              >
                 {grouped && (
                   <div
                     data-band-key={g.key}
@@ -647,7 +685,7 @@ const TimelineCanvas: React.FC<{
                           setDragBand(null);
                           setOverBand(null);
                         }}
-                        aria-label={`Reorder ${g.label} band`}
+                        aria-label={`Reorder ${heading} band`}
                         className="flex h-full cursor-grab items-center pl-1 text-muted-foreground/30 transition-colors hover:text-muted-foreground active:cursor-grabbing"
                       >
                         <GripVertical className="h-3.5 w-3.5" />
@@ -655,7 +693,7 @@ const TimelineCanvas: React.FC<{
                     )}
                     <button
                       onClick={() => toggleBand(g.key)}
-                      aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${g.label} band`}
+                      aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${heading} band`}
                       className={cn(
                         'flex h-full flex-1 items-center gap-1 px-2 text-left transition-colors hover:bg-hover hover:text-foreground',
                         isBandOption(g.key) && 'pl-1',
@@ -663,7 +701,8 @@ const TimelineCanvas: React.FC<{
                     >
                       <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
                       {g.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[g.color] ?? '#9ca3af'}} />}
-                      <span className="truncate">{g.label}</span>
+                      {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
+                      <span className="truncate">{heading}</span>
                       <span className="ml-auto shrink-0 text-muted-foreground/60">{g.rows.length}</span>
                     </button>
                   </div>
@@ -671,21 +710,45 @@ const TimelineCanvas: React.FC<{
                 {!collapsed &&
                   g.rows.map((row) => (
                     <RowContextMenu key={row.id} db={db} rowId={row.id}>
-                      <button
-                        onClick={() => db.openRow(row.id)}
-                        className="flex w-full flex-col justify-center gap-0.5 border-b border-border/60 px-2 text-left text-sm last:border-0 hover:bg-hover"
+                      <div
+                        className={cn(
+                          'group/row flex w-full items-center border-b border-border/60 last:border-0 hover:bg-hover',
+                          dragRow === row.id && 'opacity-40',
+                        )}
                         style={{height: rowH}}
                       >
-                        <span className="flex w-full items-center gap-1.5">
-                          <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
-                          <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
-                        </span>
-                        {railProps.length > 0 && (
-                          <span className="flex h-[18px] items-center overflow-hidden">
-                            <RowChips row={row} properties={railProps} rows={db.rows} />
+                        {canMoveRow && grouped && (
+                          <span
+                            draggable
+                            onDragStart={() => setDragRow(row.id)}
+                            onDragEnd={() => {
+                              setDragRow(null);
+                              setOverRowBand(null);
+                            }}
+                            aria-label={`Drag ${row.name?.trim() || 'Untitled'} to another band`}
+                            className="flex h-full cursor-grab items-center pl-1 text-muted-foreground/30 opacity-0 transition group-hover/row:opacity-100 active:cursor-grabbing"
+                          >
+                            <GripVertical className="h-3.5 w-3.5" />
                           </span>
                         )}
-                      </button>
+                        <button
+                          onClick={() => db.openRow(row.id)}
+                          className={cn(
+                            'flex h-full min-w-0 flex-1 flex-col justify-center gap-0.5 px-2 text-left text-sm',
+                            !(canMoveRow && grouped) && 'pl-2',
+                          )}
+                        >
+                          <span className="flex w-full items-center gap-1.5">
+                            <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+                            <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
+                          </span>
+                          {railProps.length > 0 && (
+                            <span className="flex h-[18px] items-center overflow-hidden">
+                              <RowChips row={row} properties={railProps} rows={db.rows} />
+                            </span>
+                          )}
+                        </button>
+                      </div>
                     </RowContextMenu>
                   ))}
               </div>

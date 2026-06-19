@@ -89,6 +89,35 @@ describe('groupRowsBy', () => {
   });
 });
 
+describe('groupRowsBy with a relation property', () => {
+  const rel: DatabaseProperty = {id: 'p_rel', name: 'Project', type: 'relation', relationDatabaseId: 'projects'};
+
+  it('makes one group per linked page (keyed by page id), trailing the no-value group', () => {
+    const rows = [
+      row('r1', {properties: {p_rel: ['page-a']}}),
+      row('r2', {properties: {p_rel: ['page-b']}}),
+      row('r3', {properties: {p_rel: ['page-a']}}),
+      row('r4', {properties: {p_rel: []}}),
+      row('r5'),
+    ];
+    const groups = groupRowsBy(rows, 'p_rel', [rel]);
+    expect(groups.map((g) => g.key)).toEqual(['page-a', 'page-b', '__none__']);
+    // The SDK keeps the raw page id as the label; the UI resolves the title.
+    expect(groups[0].label).toBe('page-a');
+    expect(groups[0].rows.map((r) => r.id)).toEqual(['r1', 'r3']);
+    expect(groups[1].rows.map((r) => r.id)).toEqual(['r2']);
+    expect(groups[2].rows.map((r) => r.id)).toEqual(['r4', 'r5']);
+  });
+
+  it('files a multi-link row into every linked page group', () => {
+    const rows = [row('r1', {properties: {p_rel: ['page-a', 'page-b']}}), row('r2', {properties: {p_rel: ['page-b']}})];
+    const groups = groupRowsBy(rows, 'p_rel', [rel]);
+    expect(groups.map((g) => g.key)).toEqual(['page-a', 'page-b']);
+    expect(groups[0].rows.map((r) => r.id)).toEqual(['r1']);
+    expect(groups[1].rows.map((r) => r.id)).toEqual(['r1', 'r2']);
+  });
+});
+
 describe('aggregateMatrix with parent grouping', () => {
   const status: DatabaseProperty = {
     id: 'p_status',

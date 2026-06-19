@@ -447,8 +447,9 @@ export interface DatabaseView {
   /** Board only: the per-column footer calculation (a property + summary). Defaults
    *  to summing the first numeric property, or counting rows. */
   boardSummary?: {propertyId: string; type: SummaryType};
-  /** When grouped, hide groups/columns that currently have no rows (table + board). */
-  hideEmptyGroups?: boolean;
+  /** When grouped, collapse (fold) groups/columns/bands that currently have no rows
+   *  rather than removing them — they stay visible but folded. On unless set false. */
+  collapseEmptyGroups?: boolean;
   /**
    * Board/timeline only: a **second** grouping dimension. The board renders one
    * horizontal swimlane per value of this property (columns stay the primary
@@ -1404,6 +1405,36 @@ export function groupRows(
       const group = typeof id === 'string' ? byId.get(id) : undefined;
       (group ?? none).rows.push(row);
     }
+    return none.rows.length ? [...groups, none] : groups;
+  }
+
+  // Relation: one group per *linked page* (keyed by its row/page id), so a board
+  // or timeline grouped by a relation gets a column/band per related page. A row
+  // with several links appears in each; the UI resolves the key to a page
+  // title + icon. Rows with no link collect into the trailing "No value" group.
+  if (property.type === 'relation') {
+    const order: string[] = [];
+    const byId = new Map<string, RowGroup>();
+    const none: RowGroup = {key: '__none__', label: NO_VALUE_GROUP, rows: []};
+    for (const row of rows) {
+      const raw = row.properties[property.id];
+      const ids = Array.isArray(raw) ? (raw as unknown[]).filter((x): x is string => typeof x === 'string') : [];
+      if (ids.length === 0) {
+        none.rows.push(row);
+        continue;
+      }
+      for (const id of ids) {
+        let group = byId.get(id);
+        if (!group) {
+          // Label is the page id; the UI swaps in the resolved title.
+          group = {key: id, label: id, rows: []};
+          byId.set(id, group);
+          order.push(id);
+        }
+        group.rows.push(row);
+      }
+    }
+    const groups = order.map((id) => byId.get(id)!);
     return none.rows.length ? [...groups, none] : groups;
   }
 

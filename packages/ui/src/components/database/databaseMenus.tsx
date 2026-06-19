@@ -1662,11 +1662,11 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input
               type="checkbox"
-              checked={!!view.hideEmptyGroups}
-              onChange={(e) => db.updateView(view.id, {hideEmptyGroups: e.target.checked})}
+              checked={view.collapseEmptyGroups ?? true}
+              onChange={(e) => db.updateView(view.id, {collapseEmptyGroups: e.target.checked})}
               className="h-3.5 w-3.5 accent-primary"
             />
-            Hide empty groups
+            Collapse empty groups
           </label>
         )}
 

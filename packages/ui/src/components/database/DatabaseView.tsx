@@ -43,7 +43,19 @@ import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {cellValue, PropertyValueCell} from './databaseCells';
 import {AddPropertyMenu, AddViewMenu, FilterChips, FilterMenu, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, VIEW_TYPES} from './databaseMenus';
-import {BoardView, CalendarView, GalleryView, rowColor, RowChips, RowContextMenu} from './databaseLayouts';
+import {
+  BoardView,
+  CalendarView,
+  GalleryView,
+  groupCollapsed,
+  groupGlyph,
+  groupHeading,
+  rowColor,
+  RowChips,
+  RowContextMenu,
+  setAllGroupsCollapsed,
+  useRelationGroupTitles,
+} from './databaseLayouts';
 import {BarChartView, PieChartView} from './databaseCharts';
 import {TimelineView} from './databaseTimeline';
 import {MapView} from './databaseMap';
@@ -566,6 +578,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
 
   const groupByParent = view.groupByPropertyId === PARENT_GROUP_ID;
   const groupProp = !groupByParent && view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
+  useRelationGroupTitles(groupProp);
   const hasSubItems = db.visibleRows.some((r) => r.parentId);
   // Manual drag-reorder is only well-defined over the full, unfiltered, unsorted,
   // ungrouped, flat list (otherwise "where does it land?" is ambiguous).
@@ -626,9 +639,9 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
       return next;
     });
 
-  const allGroups = groupProp || groupByParent ? groupRowsBy(db.visibleRows, view.groupByPropertyId, schema) : null;
-  const groups = allGroups && view.hideEmptyGroups ? allGroups.filter((g) => g.rows.length > 0) : allGroups;
-  const allCollapsed = !!groups && groups.length > 0 && groups.every((g) => collapsed.has(g.key));
+  const collapseEmpty = view.collapseEmptyGroups ?? true;
+  const groups = groupProp || groupByParent ? groupRowsBy(db.visibleRows, view.groupByPropertyId, schema) : null;
+  const allCollapsed = !!groups && groups.length > 0 && groups.every((g) => groupCollapsed(g, collapsed, collapseEmpty));
   // Flat (ungrouped) view arranges rows into a sub-item tree.
   const treeRows = flattenRowTree(buildRowTree(db.visibleRows), collapsedRows);
   const anyExpandable = treeRows.some((n) => n.children.length > 0);
@@ -687,7 +700,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
       {groups && groups.length > 0 && (
         <div className="mb-2 flex justify-end">
           <button
-            onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(groups.map((g) => g.key)))}
+            onClick={() => setCollapsed(setAllGroupsCollapsed(groups, !allCollapsed, collapseEmpty))}
             className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
           >
             <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !allCollapsed && 'rotate-90')} />
@@ -766,11 +779,15 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
 
           {groups ? (
             groups.map((group) => {
-              const isCollapsed = collapsed.has(group.key);
+              const isCollapsed = groupCollapsed(group, collapsed, collapseEmpty);
+              const glyph = groupGlyph(group, groupProp, groupByParent);
+              const isRealGroup = group.key !== '__none__' && group.key !== '__all__';
               const initial =
-              groupProp?.type === 'select' && group.key !== '__none__' && group.key !== '__all__'
-                ? {[groupProp.id]: group.key}
-                : undefined;
+                groupProp && isRealGroup && (groupProp.type === 'select' || groupProp.type === 'status')
+                  ? {[groupProp.id]: group.key}
+                  : groupProp?.type === 'relation' && isRealGroup
+                    ? {[groupProp.id]: [group.key]}
+                    : undefined;
               // In a parent-grouped table, "New" inside a group creates a sub-item.
               const addInGroup = (): Promise<string | undefined> =>
                 groupByParent && group.key !== '__none__' ? db.addSubItem(group.key) : db.addRow(initial);
@@ -783,8 +800,8 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                         {group.color && (
                           <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
                         )}
-                        {groupByParent && group.key !== '__none__' && <span className="text-sm leading-none">{readPageIcon(group.key)}</span>}
-                        <span>{group.label}</span>
+                        {glyph && <span className="text-sm leading-none">{glyph}</span>}
+                        <span>{groupHeading(group, groupProp)}</span>
                         <span className="text-muted-foreground/60">{group.rows.length}</span>
                       </button>
                     </td>
@@ -883,6 +900,8 @@ const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: Data
 const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, view}) => {
   const groupByParent = view.groupByPropertyId === PARENT_GROUP_ID;
   const groupProp = !groupByParent && view.groupByPropertyId ? schema.find((p) => p.id === view.groupByPropertyId) : undefined;
+  const collapseEmpty = view.collapseEmptyGroups ?? true;
+  useRelationGroupTitles(groupProp);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggle = (key: string) =>
     setCollapsed((prev) => {
@@ -893,12 +912,12 @@ const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, vi
     });
 
   if (groupProp || groupByParent) {
-    const all = groupRowsBy(db.visibleRows, view.groupByPropertyId, schema);
-    const groups = view.hideEmptyGroups ? all.filter((g) => g.rows.length > 0) : all;
+    const groups = groupRowsBy(db.visibleRows, view.groupByPropertyId, schema);
     return (
       <div className="space-y-3">
         {groups.map((group) => {
-          const isCollapsed = collapsed.has(group.key);
+          const isCollapsed = groupCollapsed(group, collapsed, collapseEmpty);
+          const glyph = groupGlyph(group, groupProp, groupByParent);
           return (
             <div key={group.key} className="overflow-hidden rounded-md border border-border">
               <button onClick={() => toggle(group.key)} className="flex w-full items-center gap-1.5 bg-muted/20 px-3 py-1.5 text-xs font-medium">
@@ -906,8 +925,8 @@ const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, vi
                 {group.color && (
                   <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
                 )}
-                {groupByParent && group.key !== '__none__' && <span className="text-sm leading-none">{readPageIcon(group.key)}</span>}
-                <span>{group.label}</span>
+                {glyph && <span className="text-sm leading-none">{glyph}</span>}
+                <span>{groupHeading(group, groupProp)}</span>
                 <span className="text-muted-foreground/60">{group.rows.length}</span>
               </button>
               {!isCollapsed && group.rows.map((row) => <ListRow key={row.id} db={db} columns={columns} row={row} />)}
