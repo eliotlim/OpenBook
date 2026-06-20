@@ -175,18 +175,40 @@ interface ResyncFetchers {
   listRows(databaseId: string): Promise<DatabaseRow[]>;
 }
 
+/**
+ * The `fetch` surface {@link HttpDataClient} needs. Defaults to the global
+ * `fetch`; the desktop injects an implementation that tunnels requests over its
+ * host IPC bridge (a Unix-socket server with no TCP port) instead.
+ */
+export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * The slice of `EventSource` {@link LiveStream} uses (named events + open/error
+ * via `addEventListener`, plus `close`). Defaults to a real `EventSource`; the
+ * desktop injects a source backed by host IPC events, since its server speaks
+ * over a socket the webview can't open an `EventSource` to.
+ */
+export interface LiveSourceLike {
+  addEventListener(type: string, handler: (event: {data?: string}) => void): void;
+  close(): void;
+}
+
 class LiveStream {
-  private source: EventSource | null = null;
+  private source: LiveSourceLike | null = null;
   private readonly listListeners = new Set<(pages: PageMeta[]) => void>();
   private readonly pageListeners = new Map<string, Set<PageSubscription>>();
   private readonly rowsListeners = new Map<string, Set<(rows: DatabaseRow[]) => void>>();
-  // EventSource reconnects on its own after a drop (server/app restart). We track
+  // The source reconnects on its own after a drop (server/app restart). We track
   // a prior disconnect so that, on the *next* successful open, we re-fetch every
   // open subscription — the firehose only replays the page *list* on connect, so
   // open pages/rows would otherwise show stale data until their next edit.
   private sawError = false;
 
-  constructor(private readonly liveUrl: string, private readonly fetchers: ResyncFetchers) {}
+  constructor(
+    private readonly liveUrl: string,
+    private readonly fetchers: ResyncFetchers,
+    private readonly createSource: (url: string) => LiveSourceLike,
+  ) {}
 
   private dispatch(raw: string): void {
     let ev: {type: string; [k: string]: unknown};
@@ -210,21 +232,23 @@ class LiveStream {
 
   private ensureOpen(): void {
     if (this.source) return;
-    const source = new EventSource(this.liveUrl);
-    const handle = (e: Event) => this.dispatch((e as MessageEvent).data);
+    const source = this.createSource(this.liveUrl);
+    const handle = (e: {data?: string}): void => {
+      if (e.data != null) this.dispatch(e.data);
+    };
     for (const name of ['list', 'page', 'deleted', 'rows']) source.addEventListener(name, handle);
-    // A drop sets `sawError`; the browser auto-reconnects and fires `open` again,
+    // A drop sets `sawError`; the source auto-reconnects and fires `open` again,
     // at which point we resync so every client transparently re-attaches after a
     // server or app restart (OB-132).
-    source.onerror = () => {
+    source.addEventListener('error', () => {
       this.sawError = true;
-    };
-    source.onopen = () => {
+    });
+    source.addEventListener('open', () => {
       if (this.sawError) {
         this.sawError = false;
         void this.resync();
       }
-    };
+    });
     this.source = source;
   }
 
@@ -305,28 +329,47 @@ class LiveStream {
   }
 }
 
-/** {@link DataClient} backed by an OpenBook server's HTTP API. Isomorphic. */
+/** Options for swapping {@link HttpDataClient}'s transport (desktop IPC). */
+export interface HttpDataClientOptions {
+  /** Replacement for the global `fetch` (e.g. tunnel requests over host IPC). */
+  fetchImpl?: FetchLike;
+  /** Factory for the live-update source (e.g. an IPC-event-backed source). */
+  createLiveSource?: (url: string) => LiveSourceLike;
+}
+
+/**
+ * {@link DataClient} backed by an OpenBook server's HTTP API. Isomorphic, and
+ * transport-pluggable: by default it uses the global `fetch` + `EventSource`
+ * (web, remote), but the desktop injects a `fetchImpl`/`createLiveSource` that
+ * tunnel over its host IPC bridge to a portless Unix-socket server.
+ */
 export class HttpDataClient implements DataClient {
   private readonly baseUrl: string;
   private readonly token?: string;
+  private readonly fetchImpl: FetchLike;
+  private readonly createLiveSource: (url: string) => LiveSourceLike;
   private live: LiveStream | null = null;
 
   /**
-   * @param baseUrl  Server base URL.
+   * @param baseUrl  Server base URL. May be empty when a `fetchImpl` resolves
+   *                 paths itself (the desktop IPC transport).
    * @param token    Optional access token required by a published (LAN) server;
    *                 sent as `Authorization: Bearer` on requests and `?token=` on
    *                 the SSE stream (EventSource can't set headers). Omit for a
    *                 loopback/local server, which needs none.
+   * @param opts     Optional transport overrides (desktop IPC).
    */
-  constructor(baseUrl: string, token?: string) {
+  constructor(baseUrl: string, token?: string, opts: HttpDataClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.token = token && token.length > 0 ? token : undefined;
+    this.fetchImpl = opts.fetchImpl ?? ((input, init) => fetch(input, init));
+    this.createLiveSource = opts.createLiveSource ?? ((url) => new EventSource(url) as unknown as LiveSourceLike);
   }
 
-  /** `fetch` with the access token attached (when set). */
+  /** `fetch` (or the injected transport) with the access token attached (when set). */
   private authFetch(input: string, init: RequestInit = {}): Promise<Response> {
-    if (!this.token) return fetch(input, init);
-    return fetch(input, {
+    if (!this.token) return this.fetchImpl(input, init);
+    return this.fetchImpl(input, {
       ...init,
       headers: {...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${this.token}`},
     });
@@ -337,11 +380,15 @@ export class HttpDataClient implements DataClient {
     if (!this.live) {
       // EventSource can't send headers, so the token rides the URL.
       const liveUrl = `${this.baseUrl}${API.live}${this.token ? `?token=${encodeURIComponent(this.token)}` : ''}`;
-      this.live = new LiveStream(liveUrl, {
-        listPages: () => this.listPages(),
-        getPage: (id) => this.getPage(id),
-        listRows: (databaseId) => this.listRows(databaseId),
-      });
+      this.live = new LiveStream(
+        liveUrl,
+        {
+          listPages: () => this.listPages(),
+          getPage: (id) => this.getPage(id),
+          listRows: (databaseId) => this.listRows(databaseId),
+        },
+        this.createLiveSource,
+      );
     }
     return this.live;
   }
