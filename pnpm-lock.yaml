@@ -276,9 +276,6 @@ importers:
       dom-to-svg:
         specifier: 0.12.2
         version: 0.12.2
-      emoji-picker-react:
-        specifier: ^4.12.0
-        version: 4.19.1(react@19.2.6)
       fflate:
         specifier: ^0.8.3
         version: 0.8.3
@@ -4073,12 +4070,6 @@ packages:
   electron-to-chromium@1.5.371:
     resolution: {integrity: sha512-e9htk9mAYL6AzmkEhSvVVw7IWGSBJ/Bqdn2eRyRLrj1g6sncN4WbFt5qnILYoCktktr45pyjIrOiRvBThQ808w==}
 
-  emoji-picker-react@4.19.1:
-    resolution: {integrity: sha512-BmDdqInKFVYJpv7qS9WI6L9656cDAC+FkDvUjJds56nKHbaVTBNeDmLwKBytRnzu37zWHs9Isg7gt5PT43y6xA==}
-    engines: {node: '>=10'}
-    peerDependencies:
-      react: '>=16'
-
   emoji-regex@10.6.0:
     resolution: {integrity: sha512-toUI84YS5YmxW219erniWD0CIVOo46xGKColeNQRgOzDorgBi1v4D71/OFzgD9GO2UGKIv1C3Sp8DAn0+j5w7A==}
 
@@ -4345,9 +4336,6 @@ packages:
 
   fix-dts-default-cjs-exports@1.0.1:
     resolution: {integrity: sha512-pVIECanWFC61Hzl2+oOCtoJ3F17kglZC/6N94eRWycFgBH35hHx0Li604ZIzhseh97mf2p0cv7vVrOZGoqhlEg==}
-
-  flairup@1.0.0:
-    resolution: {integrity: sha512-IKlE+pNvL2R+kVL1kEhUYqRxVqeFnjiIvHWDMLFXNaqyUdFXQM2wte44EfMYJNHkW16X991t2Zg8apKkhv7OBA==}
 
   flat-cache@4.0.1:
     resolution: {integrity: sha512-f7ccFPK3SXFHpx15UIGyRJ/FJQctuKZ0zVuN3frBo4HnK3cay9VEW0R6yPYFHC0AgqhukPzKjq22t5DmAyqGyw==}
@@ -9959,11 +9947,6 @@ snapshots:
 
   electron-to-chromium@1.5.371: {}
 
-  emoji-picker-react@4.19.1(react@19.2.6):
-    dependencies:
-      flairup: 1.0.0
-      react: 19.2.6
-
   emoji-regex@10.6.0: {}
 
   emoji-regex@8.0.0: {}
@@ -10403,8 +10386,6 @@ snapshots:
       magic-string: 0.30.21
       mlly: 1.8.2
       rollup: 4.60.4
-
-  flairup@1.0.0: {}
 
   flat-cache@4.0.1:
     dependencies:
