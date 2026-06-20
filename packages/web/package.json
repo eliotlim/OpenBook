@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@open-book/sdk": "workspace:*",
+    "@open-book/server": "workspace:*",
     "@open-book/ui": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",

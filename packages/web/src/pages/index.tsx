@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useState} from 'react';
 import Head from 'next/head';
-import {HttpDataClient, getServerUrlOverride} from '@open-book/sdk';
+import {HttpDataClient, getServerUrlOverride, type DataClient} from '@open-book/sdk';
 import {
   DataProvider,
   DefaultLayout,
@@ -11,9 +11,46 @@ import {
 } from '@open-book/ui';
 import SettingsDeepLink from '@/components/SettingsDeepLink';
 
-// The web shell always talks to a server: the one it was built against, or an
-// override configured via the Server settings.
-const DEFAULT_SERVER_URL = process.env.NEXT_PUBLIC_OPENBOOK_SERVER ?? 'http://localhost:4319';
+// By default the web app runs the data layer *in the browser* — embedded PGlite
+// on IndexedDB, durable across reloads — so app.book.pub needs no backend. A
+// remote server is used only when one is explicitly configured: the Server
+// settings override (`openbook.serverUrl`, also how e2e points at its fixture
+// server) or a build-time `NEXT_PUBLIC_OPENBOOK_SERVER`.
+const REMOTE_SERVER_URL = process.env.NEXT_PUBLIC_OPENBOOK_SERVER;
+
+// The embedded store is browser-only (PGlite WASM + IndexedDB). Open it lazily,
+// once per tab: a module-level promise means React StrictMode's double-mounted
+// effect (dev) can't open two PGlite instances against the same IndexedDB.
+let localClientPromise: Promise<DataClient> | null = null;
+function openLocalClient(): Promise<DataClient> {
+  if (!localClientPromise) {
+    localClientPromise = import('@open-book/server/browser').then(({createLocalDataClient}) =>
+      createLocalDataClient(),
+    );
+  }
+  return localClientPromise;
+}
+
+function useWebClient(): DataClient | null {
+  const [client, setClient] = useState<DataClient | null>(null);
+  useEffect(() => {
+    const override = getServerUrlOverride() ?? REMOTE_SERVER_URL;
+    if (override) {
+      setClient(new HttpDataClient(override));
+      return;
+    }
+    let cancelled = false;
+    openLocalClient()
+      .then((c) => {
+        if (!cancelled) setClient(c);
+      })
+      .catch((e) => console.error('OpenBook: failed to open the local store', e));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return client;
+}
 
 /**
  * Preview / test seam: `?shell=desktop` makes the browser render the *desktop*
@@ -45,7 +82,7 @@ function useDesktopShellPreview(): PlatformLibrary | undefined {
 }
 
 export default function Home() {
-  const client = useMemo(() => new HttpDataClient(getServerUrlOverride() ?? DEFAULT_SERVER_URL), []);
+  const client = useWebClient();
   const platform = useDesktopShellPreview();
 
   return (
@@ -59,14 +96,16 @@ export default function Home() {
         <link rel="icon" href="/favicon.ico" />
       </Head>
       <PlatformLibraryProvider value={platform}>
-        <DataProvider client={client}>
-          <NavigationProvider>
-            <SettingsDeepLink />
-            <DefaultLayout>
-              <DocumentArea />
-            </DefaultLayout>
-          </NavigationProvider>
-        </DataProvider>
+        {client && (
+          <DataProvider client={client}>
+            <NavigationProvider>
+              <SettingsDeepLink />
+              <DefaultLayout>
+                <DocumentArea />
+              </DefaultLayout>
+            </NavigationProvider>
+          </DataProvider>
+        )}
       </PlatformLibraryProvider>
     </>
   );

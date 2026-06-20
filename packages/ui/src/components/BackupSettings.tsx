@@ -1,6 +1,6 @@
 import {useCallback, useMemo, useRef, useState} from 'react';
-import {BACKUP_VERSION, type SpaceBackup} from '@open-book/sdk';
-import {Download, Upload} from 'lucide-react';
+import {BACKUP_VERSION, parseBookFolder, spaceToBookFiles, type SpaceBackup} from '@open-book/sdk';
+import {Download, FolderDown, FolderUp, Upload} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {
   Dialog,
@@ -11,10 +11,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {useData} from '@/data';
-import {useConfirm, useNavigation, useTranslation} from '@/providers';
+import {useConfirm, useNavigation, usePlatformLibrary, useTranslation} from '@/providers';
 import {writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
 import {ICON_PROPERTY_ID} from '@open-book/sdk';
 import {downloadText} from '@/lib/download';
+import {exportBookFolderInBrowser, importBookFolderInBrowser} from '@/lib/bookFolderTransfer';
 import {bundleRoots, closure, overwriteCount, parseBackup} from '@/lib/backupBundle';
 import {t as bareT} from '@/i18n';
 
@@ -23,12 +24,13 @@ const displayName = (name: string | null): string => (name && name.trim() ? name
 /** Backup & restore the whole workspace, from the Settings panel. */
 export default function BackupSettings() {
   const client = useData();
+  const platform = usePlatformLibrary();
   const {reload} = useNavigation();
   const confirm = useConfirm();
   const {t} = useTranslation();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const [busy, setBusy] = useState<null | 'export' | 'import'>(null);
+  const [busy, setBusy] = useState<null | 'export' | 'import' | 'folder'>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [bundle, setBundle] = useState<SpaceBackup | null>(null);
 
@@ -63,6 +65,51 @@ export default function BackupSettings() {
     }
   }, [t]);
 
+  // Export the workspace as a folder of readable `.html` files (one per page,
+  // OB-134 layout) plus a lossless bundle. The desktop supplies a native dialog;
+  // the web falls back to the File System Access API or a zip download.
+  const onExportFolder = useCallback(async () => {
+    setBusy('folder');
+    setStatus(null);
+    try {
+      const files = spaceToBookFiles(await client.exportSpace());
+      const name = `openbook-${new Date().toISOString().slice(0, 10)}`;
+      const result = platform.bookFolder?.export
+        ? await platform.bookFolder.export(files)
+        : await exportBookFolderInBrowser(files, name);
+      if (result) setStatus(t('backup.folderExported', {count: result.count, location: result.location}));
+    } catch (e) {
+      setStatus(t('backup.exportFailed', {error: (e as Error).message}));
+    } finally {
+      setBusy(null);
+    }
+  }, [client, platform, t]);
+
+  // Load a book folder back; route it through the same Restore dialog so the
+  // user picks which roots to bring in and copy-vs-overwrite.
+  const onImportFolder = useCallback(async () => {
+    setStatus(null);
+    try {
+      const files = platform.bookFolder?.import
+        ? await platform.bookFolder.import()
+        : await importBookFolderInBrowser();
+      if (!files) return;
+      const snapshot = parseBookFolder(files);
+      if (!snapshot) {
+        setStatus(t('backup.folderEmpty'));
+        return;
+      }
+      const icons: Record<string, string> = {};
+      for (const p of snapshot.pages) {
+        const ic = p.properties?.[ICON_PROPERTY_ID];
+        if (typeof ic === 'string' && ic) icons[p.id] = ic;
+      }
+      setBundle({version: BACKUP_VERSION, exportedAt: '', pages: snapshot.pages, databases: snapshot.databases, icons});
+    } catch (e) {
+      setStatus(t('backup.readFailed', {error: (e as Error).message}));
+    }
+  }, [platform, t]);
+
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-2">
@@ -92,6 +139,21 @@ export default function BackupSettings() {
           />
         </div>
         {status && <p className="text-sm text-muted-foreground">{status}</p>}
+      </section>
+
+      <section className="flex flex-col gap-2 border-t border-border pt-6">
+        <h3 className="text-lg font-semibold">{t('backup.folderHeading')}</h3>
+        <p className="text-sm text-muted-foreground">{t('backup.folderIntro')}</p>
+        <div className="mt-1 flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => void onExportFolder()} disabled={busy !== null} className="gap-2">
+            <FolderDown className="h-4 w-4" />
+            {busy === 'folder' ? t('backup.folderExporting') : t('backup.folderExport')}
+          </Button>
+          <Button variant="secondary" onClick={() => void onImportFolder()} disabled={busy !== null} className="gap-2">
+            <FolderUp className="h-4 w-4" />
+            {t('backup.folderImport')}
+          </Button>
+        </div>
       </section>
 
       {bundle && (

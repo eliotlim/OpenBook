@@ -55,6 +55,12 @@ export class LocalDataClient implements DataClient {
     private readonly hub: PageHub = new PageHub(),
   ) {}
 
+  /** Release the underlying store (its PGlite connection). Used when swapping
+   *  clients — e.g. the desktop moving between in-app and a published server. */
+  close(): Promise<void> {
+    return this.store.close();
+  }
+
   // ── Live-update broadcasts (mirror app.ts's broadcastList/broadcastRows) ─────
 
   private async broadcastList(): Promise<void> {

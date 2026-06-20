@@ -1,5 +1,5 @@
 import React, {createContext, PropsWithChildren, useContext} from 'react';
-import type {ServerControls} from '@open-book/sdk';
+import type {BookFolderFile, ServerControls} from '@open-book/sdk';
 
 /** Where to open a page: a new tab or a separate new window. */
 export type NewViewTarget = 'tab' | 'window';
@@ -53,14 +53,32 @@ export interface AccountPlatform {
 }
 
 /**
+ * How the host reads/writes an on-disk book folder (the human-readable
+ * `<book>/<page>.html` layout, lossless `openbook.space.json` sidecar). The
+ * desktop supplies a native dialog + filesystem implementation; the web shell
+ * leaves this undefined and the UI falls back to the File System Access API
+ * (with a zip download/upload fallback for browsers that lack it).
+ */
+export interface BookFolderPlatform {
+  /** Write an exported book folder to a host-chosen location. Resolves a summary
+   *  (`location` to show the user, `count` of pages written), or `null` if the
+   *  user cancelled. */
+  export(files: BookFolderFile[]): Promise<{location: string; count: number} | null>;
+  /** Read a host-chosen book folder back into files, or `null` if cancelled. */
+  import?(): Promise<BookFolderFile[] | null>;
+}
+
+/**
  * Capabilities the host platform provides to the UI. The Tauri desktop app
- * supplies `serverControls` (start/stop/inspect the bundled local server),
- * `tabs` (in-window tabs), `windowControls` (frameless min/max/close on
- * Windows/Linux), and `account` (deep-link sign-in); the web shell leaves these
- * undefined and the UI falls back to browser behaviour.
+ * supplies `serverControls` (start/stop/inspect/publish the local server),
+ * `bookFolder` (native folder export/import), `tabs` (in-window tabs),
+ * `windowControls` (frameless min/max/close on Windows/Linux), and `account`
+ * (deep-link sign-in); the web shell leaves these undefined and the UI falls
+ * back to browser behaviour.
  */
 export interface PlatformLibrary {
   serverControls?: ServerControls;
+  bookFolder?: BookFolderPlatform;
   tabs?: TabsPlatform;
   windowControls?: WindowControls;
   account?: AccountPlatform;
