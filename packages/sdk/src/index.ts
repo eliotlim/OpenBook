@@ -147,6 +147,13 @@ export {
   type BookPageRecord,
 } from './bookfile';
 export {
+  spaceToBookFiles,
+  parseBookFolder,
+  SPACE_BUNDLE_FILE,
+  type BookFolderFile,
+  type SpaceSnapshot,
+} from './bookFolder';
+export {
   canonicalDigest,
   generateRegistryKeys,
   signPlugin,
