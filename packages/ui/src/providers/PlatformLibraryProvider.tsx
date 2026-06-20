@@ -1,5 +1,5 @@
 import React, {createContext, PropsWithChildren, useContext} from 'react';
-import type {BookFolderFile, ServerControls} from '@open-book/sdk';
+import type {BookFolderFile, KeyStore, ServerControls} from '@open-book/sdk';
 
 /** Where to open a page: a new tab or a separate new window. */
 export type NewViewTarget = 'tab' | 'window';
@@ -69,16 +69,28 @@ export interface BookFolderPlatform {
 }
 
 /**
+ * How the host persists the forwarding site identity. Forwarding to *.book.pub
+ * needs the Ed25519 device private key kept in the OS keychain, which only the
+ * native shell can reach — so the desktop supplies a keychain-backed
+ * {@link KeyStore} and the web shell leaves this undefined (forwarding is a
+ * desktop-only affordance; the web app *is* the cloud).
+ */
+export interface ForwardingPlatform {
+  keyStore: KeyStore;
+}
+
+/**
  * Capabilities the host platform provides to the UI. The Tauri desktop app
- * supplies `serverControls` (start/stop/inspect/publish the local server),
- * `bookFolder` (native folder export/import), `tabs` (in-window tabs),
- * `windowControls` (frameless min/max/close on Windows/Linux), and `account`
- * (deep-link sign-in); the web shell leaves these undefined and the UI falls
- * back to browser behaviour.
+ * supplies `serverControls` (inspect/publish the local server), `bookFolder`
+ * (native folder export/import), `forwarding` (keychain for *.book.pub),
+ * `tabs` (in-window tabs), `windowControls` (frameless min/max/close on
+ * Windows/Linux), and `account` (deep-link sign-in); the web shell leaves these
+ * undefined and the UI falls back to browser behaviour.
  */
 export interface PlatformLibrary {
   serverControls?: ServerControls;
   bookFolder?: BookFolderPlatform;
+  forwarding?: ForwardingPlatform;
   tabs?: TabsPlatform;
   windowControls?: WindowControls;
   account?: AccountPlatform;

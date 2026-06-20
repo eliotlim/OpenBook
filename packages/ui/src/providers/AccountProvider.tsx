@@ -24,6 +24,9 @@ export type AccountStatus = 'disconnected' | 'connecting' | 'syncing' | 'connect
 interface AccountContextValue {
   status: AccountStatus;
   connected: boolean;
+  /** The device bearer token, for same-app account API calls (e.g. forwarding's
+   *  POST /api/sites). Null when disconnected. Treat as a secret. */
+  token: string | null;
   /** The label this device registers under (shown in the account dashboard). */
   deviceName: string;
   /** ISO timestamp of the last successful server sync, or null. */
@@ -394,6 +397,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     () => ({
       status,
       connected: !!token && (status === 'connected' || status === 'syncing'),
+      token,
       deviceName: name,
       lastSyncedAt,
       error,

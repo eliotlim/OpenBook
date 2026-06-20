@@ -22,6 +22,7 @@ import {
 import type {BookFolderFile, DataClient, ServerInfo} from '@open-book/sdk';
 
 import {createDesktopClient} from './data/client';
+import {createTauriKeyStore} from './data/keychain';
 
 import '@open-book/ui/style.css';
 
@@ -115,6 +116,11 @@ const platform: PlatformLibrary = {
     export: (files: BookFolderFile[]) =>
       invoke<{location: string; count: number} | null>('export_book_folder', {files}),
     import: () => invoke<BookFolderFile[] | null>('import_book_folder'),
+  },
+  // Forwarding to *.book.pub: the site identity (incl. the Ed25519 private key)
+  // lives in the OS keychain via the Rust keychain_* commands.
+  forwarding: {
+    keyStore: createTauriKeyStore(),
   },
   tabs: {inWindow: true, openWindow},
   windowControls,

@@ -29,6 +29,8 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 const DEFAULT_PORT: &str = "4319";
+/// Service name for OS-keychain entries (the forwarding site key lives here).
+const KEYCHAIN_SERVICE: &str = "pub.book.openbook";
 
 /// Persisted host preferences (`host-config.json`). Controls how the sidecar is
 /// spawned when publishing: the access token required on the LAN, and where the
@@ -359,6 +361,35 @@ fn read_dir_recursive(base: &Path, dir: &Path, out: &mut Vec<BookFile>) -> std::
     Ok(())
 }
 
+// ── OS keychain (forwarding site key) ────────────────────────────────────────
+// Small get/set/delete over the platform keychain, keyed by a caller-supplied
+// name. The desktop KeyStore stores the site identity (incl. the Ed25519 private
+// key) here so it never touches disk in the clear.
+
+#[tauri::command]
+fn keychain_set(key: String, value: String) -> Result<(), String> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, &key)
+        .and_then(|e| e.set_password(&value))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn keychain_get(key: String) -> Result<Option<String>, String> {
+    match keyring::Entry::new(KEYCHAIN_SERVICE, &key).and_then(|e| e.get_password()) {
+        Ok(value) => Ok(Some(value)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn keychain_delete(key: String) -> Result<(), String> {
+    match keyring::Entry::new(KEYCHAIN_SERVICE, &key).and_then(|e| e.delete_credential()) {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         // Single-instance guard (registered first): a second launch focuses the
@@ -447,6 +478,9 @@ fn main() {
             reveal_book_dir,
             export_book_folder,
             import_book_folder,
+            keychain_set,
+            keychain_get,
+            keychain_delete,
             ipc::api_request
         ])
         .build(tauri::generate_context!())

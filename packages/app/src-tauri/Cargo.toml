@@ -37,3 +37,15 @@ uuid = { version = "1", features = ["v4"] }
 # it can flush pending writes before exit, rather than hard-killing it.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# The per-device forwarding site key (the Ed25519 private key) lives in the OS
+# keychain, behind the keychain_* commands. Native backend per platform: macOS
+# Keychain, Windows Credential Manager, Linux Secret Service.
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["sync-secret-service"] }
