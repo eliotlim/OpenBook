@@ -1,3 +1,4 @@
+import {useState} from 'react';
 import {ArrowPathIcon, ArrowTopRightOnSquareIcon, CheckBadgeIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
 import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
@@ -10,7 +11,8 @@ import {useAccount, usePlatformLibrary, useTranslation} from '@/providers';
  */
 export default function AccountSettings() {
   const {t} = useTranslation();
-  const {status, connected, deviceName, lastSyncedAt, error, accountUrl, signIn, cancel, signOut, syncNow} = useAccount();
+  const {status, connected, deviceName, lastSyncedAt, error, accountUrl, signIn, submitCode, cancel, signOut, syncNow} =
+    useAccount();
   const platform = usePlatformLibrary();
 
   const openExternal = (url: string): void => {
@@ -37,6 +39,7 @@ export default function AccountSettings() {
             </Button>
           )}
           {error && <p className="text-sm text-destructive">{error}</p>}
+          <ManualCodeEntry onSubmit={submitCode} />
           <p className="text-xs text-muted-foreground">{t('account.signin.whatSyncs')}</p>
         </SettingsSection>
       ) : (
@@ -79,5 +82,68 @@ export default function AccountSettings() {
         </>
       )}
     </SettingsScreen>
+  );
+}
+
+/**
+ * A fallback for when the `openbook://` deep link can't complete the sign-in
+ * (e.g. unsigned dev builds, where macOS shows an "open app?" prompt the user
+ * dismisses): the user copies the code from the browser and pastes it here. The
+ * field accepts a bare code or the whole `openbook://auth-callback#token=…` URL.
+ * Kept understated since the deep link is the normal path.
+ */
+function ManualCodeEntry({onSubmit}: {onSubmit: (raw: string) => void}) {
+  const {t} = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [code, setCode] = useState('');
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="cursor-pointer self-start text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+      >
+        {t('account.signin.manualToggle')}
+      </button>
+    );
+  }
+
+  const submit = (): void => {
+    const v = code.trim();
+    if (v) onSubmit(v);
+  };
+
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-border p-3">
+      <p className="text-xs text-muted-foreground">{t('account.signin.manualHint')}</p>
+      <textarea
+        autoFocus
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) submit();
+        }}
+        rows={2}
+        spellCheck={false}
+        placeholder={t('account.signin.manualPlaceholder')}
+        className="w-full resize-none rounded-md border border-input bg-background px-2.5 py-2 font-mono text-xs outline-hidden placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+      />
+      <div className="flex gap-2">
+        <Button size="sm" onClick={submit} disabled={!code.trim()}>
+          {t('account.signin.manualSubmit')}
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setOpen(false);
+            setCode('');
+          }}
+        >
+          {t('account.signin.cancel')}
+        </Button>
+      </div>
+    </div>
   );
 }

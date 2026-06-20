@@ -37,6 +37,11 @@ interface AccountContextValue {
   accountUrl: string;
   /** Start the deep-link sign-in flow. */
   signIn: () => void;
+  /** Complete sign-in from a manually pasted code — the dev/fallback path for when
+   *  the `openbook://` deep link can't fire (the user dismisses the "open app?"
+   *  prompt and pastes the code instead). Accepts a bare token or the whole
+   *  `openbook://auth-callback#token=…` URL. */
+  submitCode: (raw: string) => void;
   /** Abandon a pending sign-in (returns to disconnected when not yet connected). */
   cancel: () => void;
   /** Forget the local token (does not revoke it server-side — do that in the dashboard). */
@@ -90,6 +95,30 @@ interface StoredAccount {
   token: string;
   connectedAt: number;
   lastServerUpdatedAt: string | null;
+}
+
+/**
+ * Pull a device token out of a manually pasted value, so the user can paste
+ * whatever they managed to copy: a bare token, the full
+ * `openbook://auth-callback#token=…&state=…` URL the browser tried to open, a
+ * web `…/account/callback#token=…` URL, or just a `#token=…` fragment. Returns
+ * the token, or null when nothing usable is found.
+ */
+export function extractToken(raw: string): string | null {
+  const s = (raw ?? '').trim();
+  if (!s) return null;
+  // Anything carrying `token=…` (URL, query, or fragment) — take that value.
+  const m = s.match(/[#?&]token=([^&\s#]+)/) ?? s.match(/^token=([^&\s#]+)/);
+  if (m) {
+    try {
+      return decodeURIComponent(m[1]);
+    } catch {
+      return m[1];
+    }
+  }
+  // Otherwise treat it as a bare token, unless it's clearly a URL or has spaces.
+  if (/\s/.test(s) || s.includes('://')) return null;
+  return s;
 }
 
 const rand = (): string =>
@@ -367,6 +396,30 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     }
   }, [client, name, platform]);
 
+  /**
+   * Sign in from a manually pasted code. Unlike {@link receive} this skips the
+   * CSRF state check — a paste is a deliberate in-app action by the user, not an
+   * unsolicited deep link that any web page could trigger — and still validates
+   * the token server-side via {@link connect}. Clears any pending deep-link
+   * sign-in so a stray late callback can't re-fire.
+   */
+  const submitCode = useCallback(
+    (raw: string) => {
+      const tok = extractToken(raw);
+      if (!tok) {
+        setStatus((s) => (token ? s : 'error'));
+        setError('That doesn’t look like a valid code. Paste the code (or the whole openbook:// link) from the browser.');
+        return;
+      }
+      pendingState.current = null;
+      clearPendingState();
+      setStatus('connecting');
+      setError(null);
+      void connect(tok);
+    },
+    [connect, token],
+  );
+
   const cancel = useCallback(() => {
     pendingState.current = null;
     clearPendingState();
@@ -403,11 +456,12 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       error,
       accountUrl,
       signIn,
+      submitCode,
       cancel,
       signOut,
       syncNow,
     }),
-    [status, token, name, lastSyncedAt, error, accountUrl, signIn, cancel, signOut, syncNow],
+    [status, token, name, lastSyncedAt, error, accountUrl, signIn, submitCode, cancel, signOut, syncNow],
   );
 
   return <AccountContext.Provider value={value}>{children}</AccountContext.Provider>;

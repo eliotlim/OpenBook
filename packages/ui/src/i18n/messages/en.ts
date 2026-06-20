@@ -783,6 +783,11 @@ export const en = {
         'Your profile, general preferences, feature visibility, and workspace list sync. Pages and documents are not synced here — they stay on your data server.',
       signOutHint:
         'Signing out forgets the token on this device. To fully revoke it, remove the device in your account dashboard.',
+      manualToggle: 'App didn’t open? Enter a code manually',
+      manualHint:
+        'Dismiss the “open OpenBook?” prompt in your browser, copy the code (or the whole openbook:// link), and paste it here.',
+      manualPlaceholder: 'Paste your code or openbook://auth-callback#token=… link',
+      manualSubmit: 'Sign in with code',
     },
     support: {
       title: 'Support OpenBook',
