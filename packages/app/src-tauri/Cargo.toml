@@ -26,6 +26,12 @@ tauri-plugin-deep-link = "2"
 # off to the running instance (focus its window) instead of starting a competing
 # data layer. Registered first so it intercepts before the rest of setup.
 tauri-plugin-single-instance = "2"
+# Native folder picker (choose the book-mirror directory) + open-in-file-manager
+# (reveal it). Used from Rust commands, not invoked directly from JS.
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+# Random access tokens for the published-server gate.
+uuid = { version = "1", features = ["v4"] }
 
 # On Unix we ask the server sidecar to shut down gracefully (SIGTERM) on quit so
 # it can flush pending writes before exit, rather than hard-killing it.
