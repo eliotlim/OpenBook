@@ -183,6 +183,17 @@ interface ResyncFetchers {
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 /**
+ * The global `fetch`, wrapped so it's safe to store on an object and call as a
+ * property/method. WebKit (the desktop WKWebView) throws "Can only call
+ * Window.fetch on instances of Window" when `fetch` runs with a `this` that
+ * isn't the window — which is exactly what `obj.fetchImpl(...)` does once the
+ * bare global is assigned to a property. Calling the unqualified global here
+ * sidesteps that, so it's the right default wherever a {@link FetchLike} is
+ * stored and later invoked as a method.
+ */
+export const globalFetch: FetchLike = (input, init) => fetch(input, init);
+
+/**
  * The slice of `EventSource` {@link LiveStream} uses (named events + open/error
  * via `addEventListener`, plus `close`). Defaults to a real `EventSource`; the
  * desktop injects a source backed by host IPC events, since its server speaks
@@ -362,7 +373,7 @@ export class HttpDataClient implements DataClient {
   constructor(baseUrl: string, token?: string, opts: HttpDataClientOptions = {}) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.token = token && token.length > 0 ? token : undefined;
-    this.fetchImpl = opts.fetchImpl ?? ((input, init) => fetch(input, init));
+    this.fetchImpl = opts.fetchImpl ?? globalFetch;
     this.createLiveSource = opts.createLiveSource ?? ((url) => new EventSource(url) as unknown as LiveSourceLike);
   }
 

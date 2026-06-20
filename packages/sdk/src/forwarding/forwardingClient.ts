@@ -10,7 +10,7 @@
 // Runtime-agnostic (fetch + WebSocket globals); no Node-only APIs, so it runs in
 // the Tauri webview or a sidecar alike.
 
-import type {FetchLike} from '../client';
+import {globalFetch, type FetchLike} from '../client';
 import {buildAttachMessage, buildReattachMessage} from './challenge';
 import {signWithSiteKey} from './siteKey';
 import {TunnelClient, type TunnelStatus} from './tunnelClient';
@@ -75,7 +75,7 @@ export class ForwardingClient {
   private readonly fetchImpl: FetchLike;
 
   constructor(private readonly opts: ForwardingClientOptions) {
-    this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.fetchImpl = opts.fetchImpl ?? globalFetch;
   }
 
   get site(): SiteIdentity | undefined {

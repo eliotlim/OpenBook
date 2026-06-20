@@ -8,7 +8,7 @@
 // `fetchImpl` is the IPC transport, so forwarded traffic reaches the portless
 // local server without opening a TCP port.
 
-import type {FetchLike} from '../client';
+import {globalFetch, type FetchLike} from '../client';
 import {buildRelayAttachMessage} from './challenge';
 import {signWithSiteKey} from './siteKey';
 import {decodeBody, decodeControl, encodeBody, encodeControl, type ControlFrame} from './tunnelProtocol';
@@ -48,7 +48,7 @@ export class TunnelClient {
   private readonly WS: typeof WebSocket;
 
   constructor(private readonly opts: TunnelClientOptions) {
-    this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.fetchImpl = opts.fetchImpl ?? globalFetch;
     this.WS = opts.webSocketImpl ?? WebSocket;
   }
 
