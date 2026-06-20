@@ -10,10 +10,16 @@ on:
 permissions:
   contents: read # for checkout
 
-# Serialize release runs; never cancel one mid-publish.
+# Only ever process the latest push. A newer run supersedes (cancels) an older
+# one that's still queued or parked at the approval gate, so an un-actioned
+# approval can't hold the lock and silently cancel every push stacked behind it
+# (which is exactly what stalled releases before). The gate therefore always
+# reflects the tip of main. Trade-off: a push that lands while an *approved*
+# release is actively publishing will cancel it — just re-run that release from
+# the Actions tab on the rare occasion it happens.
 concurrency:
   group: release
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   # Ungated dry run: would the commits on main cut a release at all?
