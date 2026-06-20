@@ -37,6 +37,7 @@ export async function runCli(overrides: CliOverrides = {}): Promise<void> {
   const dataDir = flag('data-dir') || process.env.OPENBOOK_DATA_DIR;
   const bookDir = flag('book-dir') || process.env.OPENBOOK_BOOK_DIR;
   const accessToken = flag('access-token') || process.env.OPENBOOK_ACCESS_TOKEN;
+  const socketPath = flag('socket') || process.env.OPENBOOK_SOCKET;
 
   const bind = flag('bind') || process.env.OPENBOOK_BIND;
   let host = flag('host');
@@ -54,15 +55,21 @@ export async function runCli(overrides: CliOverrides = {}): Promise<void> {
     process.exit(1);
   }
 
+  // Bind TCP when a host/port/bind was explicitly requested, or when there is no
+  // socket to serve over. A `--socket` with no explicit TCP flags is portless
+  // (the desktop default); the LAN bind is added later by passing `--host`/`--port`.
+  const wantTcp = host !== undefined || port !== undefined || !socketPath;
+
   const running = await startServer({
     databaseUrl,
     dataDir: dataDir ? resolve(dataDir) : undefined,
     bookDir: bookDir ? resolve(bookDir) : undefined,
     accessToken: accessToken || undefined,
+    socketPath: socketPath ? resolve(socketPath) : undefined,
     pgliteAssets: overrides.pgliteAssets,
     // Headless defaults to all interfaces; embedded desktop to loopback.
-    host: host ?? (databaseUrl ? '0.0.0.0' : '127.0.0.1'),
-    port: port ?? 4319,
+    host: wantTcp ? host ?? (databaseUrl ? '0.0.0.0' : '127.0.0.1') : undefined,
+    port: wantTcp ? port ?? 4319 : undefined,
     trashRetentionMs: numeric(process.env.OPENBOOK_TRASH_RETENTION_MS),
     trashCleanupIntervalMs: numeric(process.env.OPENBOOK_TRASH_CLEANUP_INTERVAL_MS),
   });

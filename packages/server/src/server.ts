@@ -1,4 +1,4 @@
-import {serve} from '@hono/node-server';
+import {serve, getRequestListener} from '@hono/node-server';
 import type {PGliteOptions} from '@electric-sql/pglite';
 import {createApp} from './app';
 import {type Db, createPgliteDb, PostgresDb} from './db';
@@ -6,7 +6,8 @@ import {PageStore} from './store';
 import {PageHub} from './hub';
 import {BookMirror} from './mirror';
 import {AiService} from './ai/service';
-import {writeFileSync, rmSync} from 'node:fs';
+import {writeFileSync, rmSync, unlinkSync} from 'node:fs';
+import {createServer} from 'node:http';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -20,6 +21,14 @@ export interface StartOptions {
    * assets here; under Node this is omitted and PGlite loads its own.
    */
   pgliteAssets?: Partial<PGliteOptions>;
+  /**
+   * Unix domain socket path to listen on (named pipe semantics on Windows). The
+   * desktop's default transport: the webview reaches the server over this socket
+   * via a host IPC bridge, so no TCP port is opened. May be combined with `port`
+   * (the LAN bind added when publishing); when only `socketPath` is set, the
+   * server is portless.
+   */
+  socketPath?: string;
   /** HTTP listen host. Defaults to `127.0.0.1`. */
   host?: string;
   /** HTTP listen port. Defaults to `4319`. */
@@ -118,24 +127,58 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   // re-imported page fans out to every connected client too.
   const hub = new PageHub();
   const app = createApp(store, ai, hub, {accessToken: opts.accessToken});
-  const host = opts.host ?? DEFAULT_HOST;
-  const port = opts.port ?? DEFAULT_PORT;
 
-  let server!: NodeServer;
-  const info = await new Promise<{port: number}>((resolve) => {
-    server = serve({fetch: app.fetch, hostname: host, port}, (addr) => resolve(addr));
-  });
+  // The server can listen on a Unix domain socket (the desktop's portless IPC
+  // default), a TCP port (headless, or the LAN bind added when publishing), or
+  // both at once — the request handler is identical on every listener.
+  const listener = getRequestListener(app.fetch);
+  const closers: Array<() => Promise<void>> = [];
+  let url = '';
+  let address = '';
+  let boundPort: number | null = null;
 
-  const clientHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
-  const url = `http://${clientHost}:${info.port}`;
+  if (opts.socketPath) {
+    const socketPath = opts.socketPath;
+    // A leftover socket file from a crash makes bind fail with EADDRINUSE.
+    try {
+      unlinkSync(socketPath);
+    } catch {
+      /* nothing stale to clear */
+    }
+    const udsServer = createServer(listener);
+    await new Promise<void>((resolve, reject) => {
+      udsServer.once('error', reject);
+      udsServer.listen({path: socketPath}, () => resolve());
+    });
+    closers.push(() => new Promise<void>((r) => udsServer.close(() => r())));
+    url = `unix:${socketPath}`;
+    address = socketPath;
+  }
 
-  // Advertise the bound address (+ this process) for discovery and stale-lock
+  // Bind TCP when a port/host is explicitly requested (headless, or the publish
+  // bind) or when there is no socket to serve over.
+  if (opts.port != null || opts.host != null || !opts.socketPath) {
+    const host = opts.host ?? DEFAULT_HOST;
+    const port = opts.port ?? DEFAULT_PORT;
+    let tcpServer!: NodeServer;
+    const info = await new Promise<{port: number}>((resolve) => {
+      tcpServer = serve({fetch: app.fetch, hostname: host, port}, (addr) => resolve(addr));
+    });
+    closers.push(() => new Promise<void>((r) => tcpServer.close(() => r())));
+    boundPort = info.port;
+    const clientHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host;
+    url = `http://${clientHost}:${info.port}`;
+    address = `${host}:${info.port}`;
+  }
+
+  // Advertise the bound TCP address (+ this process) for discovery and stale-lock
   // detection. Written under the data dir (embedded mode only) and removed on a
   // clean exit; a leftover file whose `pid` is dead marks a crashed prior run.
-  const infoFile = opts.dataDir ? path.join(opts.dataDir, 'server.json') : null;
+  // Portless (socket-only) runs write nothing — there is no TCP address to find.
+  const infoFile = opts.dataDir && boundPort != null ? path.join(opts.dataDir, 'server.json') : null;
   if (infoFile) {
     try {
-      writeFileSync(infoFile, JSON.stringify({url, port: info.port, pid: process.pid, startedAt: new Date().toISOString()}));
+      writeFileSync(infoFile, JSON.stringify({url, port: boundPort, pid: process.pid, startedAt: new Date().toISOString()}));
     } catch (err) {
       console.error('OpenBook: could not write server.json discovery file:', err);
     }
@@ -178,13 +221,14 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
 
   return {
     url,
-    address: `${host}:${info.port}`,
+    address,
     close: async () => {
       await ai.dispose();
       if (cleanupTimer) clearInterval(cleanupTimer);
       if (reconcileTimer) clearTimeout(reconcileTimer);
-      // Stop accepting requests first so no new writes arrive mid-shutdown.
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      // Stop accepting requests on every listener first, so no new writes arrive
+      // mid-shutdown.
+      for (const closeListener of closers) await closeListener();
       // Flush-on-exit (OB-132): drain the mirror journal before the store closes,
       // so no committed write is lost. The mirror still needs the store to render.
       mirrorUnsub?.();
