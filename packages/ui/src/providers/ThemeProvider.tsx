@@ -83,6 +83,13 @@ export function ThemeProvider({
     applyAppearance(appearance, resolvedScheme);
   }, [appearance, resolvedScheme]);
 
+  // Overlay blur is a global, scheme-independent preference: drive a single CSS
+  // var that the dialog/search overlays read (default 0 = no blur).
+  React.useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.style.setProperty('--overlay-blur', appearance.blurOverlays ? '8px' : '0px');
+  }, [appearance.blurOverlays]);
+
   React.useEffect(() => {
     const onChangeModeListener = (e: MediaQueryListEvent) => {
       if (mode === 'system') {

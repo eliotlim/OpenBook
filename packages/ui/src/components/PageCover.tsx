@@ -159,7 +159,7 @@ export function CoverPicker({pageId, children}: {pageId: string; children: React
                   setOpen(false);
                 }}
                 className={cn(
-                  'h-10 rounded-md border border-border/60 transition-transform hover:scale-105',
+                  'h-10 rounded-md border border-border/60 transition-shadow hover:ring-2 hover:ring-foreground/30',
                   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 )}
                 style={{background: g.css}}

@@ -1,11 +1,13 @@
 import React from 'react';
 import {emojiPicker} from '@/lib/emojiPicker';
+import {PageIcon} from '@/components/PageIcon';
 
 /**
- * A click-to-pick emoji trigger. Opens the one app-wide grid picker (via the
+ * A click-to-pick icon trigger. Opens the one app-wide grid picker (via the
  * {@link emojiPicker} bridge) anchored at this button and reports the chosen
- * emoji to `onPick`. Each call site styles its own trigger via `className` /
- * `children`; with no children it renders the current value (or `fallback`).
+ * value to `onPick` — an emoji glyph or a `lucide:<Name>` icon. Each call site
+ * styles its own trigger via `className` / `children`; with no children it
+ * renders the current value (or `fallback`).
  */
 export function IconPicker({
   id,
@@ -35,7 +37,7 @@ export function IconPicker({
         emojiPicker.open({left: r.left, top: r.top, width: r.width, height: r.height}, value, onPick);
       }}
     >
-      {children ?? <span>{value || fallback}</span>}
+      {children ?? <PageIcon value={value} fallback={fallback} />}
     </button>
   );
 }

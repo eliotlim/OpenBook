@@ -11,6 +11,7 @@ import {
   type DateSpan,
 } from '@open-book/sdk';
 import {readPageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 import {Select} from '@/components/ui/select';
 import type {UseDatabase} from './useDatabase';
@@ -739,7 +740,7 @@ const TimelineCanvas: React.FC<{
                           )}
                         >
                           <span className="flex w-full items-center gap-1.5">
-                            <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+                            <PageIcon value={readPageIcon(row.id)} className="shrink-0 text-sm leading-none" />
                             <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
                           </span>
                           {railProps.length > 0 && (

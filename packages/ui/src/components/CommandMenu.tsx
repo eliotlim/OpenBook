@@ -15,6 +15,7 @@ import {useHud, useNavigation, useTranslation} from '@/providers';
 import {useAppCommands, type AppCommand, type CommandGroup as CmdGroup} from '@/components/useAppCommands';
 import {formatShortcut} from '@/lib/shortcuts';
 import {readPageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {readFavorites, subscribeFavorites} from '@/lib/favorites';
 import {readRecents, subscribeRecents} from '@/lib/recents';
 import {featureShown, isAiFeature, readFeatureVisibility} from '@/lib/aiFeatures';
@@ -100,9 +101,10 @@ export function CommandMenu() {
       value={`${displayName(page.name)} ${page.id} ${scope}`}
       onSelect={() => run(() => selectPage(page.id))}
     >
-      <span className="mr-2 inline-flex h-4 w-4 shrink-0 items-center justify-center text-center text-sm leading-none">
-        {readPageIcon(page.id)}
-      </span>
+      <PageIcon
+        value={readPageIcon(page.id)}
+        className="mr-2 inline-flex h-4 w-4 shrink-0 items-center justify-center text-center text-sm leading-none"
+      />
       <span className="truncate">{displayName(page.name)}</span>
       {page.id === currentPageId && (
         <span className="ml-auto text-xs text-muted-foreground">{t('command.current')}</span>

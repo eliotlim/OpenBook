@@ -30,9 +30,9 @@ const gradient = (id: string): PageCover | null => {
 export const PAGE_THEME_PRESETS: PageThemePreset[] = [
   // Clean = reset: empty override clears the page theme so it follows the app.
   {id: 'clean', labelKey: 'appearance.preset.clean', override: {}, fonts: null, cover: null},
-  {id: 'editorial', labelKey: 'appearance.preset.editorial', override: {themeId: 'warm', background: 'orange'}, fonts: {body: 'serif', heading: 'serif'}, cover: gradient('sand')},
+  {id: 'editorial', labelKey: 'appearance.preset.editorial', override: {themeId: 'sandstone', background: 'orange'}, fonts: {body: 'serif', heading: 'serif'}, cover: gradient('sand')},
   {id: 'notebook', labelKey: 'appearance.preset.notebook', override: {themeId: 'amber', background: 'yellow'}, fonts: {heading: 'serif'}, cover: gradient('dawn')},
-  {id: 'technical', labelKey: 'appearance.preset.technical', override: {themeId: 'neutral'}, fonts: {body: 'mono', heading: 'mono'}, cover: gradient('slate')},
+  {id: 'technical', labelKey: 'appearance.preset.technical', override: {themeId: 'graphite'}, fonts: {body: 'mono', heading: 'mono'}, cover: gradient('slate')},
   {id: 'vibrant', labelKey: 'appearance.preset.vibrant', override: {themeId: 'violet', background: 'purple'}, fonts: null, cover: gradient('grape')},
   {id: 'calm', labelKey: 'appearance.preset.calm', override: {themeId: 'pastel-sky', background: 'blue'}, fonts: null, cover: gradient('ocean')},
 ];

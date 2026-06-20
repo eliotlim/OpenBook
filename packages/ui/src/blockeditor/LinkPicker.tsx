@@ -1,5 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {pageLinks, type PageLinkResult} from '@/lib/pageLinks';
+import {PageIcon} from '@/components/PageIcon';
 import {t} from '../i18n';
 
 /**
@@ -98,7 +99,7 @@ export const LinkPicker: React.FC<{
               pick(i);
             }}
           >
-            <span className="shrink-0 text-base leading-none">{r.icon}</span>
+            <PageIcon value={r.icon} className="shrink-0 text-base leading-none" />
             <span className="truncate">{r.label}</span>
           </button>
         ))}

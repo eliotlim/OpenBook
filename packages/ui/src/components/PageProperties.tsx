@@ -23,6 +23,7 @@ import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {PersonChip, useIdentity} from '@/components/database/databaseCells';
 import {DatabaseRowProperties} from '@/components/database/DatabaseRowProperties';
 import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {hydratePageAppearance} from '@/lib/pageAppearance';
 import {cn} from '@/lib/utils';
 
@@ -327,7 +328,7 @@ export const BacklinksControl: React.FC<{pageId: string}> = ({pageId}) => {
               className="flex items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-hover"
               title={p.name?.trim() || pageLabel(p.id)}
             >
-              <span className="leading-none">{readPageIcon(p.id)}</span>
+              <PageIcon value={readPageIcon(p.id)} className="leading-none" />
               <span className="truncate">{p.name?.trim() || pageLabel(p.id)}</span>
             </button>
           ))}

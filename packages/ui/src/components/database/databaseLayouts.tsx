@@ -28,6 +28,7 @@ import {
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {cn} from '@/lib/utils';
 import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {pageLinks, subscribePageLinks} from '@/lib/pageLinks';
 import {useData} from '@/data';
 import {useNavigation} from '@/providers';
@@ -239,7 +240,11 @@ const GALLERY_COVER = {small: 'h-20', medium: 'h-28', large: 'h-44'} as const;
 const CardCover: React.FC<{src: string | null; heightClass: string; icon: string}> = ({src, heightClass, icon}) => {
   const [failed, setFailed] = useState(false);
   if (!src || failed) {
-    return <div className="flex h-16 items-center justify-center bg-muted/40 text-3xl">{icon}</div>;
+    return (
+      <div className="flex h-16 items-center justify-center bg-muted/40 text-3xl">
+        <PageIcon value={icon} />
+      </div>
+    );
   }
   return <img src={src} alt="" onError={() => setFailed(true)} className={cn('w-full object-cover', heightClass)} />;
 };
@@ -444,7 +449,7 @@ const BoardColumnCards: React.FC<{
                 </div>
               )}
               <div className="mb-1 flex items-center gap-1.5">
-                <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+                <PageIcon value={readPageIcon(row.id)} className="shrink-0 text-sm leading-none" />
                 <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
                 <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
               </div>
@@ -1126,7 +1131,7 @@ export const CalendarView: React.FC<{
                         title={row.name ?? 'Untitled'}
                       >
                         <span className="flex items-center gap-1 truncate">
-                          <span className="shrink-0 leading-none">{readPageIcon(row.id)}</span>
+                          <PageIcon value={readPageIcon(row.id)} className="shrink-0 leading-none" />
                           <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
                         </span>
                         {tileProps.length > 0 && <RowChips row={row} properties={tileProps} rows={db.rows} />}

@@ -5,6 +5,7 @@ import {DialogPortal} from '@/components/ui/dialog';
 import {useHud, useNavigation} from '@/providers';
 import {openDoc, subscribeOpenDocs} from '@/lib/openDocs';
 import {readPageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {usePageThemeStyle} from '@/components/appearance/PageCustomiseBody';
 import {splitSlides} from '@/blockeditor/present';
 import {PresentBlocks} from '@/blockeditor/PresentBlocks';
@@ -124,7 +125,7 @@ const Deck: React.FC<{
       <div key={i} className="ob-slide" data-slide={i}>
         {i === 0 && (title || icon) && (
           <header className="ob-slide-title">
-            {icon && <span className="ob-slide-title-icon">{icon}</span>}
+            {icon && <PageIcon value={icon} className="ob-slide-title-icon" />}
             {title && <h1>{title}</h1>}
           </header>
         )}

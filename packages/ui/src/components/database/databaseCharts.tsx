@@ -11,6 +11,7 @@ import {
 } from '@open-book/sdk';
 import {cn} from '@/lib/utils';
 import {readPageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import type {UseDatabase} from './useDatabase';
 import {chartColor} from './databaseColors';
 
@@ -119,7 +120,7 @@ const DrillPanel: React.FC<{db: UseDatabase; drill: NonNullable<Drill>; onClose:
           onClick={() => db.openRow(row.id)}
           className="flex w-full cursor-pointer items-center gap-2 border-b border-border/60 px-3 py-1.5 text-left text-sm last:border-0 hover:bg-hover"
         >
-          <span className="shrink-0 text-base leading-none">{readPageIcon(row.id)}</span>
+          <PageIcon value={readPageIcon(row.id)} className="shrink-0 text-base leading-none" />
           <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
         </button>
       ))}

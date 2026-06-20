@@ -4,6 +4,7 @@ import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/
 import {useData} from '@/data';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {readPageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 
 /**
@@ -117,7 +118,7 @@ export function AiSearchDialog() {
               )}
             >
               <span className="flex items-center gap-1.5 text-sm font-medium">
-                <span aria-hidden>{readPageIcon(result.pageId)}</span>
+                <PageIcon value={readPageIcon(result.pageId)} />
                 <span className="truncate">{result.title}</span>
               </span>
               <span className="line-clamp-2 text-xs text-muted-foreground">{result.snippet}</span>

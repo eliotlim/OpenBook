@@ -191,6 +191,9 @@
     --ob-inset-top: var(--ob-page-inset);
     --ob-window-radius: 10px;
     --ob-page-radius: max(10px, calc(var(--ob-window-radius) - var(--ob-page-inset)));
+    /* Backdrop blur behind modal/search overlays. 0 = off (the default); the
+       appearance "blur overlays" preference raises it. See ThemeProvider. */
+    --overlay-blur: 0px;
   }
 
   .dark {

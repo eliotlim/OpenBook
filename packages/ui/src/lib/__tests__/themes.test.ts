@@ -66,15 +66,16 @@ describe('composeAppearance', () => {
     expect(t.primary).toBe('207 68% 55%');
   });
 
-  it('the "cool" gray accent swings the neutral surfaces to a cool hue', () => {
-    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'cool'}, 'light');
+  it('the "slate" gray accent swings the neutral surfaces to a cool hue', () => {
+    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'slate'}, 'light');
     expect(hueOf(t.muted)).toBe(220); // cool, not warm 40
     expect(satOf(t.muted)).toBeGreaterThan(0);
   });
 
-  it('the "neutral" gray accent fully desaturates the surfaces (true gray)', () => {
-    // tintedSidebar off so the sheets aren't re-tinted with the accent hue.
-    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'neutral', interfaceIntensity: 3, tintedSidebar: false}, 'light');
+  it('the "graphite" gray accent fully desaturates the surfaces, sidebar included (true gray)', () => {
+    // Even with the always-on sidebar tint, a neutral-family accent keeps the
+    // sheets desaturated (no hue at 0°).
+    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'graphite', interfaceIntensity: 3}, 'light');
     expect(satOf(t.muted)).toBe(0);
     expect(satOf(t.sheet1)).toBe(0);
     expect(satOf(t.accent)).toBe(0);
@@ -99,17 +100,24 @@ describe('composeAppearance', () => {
     expect(satOf(vivid.accent)).toBeGreaterThan(12);
   });
 
-  it('a tinted sidebar adopts the accent hue', () => {
-    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'ocean', tintedSidebar: true}, 'light');
+  it('the sidebar is always tinted and adopts the accent hue', () => {
+    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'ocean'}, 'light');
     expect(hueOf(t.sheet1)).toBe(221); // ocean's hue
     expect(satOf(t.sheet1)).toBeGreaterThan(0);
+  });
+
+  it('interface intensity dials the sidebar tint strength (level 0 = flat panel)', () => {
+    const off = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'ocean', interfaceIntensity: 0}, 'light');
+    const strong = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'ocean', interfaceIntensity: 3}, 'light');
+    expect(satOf(off.sheet1)).toBe(0); // no tint at level 0
+    expect(satOf(strong.sheet1)).toBeGreaterThan(satOf(composeAppearance({...DEFAULT_APPEARANCE, themeId: 'ocean'}, 'light').sheet1));
   });
 });
 
 describe('mergeAppearance', () => {
   it('overlays only the provided keys and ignores undefined', () => {
-    const merged = mergeAppearance(DEFAULT_APPEARANCE, {themeId: 'cool', interfaceIntensity: undefined});
-    expect(merged.themeId).toBe('cool');
+    const merged = mergeAppearance(DEFAULT_APPEARANCE, {themeId: 'slate', interfaceIntensity: undefined});
+    expect(merged.themeId).toBe('slate');
     expect(merged.interfaceIntensity).toBe(DEFAULT_APPEARANCE.interfaceIntensity);
     expect(merged.controlIntensity).toBe(DEFAULT_APPEARANCE.controlIntensity);
   });
@@ -120,13 +128,19 @@ describe('mergeAppearance', () => {
 });
 
 describe('normalizeAppearance (migration)', () => {
-  it('maps the old tint / accentIntensity keys and drops the retired neutral knob', () => {
-    const out = normalizeAppearance({tint: 3, accentIntensity: 1, neutral: 'cool'});
-    expect(out).toEqual({interfaceIntensity: 3, controlIntensity: 1}); // neutral dropped
+  it('maps the old tint / accentIntensity keys and drops the retired neutral + tintedSidebar knobs', () => {
+    const out = normalizeAppearance({tint: 3, accentIntensity: 1, neutral: 'cool', tintedSidebar: false});
+    expect(out).toEqual({interfaceIntensity: 3, controlIntensity: 1}); // neutral + tintedSidebar dropped
+  });
+
+  it('renames the retired gray theme ids to their rock types', () => {
+    expect(normalizeAppearance({themeId: 'warm'}).themeId).toBe('sandstone');
+    expect(normalizeAppearance({themeId: 'neutral'}).themeId).toBe('graphite');
+    expect(normalizeAppearance({themeId: 'cool'}).themeId).toBe('slate');
   });
 
   it('leaves an already-current override untouched', () => {
-    const cur = {themeId: 'cool', interfaceIntensity: 1, controlIntensity: 2};
+    const cur = {themeId: 'slate', interfaceIntensity: 1, controlIntensity: 2};
     expect(normalizeAppearance(cur)).toEqual(cur);
   });
 });

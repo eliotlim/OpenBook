@@ -5,6 +5,7 @@
  */
 import type {DocBlock, DocModel, InlineRun, ListItem} from './documentModel';
 import {formatValue} from './format';
+import {pageIconToText} from '@/lib/iconValue';
 
 function escapeMd(text: string): string {
   return text.replace(/([\\`*_[\]<>])/g, '\\$1');
@@ -150,7 +151,8 @@ function blockToMd(block: DocBlock): string {
 }
 
 export function toMarkdown(model: DocModel): string {
-  const parts: string[] = [`# ${model.icon ? `${model.icon} ` : ''}${model.title}`];
+  const iconText = pageIconToText(model.icon);
+  const parts: string[] = [`# ${iconText ? `${iconText} ` : ''}${model.title}`];
   for (const block of model.blocks) {
     const md = blockToMd(block);
     if (md.length > 0) parts.push(md);

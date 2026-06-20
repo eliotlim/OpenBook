@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu"
 import { cn } from "@/lib/utils";
 import { ChevronRight, type LucideIcon } from "lucide-react";
+import { PageIcon } from "@/components/PageIcon";
 import type { DropWhere } from "@/lib/treeMove";
 import useResizeObserver from "use-resize-observer";
 
@@ -380,7 +381,7 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttrib
 /** A row's leading glyph: the page's emoji (string), a Lucide icon, or a fallback. */
 function RowIcon({icon, Fallback}: {icon?: LucideIcon | string; Fallback?: LucideIcon}) {
   if (typeof icon === "string") {
-    return <span className="mr-2 h-4 w-4 shrink-0 text-center text-xs leading-4" aria-hidden="true">{icon}</span>;
+    return <PageIcon value={icon} className="mr-2 h-4 w-4 shrink-0 text-center text-xs leading-4" />;
   }
   if (typeof icon === "function") {
     const Icon = icon;

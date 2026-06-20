@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {Database, Link2, Plus, Search} from 'lucide-react';
 import {useNavigation} from '@/providers';
 import {readPageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 
 /** Lists every page that hosts a database and links the block to the chosen one. */
 const DatabasePicker: React.FC<{onPick: (pageId: string) => void; onBack: () => void}> = ({onPick, onBack}) => {
@@ -37,7 +38,7 @@ const DatabasePicker: React.FC<{onPick: (pageId: string) => void; onBack: () => 
             onClick={() => onPick(p.id)}
             className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left text-sm transition-colors hover:bg-hover"
           >
-            <span className="shrink-0 leading-none">{readPageIcon(p.id)}</span>
+            <PageIcon value={readPageIcon(p.id)} className="shrink-0 leading-none" />
             <span className="truncate">{p.name?.trim() || pageLabel(p.id)}</span>
           </button>
         ))}

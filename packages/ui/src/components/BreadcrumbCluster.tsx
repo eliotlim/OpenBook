@@ -1,6 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {useNavigation, useWorkspace} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 
 export default function BreadcrumbCluster() {
   const {workspace} = useWorkspace();
@@ -48,7 +49,7 @@ export default function BreadcrumbCluster() {
               className={cnCrumb(last)}
               title={pageLabel(id)}
             >
-              <span className="text-[0.95em] leading-none">{readPageIcon(id)}</span>
+              <PageIcon value={readPageIcon(id)} className="text-[0.95em] leading-none" />
               <span className="truncate">{pageLabel(id)}</span>
             </button>
           </React.Fragment>

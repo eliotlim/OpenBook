@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {IconButton} from '@/components/ui/icon-button';
+import {PageIcon} from '@/components/PageIcon';
 import {usePreferences, useNavigation} from '@/providers';
 import {useData} from '@/data';
 import {pageLinks, subscribePageLinks} from '@/lib/pageLinks';
@@ -694,7 +695,7 @@ const DependencyCell: React.FC<{
                 }}
                 className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-hover"
               >
-                {o.icon && <span className="leading-none">{o.icon}</span>}
+                {o.icon && <PageIcon value={o.icon} className="leading-none" />}
                 <span className="truncate">{o.label}</span>
               </button>
             ))}
@@ -1095,7 +1096,7 @@ const RelationCell: React.FC<{property: DatabaseProperty; value: unknown; onChan
                   onClick={() => add(r.id)}
                   className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-hover"
                 >
-                  <span className="leading-none">{r.icon}</span>
+                  <PageIcon value={r.icon} className="leading-none" />
                   <span className="truncate">{r.label}</span>
                 </button>
               ))}

@@ -7,6 +7,7 @@ import {PageMenuItems} from '@/components/PageContextMenu';
 import {SidebarSection} from '@/components/SidebarSections';
 import {useNavigation, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {readFavorites, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
 import {SIDEBAR_ACTIVE, SIDEBAR_HOVER} from '@/lib/sidebarStyles';
 import {cn} from '@/lib/utils';
@@ -59,9 +60,10 @@ export default function FavoritesNav() {
                     selected && cn(SIDEBAR_ACTIVE, 'font-medium'),
                   )}
                 >
-                  <span className="mr-2 h-4 w-4 shrink-0 text-center text-xs leading-4" aria-hidden="true">
-                    {readPageIcon(page.id)}
-                  </span>
+                  <PageIcon
+                    value={readPageIcon(page.id)}
+                    className="mr-2 h-4 w-4 shrink-0 text-center text-xs leading-4"
+                  />
                   <span className="grow truncate">{displayName(page.name)}</span>
                   <span
                     className="ml-1 flex shrink-0 items-center opacity-0 transition-opacity group-hover/fav:opacity-100 focus-within:opacity-100"

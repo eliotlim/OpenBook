@@ -13,7 +13,7 @@ const MODES: Array<{value: ColorMode; key: TKey; icon: ComponentType<{className?
 ];
 
 /** Color mode + the full appearance model: accent palette, interface tint,
- *  control-accent intensity, and a tinted sidebar toggle. */
+ *  control-accent intensity, and an overlay-blur toggle. */
 export default function AppearanceSettings() {
   const {mode, setMode, appearance, setAppearance, colorScheme} = useTheme();
   const {t} = useTranslation();
@@ -66,12 +66,12 @@ export default function AppearanceSettings() {
 
       <label className="flex cursor-pointer items-center justify-between gap-4">
         <span className="flex flex-col gap-1">
-          <span className="text-sm font-medium">{t('appearance.tintedSidebar')}</span>
-          <span className="text-xs text-muted-foreground">{t('appearance.tintedSidebarHint')}</span>
+          <span className="text-sm font-medium">{t('appearance.blurOverlays')}</span>
+          <span className="text-xs text-muted-foreground">{t('appearance.blurOverlaysHint')}</span>
         </span>
         <Switch
-          checked={appearance.tintedSidebar}
-          onCheckedChange={(tintedSidebar) => setAppearance({tintedSidebar})}
+          checked={appearance.blurOverlays ?? false}
+          onCheckedChange={(blurOverlays) => setAppearance({blurOverlays})}
         />
       </label>
     </div>

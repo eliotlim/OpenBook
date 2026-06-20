@@ -721,8 +721,8 @@ export class AgentRunner {
       {
         name: 'set_page_appearance',
         description:
-          'Propose a per-page theme: accent palette, canvas tint, control/interface intensity, tinted sidebar, and an optional gradient cover banner. User approves first.',
-        args: '{"pageId": string, "themeId"?: string, "background"?: string, "controlIntensity"?: 0-3, "interfaceIntensity"?: 0-3, "tintedSidebar"?: boolean, "cover"?: string}',
+          'Propose a per-page theme: accent palette, canvas tint, control/interface intensity, and an optional gradient cover banner. User approves first.',
+        args: '{"pageId": string, "themeId"?: string, "background"?: string, "controlIntensity"?: 0-3, "interfaceIntensity"?: 0-3, "cover"?: string}',
         schema: obj(
           {
             pageId: str('The page to restyle.'),
@@ -730,7 +730,6 @@ export class AgentRunner {
             background: {type: 'string', enum: [...BACKGROUND_TOKENS], description: 'Page canvas tint.'},
             controlIntensity: {type: 'integer', minimum: 0, maximum: 3, description: 'How colourful controls are (0–3).'},
             interfaceIntensity: {type: 'integer', minimum: 0, maximum: 3, description: 'How saturated neutral surfaces are (0–3).'},
-            tintedSidebar: {type: 'boolean', description: 'Whether the sidebar adopts the accent hue.'},
             cover: {type: 'string', enum: [...COVER_GRADIENT_IDS], description: 'A gradient cover banner.'},
           },
           ['pageId'],
@@ -743,7 +742,6 @@ export class AgentRunner {
           const theme: Record<string, unknown> = {};
           if (typeof args.themeId === 'string' && THEME_IDS.has(args.themeId)) theme.themeId = args.themeId;
           if (typeof args.background === 'string' && BACKGROUND_TOKENS.has(args.background)) theme.background = args.background;
-          if (typeof args.tintedSidebar === 'boolean') theme.tintedSidebar = args.tintedSidebar;
           const level = (v: unknown): number | undefined => {
             const n = Math.round(Number(v));
             return Number.isFinite(n) && n >= 0 && n <= 3 ? n : undefined;
@@ -1354,7 +1352,7 @@ const KNOWN_BLOCK_TYPES = new Set<string>([
 
 /** Per-page theme values the agent may set (mirror `lib/themes`, `lib/pageCover`). */
 const THEME_IDS = new Set<string>([
-  'default', 'amber', 'bold', 'cool', 'forest', 'graphite', 'gray', 'neutral', 'ocean', 'pastel', 'rose', 'sunset', 'teal', 'violet', 'warm',
+  'default', 'amber', 'forest', 'graphite', 'ocean', 'rose', 'sandstone', 'slate', 'sunset', 'teal', 'violet',
 ]);
 const BACKGROUND_TOKENS = new Set<string>(['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink']);
 const COVER_GRADIENT_IDS = new Set<string>(['dawn', 'ocean', 'dusk', 'forest', 'ember', 'slate', 'citrus', 'mint', 'grape', 'sand', 'rose', 'night']);

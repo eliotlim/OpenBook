@@ -27,9 +27,9 @@ describe('AppearanceSettings', () => {
     expect(screen.getByText('Accent color')).toBeTruthy();
     expect(screen.getByText('Interface')).toBeTruthy();
     expect(screen.getByText('Control intensity')).toBeTruthy();
-    expect(screen.getByText('Tinted sidebar')).toBeTruthy();
+    expect(screen.getByText('Blur behind overlays')).toBeTruthy();
     // Grouped accent swatches: gray, bold, pastel.
-    expect(screen.getByText('Warm')).toBeTruthy(); // a gray accent
+    expect(screen.getByText('Sandstone')).toBeTruthy(); // a gray accent
     expect(screen.getByText('Forest')).toBeTruthy();
     expect(screen.getByText('Lavender')).toBeTruthy();
   });
@@ -41,12 +41,12 @@ describe('AppearanceSettings', () => {
     expect(JSON.parse(localStorage.getItem('openbook.appearance')!).themeId).toBe('forest');
   });
 
-  it('picking the Cool gray accent retints the surfaces cool', () => {
+  it('picking the Slate gray accent retints the surfaces cool', () => {
     renderWithProviders(<AppearanceSettings />);
-    fireEvent.click(screen.getByText('Cool'));
+    fireEvent.click(screen.getByText('Slate'));
     // The gray accent carries the neutral temperature: muted swings warm 40 → cool 220.
     expect(document.documentElement.style.getPropertyValue('--muted').startsWith('220 ')).toBe(true);
-    expect(JSON.parse(localStorage.getItem('openbook.appearance')!).themeId).toBe('cool');
+    expect(JSON.parse(localStorage.getItem('openbook.appearance')!).themeId).toBe('slate');
   });
 });
 
@@ -76,7 +76,7 @@ describe('PageAppearanceControls', () => {
   it('a page-theme preset sets the accent, font, and cover in one click (#4)', () => {
     renderWithProviders(<PageAppearanceControls pageId="page-3" />);
     fireEvent.click(screen.getByText('Editorial'));
-    expect(readPageTheme('page-3')).toMatchObject({themeId: 'warm', background: 'orange'});
+    expect(readPageTheme('page-3')).toMatchObject({themeId: 'sandstone', background: 'orange'});
     expect(readPageFonts('page-3')).toMatchObject({body: 'serif', heading: 'serif'});
     expect(readPageCover('page-3')?.kind).toBe('gradient');
   });

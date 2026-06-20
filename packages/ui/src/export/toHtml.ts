@@ -22,6 +22,7 @@ import {parseInline, type InlineRun, type ListItem} from './documentModel';
 import {COLOR_EXPORT_HEX} from '../blockeditor/colors';
 import {KIT_CHART_JS, kitChartSvg} from './kitChart';
 import {formatValue} from './format';
+import {pageIconToText} from '@/lib/iconValue';
 import {cellValue, formatCellValue} from '@/components/database/databaseCells';
 import {SWATCH_HEX} from '@/components/database/databaseColors';
 import type {SiteBundle, SiteDatabase} from './exportSite';
@@ -709,9 +710,10 @@ export function toHtmlSite(bundle: SiteBundle): string {
       const bodyHtml = renderBlocks(blocks, ctx);
       const dbHtml = page.database ? renderDatabaseTable(page.database, ctx) : '';
       const hidden = page.id === bundle.rootId ? '' : ' hidden';
+      const iconText = pageIconToText(page.icon);
       return (
         `<section class="page" data-page="${escapeHtml(page.id)}"${hidden}>\n` +
-        `<h1 class="doc-title">${page.icon ? `${escapeHtml(page.icon)} ` : ''}${escapeHtml(page.title)}</h1>\n` +
+        `<h1 class="doc-title">${iconText ? `${escapeHtml(iconText)} ` : ''}${escapeHtml(page.title)}</h1>\n` +
         `${bodyHtml}\n${dbHtml}\n</section>`
       );
     })

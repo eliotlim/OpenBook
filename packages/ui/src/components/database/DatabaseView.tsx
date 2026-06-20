@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/context-menu';
 import {IconButton} from '@/components/ui/icon-button';
 import {readPageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {cellValue, PropertyValueCell} from './databaseCells';
@@ -151,7 +152,7 @@ const TitleCell: React.FC<{row: DatabaseRow; db: UseDatabase; dragHandle?: React
     ) : (
       tree?.anyExpandable && <span className="w-4 shrink-0" />
     )}
-    <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+    <PageIcon value={readPageIcon(row.id)} className="shrink-0 text-sm leading-none" />
     <input
       defaultValue={row.name ?? ''}
       key={`${row.id}:${row.name ?? ''}`}
@@ -880,7 +881,7 @@ const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: Data
         onClick={() => db.openRow(row.id)}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 text-base leading-none">{readPageIcon(row.id)}</span>
+          <PageIcon value={readPageIcon(row.id)} className="shrink-0 text-base leading-none" />
           <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
           <RowChips row={row} properties={columns} rows={db.rows} labelled />
         </div>

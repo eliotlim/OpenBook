@@ -5,6 +5,7 @@ import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/
 import {PageMenuItems} from '@/components/PageContextMenu';
 import {useNavigation, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {readFavorites, subscribeFavorites} from '@/lib/favorites';
 import {readRecents, subscribeRecents} from '@/lib/recents';
 import {SIDEBAR_ACTIVE, SIDEBAR_HOVER} from '@/lib/sidebarStyles';
@@ -89,9 +90,10 @@ export function SidebarPageRow({page}: {page: PageMeta}) {
             selected && cn(SIDEBAR_ACTIVE, 'font-medium'),
           )}
         >
-          <span className="mr-2 h-4 w-4 shrink-0 text-center text-xs leading-4" aria-hidden="true">
-            {readPageIcon(page.id)}
-          </span>
+          <PageIcon
+            value={readPageIcon(page.id)}
+            className="mr-2 h-4 w-4 shrink-0 text-center text-xs leading-4"
+          />
           <span className="grow truncate">{displayName(page.name)}</span>
         </div>
       </ContextMenuTrigger>

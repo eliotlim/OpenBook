@@ -30,6 +30,7 @@ import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
 import {getCustomBlock} from './registry';
 import {CodeBlockView} from './CodeBlockView';
 import {pageLinks} from '@/lib/pageLinks';
+import {pageIconToText} from '@/lib/iconValue';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -128,7 +129,8 @@ export const BlockEditor: React.FC<{
       const found = findBlock(doc, blockId);
       const text = found && blockText(found.block);
       if (!text) return;
-      const label = `${r.icon} ${r.label}`;
+      const iconText = pageIconToText(r.icon);
+      const label = iconText ? `${iconText} ${r.label}` : r.label;
       const start = Math.min(at, text.length);
       doc.transact(() => {
         text.insert(start, label, {m: r.id});

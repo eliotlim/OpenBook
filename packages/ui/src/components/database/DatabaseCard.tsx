@@ -3,6 +3,7 @@ import {TITLE_PROPERTY_ID, type DatabaseProperty} from '@open-book/sdk';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {useData} from '@/data';
 import {readPageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {readPageCover} from '@/lib/pageCover';
 import {pageLinks} from '@/lib/pageLinks';
 import {cn} from '@/lib/utils';
@@ -40,7 +41,7 @@ export const DatabaseCard: React.FC<{data: DatabaseCardData; onOpen?: () => void
         disabled={!onOpen}
         className={cn('flex items-center gap-1.5 text-left text-sm font-medium', onOpen && 'cursor-pointer hover:underline')}
       >
-        {data.icon && <span className="shrink-0 leading-none">{data.icon}</span>}
+        {data.icon && <PageIcon value={data.icon} className="shrink-0 leading-none" />}
         <span className="min-w-0 truncate">{data.title}</span>
       </button>
       {data.fields.length > 0 ? (

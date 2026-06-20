@@ -435,7 +435,7 @@ const ColorSwatch: React.FC<{value?: string; onChange: (color: string) => void}>
     <PopoverTrigger asChild>
       <button
         type="button"
-        className="h-5 w-5 shrink-0 rounded-full border border-black/10 transition-transform hover:scale-110 dark:border-white/15"
+        className="h-5 w-5 shrink-0 rounded-full border border-black/10 transition-shadow hover:ring-2 hover:ring-foreground/30 hover:ring-offset-1 dark:border-white/15"
         style={{backgroundColor: SWATCH_HEX[value ?? 'gray']}}
         aria-label="Option color"
         title={value ?? 'gray'}
@@ -451,7 +451,7 @@ const ColorSwatch: React.FC<{value?: string; onChange: (color: string) => void}>
             title={c}
             aria-label={c}
             className={cn(
-              'h-5 w-5 rounded-full border border-black/10 transition-transform hover:scale-110 dark:border-white/15',
+              'h-5 w-5 rounded-full border border-black/10 transition-shadow hover:ring-2 hover:ring-foreground/30 hover:ring-offset-1 dark:border-white/15',
               (value ?? 'gray') === c && 'ring-2 ring-foreground/50 ring-offset-1',
             )}
             style={{backgroundColor: SWATCH_HEX[c]}}

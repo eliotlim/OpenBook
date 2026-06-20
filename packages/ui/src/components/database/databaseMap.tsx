@@ -9,6 +9,7 @@ import {
 } from '@open-book/sdk';
 import {cn} from '@/lib/utils';
 import {readPageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import type {UseDatabase} from './useDatabase';
 import {SWATCH_HEX} from './databaseColors';
 import {RowChips, RowContextMenu} from './databaseLayouts';
@@ -201,7 +202,7 @@ const UnplacedRows: React.FC<{
                 onClick={() => db.openRow(row.id)}
                 className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-hover"
               >
-                <span className="shrink-0 text-sm leading-none">{readPageIcon(row.id)}</span>
+                <PageIcon value={readPageIcon(row.id)} className="shrink-0 text-sm leading-none" />
                 <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
                 {chipProps.length > 0 && (
                   <span className="ml-1 min-w-0 flex-1 overflow-hidden">

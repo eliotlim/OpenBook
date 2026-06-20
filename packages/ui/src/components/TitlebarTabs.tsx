@@ -3,6 +3,7 @@ import {Plus, X} from 'lucide-react';
 import {useNavigation, useTranslation} from '@/providers';
 import {HOME_PAGE_ID} from '@/lib/homePage';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
 import SideNavToggle from '@/components/SideNavToggle';
@@ -63,7 +64,7 @@ export default function TitlebarTabs() {
                   : 'text-muted-foreground hover:bg-background/40 hover:text-foreground',
               )}
             >
-              <span className="shrink-0 text-[0.95em] leading-none">{readPageIcon(tab.pageId)}</span>
+              <PageIcon value={readPageIcon(tab.pageId)} className="shrink-0 text-[0.95em] leading-none" />
               <span className="truncate">{pageLabel(tab.pageId)}</span>
               {multiple && (
                 <button

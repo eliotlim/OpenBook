@@ -1,6 +1,7 @@
 import React from 'react';
 import {dependencyGraph, type DatabaseProperty, type DatabaseView as DbView} from '@open-book/sdk';
 import {readPageIcon} from '@/lib/pageIcon';
+import {PageIcon} from '@/components/PageIcon';
 import type {UseDatabase} from './useDatabase';
 
 const COL_W = 210;
@@ -85,7 +86,7 @@ export const GraphView: React.FC<{db: UseDatabase; view: DbView; properties: Dat
               title={row?.name?.trim() || 'Untitled'}
             >
               <span className="flex items-center gap-1.5">
-                <span className="shrink-0 text-sm leading-none">{readPageIcon(n.id)}</span>
+                <PageIcon value={readPageIcon(n.id)} className="shrink-0 text-sm leading-none" />
                 <span className="truncate text-sm font-medium">{row?.name?.trim() || 'Untitled'}</span>
               </span>
               {count > 0 && (

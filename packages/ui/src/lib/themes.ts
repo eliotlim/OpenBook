@@ -5,18 +5,21 @@
  * the *accent* family (`--primary` / `--ring` plus open-book's `--brand*`), so
  * the design language stays consistent while the highlight color changes.
  *
- * On top of the accent palette the user controls four knobs (see
- * {@link AppearanceOptions}): the **neutral temperature** (warm / cool /
- * neutral gray), the **interface intensity** (how saturated those grays are),
- * the **control intensity** of the faded control accent (`--accent`), and
- * whether the **sidebar adopts the accent**. {@link composeAppearance} folds an
+ * On top of the accent palette the user controls a couple of knobs (see
+ * {@link AppearanceOptions}): the **interface intensity** (how saturated the
+ * neutral gray surfaces read — and how strongly the sidebar adopts the accent
+ * tint) and the **control intensity** of the faded control accent (`--accent`).
+ * The neutral *temperature* (warm / cool / neutral gray) rides on the accent
+ * theme rather than being a separate control. {@link composeAppearance} folds an
  * accent palette + those knobs into one token set; {@link applyAppearance}
  * writes it onto an element (the document root globally, or a page wrapper for a
  * per-page override).
  *
  * The content surfaces of {@link DEFAULT_APPEARANCE} match the legacy palette
  * (verbatim from index.css) in both schemes; the one intended departure is the
- * sidebar, which is now tinted by default (the sheets adopt the accent hue).
+ * sidebar, which is always tinted (the sheets adopt the accent hue, with a
+ * strength that follows the interface intensity — level 0 falls back to a flat
+ * neutral panel).
  *
  * `--radius` is intentionally not themed (it's part of the brand geometry).
  */
@@ -158,24 +161,26 @@ export const DEFAULT_THEME_ID = 'default';
 
 export const themes: Theme[] = [
   {id: 'default', nameKey: 'theme.default', group: 'bold', light: DEFAULT_LIGHT, dark: DEFAULT_DARK},
-  // ── Gray accents (whole-application grays; each sets its own neutral
-  //    temperature so the entire app — accent included — reads warm/neutral/cool) ─
+  // ── Gray accents (whole-application grays, named for the rock they evoke;
+  //    each sets its own neutral temperature so the entire app — accent
+  //    included — reads warm/neutral/cool):
+  //      Sandstone = warm, Graphite = neutral, Slate = cool. ─────────────────
   accentTheme(
-    'warm',
+    'sandstone',
     'gray',
     {primary: '28 12% 34%', brandSubtle: '30 24% 92%'},
     {primary: '30 10% 70%', primaryForeground: '30 16% 12%', brandSubtle: '30 12% 22%'},
     'warm',
   ),
   accentTheme(
-    'neutral',
+    'graphite',
     'gray',
     {primary: '0 0% 34%', brandSubtle: '0 0% 92%'},
     {primary: '0 0% 72%', primaryForeground: '0 0% 12%', brandSubtle: '0 0% 22%'},
     'neutral',
   ),
   accentTheme(
-    'cool',
+    'slate',
     'gray',
     {primary: '220 14% 36%', brandSubtle: '216 24% 92%'},
     {primary: '218 12% 72%', primaryForeground: '220 22% 12%', brandSubtle: '218 16% 22%'},
@@ -261,17 +266,21 @@ export const themes: Theme[] = [
     {primary: '46 80% 70%', primaryForeground: '40 55% 24%', brandSubtle: '46 84% 92%'},
     {primary: '46 66% 62%', primaryForeground: '40 50% 12%', brandSubtle: '44 42% 22%'},
   ),
-  // Graphite: a cool blue-gray, grouped with the other grays.
-  accentTheme(
-    'graphite',
-    'gray',
-    {primary: '215 25% 35%', brandSubtle: '215 25% 92%'},
-    {primary: '215 20% 65%', primaryForeground: '215 28% 12%', brandSubtle: '215 18% 24%'},
-    'cool',
-  ),
 ];
 
-export const getTheme = (id: string): Theme => themes.find((t) => t.id === id) ?? themes[0];
+/** Gray accents were renamed to rock types (#7). Old ids alias to the closest
+ *  new one; the previous separate `graphite` (a cool blue-gray) folds into the
+ *  current neutral-gray `graphite` — same name, slightly different hue. Used both
+ *  to migrate the persisted global appearance ({@link normalizeAppearance}) and
+ *  to resolve stale per-page overrides at lookup time ({@link getTheme}). */
+const THEME_RENAME: Record<string, string> = {
+  warm: 'sandstone',
+  neutral: 'graphite',
+  cool: 'slate',
+};
+
+export const getTheme = (id: string): Theme =>
+  themes.find((t) => t.id === id) ?? themes.find((t) => t.id === THEME_RENAME[id]) ?? themes[0];
 
 /** Resolve the OS color-scheme preference. */
 export function getSystemColorScheme(): 'light' | 'dark' {
@@ -300,12 +309,15 @@ export interface AppearanceOptions {
    *  gray temperature — the gray accents (warm / neutral / cool) make the whole
    *  app that temperature; coloured accents stay warm. */
   themeId: string;
-  /** How saturated the neutral surfaces are. */
+  /** How saturated the neutral surfaces are — also how strongly the sidebar
+   *  sheets take the accent tint (the sidebar is always tinted; level 0 falls
+   *  back to a flat neutral panel). */
   interfaceIntensity: Level;
   /** How colored the faded control surface (`--accent`) is. */
   controlIntensity: Level;
-  /** Sidebar sheets adopt the accent hue. */
-  tintedSidebar: boolean;
+  /** Blur the canvas behind modal/search overlays. Off by default — it's a
+   *  global preference, not a per-page one. */
+  blurOverlays?: boolean;
   /** Optional page-canvas tint (a {@link PAGE_BACKGROUNDS} token). Mostly used
    *  per page; unset means the canvas keeps the theme's default `--background`. */
   background?: string;
@@ -327,9 +339,9 @@ export const DEFAULT_APPEARANCE: AppearanceOptions = {
   themeId: DEFAULT_THEME_ID,
   interfaceIntensity: 2,
   controlIntensity: 2,
-  // The sidebar is tinted by default — it reads as a soft accent panel rather
-  // than a flat neutral sheet.
-  tintedSidebar: true,
+  // The sidebar reads as a soft accent panel (tint is always on; see
+  // composeAppearance). Overlay blur is opt-in, so it's left off here.
+  blurOverlays: false,
 };
 
 /** A per-page override: any subset of the global appearance. */
@@ -337,18 +349,20 @@ export type AppearanceOverride = Partial<AppearanceOptions>;
 
 /**
  * Migrate a persisted (possibly older-shape) appearance to the current model:
- * `tint`→`interfaceIntensity`, `accentIntensity`→`controlIntensity`. The old
- * `neutral` temperature knob is gone — it's now carried by the accent theme —
- * so any persisted `neutral` is dropped. Unknown keys are dropped by the
- * `{...DEFAULT_APPEARANCE, ...}` merge at the call site.
+ * `tint`→`interfaceIntensity`, `accentIntensity`→`controlIntensity`, and the
+ * renamed gray theme ids. The old `neutral` temperature knob and the retired
+ * `tintedSidebar` toggle are dropped (the sidebar is always tinted now). Unknown
+ * keys are dropped by the `{...DEFAULT_APPEARANCE, ...}` merge at the call site.
  */
 export function normalizeAppearance(raw: Record<string, unknown>): AppearanceOverride {
   const out: Record<string, unknown> = {...raw};
   if (out.tint !== undefined && out.interfaceIntensity === undefined) out.interfaceIntensity = out.tint;
   if (out.accentIntensity !== undefined && out.controlIntensity === undefined) out.controlIntensity = out.accentIntensity;
+  if (typeof out.themeId === 'string' && THEME_RENAME[out.themeId]) out.themeId = THEME_RENAME[out.themeId];
   delete out.tint;
   delete out.accentIntensity;
   delete out.neutral; // neutral is now derived from the accent theme
+  delete out.tintedSidebar; // sidebar is always tinted now (#3)
   return out as AppearanceOverride;
 }
 
@@ -463,15 +477,21 @@ export function composeAppearance(opts: AppearanceOptions, scheme: 'light' | 'da
     tokens.background = PAGE_BACKGROUNDS[opts.background][scheme];
   }
 
-  // Tinted sidebar: the sheets adopt the accent hue as a soft colored panel.
-  if (opts.tintedSidebar) {
-    if (scheme === 'dark') {
-      tokens.sheet1 = toTriple({h: accentHue, s: 26, l: 16});
-      tokens.sheet2 = toTriple({h: accentHue, s: 30, l: 19.5});
-    } else {
-      tokens.sheet1 = toTriple({h: accentHue, s: 30, l: 96});
-      tokens.sheet2 = toTriple({h: accentHue, s: 34, l: 91});
-    }
+  // Tinted sidebar (always on): the sheets adopt the accent hue as a soft
+  // colored panel. The tint is strong by default and its strength rides the
+  // interface-intensity knob (so the one control that saturates the surfaces
+  // also dials the sidebar) — at level 0 the saturation falls to 0 and the
+  // sheets read as a flat neutral panel, which is the old "untinted" look.
+  // Gray (neutral-family) accents stay fully desaturated so the panel reads as
+  // clean gray rather than picking up a hue at 0°.
+  {
+    const mul = TINT_MUL[opts.interfaceIntensity];
+    const sheet =
+      scheme === 'dark'
+        ? {s1: 34, l1: 16, s2: 40, l2: 19.5}
+        : {s1: 42, l1: 96, s2: 50, l2: 90.5};
+    tokens.sheet1 = toTriple({h: accentHue, s: gray ? 0 : sheet.s1 * mul, l: sheet.l1});
+    tokens.sheet2 = toTriple({h: accentHue, s: gray ? 0 : sheet.s2 * mul, l: sheet.l2});
   }
 
   return tokens;

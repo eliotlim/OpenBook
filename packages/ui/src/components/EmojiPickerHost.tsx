@@ -1,6 +1,5 @@
 import {Suspense, lazy, useSyncExternalStore} from 'react';
 import * as PopoverPrimitive from '@radix-ui/react-popover';
-import {useTheme} from '@/providers';
 import {emojiPicker} from '@/lib/emojiPicker';
 
 const EmojiGrid = lazy(() => import('@/components/EmojiGrid'));
@@ -13,8 +12,7 @@ const EmojiGrid = lazy(() => import('@/components/EmojiGrid'));
  * lazy so its bundle loads only on first open.
  */
 export default function EmojiPickerHost() {
-  const {colorScheme} = useTheme();
-  const {open, anchor, onPick} = useSyncExternalStore(
+  const {open, anchor, value, onPick} = useSyncExternalStore(
     emojiPicker.subscribe,
     emojiPicker.getState,
     emojiPicker.getState,
@@ -43,11 +41,11 @@ export default function EmojiPickerHost() {
             collisionPadding={8}
             className="z-50 overflow-hidden rounded-md border-0 shadow-overlay outline-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
           >
-            <Suspense fallback={<div className="h-[360px] w-[320px] rounded-md bg-popover" />}>
+            <Suspense fallback={<div className="h-[372px] w-[332px] rounded-md bg-popover" />}>
               <EmojiGrid
-                dark={colorScheme === 'dark'}
-                onPick={(emoji) => {
-                  onPick?.(emoji);
+                value={value}
+                onPick={(picked) => {
+                  onPick?.(picked);
                   emojiPicker.close();
                 }}
               />
