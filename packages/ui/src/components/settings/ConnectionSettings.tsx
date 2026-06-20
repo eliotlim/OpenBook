@@ -3,7 +3,22 @@ import {getServerUrlOverride, setServerUrlOverride, type ServerInfo} from '@open
 import {usePlatformLibrary, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {Switch} from '@/components/ui/switch';
 import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
+
+/** Wait for a (re)started server to answer /health, so a reload reconnects cleanly. */
+async function waitForHealth(address: string | null | undefined, timeoutMs = 12000): Promise<void> {
+  if (!address) return;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      if ((await fetch(`${address}/health`, {cache: 'no-store'})).ok) return;
+    } catch {
+      // not up yet
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+}
 
 /**
  * Server connection: connect to a remote server, or (on the desktop) start/stop
@@ -43,6 +58,33 @@ export default function ConnectionSettings() {
       setBusy(false);
     }
   }, []);
+
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = useCallback((label: string, text: string) => {
+    void navigator.clipboard?.writeText(text);
+    setCopied(label);
+    setTimeout(() => setCopied((c) => (c === label ? null : c)), 1500);
+  }, []);
+
+  // Publishing changes whether the server requires a token, so the local client
+  // must reconnect — restart, wait for health, then reload (like connect-remote).
+  const togglePublish = useCallback(
+    async (enabled: boolean) => {
+      if (!serverControls?.publish) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const next = await serverControls.publish(enabled);
+        setInfo(next);
+        await waitForHealth(next.address);
+        if (typeof window !== 'undefined') window.location.reload();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+        setBusy(false);
+      }
+    },
+    [serverControls],
+  );
 
   const connectRemote = useCallback(() => {
     setServerUrlOverride(remoteUrl.trim() || null);
@@ -122,6 +164,74 @@ export default function ConnectionSettings() {
             <Button variant="ghost" onClick={refresh} disabled={busy}>
               {t('connection.refresh')}
             </Button>
+          </div>
+        </SettingsSection>
+      )}
+
+      {serverControls?.publish && localManaged && (
+        <SettingsSection title={t('connection.publish')}>
+          <p className="text-sm text-muted-foreground">{t('connection.publishDescription')}</p>
+          <label className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
+            <span className="text-sm font-medium">{t('connection.publishToggle')}</span>
+            <Switch
+              checked={info?.published === true}
+              disabled={busy}
+              onCheckedChange={(v) => void togglePublish(v)}
+            />
+          </label>
+          {info?.published ? (
+            <div className="flex flex-col gap-3">
+              <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
+                {t('connection.publishWarning')}
+              </p>
+              <SettingsField label={t('connection.lanAddress')} className="max-w-lg">
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+                    {info.lanAddress ?? '—'}
+                  </code>
+                  <Button variant="outline" size="sm" disabled={!info.lanAddress} onClick={() => copy('addr', info.lanAddress ?? '')}>
+                    {copied === 'addr' ? t('connection.copied') : t('connection.copy')}
+                  </Button>
+                </div>
+              </SettingsField>
+              <SettingsField label={t('connection.accessToken')} className="max-w-lg">
+                <div className="flex items-center gap-2">
+                  <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+                    {info.accessToken ?? '—'}
+                  </code>
+                  <Button variant="outline" size="sm" disabled={!info.accessToken} onClick={() => copy('tok', info.accessToken ?? '')}>
+                    {copied === 'tok' ? t('connection.copied') : t('connection.copy')}
+                  </Button>
+                </div>
+              </SettingsField>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">{t('connection.notPublished')}</p>
+          )}
+        </SettingsSection>
+      )}
+
+      {serverControls?.chooseBookDir && localManaged && (
+        <SettingsSection title={t('connection.bookFiles')}>
+          <p className="text-sm text-muted-foreground">{t('connection.bookFilesDescription')}</p>
+          <SettingsField label={t('connection.bookFolder')} className="max-w-lg">
+            <code className="block truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+              {info?.bookDir ?? '—'}
+            </code>
+          </SettingsField>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              disabled={busy}
+              onClick={() => void runControl(() => serverControls.chooseBookDir!())}
+            >
+              {t('connection.changeFolder')}
+            </Button>
+            {serverControls.revealBookDir && (
+              <Button variant="ghost" disabled={busy} onClick={() => void serverControls.revealBookDir!()}>
+                {t('connection.reveal')}
+              </Button>
+            )}
           </div>
         </SettingsSection>
       )}

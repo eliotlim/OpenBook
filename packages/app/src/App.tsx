@@ -1,4 +1,4 @@
-import React, {useMemo} from 'react';
+import React, {useEffect, useState} from 'react';
 import {invoke} from '@tauri-apps/api/core';
 import {WebviewWindow} from '@tauri-apps/api/webviewWindow';
 import {getCurrentWindow} from '@tauri-apps/api/window';
@@ -19,7 +19,7 @@ import {
   type PlatformLibrary,
   type WindowControls,
 } from '@open-book/ui';
-import type {ServerInfo} from '@open-book/sdk';
+import type {DataClient, ServerInfo} from '@open-book/sdk';
 
 import {createDesktopClient} from './data/client';
 
@@ -103,6 +103,11 @@ const platform: PlatformLibrary = {
     info: () => invoke<ServerInfo>('server_info'),
     start: () => invoke<ServerInfo>('start_server'),
     stop: () => invoke<ServerInfo>('stop_server'),
+    // Publish the server on the LAN (binds 0.0.0.0 + requires the token).
+    publish: (enabled: boolean) => invoke<ServerInfo>('publish_server', {enabled}),
+    // Native folder picker / reveal for the on-disk book mirror.
+    chooseBookDir: () => invoke<ServerInfo>('choose_book_dir'),
+    revealBookDir: () => invoke<void>('reveal_book_dir'),
   },
   tabs: {inWindow: true, openWindow},
   windowControls,
@@ -130,27 +135,34 @@ const platform: PlatformLibrary = {
 };
 
 function App() {
-  // Embedded local server by default, or an external one if configured.
-  const client = useMemo(() => createDesktopClient(), []);
+  // Embedded local server by default, or an external one if configured. Built
+  // async because we ask the host for the server status (loopback address + the
+  // access token when published) before connecting.
+  const [client, setClient] = useState<DataClient | null>(null);
+  useEffect(() => {
+    void createDesktopClient().then(setClient);
+  }, []);
 
   return (
     <ThemeProvider>
       <I18nProvider>
         <PreferencesProvider>
           <PlatformLibraryProvider value={platform}>
-            <DataProvider client={client}>
-              <NavigationProvider>
-                <WorkspaceProvider>
-                  <AccountProvider>
-                    <HudProvider>
-                      <DefaultLayout>
-                        <DocumentArea />
-                      </DefaultLayout>
-                    </HudProvider>
-                  </AccountProvider>
-                </WorkspaceProvider>
-              </NavigationProvider>
-            </DataProvider>
+            {client && (
+              <DataProvider client={client}>
+                <NavigationProvider>
+                  <WorkspaceProvider>
+                    <AccountProvider>
+                      <HudProvider>
+                        <DefaultLayout>
+                          <DocumentArea />
+                        </DefaultLayout>
+                      </HudProvider>
+                    </AccountProvider>
+                  </WorkspaceProvider>
+                </NavigationProvider>
+              </DataProvider>
+            )}
           </PlatformLibraryProvider>
         </PreferencesProvider>
       </I18nProvider>
