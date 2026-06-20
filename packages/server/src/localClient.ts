@@ -1,7 +1,4 @@
 import type {
-  AgentChatEvent,
-  AgentChatMessage,
-  AgentChatOptions,
   AiConfig,
   AiSearchResponse,
   AiSkill,
@@ -341,7 +338,7 @@ export class LocalDataClient implements DataClient {
     return Promise.reject(this.aiUnavailable());
   }
 
-  agentChat(_messages: AgentChatMessage[], _onEvent: (event: AgentChatEvent) => void, _opts?: AgentChatOptions): Promise<void> {
+  agentChat(): Promise<void> {
     return Promise.reject(this.aiUnavailable());
   }
 

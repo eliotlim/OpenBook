@@ -19,9 +19,9 @@ import {
   type PlatformLibrary,
   type WindowControls,
 } from '@open-book/ui';
-import type {DataClient, ServerInfo} from '@open-book/sdk';
+import type {BookFolderFile, DataClient, ServerInfo} from '@open-book/sdk';
 
-import {createDesktopClient} from './data/client';
+import {createDesktopClient, togglePublish} from './data/client';
 
 import '@open-book/ui/style.css';
 
@@ -103,11 +103,20 @@ const platform: PlatformLibrary = {
     info: () => invoke<ServerInfo>('server_info'),
     start: () => invoke<ServerInfo>('start_server'),
     stop: () => invoke<ServerInfo>('stop_server'),
-    // Publish the server on the LAN (binds 0.0.0.0 + requires the token).
-    publish: (enabled: boolean) => invoke<ServerInfo>('publish_server', {enabled}),
+    // Publish the instance on the LAN. Carries the workspace across the move
+    // (in-app store ⇄ the LAN sidecar) before the app reloads onto the new
+    // target; binds 0.0.0.0 + requires the token.
+    publish: (enabled: boolean) => togglePublish(enabled),
     // Native folder picker / reveal for the on-disk book mirror.
     chooseBookDir: () => invoke<ServerInfo>('choose_book_dir'),
     revealBookDir: () => invoke<void>('reveal_book_dir'),
+  },
+  // Native book-folder export/import (the WKWebView has no File System Access
+  // API, so this goes through a Tauri dialog + fs rather than the web fallback).
+  bookFolder: {
+    export: (files: BookFolderFile[]) =>
+      invoke<{location: string; count: number} | null>('export_book_folder', {files}),
+    import: () => invoke<BookFolderFile[] | null>('import_book_folder'),
   },
   tabs: {inWindow: true, openWindow},
   windowControls,

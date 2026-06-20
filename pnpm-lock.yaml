@@ -95,6 +95,9 @@ importers:
       '@open-book/sdk':
         specifier: workspace:*
         version: link:../sdk
+      '@open-book/server':
+        specifier: workspace:*
+        version: link:../server
       '@open-book/ui':
         specifier: workspace:*
         version: link:../ui

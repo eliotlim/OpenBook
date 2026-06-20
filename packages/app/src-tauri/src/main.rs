@@ -3,24 +3,24 @@
 
 //! The OpenBook desktop host.
 //!
-//! The desktop runs the same TypeScript server as the headless deployment
-//! (`@open-book/server`), bundled as a Tauri sidecar over an embedded PGlite
-//! database. The webview frontend talks to it over HTTP exactly like the web
-//! shell. These commands let the frontend inspect and control that local server.
+//! The desktop is **in-app by default**: the data layer runs inside the webview
+//! on an embedded PGlite store (IndexedDB), so there is no local server and no
+//! open port. A port is opened only when the user **publishes** their instance
+//! on the LAN — the host then spawns the bundled `@open-book/server` sidecar
+//! (bound `0.0.0.0`, access-token required) and the webview connects to it over
+//! HTTP, with the workspace handed across on the JS side. Toggling publish off
+//! stops the sidecar and the app returns to the in-app store.
 //!
-//! By default the server binds **loopback** (`127.0.0.1`) with no auth — local
-//! only. The user can **publish** it on the LAN: the host then binds `0.0.0.0`
-//! and requires an access token (so the unauthenticated workspace isn't open to
-//! anyone who can reach the port). Preferences (publish, token, book-mirror
-//! folder) persist in `host-config.json` under the app-data dir.
-//!
-//! In a release build the sidecar is managed here (auto-started, start/stop
-//! exposed). In `tauri dev` the server is run externally by `pnpm dev`, so it is
-//! reported as unmanaged and start/stop are no-ops.
+//! These commands let the frontend inspect/control that optional server and read
+//! or write the human-readable book folder. Publishing is release-only (it needs
+//! the bundled sidecar binary); in `tauri dev` the host is unmanaged and publish
+//! is a no-op. Preferences (publish, token, book folder) persist in
+//! `host-config.json` under the app-data dir.
 
+use std::io::Read;
 use std::net::UdpSocket;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -31,8 +31,8 @@ const DEFAULT_PORT: &str = "4319";
 const LOOPBACK_URL: &str = "http://127.0.0.1:4319";
 
 /// Persisted host preferences (`host-config.json`). Controls how the sidecar is
-/// spawned: loopback vs published (LAN), the access token required when
-/// published, and where the on-disk book mirror is written.
+/// spawned when publishing: the access token required on the LAN, and where the
+/// on-disk book mirror is written while published.
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct HostConfig {
@@ -45,16 +45,15 @@ struct HostConfig {
 }
 
 struct AppState {
-    /// Base URL of the local server (loopback; updated from the readiness line).
-    server_url: Arc<Mutex<Option<String>>>,
-    /// The running sidecar process, if any (None in dev or when stopped).
+    /// The running sidecar process, if any (None in-app, in dev, or when stopped).
     child: Mutex<Option<CommandChild>>,
-    /// App-data directory passed to the embedded server.
+    /// App-data directory passed to the embedded server when published.
     data_dir: String,
     /// Persisted preferences + where they live on disk.
     config: Mutex<HostConfig>,
     config_path: PathBuf,
-    /// Whether this host manages the server lifecycle (true in release builds).
+    /// Whether this host can manage a server lifecycle (true in release builds,
+    /// where the sidecar binary is bundled). Publishing requires it.
     managed: bool,
 }
 
@@ -69,6 +68,21 @@ struct ServerInfo {
     lan_address: Option<String>,
     access_token: Option<String>,
     book_dir: Option<String>,
+}
+
+/// A single file in a book-folder transfer, mirroring `BookFolderFile` in the SDK.
+#[derive(Serialize, Deserialize)]
+struct BookFile {
+    path: String,
+    contents: String,
+}
+
+/// Result of a native folder export, mirroring the web fallback's shape.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ExportResult {
+    location: String,
+    count: usize,
 }
 
 fn load_config(path: &PathBuf) -> HostConfig {
@@ -101,20 +115,18 @@ fn generate_token() -> String {
 }
 
 fn build_info(state: &AppState) -> ServerInfo {
-    // Take a snapshot of the config and release the lock before acquiring any
-    // other, so this never holds `config` while waiting on `child` (respawn
-    // holds `child` and would otherwise deadlock against it).
+    // Snapshot the config and release its lock before taking any other, so this
+    // never holds `config` while waiting on `child` (publish/respawn hold `child`
+    // and would otherwise deadlock against it).
     let (published, access_token, book_dir) = {
         let cfg = state.config.lock().unwrap();
         (cfg.published, cfg.access_token.clone(), cfg.book_dir.clone())
     };
-    let address = state.server_url.lock().unwrap().clone();
-    let running = if state.managed {
-        state.child.lock().unwrap().is_some()
-    } else {
-        true
-    };
-    let lan_address = if published {
+    let running = state.child.lock().unwrap().is_some();
+    // The local UI always reaches a running sidecar over loopback, even when it's
+    // published (bound to 0.0.0.0); `lan_address` carries the shareable URL.
+    let address = if running { Some(LOOPBACK_URL.to_string()) } else { None };
+    let lan_address = if published && running {
         lan_ip().map(|ip| format!("http://{ip}:{DEFAULT_PORT}"))
     } else {
         None
@@ -125,21 +137,14 @@ fn build_info(state: &AppState) -> ServerInfo {
         managed: state.managed,
         published,
         lan_address,
-        // Only surface the token while published (the local UI needs it then).
         access_token: if published { Some(access_token) } else { None },
         book_dir: Some(book_dir),
     }
 }
 
-/// Spawn the server sidecar from the current config, forwarding logs and
-/// capturing the URL it prints. Binds `0.0.0.0` + an access token when published,
-/// otherwise loopback with none.
-fn spawn_sidecar(
-    app: &AppHandle,
-    data_dir: &str,
-    cfg: &HostConfig,
-    url_slot: Arc<Mutex<Option<String>>>,
-) -> Result<CommandChild, String> {
+/// Spawn the server sidecar from the current config (used only while published).
+/// Binds `0.0.0.0` + an access token; the on-disk book mirror writes to `book_dir`.
+fn spawn_sidecar(app: &AppHandle, data_dir: &str, cfg: &HostConfig) -> Result<CommandChild, String> {
     let host = if cfg.published { "0.0.0.0" } else { "127.0.0.1" };
     let mut args: Vec<String> = vec![
         "--data-dir".into(),
@@ -168,18 +173,10 @@ fn spawn_sidecar(
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(bytes) => {
-                    let line = String::from_utf8_lossy(&bytes);
-                    let line = line.trim_end();
-                    if let Some(url) = line.strip_prefix("OPENBOOK_READY ") {
-                        *url_slot.lock().unwrap() = Some(url.trim().to_string());
-                    }
-                    println!("[openbook-server] {line}");
+                    println!("[openbook-server] {}", String::from_utf8_lossy(&bytes).trim_end());
                 }
                 CommandEvent::Stderr(bytes) => {
-                    eprintln!(
-                        "[openbook-server] {}",
-                        String::from_utf8_lossy(&bytes).trim_end()
-                    );
+                    eprintln!("[openbook-server] {}", String::from_utf8_lossy(&bytes).trim_end());
                 }
                 _ => {}
             }
@@ -188,8 +185,8 @@ fn spawn_sidecar(
     Ok(child)
 }
 
-/// Stop the running sidecar (gracefully) and spawn a fresh one from the current
-/// config — used when publishing toggles or the book folder changes.
+/// Stop the running sidecar (if any) and spawn a fresh one from the current
+/// config — used when publishing turns on or the book folder changes mid-publish.
 fn respawn(app: &AppHandle, state: &AppState) -> Result<(), String> {
     // Snapshot the config and release its lock before taking `child`, keeping a
     // single lock order (config → child) everywhere to avoid deadlock.
@@ -198,7 +195,7 @@ fn respawn(app: &AppHandle, state: &AppState) -> Result<(), String> {
     if let Some(child) = guard.take() {
         stop_server_child(child);
     }
-    *guard = Some(spawn_sidecar(app, &state.data_dir, &cfg, state.server_url.clone())?);
+    *guard = Some(spawn_sidecar(app, &state.data_dir, &cfg)?);
     Ok(())
 }
 
@@ -207,11 +204,14 @@ fn server_info(state: State<AppState>) -> ServerInfo {
     build_info(&state)
 }
 
+/// Spawn the (loopback) sidecar on demand — the legacy "run a local server"
+/// path. The default experience is in-app, so this is rarely used; publishing is
+/// the usual reason to open a port.
 #[tauri::command]
 fn start_server(app: AppHandle, state: State<AppState>) -> Result<ServerInfo, String> {
     if state.managed && state.child.lock().unwrap().is_none() {
         let cfg = state.config.lock().unwrap().clone();
-        let child = spawn_sidecar(&app, &state.data_dir, &cfg, state.server_url.clone())?;
+        let child = spawn_sidecar(&app, &state.data_dir, &cfg)?;
         *state.child.lock().unwrap() = Some(child);
     }
     Ok(build_info(&state))
@@ -227,8 +227,10 @@ fn stop_server(state: State<AppState>) -> Result<ServerInfo, String> {
     Ok(build_info(&state))
 }
 
-/// Publish (or unpublish) the server on the LAN. Mints a token on first publish,
-/// persists the choice, and restarts the sidecar so it rebinds.
+/// Publish (or unpublish) this instance on the LAN. Enabling mints a token (once)
+/// and spawns the sidecar bound to `0.0.0.0`; disabling stops it and the app
+/// returns to the in-app store. The workspace hand-off (in-app ⇄ sidecar) is the
+/// JS caller's job — it has both stores; this only owns the process lifecycle.
 #[tauri::command]
 fn publish_server(app: AppHandle, state: State<AppState>, enabled: bool) -> Result<ServerInfo, String> {
     if !state.managed {
@@ -242,13 +244,17 @@ fn publish_server(app: AppHandle, state: State<AppState>, enabled: bool) -> Resu
         }
         save_config(&state.config_path, &cfg);
     }
-    respawn(&app, &state)?;
+    if enabled {
+        respawn(&app, &state)?;
+    } else if let Some(child) = state.child.lock().unwrap().take() {
+        stop_server_child(child);
+    }
     Ok(build_info(&state))
 }
 
 /// Open a native folder picker for the book-mirror directory. Persists the choice
-/// and restarts the sidecar so it re-points the mirror. Async so the (blocking)
-/// dialog runs off the main thread.
+/// and, only if a server is currently running (published), restarts it so the
+/// mirror re-points. Async so the (blocking) dialog runs off the main thread.
 #[tauri::command]
 async fn choose_book_dir(app: AppHandle, state: State<'_, AppState>) -> Result<ServerInfo, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -262,7 +268,9 @@ async fn choose_book_dir(app: AppHandle, state: State<'_, AppState>) -> Result<S
                 cfg.book_dir = dir;
                 save_config(&state.config_path, &cfg);
             }
-            respawn(&app, &state)?;
+            if state.child.lock().unwrap().is_some() {
+                respawn(&app, &state)?;
+            }
         }
     }
     Ok(build_info(&state))
@@ -277,6 +285,78 @@ fn reveal_book_dir(app: AppHandle, state: State<AppState>) -> Result<(), String>
     app.opener()
         .open_path(dir, None::<&str>)
         .map_err(|e| e.to_string())
+}
+
+/// Write an exported book folder to a directory the user picks. Returns a summary
+/// (the chosen folder + how many page files were written), or `None` if the user
+/// cancelled the dialog. Async so the blocking picker runs off the main thread.
+#[tauri::command]
+async fn export_book_folder(app: AppHandle, files: Vec<BookFile>) -> Result<Option<ExportResult>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(fp) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let Some(base) = fp.as_path().map(|p| p.to_path_buf()) else {
+        return Ok(None);
+    };
+    let mut count = 0usize;
+    for file in &files {
+        let abs = base.join(&file.path);
+        if let Some(parent) = abs.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&abs, &file.contents).map_err(|e| e.to_string())?;
+        if file.path.ends_with(".html") {
+            count += 1;
+        }
+    }
+    let location = base
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| base.to_string_lossy().to_string());
+    Ok(Some(ExportResult { location, count }))
+}
+
+/// Read a user-picked book folder back into files (relative POSIX paths), or
+/// `None` if the dialog was cancelled. Only UTF-8 text files are returned.
+#[tauri::command]
+async fn import_book_folder(app: AppHandle) -> Result<Option<Vec<BookFile>>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let Some(fp) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let Some(base) = fp.as_path().map(|p| p.to_path_buf()) else {
+        return Ok(None);
+    };
+    let mut out = Vec::new();
+    read_dir_recursive(&base, &base, &mut out).map_err(|e| e.to_string())?;
+    Ok(Some(out))
+}
+
+/// Collect every readable UTF-8 text file under `dir`, keyed by its path relative
+/// to `base` (with `/` separators). Non-UTF-8 files are skipped.
+fn read_dir_recursive(base: &Path, dir: &Path, out: &mut Vec<BookFile>) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            read_dir_recursive(base, &path, out)?;
+        } else if let Ok(rel) = path.strip_prefix(base) {
+            let mut buf = Vec::new();
+            if std::fs::File::open(&path)
+                .and_then(|mut f| f.read_to_end(&mut buf))
+                .is_ok()
+            {
+                if let Ok(text) = String::from_utf8(buf) {
+                    out.push(BookFile {
+                        path: rel.to_string_lossy().replace('\\', "/"),
+                        contents: text,
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn main() {
@@ -309,29 +389,28 @@ fn main() {
             let config_path = data_dir_pb.join("host-config.json");
             let data_dir = data_dir_pb.to_string_lossy().to_string();
 
-            // Load (or initialise) host config. Default the book mirror to a
-            // visible ~/Documents/OpenBook folder — the mirror exists for
-            // external sync/backup, so a hidden app-data path would defeat it.
+            // Load (or initialise) host config. Default the book folder to a
+            // visible ~/Documents/OpenBook — it's for external sync/backup, so a
+            // hidden app-data path would defeat it.
             let mut config = load_config(&config_path);
             if config.book_dir.is_empty() {
-                let docs = app.path().document_dir().unwrap_or_else(|_| data_dir_pb.clone());
+                let docs = app
+                    .path()
+                    .document_dir()
+                    .unwrap_or_else(|_| data_dir_pb.clone());
                 config.book_dir = docs.join("OpenBook").to_string_lossy().to_string();
                 save_config(&config_path, &config);
             }
             std::fs::create_dir_all(&config.book_dir).ok();
 
-            let server_url = Arc::new(Mutex::new(Some(LOOPBACK_URL.to_string())));
+            // In-app by default: no sidecar, no port at startup. Publishing spawns
+            // one on demand, and the in-app store stays canonical — so a relaunch
+            // always starts unpublished (a prior publish never auto-resumes).
+            config.published = false;
             let managed = !cfg!(debug_assertions);
 
-            let mut child = None;
-            if managed {
-                let handle = app.handle().clone();
-                child = Some(spawn_sidecar(&handle, &data_dir, &config, server_url.clone())?);
-            }
-
             app.manage(AppState {
-                server_url,
-                child: Mutex::new(child),
+                child: Mutex::new(None),
                 data_dir,
                 config: Mutex::new(config),
                 config_path,
@@ -352,7 +431,9 @@ fn main() {
             stop_server,
             publish_server,
             choose_book_dir,
-            reveal_book_dir
+            reveal_book_dir,
+            export_book_folder,
+            import_book_folder
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

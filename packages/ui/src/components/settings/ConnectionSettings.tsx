@@ -131,40 +131,14 @@ export default function ConnectionSettings() {
         </div>
       </SettingsSection>
 
-      {serverControls && (
-        <SettingsSection title={t('connection.localServer')}>
-          <p className="text-sm text-muted-foreground">
-            {info ? (
-              info.running ? (
-                <>
-                  {t('connection.running')} <code>{info.address}</code>.
-                </>
-              ) : (
-                t('connection.stopped')
-              )
-            ) : (
-              t('connection.checking')
-            )}
-          </p>
-          {info && !localManaged && <p className="text-xs text-muted-foreground">{t('connection.unmanaged')}</p>}
-          <div className="flex gap-2">
-            <Button
-              onClick={() => void runControl(() => serverControls.start())}
-              disabled={busy || !localManaged || info?.running === true}
-            >
-              {t('connection.start')}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => void runControl(() => serverControls.stop())}
-              disabled={busy || !localManaged || info?.running === false}
-            >
-              {t('connection.stop')}
-            </Button>
-            <Button variant="ghost" onClick={refresh} disabled={busy}>
-              {t('connection.refresh')}
-            </Button>
-          </div>
+      {serverControls && !connected && (
+        <SettingsSection title={t('connection.inApp')}>
+          <p className="text-sm text-muted-foreground">{t('connection.inAppDescription')}</p>
+          {info?.published && info.running && (
+            <p className="text-xs text-muted-foreground">
+              {t('connection.running')} <code>{info.address}</code>.
+            </p>
+          )}
         </SettingsSection>
       )}
 
