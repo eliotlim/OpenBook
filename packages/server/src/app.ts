@@ -25,7 +25,29 @@ import type {AiService} from './ai/service';
  * and the SSE endpoints relay those events to connected clients — the
  * server-driven refresh loop that powers real-time collaboration.
  */
-export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub()): Hono {
+/**
+ * Constant-time string compare (avoids leaking the token length/contents via
+ * timing). Returns false on any length mismatch.
+ */
+function safeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+export interface AppOptions {
+  /**
+   * When set, every `/api/*` request must present this token — as
+   * `Authorization: Bearer <token>` or a `?token=` query param (the latter so
+   * the SSE `EventSource`, which can't set headers, can authenticate). Used when
+   * the desktop publishes its server on the LAN; unset on loopback (local-only),
+   * so the local UX needs no token. `/health` is always open.
+   */
+  accessToken?: string;
+}
+
+export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono {
   const app = new Hono();
 
   // Push the latest page list to list subscribers (nav stays live).
@@ -53,6 +75,20 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     c.header('Cache-Control', 'no-store');
     await next();
   });
+
+  // Access-token gate (only when published on the LAN). A missing/wrong token is
+  // rejected before any handler runs. The token may ride the Authorization
+  // header or a `?token=` query param so `EventSource` (header-less) can connect.
+  if (opts.accessToken) {
+    const token = opts.accessToken;
+    app.use('/api/*', async (c, next) => {
+      const auth = c.req.header('Authorization') ?? '';
+      const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+      const provided = bearer || c.req.query('token') || '';
+      if (!safeEqual(provided, token)) return c.json({error: 'unauthorized'}, 401);
+      return next();
+    });
+  }
 
   // Optional local-AI subsystem (status/search/generate). Mounted only when
   // the host passed a service; document APIs never depend on it.

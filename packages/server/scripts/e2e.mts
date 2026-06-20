@@ -630,8 +630,29 @@ async function main(): Promise<void> {
   check('janitor: purged page is gone for good', (await jclient.restorePage(doomed.id)) === null);
   await janitor.close();
 
+  // ---- 5. Access-token auth (published-server gating) ----
+  console.log('\n=== 5. ACCESS-TOKEN AUTH ===');
+  const TOKEN = 'e2e-access-token-xyz';
+  const guarded = await startServer({dataDir: `${ROOT}/guarded`, host: '127.0.0.1', port: 4404, accessToken: TOKEN});
+  // A tokenless client is rejected on every call.
+  const anon = new HttpDataClient(guarded.url);
+  await assert.rejects(() => anon.listPages(), /401|failed/i, 'tokenless read should be rejected');
+  check('tokenless request rejected (401)', true);
+  await assert.rejects(() => anon.savePage({name: 'nope', data: sampleSnapshot(1)}), /401|failed/i, 'tokenless write should be rejected');
+  check('tokenless write rejected (401)', true);
+  // A token-bearing client works end-to-end.
+  const authed = new HttpDataClient(guarded.url, TOKEN);
+  const tok = await authed.savePage({name: 'token-page', data: sampleSnapshot(7)});
+  check('token-bearing client can write', tok.id.length === 36);
+  check('token-bearing client can read', (await authed.getPage(tok.id))?.id === tok.id);
+  // The raw query-param path (what EventSource uses) authenticates too.
+  check('raw ?token= authenticates', (await fetch(`${guarded.url}/api/pages?token=${TOKEN}`)).status === 200);
+  check('raw missing token is 401', (await fetch(`${guarded.url}/api/pages`)).status === 401);
+  check('health stays open without a token', (await fetch(`${guarded.url}/health`).then((r) => r.text())) === 'ok');
+  await guarded.close();
+
   rmSync(ROOT, {recursive: true, force: true});
-  console.log(`\n✅ ALL ${passed} CHECKS PASSED — embedded, persistence, headless, and trash-cleanup flows verified.`);
+  console.log(`\n✅ ALL ${passed} CHECKS PASSED — embedded, persistence, headless, trash-cleanup, and access-token flows verified.`);
 }
 
 main().catch((err) => {

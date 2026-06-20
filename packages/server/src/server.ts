@@ -43,6 +43,12 @@ export interface StartOptions {
    * re-import changes (DB-wins on conflict). Off when unset. See {@link BookMirror}.
    */
   bookDir?: string;
+  /**
+   * When set, require this access token on every `/api/*` request (header or
+   * `?token=`). Used when the desktop publishes its server on the LAN so the
+   * unauthenticated workspace isn't open to anyone who can reach the port.
+   */
+  accessToken?: string;
 }
 
 export interface RunningServer {
@@ -111,7 +117,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   // One hub is shared between the HTTP/SSE app and the disk mirror, so a
   // re-imported page fans out to every connected client too.
   const hub = new PageHub();
-  const app = createApp(store, ai, hub);
+  const app = createApp(store, ai, hub, {accessToken: opts.accessToken});
   const host = opts.host ?? DEFAULT_HOST;
   const port = opts.port ?? DEFAULT_PORT;
 

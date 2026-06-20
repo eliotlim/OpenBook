@@ -110,7 +110,7 @@ export interface PageInput {
 export interface ServerInfo {
   /** Whether the local server is currently running. */
   running: boolean;
-  /** Bound base URL, when running. */
+  /** Bound base URL the local UI connects to, when running (loopback). */
   address: string | null;
   /**
    * Whether the host process manages the local server lifecycle (true in the
@@ -118,6 +118,21 @@ export interface ServerInfo {
    * is external and start/stop are unavailable.
    */
   managed: boolean;
+  /**
+   * Whether the server is published on the LAN (bound beyond loopback). When
+   * true, the workspace is reachable by other devices and an {@link accessToken}
+   * is required. Off by default.
+   */
+  published?: boolean;
+  /** The shareable LAN URL (`http://<ip>:<port>`) when published; else null. */
+  lanAddress?: string | null;
+  /**
+   * The access token clients must present when {@link published}. Surfaced so the
+   * UI can show/copy it for other devices; the local UI sends it automatically.
+   */
+  accessToken?: string | null;
+  /** Folder the on-disk book mirror writes to (durable mode). */
+  bookDir?: string | null;
 }
 
 /**
@@ -128,4 +143,12 @@ export interface ServerControls {
   info(): Promise<ServerInfo>;
   start(): Promise<ServerInfo>;
   stop(): Promise<ServerInfo>;
+  /** Publish (or unpublish) the server on the LAN — binds beyond loopback and
+   *  requires the access token. Restarts the server; resolves the new status. */
+  publish?(enabled: boolean): Promise<ServerInfo>;
+  /** Open a native folder picker to choose the book-mirror directory. Resolves
+   *  the new status (with the chosen `bookDir`), or unchanged if cancelled. */
+  chooseBookDir?(): Promise<ServerInfo>;
+  /** Reveal the current book-mirror directory in the OS file manager. */
+  revealBookDir?(): Promise<void>;
 }

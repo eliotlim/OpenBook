@@ -308,16 +308,36 @@ class LiveStream {
 /** {@link DataClient} backed by an OpenBook server's HTTP API. Isomorphic. */
 export class HttpDataClient implements DataClient {
   private readonly baseUrl: string;
+  private readonly token?: string;
   private live: LiveStream | null = null;
 
-  constructor(baseUrl: string) {
+  /**
+   * @param baseUrl  Server base URL.
+   * @param token    Optional access token required by a published (LAN) server;
+   *                 sent as `Authorization: Bearer` on requests and `?token=` on
+   *                 the SSE stream (EventSource can't set headers). Omit for a
+   *                 loopback/local server, which needs none.
+   */
+  constructor(baseUrl: string, token?: string) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.token = token && token.length > 0 ? token : undefined;
+  }
+
+  /** `fetch` with the access token attached (when set). */
+  private authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+    if (!this.token) return fetch(input, init);
+    return fetch(input, {
+      ...init,
+      headers: {...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${this.token}`},
+    });
   }
 
   /** Lazily create the shared live connection (browser-only). */
   private liveStream(): LiveStream {
     if (!this.live) {
-      this.live = new LiveStream(`${this.baseUrl}${API.live}`, {
+      // EventSource can't send headers, so the token rides the URL.
+      const liveUrl = `${this.baseUrl}${API.live}${this.token ? `?token=${encodeURIComponent(this.token)}` : ''}`;
+      this.live = new LiveStream(liveUrl, {
         listPages: () => this.listPages(),
         getPage: (id) => this.getPage(id),
         listRows: (databaseId) => this.listRows(databaseId),
@@ -331,7 +351,7 @@ export class HttpDataClient implements DataClient {
   }
 
   async getPage(id: string): Promise<StoredPage | null> {
-    const res = await fetch(`${this.baseUrl}${API.page(id)}`, {cache: 'no-store'});
+    const res = await this.authFetch(`${this.baseUrl}${API.page(id)}`, {cache: 'no-store'});
     if (res.status === 404) return null;
     await throwIfNotOk(res);
     return (await res.json()) as StoredPage;
@@ -362,7 +382,7 @@ export class HttpDataClient implements DataClient {
   }
 
   async deletePage(id: string): Promise<boolean> {
-    const res = await fetch(`${this.baseUrl}${API.page(id)}`, {method: 'DELETE'});
+    const res = await this.authFetch(`${this.baseUrl}${API.page(id)}`, {method: 'DELETE'});
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
@@ -381,14 +401,14 @@ export class HttpDataClient implements DataClient {
   }
 
   async restorePage(id: string): Promise<StoredPage | null> {
-    const res = await fetch(`${this.baseUrl}${API.pageRestore(id)}`, {method: 'POST'});
+    const res = await this.authFetch(`${this.baseUrl}${API.pageRestore(id)}`, {method: 'POST'});
     if (res.status === 404) return null;
     await throwIfNotOk(res);
     return (await res.json()) as StoredPage;
   }
 
   async purgePage(id: string): Promise<boolean> {
-    const res = await fetch(`${this.baseUrl}${API.trashItem(id)}`, {method: 'DELETE'});
+    const res = await this.authFetch(`${this.baseUrl}${API.trashItem(id)}`, {method: 'DELETE'});
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
@@ -414,14 +434,14 @@ export class HttpDataClient implements DataClient {
   }
 
   async getDatabase(id: string): Promise<StoredDatabase | null> {
-    const res = await fetch(`${this.baseUrl}${API.database(id)}`, {cache: 'no-store'});
+    const res = await this.authFetch(`${this.baseUrl}${API.database(id)}`, {cache: 'no-store'});
     if (res.status === 404) return null;
     await throwIfNotOk(res);
     return (await res.json()) as StoredDatabase;
   }
 
   async getPageDatabase(pageId: string): Promise<StoredDatabase | null> {
-    const res = await fetch(`${this.baseUrl}${API.pageDatabase(pageId)}`, {cache: 'no-store'});
+    const res = await this.authFetch(`${this.baseUrl}${API.pageDatabase(pageId)}`, {cache: 'no-store'});
     if (res.status === 404) return null;
     await throwIfNotOk(res);
     return (await res.json()) as StoredDatabase;
@@ -432,7 +452,7 @@ export class HttpDataClient implements DataClient {
   }
 
   async deleteDatabase(id: string): Promise<boolean> {
-    const res = await fetch(`${this.baseUrl}${API.database(id)}`, {method: 'DELETE'});
+    const res = await this.authFetch(`${this.baseUrl}${API.database(id)}`, {method: 'DELETE'});
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
@@ -474,7 +494,7 @@ export class HttpDataClient implements DataClient {
   }
 
   async deleteSuggestion(id: string): Promise<boolean> {
-    const res = await fetch(`${this.baseUrl}${API.suggestion(id)}`, {method: 'DELETE'});
+    const res = await this.authFetch(`${this.baseUrl}${API.suggestion(id)}`, {method: 'DELETE'});
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
@@ -489,7 +509,7 @@ export class HttpDataClient implements DataClient {
   }
 
   async deleteComment(id: string): Promise<boolean> {
-    const res = await fetch(`${this.baseUrl}${API.comment(id)}`, {method: 'DELETE'});
+    const res = await this.authFetch(`${this.baseUrl}${API.comment(id)}`, {method: 'DELETE'});
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
@@ -555,7 +575,7 @@ export class HttpDataClient implements DataClient {
   }
 
   async removePlugin(id: string): Promise<boolean> {
-    const res = await fetch(`${this.baseUrl}${API.plugin(id)}`, {method: 'DELETE'});
+    const res = await this.authFetch(`${this.baseUrl}${API.plugin(id)}`, {method: 'DELETE'});
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
@@ -580,7 +600,7 @@ export class HttpDataClient implements DataClient {
     onEvent: (event: AgentChatEvent) => void,
     opts: AgentChatOptions = {},
   ): Promise<void> {
-    const res = await fetch(`${this.baseUrl}${API.agentChat}`, {
+    const res = await this.authFetch(`${this.baseUrl}${API.agentChat}`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({messages, provider: opts.provider, model: opts.model, effort: opts.effort, thinking: opts.thinking, skills: opts.skills, pageId: opts.pageId, selection: opts.selection, allowDirectEdits: opts.allowDirectEdits}),
@@ -619,7 +639,7 @@ export class HttpDataClient implements DataClient {
     onToken: (token: string) => void,
     signal?: AbortSignal,
   ): Promise<string> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await this.authFetch(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(body),
@@ -657,7 +677,7 @@ export class HttpDataClient implements DataClient {
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await this.authFetch(`${this.baseUrl}${path}`, {
       method,
       headers: body === undefined ? undefined : {'Content-Type': 'application/json'},
       body: body === undefined ? undefined : JSON.stringify(body),

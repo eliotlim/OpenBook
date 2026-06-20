@@ -21,3 +21,27 @@ export function setServerUrlOverride(url: string | null): void {
     localStorage.removeItem(SERVER_URL_KEY);
   }
 }
+
+/**
+ * Access token for a published (LAN) server connection. Paired with
+ * {@link getServerUrlOverride} when connecting to another machine's published
+ * workspace — that server requires the token on every request.
+ */
+const SERVER_TOKEN_KEY = 'openbook.serverToken';
+
+/** The configured access token for the external server, or `null`. */
+export function getServerTokenOverride(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  const value = localStorage.getItem(SERVER_TOKEN_KEY);
+  return value && value.trim().length > 0 ? value.trim() : null;
+}
+
+/** Set (or clear, with `null`) the access token. Takes effect on reload. */
+export function setServerTokenOverride(token: string | null): void {
+  if (typeof localStorage === 'undefined') return;
+  if (token && token.trim().length > 0) {
+    localStorage.setItem(SERVER_TOKEN_KEY, token.trim());
+  } else {
+    localStorage.removeItem(SERVER_TOKEN_KEY);
+  }
+}
