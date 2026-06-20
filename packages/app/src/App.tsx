@@ -9,6 +9,7 @@ import {
   DataProvider,
   DefaultLayout,
   DocumentArea,
+  ForwardingProvider,
   HudProvider,
   I18nProvider,
   NavigationProvider,
@@ -22,6 +23,7 @@ import {
 import type {BookFolderFile, DataClient, ServerInfo} from '@open-book/sdk';
 
 import {createDesktopClient} from './data/client';
+import {tauriFetch} from './data/ipc';
 import {createTauriKeyStore} from './data/keychain';
 
 import '@open-book/ui/style.css';
@@ -118,9 +120,11 @@ const platform: PlatformLibrary = {
     import: () => invoke<BookFolderFile[] | null>('import_book_folder'),
   },
   // Forwarding to *.book.pub: the site identity (incl. the Ed25519 private key)
-  // lives in the OS keychain via the Rust keychain_* commands.
+  // lives in the OS keychain via the Rust keychain_* commands, and the tunnel
+  // serves the local data server over the same IPC transport (no port).
   forwarding: {
     keyStore: createTauriKeyStore(),
+    localFetch: tauriFetch,
   },
   tabs: {inWindow: true, openWindow},
   windowControls,
@@ -166,11 +170,13 @@ function App() {
                 <NavigationProvider>
                   <WorkspaceProvider>
                     <AccountProvider>
-                      <HudProvider>
-                        <DefaultLayout>
-                          <DocumentArea />
-                        </DefaultLayout>
-                      </HudProvider>
+                      <ForwardingProvider>
+                        <HudProvider>
+                          <DefaultLayout>
+                            <DocumentArea />
+                          </DefaultLayout>
+                        </HudProvider>
+                      </ForwardingProvider>
                     </AccountProvider>
                   </WorkspaceProvider>
                 </NavigationProvider>

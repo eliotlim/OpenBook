@@ -1,5 +1,5 @@
 import React, {createContext, PropsWithChildren, useContext} from 'react';
-import type {BookFolderFile, KeyStore, ServerControls} from '@open-book/sdk';
+import type {BookFolderFile, FetchLike, KeyStore, ServerControls} from '@open-book/sdk';
 
 /** Where to open a page: a new tab or a separate new window. */
 export type NewViewTarget = 'tab' | 'window';
@@ -77,6 +77,13 @@ export interface BookFolderPlatform {
  */
 export interface ForwardingPlatform {
   keyStore: KeyStore;
+  /**
+   * The `fetch` the forwarding tunnel uses to serve inbound requests against the
+   * local data server. On the desktop this is the IPC transport, so forwarded
+   * traffic reaches the portless local server without opening a TCP port. Omit to
+   * fall back to a normal `fetch` against a real `localOrigin`.
+   */
+  localFetch?: FetchLike;
 }
 
 /**

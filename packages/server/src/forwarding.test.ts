@@ -71,3 +71,73 @@ describe('ForwardingClient.ensureSite (the provisioning toggle)', () => {
     expect((await keyStore.load())?.siteId).toBe('new');
   });
 });
+
+/** A minimal WebSocket stand-in so start() can open a tunnel without a relay. */
+function fakeWebSocket() {
+  const sockets: Array<{url: string; onmessage: ((ev: {data: unknown}) => void) | null; sent: unknown[]}> = [];
+  class FakeWS {
+    static OPEN = 1;
+    OPEN = 1;
+    readyState = 1;
+    bufferedAmount = 0;
+    binaryType = 'blob';
+    onmessage: ((ev: {data: unknown}) => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    sent: unknown[] = [];
+    url: string;
+    constructor(url: string) {
+      this.url = url;
+      sockets.push(this);
+    }
+    send(data: unknown): void {
+      this.sent.push(data);
+    }
+    close(): void {
+      this.onclose?.();
+    }
+  }
+  return {ctor: FakeWS as unknown as typeof WebSocket, sockets};
+}
+
+describe('ForwardingClient.start (live serving)', () => {
+  it('uses fetchImpl for the account API and localFetchImpl for forwarding', async () => {
+    const kp = await mintSiteKeypair();
+    const accountCalls: string[] = [];
+    const accountFetch: typeof fetch = async (input) => {
+      const path = new URL(String(input)).pathname;
+      accountCalls.push(path);
+      if (path === '/api/sites') return json({site: {id: 's1', prefix: 'p', host: 'p.book.pub', publicKey: kp.publicKey}, privateKey: kp.privateKey}, 201);
+      if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
+      if (path === '/api/sites/attach-ticket') return json({ticket: 'TICKET', relayBase: 'wss://relay.book.pub', host: 'p.book.pub', region: 'iad1'});
+      throw new Error(`unexpected ${path}`);
+    };
+    const localCalls: string[] = [];
+    const localFetch: typeof fetch = async (input) => {
+      localCalls.push(String(input));
+      return new Response('[]', {status: 200});
+    };
+
+    const ws = fakeWebSocket();
+    const client = new ForwardingClient({
+      accountUrl: 'https://account.book.pub',
+      authToken: 'tok',
+      keyStore: new MemoryKeyStore(),
+      localOrigin: '',
+      fetchImpl: accountFetch,
+      localFetchImpl: localFetch,
+      webSocketImpl: ws.ctor,
+    });
+
+    const {host} = await client.start();
+    expect(host).toBe('p.book.pub');
+    expect(accountCalls).toContain('/api/sites/attach-ticket');
+    expect(ws.sockets[0].url).toBe('wss://relay.book.pub/__tunnel');
+
+    // The relay pushes an inbound request → the tunnel must serve it via the
+    // LOCAL fetch (IPC), never the account fetch.
+    ws.sockets[0].onmessage?.({data: JSON.stringify({t: 'req', id: 1, method: 'GET', path: '/api/pages', headers: []})});
+    await new Promise((r) => setTimeout(r, 0));
+    expect(localCalls).toEqual(['/api/pages']);
+  });
+});

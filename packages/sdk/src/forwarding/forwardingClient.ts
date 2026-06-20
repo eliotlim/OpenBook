@@ -10,6 +10,7 @@
 // Runtime-agnostic (fetch + WebSocket globals); no Node-only APIs, so it runs in
 // the Tauri webview or a sidecar alike.
 
+import type {FetchLike} from '../client';
 import {buildAttachMessage, buildReattachMessage} from './challenge';
 import {signWithSiteKey} from './siteKey';
 import {TunnelClient, type TunnelStatus} from './tunnelClient';
@@ -50,19 +51,28 @@ export interface ForwardingClientOptions {
   /** A device bearer token for the account API (the desktop already holds one). */
   authToken: string;
   keyStore: KeyStore;
-  /** Local OpenBook data-server origin to forward, e.g. http://127.0.0.1:4317. */
+  /** Local OpenBook data-server origin to forward, e.g. http://127.0.0.1:4317, or
+   *  '' when {@link localFetchImpl} resolves paths itself (the desktop IPC transport). */
   localOrigin: string;
   /** The cell to attach in (nearest region). Defaults to the platform home cell. */
   region?: string;
   onStatus?: (status: TunnelStatus) => void;
-  fetchImpl?: typeof fetch;
+  /** `fetch` for the account API (account.book.pub). Defaults to the global fetch. */
+  fetchImpl?: FetchLike;
+  /**
+   * `fetch` the tunnel uses to serve inbound requests against the local origin.
+   * Distinct from {@link fetchImpl} so the desktop can route the account API to
+   * account.book.pub (global fetch) while the tunnel forwards to the *portless*
+   * local server over its IPC transport. Defaults to {@link fetchImpl}.
+   */
+  localFetchImpl?: FetchLike;
   webSocketImpl?: typeof WebSocket;
 }
 
 export class ForwardingClient {
   private tunnel?: TunnelClient;
   private identity?: SiteIdentity;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchLike;
 
   constructor(private readonly opts: ForwardingClientOptions) {
     this.fetchImpl = opts.fetchImpl ?? fetch;
@@ -148,7 +158,9 @@ export class ForwardingClient {
       privateKey: id.privateKey,
       localOrigin: this.opts.localOrigin,
       onStatus: this.opts.onStatus,
-      fetchImpl: this.opts.fetchImpl,
+      // The tunnel forwards to the LOCAL server; the desktop routes that over IPC
+      // (no port), separate from the account API's global fetch.
+      fetchImpl: this.opts.localFetchImpl ?? this.opts.fetchImpl,
       webSocketImpl: this.opts.webSocketImpl,
     });
     this.tunnel.start();

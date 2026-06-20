@@ -1,89 +1,61 @@
 import {useCallback, useEffect, useState} from 'react';
-import {ForwardingClient, getServerUrlOverride, setServerUrlOverride, type ServerInfo, type SiteIdentity} from '@open-book/sdk';
-import {useAccount, usePlatformLibrary, useTranslation} from '@/providers';
+import {getServerUrlOverride, setServerUrlOverride, type ServerInfo} from '@open-book/sdk';
+import {useAccount, useForwarding, usePlatformLibrary, useTranslation, type ForwardingStatus} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Switch} from '@/components/ui/switch';
 import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
 
-const FORWARDING_ENABLED_KEY = 'openbook.forwarding.enabled';
+/** The live tunnel status as a small coloured label next to the toggle. */
+function ForwardingStatusBadge({status}: {status: ForwardingStatus}) {
+  const {t} = useTranslation();
+  if (status === 'online') {
+    return <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">● {t('forwarding.status.live')}</span>;
+  }
+  if (status === 'connecting' || status === 'reconnecting') {
+    return <span className="text-xs font-medium text-amber-600 dark:text-amber-400">○ {t('forwarding.status.connecting')}</span>;
+  }
+  return <span className="text-xs text-muted-foreground">○ {t('forwarding.status.offline')}</span>;
+}
 
 /**
  * Forward this device to a private `✦.book.pub` address (desktop only). Flipping
- * it on creates the device's Ed25519 site key (kept in the OS keychain) and
- * registers the site on account.book.pub — `ForwardingClient.ensureSite()`,
- * authed by the account device token. The site key is preserved when off, so the
- * address stays stable across re-enables.
+ * it on creates the device's Ed25519 site key (kept in the OS keychain), registers
+ * the site, and opens the reverse tunnel that serves this device's books over IPC
+ * (no port). The tunnel is owned by {@link ForwardingProvider}, so it keeps
+ * running when this panel closes; here we just drive it and show status.
  */
 function ForwardingSection() {
-  const {forwarding} = usePlatformLibrary();
-  const {connected, token, accountUrl, signIn} = useAccount();
+  const {supported, enabled, status, host, busy, error, enable, disable} = useForwarding();
+  const {connected} = useAccount();
   const {t} = useTranslation();
-
-  const [identity, setIdentity] = useState<SiteIdentity | null>(null);
-  const [enabled, setEnabled] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    if (!forwarding) return;
-    forwarding.keyStore.load().then(setIdentity).catch(() => undefined);
-    setEnabled(typeof localStorage !== 'undefined' && localStorage.getItem(FORWARDING_ENABLED_KEY) === '1');
-  }, [forwarding]);
-
-  const onToggle = useCallback(
-    async (next: boolean) => {
-      if (!forwarding) return;
-      if (!next) {
-        // Keep the site key so re-enabling reuses the same address; just record intent.
-        setEnabled(false);
-        localStorage.setItem(FORWARDING_ENABLED_KEY, '0');
-        return;
-      }
-      if (!connected || !token) {
-        signIn(); // can't claim an address without an account — start sign-in
-        return;
-      }
-      setBusy(true);
-      setError(null);
-      try {
-        const client = new ForwardingClient({accountUrl, authToken: token, keyStore: forwarding.keyStore, localOrigin: ''});
-        const site = await client.ensureSite();
-        setIdentity(site);
-        setEnabled(true);
-        localStorage.setItem(FORWARDING_ENABLED_KEY, '1');
-      } catch (e) {
-        setError(t('forwarding.failed', {error: e instanceof Error ? e.message : String(e)}));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [forwarding, connected, token, accountUrl, signIn, t],
-  );
-
   const copyAddress = useCallback(() => {
-    if (!identity) return;
-    void navigator.clipboard?.writeText(`https://${identity.host}`);
+    if (!host) return;
+    void navigator.clipboard?.writeText(`https://${host}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  }, [identity]);
+  }, [host]);
 
-  if (!forwarding) return null; // desktop-only affordance
+  if (!supported) return null; // desktop-only affordance
 
   return (
     <SettingsSection title={t('forwarding.title')}>
       <p className="text-sm text-muted-foreground">{t('forwarding.description')}</p>
       <label className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
-        <span className="text-sm font-medium">{busy ? t('forwarding.registering') : t('forwarding.toggle')}</span>
-        <Switch checked={enabled} disabled={busy} onCheckedChange={(v) => void onToggle(v)} />
+        <span className="flex items-center gap-2 text-sm font-medium">
+          {busy ? t('forwarding.registering') : t('forwarding.toggle')}
+          {enabled && !busy && <ForwardingStatusBadge status={status} />}
+        </span>
+        <Switch checked={enabled} disabled={busy} onCheckedChange={(v) => void (v ? enable() : disable())} />
       </label>
       {!connected && <p className="text-xs text-muted-foreground">{t('forwarding.signInHint')}</p>}
-      {identity && (
+      {host && (
         <SettingsField label={t('forwarding.address')} className="max-w-lg">
           <div className="flex items-center gap-2">
             <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
-              https://{identity.host}
+              https://{host}
             </code>
             <Button variant="outline" size="sm" onClick={copyAddress}>
               {copied ? t('forwarding.copied') : t('forwarding.copy')}
