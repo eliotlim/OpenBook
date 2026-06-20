@@ -6,24 +6,11 @@ import {Input} from '@/components/ui/input';
 import {Switch} from '@/components/ui/switch';
 import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
 
-/** Wait for a (re)started server to answer /health, so a reload reconnects cleanly. */
-async function waitForHealth(address: string | null | undefined, timeoutMs = 12000): Promise<void> {
-  if (!address) return;
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      if ((await fetch(`${address}/health`, {cache: 'no-store'})).ok) return;
-    } catch {
-      // not up yet
-    }
-    await new Promise((r) => setTimeout(r, 300));
-  }
-}
-
 /**
- * Server connection: connect to a remote server, or (on the desktop) start/stop
- * the bundled local server. Changing the connection reloads the app so the data
- * client re-initializes against the new target.
+ * Server connection: connect to a remote server, or (on the desktop) manage the
+ * local server's network sharing. The desktop keeps its books in an always-on
+ * local server reached over IPC; connecting to a remote server reloads the app
+ * so the data client re-initializes against the new target.
  */
 export default function ConnectionSettings() {
   const {serverControls} = usePlatformLibrary();
@@ -66,20 +53,19 @@ export default function ConnectionSettings() {
     setTimeout(() => setCopied((c) => (c === label ? null : c)), 1500);
   }, []);
 
-  // Publishing changes whether the server requires a token, so the local client
-  // must reconnect — restart, wait for health, then reload (like connect-remote).
+  // Publishing only toggles the LAN listener; the local UI keeps its IPC
+  // connection (which transparently reconnects across the server respawn), so
+  // there's nothing to reload.
   const togglePublish = useCallback(
     async (enabled: boolean) => {
       if (!serverControls?.publish) return;
       setBusy(true);
       setError(null);
       try {
-        const next = await serverControls.publish(enabled);
-        setInfo(next);
-        await waitForHealth(next.address);
-        if (typeof window !== 'undefined') window.location.reload();
+        setInfo(await serverControls.publish(enabled));
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
+      } finally {
         setBusy(false);
       }
     },
@@ -134,9 +120,9 @@ export default function ConnectionSettings() {
       {serverControls && !connected && (
         <SettingsSection title={t('connection.inApp')}>
           <p className="text-sm text-muted-foreground">{t('connection.inAppDescription')}</p>
-          {info?.published && info.running && (
+          {info?.published && info.running && info.lanAddress && (
             <p className="text-xs text-muted-foreground">
-              {t('connection.running')} <code>{info.address}</code>.
+              {t('connection.running')} <code>{info.lanAddress}</code>.
             </p>
           )}
         </SettingsSection>

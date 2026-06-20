@@ -21,7 +21,7 @@ import {
 } from '@open-book/ui';
 import type {BookFolderFile, DataClient, ServerInfo} from '@open-book/sdk';
 
-import {createDesktopClient, togglePublish} from './data/client';
+import {createDesktopClient} from './data/client';
 
 import '@open-book/ui/style.css';
 
@@ -101,12 +101,10 @@ function parseAuthCallback(raw: string): {token: string; state: string} | null {
 const platform: PlatformLibrary = {
   serverControls: {
     info: () => invoke<ServerInfo>('server_info'),
-    start: () => invoke<ServerInfo>('start_server'),
-    stop: () => invoke<ServerInfo>('stop_server'),
-    // Publish the instance on the LAN. Carries the workspace across the move
-    // (in-app store ⇄ the LAN sidecar) before the app reloads onto the new
-    // target; binds 0.0.0.0 + requires the token.
-    publish: (enabled: boolean) => togglePublish(enabled),
+    // Publish on the LAN: the local server *also* binds 0.0.0.0 + requires the
+    // token. The local UI keeps using IPC, so there's no client switch — only the
+    // LAN listener toggles.
+    publish: (enabled: boolean) => invoke<ServerInfo>('publish_server', {enabled}),
     // Native folder picker / reveal for the on-disk book mirror.
     chooseBookDir: () => invoke<ServerInfo>('choose_book_dir'),
     revealBookDir: () => invoke<void>('reveal_book_dir'),

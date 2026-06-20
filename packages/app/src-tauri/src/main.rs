@@ -3,19 +3,20 @@
 
 //! The OpenBook desktop host.
 //!
-//! The desktop is **in-app by default**: the data layer runs inside the webview
-//! on an embedded PGlite store (IndexedDB), so there is no local server and no
-//! open port. A port is opened only when the user **publishes** their instance
-//! on the LAN — the host then spawns the bundled `@open-book/server` sidecar
-//! (bound `0.0.0.0`, access-token required) and the webview connects to it over
-//! HTTP, with the workspace handed across on the JS side. Toggling publish off
-//! stops the sidecar and the app returns to the in-app store.
+//! The desktop runs the durable local `@open-book/server` (real-disk PGlite + the
+//! on-disk book mirror) and reaches it over **IPC**: the sidecar listens on a
+//! Unix domain socket — **no TCP port** — and the webview tunnels requests and
+//! the live feed through this host (see `ipc.rs`). A port is opened only when the
+//! user **publishes** on the LAN: the sidecar then *also* binds `0.0.0.0` with an
+//! access token, while the local UI keeps using IPC. No data hand-off is needed —
+//! the server is the single canonical store in every mode.
 //!
-//! These commands let the frontend inspect/control that optional server and read
-//! or write the human-readable book folder. Publishing is release-only (it needs
-//! the bundled sidecar binary); in `tauri dev` the host is unmanaged and publish
-//! is a no-op. Preferences (publish, token, book folder) persist in
-//! `host-config.json` under the app-data dir.
+//! Publishing is release-only (it needs the bundled sidecar binary); in `tauri
+//! dev` the host is unmanaged and the webview talks to the external `pnpm dev`
+//! server over loopback instead. Preferences (publish, token, book folder)
+//! persist in `host-config.json` under the app-data dir.
+
+mod ipc;
 
 use std::io::Read;
 use std::net::UdpSocket;
@@ -28,15 +29,14 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 const DEFAULT_PORT: &str = "4319";
-const LOOPBACK_URL: &str = "http://127.0.0.1:4319";
 
 /// Persisted host preferences (`host-config.json`). Controls how the sidecar is
 /// spawned when publishing: the access token required on the LAN, and where the
-/// on-disk book mirror is written while published.
+/// on-disk book mirror is written.
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct HostConfig {
-    /// Publish on the LAN (bind `0.0.0.0` + require the token). Off by default.
+    /// Publish on the LAN (also bind `0.0.0.0` + require the token). Off by default.
     published: bool,
     /// Access token required by every client when published (minted on demand).
     access_token: String,
@@ -45,14 +45,19 @@ struct HostConfig {
 }
 
 struct AppState {
-    /// The running sidecar process, if any (None in-app, in dev, or when stopped).
+    /// The running sidecar process (always present in release; None in dev).
     child: Mutex<Option<CommandChild>>,
-    /// App-data directory passed to the embedded server when published.
+    /// App-data directory passed to the embedded server.
     data_dir: String,
+    /// Unix socket the server listens on (the portless IPC transport).
+    socket_path: String,
+    /// Loopback TCP port used to reach the server on platforms without Unix
+    /// sockets (Windows). Unused on Unix.
+    local_port: u16,
     /// Persisted preferences + where they live on disk.
     config: Mutex<HostConfig>,
     config_path: PathBuf,
-    /// Whether this host can manage a server lifecycle (true in release builds,
+    /// Whether this host manages the server lifecycle (true in release builds,
     /// where the sidecar binary is bundled). Publishing requires it.
     managed: bool,
 }
@@ -123,9 +128,6 @@ fn build_info(state: &AppState) -> ServerInfo {
         (cfg.published, cfg.access_token.clone(), cfg.book_dir.clone())
     };
     let running = state.child.lock().unwrap().is_some();
-    // The local UI always reaches a running sidecar over loopback, even when it's
-    // published (bound to 0.0.0.0); `lan_address` carries the shareable URL.
-    let address = if running { Some(LOOPBACK_URL.to_string()) } else { None };
     let lan_address = if published && running {
         lan_ip().map(|ip| format!("http://{ip}:{DEFAULT_PORT}"))
     } else {
@@ -133,7 +135,9 @@ fn build_info(state: &AppState) -> ServerInfo {
     };
     ServerInfo {
         running,
-        address,
+        // The local UI reaches the server over IPC, not an HTTP address; the
+        // shareable URL (when published) is `lan_address`.
+        address: None,
         managed: state.managed,
         published,
         lan_address,
@@ -142,23 +146,45 @@ fn build_info(state: &AppState) -> ServerInfo {
     }
 }
 
-/// Spawn the server sidecar from the current config (used only while published).
-/// Binds `0.0.0.0` + an access token; the on-disk book mirror writes to `book_dir`.
-fn spawn_sidecar(app: &AppHandle, data_dir: &str, cfg: &HostConfig) -> Result<CommandChild, String> {
-    let host = if cfg.published { "0.0.0.0" } else { "127.0.0.1" };
+/// Spawn the server sidecar from the current config. It always listens on the
+/// Unix socket (the portless IPC transport); when published it *also* binds
+/// `0.0.0.0` with the access token for LAN access.
+fn spawn_sidecar(app: &AppHandle, data_dir: &str, socket_path: &str, cfg: &HostConfig) -> Result<CommandChild, String> {
+    #[cfg(not(unix))]
+    let _ = socket_path;
+
     let mut args: Vec<String> = vec![
         "--data-dir".into(),
         data_dir.into(),
         "--book-dir".into(),
         cfg.book_dir.clone(),
-        "--host".into(),
-        host.into(),
-        "--port".into(),
-        DEFAULT_PORT.into(),
     ];
-    if cfg.published && !cfg.access_token.is_empty() {
-        args.push("--access-token".into());
-        args.push(cfg.access_token.clone());
+
+    #[cfg(unix)]
+    {
+        args.push("--socket".into());
+        args.push(socket_path.to_string());
+    }
+
+    if cfg.published {
+        args.push("--host".into());
+        args.push("0.0.0.0".into());
+        args.push("--port".into());
+        args.push(DEFAULT_PORT.into());
+        if !cfg.access_token.is_empty() {
+            args.push("--access-token".into());
+            args.push(cfg.access_token.clone());
+        }
+    }
+
+    // No Unix sockets here — serve a loopback TCP port so the host bridge has a
+    // target even when not published (named-pipe support is a follow-up).
+    #[cfg(not(unix))]
+    if !cfg.published {
+        args.push("--host".into());
+        args.push("127.0.0.1".into());
+        args.push("--port".into());
+        args.push(DEFAULT_PORT.into());
     }
 
     let (mut rx, child) = app
@@ -185,8 +211,9 @@ fn spawn_sidecar(app: &AppHandle, data_dir: &str, cfg: &HostConfig) -> Result<Co
     Ok(child)
 }
 
-/// Stop the running sidecar (if any) and spawn a fresh one from the current
-/// config — used when publishing turns on or the book folder changes mid-publish.
+/// Stop the running sidecar and spawn a fresh one from the current config — used
+/// when publishing toggles or the book folder changes. The socket is rebound, so
+/// the host bridge and IPC requests reconnect across the brief gap.
 fn respawn(app: &AppHandle, state: &AppState) -> Result<(), String> {
     // Snapshot the config and release its lock before taking `child`, keeping a
     // single lock order (config → child) everywhere to avoid deadlock.
@@ -195,7 +222,7 @@ fn respawn(app: &AppHandle, state: &AppState) -> Result<(), String> {
     if let Some(child) = guard.take() {
         stop_server_child(child);
     }
-    *guard = Some(spawn_sidecar(app, &state.data_dir, &cfg)?);
+    *guard = Some(spawn_sidecar(app, &state.data_dir, &state.socket_path, &cfg)?);
     Ok(())
 }
 
@@ -204,33 +231,10 @@ fn server_info(state: State<AppState>) -> ServerInfo {
     build_info(&state)
 }
 
-/// Spawn the (loopback) sidecar on demand — the legacy "run a local server"
-/// path. The default experience is in-app, so this is rarely used; publishing is
-/// the usual reason to open a port.
-#[tauri::command]
-fn start_server(app: AppHandle, state: State<AppState>) -> Result<ServerInfo, String> {
-    if state.managed && state.child.lock().unwrap().is_none() {
-        let cfg = state.config.lock().unwrap().clone();
-        let child = spawn_sidecar(&app, &state.data_dir, &cfg)?;
-        *state.child.lock().unwrap() = Some(child);
-    }
-    Ok(build_info(&state))
-}
-
-#[tauri::command]
-fn stop_server(state: State<AppState>) -> Result<ServerInfo, String> {
-    if state.managed {
-        if let Some(child) = state.child.lock().unwrap().take() {
-            stop_server_child(child);
-        }
-    }
-    Ok(build_info(&state))
-}
-
 /// Publish (or unpublish) this instance on the LAN. Enabling mints a token (once)
-/// and spawns the sidecar bound to `0.0.0.0`; disabling stops it and the app
-/// returns to the in-app store. The workspace hand-off (in-app ⇄ sidecar) is the
-/// JS caller's job — it has both stores; this only owns the process lifecycle.
+/// and respawns the server so it *also* binds `0.0.0.0`; disabling respawns it
+/// socket-only. The local UI uses IPC throughout, so there is no data hand-off
+/// and no client switch — only the LAN listener changes.
 #[tauri::command]
 fn publish_server(app: AppHandle, state: State<AppState>, enabled: bool) -> Result<ServerInfo, String> {
     if !state.managed {
@@ -244,17 +248,13 @@ fn publish_server(app: AppHandle, state: State<AppState>, enabled: bool) -> Resu
         }
         save_config(&state.config_path, &cfg);
     }
-    if enabled {
-        respawn(&app, &state)?;
-    } else if let Some(child) = state.child.lock().unwrap().take() {
-        stop_server_child(child);
-    }
+    respawn(&app, &state)?;
     Ok(build_info(&state))
 }
 
 /// Open a native folder picker for the book-mirror directory. Persists the choice
-/// and, only if a server is currently running (published), restarts it so the
-/// mirror re-points. Async so the (blocking) dialog runs off the main thread.
+/// and restarts the server so the mirror re-points. Async so the (blocking)
+/// dialog runs off the main thread.
 #[tauri::command]
 async fn choose_book_dir(app: AppHandle, state: State<'_, AppState>) -> Result<ServerInfo, String> {
     use tauri_plugin_dialog::DialogExt;
@@ -268,7 +268,7 @@ async fn choose_book_dir(app: AppHandle, state: State<'_, AppState>) -> Result<S
                 cfg.book_dir = dir;
                 save_config(&state.config_path, &cfg);
             }
-            if state.child.lock().unwrap().is_some() {
+            if state.managed {
                 respawn(&app, &state)?;
             }
         }
@@ -403,15 +403,30 @@ fn main() {
             }
             std::fs::create_dir_all(&config.book_dir).ok();
 
-            // In-app by default: no sidecar, no port at startup. Publishing spawns
-            // one on demand, and the in-app store stays canonical — so a relaunch
-            // always starts unpublished (a prior publish never auto-resumes).
+            // The server always listens on this socket (portless IPC). Publishing
+            // never auto-resumes across a relaunch — the LAN bind is opt-in each run.
+            let socket_path = Path::new(&data_dir).join("openbook.sock").to_string_lossy().to_string();
+            let local_port: u16 = 4319;
             config.published = false;
             let managed = !cfg!(debug_assertions);
 
+            // Release: run the durable server over the socket and start the live
+            // bridge. Dev: the webview talks to the external `pnpm dev` server.
+            let mut child = None;
+            if managed {
+                let handle = app.handle().clone();
+                child = Some(spawn_sidecar(&handle, &data_dir, &socket_path, &config)?);
+                ipc::start_live_bridge(
+                    handle.clone(),
+                    ipc::ConnInfo { socket_path: socket_path.clone(), local_port },
+                );
+            }
+
             app.manage(AppState {
-                child: Mutex::new(None),
+                child: Mutex::new(child),
                 data_dir,
+                socket_path,
+                local_port,
                 config: Mutex::new(config),
                 config_path,
                 managed,
@@ -427,13 +442,12 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             server_info,
-            start_server,
-            stop_server,
             publish_server,
             choose_book_dir,
             reveal_book_dir,
             export_book_folder,
-            import_book_folder
+            import_book_folder,
+            ipc::api_request
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

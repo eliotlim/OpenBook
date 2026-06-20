@@ -141,10 +141,13 @@ export interface ServerInfo {
  */
 export interface ServerControls {
   info(): Promise<ServerInfo>;
-  start(): Promise<ServerInfo>;
-  stop(): Promise<ServerInfo>;
-  /** Publish (or unpublish) the server on the LAN — binds beyond loopback and
-   *  requires the access token. Restarts the server; resolves the new status. */
+  /** Legacy lifecycle hooks. The desktop now keeps the local server always-on
+   *  over IPC, so these are optional and unused there. */
+  start?(): Promise<ServerInfo>;
+  stop?(): Promise<ServerInfo>;
+  /** Publish (or unpublish) the server on the LAN — adds the `0.0.0.0` bind and
+   *  requires the access token. The local UI keeps using IPC; resolves the new
+   *  status. */
   publish?(enabled: boolean): Promise<ServerInfo>;
   /** Open a native folder picker to choose the book-mirror directory. Resolves
    *  the new status (with the chosen `bookDir`), or unchanged if cancelled. */
