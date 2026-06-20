@@ -3,6 +3,17 @@ export {emptyPageSnapshot} from './types';
 export {API, type ApiError} from './routes';
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions} from './client';
 export {HttpDataClient} from './client';
+export {
+  ForwardingClient,
+  TunnelClient,
+  MemoryKeyStore,
+  mintSiteKeypair,
+  signWithSiteKey,
+  type KeyStore,
+  type SiteIdentity,
+  type ForwardingClientOptions,
+  type TunnelStatus,
+} from './forwarding';
 export type {
   DatabasePropertyType,
   NumberFormat,
