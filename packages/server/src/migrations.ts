@@ -1,4 +1,4 @@
-import type {Db} from './db';
+import type {Db} from './dbCore';
 
 interface Migration {
   name: string;

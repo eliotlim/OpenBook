@@ -1,7 +1,7 @@
 import {serve} from '@hono/node-server';
 import type {PGliteOptions} from '@electric-sql/pglite';
 import {createApp} from './app';
-import {type Db, PgliteDb, PostgresDb} from './db';
+import {type Db, createPgliteDb, PostgresDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {BookMirror} from './mirror';
@@ -82,7 +82,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     if (!opts.dataDir) {
       throw new Error('startServer: provide either `databaseUrl` (server) or `dataDir` (embedded)');
     }
-    db = await PgliteDb.create(opts.dataDir, opts.pgliteAssets);
+    db = await createPgliteDb(opts.dataDir, opts.pgliteAssets);
   }
 
   const store = new PageStore(db);

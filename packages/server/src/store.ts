@@ -1,4 +1,4 @@
-import {randomUUID} from 'node:crypto';
+import {randomUUID} from './uuid';
 import type {
   CommentInput,
   CommentRun,
@@ -22,7 +22,7 @@ import type {
   SuggestionUpdate,
 } from '@open-book/sdk';
 import {emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@open-book/sdk';
-import type {Db} from './db';
+import type {Db} from './dbCore';
 import {runMigrations} from './migrations';
 
 /** Raw row shape returned by the database. */
