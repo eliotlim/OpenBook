@@ -83,7 +83,7 @@ export class ForwardingClient {
   }
 
   private get region(): string {
-    return this.opts.region ?? 'iad1';
+    return this.opts.region ?? 'sin1';
   }
 
   private async api<T>(path: string, body: unknown): Promise<T> {
