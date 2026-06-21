@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react';
-import {getServerUrlOverride, setServerUrlOverride, type ServerInfo} from '@open-book/sdk';
+import {getServerUrlOverride, setServerUrlOverride, isMixedContentBlocked, type ServerInfo} from '@open-book/sdk';
 import {useAccount, useForwarding, usePlatformLibrary, useTranslation, type ForwardingStatus} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -135,7 +135,15 @@ export default function ConnectionSettings() {
     [serverControls],
   );
 
+  // An https page (e.g. app.book.pub) can't reach a plain http:// LAN server —
+  // the browser blocks it as mixed content before CORS is even considered. Warn
+  // and guard rather than let it fail with an opaque console error.
+  const trimmedRemote = remoteUrl.trim();
+  const remoteBlocked = isMixedContentBlocked(trimmedRemote);
+  const connectedBlocked = !!connected && isMixedContentBlocked(connected);
+
   const connectRemote = useCallback(() => {
+    if (isMixedContentBlocked(remoteUrl.trim())) return; // guarded; the warning explains why
     setServerUrlOverride(remoteUrl.trim() || null);
     if (typeof window !== 'undefined') window.location.reload();
   }, [remoteUrl]);
@@ -172,8 +180,13 @@ export default function ConnectionSettings() {
             onChange={(e) => setRemoteUrl(e.target.value)}
           />
         </SettingsField>
+        {(remoteBlocked || connectedBlocked) && (
+          <p className="max-w-lg rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
+            {t('connection.mixedContentWarning')}
+          </p>
+        )}
         <div className="flex gap-2">
-          <Button onClick={connectRemote} disabled={!remoteUrl.trim() || remoteUrl.trim() === connected}>
+          <Button onClick={connectRemote} disabled={!trimmedRemote || trimmedRemote === connected || remoteBlocked}>
             {t('connection.connect')}
           </Button>
           <Button variant="outline" onClick={useLocal} disabled={!connected}>

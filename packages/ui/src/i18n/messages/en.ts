@@ -820,6 +820,8 @@ export const en = {
     usingRemote: 'Currently using the remote server',
     remoteUrl: 'Remote server URL',
     remoteUrlPlaceholder: 'https://my-server.example:4319',
+    mixedContentWarning:
+      'This is a secure (https) site, so it can’t reach a plain http:// address on your local network — the browser blocks it. Use the device’s https ✦.book.pub forwarding address instead (turn on Forwarding in the OpenBook app on that device), or open OpenBook directly on the same machine.',
     connect: 'Connect',
     useLocal: 'Use this app',
     inApp: 'Storage',
