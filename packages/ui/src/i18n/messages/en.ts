@@ -822,6 +822,8 @@ export const en = {
     remoteUrlPlaceholder: 'https://my-server.example:4319',
     mixedContentWarning:
       'This is a secure (https) site, so it can’t reach a plain http:// address on your local network — the browser blocks it. Use the device’s https ✦.book.pub forwarding address instead (turn on Forwarding in the OpenBook app on that device), or open OpenBook directly on the same machine.',
+    remoteTokenPlaceholder: 'Only if the server requires one',
+    remoteTokenHint: 'A published or shared server requires its access token; leave blank for an open server.',
     connect: 'Connect',
     useLocal: 'Use this app',
     inApp: 'Storage',

@@ -1,5 +1,12 @@
 import {useCallback, useEffect, useState} from 'react';
-import {getServerUrlOverride, setServerUrlOverride, isMixedContentBlocked, type ServerInfo} from '@open-book/sdk';
+import {
+  getServerUrlOverride,
+  setServerUrlOverride,
+  getServerTokenOverride,
+  setServerTokenOverride,
+  isMixedContentBlocked,
+  type ServerInfo,
+} from '@open-book/sdk';
 import {useAccount, useForwarding, usePlatformLibrary, useTranslation, type ForwardingStatus} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
@@ -82,6 +89,7 @@ export default function ConnectionSettings() {
 
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [remoteUrl, setRemoteUrl] = useState(connected ?? '');
+  const [remoteToken, setRemoteToken] = useState(getServerTokenOverride() ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -144,12 +152,16 @@ export default function ConnectionSettings() {
 
   const connectRemote = useCallback(() => {
     if (isMixedContentBlocked(remoteUrl.trim())) return; // guarded; the warning explains why
+    // Persist the token first so it's in place when the reload re-creates the
+    // data client against the new server (a published server needs it per request).
+    setServerTokenOverride(remoteToken.trim() || null);
     setServerUrlOverride(remoteUrl.trim() || null);
     if (typeof window !== 'undefined') window.location.reload();
-  }, [remoteUrl]);
+  }, [remoteUrl, remoteToken]);
 
   const useLocal = useCallback(() => {
     setServerUrlOverride(null);
+    setServerTokenOverride(null);
     if (typeof window !== 'undefined') window.location.reload();
   }, []);
 
@@ -179,6 +191,20 @@ export default function ConnectionSettings() {
             spellCheck={false}
             onChange={(e) => setRemoteUrl(e.target.value)}
           />
+        </SettingsField>
+        <SettingsField label={t('connection.accessToken')} htmlFor="remote-token" className="max-w-lg">
+          <Input
+            id="remote-token"
+            type="password"
+            value={remoteToken}
+            placeholder={t('connection.remoteTokenPlaceholder')}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            onChange={(e) => setRemoteToken(e.target.value)}
+          />
+          <p className="mt-1 text-xs text-muted-foreground">{t('connection.remoteTokenHint')}</p>
         </SettingsField>
         {(remoteBlocked || connectedBlocked) && (
           <p className="max-w-lg rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">

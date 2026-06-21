@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useState} from 'react';
 import Head from 'next/head';
-import {HttpDataClient, getServerUrlOverride, type DataClient} from '@open-book/sdk';
+import {HttpDataClient, getServerUrlOverride, getServerTokenOverride, type DataClient} from '@open-book/sdk';
 import {
   DataProvider,
   DefaultLayout,
@@ -36,7 +36,9 @@ function useWebClient(): DataClient | null {
   useEffect(() => {
     const override = getServerUrlOverride() ?? REMOTE_SERVER_URL;
     if (override) {
-      setClient(new HttpDataClient(override));
+      // A published server requires its access token on every request; pass the
+      // configured one (Connection settings) so a token-gated remote works.
+      setClient(new HttpDataClient(override, getServerTokenOverride() ?? undefined));
       return;
     }
     let cancelled = false;
