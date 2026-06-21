@@ -1,3 +1,38 @@
+## 1.59.0 (2026-06-21)
+
+### 🚀 Features
+
+- in-webview data layer (LocalDataClient + browser entry) ([eee1eb7](https://github.com/eliotlim/OpenBook/commit/eee1eb7))
+- shared folder serialisation (spaceToBookFiles) ([8c1a0b1](https://github.com/eliotlim/OpenBook/commit/8c1a0b1))
+- web runs in-webview pglite + book folder export/import ([996076c](https://github.com/eliotlim/OpenBook/commit/996076c))
+- desktop runs in-app by default, port only on publish ([d4866ce](https://github.com/eliotlim/OpenBook/commit/d4866ce))
+- forward-to-web toggle (device key + site registration) ([35d34a2](https://github.com/eliotlim/OpenBook/commit/35d34a2))
+- forward live — serve the local server over the relay tunnel (no port) ([f5cb470](https://github.com/eliotlim/OpenBook/commit/f5cb470))
+- **account:** paste-a-code sign-in fallback for when the deep link can't fire ([1b3d616](https://github.com/eliotlim/OpenBook/commit/1b3d616))
+- **app:** publishable LAN server + book-folder picker in the Tauri host ([3054ef0](https://github.com/eliotlim/OpenBook/commit/3054ef0))
+- **connection:** access-token field for direct remote-server connections ([555e23c](https://github.com/eliotlim/OpenBook/commit/555e23c))
+- **desktop:** durable book-file mirror + single-owner store (OB-128) ([7e85a36](https://github.com/eliotlim/OpenBook/commit/7e85a36))
+- **desktop:** reach the durable local server over IPC, port only on publish ([cd7eb34](https://github.com/eliotlim/OpenBook/commit/cd7eb34))
+- **sdk:** make HttpDataClient transport-pluggable ([1934509](https://github.com/eliotlim/OpenBook/commit/1934509))
+- **sdk:** port the forwarding client + protocol core from open.book.pub ([16fb542](https://github.com/eliotlim/OpenBook/commit/16fb542))
+- **server:** listen on a unix domain socket (portless desktop ipc) ([ee80a75](https://github.com/eliotlim/OpenBook/commit/ee80a75))
+- **server,sdk:** access-token auth for a published LAN server ([98e5476](https://github.com/eliotlim/OpenBook/commit/98e5476))
+- **ui:** mobile sidebar opens as an overlay instead of squishing the page ([4de6dd1](https://github.com/eliotlim/OpenBook/commit/4de6dd1))
+- **ui:** rock-type grays, always-on tint, in-house icon picker, configurable blur ([044f471](https://github.com/eliotlim/OpenBook/commit/044f471))
+- **ui,app:** settings sharing panel + token-aware desktop client ([bd53342](https://github.com/eliotlim/OpenBook/commit/bd53342))
+
+### 🩹 Fixes
+
+- **connection:** warn on mixed-content remote URLs instead of failing silently ([4c4a18d](https://github.com/eliotlim/OpenBook/commit/4c4a18d))
+- **forwarding:** send the site routing hint on the relay tunnel WS ([04039f0](https://github.com/eliotlim/OpenBook/commit/04039f0))
+- **forwarding:** mint a fresh attach ticket per (re)connect ([a420e16](https://github.com/eliotlim/OpenBook/commit/a420e16))
+- **sdk:** bind the default fetch so forwarding works in WKWebView ([f8d9de1](https://github.com/eliotlim/OpenBook/commit/f8d9de1))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim
+
 ## 1.58.0 (2026-06-19)
 
 ### 🚀 Features
