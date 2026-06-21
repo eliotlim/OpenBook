@@ -16,10 +16,16 @@ import {decodeBody, decodeControl, encodeBody, encodeControl, type ControlFrame}
 export type TunnelStatus = 'connecting' | 'online' | 'reconnecting' | 'offline';
 
 export interface TunnelClientOptions {
-  /** wss://relay-host/__tunnel — from the account attach-ticket response. */
-  relayWsUrl: string;
-  /** The account-issued attach ticket (short-lived). */
-  ticket: string;
+  /**
+   * Mint a FRESH relay URL + attach ticket for each (re)connection. Tickets are
+   * short-lived (≈120s), so the tunnel must obtain a new one every time it dials
+   * — reusing a single ticket across a reconnect (or a slow first connect) makes
+   * the relay reject the attach as expired ("attach failed"), and the tunnel
+   * then loops forever on the same dead ticket. The provider re-runs the account
+   * challenge → attach-ticket flow; its `relayWsUrl` must include the `?site=`
+   * routing hint the relay needs on the WS upgrade.
+   */
+  ticketProvider: () => Promise<{relayWsUrl: string; ticket: string}>;
   /** The site's private key (base64url PKCS#8) from the OS keychain. */
   privateKey: string;
   /** The local OpenBook data server origin, e.g. http://127.0.0.1:4317 (or '' when
@@ -46,6 +52,8 @@ export class TunnelClient {
   private readonly inflight = new Map<number, Inflight>();
   private readonly fetchImpl: FetchLike;
   private readonly WS: typeof WebSocket;
+  /** The ticket for the current connection, minted just before the WS opened. */
+  private ticket?: string;
 
   constructor(private readonly opts: TunnelClientOptions) {
     this.fetchImpl = opts.fetchImpl ?? globalFetch;
@@ -76,7 +84,23 @@ export class TunnelClient {
 
   private connect(): void {
     this.setStatus(this.backoff > 500 ? 'reconnecting' : 'connecting');
-    const ws = new this.WS(this.opts.relayWsUrl);
+    void this.dial();
+  }
+
+  /** Mint a fresh ticket, then open the relay socket with it. Minting per dial is
+   *  what keeps reconnects working — a reused ticket expires and attach fails. */
+  private async dial(): Promise<void> {
+    let info: {relayWsUrl: string; ticket: string};
+    try {
+      info = await this.opts.ticketProvider();
+    } catch {
+      // Couldn't mint (account unreachable / token expired) — back off and retry.
+      this.scheduleReconnect();
+      return;
+    }
+    if (this.stopped) return;
+    this.ticket = info.ticket;
+    const ws = new this.WS(info.relayWsUrl);
     ws.binaryType = 'arraybuffer';
     this.ws = ws;
     ws.onmessage = (ev) => void this.onMessage(ev.data);
@@ -87,6 +111,10 @@ export class TunnelClient {
   private onClose(): void {
     for (const f of this.inflight.values()) f.controller.abort();
     this.inflight.clear();
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
     if (this.stopped) {
       this.setStatus('offline');
       return;
@@ -127,8 +155,12 @@ export class TunnelClient {
   private async onControl(frame: ControlFrame): Promise<void> {
     switch (frame.t) {
     case 'challenge': {
+      if (!this.ticket) {
+        this.ws?.close();
+        break;
+      }
       const signature = await signWithSiteKey(this.opts.privateKey, buildRelayAttachMessage(frame.nonce));
-      this.sendControl({t: 'attach', ticket: this.opts.ticket, signature});
+      this.sendControl({t: 'attach', ticket: this.ticket, signature});
       break;
     }
     case 'ready':

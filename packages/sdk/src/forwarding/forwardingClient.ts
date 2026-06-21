@@ -139,26 +139,35 @@ export class ForwardingClient {
     }
   }
 
-  /** Begin forwarding the local instance. Resolves with the public host. */
-  async start(): Promise<{host: string}> {
-    const id = await this.ensureSite();
+  /**
+   * Mint a fresh attach ticket + relay WS URL. Run once per (re)connection: the
+   * ticket is short-lived (≈120s), so the tunnel re-mints every time it dials
+   * rather than reusing a stale one (which the relay rejects as expired). The
+   * `?site=` query is the relay's Durable-Object routing hint on the WS upgrade
+   * (an untrusted hint — the relay still verifies the ticket + site-key signature
+   * after connecting); omitting it makes the upgrade fail with 400 "missing site".
+   */
+  private async mintAttach(id: SiteIdentity): Promise<{relayWsUrl: string; ticket: string}> {
     const {nonce, ts} = await this.challenge(id.publicKey);
     const signature = await signWithSiteKey(
       id.privateKey,
       buildAttachMessage({siteId: id.siteId, region: this.region, nonce, ts}),
     );
-    const ticketRes = await this.api<{ticket: string; relayBase: string; host: string; region: string}>(
+    const res = await this.api<{ticket: string; relayBase: string; host: string; region: string}>(
       '/api/sites/attach-ticket',
       {siteId: id.siteId, nonce, ts, signature, region: this.region},
     );
+    return {
+      relayWsUrl: `${res.relayBase.replace(/\/$/, '')}/__tunnel?site=${encodeURIComponent(id.siteId)}`,
+      ticket: res.ticket,
+    };
+  }
 
+  /** Begin forwarding the local instance. Resolves with the public host. */
+  async start(): Promise<{host: string}> {
+    const id = await this.ensureSite();
     this.tunnel = new TunnelClient({
-      // The relay routes the WS upgrade to this site's Durable Object by the
-      // `site` query param (an untrusted routing hint; the tunnel still verifies
-      // the attach ticket + signature after connecting). Omitting it makes the
-      // relay reject the upgrade with 400 "missing site".
-      relayWsUrl: `${ticketRes.relayBase.replace(/\/$/, '')}/__tunnel?site=${encodeURIComponent(id.siteId)}`,
-      ticket: ticketRes.ticket,
+      ticketProvider: () => this.mintAttach(id), // fresh ticket per (re)connect
       privateKey: id.privateKey,
       localOrigin: this.opts.localOrigin,
       onStatus: this.opts.onStatus,
@@ -168,7 +177,7 @@ export class ForwardingClient {
       webSocketImpl: this.opts.webSocketImpl,
     });
     this.tunnel.start();
-    return {host: ticketRes.host};
+    return {host: id.host};
   }
 
   /** Stop forwarding (the site stays registered; reconnect later with the same key). */

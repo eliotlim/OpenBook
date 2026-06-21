@@ -131,11 +131,14 @@ describe('ForwardingClient.start (live serving)', () => {
 
     const {host} = await client.start();
     expect(host).toBe('p.book.pub');
-    expect(accountCalls).toContain('/api/sites/attach-ticket');
-    expect(ws.sockets[0].url).toBe('wss://relay.book.pub/__tunnel?site=s1');
 
-    // …with the site routing hint the relay needs to reach this site's Durable
-    // Object on the WS upgrade (else it rejects with 400 "missing site").
+    // The tunnel mints its attach ticket lazily, per dial (so a reconnect always
+    // gets a fresh, unexpired one), then opens the WS — let that async work run.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(accountCalls).toContain('/api/sites/attach-ticket');
+    // …with the `?site=` routing hint the relay needs on the WS upgrade (else it
+    // rejects with 400 "missing site").
+    expect(ws.sockets[0].url).toBe('wss://relay.book.pub/__tunnel?site=s1');
     expect(new URL(ws.sockets[0].url).searchParams.get('site')).toBe('s1');
 
     // The relay pushes an inbound request → the tunnel must serve it via the
@@ -143,5 +146,49 @@ describe('ForwardingClient.start (live serving)', () => {
     ws.sockets[0].onmessage?.({data: JSON.stringify({t: 'req', id: 1, method: 'GET', path: '/api/pages', headers: []})});
     await new Promise((r) => setTimeout(r, 0));
     expect(localCalls).toEqual(['/api/pages']);
+  });
+
+  it('mints a FRESH ticket on every reconnect (no stale-ticket attach loop)', async () => {
+    const kp = await mintSiteKeypair();
+    let ticketMints = 0;
+    const accountFetch: typeof fetch = async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/sites') {
+        return json({site: {id: 's1', prefix: 'p', host: 'p.book.pub', publicKey: kp.publicKey}, privateKey: kp.privateKey}, 201);
+      }
+      if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
+      if (path === '/api/sites/attach-ticket') {
+        ticketMints += 1;
+        return json({ticket: `T${ticketMints}`, relayBase: 'wss://relay.book.pub', host: 'p.book.pub', region: 'iad1'});
+      }
+      throw new Error(`unexpected ${path}`);
+    };
+
+    const ws = fakeWebSocket();
+    const client = new ForwardingClient({
+      accountUrl: 'https://account.book.pub',
+      authToken: 'tok',
+      keyStore: new MemoryKeyStore(),
+      localOrigin: '',
+      fetchImpl: accountFetch,
+      localFetchImpl: async () => new Response('[]', {status: 200}),
+      webSocketImpl: ws.ctor,
+    });
+
+    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+    await client.start();
+    await tick(); // first dial: mint + open
+    expect(ws.sockets).toHaveLength(1);
+    expect(ticketMints).toBe(1);
+
+    // The relay drops the socket (expired ticket / takeover / network blip). The
+    // tunnel must reconnect AND mint a brand-new ticket — reusing the first one
+    // would fail attach forever once it expires (the bug this guards).
+    ws.sockets[0].onclose?.();
+    await new Promise((r) => setTimeout(r, 600)); // first reconnect backoff is 500ms
+    await tick();
+    expect(ws.sockets).toHaveLength(2);
+    expect(ticketMints).toBe(2);
+    expect(ws.sockets[1].url).toBe('wss://relay.book.pub/__tunnel?site=s1');
   });
 });
