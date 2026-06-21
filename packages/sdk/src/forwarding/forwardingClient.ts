@@ -153,7 +153,11 @@ export class ForwardingClient {
     );
 
     this.tunnel = new TunnelClient({
-      relayWsUrl: `${ticketRes.relayBase.replace(/\/$/, '')}/__tunnel`,
+      // The relay routes the WS upgrade to this site's Durable Object by the
+      // `site` query param (an untrusted routing hint; the tunnel still verifies
+      // the attach ticket + signature after connecting). Omitting it makes the
+      // relay reject the upgrade with 400 "missing site".
+      relayWsUrl: `${ticketRes.relayBase.replace(/\/$/, '')}/__tunnel?site=${encodeURIComponent(id.siteId)}`,
       ticket: ticketRes.ticket,
       privateKey: id.privateKey,
       localOrigin: this.opts.localOrigin,

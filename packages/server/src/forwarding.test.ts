@@ -132,7 +132,11 @@ describe('ForwardingClient.start (live serving)', () => {
     const {host} = await client.start();
     expect(host).toBe('p.book.pub');
     expect(accountCalls).toContain('/api/sites/attach-ticket');
-    expect(ws.sockets[0].url).toBe('wss://relay.book.pub/__tunnel');
+    expect(ws.sockets[0].url).toBe('wss://relay.book.pub/__tunnel?site=s1');
+
+    // …with the site routing hint the relay needs to reach this site's Durable
+    // Object on the WS upgrade (else it rejects with 400 "missing site").
+    expect(new URL(ws.sockets[0].url).searchParams.get('site')).toBe('s1');
 
     // The relay pushes an inbound request → the tunnel must serve it via the
     // LOCAL fetch (IPC), never the account fetch.
