@@ -498,19 +498,41 @@ fn main() {
 
 /// Stop the server sidecar, giving it a chance to flush pending writes first.
 ///
-/// On Unix we send SIGTERM (the server's shutdown handler drains the disk-mirror
-/// journal and closes the store) and wait briefly before a hard-kill backstop.
+/// On Unix we send SIGTERM (the server's shutdown handler runs a final
+/// CHECKPOINT, drains the disk-mirror journal, and closes the store) and then
+/// **wait for the child to actually exit** before a hard-kill backstop. The old
+/// fixed 800 ms sleep could truncate that shutdown mid-write under heavy edit
+/// churn, and a truncated checkpoint is exactly what leaves PGlite's WAL
+/// unrecoverable on the next launch (OB-164). Polling the pid lets a clean exit
+/// return promptly while still force-killing a stuck child.
+///
 /// On other platforms we kill directly — durability still holds, since the
 /// mirror writes atomically and replays its journal on the next launch.
 fn stop_server_child(child: CommandChild) {
     #[cfg(unix)]
     {
-        let pid = child.pid();
-        // SAFETY: a plain `kill(2)` syscall with a known child pid + signal.
+        // Upper bound on how long we wait for the sidecar's shutdown checkpoint
+        // + journal flush before the hard-kill backstop.
+        const SHUTDOWN_GRACE_MS: u64 = 6000;
+        let pid = child.pid() as libc::pid_t;
+        // SAFETY: plain `kill(2)` syscalls with a known child pid.
         unsafe {
-            libc::kill(pid as libc::pid_t, libc::SIGTERM);
+            libc::kill(pid, libc::SIGTERM);
         }
-        std::thread::sleep(std::time::Duration::from_millis(800));
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_millis(SHUTDOWN_GRACE_MS);
+        loop {
+            // `kill(pid, 0)` probes liveness without sending a signal; a non-zero
+            // return (ESRCH) means the process has exited and been reaped.
+            let alive = unsafe { libc::kill(pid, 0) } == 0;
+            if !alive {
+                return;
+            }
+            if std::time::Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
         let _ = child.kill();
     }
     #[cfg(not(unix))]

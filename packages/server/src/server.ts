@@ -47,6 +47,13 @@ export interface StartOptions {
    */
   trashCleanupIntervalMs?: number;
   /**
+   * Embedded (PGlite) only: how often the maintenance job runs CHECKPOINT +
+   * VACUUM (ANALYZE), in milliseconds. Defaults to 5 minutes; `<= 0` disables.
+   * Overridable via `OPENBOOK_MAINTENANCE_INTERVAL_MS`. Ignored for external
+   * Postgres, which has its own checkpointer + autovacuum. See {@link PageStore.maintain}.
+   */
+  maintenanceIntervalMs?: number;
+  /**
    * When set, mirror the workspace to a folder of HTML book files at this path
    * (one folder per book) in near-realtime, watch it for external edits, and
    * re-import changes (DB-wins on conflict). Off when unset. See {@link BookMirror}.
@@ -75,6 +82,7 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 4319;
 const DEFAULT_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const DEFAULT_TRASH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const DEFAULT_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Start the OpenBook server. The single entry both modes use:
@@ -115,6 +123,32 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     await sweepTrash();
     cleanupTimer = setInterval(() => void sweepTrash(), cleanupIntervalMs);
     cleanupTimer.unref?.();
+  }
+
+  // PGlite self-maintenance job (embedded mode only). PGlite is single-process
+  // WASM Postgres with no background checkpointer or autovacuum, so without this
+  // the WAL grows unbounded — an unclean shutdown then leaves no valid checkpoint
+  // and the next launch PANICs — and the `pages` heap bloats from save-on-edit
+  // dead tuples (OB-164). Each tick runs CHECKPOINT + VACUUM (ANALYZE). External
+  // Postgres maintains itself, so this is skipped there. The timer is `unref`'d
+  // so it never keeps the process alive; `<= 0` (or the env override) disables it.
+  const envMaintenance = process.env.OPENBOOK_MAINTENANCE_INTERVAL_MS;
+  const maintenanceIntervalMs =
+    opts.maintenanceIntervalMs ??
+    (envMaintenance != null && envMaintenance.trim() !== '' && Number.isFinite(Number(envMaintenance))
+      ? Number(envMaintenance)
+      : DEFAULT_MAINTENANCE_INTERVAL_MS);
+  let maintenanceTimer: ReturnType<typeof setInterval> | null = null;
+  const runMaintenance = async (): Promise<void> => {
+    try {
+      await store.maintain();
+    } catch (err) {
+      console.error('OpenBook PGlite maintenance failed:', err);
+    }
+  };
+  if (!opts.databaseUrl && maintenanceIntervalMs > 0) {
+    maintenanceTimer = setInterval(() => void runMaintenance(), maintenanceIntervalMs);
+    maintenanceTimer.unref?.();
   }
 
   // Local-AI models live next to the data (desktop) or under the home dir
@@ -225,6 +259,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     close: async () => {
       await ai.dispose();
       if (cleanupTimer) clearInterval(cleanupTimer);
+      if (maintenanceTimer) clearInterval(maintenanceTimer);
       if (reconcileTimer) clearTimeout(reconcileTimer);
       // Stop accepting requests on every listener first, so no new writes arrive
       // mid-shutdown.
@@ -233,6 +268,17 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
       // so no committed write is lost. The mirror still needs the store to render.
       mirrorUnsub?.();
       if (mirror) await mirror.close();
+      // Final WAL checkpoint before releasing the store (embedded mode only), so a
+      // hard kill right after exit always finds a recent valid checkpoint to
+      // recover from — the crash this guards (OB-164). External Postgres
+      // checkpoints itself. Best-effort: a checkpoint failure must not block close.
+      if (!opts.databaseUrl) {
+        try {
+          await store.checkpoint();
+        } catch (err) {
+          console.error('OpenBook shutdown checkpoint failed:', err);
+        }
+      }
       await store.close();
       if (infoFile) rmSync(infoFile, {force: true});
     },

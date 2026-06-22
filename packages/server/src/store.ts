@@ -174,6 +174,38 @@ export class PageStore {
   }
 
   /**
+   * Embedded-mode (PGlite) self-maintenance: bound the WAL and reclaim dead
+   * tuples. PGlite is PostgreSQL compiled to single-process WASM with **no
+   * background workers** — no checkpointer, no autovacuum — so nothing advances
+   * the checkpoint or vacuums unless explicitly asked (OB-164). Without this:
+   *  - the WAL grows unbounded, so an unclean shutdown leaves no recent valid
+   *    checkpoint → startup PANIC ("could not locate a valid checkpoint record");
+   *  - `pages` accumulates the MVCC dead tuples left by save-on-edit `UPDATE`s →
+   *    multi-GB heap bloat.
+   * `CHECKPOINT` flushes + recycles WAL; `VACUUM (ANALYZE)` reclaims dead tuples
+   * and refreshes the planner stats autovacuum would normally maintain. Real
+   * Postgres does both itself, so the caller gates this to embedded mode.
+   *
+   * Both run as standalone statements — `VACUUM` cannot run inside a transaction
+   * — so they go through plain `query`; the PGlite mutex still serializes them
+   * against concurrent writers.
+   */
+  async maintain(): Promise<void> {
+    await this.db.query('CHECKPOINT');
+    await this.db.query('VACUUM (ANALYZE)');
+  }
+
+  /**
+   * Force a WAL checkpoint. Run on graceful shutdown (embedded mode) so a hard
+   * kill immediately after exit always has a recent on-disk checkpoint to
+   * recover from. Cheaper than {@link maintain} (no vacuum), so it won't stall
+   * close under load.
+   */
+  async checkpoint(): Promise<void> {
+    await this.db.query('CHECKPOINT');
+  }
+
+  /**
    * List page metadata in sidebar order (`position` ascending within each
    * sibling group; `created_at` breaks ties). Database *rows* (pages tagged
    * with a `database_id`) are excluded so the sidebar shows only top-level
@@ -421,6 +453,13 @@ export class PageStore {
         // A new page is appended to the bottom of its sibling group (one past the
         // current max position). Like `parent_id`, `position` is set only on
         // insert — a routine content save (ON CONFLICT) never reorders the page.
+        //
+        // The `WHERE` on DO UPDATE skips a no-op save: when the (re-stamped) name
+        // and data are unchanged, re-saving would only leak a dead MVCC tuple —
+        // pure bloat on PGlite, which has no autovacuum (OB-164). `IS DISTINCT
+        // FROM` compares the *normalized* jsonb value, so a different key order or
+        // whitespace alone doesn't count as a change. A skipped update also leaves
+        // `updated_at` untouched, so the mirror/watcher don't see a phantom edit.
         `INSERT INTO pages (id, name, data, parent_id, position, updated_at)
          VALUES ($1, $2, $3::jsonb, $4,
            (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NOT DISTINCT FROM $4),
@@ -429,10 +468,21 @@ export class PageStore {
            SET name = EXCLUDED.name,
                data = EXCLUDED.data,
                updated_at = now()
+           WHERE pages.data IS DISTINCT FROM EXCLUDED.data
+              OR pages.name IS DISTINCT FROM EXCLUDED.name
          RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
            (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
         [id, input.name ?? null, JSON.stringify(data), input.parentId ?? null],
       );
+      // Empty result ⇒ the no-op `WHERE` skipped the write; the stored row is
+      // already current, so return it unchanged.
+      if (rows.length === 0) {
+        const existing = await tx.query<PageRow>(
+          `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.id = $1`,
+          [id],
+        );
+        return pageFromRow(existing[0]);
+      }
       return pageFromRow(rows[0]);
     });
   }

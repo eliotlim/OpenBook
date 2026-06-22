@@ -122,7 +122,8 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       if (saveTimer.current) clearTimeout(saveTimer.current);
       setStatus('saving');
       saveTimer.current = setTimeout(() => {
-        const base = lastSnapshot.current ?? {editorjs: {blocks: []}, values: [], names: []};
+        const prev = lastSnapshot.current;
+        const base = prev ?? {editorjs: {blocks: []}, values: [], names: []};
         // Re-project the reactive context on every save: `values`/`names` are
         // what the page EXPORTS (a parent database's expr columns read them
         // via projectExports), so they must track the live document, and a
@@ -141,6 +142,17 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
           if (result && !result.error) values.set(cellId, result.value);
         }
         const snapshot: PageSnapshot = {...projected, values: [...values]};
+        // Skip a no-op save: a Y.Doc `update` that nets to no change in what the
+        // page persists (an undo/redo round-trip, an edit to an unprojected prop,
+        // or a recompute yielding identical values) shouldn't write — re-saving
+        // identical content only churns a dead row version, and PGlite has no
+        // autovacuum to reclaim it (OB-164). The server guarantees this too, but
+        // skipping here also avoids the round-trip. Same projection order each
+        // time, so a JSON compare is exact.
+        if (prev && JSON.stringify(snapshot) === JSON.stringify(prev)) {
+          setStatus('saved');
+          return;
+        }
         lastSnapshot.current = snapshot;
         void Promise.resolve(onSave(snapshot))
           .then(() => setStatus('saved'))
