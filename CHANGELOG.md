@@ -1,3 +1,18 @@
+## 1.60.0 (2026-06-22)
+
+### 🚀 Features
+
+- **web:** serve the forwarded instance's workspace on a *.book.pub site ([003654d](https://github.com/eliotlim/OpenBook/commit/003654d))
+
+### 🩹 Fixes
+
+- **forwarding:** default the tunnel client region to sin1 ([282857b](https://github.com/eliotlim/OpenBook/commit/282857b))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim
+
 ## 1.59.0 (2026-06-21)
 
 ### 🚀 Features
