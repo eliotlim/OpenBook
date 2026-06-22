@@ -17,7 +17,7 @@ import {
   type DatabaseView as DbView,
   type RowGroup,
   type SummaryType,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {
   ContextMenu,
   ContextMenuContent,

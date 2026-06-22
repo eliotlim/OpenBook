@@ -7,7 +7,7 @@ import {
   textSnapshot,
   type DataClient,
   type PageSnapshot,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 
 // ── Read helpers over the JSON projection (shared shape with the in-app agent) ─
 
@@ -150,7 +150,7 @@ function setBlockTextInSnapshot(data: PageSnapshot, blockId: string, text: strin
 
 /**
  * The OpenBook MCP server: exposes a workspace to any MCP client (Claude
- * Desktop, Claude Code, …) as a set of tools over the same `@open-book/sdk`
+ * Desktop, Claude Code, …) as a set of tools over the same `@book.dev/sdk`
  * contract the apps use. Read tools degrade gracefully (search is lexical
  * BM25 even with the AI engine off); write tools share the SDK's content
  * helpers with the in-app agent, so both honour the same rules (e.g. pages

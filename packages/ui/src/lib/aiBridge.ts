@@ -1,5 +1,5 @@
 import type * as Y from 'yjs';
-import type {AgentProposal, StoredSuggestion} from '@open-book/sdk';
+import type {AgentProposal, StoredSuggestion} from '@book.dev/sdk';
 
 /**
  * Bridge between the (provider-less) block editor and the app's AI client —

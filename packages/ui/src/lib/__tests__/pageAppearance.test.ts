@@ -1,5 +1,5 @@
 import {afterEach, describe, it, expect, vi} from 'vitest';
-import {COVER_PROPERTY_ID, FONTS_PROPERTY_ID, THEME_PROPERTY_ID} from '@open-book/sdk';
+import {COVER_PROPERTY_ID, FONTS_PROPERTY_ID, THEME_PROPERTY_ID} from '@book.dev/sdk';
 import {hydratePageAppearance, readAppearanceFacet, setAppearanceBackend, writeAppearanceFacet} from '../pageAppearance';
 
 afterEach(() => {

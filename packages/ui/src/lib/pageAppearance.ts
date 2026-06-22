@@ -11,7 +11,7 @@
  * value into the document on first load.
  */
 import {useEffect, useSyncExternalStore} from 'react';
-import {THEME_PROPERTY_ID, COVER_PROPERTY_ID, FONTS_PROPERTY_ID, FULLWIDTH_PROPERTY_ID} from '@open-book/sdk';
+import {THEME_PROPERTY_ID, COVER_PROPERTY_ID, FONTS_PROPERTY_ID, FULLWIDTH_PROPERTY_ID} from '@book.dev/sdk';
 import {normalizeAppearance, type AppearanceOverride} from '@/lib/themes';
 import type {PageCover} from '@/lib/pageCover';
 import type {PageFonts} from '@/lib/pageFont';

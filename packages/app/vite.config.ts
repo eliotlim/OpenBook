@@ -16,23 +16,23 @@ export default defineConfig(async () => ({
   // to make use of `TAURI_ENV_DEBUG` and other env variables
   // https://v2.tauri.app/reference/environment-variables/
   envPrefix: ['VITE_', 'TAURI_ENV_*'],
-  // `@open-book/ui` ships an ESM-only build that externalizes every dependency,
+  // `@book.dev/ui` ships an ESM-only build that externalizes every dependency,
   // and it loads the EditorJS tools through dynamic `import()`. Vite's dep scan
   // can't see those imports through the prebuilt package, so without this it
   // discovers them only when the first editor mounts — triggering an on-demand
   // re-optimize that 504s the in-flight modules and leaves the editor blank.
   // Pre-bundle them up front (the `parent > child` form resolves each tool via
-  // the @open-book/ui package, where it actually lives).
+  // the @book.dev/ui package, where it actually lives).
   optimizeDeps: {
     include: [
-      '@open-book/ui > @editorjs/editorjs',
-      '@open-book/ui > @editorjs/header',
-      '@open-book/ui > @editorjs/list',
-      '@open-book/ui > @editorjs/quote',
-      '@open-book/ui > @editorjs/delimiter',
-      '@open-book/ui > @editorjs/code',
-      '@open-book/ui > @editorjs/marker',
-      '@open-book/ui > @editorjs/inline-code',
+      '@book.dev/ui > @editorjs/editorjs',
+      '@book.dev/ui > @editorjs/header',
+      '@book.dev/ui > @editorjs/list',
+      '@book.dev/ui > @editorjs/quote',
+      '@book.dev/ui > @editorjs/delimiter',
+      '@book.dev/ui > @editorjs/code',
+      '@book.dev/ui > @editorjs/marker',
+      '@book.dev/ui > @editorjs/inline-code',
     ],
   },
   build: {

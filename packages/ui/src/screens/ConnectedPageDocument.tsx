@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
-import {ICON_PROPERTY_ID, type PageSnapshot, type StoredPage} from '@open-book/sdk';
+import {ICON_PROPERTY_ID, type PageSnapshot, type StoredPage} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
 import {hydratePageIcons, usePageIcon, writePageIcon} from '@/lib/pageIcon';

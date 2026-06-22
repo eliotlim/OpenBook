@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import * as Y from 'yjs';
-import type {PageSnapshot} from '@open-book/sdk';
+import type {PageSnapshot} from '@book.dev/sdk';
 import {BlockEditor} from '@/blockeditor/BlockEditor';
 import {
   createSeededDoc,

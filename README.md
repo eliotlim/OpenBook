@@ -34,7 +34,7 @@ headless deployment run the exact same code** — the desktop bundles it as a
 self-contained sidecar over an embedded Postgres (PGlite/WASM); a headless
 deployment runs it against an external Postgres. The web shell, desktop, and
 server all share types and the HTTP client through
-[`@open-book/sdk`](packages/sdk/README.md).
+[`@book.dev/sdk`](packages/sdk/README.md).
 
 A page can also host a **database** (a Notion-style collection in its own
 `databases` table). Database rows are themselves ordinary pages — each with its
@@ -90,7 +90,7 @@ Run the headless server:
 
 ```sh
 OPENBOOK_DATABASE_URL=postgres://user:pass@host:5432/openbook \
-  pnpm --filter @open-book/server dev
+  pnpm --filter @book.dev/server dev
 ```
 
 `pnpm dev` runs the SDK, server (with embedded Postgres), UI, web, and desktop

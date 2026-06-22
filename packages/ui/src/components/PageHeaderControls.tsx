@@ -1,5 +1,5 @@
 import {ClipboardCheck, Image as ImageIcon, Palette} from 'lucide-react';
-import {OWNER_PROPERTY_ID, VERIFICATION_PROPERTY_ID} from '@open-book/sdk';
+import {OWNER_PROPERTY_ID, VERIFICATION_PROPERTY_ID} from '@book.dev/sdk';
 import {useNavigation, useTranslation} from '@/providers';
 import {IconButton} from '@/components/ui/icon-button';
 import {BacklinksControl, OwnerEditor, VerificationEditor, usePageProperties} from '@/components/PageProperties';

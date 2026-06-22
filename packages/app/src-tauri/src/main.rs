@@ -3,7 +3,7 @@
 
 //! The OpenBook desktop host.
 //!
-//! The desktop runs the durable local `@open-book/server` (real-disk PGlite + the
+//! The desktop runs the durable local `@book.dev/server` (real-disk PGlite + the
 //! on-disk book mirror) and reaches it over **IPC**: the sidecar listens on a
 //! Unix domain socket — **no TCP port** — and the webview tunnels requests and
 //! the live feed through this host (see `ipc.rs`). A port is opened only when the
@@ -64,7 +64,7 @@ struct AppState {
     managed: bool,
 }
 
-/// Mirrors `ServerInfo` in `@open-book/sdk`.
+/// Mirrors `ServerInfo` in `@book.dev/sdk`.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ServerInfo {

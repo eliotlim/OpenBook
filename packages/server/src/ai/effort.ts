@@ -1,4 +1,4 @@
-import type {AiEffort} from '@open-book/sdk';
+import type {AiEffort} from '@book.dev/sdk';
 
 /**
  * The single place effort maps to concrete generation knobs. One user-facing

@@ -1,5 +1,5 @@
 import {strToU8, strFromU8, zipSync, unzipSync} from 'fflate';
-import type {BookFolderFile} from '@open-book/sdk';
+import type {BookFolderFile} from '@book.dev/sdk';
 import {downloadBlob} from './download';
 
 /**

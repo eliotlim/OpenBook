@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from 'vitest';
-import {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from '@open-book/sdk';
-import type {DatabaseSchema, DataClient, PageMeta, StoredPage} from '@open-book/sdk';
+import {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
+import type {DatabaseSchema, DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
 import {decodeSnapshot, rootBlocks, walkBlocks, blockProp, blockType, type BlockDocSnapshot, type BlockMap} from '@/blockeditor/model';
 import {computeScope, evalExpr} from '@/blockeditor/kit/scope';
 

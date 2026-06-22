@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {ForwardingClient, MemoryKeyStore, mintSiteKeypair, type SiteIdentity} from '@open-book/sdk';
+import {ForwardingClient, MemoryKeyStore, mintSiteKeypair, type SiteIdentity} from '@book.dev/sdk';
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}});
@@ -74,7 +74,12 @@ describe('ForwardingClient.ensureSite (the provisioning toggle)', () => {
 
 /** A minimal WebSocket stand-in so start() can open a tunnel without a relay. */
 function fakeWebSocket() {
-  const sockets: Array<{url: string; onmessage: ((ev: {data: unknown}) => void) | null; sent: unknown[]}> = [];
+  const sockets: Array<{
+    url: string;
+    onmessage: ((ev: {data: unknown}) => void) | null;
+    onclose: (() => void) | null;
+    sent: unknown[];
+  }> = [];
   class FakeWS {
     static OPEN = 1;
     OPEN = 1;

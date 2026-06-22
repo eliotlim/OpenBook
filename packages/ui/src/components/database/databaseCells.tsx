@@ -19,7 +19,7 @@ import {
   type DateRange,
   type LocationValue,
   type VerificationValue,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {
   DropdownMenu,
   DropdownMenuContent,

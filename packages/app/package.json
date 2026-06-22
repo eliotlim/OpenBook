@@ -1,5 +1,5 @@
 {
-  "name": "@open-book/app",
+  "name": "@book.dev/app",
   "private": true,
   "version": "1.59.0",
   "type": "module",
@@ -13,8 +13,8 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@open-book/sdk": "workspace:*",
-    "@open-book/ui": "workspace:*",
+    "@book.dev/sdk": "workspace:*",
+    "@book.dev/ui": "workspace:*",
     "@tauri-apps/api": "2.11.0",
     "@tauri-apps/plugin-deep-link": "^2.0.0",
     "@tauri-apps/plugin-shell": "~2.3.5",

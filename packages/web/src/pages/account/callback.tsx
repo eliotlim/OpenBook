@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {handoffAccountToken} from '@open-book/ui';
+import {handoffAccountToken} from '@book.dev/ui';
 
 /**
  * The web side of account.book.pub's deep-link sign-in. The account service

@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {Trash2} from 'lucide-react';
-import type {CommentInput, StoredComment} from '@open-book/sdk';
+import type {CommentInput, StoredComment} from '@book.dev/sdk';
 import type {TextRun} from '@/blockeditor/model';
 import {RichTextEditor, RichTextView, runsHaveText} from '@/blockeditor/RichTextEditor';
 import {Button} from '@/components/ui/button';

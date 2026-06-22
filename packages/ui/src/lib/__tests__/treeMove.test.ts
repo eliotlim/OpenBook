@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import type {PageMeta} from '@open-book/sdk';
+import type {PageMeta} from '@book.dev/sdk';
 import {planTreeMove} from '../treeMove';
 
 const page = (id: string, parentId: string | null = null): PageMeta => ({

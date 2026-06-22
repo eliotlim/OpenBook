@@ -1,5 +1,5 @@
 {
-  "name": "@open-book/web",
+  "name": "@book.dev/web",
   "version": "1.59.0",
   "private": true,
   "scripts": {
@@ -14,9 +14,9 @@
     "chromatic": "chromatic --playwright --exit-zero-on-changes"
   },
   "dependencies": {
-    "@open-book/sdk": "workspace:*",
-    "@open-book/server": "workspace:*",
-    "@open-book/ui": "workspace:*",
+    "@book.dev/sdk": "workspace:*",
+    "@book.dev/server": "workspace:*",
+    "@book.dev/ui": "workspace:*",
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

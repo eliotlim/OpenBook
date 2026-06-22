@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js';
-import {HttpDataClient} from '@open-book/sdk';
+import {HttpDataClient} from '@book.dev/sdk';
 import {createOpenBookMcpServer} from './server';
 
 /**

@@ -1,5 +1,5 @@
 import {useEffect} from 'react';
-import {ICON_PROPERTY_ID} from '@open-book/sdk';
+import {ICON_PROPERTY_ID} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {hydratePageAppearance, setAppearanceBackend} from '@/lib/pageAppearance';
 import {setIconPersister} from '@/lib/pageIcon';

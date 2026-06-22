@@ -1,8 +1,8 @@
-# @open-book/mcp
+# @book.dev/mcp
 
 An [MCP](https://modelcontextprotocol.io) server that lets any MCP client — Claude Desktop, Claude Code, or your own agent — read and write an OpenBook workspace.
 
-It speaks stdio and talks to a running OpenBook server over the same `@open-book/sdk` HTTP contract the apps use, so it works against the desktop app's embedded server, a `pnpm dev` instance, or a headless deployment. No AI engine is required: `search_notes` falls back to keyword (BM25) ranking and upgrades to semantic ranking when the server has a model configured.
+It speaks stdio and talks to a running OpenBook server over the same `@book.dev/sdk` HTTP contract the apps use, so it works against the desktop app's embedded server, a `pnpm dev` instance, or a headless deployment. No AI engine is required: `search_notes` falls back to keyword (BM25) ranking and upgrades to semantic ranking when the server has a model configured.
 
 ## Tools
 
@@ -22,7 +22,7 @@ It speaks stdio and talks to a running OpenBook server over the same `@open-book
 Build once from the repo root:
 
 ```sh
-pnpm install && pnpm build:libs && pnpm --filter @open-book/mcp build
+pnpm install && pnpm build:libs && pnpm --filter @book.dev/mcp build
 ```
 
 Then register the binary with your MCP client. `OPENBOOK_URL` points at the workspace (defaults to `http://127.0.0.1:4319`, the desktop app's local server).
@@ -52,8 +52,8 @@ The server exits with a clear message if no OpenBook server is reachable at star
 ## Development
 
 ```sh
-pnpm --filter @open-book/mcp test:e2e   # handshake + every tool against a real embedded server
-pnpm --filter @open-book/mcp typecheck
+pnpm --filter @book.dev/mcp test:e2e   # handshake + every tool against a real embedded server
+pnpm --filter @book.dev/mcp typecheck
 ```
 
 The integration test (`scripts/e2e.mts`) boots an embedded-PGlite OpenBook server, seeds pages and a database, then drives `src/bin.ts` over stdio as a real MCP client — including the failure modes (missing page, duplicate title, the collaborative-editor append guard).

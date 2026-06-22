@@ -6,7 +6,7 @@ import {
   setServerTokenOverride,
   isMixedContentBlocked,
   type ServerInfo,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {useAccount, useForwarding, usePlatformLibrary, useTranslation, type ForwardingStatus} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';

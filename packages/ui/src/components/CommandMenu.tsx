@@ -9,7 +9,7 @@ import {
   CommandShortcut,
 } from '@/components/ui/command';
 import React from 'react';
-import type {PageMeta} from '@open-book/sdk';
+import type {PageMeta} from '@book.dev/sdk';
 import {FileText} from 'lucide-react';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {useAppCommands, type AppCommand, type CommandGroup as CmdGroup} from '@/components/useAppCommands';

@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import type {GetServerSideProps, InferGetServerSidePropsType} from 'next';
 import Head from 'next/head';
-import {HttpDataClient, getServerUrlOverride, getServerTokenOverride, type DataClient} from '@open-book/sdk';
+import {HttpDataClient, getServerUrlOverride, getServerTokenOverride, type DataClient} from '@book.dev/sdk';
 import {
   DataProvider,
   DefaultLayout,
@@ -9,7 +9,7 @@ import {
   NavigationProvider,
   PlatformLibraryProvider,
   type PlatformLibrary,
-} from '@open-book/ui';
+} from '@book.dev/ui';
 import SettingsDeepLink from '@/components/SettingsDeepLink';
 
 // By default the web app runs the data layer *in the browser* — embedded PGlite
@@ -25,7 +25,7 @@ const REMOTE_SERVER_URL = process.env.NEXT_PUBLIC_OPENBOOK_SERVER;
 let localClientPromise: Promise<DataClient> | null = null;
 function openLocalClient(): Promise<DataClient> {
   if (!localClientPromise) {
-    localClientPromise = import('@open-book/server/browser').then(({createLocalDataClient}) =>
+    localClientPromise = import('@book.dev/server/browser').then(({createLocalDataClient}) =>
       createLocalDataClient(),
     );
   }

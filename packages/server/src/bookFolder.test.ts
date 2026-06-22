@@ -3,7 +3,7 @@ import {mkdir, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import {spaceToBookFiles, parseBookFolder, SPACE_BUNDLE_FILE, type PageSnapshot} from '@open-book/sdk';
+import {spaceToBookFiles, parseBookFolder, SPACE_BUNDLE_FILE, type PageSnapshot} from '@book.dev/sdk';
 import {createLocalDataClient} from './browser';
 import {LocalDataClient} from './localClient';
 import {PgliteDb} from './db';

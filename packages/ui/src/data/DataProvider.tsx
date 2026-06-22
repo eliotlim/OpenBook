@@ -6,7 +6,7 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-import type {DataClient, PageSnapshot} from '@open-book/sdk';
+import type {DataClient, PageSnapshot} from '@book.dev/sdk';
 
 const DataContext = createContext<DataClient | null>(null);
 

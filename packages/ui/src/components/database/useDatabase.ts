@@ -24,7 +24,7 @@ import {
   type RollupConfig,
   type RowTemplate,
   type StoredDatabase,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useNavigation} from '@/providers';
 import {hydratePageIcons, ICON_PROPERTY_ID} from '@/lib/pageIcon';

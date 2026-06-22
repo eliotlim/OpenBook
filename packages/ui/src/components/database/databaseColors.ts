@@ -1,4 +1,4 @@
-import type {ChartDatum} from '@open-book/sdk';
+import type {ChartDatum} from '@book.dev/sdk';
 
 /**
  * Concrete colors for charts/boards. The `select` swatch tokens

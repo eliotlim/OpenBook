@@ -31,7 +31,7 @@ my-plugin/
 The entry default-exports `activate(api)`:
 
 ```ts
-import {api} from '@open-book/plugin-sdk';
+import {api} from '@book.dev/plugin-sdk';
 import {MyBlock} from './block';
 
 export default function activate(a: typeof api) {
@@ -48,7 +48,7 @@ export default function activate(a: typeof api) {
 ```
 
 Imports resolve **inside the zip** (relative paths, `.ts/.tsx/.js/.json`),
-plus two host modules: `react` and `@open-book/plugin-sdk`. Other bare
+plus two host modules: `react` and `@book.dev/plugin-sdk`. Other bare
 imports are refused — bundle what you need into the zip. Types are stripped
 at load time (no typechecking); develop against your own `tsc`.
 

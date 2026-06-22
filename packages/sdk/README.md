@@ -1,4 +1,4 @@
-# @open-book/sdk
+# @book.dev/sdk
 
 The shared contract for OpenBook — imported by the server, the desktop app, and
 the web shell so types and the HTTP API can never drift between them.
@@ -16,7 +16,7 @@ Exports:
 No React or Node dependencies — safe to import from any layer.
 
 ```ts
-import {HttpDataClient, type PageInput} from '@open-book/sdk';
+import {HttpDataClient, type PageInput} from '@book.dev/sdk';
 
 const client = new HttpDataClient('http://127.0.0.1:4319');
 const page = await client.savePage({data: {editorjs: {blocks: []}, values: [], names: []}});

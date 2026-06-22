@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {relationSides, syncInverseUpdates, type DatabaseRow} from '@open-book/sdk';
+import {relationSides, syncInverseUpdates, type DatabaseRow} from '@book.dev/sdk';
 
 describe('relationSides (cardinality)', () => {
   it('maps each cardinality to per-side single/many', () => {

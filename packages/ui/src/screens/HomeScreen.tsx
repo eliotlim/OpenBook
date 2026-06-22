@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
-import type {PageMeta} from '@open-book/sdk';
+import type {PageMeta} from '@book.dev/sdk';
 import {Clock, Database, FilePlus, Pencil, Search, SlidersHorizontal, Star} from 'lucide-react';
 import {
   DropdownMenu,

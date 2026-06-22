@@ -1,4 +1,4 @@
-import type {DatabaseRow, PageMeta, StoredPage} from '@open-book/sdk';
+import type {DatabaseRow, PageMeta, StoredPage} from '@book.dev/sdk';
 
 /** An update to a single page, pushed to subscribers of that page. */
 export type PageEvent = {type: 'page'; page: StoredPage} | {type: 'deleted'; id: string};

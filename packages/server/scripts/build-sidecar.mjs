@@ -7,8 +7,8 @@
  * WASM/data assets (copied first by copy-pglite-assets.mjs) into one binary that
  * needs nothing on disk. Install Bun (https://bun.sh), then:
  *
- *   pnpm --filter @open-book/server build:sidecar          # host triple
- *   pnpm --filter @open-book/server build:sidecar x86_64-pc-windows-msvc
+ *   pnpm --filter @book.dev/server build:sidecar          # host triple
+ *   pnpm --filter @book.dev/server build:sidecar x86_64-pc-windows-msvc
  */
 import {execFileSync} from 'node:child_process';
 import {mkdirSync} from 'node:fs';

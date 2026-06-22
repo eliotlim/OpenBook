@@ -31,7 +31,7 @@ import {
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseView,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 
 const row = (over: Partial<DatabaseRow> = {}): DatabaseRow => ({
   id: 'r1',

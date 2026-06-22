@@ -61,7 +61,7 @@ import {
   type StatusGroup,
   type StoredDatabase,
   type SummaryType,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {useNavigation} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {

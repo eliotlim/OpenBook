@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {HttpDataClient, type FetchLike, type LiveSourceLike, type PageMeta} from '@open-book/sdk';
+import {HttpDataClient, type FetchLike, type LiveSourceLike, type PageMeta} from '@book.dev/sdk';
 
 /** A LiveSourceLike whose events can be driven by the test. */
 function fakeSource(): LiveSourceLike & {emit: (type: string, data: string) => void} {

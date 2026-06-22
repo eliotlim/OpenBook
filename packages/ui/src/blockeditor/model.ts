@@ -1,5 +1,5 @@
 import * as Y from 'yjs';
-import {shortId} from '@open-book/sdk';
+import {shortId} from '@book.dev/sdk';
 
 /**
  * The block editor's document model: a CRDT block tree in a Y.Doc.

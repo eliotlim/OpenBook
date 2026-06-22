@@ -1,6 +1,6 @@
 import {Hono} from 'hono';
 import {streamSSE} from 'hono/streaming';
-import {API, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiProvider, type AiSkill, type PluginAgentTool} from '@open-book/sdk';
+import {API, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiProvider, type AiSkill, type PluginAgentTool} from '@book.dev/sdk';
 import type {PageStore} from '../store';
 import {AgentRunner, type AgentMessage} from './agent';
 import type {AiService} from './service';

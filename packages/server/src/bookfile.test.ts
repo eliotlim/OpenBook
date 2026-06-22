@@ -8,7 +8,7 @@ import {
   snapshotBlocks,
   stampSnapshotMtimes,
   type PageSnapshot,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 
 const NOW = '2026-06-19T12:00:00.000Z';
 const LATER = '2026-06-19T13:00:00.000Z';

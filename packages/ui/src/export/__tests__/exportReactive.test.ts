@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import type {PageSnapshot} from '@open-book/sdk';
+import type {PageSnapshot} from '@book.dev/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
 import {blockSnapshotToEditorJs} from '../../blockeditor/exportBlocks';
 import {buildDocumentModel} from '../documentModel';

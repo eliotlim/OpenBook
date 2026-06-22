@@ -1,6 +1,6 @@
 import {invoke} from '@tauri-apps/api/core';
 import {listen, type UnlistenFn} from '@tauri-apps/api/event';
-import type {FetchLike, LiveSourceLike} from '@open-book/sdk';
+import type {FetchLike, LiveSourceLike} from '@book.dev/sdk';
 
 /**
  * The desktop's IPC transport for {@link HttpDataClient}. The local server is

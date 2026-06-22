@@ -1,5 +1,5 @@
 import React, {createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
-import {ForwardingClient, type TunnelStatus} from '@open-book/sdk';
+import {ForwardingClient, type TunnelStatus} from '@book.dev/sdk';
 import {useAccount} from './AccountProvider';
 import {usePlatformLibrary} from './PlatformLibraryProvider';
 

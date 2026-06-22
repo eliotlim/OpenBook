@@ -14,7 +14,7 @@ import {
   type PluginAgentTool,
   type StoredSuggestion,
   type SuggestionKind,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import type {PageStore} from '../store';
 import {effortProfile} from './effort';
 import type {AiEngine, NativeTool, NativeToolCall} from './providers';

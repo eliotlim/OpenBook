@@ -1,6 +1,6 @@
 import {useState} from 'react';
 import {Bot, Check, ChevronDown, ChevronRight, User, X} from 'lucide-react';
-import type {CommentInput, StoredComment, StoredSuggestion} from '@open-book/sdk';
+import type {CommentInput, StoredComment, StoredSuggestion} from '@book.dev/sdk';
 import {Button} from '@/components/ui/button';
 import {cn} from '@/lib/utils';
 import {CommentThread} from './CommentThread';

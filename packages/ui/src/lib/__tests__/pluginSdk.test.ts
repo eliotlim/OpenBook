@@ -6,7 +6,7 @@ import {
   verifyPlugin,
   validateManifest,
   type PluginManifest,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 
 const manifest: PluginManifest = {id: 'acme.demo', name: 'Demo', version: '1.0.0', main: 'src/index.ts'};
 const files = {'src/index.ts': 'export default function activate() {}', 'src/util.ts': 'export const x = 1;'};

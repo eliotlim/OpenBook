@@ -5,7 +5,7 @@
  * to. A breadth-first crawl from the root, deduped by id and capped, so a single
  * exported file carries a whole navigable mini-site.
  */
-import {ICON_PROPERTY_ID, type DataClient, type DatabaseRow, type DatabaseSchema, type PageSnapshot} from '@open-book/sdk';
+import {ICON_PROPERTY_ID, type DataClient, type DatabaseRow, type DatabaseSchema, type PageSnapshot} from '@book.dev/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 import {DEFAULT_PAGE_ICON, readPageIcon} from '@/lib/pageIcon';
 

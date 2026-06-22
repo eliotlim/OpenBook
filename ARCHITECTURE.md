@@ -25,12 +25,12 @@ web (Next.js)─┘        ▲
 
 | Package | Role |
 |---------|------|
-| **`@open-book/sdk`** | The contract: TypeScript types (`StoredPage`, `PageSnapshot`, `DatabaseSchema`, …), the route table (`API`), `HttpDataClient` (the isomorphic `fetch` client), and the shared content helpers (`snapshotText`, `textSnapshot`, …). No React, no Node. |
-| **`@open-book/server`** | `PageStore` (all SQL) + a Hono HTTP API + a `PageHub` (in-memory pub/sub for live updates). Runs over **embedded PGlite** (desktop/local) or **external Postgres** (headless). |
-| **`@open-book/ui`** | The React app: the EditorJS document, reactive blocks, the sidebar tree, providers, and the design primitives (`components/ui/*`). Consumed as a built library. |
-| **`@open-book/app`** | The Tauri desktop shell. Spawns the server as a sidecar and points the UI at it. |
-| **`@open-book/web`** | The Next.js web shell. Talks to a deployed server. Hosts the Playwright e2e + Chromatic config. |
-| **`@open-book/mcp`** | A stdio [MCP](https://modelcontextprotocol.io) server (`openbook-mcp`) exposing the workspace to external agents (Claude Desktop/Code) as tools, over `HttpDataClient`. See its README. |
+| **`@book.dev/sdk`** | The contract: TypeScript types (`StoredPage`, `PageSnapshot`, `DatabaseSchema`, …), the route table (`API`), `HttpDataClient` (the isomorphic `fetch` client), and the shared content helpers (`snapshotText`, `textSnapshot`, …). No React, no Node. |
+| **`@book.dev/server`** | `PageStore` (all SQL) + a Hono HTTP API + a `PageHub` (in-memory pub/sub for live updates). Runs over **embedded PGlite** (desktop/local) or **external Postgres** (headless). |
+| **`@book.dev/ui`** | The React app: the EditorJS document, reactive blocks, the sidebar tree, providers, and the design primitives (`components/ui/*`). Consumed as a built library. |
+| **`@book.dev/app`** | The Tauri desktop shell. Spawns the server as a sidecar and points the UI at it. |
+| **`@book.dev/web`** | The Next.js web shell. Talks to a deployed server. Hosts the Playwright e2e + Chromatic config. |
+| **`@book.dev/mcp`** | A stdio [MCP](https://modelcontextprotocol.io) server (`openbook-mcp`) exposing the workspace to external agents (Claude Desktop/Code) as tools, over `HttpDataClient`. See its README. |
 
 ---
 
@@ -57,10 +57,10 @@ HttpDataClient  ──HTTP──►  Hono routes  ──►  PageStore  ──SQ
 
 ### Desktop vs web
 
-| | Desktop (`@open-book/app`) | Web (`@open-book/web`) |
+| | Desktop (`@book.dev/app`) | Web (`@book.dev/web`) |
 |--|--|--|
 | Shell | Tauri (macOS WKWebView / WebView2) | Browser (Next.js) |
-| Server | **Bundled sidecar** binary (Bun-compiled, embedded PGlite), spawned by the Rust host at `127.0.0.1:4319` | A deployed `@open-book/server` (external Postgres), URL via `NEXT_PUBLIC_OPENBOOK_SERVER` |
+| Server | **Bundled sidecar** binary (Bun-compiled, embedded PGlite), spawned by the Rust host at `127.0.0.1:4319` | A deployed `@book.dev/server` (external Postgres), URL via `NEXT_PUBLIC_OPENBOOK_SERVER` |
 | Data | Local-first, offline (`~/Library/Application Support/dev.book.open`) | Network |
 | In `tauri dev` | The server is **run by `pnpm dev`**, not the host (see `app/src-tauri/src/main.rs`) | `next dev` |
 
@@ -334,7 +334,7 @@ TypeScript plugins, VS Code-shaped: a zip of source + `openbook.json`
 installs from Settings → Extensions, is stored server-side per workspace
 (migration `0007_plugins`), and loads on boot. The loader strips types with
 sucrase and links files through an in-memory CommonJS resolver (`react` and
-`@open-book/plugin-sdk` map to host modules; other bare imports are
+`@book.dev/plugin-sdk` map to host modules; other bare imports are
 refused). `activate(api)` registers custom blocks (namespaced
 `<pluginId>/<type>`, straight into the block-editor registry), palette
 commands (a subscribable registry merged into `useAppCommands`), and uses

@@ -1,5 +1,5 @@
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import type {DatabaseRow, PageMeta, PageSnapshot, StoredPage} from '@open-book/sdk';
+import type {DatabaseRow, PageMeta, PageSnapshot, StoredPage} from '@book.dev/sdk';
 import {createLocalDataClient} from './browser';
 import {LocalDataClient} from './localClient';
 

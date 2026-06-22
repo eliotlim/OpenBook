@@ -9,7 +9,7 @@ import {
   encodeBlockDoc,
   type BlockDocSnapshot,
   type PresencePeer,
-} from '@open-book/ui';
+} from '@book.dev/ui';
 
 const STORAGE_KEY = 'obe-lab-doc';
 

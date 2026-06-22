@@ -4,7 +4,7 @@
  * full set of pages + databases to send to the server (so a selected page always
  * brings its subtree, its hosted database, and that database's rows).
  */
-import {BACKUP_VERSION, type SpaceBackup, type StoredDatabase, type StoredPage} from '@open-book/sdk';
+import {BACKUP_VERSION, type SpaceBackup, type StoredDatabase, type StoredPage} from '@book.dev/sdk';
 
 export function parseBackup(text: string): SpaceBackup {
   const parsed = JSON.parse(text) as Partial<SpaceBackup>;

@@ -1,5 +1,5 @@
 import React from 'react';
-import {dependencyGraph, type DatabaseProperty, type DatabaseView as DbView} from '@open-book/sdk';
+import {dependencyGraph, type DatabaseProperty, type DatabaseView as DbView} from '@book.dev/sdk';
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import type {UseDatabase} from './useDatabase';

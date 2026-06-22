@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {AccountClient, DEFAULT_ACCOUNT_URL} from '@open-book/sdk';
+import {AccountClient, DEFAULT_ACCOUNT_URL} from '@book.dev/sdk';
 
 describe('AccountClient', () => {
   it('defaults to the production account service', () => {

@@ -1,4 +1,4 @@
-# @open-book/server
+# @book.dev/server
 
 The OpenBook server: a page store and HTTP API written in TypeScript. **The
 desktop app and the headless deployment run this exact same code** — they differ
@@ -8,12 +8,12 @@ only in which database backend is used.
 
 ```
                          ┌───────────────────────────┐
-                         │      @open-book/sdk        │  types + HTTP client
+                         │      @book.dev/sdk        │  types + HTTP client
                          │  Page · PageInput · API    │  (shared everywhere)
                          └─────────────┬─────────────┘
                                        │
                          ┌─────────────▼─────────────┐
-                         │     @open-book/server      │  PageStore + Hono API
+                         │     @book.dev/server      │  PageStore + Hono API
                          │  startServer({...})        │  over a `Db` interface
                          └──────┬──────────────┬──────┘
               embedded (dataDir)│              │ databaseUrl
@@ -36,7 +36,7 @@ Both speak the same Postgres SQL, so the queries and migrations are identical.
 
 ## HTTP API
 
-Paths come from `@open-book/sdk` (`API`), so the server and `HttpDataClient`
+Paths come from `@book.dev/sdk` (`API`), so the server and `HttpDataClient`
 cannot disagree.
 
 | Method | Path               | Body        | Response             |
@@ -72,9 +72,9 @@ Migrations live in [`src/migrations.ts`](src/migrations.ts), are tracked in a
 ```sh
 export OPENBOOK_DATABASE_URL=postgres://user:pass@host:5432/openbook
 export OPENBOOK_BIND=0.0.0.0:4319        # optional (default)
-pnpm --filter @open-book/server dev      # tsx, embedded PGlite, watch mode
+pnpm --filter @book.dev/server dev      # tsx, embedded PGlite, watch mode
 # or built:
-pnpm --filter @open-book/server build && node packages/server/dist/bin.js
+pnpm --filter @book.dev/server build && node packages/server/dist/bin.js
 ```
 
 Config (flags or env):
@@ -90,7 +90,7 @@ On startup it prints `OPENBOOK_READY <url>` — the desktop host parses this lin
 
 ## Desktop sidecar
 
-`pnpm --filter @open-book/server build:sidecar` compiles the server into a single
+`pnpm --filter @book.dev/server build:sidecar` compiles the server into a single
 self-contained executable (via [Bun](https://bun.sh)) at
 `packages/app/src-tauri/binaries/openbook-server-<triple>`. It **embeds PGlite's
 WASM/data assets** (see `bin.bun.ts` + `pglite-assets.bun.ts`), so the binary

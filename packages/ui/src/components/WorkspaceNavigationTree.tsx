@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
-import type {PageMeta} from '@open-book/sdk';
+import type {PageMeta} from '@book.dev/sdk';
 import {Tree, TreeDataItem} from '@/components/ui/tree';
 import {IconButton} from '@/components/ui/icon-button';
 import {PageMenuItems} from '@/components/PageContextMenu';

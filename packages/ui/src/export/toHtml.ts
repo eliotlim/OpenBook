@@ -10,7 +10,7 @@
  * - {@link toHtmlSite} renders a {@link SiteBundle}: every page as a section, a
  *   client-side router, and databases drawn as tables of navigable rows.
  */
-import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@open-book/sdk';
+import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
 // then Plot's UMD (which expects a global d3) sets `window.Plot`. Inlined only

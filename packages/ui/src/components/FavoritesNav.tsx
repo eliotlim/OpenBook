@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
-import type {PageMeta} from '@open-book/sdk';
+import type {PageMeta} from '@book.dev/sdk';
 import {Star} from 'lucide-react';
 import {ContextMenu, ContextMenuContent, ContextMenuTrigger} from '@/components/ui/context-menu';
 import {IconButton} from '@/components/ui/icon-button';

@@ -1,5 +1,5 @@
 import React, {createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
-import {AccountClient, AccountError, resolveAccountUrl} from '@open-book/sdk';
+import {AccountClient, AccountError, resolveAccountUrl} from '@book.dev/sdk';
 import {usePlatformLibrary} from './PlatformLibraryProvider';
 import {usePreferences, type Preferences} from './PreferencesProvider';
 import {useWorkspace, type Workspace} from './WorkspaceProvider';

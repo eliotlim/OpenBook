@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {zipSync, strToU8} from 'fflate';
 import {executePlugin, parsePluginZip} from '../loader';
-import type {PluginManifest} from '@open-book/sdk';
+import type {PluginManifest} from '@book.dev/sdk';
 
 const manifest: PluginManifest = {id: 'acme.demo', name: 'Demo', version: '1.0.0', main: 'src/index.ts'};
 
@@ -58,8 +58,8 @@ describe('executePlugin', () => {
 
   it('maps host modules and rejects unknown bare imports', () => {
     const mod = executePlugin(
-      {manifest, files: {'src/index.ts': 'import {api} from \'@open-book/plugin-sdk\'; export default () => api.manifest.id;'}},
-      {'@open-book/plugin-sdk': {api: {manifest: {id: 'host.id'}}}},
+      {manifest, files: {'src/index.ts': 'import {api} from \'@book.dev/plugin-sdk\'; export default () => api.manifest.id;'}},
+      {'@book.dev/plugin-sdk': {api: {manifest: {id: 'host.id'}}}},
     );
     expect((mod.default as () => string)()).toBe('host.id');
 

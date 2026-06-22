@@ -1,6 +1,6 @@
 // *.book.pub forwarding — the desktop-side client + shared protocol core.
 //
-// Ported wholesale from open.book.pub (`@book/forwarding` + the relay's
+// Ported wholesale from open.book.pub (`@book.dev/forwarding` + the relay's
 // ForwardingClient/TunnelClient) so this repo owns the client. open.book.pub
 // keeps only the ForwardingServer (the relay terminator + the account API). The
 // whole surface is runtime-agnostic (Web Crypto + global fetch/WebSocket), so it

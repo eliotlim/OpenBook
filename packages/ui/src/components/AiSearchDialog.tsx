@@ -1,5 +1,5 @@
 import {useEffect, useRef, useState} from 'react';
-import type {AiSearchResult} from '@open-book/sdk';
+import type {AiSearchResult} from '@book.dev/sdk';
 import {Dialog, DialogContent, DialogHeader, DialogTitle} from '@/components/ui/dialog';
 import {useData} from '@/data';
 import {useHud, useNavigation, useTranslation} from '@/providers';

@@ -20,7 +20,7 @@ import {GitFork,
   Sparkles,
   Trash2,
 } from 'lucide-react';
-import {seedSampleDocument} from '@open-book/sdk';
+import {seedSampleDocument} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';

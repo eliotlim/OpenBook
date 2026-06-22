@@ -1,8 +1,10 @@
 {
-  "name": "@open-book/ui",
+  "name": "@book.dev/ui",
   "version": "1.59.0",
   "description": "",
-  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "types": "dist/index.d.ts",
   "main": "dist/index.js",
@@ -33,7 +35,7 @@
   "dependencies": {
     "@heroicons/react": "^2.1.5",
     "@observablehq/plot": "^0.6.17",
-    "@open-book/sdk": "workspace:*",
+    "@book.dev/sdk": "workspace:*",
     "@preact/signals-core": "^1.14.2",
     "@radix-ui/react-accordion": "^1.2.0",
     "@radix-ui/react-context-menu": "^2.2.16",

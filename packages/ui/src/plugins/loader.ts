@@ -1,6 +1,6 @@
 import {transform} from 'sucrase';
 import {unzipSync, strFromU8} from 'fflate';
-import {validateManifest, type PluginManifest, type PluginPackage} from '@open-book/sdk';
+import {validateManifest, type PluginManifest, type PluginPackage} from '@book.dev/sdk';
 
 /**
  * The plugin loader: turns a zip of TypeScript source into a running module.
@@ -10,7 +10,7 @@ import {validateManifest, type PluginManifest, type PluginPackage} from '@open-b
  * - {@link executePlugin} strips types with sucrase (fast, no typechecker)
  *   and links the files with a tiny in-memory CommonJS resolver, so plugins
  *   can be ordinary multi-file TypeScript programs. `react` and
- *   `@open-book/plugin-sdk` resolve to host-provided modules; anything else
+ *   `@book.dev/plugin-sdk` resolve to host-provided modules; anything else
  *   must live inside the zip — plugins are self-contained by design.
  */
 
@@ -73,7 +73,7 @@ const CANDIDATE_SUFFIXES = ['', '.ts', '.tsx', '.js', '.jsx', '/index.ts', '/ind
 
 /**
  * Execute a plugin package and return its entry module's exports. Host
- * modules (`react`, `@open-book/plugin-sdk`) come from `hostModules`; every
+ * modules (`react`, `@book.dev/plugin-sdk`) come from `hostModules`; every
  * other import resolves inside the package.
  */
 export function executePlugin(pkg: PluginPackage, hostModules: Record<string, unknown>): Record<string, unknown> {

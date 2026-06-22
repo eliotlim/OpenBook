@@ -1,5 +1,5 @@
 {
-  "name": "@open-book/mcp",
+  "name": "@book.dev/mcp",
   "version": "1.59.0",
   "description": "OpenBook MCP server: lets MCP clients (Claude Desktop, Claude Code, …) read and write an OpenBook workspace over stdio.",
   "private": true,
@@ -24,11 +24,11 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.0",
-    "@open-book/sdk": "workspace:*",
+    "@book.dev/sdk": "workspace:*",
     "zod": "^3.25.0"
   },
   "devDependencies": {
-    "@open-book/server": "workspace:*",
+    "@book.dev/server": "workspace:*",
     "@types/node": "^24.0.0",
     "tsup": "^8.5.1",
     "tsx": "^4.19.1",

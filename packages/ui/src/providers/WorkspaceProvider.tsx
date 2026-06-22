@@ -7,7 +7,7 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import {getServerUrlOverride, setServerUrlOverride} from '@open-book/sdk';
+import {getServerUrlOverride, setServerUrlOverride} from '@book.dev/sdk';
 
 /**
  * A workspace is a named connection to a server. Switching workspaces re-points

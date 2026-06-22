@@ -1,5 +1,5 @@
 {
-  "name": "@open-book/server",
+  "name": "@book.dev/server",
   "version": "1.59.0",
   "description": "OpenBook server: page store (Postgres) + HTTP API. Runs headless or embedded in the desktop app.",
   "private": true,
@@ -39,7 +39,7 @@
   "dependencies": {
     "@electric-sql/pglite": "^0.4.6",
     "@hono/node-server": "^2.0.4",
-    "@open-book/sdk": "workspace:*",
+    "@book.dev/sdk": "workspace:*",
     "hono": "^4.12.0",
     "postgres": "^3.4.9"
   },

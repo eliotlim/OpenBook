@@ -3,7 +3,7 @@ import {readdir, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, describe, expect, it} from 'vitest';
-import {HttpDataClient, pageToBookHtml, type PageSnapshot} from '@open-book/sdk';
+import {HttpDataClient, pageToBookHtml, type PageSnapshot} from '@book.dev/sdk';
 import {startServer, type RunningServer} from './server';
 
 const snap = (text: string): PageSnapshot => ({

@@ -1,6 +1,6 @@
 import {useEffect, useRef} from 'react';
 import type * as Y from 'yjs';
-import type {AgentProposal, StoredSuggestion} from '@open-book/sdk';
+import type {AgentProposal, StoredSuggestion} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {getBlockEditorDoc, setAiBridge, suggestionToProposal, type ProposalApplyResult} from '@/lib/aiBridge';
 import {

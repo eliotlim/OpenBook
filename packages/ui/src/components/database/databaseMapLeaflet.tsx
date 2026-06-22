@@ -14,7 +14,7 @@ import 'leaflet.markercluster';
 // (`.ob-map-cluster`), so we deliberately do NOT import MarkerCluster.Default.css.
 import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
-import type {DatabaseRow} from '@open-book/sdk';
+import type {DatabaseRow} from '@book.dev/sdk';
 
 /** A row resolved to a placed marker, pre-coloured by its group. */
 export interface PlacedMarker {

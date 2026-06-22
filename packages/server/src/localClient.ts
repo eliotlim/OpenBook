@@ -25,7 +25,7 @@ import type {
   SuggestionInput,
   SuggestionStatus,
   SuggestionUpdate,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 

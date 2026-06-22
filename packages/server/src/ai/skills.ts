@@ -1,4 +1,4 @@
-import type {AiSkill} from '@open-book/sdk';
+import type {AiSkill} from '@book.dev/sdk';
 import type {Db} from '../db';
 
 /**

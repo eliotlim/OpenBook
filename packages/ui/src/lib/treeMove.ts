@@ -6,7 +6,7 @@
  * Kept free of React/DOM so it can be unit-tested directly (`treeMove.test.ts`);
  * the DnD glue lives in `components/ui/tree.tsx`.
  */
-import type {PageMeta} from '@open-book/sdk';
+import type {PageMeta} from '@book.dev/sdk';
 
 /** Where a row was dropped relative to the target row. */
 export type DropWhere = 'before' | 'after' | 'inside';

@@ -1,5 +1,5 @@
 import {invoke} from '@tauri-apps/api/core';
-import type {KeyStore, SiteIdentity} from '@open-book/sdk';
+import type {KeyStore, SiteIdentity} from '@book.dev/sdk';
 
 /**
  * A {@link KeyStore} backed by the OS keychain (via the Rust `keychain_*`

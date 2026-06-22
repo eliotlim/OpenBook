@@ -8,7 +8,7 @@
  * and agent tools read pages the same way; re-exported here for existing
  * server-side imports.
  */
-import {snapshotText} from '@open-book/sdk';
+import {snapshotText} from '@book.dev/sdk';
 
 export {snapshotText};
 

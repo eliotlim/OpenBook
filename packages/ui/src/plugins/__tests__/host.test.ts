@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {OPENBOOK_REGISTRY, type DataClient, type StoredPlugin} from '@open-book/sdk';
+import {OPENBOOK_REGISTRY, type DataClient, type StoredPlugin} from '@book.dev/sdk';
 import {syncPlugins, pluginStatuses, trustedRegistryKeys, addTrustedRegistry, removeTrustedRegistry} from '../host';
 import {pluginCommands} from '../commandRegistry';
 import {getCustomBlock} from '../../blockeditor/registry';
@@ -18,7 +18,7 @@ const clientWith = (plugins: StoredPlugin[]): DataClient =>
 describe('plugin host', () => {
   it('activates, contributes, and tears down across the lifecycle', async () => {
     const source = `
-      import {api} from '@open-book/plugin-sdk';
+      import {api} from '@book.dev/plugin-sdk';
       export default function activate(a) {
         a.commands.register({id: 'wave', title: 'Wave hello', run: () => {}});
         a.blocks.register({type: 'widget', render: () => null});

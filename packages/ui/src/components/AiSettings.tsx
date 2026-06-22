@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useState, type ReactNode} from 'react';
 import {ChevronDown, ChevronRight, Trash2} from 'lucide-react';
-import {providerSettings, type AiConfig, type AiEffort, type AiProvider, type AiProviderSettings, type AiSkill, type AiStatus} from '@open-book/sdk';
+import {providerSettings, type AiConfig, type AiEffort, type AiProvider, type AiProviderSettings, type AiSkill, type AiStatus} from '@book.dev/sdk';
 import {SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';

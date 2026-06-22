@@ -12,7 +12,7 @@
  * working. A one-time migration lifts legacy localStorage icons into the document.
  */
 import {useSyncExternalStore} from 'react';
-import {ICON_PROPERTY_ID} from '@open-book/sdk';
+import {ICON_PROPERTY_ID} from '@book.dev/sdk';
 
 /** The default page icon when none has been chosen. */
 export const DEFAULT_PAGE_ICON = '📄';

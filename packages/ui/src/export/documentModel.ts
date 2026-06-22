@@ -8,7 +8,7 @@
  * `values`/`names`. Pure and DOM-light (uses `DOMParser`, available in the
  * browser and happy-dom) so it is unit-tested directly.
  */
-import type {PageSnapshot} from '@open-book/sdk';
+import type {PageSnapshot} from '@book.dev/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 import {normalizeChartInput, type NormalizedSeries} from './chartNormalize';
 

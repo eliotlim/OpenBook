@@ -3,7 +3,7 @@ import {
   OPENBOOK_REGISTRY,
   type DataClient,
   type StoredPlugin,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {executePlugin} from './loader';
 import {buildPluginApi, hostModulesFor, type PluginModule} from './api';
 

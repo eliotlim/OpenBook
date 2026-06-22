@@ -1,12 +1,12 @@
 import React from 'react';
-import type {PageMeta, VerificationValue} from '@open-book/sdk';
+import type {PageMeta, VerificationValue} from '@book.dev/sdk';
 import {
   OWNER_PROPERTY_ID,
   VERIFICATION_PROPERTY_ID,
   isVerified,
   makeVerification,
   verificationExpired,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {BadgeCheck, Link2, ShieldAlert, ShieldCheck} from 'lucide-react';
 import {useData} from '@/data';
 import type {TKey} from '@/i18n';

@@ -1,5 +1,5 @@
 import React from 'react';
-import type {DataClient, PageMeta, StoredPage} from '@open-book/sdk';
+import type {DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
 import {registerCustomBlock, type CustomBlockDef} from '../blockeditor/registry';
 import {registerPluginCommand, type PluginCommand} from './commandRegistry';
 
@@ -8,7 +8,7 @@ import {registerPluginCommand, type PluginCommand} from './commandRegistry';
  * a plugin and the app. Everything registered through it is tracked, so
  * disabling or removing the plugin tears its contributions down cleanly.
  *
- * Plugins import this module as `@open-book/plugin-sdk` (and React as
+ * Plugins import this module as `@book.dev/plugin-sdk` (and React as
  * `react`); both resolve to host instances, never bundled copies.
  */
 
@@ -130,5 +130,5 @@ export function buildPluginApi(
 /** Host modules importable from plugin code. */
 export const hostModulesFor = (api: PluginApi): Record<string, unknown> => ({
   react: React,
-  '@open-book/plugin-sdk': {api},
+  '@book.dev/plugin-sdk': {api},
 });

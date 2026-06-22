@@ -1,5 +1,5 @@
 import {useCallback, useMemo, useRef, useState} from 'react';
-import {BACKUP_VERSION, parseBookFolder, spaceToBookFiles, type SpaceBackup} from '@open-book/sdk';
+import {BACKUP_VERSION, parseBookFolder, spaceToBookFiles, type SpaceBackup} from '@book.dev/sdk';
 import {Download, FolderDown, FolderUp, Upload} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {
@@ -13,7 +13,7 @@ import {
 import {useData} from '@/data';
 import {useConfirm, useNavigation, usePlatformLibrary, useTranslation} from '@/providers';
 import {writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
-import {ICON_PROPERTY_ID} from '@open-book/sdk';
+import {ICON_PROPERTY_ID} from '@book.dev/sdk';
 import {downloadText} from '@/lib/download';
 import {exportBookFolderInBrowser, importBookFolderInBrowser} from '@/lib/bookFolderTransfer';
 import {bundleRoots, closure, overwriteCount, parseBackup} from '@/lib/backupBundle';

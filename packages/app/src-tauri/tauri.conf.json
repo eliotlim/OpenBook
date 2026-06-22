@@ -1,7 +1,7 @@
 {
   "build": {
     "beforeDevCommand": "pnpm run dev",
-    "beforeBuildCommand": "pnpm --filter @open-book/sdk run build && pnpm --filter @open-book/ui run build && pnpm --filter @open-book/server run build:sidecar && pnpm run build",
+    "beforeBuildCommand": "pnpm --filter @book.dev/sdk run build && pnpm --filter @book.dev/ui run build && pnpm --filter @book.dev/server run build:sidecar && pnpm run build",
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420"
   },

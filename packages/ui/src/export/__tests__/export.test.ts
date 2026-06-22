@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import type {PageSnapshot} from '@open-book/sdk';
+import type {PageSnapshot} from '@book.dev/sdk';
 import {buildDocumentModel, parseInline, runsToText} from '../documentModel';
 import {toMarkdown} from '../toMarkdown';
 import {toHtml, toHtmlSite, toSlideDeck} from '../toHtml';

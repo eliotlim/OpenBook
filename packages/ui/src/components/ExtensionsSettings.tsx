@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {BadgeCheck, KeyRound, Puzzle, ShieldAlert, Trash2, TriangleAlert, Upload, X} from 'lucide-react';
-import {OPENBOOK_REGISTRY} from '@open-book/sdk';
+import {OPENBOOK_REGISTRY} from '@book.dev/sdk';
 import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';

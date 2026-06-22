@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {matchesFilter, propertiesReferencePage, rowValue, type DatabaseProperty, type DatabaseRow} from '@open-book/sdk';
+import {matchesFilter, propertiesReferencePage, rowValue, type DatabaseProperty, type DatabaseRow} from '@book.dev/sdk';
 
 const row = (over: Partial<DatabaseRow> = {}): DatabaseRow => ({
   id: 'r1',

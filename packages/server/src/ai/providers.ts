@@ -1,7 +1,7 @@
 import {spawn, type ChildProcess} from 'node:child_process';
 import {existsSync} from 'node:fs';
 import path from 'node:path';
-import {providerSettings, type AiConfig, type AiProvider} from '@open-book/sdk';
+import {providerSettings, type AiConfig, type AiProvider} from '@book.dev/sdk';
 
 /**
  * Inference engines behind one interface. Generation streams tokens;

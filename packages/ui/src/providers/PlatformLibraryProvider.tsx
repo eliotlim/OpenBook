@@ -1,5 +1,5 @@
 import React, {createContext, PropsWithChildren, useContext} from 'react';
-import type {BookFolderFile, FetchLike, KeyStore, ServerControls} from '@open-book/sdk';
+import type {BookFolderFile, FetchLike, KeyStore, ServerControls} from '@book.dev/sdk';
 
 /** Where to open a page: a new tab or a separate new window. */
 export type NewViewTarget = 'tab' | 'window';

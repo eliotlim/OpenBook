@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {extractMentionIds} from '@open-book/sdk';
+import {extractMentionIds} from '@book.dev/sdk';
 
 const para = (html: string) => ({type: 'paragraph', data: {text: html}});
 const snap = (...blocks: object[]) => ({editorjs: {blocks}});

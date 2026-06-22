@@ -1,5 +1,5 @@
 import {Hono} from 'hono';
-import {API, validateManifest, type PluginPackage} from '@open-book/sdk';
+import {API, validateManifest, type PluginPackage} from '@book.dev/sdk';
 import type {PageStore} from './store';
 
 /** Max total source size per plugin (sources are stored inline as JSONB). */

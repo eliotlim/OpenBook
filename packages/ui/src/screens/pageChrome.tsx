@@ -1,5 +1,5 @@
 import React, {useEffect, useRef} from 'react';
-import type {PageSnapshot} from '@open-book/sdk';
+import type {PageSnapshot} from '@book.dev/sdk';
 import {useTranslation} from '@/providers';
 import {IconPicker} from '@/components/IconPicker';
 import {consumePendingRename, onRenamePageRequest} from '@/lib/pageActions';

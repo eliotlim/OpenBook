@@ -1,4 +1,4 @@
-import {api} from '@open-book/plugin-sdk';
+import {api} from '@book.dev/plugin-sdk';
 import {HelloBlock} from './block';
 
 /**

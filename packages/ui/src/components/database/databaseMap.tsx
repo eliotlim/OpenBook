@@ -6,7 +6,7 @@ import {
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseView as DbView,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {cn} from '@/lib/utils';
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';

@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react';
-import type {PageMeta} from '@open-book/sdk';
+import type {PageMeta} from '@book.dev/sdk';
 import {Database, FileText, RotateCcw, Trash2} from 'lucide-react';
 import {
   Dialog,

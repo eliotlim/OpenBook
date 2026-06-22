@@ -20,8 +20,8 @@ import type {
   SuggestionStatus,
   SuggestionTarget,
   SuggestionUpdate,
-} from '@open-book/sdk';
-import {emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@open-book/sdk';
+} from '@book.dev/sdk';
+import {emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import type {Db} from './dbCore';
 import {runMigrations} from './migrations';
 

@@ -6,14 +6,14 @@
  * a real MCP client: handshake, tools/list, and one call per tool — including
  * the failure modes (missing page, blocks-editor guard).
  *
- * Run: pnpm --filter @open-book/mcp test:e2e
+ * Run: pnpm --filter @book.dev/mcp test:e2e
  */
 import assert from 'node:assert/strict';
 import {rmSync} from 'node:fs';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
-import {HttpDataClient, defaultDatabaseSchema} from '@open-book/sdk';
-import {startServer} from '@open-book/server';
+import {HttpDataClient, defaultDatabaseSchema} from '@book.dev/sdk';
+import {startServer} from '@book.dev/server';
 
 const DATA_DIR = '/tmp/openbook-mcp-e2e';
 

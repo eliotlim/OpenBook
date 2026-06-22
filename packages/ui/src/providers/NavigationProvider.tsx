@@ -8,7 +8,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import {defaultDatabaseSchema, emptyPageSnapshot, type PageMeta} from '@open-book/sdk';
+import {defaultDatabaseSchema, emptyPageSnapshot, type PageMeta} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
 import {hydratePageIcons, readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';

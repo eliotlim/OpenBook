@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react';
-import type {CommentInput, StoredComment, StoredSuggestion} from '@open-book/sdk';
+import type {CommentInput, StoredComment, StoredSuggestion} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {aiBridge} from '@/lib/aiBridge';
 import {pingReviewData, subscribeReviewData} from '@/lib/reviewPane';

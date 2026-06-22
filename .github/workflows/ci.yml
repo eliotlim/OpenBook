@@ -46,10 +46,10 @@ jobs:
           cache: "pnpm"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build libs (Playwright servers resolve @open-book/* from dist)
+      - name: Build libs (Playwright servers resolve @book.dev/* from dist)
         run: pnpm run build:libs
       - name: Install Playwright browsers
-        run: pnpm --filter @open-book/web exec playwright install --with-deps chromium
+        run: pnpm --filter @book.dev/web exec playwright install --with-deps chromium
       - name: Run Playwright e2e
         run: pnpm run test:e2e:web
       - name: Upload Playwright report

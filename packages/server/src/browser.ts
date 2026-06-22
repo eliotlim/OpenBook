@@ -3,7 +3,7 @@ import {PageStore} from './store';
 import {LocalDataClient} from './localClient';
 
 /**
- * `@open-book/server/browser` — the embedded data layer that runs *inside* the
+ * `@book.dev/server/browser` — the embedded data layer that runs *inside* the
  * app/web webview. It carries no Node imports (no `node:fs`, no `postgres`), so
  * a browser bundler can ship it: an embedded PGlite store + an in-process
  * {@link LocalDataClient} speaking the same {@link DataClient} contract the

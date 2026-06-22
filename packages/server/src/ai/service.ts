@@ -1,7 +1,7 @@
 import {createWriteStream, existsSync, mkdirSync} from 'node:fs';
 import {rename, unlink} from 'node:fs/promises';
 import path from 'node:path';
-import {providerSettings, type AiConfig, type AiProvider, type AiSearchResponse, type AiStatus, type AiTasksResponse} from '@open-book/sdk';
+import {providerSettings, type AiConfig, type AiProvider, type AiSearchResponse, type AiStatus, type AiTasksResponse} from '@book.dev/sdk';
 import type {Db} from '../db';
 import {createEngine, type AiEngine, type GenerateOptions} from './providers';
 import {bm25Scores, buildIndex, chunkText, cosine, parseTaskList, snapshotText, snippetFor, type Bm25Index, type IndexedDoc} from './search';

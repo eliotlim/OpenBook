@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {isMixedContentBlocked} from '@open-book/sdk';
+import {isMixedContentBlocked} from '@book.dev/sdk';
 
 // `pageProtocol` is passed explicitly so the test doesn't depend on the jsdom
 // location. This mirrors the real failure: app.book.pub (https) → http LAN server.

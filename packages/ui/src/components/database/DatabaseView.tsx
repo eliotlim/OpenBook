@@ -15,7 +15,7 @@ import {
   type DatabaseView as DbView,
   type FilterOperator,
   type SummaryType,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {
   DropdownMenu,
   DropdownMenuContent,

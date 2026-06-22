@@ -9,7 +9,7 @@ import {
   type DatabaseRow,
   type DatabaseView as DbView,
   type DateSpan,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';

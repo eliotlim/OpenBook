@@ -19,14 +19,14 @@ import {
   WorkspaceProvider,
   type PlatformLibrary,
   type WindowControls,
-} from '@open-book/ui';
-import type {BookFolderFile, DataClient, ServerInfo} from '@open-book/sdk';
+} from '@book.dev/ui';
+import type {BookFolderFile, DataClient, ServerInfo} from '@book.dev/sdk';
 
 import {createDesktopClient} from './data/client';
 import {tauriFetch} from './data/ipc';
 import {createTauriKeyStore} from './data/keychain';
 
-import '@open-book/ui/style.css';
+import '@book.dev/ui/style.css';
 
 // Tabs are in-window (a custom tab bar drawn in the titlebar by the UI), so a
 // "new tab" never opens an OS window — only "new window" does.

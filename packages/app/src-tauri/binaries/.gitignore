@@ -1,5 +1,5 @@
 # Sidecar executables are build artifacts produced by:
-#   pnpm --filter @open-book/server build:sidecar
+#   pnpm --filter @book.dev/server build:sidecar
 # They are large and platform-specific, so they are not committed.
 *
 !.gitignore

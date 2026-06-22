@@ -12,7 +12,7 @@ import {
   type SuggestionInput,
   type SuggestionStatus,
   type SuggestionUpdate,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {mountAiRoutes} from './ai/routes';
@@ -21,7 +21,7 @@ import type {AiService} from './ai/service';
 
 /**
  * Build the Hono app over a page store. Routes implement the shared
- * `@open-book/sdk` contract. Every write publishes to an in-memory {@link PageHub},
+ * `@book.dev/sdk` contract. Every write publishes to an in-memory {@link PageHub},
  * and the SSE endpoints relay those events to connected clients — the
  * server-driven refresh loop that powers real-time collaboration.
  */

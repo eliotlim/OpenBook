@@ -10,7 +10,7 @@ import {defineConfig, devices} from '@playwright/test';
  * `workers: 1` and a fully serial suite.
  *
  * Prerequisite: the workspace libs must be built (`pnpm build:libs`) — Next dev
- * and the tsx servers both resolve `@open-book/{ui,sdk}` from their dist. CI
+ * and the tsx servers both resolve `@book.dev/{ui,sdk}` from their dist. CI
  * runs `verify` (which builds libs) before this.
  *
  * Visual diffs: tests import from `e2e/fixtures` (which extends
@@ -41,7 +41,7 @@ export default defineConfig({
   },
   projects: [{name: 'chromium', use: {...devices['Desktop Chrome']}}],
   webServer: {
-    command: `pnpm --filter @open-book/web exec next dev -p ${WEB_PORT}`,
+    command: `pnpm --filter @book.dev/web exec next dev -p ${WEB_PORT}`,
     url: `http://localhost:${WEB_PORT}`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

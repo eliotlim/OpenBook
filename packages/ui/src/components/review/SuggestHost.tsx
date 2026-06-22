@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import type {SuggestionInput} from '@open-book/sdk';
+import type {SuggestionInput} from '@book.dev/sdk';
 import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
 import {useData} from '@/data';

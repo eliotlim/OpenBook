@@ -1,7 +1,7 @@
 import React, {useState} from 'react';
 import {Select} from '@/components/ui/select';
 import {ChevronRight, Eye, EyeOff, FolderPlus, Settings2, Trash2} from 'lucide-react';
-import type {DatabaseProperty, PropertyGroup} from '@open-book/sdk';
+import type {DatabaseProperty, PropertyGroup} from '@book.dev/sdk';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {readPageIcon} from '@/lib/pageIcon';
 import {cn} from '@/lib/utils';

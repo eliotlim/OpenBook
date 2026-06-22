@@ -1,7 +1,7 @@
 /**
  * End-to-end integration test for the OpenBook server + SDK.
  *
- * Exercises the real client (`@open-book/sdk` `HttpDataClient`) against a live
+ * Exercises the real client (`@book.dev/sdk` `HttpDataClient`) against a live
  * server, covering both database backends and durability:
  *
  *   1. Embedded mode   — server opens embedded PGlite under a data dir.
@@ -9,7 +9,7 @@
  *   3. Headless mode   — server connects to Postgres over the wire (provided
  *                        here by pglite-socket so no external server is needed).
  *
- * Run: pnpm --filter @open-book/server test:e2e
+ * Run: pnpm --filter @book.dev/server test:e2e
  */
 import assert from 'node:assert/strict';
 import {rmSync} from 'node:fs';
@@ -27,7 +27,7 @@ import {
   generateRegistryKeys,
   signPlugin,
   verifyPlugin,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {startServer} from '../src/server';
 
 const ROOT = '/tmp/openbook-e2e';

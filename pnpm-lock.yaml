@@ -16,7 +16,7 @@ importers:
 
   .:
     dependencies:
-      '@open-book/ui':
+      '@book.dev/ui':
         specifier: workspace:*
         version: link:packages/ui
       resolve-tspaths:
@@ -92,10 +92,10 @@ importers:
 
   packages/app:
     dependencies:
-      '@open-book/sdk':
+      '@book.dev/sdk':
         specifier: workspace:*
         version: link:../sdk
-      '@open-book/ui':
+      '@book.dev/ui':
         specifier: workspace:*
         version: link:../ui
       '@tauri-apps/api':
@@ -138,17 +138,17 @@ importers:
 
   packages/mcp:
     dependencies:
+      '@book.dev/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@modelcontextprotocol/sdk':
         specifier: ^1.13.0
         version: 1.29.0(zod@3.25.76)
-      '@open-book/sdk':
-        specifier: workspace:*
-        version: link:../sdk
       zod:
         specifier: ^3.25.0
         version: 3.25.76
     devDependencies:
-      '@open-book/server':
+      '@book.dev/server':
         specifier: workspace:*
         version: link:../server
       '@types/node':
@@ -172,15 +172,15 @@ importers:
 
   packages/server:
     dependencies:
+      '@book.dev/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@electric-sql/pglite':
         specifier: ^0.4.6
         version: 0.4.6
       '@hono/node-server':
         specifier: ^2.0.4
         version: 2.0.4(hono@4.12.23)
-      '@open-book/sdk':
-        specifier: workspace:*
-        version: link:../sdk
       hono:
         specifier: ^4.12.0
         version: 4.12.23
@@ -213,15 +213,15 @@ importers:
 
   packages/ui:
     dependencies:
+      '@book.dev/sdk':
+        specifier: workspace:*
+        version: link:../sdk
       '@heroicons/react':
         specifier: ^2.1.5
         version: 2.2.0(react@19.2.6)
       '@observablehq/plot':
         specifier: ^0.6.17
         version: 0.6.17
-      '@open-book/sdk':
-        specifier: workspace:*
-        version: link:../sdk
       '@preact/signals-core':
         specifier: ^1.14.2
         version: 1.14.2
@@ -370,13 +370,13 @@ importers:
 
   packages/web:
     dependencies:
-      '@open-book/sdk':
+      '@book.dev/sdk':
         specifier: workspace:*
         version: link:../sdk
-      '@open-book/server':
+      '@book.dev/server':
         specifier: workspace:*
         version: link:../server
-      '@open-book/ui':
+      '@book.dev/ui':
         specifier: workspace:*
         version: link:../ui
       '@types/node':

@@ -7,9 +7,9 @@
  *
  * Idempotent: re-running refreshes the existing "Compound Growth (sample)" page
  * rather than creating duplicates. The server must already be running
- * (`pnpm --filter @open-book/server dev`, or the desktop app's local server).
+ * (`pnpm --filter @book.dev/server dev`, or the desktop app's local server).
  */
-import {HttpDataClient, SAMPLE_DOCUMENT_NAME, seedSampleDocument} from '@open-book/sdk';
+import {HttpDataClient, SAMPLE_DOCUMENT_NAME, seedSampleDocument} from '@book.dev/sdk';
 
 function serverUrl(): string {
   const i = process.argv.indexOf('--server');
@@ -26,6 +26,6 @@ try {
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
   console.error(`Seed failed against ${url}: ${message}`);
-  console.error('Is the server running? Try `pnpm --filter @open-book/server dev`.');
+  console.error('Is the server running? Try `pnpm --filter @book.dev/server dev`.');
   process.exit(1);
 }

@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {TITLE_PROPERTY_ID, type DatabaseProperty} from '@open-book/sdk';
+import {TITLE_PROPERTY_ID, type DatabaseProperty} from '@book.dev/sdk';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {useData} from '@/data';
 import {readPageIcon} from '@/lib/pageIcon';

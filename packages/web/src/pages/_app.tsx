@@ -1,5 +1,5 @@
 import '@/styles/globals.css';
-import '@open-book/ui/style.css';
+import '@book.dev/ui/style.css';
 import type {AppProps} from 'next/app';
 import {useRouter} from 'next/router';
 import {ErrorBoundary} from 'next/dist/client/components/error-boundary';
@@ -10,7 +10,7 @@ import {
   PreferencesProvider,
   ThemeProvider,
   WorkspaceProvider,
-} from '@open-book/ui';
+} from '@book.dev/ui';
 
 
 export default function App({Component, pageProps}: AppProps) {

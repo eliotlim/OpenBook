@@ -1,5 +1,5 @@
 import React from 'react';
-import {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from '@open-book/sdk';
+import {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
 import {Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle} from '@/components/ui/dialog';
 import {useData} from '@/data';
 import {useHud, useNavigation, useTranslation} from '@/providers';

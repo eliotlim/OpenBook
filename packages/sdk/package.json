@@ -1,8 +1,10 @@
 {
-  "name": "@open-book/sdk",
+  "name": "@book.dev/sdk",
   "version": "1.59.0",
   "description": "Shared OpenBook types and HTTP client used by the server, desktop, and web.",
-  "private": true,
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
   "types": "dist/index.d.ts",
   "main": "dist/index.js",

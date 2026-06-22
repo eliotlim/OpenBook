@@ -1,6 +1,6 @@
 import {useEffect, useRef} from 'react';
 import {useRouter} from 'next/router';
-import {isSettingsTab, useHud, type HudProps} from '@open-book/ui';
+import {isSettingsTab, useHud, type HudProps} from '@book.dev/ui';
 
 // Settings state lives in the URL as `?settings=<tab>` so it can be shared,
 // bookmarked, and restored on reload. Presence of the param means "open"; its
@@ -12,7 +12,7 @@ const readParam = (value: string | string[] | undefined): string | undefined =>
 
 /**
  * Two-way binding between `hud.settings` and the address bar (web only). Lives
- * in the web shell rather than `@open-book/ui` so the shared library stays free
+ * in the web shell rather than `@book.dev/ui` so the shared library stays free
  * of any Next.js routing dependency.
  *
  * The two effects are deliberately scoped so they can't echo each other into a

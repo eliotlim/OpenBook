@@ -18,7 +18,7 @@ import {
   slugify,
   type StoredDatabase,
   type StoredPage,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import type {PageStore} from './store';
 
 /** What the mirror last wrote for a page — drives dedup + own-write filtering. */

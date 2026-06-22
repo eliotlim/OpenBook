@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import {strToU8, zipSync} from 'fflate';
-import {validateManifest, type PluginManifest} from '@open-book/sdk';
+import {validateManifest, type PluginManifest} from '@book.dev/sdk';
 import {blockProp, blockText, blockType, rootBlocks, walkBlocks} from '../blockeditor/model';
 
 /**

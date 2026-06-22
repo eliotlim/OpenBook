@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import type {StoredSuggestion} from '@open-book/sdk';
+import type {StoredSuggestion} from '@book.dev/sdk';
 import {suggestionToProposal} from '@/lib/aiBridge';
 import {domToRuns, runsToHtml, runsHaveText} from '@/blockeditor/RichTextEditor';
 

@@ -1,4 +1,4 @@
-import type {LocationValue} from '@open-book/sdk';
+import type {LocationValue} from '@book.dev/sdk';
 
 /**
  * Opt-in, cached address → coordinate geocoding for the map view.

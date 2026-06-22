@@ -9,7 +9,7 @@ import {
   type AiProvider,
   type InterviewStep,
   type StoredSuggestion,
-} from '@open-book/sdk';
+} from '@book.dev/sdk';
 import {Button} from '@/components/ui/button';
 import {Markdown} from '@/components/ui/markdown';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
