@@ -72,7 +72,8 @@ jobs:
   # version, writes CHANGELOG.md, commits + tags `vX.Y.Z`, pushes both to main
   # (commit message carries [skip ci]; a GITHUB_TOKEN push can't re-trigger CI
   # anyway), and creates the GitHub release from the changelog. --skip-publish
-  # leaves npm alone (every package is private).
+  # leaves the npm step to the `publish-npm` job below, which ships the two
+  # public libraries (@book.dev/sdk + @book.dev/ui); the rest stay private.
   release:
     name: Release v${{ needs.plan.outputs.version }} (on approval)
     needs: plan
@@ -197,3 +198,55 @@ jobs:
           fi
           printf 'Uploading to %s:\n' "$tag"; printf '  %s\n' "${files[@]}"
           gh release upload "$tag" "${files[@]}" --clobber
+
+  # Ship the two PUBLIC libraries to npm at the version nx release just cut.
+  # Every other package is `private: true`, so only @book.dev/sdk and
+  # @book.dev/ui go out. Runs on the freshly-pushed tag, and only after the
+  # approved `release` job (so it inherits that approval gate). sdk publishes
+  # before ui because ui depends on it; each publish is skipped when that version
+  # is already on the registry, so a re-run after a partial failure is safe.
+  #
+  # Auth: an npm *automation* token (these bypass publish-time 2FA) stored in the
+  # `NPM_TOKEN` repo secret (Settings → Secrets and variables → Actions).
+  publish-npm:
+    name: Publish libraries to npm
+    needs: [plan, release]
+    if: needs.plan.outputs.new_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the release tag
+        uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.version }} # the tag nx release pushed
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm"
+          # Writes an .npmrc that authenticates with NODE_AUTH_TOKEN below.
+          registry-url: "https://registry.npmjs.org"
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build the libraries (sdk first; ui imports its types)
+        run: |
+          pnpm --filter @book.dev/sdk build
+          pnpm --filter @book.dev/ui build
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          publish() {
+            pkg="$1"; dir="$2"
+            ver=$(node -p "require('./packages/$dir/package.json').version")
+            if npm view "$pkg@$ver" version >/dev/null 2>&1; then
+              echo "$pkg@$ver already on the registry — skipping."
+            else
+              echo "Publishing $pkg@$ver…"
+              pnpm --filter "$pkg" publish --no-git-checks --access public
+            fi
+          }
+          publish "@book.dev/sdk" sdk
+          publish "@book.dev/ui" ui
