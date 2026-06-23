@@ -160,7 +160,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   // One hub is shared between the HTTP/SSE app and the disk mirror, so a
   // re-imported page fans out to every connected client too.
   const hub = new PageHub();
-  const app = createApp(store, ai, hub, {accessToken: opts.accessToken});
+  const app = createApp(store, ai, hub, {accessToken: opts.accessToken, embedded: !opts.databaseUrl});
 
   // The server can listen on a Unix domain socket (the desktop's portless IPC
   // default), a TCP port (headless, or the LAN bind added when publishing), or

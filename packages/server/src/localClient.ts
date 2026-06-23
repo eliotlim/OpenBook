@@ -5,6 +5,7 @@ import type {
   AiStatus,
   AiTasksResponse,
   CommentInput,
+  CompactResult,
   DataClient,
   DatabaseInput,
   DatabaseRow,
@@ -162,6 +163,13 @@ export class LocalDataClient implements DataClient {
 
   emptyTrash(): Promise<number> {
     return this.store.emptyTrash();
+  }
+
+  // Always embedded (idb/memory PGlite in the webview, or the desktop in-app
+  // store), so compaction is always available here — no mode gate.
+  async compact(): Promise<CompactResult> {
+    const {before, after} = await this.store.compact();
+    return {before, after, reclaimed: Math.max(0, before - after)};
   }
 
   subscribePage(id: string, handlers: PageSubscription): () => void {

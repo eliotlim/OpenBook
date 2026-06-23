@@ -5,6 +5,8 @@ import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import type {PageSnapshot} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
+import {PageHub} from './hub';
+import {createApp} from './app';
 
 // OB-164: PGlite has no background checkpointer/autovacuum, so the server runs
 // maintenance itself and must not churn dead row versions on no-op saves.
@@ -72,5 +74,34 @@ describe('PGlite maintenance (OB-164)', () => {
     const first = await store.upsertPage({name: 'before', data: snap('same')});
     const renamed = await store.upsertPage({id: first.id, name: 'after', data: first.data});
     expect(renamed.name).toBe('after');
+  });
+
+  it('compact() reclaims heap bloat and reports a smaller (or equal) size', async () => {
+    const page = await store.upsertPage({name: 'big', data: snap('x'.repeat(4000))});
+    // Heavy churn → lots of dead tuples a plain VACUUM only marks reusable.
+    for (let i = 0; i < 40; i += 1) await store.upsertPage({id: page.id, name: 'big', data: snap(`${'y'.repeat(4000)}-${i}`)});
+    const {before, after} = await store.compact();
+    expect(before).toBeGreaterThan(0);
+    expect(after).toBeLessThanOrEqual(before);
+    // Data survives the rewrite.
+    expect(firstText((await store.getPage(page.id))!.data)).toBe(`${'y'.repeat(4000)}-39`);
+  });
+});
+
+describe('POST /api/maintenance/compact route', () => {
+  it('embedded mode → 200 with before/after/reclaimed', async () => {
+    await store.upsertPage({name: 'p', data: snap('hello')});
+    const app = createApp(store, undefined, new PageHub(), {embedded: true});
+    const res = await app.request('/api/maintenance/compact', {method: 'POST'});
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {before: number; after: number; reclaimed: number};
+    expect(body.before).toBeGreaterThan(0);
+    expect(body.reclaimed).toBe(Math.max(0, body.before - body.after));
+  });
+
+  it('external-Postgres mode (embedded:false) → 409, no VACUUM issued', async () => {
+    const app = createApp(store, undefined, new PageHub(), {embedded: false});
+    const res = await app.request('/api/maintenance/compact', {method: 'POST'});
+    expect(res.status).toBe(409);
   });
 });

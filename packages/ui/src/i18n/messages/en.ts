@@ -345,6 +345,21 @@ export const en = {
       confirmOverwrite: 'Overwrite',
     },
   },
+  storage: {
+    heading: 'Storage',
+    intro:
+      'Compact the local database to reclaim disk space. Editing leaves behind storage overhead that this rewrites away; the app pauses briefly while it runs.',
+    compact: 'Compact database',
+    compacting: 'Compacting…',
+    confirmTitle: 'Compact the database?',
+    confirmBody:
+      'This rewrites the local database to reclaim space and may take a moment. The app will pause until it finishes.',
+    confirmAction: 'Compact',
+    reclaimed: 'Reclaimed {amount} — database is now {size}.',
+    alreadyCompact: 'Already compact — nothing to reclaim ({size}).',
+    unavailable: 'Compaction isn’t available for this server.',
+    failed: 'Compaction failed: {error}',
+  },
   workspace: {
     workspaces: 'Workspaces',
     addWorkspace: 'Add a workspace…',

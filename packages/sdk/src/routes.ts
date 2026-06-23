@@ -89,7 +89,22 @@ export const API = {
   comments: (pageId: string): string => `/api/pages/${encodeURIComponent(pageId)}/comments`,
   /** A single comment: `DELETE`. */
   comment: (id: string): string => `/api/comments/${encodeURIComponent(id)}`,
+
+  /**
+   * On-demand heavy database compaction (`POST`): VACUUM FULL to physically
+   * reclaim heap bloat. Embedded (PGlite) only — a server backed by external
+   * Postgres answers 409. See OB-164.
+   */
+  compact: '/api/maintenance/compact',
 } as const;
+
+/** Result of a {@link API.compact} run: the database's on-disk size before/after,
+ *  in bytes, and how much was reclaimed. */
+export interface CompactResult {
+  before: number;
+  after: number;
+  reclaimed: number;
+}
 
 /** Error body shape returned by the API for non-2xx responses. */
 export interface ApiError {

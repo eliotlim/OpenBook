@@ -205,6 +205,36 @@ export class PageStore {
     await this.db.query('CHECKPOINT');
   }
 
+  /** Current on-disk size of the database, in bytes. */
+  async databaseSize(): Promise<number> {
+    const rows = await this.db.query<{size: string | number}>(
+      'SELECT pg_database_size(current_database()) AS size',
+    );
+    return Number(rows[0]?.size ?? 0);
+  }
+
+  /**
+   * Heavy on-demand compaction (embedded PGlite). `VACUUM FULL` rewrites each
+   * table to *physically* reclaim the dead-tuple bloat a plain `VACUUM` only
+   * marks reusable — the one-shot tool for shrinking an already-bloated heap
+   * (OB-164), versus the periodic {@link maintain} that keeps it flat. Bracketed
+   * with `CHECKPOINT` so the WAL is flushed and recycled around the rewrite.
+   *
+   * `VACUUM FULL` takes an exclusive lock and, like all maintenance statements,
+   * can't run inside a transaction — so it goes through plain `query`, and the
+   * PGlite mutex serializes everything else against it for the duration. That's
+   * why this is a user-initiated action (with a progress indicator), not a
+   * background job. Returns the before/after on-disk size in bytes.
+   */
+  async compact(): Promise<{before: number; after: number}> {
+    const before = await this.databaseSize();
+    await this.db.query('CHECKPOINT');
+    await this.db.query('VACUUM (FULL, ANALYZE)');
+    await this.db.query('CHECKPOINT');
+    const after = await this.databaseSize();
+    return {before, after};
+  }
+
   /**
    * List page metadata in sidebar order (`position` ascending within each
    * sibling group; `created_at` breaks ties). Database *rows* (pages tagged

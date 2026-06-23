@@ -1,6 +1,6 @@
 import {useCallback, useMemo, useRef, useState} from 'react';
 import {BACKUP_VERSION, parseBookFolder, spaceToBookFiles, type SpaceBackup} from '@book.dev/sdk';
-import {Download, FolderDown, FolderUp, Upload} from 'lucide-react';
+import {Database, Download, FolderDown, FolderUp, Upload} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {
   Dialog,
@@ -21,6 +21,19 @@ import {t as bareT} from '@/i18n';
 
 const displayName = (name: string | null): string => (name && name.trim() ? name : bareT('common.untitled'));
 
+/** Human-readable byte size (e.g. `1.5 GB`). */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
 /** Backup & restore the whole workspace, from the Settings panel. */
 export default function BackupSettings() {
   const client = useData();
@@ -30,7 +43,7 @@ export default function BackupSettings() {
   const {t} = useTranslation();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const [busy, setBusy] = useState<null | 'export' | 'import' | 'folder'>(null);
+  const [busy, setBusy] = useState<null | 'export' | 'import' | 'folder' | 'compact'>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [bundle, setBundle] = useState<SpaceBackup | null>(null);
 
@@ -110,6 +123,33 @@ export default function BackupSettings() {
     }
   }, [platform, t]);
 
+  // Compact the embedded database (VACUUM FULL) to physically reclaim the heap
+  // bloat that edit churn leaves behind (OB-164). The store is exclusively locked
+  // while it runs, so confirm first — and it only applies to the embedded PGlite
+  // store; a remote server answers 409, surfaced as "unavailable".
+  const onCompact = useCallback(async () => {
+    if (!(await confirm({
+      title: t('storage.confirmTitle'),
+      description: t('storage.confirmBody'),
+      confirmText: t('storage.confirmAction'),
+    }))) return;
+    setBusy('compact');
+    setStatus(null);
+    try {
+      const {reclaimed, after} = await client.compact();
+      setStatus(
+        reclaimed > 0
+          ? t('storage.reclaimed', {amount: formatBytes(reclaimed), size: formatBytes(after)})
+          : t('storage.alreadyCompact', {size: formatBytes(after)}),
+      );
+    } catch (e) {
+      const message = (e as Error).message;
+      setStatus(message.includes('409') ? t('storage.unavailable') : t('storage.failed', {error: message}));
+    } finally {
+      setBusy(null);
+    }
+  }, [client, confirm, t]);
+
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-2">
@@ -152,6 +192,17 @@ export default function BackupSettings() {
           <Button variant="secondary" onClick={() => void onImportFolder()} disabled={busy !== null} className="gap-2">
             <FolderUp className="h-4 w-4" />
             {t('backup.folderImport')}
+          </Button>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-2 border-t border-border pt-6">
+        <h3 className="text-lg font-semibold">{t('storage.heading')}</h3>
+        <p className="text-sm text-muted-foreground">{t('storage.intro')}</p>
+        <div className="mt-1 flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={() => void onCompact()} disabled={busy !== null} className="gap-2">
+            <Database className="h-4 w-4" />
+            {busy === 'compact' ? t('storage.compacting') : t('storage.compact')}
           </Button>
         </div>
       </section>

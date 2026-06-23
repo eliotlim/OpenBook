@@ -1,6 +1,6 @@
 export type {PageSnapshot, PageMeta, StoredPage, PageInput, ServerInfo, ServerControls} from './types';
 export {emptyPageSnapshot} from './types';
-export {API, type ApiError} from './routes';
+export {API, type ApiError, type CompactResult} from './routes';
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions} from './client';
 export {HttpDataClient} from './client';
 export {

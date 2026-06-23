@@ -1,4 +1,4 @@
-import {API, type ApiError} from './routes';
+import {API, type ApiError, type CompactResult} from './routes';
 import type {PluginPackage, StoredPlugin} from './plugins';
 import type {
   AgentChatEvent,
@@ -117,6 +117,13 @@ export interface DataClient {
   purgePage(id: string): Promise<boolean>;
   /** Permanently empty the whole trash. Resolves the number of pages purged. */
   emptyTrash(): Promise<number>;
+  /**
+   * Heavy on-demand compaction (VACUUM FULL) to physically reclaim database
+   * bloat — embedded (PGlite) stores only; a remote external-Postgres server
+   * rejects it. Briefly pauses other reads/writes while it runs. Resolves the
+   * before/after on-disk size in bytes. See OB-164.
+   */
+  compact(): Promise<CompactResult>;
   /** Subscribe to a single page's live updates. Returns an unsubscribe fn. */
   subscribePage(id: string, handlers: PageSubscription): () => void;
   /** Subscribe to live page-list updates. Returns an unsubscribe fn. */
@@ -475,6 +482,10 @@ export class HttpDataClient implements DataClient {
   async emptyTrash(): Promise<number> {
     const {purged} = await this.request<{purged: number}>('DELETE', API.trash);
     return purged;
+  }
+
+  async compact(): Promise<CompactResult> {
+    return this.request<CompactResult>('POST', API.compact);
   }
 
   subscribePage(id: string, handlers: PageSubscription): () => void {

@@ -45,6 +45,13 @@ export interface AppOptions {
    * so the local UX needs no token. `/health` is always open.
    */
   accessToken?: string;
+  /**
+   * True when the store is embedded PGlite (desktop / web webview), false for an
+   * external Postgres. Gates the heavy-compaction route: `VACUUM FULL` only makes
+   * sense for the self-maintaining embedded DB; a shared Postgres autovacuums and
+   * must not be exclusively locked by a client. See OB-164.
+   */
+  embedded?: boolean;
 }
 
 export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono {
@@ -182,6 +189,17 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   });
 
   // ── Whole-space backup ───────────────────────────────────────────────────────
+
+  // Heavy on-demand compaction (VACUUM FULL). Embedded PGlite only — an external
+  // Postgres autovacuums and shouldn't be exclusively locked + rewritten by a
+  // client, so it answers 409 there (OB-164).
+  app.post(API.compact, async (c) => {
+    if (!opts.embedded) {
+      return c.json({error: 'compaction is only available for the embedded database'}, 409);
+    }
+    const {before, after} = await store.compact();
+    return c.json({before, after, reclaimed: Math.max(0, before - after)});
+  });
 
   app.get(API.exportSpace, async (c) => c.json(await store.exportAll()));
 
