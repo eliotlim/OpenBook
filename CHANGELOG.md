@@ -1,3 +1,16 @@
+## 1.61.1 (2026-06-26)
+
+### 🩹 Fixes
+
+- **ci:** force bash for the Tauri build step (Windows PowerShell chokes on @book.dev/app) ([c5c9568](https://github.com/eliotlim/OpenBook/commit/c5c9568))
+- **ci:** don't fail the release plan when no release is due ([9735e94](https://github.com/eliotlim/OpenBook/commit/9735e94))
+- **ui:** make the split-pane spine shadow darker in dark mode ([424955b](https://github.com/eliotlim/OpenBook/commit/424955b))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim
+
 ## 1.61.0 (2026-06-26)
 
 ### 🚀 Features
