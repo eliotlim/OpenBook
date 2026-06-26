@@ -1,3 +1,14 @@
+## 1.61.2 (2026-06-26)
+
+### 🩹 Fixes
+
+- **app:** remove comments from entitlements.plist (AMFI parse error) ([fbcadab](https://github.com/eliotlim/OpenBook/commit/fbcadab))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim
+
 ## 1.61.1 (2026-06-26)
 
 ### 🩹 Fixes
