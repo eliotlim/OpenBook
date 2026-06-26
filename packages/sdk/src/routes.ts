@@ -96,6 +96,16 @@ export const API = {
    * Postgres answers 409. See OB-164.
    */
   compact: '/api/maintenance/compact',
+
+  // ── Multi-user (identity, policy, provenance) — OB-165 ───────────────────────
+  /**
+   * Instance multi-user policy: `GET` returns {@link InstanceInfo} (guest
+   * policy, trusted issuer URLs, and the principal resolved for *this* request);
+   * `PUT` updates the policy (owner only).
+   */
+  instance: '/api/instance',
+  /** A page's change provenance (the edit log), newest first: `GET`. */
+  pageEdits: (id: string): string => `/api/pages/${encodeURIComponent(id)}/edits`,
 } as const;
 
 /** Result of a {@link API.compact} run: the database's on-disk size before/after,

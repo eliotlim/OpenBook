@@ -7,7 +7,10 @@ import {
   type DatabaseInput,
   type DatabaseUpdate,
   type ImportRequest,
+  type InstanceConfig,
+  type InstanceInfo,
   type PageInput,
+  type Principal,
   type RowInput,
   type SuggestionInput,
   type SuggestionStatus,
@@ -17,6 +20,8 @@ import {PageStore} from './store';
 import {PageHub} from './hub';
 import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
+import {guestGate, resolvePrincipal, type IdentityProvider} from './principal';
+import type {AppEnv} from './appEnv';
 import type {AiService} from './ai/service';
 
 /**
@@ -52,10 +57,18 @@ export interface AppOptions {
    * must not be exclusively locked by a client. See OB-164.
    */
   embedded?: boolean;
+  /**
+   * Multi-user identity (OB-165). When provided, every `/api/*` request resolves
+   * a {@link Principal} (a verified user from an `X-OpenBook-Identity` JWS, or a
+   * guest) and the guest-access policy is enforced. Omit for a legacy
+   * single-user instance: every caller is an anonymous guest with full access,
+   * exactly as before.
+   */
+  identity?: IdentityProvider;
 }
 
-export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono {
-  const app = new Hono();
+export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono<AppEnv> {
+  const app = new Hono<AppEnv>();
 
   // Push the latest page list to list subscribers (nav stays live).
   const broadcastList = async (): Promise<void> => {
@@ -97,6 +110,33 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     });
   }
 
+  // Principal resolution + guest-access gate (OB-165). Runs after the
+  // reachability gate above (a different axis: "may you reach this instance" vs.
+  // "who are you / may a guest do this"). Always sets `c.principal` — a guest
+  // when no identity is presented — so every handler can attribute its change.
+  // With no identity provider configured the instance stays legacy: everyone is
+  // an anonymous guest with full access.
+  app.use('/api/*', async (c, next) => {
+    const resolved = await resolvePrincipal(c, opts.identity);
+    if ('reject' in resolved) return c.json({error: resolved.reject.error}, resolved.reject.status);
+    c.set('principal', resolved.principal);
+    if (opts.identity) {
+      const {guestAccess} = await opts.identity.policy();
+      const gate = guestGate(resolved.principal, guestAccess, c.req.method);
+      if (gate) return c.json({error: gate.error}, gate.status);
+    }
+    return next();
+  });
+
+  // Record one change to the durable edit log, attributed to the request's
+  // principal. Best-effort + fire-after-commit: a lost log row never costs data,
+  // and provenance must not be able to fail a write.
+  const logEdit = (c: {get(k: 'principal'): Principal}, pageId: string | null, kind: string, summary = ''): void => {
+    void store.logEdit({pageId, author: c.get('principal'), kind, summary}).catch((err) => {
+      console.error('OpenBook edit-log write failed:', err);
+    });
+  };
+
   // Optional local-AI subsystem (status/search/generate). Mounted only when
   // the host passed a service; document APIs never depend on it.
   if (ai) mountAiRoutes(app, ai, store, broadcastList);
@@ -113,6 +153,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await broadcastList();
     // A row page's content changed — refresh its database's expr columns.
     if (page.databaseId) await broadcastRows(page.databaseId);
+    logEdit(c, page.id, 'page.create', page.name ?? '');
     return c.json(page, 201);
   });
 
@@ -128,6 +169,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     hub.publishPage(page);
     await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);
+    logEdit(c, page.id, 'page.save', page.name ?? '');
     return c.json(page);
   });
 
@@ -137,6 +179,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (!page) return c.json({error: 'page not found'}, 404);
     hub.publishPage(page);
     await broadcastList();
+    logEdit(c, page.id, 'page.rename', page.name ?? '');
     return c.json(page);
   });
 
@@ -152,6 +195,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // page list when it changes; other properties don't affect the list.
     if (body.properties && 'sys_icon' in body.properties) await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);
+    logEdit(c, page.id, 'page.properties');
     return c.json(page);
   });
 
@@ -170,6 +214,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (!page) return c.json({error: 'invalid move (would create a cycle)'}, 409);
     hub.publishPage(page);
     await broadcastList();
+    logEdit(c, page.id, 'page.move');
     return c.json(page);
   });
 
@@ -185,6 +230,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     hub.publishDeleted(id);
     await broadcastList();
     if (existing?.databaseId) await broadcastRows(existing.databaseId);
+    logEdit(c, id, 'page.delete', existing?.name ?? '');
     return c.body(null, 204);
   });
 
@@ -207,7 +253,47 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const req = await c.req.json<ImportRequest>();
     const result = await store.importBundle(req);
     await broadcastList();
+    logEdit(c, null, 'space.import', `${result.created} created, ${result.overwritten} overwritten`);
     return c.json(result);
+  });
+
+  // ── Multi-user: instance policy + change provenance (OB-165) ─────────────────
+
+  // The instance's multi-user policy, plus who the server resolved *you* to be
+  // on this request (so a client can render "signed in as …" / "guest"). Never
+  // leaks private JWKS material — trusted issuers are returned as URLs only.
+  app.get(API.instance, async (c) => {
+    const config = await store.getInstanceConfig();
+    const info: InstanceInfo = {
+      guestAccess: config.guestAccess,
+      ownerSubject: config.ownerSubject ?? null,
+      trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
+      you: c.get('principal'),
+    };
+    return c.json(info);
+  });
+
+  // Update the policy (guest gate, trusted issuers, owner). Once an owner is
+  // claimed, only the owner may change it; before then (fresh instance) any
+  // caller may set it — matching the desktop single-user reality where the first
+  // user claims the workspace.
+  app.put(API.instance, async (c) => {
+    const principal = c.get('principal');
+    const current = await store.getInstanceConfig();
+    if (current.ownerSubject && principal.subject !== current.ownerSubject) {
+      return c.json({error: 'only the instance owner can change multi-user policy'}, 403);
+    }
+    const patch = await c.req.json<Partial<InstanceConfig>>();
+    const next = await store.updateInstanceConfig(patch);
+    logEdit(c, null, 'instance.policy', `guestAccess=${next.guestAccess}`);
+    return c.json(next);
+  });
+
+  // A page's change provenance (the edit log), newest first. The top row is its
+  // "last edited by". `?limit=` caps the count (default 100, max 1000).
+  app.get(`${API.pages}/:id/edits`, async (c) => {
+    const limit = Number(c.req.query('limit') ?? 100);
+    return c.json(await store.listEdits(c.req.param('id'), Number.isFinite(limit) ? limit : 100));
   });
 
   // ── Trash (soft-deleted pages) ───────────────────────────────────────────────
@@ -221,6 +307,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     hub.publishPage(page);
     await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);
+    logEdit(c, page.id, 'page.restore', page.name ?? '');
     return c.json(page);
   });
 
@@ -247,6 +334,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const host = await store.getPage(database.pageId);
     if (host) hub.publishPage(host);
     await broadcastList();
+    logEdit(c, database.pageId, 'database.create', database.name ?? '');
     return c.json(database, 201);
   });
 
@@ -293,6 +381,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const page = await store.createRow(id, input);
     hub.publishPage(page);
     await broadcastRows(id);
+    logEdit(c, page.id, 'row.create');
     return c.json(page, 201);
   });
 
@@ -310,6 +399,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const row = await store.updateRow(id, c.req.param('rowId'), body);
     if (!row) return c.json({error: 'row not found'}, 404);
     await broadcastRows(id);
+    logEdit(c, row.id, 'row.update');
     return c.json(row);
   });
 
@@ -327,6 +417,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.post(`${API.pages}/:id/suggestions`, async (c) => {
     const input = await c.req.json<SuggestionInput>();
     const suggestion = await store.createSuggestion({...input, pageId: c.req.param('id')});
+    logEdit(c, c.req.param('id'), 'suggestion.create', input.authorName ?? '');
     return c.json(suggestion, 201);
   });
 
@@ -348,6 +439,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.post(`${API.pages}/:id/comments`, async (c) => {
     const input = await c.req.json<CommentInput>();
     const comment = await store.createComment({...input, pageId: c.req.param('id')});
+    logEdit(c, c.req.param('id'), 'comment.create', input.authorName ?? '');
     return c.json(comment, 201);
   });
 

@@ -141,6 +141,36 @@ export {
   resolveAccountUrl,
   type AccountSettings,
 } from './account';
+export {
+  guestPrincipal,
+  localPrincipal,
+  principalId,
+  mintIdentityKeypair,
+  signIdentity,
+  decodeIdentity,
+  verifyIdentity,
+  principalFromClaims,
+  unverifiedPrincipalFromClaims,
+  type Principal,
+  type PrincipalKind,
+  type VerifiedVia,
+  type IdentityHeader,
+  type IdentityClaims,
+  type Jwk,
+  type Jwks,
+  type IdentityKeypair,
+  type VerifyOptions,
+  type VerifyResult,
+  type VerifyFailure,
+} from './identity';
+export {
+  DEFAULT_INSTANCE_CONFIG,
+  type GuestAccess,
+  type TrustedIssuerConfig,
+  type InstanceConfig,
+  type InstanceInfo,
+  type StoredEdit,
+} from './provenance';
 export {snapshotText, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock} from './content';
 export {
   snapshotBlocks,
