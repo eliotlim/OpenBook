@@ -75,30 +75,40 @@ export function setServerTokenOverride(token: string | null): void {
 /**
  * The caller's identity, sent on every data-server request (OB-165). Distinct
  * from the access token above: that's the instance reachability secret, this is
- * *who you are*. The `jws` is a live, short-lived assertion held in memory
- * (refreshed before it expires); the `guestName` persists so even anonymous
- * edits carry a human-readable label across reloads. A provider keeps this in
- * sync via {@link setIdentityCredential}; the data client reads it fresh per
- * request via {@link getIdentityCredential}.
+ * *who you are*. Two INDEPENDENT parts, owned by different providers, so neither
+ * clobbers the other:
+ *  - the **JWS** — a live, short-lived verified assertion held in memory
+ *    (AccountProvider sets it on sign-in, refreshes it before expiry, clears it
+ *    on sign-out);
+ *  - the **guest name** — persisted so even anonymous edits carry a label across
+ *    reloads (PreferencesProvider mirrors the profile display name).
+ * The data client reads both fresh per request via {@link getIdentityCredential}.
  */
 import type {IdentityCredential} from './client';
 
-let identityCredential: IdentityCredential = {};
+let identityJws: string | null = null;
+let guestName: string | null = null;
 const GUEST_NAME_KEY = 'openbook.guestName';
 
-/** The identity to attach to the next request (JWS when signed in + guest name). */
+/** The identity to attach to the next request (verified JWS + guest label). */
 export function getIdentityCredential(): IdentityCredential {
-  const storedName =
-    typeof localStorage !== 'undefined' ? localStorage.getItem(GUEST_NAME_KEY) ?? undefined : undefined;
-  const guestName = identityCredential.guestName ?? storedName;
-  return {jws: identityCredential.jws, guestName: guestName && guestName.trim() ? guestName.trim() : undefined};
+  const name =
+    guestName ?? (typeof localStorage !== 'undefined' ? localStorage.getItem(GUEST_NAME_KEY) : null);
+  return {
+    jws: identityJws ?? undefined,
+    guestName: name && name.trim() ? name.trim() : undefined,
+  };
 }
 
-/** Update the live identity (e.g. on sign-in / sign-out / profile rename). */
-export function setIdentityCredential(cred: IdentityCredential): void {
-  identityCredential = {jws: cred.jws, guestName: cred.guestName};
-  if (typeof localStorage !== 'undefined') {
-    if (cred.guestName && cred.guestName.trim()) localStorage.setItem(GUEST_NAME_KEY, cred.guestName.trim());
-    else localStorage.removeItem(GUEST_NAME_KEY);
-  }
+/** Set the verified identity assertion (JWS), or `null` to act as a guest. */
+export function setIdentityToken(jws: string | null): void {
+  identityJws = jws && jws.length > 0 ? jws : null;
+}
+
+/** Set the guest display label, persisted so anonymous edits stay attributed. */
+export function setGuestName(name: string | null): void {
+  guestName = name && name.trim() ? name.trim() : null;
+  if (typeof localStorage === 'undefined') return;
+  if (guestName) localStorage.setItem(GUEST_NAME_KEY, guestName);
+  else localStorage.removeItem(GUEST_NAME_KEY);
 }
