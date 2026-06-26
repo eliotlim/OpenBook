@@ -3,6 +3,7 @@ import {OWNER_PROPERTY_ID, VERIFICATION_PROPERTY_ID} from '@book.dev/sdk';
 import {useNavigation, useTranslation} from '@/providers';
 import {IconButton} from '@/components/ui/icon-button';
 import {BacklinksControl, OwnerEditor, VerificationEditor, usePageProperties} from '@/components/PageProperties';
+import {LastEditedBy} from '@/components/LastEditedBy';
 import {CoverPicker} from '@/components/PageCover';
 import {usePageCover} from '@/lib/pageCover';
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
@@ -65,6 +66,7 @@ export function PageHeaderControls({pageId}: {pageId: string}) {
       <OwnerEditor owner={owner} onChange={(v) => setProperty(OWNER_PROPERTY_ID, v)} />
       <VerificationEditor value={verification} onChange={(v) => setProperty(VERIFICATION_PROPERTY_ID, v)} />
       <BacklinksControl pageId={pageId} />
+      <LastEditedBy pageId={pageId} />
       {!cover && (
         <CoverPicker pageId={pageId}>
           <button

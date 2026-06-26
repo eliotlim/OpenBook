@@ -897,6 +897,13 @@ export const en = {
     ownerLocked: 'Only the workspace owner can change this.',
     saveError: 'Couldn’t update access — {error}',
   },
+  provenance: {
+    editedBy: 'Edited by {name}',
+    justNow: 'just now',
+    aGuest: 'a guest',
+    someone: 'someone',
+    unverified: 'unverified identity',
+  },
   integrations: {
     title: 'Integrations',
     description: 'Connect OpenBook to other tools. Integrations aren’t available yet — this is where they’ll live.',
