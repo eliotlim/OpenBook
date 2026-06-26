@@ -71,3 +71,34 @@ export function setServerTokenOverride(token: string | null): void {
     localStorage.removeItem(SERVER_TOKEN_KEY);
   }
 }
+
+/**
+ * The caller's identity, sent on every data-server request (OB-165). Distinct
+ * from the access token above: that's the instance reachability secret, this is
+ * *who you are*. The `jws` is a live, short-lived assertion held in memory
+ * (refreshed before it expires); the `guestName` persists so even anonymous
+ * edits carry a human-readable label across reloads. A provider keeps this in
+ * sync via {@link setIdentityCredential}; the data client reads it fresh per
+ * request via {@link getIdentityCredential}.
+ */
+import type {IdentityCredential} from './client';
+
+let identityCredential: IdentityCredential = {};
+const GUEST_NAME_KEY = 'openbook.guestName';
+
+/** The identity to attach to the next request (JWS when signed in + guest name). */
+export function getIdentityCredential(): IdentityCredential {
+  const storedName =
+    typeof localStorage !== 'undefined' ? localStorage.getItem(GUEST_NAME_KEY) ?? undefined : undefined;
+  const guestName = identityCredential.guestName ?? storedName;
+  return {jws: identityCredential.jws, guestName: guestName && guestName.trim() ? guestName.trim() : undefined};
+}
+
+/** Update the live identity (e.g. on sign-in / sign-out / profile rename). */
+export function setIdentityCredential(cred: IdentityCredential): void {
+  identityCredential = {jws: cred.jws, guestName: cred.guestName};
+  if (typeof localStorage !== 'undefined') {
+    if (cred.guestName && cred.guestName.trim()) localStorage.setItem(GUEST_NAME_KEY, cred.guestName.trim());
+    else localStorage.removeItem(GUEST_NAME_KEY);
+  }
+}

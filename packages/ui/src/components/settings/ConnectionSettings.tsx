@@ -12,6 +12,7 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Switch} from '@/components/ui/switch';
 import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
+import {SharingSection} from '@/components/settings/SharingSettings';
 
 /** The live tunnel status as a small coloured label next to the toggle. */
 function ForwardingStatusBadge({status}: {status: ForwardingStatus}) {
@@ -170,6 +171,8 @@ export default function ConnectionSettings() {
   return (
     <SettingsScreen title={t('connection.title')} description={t('connection.description')}>
       <ForwardingSection />
+
+      <SharingSection />
 
       <SettingsSection title={t('connection.server')}>
         <p className="text-sm text-muted-foreground">

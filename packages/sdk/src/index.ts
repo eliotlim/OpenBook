@@ -1,7 +1,7 @@
 export type {PageSnapshot, PageMeta, StoredPage, PageInput, ServerInfo, ServerControls} from './types';
 export {emptyPageSnapshot} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
-export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions} from './client';
+export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential} from './client';
 export {HttpDataClient} from './client';
 export {
   ForwardingClient,
@@ -131,7 +131,7 @@ export {
   propertiesReferencePage,
   type VerificationValue,
 } from './pageProperties';
-export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, isMixedContentBlocked} from './connection';
+export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityCredential, isMixedContentBlocked} from './connection';
 export {
   AccountClient,
   AccountError,

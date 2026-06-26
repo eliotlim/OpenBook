@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import type {GetServerSideProps, InferGetServerSidePropsType} from 'next';
 import Head from 'next/head';
-import {HttpDataClient, getServerUrlOverride, getServerTokenOverride, type DataClient} from '@book.dev/sdk';
+import {HttpDataClient, getServerUrlOverride, getServerTokenOverride, getIdentityCredential, type DataClient} from '@book.dev/sdk';
 import {
   DataProvider,
   DefaultLayout,
@@ -41,14 +41,14 @@ function useWebClient(forwardedPrefix: string | null): DataClient | null {
     // Same-origin (empty base), no token: the edge injects the signed viewer
     // principal. Takes precedence over a local override and the in-browser store.
     if (forwardedPrefix) {
-      setClient(new HttpDataClient(''));
+      setClient(new HttpDataClient('', undefined, {getIdentity: getIdentityCredential}));
       return;
     }
     const override = getServerUrlOverride() ?? REMOTE_SERVER_URL;
     if (override) {
       // A published server requires its access token on every request; pass the
       // configured one (Connection settings) so a token-gated remote works.
-      setClient(new HttpDataClient(override, getServerTokenOverride() ?? undefined));
+      setClient(new HttpDataClient(override, getServerTokenOverride() ?? undefined, {getIdentity: getIdentityCredential}));
       return;
     }
     let cancelled = false;

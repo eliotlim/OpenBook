@@ -12,6 +12,8 @@ import type {
   DatabaseUpdate,
   ImportRequest,
   ImportResult,
+  InstanceConfig,
+  InstanceInfo,
   PageInput,
   PageMeta,
   PageSubscription,
@@ -20,6 +22,7 @@ import type {
   RowUpdate,
   StoredComment,
   StoredDatabase,
+  StoredEdit,
   StoredPage,
   StoredPlugin,
   StoredSuggestion,
@@ -27,6 +30,7 @@ import type {
   SuggestionStatus,
   SuggestionUpdate,
 } from '@book.dev/sdk';
+import {localPrincipal} from '@book.dev/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 
@@ -281,6 +285,29 @@ export class LocalDataClient implements DataClient {
 
   deleteComment(id: string): Promise<boolean> {
     return this.store.deleteComment(id);
+  }
+
+  // ── Multi-user: identity, policy, provenance (OB-165) ────────────────────────
+  // In-webview mode is single-user: the caller is the implicit local owner.
+  // The policy + edit log still persist (so a later move to a shared server, or
+  // a second window, sees them), and writes here are attributed to the owner.
+
+  async getInstanceInfo(): Promise<InstanceInfo> {
+    const config = await this.store.getInstanceConfig();
+    return {
+      guestAccess: config.guestAccess,
+      ownerSubject: config.ownerSubject ?? null,
+      trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
+      you: localPrincipal(),
+    };
+  }
+
+  setInstancePolicy(patch: Partial<InstanceConfig>): Promise<InstanceConfig> {
+    return this.store.updateInstanceConfig(patch);
+  }
+
+  listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]> {
+    return this.store.listEdits(pageId, limit);
   }
 
   // ── Extensions (installed plugins, stored per workspace in the DB) ───────────

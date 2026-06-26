@@ -3,6 +3,7 @@ import {
   HttpDataClient,
   getServerUrlOverride,
   getServerTokenOverride,
+  getIdentityCredential,
   type DataClient,
   type ServerInfo,
 } from '@book.dev/sdk';
@@ -22,7 +23,7 @@ export const DEV_SERVER_URL = 'http://127.0.0.1:4319';
 export const createDesktopClient = async (): Promise<DataClient> => {
   const override = getServerUrlOverride();
   if (override) {
-    return new HttpDataClient(override, getServerTokenOverride() ?? undefined);
+    return new HttpDataClient(override, getServerTokenOverride() ?? undefined, {getIdentity: getIdentityCredential});
   }
 
   let info: ServerInfo | null = null;
@@ -34,8 +35,12 @@ export const createDesktopClient = async (): Promise<DataClient> => {
 
   if (info?.managed) {
     // Portless local server over host IPC (requests + live feed are tunnelled).
-    return new HttpDataClient('', undefined, {fetchImpl: tauriFetch, createLiveSource: createTauriLiveSource});
+    return new HttpDataClient('', undefined, {
+      fetchImpl: tauriFetch,
+      createLiveSource: createTauriLiveSource,
+      getIdentity: getIdentityCredential,
+    });
   }
 
-  return new HttpDataClient(DEV_SERVER_URL);
+  return new HttpDataClient(DEV_SERVER_URL, undefined, {getIdentity: getIdentityCredential});
 };

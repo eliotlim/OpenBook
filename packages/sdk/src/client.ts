@@ -12,6 +12,7 @@ import type {
   AiTasksResponse,
 } from './ai';
 import type {PageInput, PageMeta, StoredPage} from './types';
+import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {ImportRequest, ImportResult} from './backup';
 import type {
   DatabaseInput,
@@ -166,6 +167,25 @@ export interface DataClient {
   createComment(input: CommentInput): Promise<StoredComment>;
   /** Delete a comment. Resolves `true` if removed. */
   deleteComment(id: string): Promise<boolean>;
+
+  // ── Multi-user: identity, policy, provenance (OB-165) ────────────────────────
+  /** The instance's multi-user policy + who the server resolved *you* to be. */
+  getInstanceInfo(): Promise<InstanceInfo>;
+  /** Update the multi-user policy (guest gate, trusted issuers, owner). Owner-only
+   *  once an owner is claimed. */
+  setInstancePolicy(patch: Partial<InstanceConfig>): Promise<InstanceConfig>;
+  /** A page's change provenance (the edit log), newest first. */
+  listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]>;
+}
+
+/**
+ * The identity a client presents to a data server (OB-165). `jws` is a verified
+ * identity assertion (when signed in); `guestName` labels otherwise-anonymous
+ * edits. Both are optional — a fully anonymous guest sends neither.
+ */
+export interface IdentityCredential {
+  jws?: string;
+  guestName?: string;
 }
 
 /**
@@ -353,7 +373,19 @@ export interface HttpDataClientOptions {
   fetchImpl?: FetchLike;
   /** Factory for the live-update source (e.g. an IPC-event-backed source). */
   createLiveSource?: (url: string) => LiveSourceLike;
+  /**
+   * The caller's current identity (OB-165), read fresh on every request so a
+   * sign-in / sign-out / token refresh takes effect without rebuilding the
+   * client. Sent as the `X-OpenBook-Identity` (JWS) and `X-OpenBook-Guest-Name`
+   * headers — orthogonal to {@link HttpDataClient}'s access `token`, which is the
+   * instance reachability secret. Omit for a legacy anonymous client.
+   */
+  getIdentity?: () => IdentityCredential | null | undefined;
 }
+
+/** Identity header names (kept in sync with the server's `principal.ts`). */
+const IDENTITY_HEADER = 'X-OpenBook-Identity';
+const GUEST_NAME_HEADER = 'X-OpenBook-Guest-Name';
 
 /**
  * {@link DataClient} backed by an OpenBook server's HTTP API. Isomorphic, and
@@ -366,6 +398,7 @@ export class HttpDataClient implements DataClient {
   private readonly token?: string;
   private readonly fetchImpl: FetchLike;
   private readonly createLiveSource: (url: string) => LiveSourceLike;
+  private readonly getIdentity?: () => IdentityCredential | null | undefined;
   private live: LiveStream | null = null;
 
   /**
@@ -382,22 +415,35 @@ export class HttpDataClient implements DataClient {
     this.token = token && token.length > 0 ? token : undefined;
     this.fetchImpl = opts.fetchImpl ?? globalFetch;
     this.createLiveSource = opts.createLiveSource ?? ((url) => new EventSource(url) as unknown as LiveSourceLike);
+    this.getIdentity = opts.getIdentity;
   }
 
-  /** `fetch` (or the injected transport) with the access token attached (when set). */
+  /**
+   * `fetch` (or the injected transport) with the access token (instance gate)
+   * and the caller's identity (who-you-are) attached. The two are distinct axes:
+   * `Authorization: Bearer` is the reachability secret; `X-OpenBook-Identity` is
+   * the verifiable user assertion. Identity is read fresh per request.
+   */
   private authFetch(input: string, init: RequestInit = {}): Promise<Response> {
-    if (!this.token) return this.fetchImpl(input, init);
-    return this.fetchImpl(input, {
-      ...init,
-      headers: {...(init.headers as Record<string, string> | undefined), Authorization: `Bearer ${this.token}`},
-    });
+    const headers: Record<string, string> = {...(init.headers as Record<string, string> | undefined)};
+    if (this.token) headers.Authorization = `Bearer ${this.token}`;
+    const id = this.getIdentity?.();
+    if (id?.jws) headers[IDENTITY_HEADER] = id.jws;
+    if (id?.guestName) headers[GUEST_NAME_HEADER] = id.guestName;
+    return this.fetchImpl(input, {...init, headers});
   }
 
   /** Lazily create the shared live connection (browser-only). */
   private liveStream(): LiveStream {
     if (!this.live) {
-      // EventSource can't send headers, so the token rides the URL.
-      const liveUrl = `${this.baseUrl}${API.live}${this.token ? `?token=${encodeURIComponent(this.token)}` : ''}`;
+      // EventSource can't send headers, so the access token and the identity
+      // assertion both ride the URL (the server reads `?token=` / `?identity=`).
+      const params = new URLSearchParams();
+      if (this.token) params.set('token', this.token);
+      const id = this.getIdentity?.();
+      if (id?.jws) params.set('identity', id.jws);
+      const query = params.toString();
+      const liveUrl = `${this.baseUrl}${API.live}${query ? `?${query}` : ''}`;
       this.live = new LiveStream(
         liveUrl,
         {
@@ -582,6 +628,21 @@ export class HttpDataClient implements DataClient {
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
+  }
+
+  // ── Multi-user: identity, policy, provenance (OB-165) ────────────────────────
+
+  async getInstanceInfo(): Promise<InstanceInfo> {
+    return this.request<InstanceInfo>('GET', API.instance);
+  }
+
+  async setInstancePolicy(patch: Partial<InstanceConfig>): Promise<InstanceConfig> {
+    return this.request<InstanceConfig>('PUT', API.instance, patch);
+  }
+
+  async listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]> {
+    const path = limit ? `${API.pageEdits(pageId)}?limit=${limit}` : API.pageEdits(pageId);
+    return this.request<StoredEdit[]>('GET', path);
   }
 
   // ── Optional local AI ───────────────────────────────────────────────────────
