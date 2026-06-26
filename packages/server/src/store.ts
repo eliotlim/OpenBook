@@ -1082,6 +1082,24 @@ export class PageStore {
     );
   }
 
+  /**
+   * Prune edit-log entries older than `retentionMs` (a periodic job, like the
+   * trash sweep). The log gains a row per mutation and PGlite has no autovacuum,
+   * so an unbounded log bloats the embedded heap (the OB-164 class of problem) —
+   * this bounds it. `retentionMs <= 0` keeps the log forever (no-op). Returns the
+   * number of entries pruned.
+   */
+  async purgeOldEdits(retentionMs: number): Promise<number> {
+    if (!(retentionMs > 0)) return 0;
+    const rows = await this.db.query<{id: string}>(
+      `DELETE FROM edit_log
+       WHERE created_at <= now() - ($1::bigint * interval '1 millisecond')
+       RETURNING id`,
+      [Math.trunc(retentionMs)],
+    );
+    return rows.length;
+  }
+
   /** Read the edit log — a single page's history, or the whole instance's,
    *  newest first. */
   async listEdits(pageId?: string, limit = 100): Promise<StoredEdit[]> {
