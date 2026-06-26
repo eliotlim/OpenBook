@@ -1,5 +1,6 @@
 import {randomUUID} from './uuid';
 import type {
+  BackupConfig,
   CommentInput,
   CommentRun,
   DatabaseInput,
@@ -25,7 +26,7 @@ import type {
   SuggestionUpdate,
   VerifiedVia,
 } from '@book.dev/sdk';
-import {DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import type {Db} from './dbCore';
 import {runMigrations} from './migrations';
 
@@ -1112,6 +1113,42 @@ export class PageStore {
     const next = {...(await this.getInstanceConfig()), ...patch};
     await this.db.query(
       `INSERT INTO settings (key, value) VALUES ('instance', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(next)],
+    );
+    return next;
+  }
+
+  // ── Scheduled-backup policy (OB-166) ──────────────────────────────────────────
+
+  /** The scheduled-backup policy, with defaults filled in. */
+  async getBackupConfig(): Promise<BackupConfig> {
+    const rows = await this.db.query<{value: BackupConfig | string}>(
+      'SELECT value FROM settings WHERE key = \'backups\'',
+    );
+    const stored = rows.length > 0 ? parseJson<Partial<BackupConfig>>(rows[0].value, {}) : {};
+    return {
+      ...DEFAULT_BACKUP_CONFIG,
+      ...stored,
+      // Nested records merge so a newly-added cadence keeps its default.
+      cadences: {...DEFAULT_BACKUP_CONFIG.cadences, ...stored.cadences},
+      keep: {...DEFAULT_BACKUP_CONFIG.keep, ...stored.keep},
+      lastRun: {...stored.lastRun},
+    };
+  }
+
+  /** Shallow-merge a patch into the backup policy and persist it. */
+  async updateBackupConfig(patch: Partial<BackupConfig>): Promise<BackupConfig> {
+    const current = await this.getBackupConfig();
+    const next: BackupConfig = {
+      ...current,
+      ...patch,
+      cadences: {...current.cadences, ...patch.cadences},
+      keep: {...current.keep, ...patch.keep},
+      lastRun: {...current.lastRun, ...patch.lastRun},
+    };
+    await this.db.query(
+      `INSERT INTO settings (key, value) VALUES ('backups', $1::jsonb)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
       [JSON.stringify(next)],
     );

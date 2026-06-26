@@ -7,6 +7,7 @@ import {PageHub} from './hub';
 import {BookMirror} from './mirror';
 import {AiService} from './ai/service';
 import {IdentityService} from './instanceConfig';
+import {BackupScheduler} from './backups';
 import {writeFileSync, rmSync, unlinkSync} from 'node:fs';
 import {createServer} from 'node:http';
 import path from 'node:path';
@@ -165,10 +166,20 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   // tightened (read-only / off) by the owner.
   const identity = new IdentityService(store);
 
+  // Scheduled backups (OB-166): tiered daily/weekly/monthly/yearly snapshots,
+  // off by default until enabled in settings. Writes under the data dir
+  // (embedded) or the home dir (headless server), unless the policy overrides
+  // the folder. The timer is `unref`'d and a no-op while disabled.
+  const defaultBackupDir = opts.dataDir
+    ? path.join(opts.dataDir, 'backups')
+    : path.join(os.homedir(), '.openbook', 'backups');
+  const backups = new BackupScheduler(store, {defaultDir: defaultBackupDir});
+  backups.start();
+
   // One hub is shared between the HTTP/SSE app and the disk mirror, so a
   // re-imported page fans out to every connected client too.
   const hub = new PageHub();
-  const app = createApp(store, ai, hub, {accessToken: opts.accessToken, embedded: !opts.databaseUrl, identity});
+  const app = createApp(store, ai, hub, {accessToken: opts.accessToken, embedded: !opts.databaseUrl, identity, backups});
 
   // The server can listen on a Unix domain socket (the desktop's portless IPC
   // default), a TCP port (headless, or the LAN bind added when publishing), or
@@ -266,6 +277,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     address,
     close: async () => {
       await ai.dispose();
+      backups.stop();
       if (cleanupTimer) clearInterval(cleanupTimer);
       if (maintenanceTimer) clearInterval(maintenanceTimer);
       if (reconcileTimer) clearTimeout(reconcileTimer);

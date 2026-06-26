@@ -10,6 +10,8 @@ import type {
   DatabaseInput,
   DatabaseRow,
   DatabaseUpdate,
+  BackupConfig,
+  BackupStatus,
   ImportRequest,
   ImportResult,
   InstanceConfig,
@@ -30,7 +32,7 @@ import type {
   SuggestionStatus,
   SuggestionUpdate,
 } from '@book.dev/sdk';
-import {localPrincipal} from '@book.dev/sdk';
+import {BACKUP_CADENCES, BACKUP_CADENCE_MS, localPrincipal} from '@book.dev/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 
@@ -308,6 +310,41 @@ export class LocalDataClient implements DataClient {
 
   listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]> {
     return this.store.listEdits(pageId, limit);
+  }
+
+  // ── Scheduled backups (OB-166) ───────────────────────────────────────────────
+  // The in-webview store has no filesystem, so scheduled backups don't run here
+  // (`resolvedDir` is null → the UI shows it as a desktop/server feature). The
+  // policy still persists, and the manual `.openbook.json` export covers the
+  // browser; `runBackup` is therefore unavailable.
+
+  async getBackupStatus(): Promise<BackupStatus> {
+    const config = await this.store.getBackupConfig();
+    return {
+      config,
+      resolvedDir: null,
+      cadences: BACKUP_CADENCES.map((cadence) => {
+        const last = config.lastRun[cadence] ?? null;
+        return {
+          cadence,
+          enabled: config.cadences[cadence],
+          lastRun: last,
+          nextDue: last ? new Date(Date.parse(last) + BACKUP_CADENCE_MS[cadence]).toISOString() : null,
+          count: 0,
+        };
+      }),
+    };
+  }
+
+  async setBackupConfig(patch: Partial<BackupConfig>): Promise<BackupStatus> {
+    await this.store.updateBackupConfig(patch);
+    return this.getBackupStatus();
+  }
+
+  runBackup(): Promise<{file: string; dir: string}> {
+    return Promise.reject(
+      new Error('Scheduled backups run on the desktop app or a connected server — not in the browser. Use Export instead.'),
+    );
   }
 
   // ── Extensions (installed plugins, stored per workspace in the DB) ───────────

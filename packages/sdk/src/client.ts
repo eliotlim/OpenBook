@@ -13,7 +13,7 @@ import type {
 } from './ai';
 import type {PageInput, PageMeta, StoredPage} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
-import type {ImportRequest, ImportResult} from './backup';
+import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult} from './backup';
 import type {
   DatabaseInput,
   DatabaseRow,
@@ -176,6 +176,14 @@ export interface DataClient {
   setInstancePolicy(patch: Partial<InstanceConfig>): Promise<InstanceConfig>;
   /** A page's change provenance (the edit log), newest first. */
   listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]>;
+
+  // ── Scheduled backups (OB-166) ───────────────────────────────────────────────
+  /** Scheduled-backup policy + per-cadence status. */
+  getBackupStatus(): Promise<BackupStatus>;
+  /** Update the backup policy (enable, cadences, retention, folder). Owner-only. */
+  setBackupConfig(patch: Partial<BackupConfig>): Promise<BackupStatus>;
+  /** Run a snapshot now ("Back up now"). Resolves the written file + its folder. */
+  runBackup(cadence?: BackupCadence): Promise<{file: string; dir: string}>;
 }
 
 /**
@@ -643,6 +651,18 @@ export class HttpDataClient implements DataClient {
   async listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]> {
     const path = limit ? `${API.pageEdits(pageId)}?limit=${limit}` : API.pageEdits(pageId);
     return this.request<StoredEdit[]>('GET', path);
+  }
+
+  async getBackupStatus(): Promise<BackupStatus> {
+    return this.request<BackupStatus>('GET', API.backups);
+  }
+
+  async setBackupConfig(patch: Partial<BackupConfig>): Promise<BackupStatus> {
+    return this.request<BackupStatus>('PUT', API.backups, patch);
+  }
+
+  async runBackup(cadence?: BackupCadence): Promise<{file: string; dir: string}> {
+    return this.request<{file: string; dir: string}>('POST', API.backupRun, {cadence});
   }
 
   // ── Optional local AI ───────────────────────────────────────────────────────

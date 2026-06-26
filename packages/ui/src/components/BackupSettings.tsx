@@ -1,7 +1,16 @@
-import {useCallback, useMemo, useRef, useState} from 'react';
-import {BACKUP_VERSION, parseBookFolder, spaceToBookFiles, type SpaceBackup} from '@book.dev/sdk';
-import {Database, Download, FolderDown, FolderUp, Upload} from 'lucide-react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {
+  BACKUP_VERSION,
+  parseBookFolder,
+  spaceToBookFiles,
+  type BackupCadence,
+  type BackupConfig,
+  type BackupStatus,
+  type SpaceBackup,
+} from '@book.dev/sdk';
+import {CalendarClock, Database, Download, FolderDown, FolderUp, Upload} from 'lucide-react';
 import {Button} from '@/components/ui/button';
+import {Switch} from '@/components/ui/switch';
 import {
   Dialog,
   DialogContent,
@@ -196,6 +205,8 @@ export default function BackupSettings() {
         </div>
       </section>
 
+      <ScheduledBackupsSection />
+
       <section className="flex flex-col gap-2 border-t border-border pt-6">
         <h3 className="text-lg font-semibold">{t('storage.heading')}</h3>
         <p className="text-sm text-muted-foreground">{t('storage.intro')}</p>
@@ -231,6 +242,133 @@ export default function BackupSettings() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * Scheduled backups (OB-166): turn on tiered daily/weekly/monthly/yearly
+ * snapshots, see when each last ran, and trigger one on demand. Backups are
+ * written + pruned by the server, so this is hidden when the server doesn't
+ * expose the endpoint (older build) and shown as desktop/server-only when the
+ * data layer runs in the browser (no filesystem).
+ */
+function ScheduledBackupsSection() {
+  const client = useData();
+  const {t} = useTranslation();
+  const [status, setStatus] = useState<BackupStatus | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    client
+      .getBackupStatus()
+      .then(setStatus)
+      .catch(() => setUnavailable(true));
+  }, [client]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const patch = useCallback(
+    async (p: Partial<BackupConfig>) => {
+      setBusy(true);
+      setMsg(null);
+      try {
+        setStatus(await client.setBackupConfig(p));
+      } catch (e) {
+        setMsg((e as Error).message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [client],
+  );
+
+  const backupNow = useCallback(async () => {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const {file} = await client.runBackup('daily');
+      setMsg(t('backup.schedule.ranNow', {file}));
+      refresh();
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }, [client, refresh, t]);
+
+  const cadenceLabel = useCallback(
+    (c: BackupCadence): string =>
+      c === 'daily'
+        ? t('backup.schedule.cadenceDaily')
+        : c === 'weekly'
+          ? t('backup.schedule.cadenceWeekly')
+          : c === 'monthly'
+            ? t('backup.schedule.cadenceMonthly')
+            : t('backup.schedule.cadenceYearly'),
+    [t],
+  );
+
+  if (unavailable || !status) return null;
+  const webOnly = status.resolvedDir === null;
+
+  return (
+    <section className="flex flex-col gap-2 border-t border-border pt-6">
+      <h3 className="text-lg font-semibold">{t('backup.schedule.heading')}</h3>
+      <p className="text-sm text-muted-foreground">{t('backup.schedule.intro')}</p>
+
+      {webOnly ? (
+        <p className="text-sm text-muted-foreground">{t('backup.schedule.webOnly')}</p>
+      ) : (
+        <>
+          <label className="mt-1 flex items-center justify-between gap-6 rounded-md border border-border px-3.5 py-3">
+            <span className="flex min-w-0 flex-col">
+              <span className="text-sm font-medium">{t('backup.schedule.enable')}</span>
+              <span className="text-xs text-muted-foreground">{t('backup.schedule.enableHint')}</span>
+            </span>
+            <Switch checked={status.config.enabled} disabled={busy} onCheckedChange={(v) => void patch({enabled: v})} />
+          </label>
+
+          {status.config.enabled && (
+            <div className="flex flex-col gap-1.5">
+              {status.cadences.map((c) => (
+                <label key={c.cadence} className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2">
+                  <span className="flex min-w-0 flex-col">
+                    <span className="text-sm font-medium">{cadenceLabel(c.cadence)}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {c.lastRun
+                        ? t('backup.schedule.keptLast', {when: new Date(c.lastRun).toLocaleString(), count: c.count})
+                        : t('backup.schedule.never')}
+                    </span>
+                  </span>
+                  <Switch
+                    checked={c.enabled}
+                    disabled={busy}
+                    onCheckedChange={(v) => void patch({cadences: {...status.config.cadences, [c.cadence]: v}})}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={() => void backupNow()} disabled={busy} className="gap-2">
+              <CalendarClock className="h-4 w-4" />
+              {busy ? t('backup.schedule.backingUp') : t('backup.schedule.backupNow')}
+            </Button>
+            {status.resolvedDir && (
+              <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+                {status.resolvedDir}
+              </code>
+            )}
+          </div>
+        </>
+      )}
+      {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
+    </section>
   );
 }
 
