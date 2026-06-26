@@ -1,5 +1,5 @@
 import React, {createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
-import {AccountClient, AccountError, resolveAccountUrl} from '@book.dev/sdk';
+import {AccountClient, AccountError, resolveAccountUrl, setIdentityToken} from '@book.dev/sdk';
 import {usePlatformLibrary} from './PlatformLibraryProvider';
 import {usePreferences, type Preferences} from './PreferencesProvider';
 import {useWorkspace, type Workspace} from './WorkspaceProvider';
@@ -238,6 +238,38 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     [updatePreferences, replaceWorkspaces],
   );
 
+  // ── Verified identity for the data server (OB-165) ───────────────────────────
+  // Once signed in, mint an identity JWS from account.book.pub and hand it to the
+  // data client (via the SDK credential store); refresh it shortly before it
+  // expires. If the account doesn't issue identities (501) we simply stay a
+  // named guest. Cleared on sign-out.
+  const identityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshIdentity = useCallback(
+    async (tok: string): Promise<void> => {
+      try {
+        const res = await client.getIdentityToken(tok);
+        setIdentityToken(res?.identity ?? null);
+        if (identityTimer.current) clearTimeout(identityTimer.current);
+        if (res) {
+          // Refresh a minute before expiry (but at least 30s out).
+          const ms = Math.max(30_000, new Date(res.expiresAt).getTime() - Date.now() - 60_000);
+          identityTimer.current = setTimeout(() => void refreshRef.current(tok), ms);
+        }
+      } catch {
+        // Network/transient error — keep whatever we had; a later sync retries.
+      }
+    },
+    [client],
+  );
+  const refreshRef = useRef(refreshIdentity);
+  refreshRef.current = refreshIdentity;
+
+  const clearIdentity = useCallback((): void => {
+    if (identityTimer.current) clearTimeout(identityTimer.current);
+    identityTimer.current = null;
+    setIdentityToken(null);
+  }, []);
+
   /** Validate a token, then reconcile: seed an empty account, else adopt remote. */
   const connect = useCallback(
     async (tok: string) => {
@@ -257,6 +289,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
           persistToken(tok, updatedAt);
         }
         setStatus('connected');
+        void refreshRef.current(tok); // mint the data-server identity JWS
       } catch (err) {
         if (err instanceof AccountError && err.status === 401) {
           // Token rejected/revoked — forget it.
@@ -265,6 +298,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
           } catch {
             /* ignore */
           }
+          clearIdentity();
           setToken(null);
           setStatus('error');
           setError('That sign-in was rejected. Please try again.');
@@ -274,7 +308,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
         }
       }
     },
-    [client, currentBlob, adopt, persistToken],
+    [client, currentBlob, adopt, persistToken, clearIdentity],
   );
 
   /**
@@ -436,11 +470,12 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     pendingState.current = null;
     clearPendingState();
     lastSyncedBlob.current = null;
+    clearIdentity();
     setToken(null);
     setLastSyncedAt(null);
     setError(null);
     setStatus('disconnected');
-  }, []);
+  }, [clearIdentity]);
 
   const syncNow = useCallback(() => {
     if (token) void connect(token);

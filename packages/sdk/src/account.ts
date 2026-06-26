@@ -106,6 +106,25 @@ export class AccountClient {
     return {updatedAt: body.updatedAt};
   }
 
+  /**
+   * Mint a verifiable identity assertion (JWS) for the OpenBook data server
+   * (OB-165). The data server verifies it against the account's JWKS and
+   * attributes the user's changes to `iss#sub`. Returns `{identity, expiresAt}`,
+   * or `null` when the account doesn't issue identities (501) — the app then
+   * acts as a named guest. Throws `AccountError(401)` on an invalid/revoked token.
+   */
+  async getIdentityToken(token: string): Promise<{identity: string; expiresAt: string} | null> {
+    const res = await fetch(new URL('/api/identity/token', this.baseUrl + '/'), {
+      headers: {authorization: `Bearer ${token}`},
+      cache: 'no-store',
+    });
+    if (res.status === 501) return null; // issuance not configured on this account
+    if (!res.ok) throw new AccountError(res.status, `account identity token failed (${res.status})`);
+    const body = (await res.json()) as {identity?: string; expiresAt?: string};
+    if (!body.identity || !body.expiresAt) return null;
+    return {identity: body.identity, expiresAt: body.expiresAt};
+  }
+
   /** Cheap token check (a settings GET): true if accepted, false on 401. */
   async validate(token: string): Promise<boolean> {
     try {

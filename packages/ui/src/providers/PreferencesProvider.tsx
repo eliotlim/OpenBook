@@ -1,5 +1,5 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react';
-import {setIdentityCredential} from '@book.dev/sdk';
+import {setGuestName} from '@book.dev/sdk';
 import type {FeatureVisibility} from '@/lib/aiFeatures';
 
 /** A user's identity within the app. Cosmetic today (local-first, no accounts). */
@@ -91,7 +91,7 @@ export const PreferencesProvider: React.FC<React.PropsWithChildren<unknown>> = (
   // sets the `jws`, upgrading the same edits to a verified identity.
   const guestName = preferences.profile.displayName || preferences.profile.name;
   useEffect(() => {
-    setIdentityCredential({guestName});
+    setGuestName(guestName);
   }, [guestName]);
 
   const update = useCallback((patch: DeepPartial<Preferences>) => {

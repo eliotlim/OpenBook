@@ -6,6 +6,7 @@
  * Design: `docs/multi-user-and-backups-2026-06.md`.
  */
 
+import {DEFAULT_ACCOUNT_URL} from './account';
 import type {Jwks, Principal, VerifiedVia} from './identity';
 
 /** What an unauthenticated (guest) caller may do on this instance. */
@@ -38,7 +39,11 @@ export interface InstanceConfig {
 
 export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
   guestAccess: 'write',
-  trustedIssuers: [],
+  // Trust account.book.pub out of the box — it's the OpenBook identity authority
+  // (the shared root that makes identities federate across instances). Only ever
+  // consulted when an `iss=account.book.pub` assertion is actually presented; the
+  // JWKS is fetched + cached lazily. Override or extend in instance settings.
+  trustedIssuers: [{issuer: DEFAULT_ACCOUNT_URL, jwksUrl: `${DEFAULT_ACCOUNT_URL}/api/identity/jwks`}],
 };
 
 /**
