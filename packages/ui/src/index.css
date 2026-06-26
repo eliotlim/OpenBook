@@ -459,9 +459,17 @@
   position: absolute;
   inset: 0 auto 0 0;
   width: 1.75rem;
+  /* Spine shadow cast onto the right page. In light mode --foreground is dark,
+     so this darkens the page like a real shadow. In dark mode --foreground is
+     light and would *lighten* the page (the opposite of a shadow), so the .dark
+     rule below paints it with black instead — a shadow should always be darker
+     than the page, in both themes. */
   background: linear-gradient(to right, hsl(var(--foreground) / 0.07), transparent);
   pointer-events: none;
   z-index: 4;
+}
+.dark .ob-desk > [data-split-pane]::before {
+  background: linear-gradient(to right, hsl(0 0% 0% / 0.25), transparent);
 }
 
 /* Per-page typefaces (lib/pageFont): the wrapper sets the body family, headings
