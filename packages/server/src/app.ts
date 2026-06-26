@@ -461,7 +461,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.post(`${API.pages}/:id/suggestions`, async (c) => {
     const input = await c.req.json<SuggestionInput>();
-    const suggestion = await store.createSuggestion({...input, pageId: c.req.param('id')});
+    const suggestion = await store.createSuggestion({...input, pageId: c.req.param('id')}, c.get('principal'));
     logEdit(c, c.req.param('id'), 'suggestion.create', input.authorName ?? '');
     return c.json(suggestion, 201);
   });
@@ -483,7 +483,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.post(`${API.pages}/:id/comments`, async (c) => {
     const input = await c.req.json<CommentInput>();
-    const comment = await store.createComment({...input, pageId: c.req.param('id')});
+    const comment = await store.createComment({...input, pageId: c.req.param('id')}, c.get('principal'));
     logEdit(c, c.req.param('id'), 'comment.create', input.authorName ?? '');
     return c.json(comment, 201);
   });

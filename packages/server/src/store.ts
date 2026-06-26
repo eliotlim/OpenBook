@@ -980,12 +980,13 @@ export class PageStore {
     return rows.length > 0 ? suggestionFromRow(rows[0]) : null;
   }
 
-  async createSuggestion(input: SuggestionInput): Promise<StoredSuggestion> {
+  async createSuggestion(input: SuggestionInput, author?: Principal): Promise<StoredSuggestion> {
     const id = input.id ?? randomUUID();
     const rows = await this.db.query<SuggestionRow>(
       `INSERT INTO suggestions
-         (id, page_id, author_kind, author_name, kind, target, before_text, after_text, status, payload, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'open', $9::jsonb, now())
+         (id, page_id, author_kind, author_name, kind, target, before_text, after_text, status, payload,
+          author_subject, author_issuer, author_verified, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, 'open', $9::jsonb, $10, $11, $12, now())
        RETURNING ${SUGGESTION_COLS}`,
       [
         id,
@@ -997,6 +998,9 @@ export class PageStore {
         input.before ?? '',
         input.after ?? '',
         JSON.stringify(input.payload ?? {}),
+        author?.subject ?? null,
+        author?.issuer ?? null,
+        author?.verifiedVia ?? null,
       ],
     );
     return suggestionFromRow(rows[0]);
@@ -1028,11 +1032,13 @@ export class PageStore {
     return rows.map(commentFromRow);
   }
 
-  async createComment(input: CommentInput): Promise<StoredComment> {
+  async createComment(input: CommentInput, author?: Principal): Promise<StoredComment> {
     const id = input.id ?? randomUUID();
     const rows = await this.db.query<CommentRowRecord>(
-      `INSERT INTO comments (id, page_id, suggestion_id, block_id, parent_id, author_name, body)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+      `INSERT INTO comments
+         (id, page_id, suggestion_id, block_id, parent_id, author_name, body,
+          author_subject, author_issuer, author_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
        RETURNING ${COMMENT_COLS}`,
       [
         id,
@@ -1042,6 +1048,9 @@ export class PageStore {
         input.parentId ?? null,
         input.authorName,
         JSON.stringify(input.body ?? []),
+        author?.subject ?? null,
+        author?.issuer ?? null,
+        author?.verifiedVia ?? null,
       ],
     );
     return commentFromRow(rows[0]);
@@ -1196,7 +1205,8 @@ function pluginFromRow(row: PluginRow): StoredPlugin {
 // ── Suggestions + comments row mappers ───────────────────────────────────────
 
 const SUGGESTION_COLS =
-  'id, page_id, author_kind, author_name, kind, target, before_text, after_text, status, payload, created_at, updated_at';
+  'id, page_id, author_kind, author_name, kind, target, before_text, after_text, status, payload, ' +
+  'author_subject, author_issuer, author_verified, created_at, updated_at';
 
 interface SuggestionRow {
   id: string;
@@ -1209,6 +1219,9 @@ interface SuggestionRow {
   after_text: string;
   status: string;
   payload: Record<string, unknown> | string | null;
+  author_subject: string | null;
+  author_issuer: string | null;
+  author_verified: string | null;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -1225,12 +1238,28 @@ function suggestionFromRow(row: SuggestionRow): StoredSuggestion {
     after: row.after_text ?? '',
     status: row.status as StoredSuggestion['status'],
     payload: parseJson<Record<string, unknown>>(row.payload, {}),
+    ...authorFields(row),
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
 }
 
-const COMMENT_COLS = 'id, page_id, suggestion_id, block_id, parent_id, author_name, body, created_at';
+/** Project the server-stamped author identity columns (OB-165), omitting nulls. */
+function authorFields(row: {
+  author_subject: string | null;
+  author_issuer: string | null;
+  author_verified: string | null;
+}): {authorSubject?: string; authorIssuer?: string; authorVerified?: VerifiedVia} {
+  const out: {authorSubject?: string; authorIssuer?: string; authorVerified?: VerifiedVia} = {};
+  if (row.author_subject) out.authorSubject = row.author_subject;
+  if (row.author_issuer) out.authorIssuer = row.author_issuer;
+  if (row.author_verified) out.authorVerified = row.author_verified as VerifiedVia;
+  return out;
+}
+
+const COMMENT_COLS =
+  'id, page_id, suggestion_id, block_id, parent_id, author_name, body, ' +
+  'author_subject, author_issuer, author_verified, created_at';
 
 interface CommentRowRecord {
   id: string;
@@ -1240,6 +1269,9 @@ interface CommentRowRecord {
   parent_id: string | null;
   author_name: string;
   body: CommentRun[] | string | null;
+  author_subject: string | null;
+  author_issuer: string | null;
+  author_verified: string | null;
   created_at: Date | string;
 }
 
@@ -1252,6 +1284,7 @@ function commentFromRow(row: CommentRowRecord): StoredComment {
     parentId: row.parent_id ?? null,
     authorName: row.author_name,
     body: parseJson<CommentRun[]>(row.body, []),
+    ...authorFields(row),
     createdAt: toIso(row.created_at),
   };
 }

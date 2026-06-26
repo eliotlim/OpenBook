@@ -189,6 +189,47 @@ describe('change provenance (edit log)', () => {
   });
 });
 
+describe('review-layer author identity', () => {
+  const createPage = async (app: ReturnType<typeof appWithIdentity>, headers: Record<string, string>) =>
+    (await app.request('/api/pages', {method: 'POST', headers: {'Content-Type': 'application/json', ...headers}, body: pageBody(`rev-${seq}`)})).json();
+
+  it('stamps the verified principal on a suggestion', async () => {
+    const app = appWithIdentity();
+    const jws = await idFor('iris');
+    const page = await createPage(app, {[IDENTITY_HEADER]: jws});
+    const sug = await (
+      await app.request(`/api/pages/${page.id}/suggestions`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', [IDENTITY_HEADER]: jws},
+        body: JSON.stringify({
+          pageId: page.id,
+          authorKind: 'human',
+          authorName: 'Iris',
+          kind: 'replace-text',
+          target: {blockId: 'b1'},
+          before: 'a',
+          after: 'b',
+          payload: {},
+        }),
+      })
+    ).json();
+    expect(sug).toMatchObject({authorName: 'Iris', authorSubject: `${ISS}#iris`, authorVerified: 'jws'});
+  });
+
+  it('stamps a guest on a comment', async () => {
+    const app = appWithIdentity();
+    const page = await createPage(app, {'X-OpenBook-Guest-Name': 'Caryl'});
+    const com = await (
+      await app.request(`/api/pages/${page.id}/comments`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-OpenBook-Guest-Name': 'Caryl'},
+        body: JSON.stringify({pageId: page.id, authorName: 'Caryl', body: [{t: 'hi'}], blockId: 'b1'}),
+      })
+    ).json();
+    expect(com).toMatchObject({authorName: 'Caryl', authorVerified: 'guest'});
+  });
+});
+
 describe('instance policy ownership', () => {
   it('locks policy changes to the owner once claimed', async () => {
     await store.updateInstanceConfig({ownerSubject: `${ISS}#owner`});

@@ -264,7 +264,8 @@ export class LocalDataClient implements DataClient {
   }
 
   createSuggestion(input: SuggestionInput): Promise<StoredSuggestion> {
-    return this.store.createSuggestion(input);
+    // In-webview store is single-user: stamp the implicit local owner (OB-165).
+    return this.store.createSuggestion(input, localPrincipal());
   }
 
   async updateSuggestion(id: string, patch: SuggestionUpdate): Promise<StoredSuggestion> {
@@ -282,7 +283,7 @@ export class LocalDataClient implements DataClient {
   }
 
   createComment(input: CommentInput): Promise<StoredComment> {
-    return this.store.createComment(input);
+    return this.store.createComment(input, localPrincipal());
   }
 
   deleteComment(id: string): Promise<boolean> {
