@@ -1,4 +1,5 @@
 import React, {createContext, useCallback, useContext, useEffect, useMemo, useState} from 'react';
+import {setIdentityCredential} from '@book.dev/sdk';
 import type {FeatureVisibility} from '@/lib/aiFeatures';
 
 /** A user's identity within the app. Cosmetic today (local-first, no accounts). */
@@ -82,6 +83,16 @@ export const PreferencesProvider: React.FC<React.PropsWithChildren<unknown>> = (
     const stored = readStored();
     if (stored !== DEFAULT_PREFERENCES) setPreferences(stored);
   }, []);
+
+  // Label the user's edits on the data server (OB-165). Without a signed-in
+  // identity the user is a guest, but a guest with a name is still attributed in
+  // the edit log — so push the profile display name as the guest label. When
+  // account-issued identity JWS minting lands, the account layer additionally
+  // sets the `jws`, upgrading the same edits to a verified identity.
+  const guestName = preferences.profile.displayName || preferences.profile.name;
+  useEffect(() => {
+    setIdentityCredential({guestName});
+  }, [guestName]);
 
   const update = useCallback((patch: DeepPartial<Preferences>) => {
     setPreferences((prev) => {
