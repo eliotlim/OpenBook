@@ -36,8 +36,25 @@ export interface CommentRun {
   };
 }
 
+import type {VerifiedVia} from './identity';
+
 /** Who authored a suggestion or comment. */
 export type SuggestionAuthorKind = 'ai' | 'human';
+
+/**
+ * Server-stamped author identity (OB-165) carried alongside the display
+ * `authorName`. Unlike `authorName` (a label the client supplies), these come
+ * from the request's *verified* principal, so they're the authoritative "who".
+ * Absent on rows written before multi-user, or by an unauthenticated path.
+ */
+export interface AuthoredIdentity {
+  /** The principal's stable subject (`iss#sub`, or `guest:<name>`). */
+  authorSubject?: string;
+  /** The issuer that vouched for a verified author (empty for guests). */
+  authorIssuer?: string;
+  /** How the author was established (`jws` / `guest` / `unverified` / `local`). */
+  authorVerified?: VerifiedVia;
+}
 
 /** The change a suggestion proposes — mirrors the agent write-tool kinds. */
 export type SuggestionKind = 'replace-text' | 'set-cell' | 'insert' | 'delete' | 'set-theme';
@@ -63,7 +80,7 @@ export interface SuggestionTarget {
 }
 
 /** A persisted, reviewable proposed change to a page. */
-export interface StoredSuggestion {
+export interface StoredSuggestion extends AuthoredIdentity {
   id: string;
   pageId: string;
   authorKind: SuggestionAuthorKind;
@@ -106,7 +123,7 @@ export interface SuggestionUpdate {
 }
 
 /** A threaded comment on a suggestion, or a standalone comment on a block. */
-export interface StoredComment {
+export interface StoredComment extends AuthoredIdentity {
   id: string;
   pageId: string;
   /** The suggestion this comment belongs to (a review-thread comment). */

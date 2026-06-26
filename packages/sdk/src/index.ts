@@ -210,6 +210,7 @@ export {
 export {buildSampleDocument, seedSampleDocument, SAMPLE_DOCUMENT_NAME} from './sampleDocument';
 export type {
   CommentRun,
+  AuthoredIdentity,
   SuggestionAuthorKind,
   SuggestionKind,
   SuggestionStatus,

@@ -192,6 +192,23 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS edit_log_author_idx ON edit_log (author_subject, created_at DESC)',
     ],
   },
+  {
+    // Server-stamped author identity on the review layer (OB-165). The
+    // suggestions/comments tables already carry `author_name` (a display label
+    // the client supplies) + `author_kind` ('ai'|'human'); these add the
+    // *verified* principal behind the write (subject/issuer + how it was
+    // established), so review-layer authorship is as trustworthy as the edit
+    // log. All nullable/additive: pre-multi-user rows simply have no identity.
+    name: '0010_review_authors',
+    statements: [
+      'ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS author_subject TEXT',
+      'ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS author_issuer TEXT',
+      'ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS author_verified TEXT',
+      'ALTER TABLE comments ADD COLUMN IF NOT EXISTS author_subject TEXT',
+      'ALTER TABLE comments ADD COLUMN IF NOT EXISTS author_issuer TEXT',
+      'ALTER TABLE comments ADD COLUMN IF NOT EXISTS author_verified TEXT',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */
