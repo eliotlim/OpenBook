@@ -190,6 +190,10 @@ jobs:
       # bundling. (Same as the local `build:desktop` script, plus an explicit
       # --target.)
       - name: Build Tauri bundles
+        # Force bash on every runner (incl. Windows Git Bash). The default
+        # Windows shell is PowerShell, which parses the leading `@` in
+        # `@book.dev/app` as its splatting operator and aborts with a ParserError.
+        shell: bash
         env:
           # AppImage bundling hardening (Linux only; ignored elsewhere):
           #  - NO_STRIP: the ~80 MB Bun --compile sidecar has data appended past
@@ -225,8 +229,7 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         # `tauri build --target <triple>` puts bundles under
         # target/<triple>/release/bundle. pnpm forwards the trailing args to the
-        # app's `tauri` script. The substituted command has no shell-isms, so it
-        # runs identically under bash (linux/macOS) and pwsh (windows).
+        # app's `tauri` script.
         run: pnpm --filter @book.dev/app run tauri build --target ${{ matrix.target }}
 
       - name: Upload bundles to the v${{ needs.release.outputs.version }} release
