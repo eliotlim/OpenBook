@@ -120,6 +120,12 @@ jobs:
   publish-tauri:
     name: Build & attach desktop bundles
     needs: [plan, release]
+    # The macOS signing/notarization secrets (APPLE_*) live in the `publish`
+    # environment, so this job must opt into it to read them — repository-wide
+    # secrets aren't used for signing. Keep `publish` WITHOUT required reviewers
+    # so it adds no second approval; the release is already gated upstream at the
+    # `release` environment (this job `needs` it).
+    environment: publish
     permissions:
       contents: write # gh release upload
     strategy:
@@ -278,6 +284,8 @@ jobs:
     name: Publish libraries to npm
     needs: [plan, release]
     if: needs.plan.outputs.new_release == 'true'
+    # Same as publish-tauri: NPM_TOKEN lives in the `publish` environment.
+    environment: publish
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the release tag
