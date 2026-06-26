@@ -301,6 +301,7 @@ export class LocalDataClient implements DataClient {
       guestAccess: config.guestAccess,
       ownerSubject: config.ownerSubject ?? null,
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
+      audience: config.audience ?? null,
       you: localPrincipal(),
     };
   }

@@ -113,8 +113,13 @@ export class AccountClient {
    * or `null` when the account doesn't issue identities (501) — the app then
    * acts as a named guest. Throws `AccountError(401)` on an invalid/revoked token.
    */
-  async getIdentityToken(token: string): Promise<{identity: string; expiresAt: string} | null> {
-    const res = await fetch(new URL('/api/identity/token', this.baseUrl + '/'), {
+  async getIdentityToken(token: string, aud?: string): Promise<{identity: string; expiresAt: string} | null> {
+    // `aud` scopes the assertion to one data server (OB-177), so it can't be
+    // replayed to another. Required by the issuer only when it runs an audience
+    // allowlist; harmless (and unscoped) otherwise.
+    const url = new URL('/api/identity/token', this.baseUrl + '/');
+    if (aud) url.searchParams.set('aud', aud);
+    const res = await fetch(url, {
       headers: {authorization: `Bearer ${token}`},
       cache: 'no-store',
     });

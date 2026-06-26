@@ -36,9 +36,19 @@ export class IdentityService implements IdentityProvider {
     return this.opts.now?.() ?? Date.now();
   }
 
-  async policy(): Promise<{guestAccess: import('@book.dev/sdk').GuestAccess; allowedIssuers: string[]}> {
+  async policy(): Promise<{
+    guestAccess: import('@book.dev/sdk').GuestAccess;
+    allowedIssuers: string[];
+    audience?: string;
+    requireAudience?: boolean;
+  }> {
     const config = await this.store.getInstanceConfig();
-    return {guestAccess: config.guestAccess, allowedIssuers: config.trustedIssuers.map((i) => i.issuer)};
+    return {
+      guestAccess: config.guestAccess,
+      allowedIssuers: config.trustedIssuers.map((i) => i.issuer),
+      audience: config.audience,
+      requireAudience: config.requireAudience,
+    };
   }
 
   async jwks(issuer: string): Promise<Jwks | null> {
