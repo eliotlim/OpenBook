@@ -37,7 +37,7 @@ describe('default account.book.pub trust', () => {
   it('verifies an account-issued JWS by fetching the issuer JWKS URL', async () => {
     const kp = await mintIdentityKeypair('account-1');
     let fetched = 0;
-    const fetchImpl = async (_url: string): Promise<Response> => {
+    const fetchImpl = async (): Promise<Response> => {
       fetched += 1;
       return new Response(JSON.stringify({keys: [kp.publicJwk]}), {
         status: 200,

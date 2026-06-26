@@ -45,9 +45,17 @@ export interface StartOptions {
   trashRetentionMs?: number;
   /**
    * How often the trash cleanup job runs, in milliseconds. Defaults to 1 hour.
-   * `<= 0` disables the job (trash is kept until emptied manually).
+   * `<= 0` disables the job (trash is kept until emptied manually). The same job
+   * prunes the change-provenance edit log (see {@link editLogRetentionMs}).
    */
   trashCleanupIntervalMs?: number;
+  /**
+   * How long change-provenance entries (the `edit_log`, OB-165) are kept before
+   * the cleanup job prunes them, in milliseconds. Defaults to 90 days; `<= 0`
+   * keeps them forever. Bounds the log's growth so the embedded (autovacuum-less)
+   * heap doesn't bloat (the OB-164 class of problem).
+   */
+  editLogRetentionMs?: number;
   /**
    * Embedded (PGlite) only: how often the maintenance job runs CHECKPOINT +
    * VACUUM (ANALYZE), in milliseconds. Defaults to 5 minutes; `<= 0` disables.
@@ -84,6 +92,7 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 4319;
 const DEFAULT_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const DEFAULT_TRASH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const DEFAULT_EDIT_LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -112,13 +121,18 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   // an interval. The timer is `unref`'d so it never keeps the process alive.
   const retentionMs = opts.trashRetentionMs ?? DEFAULT_TRASH_RETENTION_MS;
   const cleanupIntervalMs = opts.trashCleanupIntervalMs ?? DEFAULT_TRASH_CLEANUP_INTERVAL_MS;
+  const editLogRetentionMs = opts.editLogRetentionMs ?? DEFAULT_EDIT_LOG_RETENTION_MS;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   const sweepTrash = async (): Promise<void> => {
     try {
       const purged = await store.purgeExpired(retentionMs);
       if (purged > 0) console.log(`OpenBook trash cleanup: purged ${purged} expired page(s)`);
+      // Prune the change-provenance log in the same sweep (OB-165) so it can't
+      // grow unbounded on the autovacuum-less embedded store.
+      const prunedEdits = await store.purgeOldEdits(editLogRetentionMs);
+      if (prunedEdits > 0) console.log(`OpenBook edit-log cleanup: pruned ${prunedEdits} old entries`);
     } catch (err) {
-      console.error('OpenBook trash cleanup failed:', err);
+      console.error('OpenBook cleanup failed:', err);
     }
   };
   if (cleanupIntervalMs > 0) {
