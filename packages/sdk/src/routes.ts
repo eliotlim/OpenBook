@@ -106,6 +106,13 @@ export const API = {
   instance: '/api/instance',
   /** A page's change provenance (the edit log), newest first: `GET`. */
   pageEdits: (id: string): string => `/api/pages/${encodeURIComponent(id)}/edits`,
+
+  // ── Scheduled backups — OB-166 ───────────────────────────────────────────────
+  /** Scheduled-backup policy: `GET` returns {@link BackupStatus}; `PUT` updates
+   *  the policy and returns the new status. */
+  backups: '/api/backups',
+  /** Run a backup immediately: `POST` `{cadence?}` → the written file's name. */
+  backupRun: '/api/backups/run',
 } as const;
 
 /** Result of a {@link API.compact} run: the database's on-disk size before/after,

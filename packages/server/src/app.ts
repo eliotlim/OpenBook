@@ -3,6 +3,8 @@ import {cors} from 'hono/cors';
 import {streamSSE} from 'hono/streaming';
 import {
   API,
+  type BackupCadence,
+  type BackupConfig,
   type CommentInput,
   type DatabaseInput,
   type DatabaseUpdate,
@@ -21,6 +23,7 @@ import {PageHub} from './hub';
 import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
 import {guestGate, resolvePrincipal, type IdentityProvider} from './principal';
+import type {BackupController} from './backups';
 import type {AppEnv} from './appEnv';
 import type {AiService} from './ai/service';
 
@@ -65,6 +68,12 @@ export interface AppOptions {
    * exactly as before.
    */
   identity?: IdentityProvider;
+  /**
+   * Scheduled backups (OB-166). When provided, the `/api/backups` routes report
+   * status and run on-demand snapshots. Omitted in the in-webview store (no
+   * filesystem), where backups are reported unavailable.
+   */
+  backups?: BackupController;
 }
 
 export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono<AppEnv> {
@@ -294,6 +303,42 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.get(`${API.pages}/:id/edits`, async (c) => {
     const limit = Number(c.req.query('limit') ?? 100);
     return c.json(await store.listEdits(c.req.param('id'), Number.isFinite(limit) ? limit : 100));
+  });
+
+  // ── Scheduled backups (OB-166) ───────────────────────────────────────────────
+
+  // Backup policy + per-cadence status (last/next run, on-disk count). 501 when
+  // the host can't write files (the in-webview store reports this client-side).
+  app.get(API.backups, async (c) => {
+    if (!opts.backups) return c.json({error: 'scheduled backups are not available on this server'}, 501);
+    return c.json(await opts.backups.status());
+  });
+
+  // Update the policy (enable, cadences, retention, folder). Owner-gated like the
+  // instance policy. The scheduler reads config fresh each tick, so a change
+  // takes effect on the next check (or immediately via the run route).
+  app.put(API.backups, async (c) => {
+    const principal = c.get('principal');
+    const instance = await store.getInstanceConfig();
+    if (instance.ownerSubject && principal.subject !== instance.ownerSubject) {
+      return c.json({error: 'only the instance owner can change backups'}, 403);
+    }
+    const patch = await c.req.json<Partial<BackupConfig>>();
+    await store.updateBackupConfig(patch);
+    logEdit(c, null, 'backups.config');
+    if (!opts.backups) return c.json({error: 'scheduled backups are not available on this server'}, 501);
+    return c.json(await opts.backups.status());
+  });
+
+  // Run a snapshot immediately (the "Back up now" action). `{cadence}` selects the
+  // tier (default daily); 409 when no backup directory is configured.
+  app.post(API.backupRun, async (c) => {
+    if (!opts.backups) return c.json({error: 'scheduled backups are not available on this server'}, 501);
+    const body = await c.req.json<{cadence?: BackupCadence}>().catch(() => ({}) as {cadence?: BackupCadence});
+    const result = await opts.backups.runNow(body.cadence);
+    if (!result) return c.json({error: 'no backup directory is configured'}, 409);
+    logEdit(c, null, 'backups.run', body.cadence ?? 'daily');
+    return c.json(result);
   });
 
   // ── Trash (soft-deleted pages) ───────────────────────────────────────────────

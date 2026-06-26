@@ -42,9 +42,9 @@ afterEach(async () => {
 function clientWithIdentity(getId: () => IdentityCredential | undefined) {
   const app = createApp(store, undefined, new PageHub(), {identity: new IdentityService(store)});
   const captured: Array<{path: string; headers: Record<string, string>}> = [];
-  const fetchImpl = (input: string, init?: RequestInit) => {
+  const fetchImpl = (input: string, init?: RequestInit): Promise<Response> => {
     captured.push({path: input, headers: {...((init?.headers as Record<string, string>) ?? {})}});
-    return app.request(input, init);
+    return Promise.resolve(app.request(input, init));
   };
   return {client: new HttpDataClient('', undefined, {fetchImpl, getIdentity: getId}), captured};
 }

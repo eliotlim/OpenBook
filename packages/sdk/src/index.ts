@@ -223,11 +223,18 @@ export type {
 export {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from './templates';
 export {
   BACKUP_VERSION,
+  BACKUP_CADENCES,
+  BACKUP_CADENCE_MS,
+  DEFAULT_BACKUP_CONFIG,
   remapBundle,
   type SpaceBackup,
   type ImportMode,
   type ImportRequest,
   type ImportResult,
+  type BackupCadence,
+  type BackupConfig,
+  type BackupCadenceStatus,
+  type BackupStatus,
 } from './backup';
 export type {
   AgentChatEvent,

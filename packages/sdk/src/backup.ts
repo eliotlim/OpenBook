@@ -43,6 +43,65 @@ export interface ImportResult {
   idMap: Record<string, string>;
 }
 
+// ── Scheduled backups (OB-166) ────────────────────────────────────────────────
+
+/**
+ * Backup cadences, in increasing interval. The server keeps a rolling set per
+ * cadence (grandfather-father-son rotation), so short cadences churn fast and
+ * long ones are retained sparsely — automatic, tiered data safety on top of the
+ * ad-hoc export.
+ */
+export type BackupCadence = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export const BACKUP_CADENCES: readonly BackupCadence[] = ['daily', 'weekly', 'monthly', 'yearly'] as const;
+
+/** Interval of each cadence, in milliseconds. */
+export const BACKUP_CADENCE_MS: Record<BackupCadence, number> = {
+  daily: 24 * 60 * 60 * 1000,
+  weekly: 7 * 24 * 60 * 60 * 1000,
+  monthly: 30 * 24 * 60 * 60 * 1000,
+  yearly: 365 * 24 * 60 * 60 * 1000,
+};
+
+/** Scheduled-backup policy, persisted server-side in the `settings` table. */
+export interface BackupConfig {
+  /** Master switch — when false the scheduler is idle (the default). */
+  enabled: boolean;
+  /** Where backups are written; `null` = the server default (`<dataDir>/backups`). */
+  dir: string | null;
+  /** Which cadences are active. */
+  cadences: Record<BackupCadence, boolean>;
+  /** How many snapshots to retain per cadence before pruning the oldest. */
+  keep: Record<BackupCadence, number>;
+  /** Last successful run per cadence (ISO), so a reboot catches up overdue ones. */
+  lastRun: Partial<Record<BackupCadence, string>>;
+}
+
+export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
+  enabled: false,
+  dir: null,
+  cadences: {daily: true, weekly: true, monthly: true, yearly: true},
+  keep: {daily: 7, weekly: 5, monthly: 12, yearly: 3},
+  lastRun: {},
+};
+
+/** A derived, per-cadence view for the UI (last/next run + how many are on disk). */
+export interface BackupCadenceStatus {
+  cadence: BackupCadence;
+  enabled: boolean;
+  lastRun: string | null;
+  nextDue: string | null;
+  count: number;
+}
+
+/** What `GET /api/backups` returns: the policy + resolved dir + derived status. */
+export interface BackupStatus {
+  config: BackupConfig;
+  /** The resolved output directory (config.dir, or the server default). */
+  resolvedDir: string | null;
+  cadences: BackupCadenceStatus[];
+}
+
 /**
  * Pure: re-key a bundle for copy-mode import. Mints a fresh id for every page and
  * database, remaps every internal reference (`parentId`, `databaseId`,
