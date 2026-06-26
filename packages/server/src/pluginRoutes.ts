@@ -1,6 +1,7 @@
 import {Hono} from 'hono';
 import {API, validateManifest, type PluginPackage} from '@book.dev/sdk';
 import type {PageStore} from './store';
+import type {AppEnv} from './appEnv';
 
 /** Max total source size per plugin (sources are stored inline as JSONB). */
 const MAX_PLUGIN_BYTES = 2 * 1024 * 1024;
@@ -11,7 +12,7 @@ const MAX_PLUGIN_BYTES = 2 * 1024 * 1024;
  * — signature verification happens client-side against the user's trusted
  * registry keys (the server never decides what the user trusts).
  */
-export function mountPluginRoutes(app: Hono, store: PageStore): void {
+export function mountPluginRoutes(app: Hono<AppEnv>, store: PageStore): void {
   app.get(API.plugins, async (c) => c.json(await store.listPlugins()));
 
   app.post(API.plugins, async (c) => {

@@ -8,20 +8,24 @@ import type {
   DatabaseUpdate,
   ImportRequest,
   ImportResult,
+  InstanceConfig,
   PageInput,
   PageMeta,
   PageSnapshot,
+  Principal,
   RowInput,
   StoredComment,
   StoredDatabase,
+  StoredEdit,
   StoredPage,
   StoredSuggestion,
   SuggestionInput,
   SuggestionStatus,
   SuggestionTarget,
   SuggestionUpdate,
+  VerifiedVia,
 } from '@book.dev/sdk';
-import {emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import type {Db} from './dbCore';
 import {runMigrations} from './migrations';
 
@@ -1046,6 +1050,73 @@ export class PageStore {
     const rows = await this.db.query('DELETE FROM comments WHERE id = $1 RETURNING id', [id]);
     return rows.length > 0;
   }
+
+  // ── Multi-user: change provenance + instance policy (OB-165) ──────────────────
+
+  /**
+   * Append one change to the durable edit log, attributed to a verified
+   * {@link Principal}. The author is always taken from the server-resolved
+   * principal — never a client-sent field — so authorship can't be forged. The
+   * newest row for a page is its "last edited by". Best-effort: callers log
+   * after the mutation commits, so a lost log row never costs data.
+   */
+  async logEdit(entry: {pageId: string | null; author: Principal; kind: string; summary?: string}): Promise<void> {
+    const a = entry.author;
+    await this.db.query(
+      `INSERT INTO edit_log
+         (id, page_id, author_subject, author_issuer, author_name, verified_via, kind, assertion_kid, assertion_jti, summary)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        randomUUID(),
+        entry.pageId,
+        a.subject,
+        a.issuer ?? '',
+        a.name ?? '',
+        a.verifiedVia,
+        entry.kind,
+        a.assertion?.kid ?? null,
+        a.assertion?.jti ?? null,
+        entry.summary ?? '',
+      ],
+    );
+  }
+
+  /** Read the edit log — a single page's history, or the whole instance's,
+   *  newest first. */
+  async listEdits(pageId?: string, limit = 100): Promise<StoredEdit[]> {
+    const cap = Math.max(1, Math.min(1000, Math.trunc(limit)));
+    const rows = pageId
+      ? await this.db.query<EditRow>(
+        `SELECT ${EDIT_COLS} FROM edit_log WHERE page_id = $1 ORDER BY created_at DESC LIMIT $2`,
+        [pageId, cap],
+      )
+      : await this.db.query<EditRow>(
+        `SELECT ${EDIT_COLS} FROM edit_log ORDER BY created_at DESC LIMIT $1`,
+        [cap],
+      );
+    return rows.map(editFromRow);
+  }
+
+  /** The instance's multi-user policy (guest gate + trusted issuers), with
+   *  defaults filled in. Cheap — one settings row. */
+  async getInstanceConfig(): Promise<InstanceConfig> {
+    const rows = await this.db.query<{value: InstanceConfig | string}>(
+      'SELECT value FROM settings WHERE key = \'instance\'',
+    );
+    const stored = rows.length > 0 ? parseJson<Partial<InstanceConfig>>(rows[0].value, {}) : {};
+    return {...DEFAULT_INSTANCE_CONFIG, ...stored};
+  }
+
+  /** Shallow-merge a patch into the instance policy and persist it. */
+  async updateInstanceConfig(patch: Partial<InstanceConfig>): Promise<InstanceConfig> {
+    const next = {...(await this.getInstanceConfig()), ...patch};
+    await this.db.query(
+      `INSERT INTO settings (key, value) VALUES ('instance', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(next)],
+    );
+    return next;
+  }
 }
 
 interface PluginRow {
@@ -1126,6 +1197,41 @@ function commentFromRow(row: CommentRowRecord): StoredComment {
     parentId: row.parent_id ?? null,
     authorName: row.author_name,
     body: parseJson<CommentRun[]>(row.body, []),
+    createdAt: toIso(row.created_at),
+  };
+}
+
+// ── Edit log row mapper ──────────────────────────────────────────────────────
+
+const EDIT_COLS =
+  'id, page_id, author_subject, author_issuer, author_name, verified_via, kind, assertion_kid, assertion_jti, summary, created_at';
+
+interface EditRow {
+  id: string;
+  page_id: string | null;
+  author_subject: string;
+  author_issuer: string;
+  author_name: string;
+  verified_via: string;
+  kind: string;
+  assertion_kid: string | null;
+  assertion_jti: string | null;
+  summary: string;
+  created_at: Date | string;
+}
+
+function editFromRow(row: EditRow): StoredEdit {
+  return {
+    id: row.id,
+    pageId: row.page_id ?? null,
+    authorSubject: row.author_subject,
+    authorIssuer: row.author_issuer ?? '',
+    authorName: row.author_name ?? '',
+    verifiedVia: row.verified_via as VerifiedVia,
+    kind: row.kind,
+    assertionKid: row.assertion_kid ?? null,
+    assertionJti: row.assertion_jti ?? null,
+    summary: row.summary ?? '',
     createdAt: toIso(row.created_at),
   };
 }

@@ -2,6 +2,7 @@ import {Hono} from 'hono';
 import {streamSSE} from 'hono/streaming';
 import {API, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiProvider, type AiSkill, type PluginAgentTool} from '@book.dev/sdk';
 import type {PageStore} from '../store';
+import type {AppEnv} from '../appEnv';
 import {AgentRunner, type AgentMessage} from './agent';
 import type {AiService} from './service';
 
@@ -11,7 +12,7 @@ import type {AiService} from './service';
  * everything else is plain JSON. Engine failures return 503 with a
  * human-readable `error` so the UI can guide the user to Settings → AI.
  */
-export function mountAiRoutes(app: Hono, ai: AiService, store: PageStore, onPagesChanged?: () => Promise<void>): void {
+export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore, onPagesChanged?: () => Promise<void>): void {
   app.get(API.aiStatus, async (c) => c.json(await ai.status()));
 
   app.put(API.aiConfig, async (c) => {

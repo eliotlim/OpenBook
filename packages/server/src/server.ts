@@ -6,6 +6,7 @@ import {PageStore} from './store';
 import {PageHub} from './hub';
 import {BookMirror} from './mirror';
 import {AiService} from './ai/service';
+import {IdentityService} from './instanceConfig';
 import {writeFileSync, rmSync, unlinkSync} from 'node:fs';
 import {createServer} from 'node:http';
 import path from 'node:path';
@@ -157,10 +158,17 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     || (opts.dataDir ? path.join(opts.dataDir, 'models') : path.join(os.homedir(), '.openbook', 'models'));
   const ai = new AiService(db, modelsDir);
 
+  // Multi-user identity (OB-165): resolves a principal per request and enforces
+  // the guest-access policy stored in settings. The default policy is
+  // guest-write, so an instance with nobody signed in behaves exactly as before
+  // — but every change is now attributed in the edit log, and the policy can be
+  // tightened (read-only / off) by the owner.
+  const identity = new IdentityService(store);
+
   // One hub is shared between the HTTP/SSE app and the disk mirror, so a
   // re-imported page fans out to every connected client too.
   const hub = new PageHub();
-  const app = createApp(store, ai, hub, {accessToken: opts.accessToken, embedded: !opts.databaseUrl});
+  const app = createApp(store, ai, hub, {accessToken: opts.accessToken, embedded: !opts.databaseUrl, identity});
 
   // The server can listen on a Unix domain socket (the desktop's portless IPC
   // default), a TCP port (headless, or the LAN bind added when publishing), or

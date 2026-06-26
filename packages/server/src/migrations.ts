@@ -160,6 +160,38 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS comments_suggestion_id_idx ON comments (suggestion_id)',
     ],
   },
+  {
+    // Multi-user provenance (OB-165). The server is single-tenant (one shared
+    // workspace), so this records *who* made each change, not data ownership.
+    //
+    // `edit_log` is an append-only trail — one row per mutating request — that
+    // records what each user changed and which signed credential authorized it
+    // (`assertion_kid`/`assertion_jti`), so a change traces back to its source
+    // even on a federated instance. `verified_via` distinguishes a fresh JWS
+    // from a guest or an expired-while-offline assertion. The newest row for a
+    // page is its "last edited by". Purely additive: an instance with nobody
+    // signed in (guest-by-default) keeps working exactly as before — the log
+    // just attributes its writes to a guest. `page_id` is intentionally NOT a
+    // FK: the trail outlives the page (a delete is itself a logged event).
+    name: '0009_provenance',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS edit_log (
+        id             UUID        PRIMARY KEY,
+        page_id        UUID,
+        author_subject TEXT        NOT NULL,
+        author_issuer  TEXT        NOT NULL DEFAULT '',
+        author_name    TEXT        NOT NULL DEFAULT '',
+        verified_via   TEXT        NOT NULL,
+        kind           TEXT        NOT NULL,
+        assertion_kid  TEXT,
+        assertion_jti  TEXT,
+        summary        TEXT        NOT NULL DEFAULT '',
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      'CREATE INDEX IF NOT EXISTS edit_log_page_id_idx ON edit_log (page_id, created_at DESC)',
+      'CREATE INDEX IF NOT EXISTS edit_log_author_idx ON edit_log (author_subject, created_at DESC)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */
