@@ -44,6 +44,9 @@ impl ConnInfo {
 #[serde(rename_all = "camelCase")]
 pub struct ApiResponse {
     pub status: u16,
+    /// Response headers (hop-by-hop framing stripped), so the forwarding tunnel
+    /// can re-emit `content-type` etc. instead of an untyped body.
+    pub headers: Vec<(String, String)>,
     pub body: String,
 }
 
@@ -113,34 +116,67 @@ fn dechunk(mut data: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Parse a buffered HTTP/1.1 response into (status, body).
+/// Parse a buffered HTTP/1.1 response into (status, headers, body).
 fn parse_response(raw: &[u8]) -> Result<ApiResponse, String> {
     let sep = find(raw, b"\r\n\r\n").ok_or("malformed response (no header terminator)")?;
     let head = String::from_utf8_lossy(&raw[..sep]);
     let body_bytes = &raw[sep + 4..];
 
-    let status = head
-        .lines()
+    let mut lines = head.lines();
+    let status = lines
         .next()
         .and_then(|l| l.split_whitespace().nth(1))
         .and_then(|s| s.parse::<u16>().ok())
         .ok_or("malformed response (no status)")?;
 
-    let chunked = head.to_ascii_lowercase().contains("transfer-encoding: chunked");
+    // Keep the response headers, but drop the hop-by-hop framing: the body is
+    // de-chunked below and re-served by the webview's `Response`, which sets its
+    // own length, so a stale content-length/transfer-encoding would corrupt it.
+    let mut headers = Vec::new();
+    let mut chunked = false;
+    for line in lines {
+        let Some((name, value)) = line.split_once(':') else { continue };
+        let (name, value) = (name.trim(), value.trim());
+        match name.to_ascii_lowercase().as_str() {
+            "transfer-encoding" => chunked = value.eq_ignore_ascii_case("chunked"),
+            "content-length" | "connection" => {}
+            _ => headers.push((name.to_string(), value.to_string())),
+        }
+    }
+
     let body = if chunked { dechunk(body_bytes) } else { body_bytes.to_vec() };
     Ok(ApiResponse {
         status,
+        headers,
         body: String::from_utf8_lossy(&body).into_owned(),
     })
 }
 
-fn blocking_request(conn: &ConnInfo, method: &str, path: &str, body: Option<&str>) -> Result<ApiResponse, String> {
+fn blocking_request(
+    conn: &ConnInfo,
+    method: &str,
+    path: &str,
+    headers: &[(String, String)],
+    body: Option<&str>,
+) -> Result<ApiResponse, String> {
     let mut stream = connect_retry(conn, 60).map_err(|e| format!("ipc connect failed: {e}"))?;
     let body = body.unwrap_or("");
-    let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
-        body.len(),
-    );
+    // The host owns the framing headers (Host/Connection/Content-Length); forward
+    // everything else from the caller and default the content type when absent.
+    let mut request = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n");
+    let mut has_content_type = false;
+    for (name, value) in headers {
+        match name.to_ascii_lowercase().as_str() {
+            "host" | "connection" | "content-length" | "transfer-encoding" => continue,
+            "content-type" => has_content_type = true,
+            _ => {}
+        }
+        request.push_str(&format!("{name}: {value}\r\n"));
+    }
+    if !has_content_type {
+        request.push_str("Content-Type: application/json\r\n");
+    }
+    request.push_str(&format!("Content-Length: {}\r\n\r\n{body}", body.len()));
     stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
     stream.flush().ok();
     let mut raw = Vec::new();
@@ -156,10 +192,11 @@ pub async fn api_request(
     state: State<'_, AppState>,
     method: String,
     path: String,
+    headers: Vec<(String, String)>,
     body: Option<String>,
 ) -> Result<ApiResponse, String> {
     let conn = ConnInfo::from_state(&state);
-    tauri::async_runtime::spawn_blocking(move || blocking_request(&conn, &method, &path, body.as_deref()))
+    tauri::async_runtime::spawn_blocking(move || blocking_request(&conn, &method, &path, &headers, body.as_deref()))
         .await
         .map_err(|e| e.to_string())?
 }

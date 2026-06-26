@@ -4,6 +4,17 @@ import {ForwardingClient, MemoryKeyStore, mintSiteKeypair, type SiteIdentity} fr
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}});
 
+/** Poll until `pred` holds. The tunnel's dial chain spans several async hops
+ *  (challenge → WebCrypto sign → attach-ticket → open) plus a reconnect backoff,
+ *  so a single fixed tick races it and flakes. */
+const waitFor = async (pred: () => boolean, timeoutMs = 2000): Promise<void> => {
+  const deadline = Date.now() + timeoutMs;
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error('waitFor: condition not met within timeout');
+    await new Promise((r) => setTimeout(r, 5));
+  }
+};
+
 const opts = (keyStore: MemoryKeyStore, fetchImpl: typeof fetch) => ({
   accountUrl: 'https://account.book.pub',
   authToken: 'device-token',
@@ -139,7 +150,7 @@ describe('ForwardingClient.start (live serving)', () => {
 
     // The tunnel mints its attach ticket lazily, per dial (so a reconnect always
     // gets a fresh, unexpired one), then opens the WS — let that async work run.
-    await new Promise((r) => setTimeout(r, 0));
+    await waitFor(() => ws.sockets.length === 1);
     expect(accountCalls).toContain('/api/sites/attach-ticket');
     // …with the `?site=` routing hint the relay needs on the WS upgrade (else it
     // rejects with 400 "missing site").
@@ -149,7 +160,7 @@ describe('ForwardingClient.start (live serving)', () => {
     // The relay pushes an inbound request → the tunnel must serve it via the
     // LOCAL fetch (IPC), never the account fetch.
     ws.sockets[0].onmessage?.({data: JSON.stringify({t: 'req', id: 1, method: 'GET', path: '/api/pages', headers: []})});
-    await new Promise((r) => setTimeout(r, 0));
+    await waitFor(() => localCalls.length === 1);
     expect(localCalls).toEqual(['/api/pages']);
   });
 
@@ -180,9 +191,8 @@ describe('ForwardingClient.start (live serving)', () => {
       webSocketImpl: ws.ctor,
     });
 
-    const tick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
     await client.start();
-    await tick(); // first dial: mint + open
+    await waitFor(() => ws.sockets.length === 1); // first dial: mint + open
     expect(ws.sockets).toHaveLength(1);
     expect(ticketMints).toBe(1);
 
@@ -190,8 +200,7 @@ describe('ForwardingClient.start (live serving)', () => {
     // tunnel must reconnect AND mint a brand-new ticket — reusing the first one
     // would fail attach forever once it expires (the bug this guards).
     ws.sockets[0].onclose?.();
-    await new Promise((r) => setTimeout(r, 600)); // first reconnect backoff is 500ms
-    await tick();
+    await waitFor(() => ws.sockets.length === 2); // reconnect (500ms backoff) + fresh mint
     expect(ws.sockets).toHaveLength(2);
     expect(ticketMints).toBe(2);
     expect(ws.sockets[1].url).toBe('wss://relay.book.pub/__tunnel?site=s1');

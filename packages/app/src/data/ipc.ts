@@ -12,17 +12,24 @@ import type {FetchLike, LiveSourceLike} from '@book.dev/sdk';
 
 interface ApiResponse {
   status: number;
+  headers: [string, string][];
   body: string;
 }
 
 /** A `fetch` that tunnels one request to the local server over host IPC. */
 export const tauriFetch: FetchLike = async (input, init = {}) => {
   const method = init.method ?? 'GET';
-  const body = typeof init.body === 'string' ? init.body : init.body != null ? String(init.body) : null;
-  const res = await invoke<ApiResponse>('api_request', {method, path: input, body});
+  // Normalise the body to a string for the single-shot IPC bridge. The data client
+  // sends JSON strings; the forwarding tunnel sends a ReadableStream — `String()`
+  // would turn that into "[object ReadableStream]", so drain it via Response.
+  const raw = init.body;
+  const body = raw == null ? null : typeof raw === 'string' ? raw : await new Response(raw as BodyInit).text();
+  // Forward request headers (the bridge drops host/connection/content-length).
+  const headers = init.headers ? [...new Headers(init.headers as HeadersInit)] : [];
+  const res = await invoke<ApiResponse>('api_request', {method, path: input, headers, body});
   // A null-body status (204/304) must not carry a body, or `new Response` throws.
   const bodiless = res.status === 204 || res.status === 205 || res.status === 304;
-  return new Response(bodiless || res.body.length === 0 ? null : res.body, {status: res.status});
+  return new Response(bodiless || res.body.length === 0 ? null : res.body, {status: res.status, headers: res.headers});
 };
 
 interface LiveFrame {

@@ -22,7 +22,7 @@ import {
 } from '@book.dev/ui';
 import type {BookFolderFile, DataClient, ServerInfo} from '@book.dev/sdk';
 
-import {createDesktopClient} from './data/client';
+import {createDesktopClient, DEV_SERVER_URL} from './data/client';
 import {tauriFetch} from './data/ipc';
 import {createTauriKeyStore} from './data/keychain';
 
@@ -124,7 +124,12 @@ const platform: PlatformLibrary = {
   // serves the local data server over the same IPC transport (no port).
   forwarding: {
     keyStore: createTauriKeyStore(),
-    localFetch: tauriFetch,
+    // Serve forwarded requests over the SAME transport the local data client uses
+    // (see createDesktopClient): the Unix-socket IPC bridge in a managed release
+    // build, but plain loopback HTTP in dev — the `pnpm dev` server is TCP-only and
+    // never opens the socket, so `tauriFetch` would dead-dial it. `localOrigin`
+    // stays '' (ForwardingProvider), so the dev impl resolves the path against :4319.
+    localFetch: import.meta.env.DEV ? (input, init) => fetch(`${DEV_SERVER_URL}${input}`, init) : tauriFetch,
   },
   tabs: {inWindow: true, openWindow},
   windowControls,
