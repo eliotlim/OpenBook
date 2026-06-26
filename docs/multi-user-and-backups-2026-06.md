@@ -204,21 +204,24 @@ Caryl's laptop", the identity JWS says "and Dana is the one editing right now".
 - **No account‑service code in this repo.** We ship the verifier + a dev issuer;
   real JWS minting + JWKS hosting is follow‑up in `open.book.pub`.
 
-### 1.9 account.book.pub follow‑up (sibling repo)
+### 1.9 account.book.pub issuance — DONE (sibling repo `open.book.pub`)
 
-To light up real (non‑dev) identities, `@book/account` needs:
+Shipped on branch `feat/identity-jws` in `open.book.pub` (`@book/account`):
 
-1. An **instance signing keypair** (Ed25519) and a **JWKS endpoint**
-   (`/.well-known/jwks.json` or `/api/identity/jwks`) publishing the public
-   keys by `kid`, with rotation.
-2. A **mint endpoint** that, for a session/DeviceToken, returns a short‑lived
-   identity JWS (claims in §1.3). The desktop/web client fetches one after
-   sign‑in and refreshes it before `exp`.
-3. (Optional) reuse `resolveUserId` so a `sub` is the same stable id already
-   used for settings sync.
+1. ✅ An Ed25519 issuer key (`lib/identity.ts`, from `OPENBOOK_IDENTITY_*` env) +
+   `GET /api/identity/jwks` publishing the public key by `kid`. Signing is
+   self‑contained on Web Crypto — **byte‑compatible** with this repo's
+   `verifyIdentity` (cross‑checked end‑to‑end: an account‑signed JWS verifies to
+   a `verifiedVia:'jws'` principal `https://account.book.pub#<sub>`).
+2. ✅ `GET /api/identity/token` — Bearer DeviceToken / session → a short‑lived
+   identity JWS (claims in §1.3). The OpenBook client (`AccountClient.getIdentityToken`)
+   fetches one after sign‑in (`AccountProvider`) and refreshes it before `exp`.
+3. ✅ Reuses `resolveUserId`, so `sub` is the same stable user id as settings sync.
 
-The verifier in this repo is issuer‑agnostic: point `instance.trustedIssuers` at
-that JWKS URL and real identities work unchanged.
+Gated on env: with no signing key set both routes answer 501, so an un‑keyed
+deploy is a no‑op. This repo default‑trusts `account.book.pub`
+(`DEFAULT_INSTANCE_CONFIG.trustedIssuers`), so once the account env key is set,
+signed‑in users are verified out of the box — no per‑instance configuration.
 
 ### 1.10 Why this satisfies the epic, point by point
 
