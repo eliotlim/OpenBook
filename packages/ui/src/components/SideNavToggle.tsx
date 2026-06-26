@@ -1,6 +1,7 @@
 import {Button} from '@/components/ui/button';
 import {DoubleArrowLeftIcon, HamburgerMenuIcon} from '@radix-ui/react-icons';
 import {cn} from '@/lib/utils';
+import {SIDEBAR_PRESS} from '@/lib/sidebarStyles';
 import {useHud, useTranslation} from '@/providers';
 
 export default function SideNavToggle({className}: {className?: string}) {
@@ -10,7 +11,7 @@ export default function SideNavToggle({className}: {className?: string}) {
     <Button
       variant="ghost"
       aria-label={t('nav.toggleSidebar')}
-      className={cn('px-3 py-1', className)}
+      className={cn('px-3 py-1', SIDEBAR_PRESS, className)}
       onClick={() => setHud((draft) => {
         // Narrow screens: open the sidebar as a floating overlay (undocked +
         // open) rather than docking a 256px rail that would squeeze the page.
