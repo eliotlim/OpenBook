@@ -89,6 +89,27 @@ describe('BackupScheduler', () => {
     // The two kept are the most recent (lexically largest ISO-stamped names).
   });
 
+  it('a scheduled snapshot round-trips cleanly through the import/restore path (OB-176)', async () => {
+    await store.upsertPage({name: `rt-${seq}`, data: snapshot()});
+    const res = await scheduler().runNow('daily');
+    expect(res).toBeTruthy();
+    const parsed = JSON.parse(await readFile(join(backupDir, 'daily', res!.file), 'utf8')) as SpaceBackup;
+
+    // Restore the scheduled bundle into a fresh instance via the same import path
+    // the app's "Restore backup" uses — the canonical SpaceBackup JSON.
+    const restoreDir = join(tmpdir(), `ob-backup-restore-${process.pid}-${seq}`);
+    const restored = new PageStore(await PgliteDb.create(restoreDir));
+    await restored.migrate();
+    try {
+      const result = await restored.importBundle({pages: parsed.pages, databases: parsed.databases, mode: 'copy'});
+      expect(result.created).toBe(parsed.pages.length);
+      expect((await restored.listPages()).map((p) => p.name)).toContain(`rt-${seq}`);
+    } finally {
+      await restored.close();
+      rm(restoreDir, {recursive: true, force: true});
+    }
+  });
+
   it('reports per-cadence status (last/next run + count)', async () => {
     await store.updateBackupConfig({enabled: true});
     const s = scheduler();
