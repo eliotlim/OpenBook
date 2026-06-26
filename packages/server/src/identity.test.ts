@@ -98,6 +98,31 @@ describe('identity JWS', () => {
     expect(res).toMatchObject({ok: false, reason: 'not-yet-valid'});
   });
 
+  it('rejects a token scoped to a different audience, accepts a matching one (OB-177)', async () => {
+    const {jwks, sign} = await issuer();
+    const scoped = await sign(claims({aud: 'https://data-a.example'}));
+    // Wrong audience configured.
+    expect(await verifyIdentity(scoped, jwks, {nowMs: NOW, audience: 'https://data-b.example'})).toMatchObject({
+      ok: false,
+      reason: 'wrong-audience',
+    });
+    // Scoped token but no audience configured → can't confirm we're the target.
+    expect(await verifyIdentity(scoped, jwks, {nowMs: NOW})).toMatchObject({ok: false, reason: 'wrong-audience'});
+    // Matching audience → accepted.
+    expect((await verifyIdentity(scoped, jwks, {nowMs: NOW, audience: 'https://data-a.example'})).ok).toBe(true);
+  });
+
+  it('accepts an unscoped token unless audience binding is required (OB-177)', async () => {
+    const {jwks, sign} = await issuer();
+    const unscoped = await sign(claims());
+    // Unscoped is fine even when this server has an audience (single-server model).
+    expect((await verifyIdentity(unscoped, jwks, {nowMs: NOW, audience: 'https://data-a.example'})).ok).toBe(true);
+    // ...but a server that *requires* scoping rejects an unscoped token.
+    expect(
+      await verifyIdentity(unscoped, jwks, {nowMs: NOW, audience: 'https://data-a.example', requireAudience: true}),
+    ).toMatchObject({ok: false, reason: 'wrong-audience'});
+  });
+
   it('decodes claims without verifying (display / fallback)', async () => {
     const {sign} = await issuer();
     const jws = await sign(claims());

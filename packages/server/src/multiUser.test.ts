@@ -230,6 +230,23 @@ describe('review-layer author identity', () => {
   });
 });
 
+describe('audience binding (OB-177)', () => {
+  it('rejects a token scoped to a different server and accepts a matching one', async () => {
+    await store.updateInstanceConfig({audience: 'https://this-server.example'});
+    const app = appWithIdentity();
+    const wrong = await idFor('alice', {aud: 'https://other.example'});
+    expect((await app.request('/api/pages', {headers: {[IDENTITY_HEADER]: wrong}})).status).toBe(401);
+    const right = await idFor('alice', {aud: 'https://this-server.example'});
+    expect((await app.request('/api/pages', {headers: {[IDENTITY_HEADER]: right}})).status).toBe(200);
+  });
+
+  it('advertises its audience via GET /api/instance', async () => {
+    await store.updateInstanceConfig({audience: 'https://this-server.example'});
+    const info = await (await appWithIdentity().request('/api/instance')).json();
+    expect(info.audience).toBe('https://this-server.example');
+  });
+});
+
 describe('instance policy ownership', () => {
   it('locks policy changes to the owner once claimed', async () => {
     await store.updateInstanceConfig({ownerSubject: `${ISS}#owner`});

@@ -36,8 +36,14 @@ export const IDENTITY_QUERY = 'identity';
  * absent the instance behaves as a legacy single-user, guest-everyone server.
  */
 export interface IdentityProvider {
-  /** Current guest policy + the issuer URLs this instance trusts. */
-  policy(): Promise<{guestAccess: GuestAccess; allowedIssuers: string[]}>;
+  /** Current guest policy, the issuer URLs this instance trusts, and this
+   *  server's own audience binding (OB-177). */
+  policy(): Promise<{
+    guestAccess: GuestAccess;
+    allowedIssuers: string[];
+    audience?: string;
+    requireAudience?: boolean;
+  }>;
   /** The (cached, offline-capable) JWKS for an issuer, or `null` if untrusted/unknown. */
   jwks(issuer: string): Promise<Jwks | null>;
   /** Clock injection point (tests). Defaults to `Date.now()`. */
@@ -81,8 +87,8 @@ export async function resolvePrincipal(c: Context, identity: IdentityProvider | 
   if (!decoded) return {reject: {status: 401, error: 'malformed identity assertion'}};
   const jwks = await identity.jwks(decoded.claims.iss);
   if (!jwks) return {reject: {status: 401, error: 'identity from an untrusted issuer'}};
-  const {allowedIssuers} = await identity.policy();
-  const res = await verifyIdentity(jws, jwks, {allowedIssuers, nowMs: identity.now?.()});
+  const {allowedIssuers, audience, requireAudience} = await identity.policy();
+  const res = await verifyIdentity(jws, jwks, {allowedIssuers, audience, requireAudience, nowMs: identity.now?.()});
   if (!res.ok) return {reject: {status: 401, error: `identity rejected: ${res.reason}`}};
   return {principal: principalFromClaims(res.claims, res.header)};
 }

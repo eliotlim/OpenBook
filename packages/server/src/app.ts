@@ -277,6 +277,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       guestAccess: config.guestAccess,
       ownerSubject: config.ownerSubject ?? null,
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
+      audience: config.audience ?? null,
       you: c.get('principal'),
     };
     return c.json(info);

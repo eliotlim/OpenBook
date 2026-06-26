@@ -100,6 +100,14 @@ export interface IdentityClaims {
   nbf?: number;
   /** Unique assertion id — recorded with each change for traceability. */
   jti?: string;
+  /**
+   * Audience — the data server this assertion is scoped to (OB-177). When
+   * present, a verifier MUST reject the token unless `aud` names *itself*, so a
+   * server the user connected to can't replay their identity to a different
+   * server (confused-deputy / token redirection). Absent on unscoped tokens
+   * (the single-server model, where exactly one server trusts the issuer).
+   */
+  aud?: string;
 }
 
 /** An Ed25519 public key in JWK form (`kty:'OKP'`, raw 32-byte `x`, base64url). */
@@ -182,7 +190,8 @@ export type VerifyFailure =
   | 'bad-signature'
   | 'expired'
   | 'not-yet-valid'
-  | 'untrusted-issuer';
+  | 'untrusted-issuer'
+  | 'wrong-audience';
 
 export type VerifyResult =
   | {ok: true; claims: IdentityClaims; header: IdentityHeader}
@@ -195,6 +204,19 @@ export interface VerifyOptions {
   nowMs?: number;
   /** If set, the `iss` claim must be one of these (issuer-rooted federation). */
   allowedIssuers?: string[];
+  /**
+   * This data server's own audience identifier (OB-177). When a token carries an
+   * `aud`, it must equal this — otherwise the token was scoped to a *different*
+   * server and is rejected (`wrong-audience`). Leave unset only for the
+   * single-server model, where the issuer never sets `aud`.
+   */
+  audience?: string;
+  /**
+   * Require every token to be audience-bound to {@link audience}: an unscoped
+   * (no-`aud`) token is rejected. Set on a multi-server deployment so a server
+   * can't be handed an unscoped, freely-replayable assertion.
+   */
+  requireAudience?: boolean;
 }
 
 /**
@@ -245,6 +267,18 @@ export async function verifyIdentity(jws: string, jwks: Jwks, opts: VerifyOption
   if (typeof claims.exp === 'number' && now - tol > claims.exp) {
     return {ok: false, reason: 'expired', claims};
   }
+
+  // Audience binding (OB-177). A scoped token must name THIS server; an unscoped
+  // token is accepted only when the server doesn't demand scoping. Checked after
+  // the signature so a forged `aud` can't pass — `aud` is inside the signed payload.
+  if (typeof claims.aud === 'string' && claims.aud.length > 0) {
+    if (!opts.audience || claims.aud !== opts.audience) {
+      return {ok: false, reason: 'wrong-audience', claims};
+    }
+  } else if (opts.requireAudience) {
+    return {ok: false, reason: 'wrong-audience', claims};
+  }
+
   return {ok: true, claims, header};
 }
 

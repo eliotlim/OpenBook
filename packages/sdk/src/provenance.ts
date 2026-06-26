@@ -35,6 +35,15 @@ export interface InstanceConfig {
   /** The principal subject that administers this instance, once claimed. */
   ownerSubject?: string;
   trustedIssuers: TrustedIssuerConfig[];
+  /**
+   * This server's own audience identifier (OB-177). When set, an identity token
+   * scoped to a *different* audience is rejected, and clients should request a
+   * token bound to this value. Leave unset for the single-server model.
+   */
+  audience?: string;
+  /** Require every identity token to be audience-bound to {@link audience}
+   *  (reject unscoped tokens). Multi-server hardening. */
+  requireAudience?: boolean;
 }
 
 export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
@@ -55,6 +64,9 @@ export interface InstanceInfo {
   guestAccess: GuestAccess;
   ownerSubject: string | null;
   trustedIssuers: string[];
+  /** This server's audience identifier, so a client can request an `aud`-scoped
+   *  identity token (OB-177). `null` for the single-server (unscoped) model. */
+  audience: string | null;
   /** Who the server resolved you to be on this request. */
   you: Principal;
 }
