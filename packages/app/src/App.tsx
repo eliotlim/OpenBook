@@ -24,7 +24,7 @@ import type {BookFolderFile, DataClient, ServerInfo} from '@book.dev/sdk';
 
 import {createDesktopClient, DEV_SERVER_URL} from './data/client';
 import {tauriFetch} from './data/ipc';
-import {createTauriKeyStore} from './data/keychain';
+import {createTauriKeyStore, createLocalStorageKeyStore} from './data/keychain';
 
 import '@book.dev/ui/style.css';
 
@@ -123,7 +123,12 @@ const platform: PlatformLibrary = {
   // lives in the OS keychain via the Rust keychain_* commands, and the tunnel
   // serves the local data server over the same IPC transport (no port).
   forwarding: {
-    keyStore: createTauriKeyStore(),
+    // Dev builds are adhoc-signed with a per-rebuild cdhash, and macOS gates
+    // keychain access by code identity — so a key saved by one `tauri dev` build
+    // can't be reattached by the next, and forwarding re-provisions a new site
+    // (new `library-*` host) each run. A localStorage store survives rebuilds; the
+    // keychain is correct for a signed release build (stable identity across versions).
+    keyStore: import.meta.env.DEV ? createLocalStorageKeyStore() : createTauriKeyStore(),
     // Serve forwarded requests over the SAME transport the local data client uses
     // (see createDesktopClient): the Unix-socket IPC bridge in a managed release
     // build, but plain loopback HTTP in dev — the `pnpm dev` server is TCP-only and
