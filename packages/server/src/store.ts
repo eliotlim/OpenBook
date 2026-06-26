@@ -26,7 +26,7 @@ import type {
   SuggestionUpdate,
   VerifiedVia,
 } from '@book.dev/sdk';
-import {DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, projectExports, propertiesReferencePage, remapBundle, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, latestSnapshotAuthor, projectExports, propertiesReferencePage, remapBundle, stampSnapshotAuthors, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import type {Db} from './dbCore';
 import {runMigrations} from './migrations';
 
@@ -62,6 +62,13 @@ interface DatabaseRowRecord {
 
 const EMPTY_SNAPSHOT: PageSnapshot = {editorjs: {blocks: []}, values: [], names: []};
 const EMPTY_SCHEMA: DatabaseSchema = {properties: [], views: []};
+
+/**
+ * The subject to carry as a block's verified author (OB-170) — only a JWS-
+ * verified principal. Guest/local/unverified writes carry no per-block author,
+ * so the snapshot's `authors` map stays a record of *verified* identity only.
+ */
+const verifiedSubject = (author?: Principal): string => (author?.verifiedVia === 'jws' ? author.subject : '');
 
 // Timestamps come back as Date (postgres) or ISO string (pglite); normalize.
 const toIso = (value: Date | string): string =>
@@ -281,9 +288,35 @@ export class PageStore {
    * by id, replacing pages in place. Returns counts + the old→new id map.
    */
   async importBundle(req: ImportRequest): Promise<ImportResult> {
-    return req.mode === 'overwrite'
-      ? this.importOverwrite(req.pages, req.databases)
-      : this.importCopy(req.pages, req.databases);
+    const result =
+      req.mode === 'overwrite'
+        ? await this.importOverwrite(req.pages, req.databases)
+        : await this.importCopy(req.pages, req.databases);
+    // OB-170: a page may carry verified per-block authorship from the instance
+    // it was authored on. Record that as a `synced` edit-log entry so the
+    // original author — not the importer — is credited on this instance.
+    await this.recordSyncedAttribution(req.pages, result.idMap);
+    return result;
+  }
+
+  /** Credit the carried verified author of each imported page (OB-170). */
+  private async recordSyncedAttribution(pages: StoredPage[], idMap: Record<string, string>): Promise<void> {
+    for (const p of pages) {
+      const subject = latestSnapshotAuthor(p.data);
+      if (!subject) continue;
+      await this.logEdit({
+        pageId: idMap[p.id] ?? p.id,
+        author: {
+          kind: 'user',
+          subject,
+          issuer: subject.includes('#') ? subject.slice(0, subject.indexOf('#')) : '',
+          name: '',
+          verifiedVia: 'synced',
+        },
+        kind: 'page.synced',
+        summary: 'attributed from a synced edit',
+      });
+    }
   }
 
   private async importCopy(pages: StoredPage[], databases: StoredDatabase[]): Promise<ImportResult> {
@@ -473,17 +506,20 @@ export class PageStore {
    * On update only `name`/`data` change, so a routine content save never
    * clobbers a page's parent, database membership, or properties.
    */
-  async upsertPage(input: PageInput): Promise<StoredPage> {
+  async upsertPage(input: PageInput, author?: Principal): Promise<StoredPage> {
     const id = input.id ?? randomUUID();
     // Stamp per-block mtimes relative to the page's prior content so an
     // unchanged block keeps its timestamp and a changed one is restamped — the
     // change signal the disk mirror, watcher, and conflict resolver read. The
     // read + write run in one transaction (serialized by the PGlite mutex) so a
-    // concurrent save can't race the stamp.
+    // concurrent save can't race the stamp. The same prior read also stamps
+    // per-block verified authorship (OB-170), so attribution travels with the
+    // snapshot through any later sync.
     return this.db.begin(async (tx) => {
       const prior = await tx.query<PageRow>('SELECT data FROM pages WHERE id = $1', [id]);
       const priorData = prior.length > 0 ? parseSnapshot(prior[0].data) : null;
-      const data = stampSnapshotMtimes(priorData, input.data ?? EMPTY_SNAPSHOT, new Date().toISOString());
+      const stamped = stampSnapshotMtimes(priorData, input.data ?? EMPTY_SNAPSHOT, new Date().toISOString());
+      const data = stampSnapshotAuthors(priorData, stamped, verifiedSubject(author));
       const rows = await tx.query<PageRow>(
         // A new page is appended to the bottom of its sibling group (one past the
         // current max position). Like `parent_id`, `position` is set only on
@@ -840,10 +876,12 @@ export class PageStore {
    * of the database's manual order. `input.parentId` nests it under another row
    * as a sub-item. Returns the page.
    */
-  async createRow(databaseId: string, input: RowInput = {}): Promise<StoredPage> {
+  async createRow(databaseId: string, input: RowInput = {}, author?: Principal): Promise<StoredPage> {
     const id = randomUUID();
-    // A fresh row has no prior content, so every block is stamped "now".
-    const data = stampSnapshotMtimes(null, input.data ?? emptyPageSnapshot(), new Date().toISOString());
+    // A fresh row has no prior content, so every block is stamped "now" and
+    // attributed to its (verified) creator (OB-170).
+    const stamped = stampSnapshotMtimes(null, input.data ?? emptyPageSnapshot(), new Date().toISOString());
+    const data = stampSnapshotAuthors(null, stamped, verifiedSubject(author));
     const rows = await this.db.query<PageRow>(
       `INSERT INTO pages (id, name, data, database_id, parent_id, properties, position, updated_at)
        VALUES ($1, $2, $3::jsonb, $4, $6, $5::jsonb,

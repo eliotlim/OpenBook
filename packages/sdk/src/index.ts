@@ -180,6 +180,7 @@ export {
   latestBlockMtime,
   type BlockDigest,
 } from './mtime';
+export {computeBlockAuthors, stampSnapshotAuthors, latestSnapshotAuthor} from './authors';
 export {
   pageToBookHtml,
   bookHtmlToPage,

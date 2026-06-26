@@ -88,7 +88,7 @@ export class LocalDataClient implements DataClient {
   }
 
   async savePage(input: PageInput): Promise<StoredPage> {
-    const page = await this.store.upsertPage(input);
+    const page = await this.store.upsertPage(input, localPrincipal());
     this.hub.publishPage(page);
     await this.broadcastList();
     if (page.databaseId) await this.broadcastRows(page.databaseId);
@@ -234,7 +234,7 @@ export class LocalDataClient implements DataClient {
   }
 
   async createRow(databaseId: string, input: RowInput = {}): Promise<StoredPage> {
-    const page = await this.store.createRow(databaseId, input);
+    const page = await this.store.createRow(databaseId, input, localPrincipal());
     this.hub.publishPage(page);
     await this.broadcastRows(databaseId);
     return page;
