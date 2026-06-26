@@ -27,6 +27,9 @@ export type VerifiedVia =
   /** A well-formed JWS that no longer verifies fresh (e.g. expired while
    *  offline). The claimed identity is recorded but flagged as not vouched-for. */
   | 'unverified'
+  /** Attribution carried in from another instance via the sync/merge path
+   *  (OB-170) — vouched for by the originating instance, not re-verified here. */
+  | 'synced'
   /** In-process caller (the embedded `LocalDataClient`) — implicitly the local
    *  owner; there is no request to carry a credential. */
   | 'local';

@@ -32,6 +32,15 @@ export interface PageSnapshot {
    * written before the feature shipped (treated as "unknown — assume changed").
    */
   mtimes?: Array<[string, string]>;
+  /**
+   * `[blockId, subject]` pairs — the *verified* author (`iss#sub`) who last
+   * changed each block, a sparse map carried with the snapshot so an edit is
+   * still correctly attributed after it syncs to another instance (OB-170). The
+   * server stamps it on write from the request's verified principal; only
+   * verified identities appear (guest/local/unverified edits are not recorded
+   * here). Absent on single-user / unverified documents. See sdk `authors.ts`.
+   */
+  authors?: Array<[string, string]>;
 }
 
 /** An empty snapshot, for initializing a brand-new page. */

@@ -163,26 +163,37 @@ The review layer (`suggestions`, `comments`) already carries `author_kind` +
 `author_subject` / `author_issuer` from the principal, so AI‑vs‑human stays, but
 "which human" becomes a real identity rather than a free string.
 
-#### Offline & CRDT attribution
+#### Offline attribution through the sync/merge path (OB‑170) — SHIPPED
 
-Edits are Yjs CRDT mutations; today every local transaction uses the bare origin
-`'local'`. We change local edits to a structured origin `{ src:'local', author }`
-where `author` is the principal's short id (`iss#sub`, or `guest:<name>`):
+The `edit_log` is stamped from the *request* principal at write time, so it
+attributes correctly for a live edit — but when instance A's edits later reach
+instance B (export/import, the book mirror, a future sync), B would otherwise
+credit the *importer*, not the original author. So the verified author must
+travel **with the data**:
 
-- The author travels **with the edit**, so an offline desktop attributes every
-  change locally without a server round‑trip, and stamps the `edit_log` on the
-  next sync.
-- Federation works because identity is **issuer‑rooted**: `iss#sub` is globally
-  meaningful, so the same person editing two federated instances is the same
-  subject on both. Each instance keeps its own `edit_log`; the union is the
-  user's complete cross‑instance history. No central coordinator required — the
-  CRDT merges content, the issuer roots the identity.
-- **Long‑offline degradation:** an assertion can expire while offline. Rather
-  than silently trust or silently drop it, a principal whose assertion is
-  expired but otherwise well‑formed and cache‑verifiable is recorded as
-  `verified_via:'unverified'` — provenance still names the claimed subject, but
-  flags that the credential wasn't fresh. A small configurable grace window
-  covers normal clock skew / short offline spells.
+- **Carry:** each page snapshot carries a sparse `authors: [[blockId, subject]]`
+  map (sdk `authors.ts`), parallel to `mtimes`. The server stamps it on every
+  write from the request's *verified* principal — unchanged blocks keep their
+  prior author, changed/new blocks get the current one. **Only `verifiedVia:'jws'`
+  identities are recorded**, so guest/local/unverified edits never pollute the
+  carried attribution (and single‑user docs carry no `authors` field at all).
+- **Credit on arrival:** when B imports a bundle (`importBundle`), it reads each
+  page's `latestSnapshotAuthor` and records a `page.synced` `edit_log` entry
+  crediting that subject with `verified_via:'synced'` — distinct from `'jws'`
+  (directly verified here) so it's clear the attribution was *vouched for by the
+  originating instance*, not re‑verified on B.
+- **Trust model:** `'synced'` = **instance‑vouched**. Federation works because
+  identity is issuer‑rooted (`iss#sub` is globally meaningful → the same person
+  is the same subject on every instance). Each instance keeps its own
+  `edit_log`; the union is the user's cross‑instance history.
+- **Long‑offline degradation:** an assertion can expire while offline; a
+  well‑formed but stale one is recorded `verified_via:'unverified'` rather than
+  silently trusted or dropped (a grace window covers clock skew).
+
+*Strong follow‑up (not shipped):* per‑edit cryptographic attestation (A signs
+the synced bundle, or the user signs edits) would let B *re‑verify* rather than
+trust A. The carried `authors` map + the `'synced'`/`'unverified'` distinction
+are the seam that upgrade slots into.
 
 ### 1.7 Federation over the forwarding tunnel
 

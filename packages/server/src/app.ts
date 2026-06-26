@@ -157,7 +157,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.post(API.pages, async (c) => {
     const input = await c.req.json<PageInput>();
-    const page = await store.upsertPage(input);
+    const page = await store.upsertPage(input, c.get('principal'));
     hub.publishPage(page);
     await broadcastList();
     // A row page's content changed — refresh its database's expr columns.
@@ -174,7 +174,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.put(`${API.pages}/:id`, async (c) => {
     const input = await c.req.json<PageInput>();
     input.id = c.req.param('id');
-    const page = await store.upsertPage(input);
+    const page = await store.upsertPage(input, c.get('principal'));
     hub.publishPage(page);
     await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);
@@ -423,7 +423,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.post(`${API.databases}/:id/rows`, async (c) => {
     const id = c.req.param('id');
     const input = await c.req.json<RowInput>().catch(() => ({}) as RowInput);
-    const page = await store.createRow(id, input);
+    const page = await store.createRow(id, input, c.get('principal'));
     hub.publishPage(page);
     await broadcastRows(id);
     logEdit(c, page.id, 'row.create');
