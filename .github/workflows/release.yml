@@ -120,9 +120,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Each leg pins an explicit Rust/Tauri target triple so the build output
+        # path is uniform (`target/<triple>/release/bundle`).
+        #
+        # macOS ships PER-ARCH, not as a single universal binary: the bundled
+        # `openbook-server` sidecar is a `bun build --compile` binary, and Bun
+        # standalone executables can't be reliably lipo'd into a universal binary
+        # (the JS payload is appended past the Mach-O). So we cut a native app +
+        # native sidecar for each arch. Both macOS legs run on the arm64
+        # macos-latest runner; the x86_64 leg cross-compiles (Rust via the added
+        # target, the sidecar via Bun's --target). codesign/notarytool are
+        # arch-agnostic, so signing the cross-built Intel app works fine here.
+        #
         # ubuntu-20.04 runners were retired by GitHub; 22.04 also matches the
         # Tauri v2 toolchain (webkit2gtk 4.1).
-        platform: [macos-latest, ubuntu-22.04, windows-latest]
+        include:
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -149,6 +169,10 @@ jobs:
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          # Adds the leg's target (e.g. x86_64-apple-darwin on the arm64 runner
+          # for the Intel cross-build); a no-op when it's already the host.
+          targets: ${{ matrix.target }}
 
       - name: install dependencies (ubuntu only)
         # libfuse2: linuxdeploy and its appimage plugin are themselves AppImages
@@ -161,8 +185,10 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
 
-      # build:desktop runs `tauri build`, whose beforeBuildCommand builds the
-      # sdk, ui, server sidecar, and frontend before bundling.
+      # `tauri build` runs its beforeBuildCommand first, which builds the sdk,
+      # ui, server sidecar (for SIDECAR_TARGET, set below), and frontend before
+      # bundling. (Same as the local `build:desktop` script, plus an explicit
+      # --target.)
       - name: Build Tauri bundles
         env:
           # AppImage bundling hardening (Linux only; ignored elsewhere):
@@ -172,7 +198,36 @@ jobs:
           #    AppImages by self-extracting instead of FUSE-mounting.
           NO_STRIP: "true"
           APPIMAGE_EXTRACT_AND_RUN: "1"
-        run: pnpm run build:desktop
+          # Tell build-sidecar.mjs (run by Tauri's beforeBuildCommand) which arch
+          # to compile the Bun sidecar for. It cross-compiles via Bun's --target
+          # only when this differs from the runner's host arch (the Intel macOS
+          # leg); otherwise it builds natively, unchanged.
+          SIDECAR_TARGET: ${{ matrix.target }}
+          # macOS code signing + notarization. Consumed only on the macOS legs;
+          # on linux/windows these are unused env and harmless.
+          #  - APPLE_CERTIFICATE/_PASSWORD: the base64 Developer ID Application
+          #    .p12 + its password. The Tauri bundler imports this into an
+          #    ephemeral keychain and auto-detects the signing identity from the
+          #    cert, so no APPLE_SIGNING_IDENTITY is needed.
+          #  - APPLE_ID/_PASSWORD/_TEAM_ID: notarization via the Apple ID method.
+          #    APPLE_PASSWORD must be an app-specific password, not the account
+          #    password. Present credentials => the .app is notarized + stapled.
+          #  - KEYCHAIN_PASSWORD: only used by the tauri-action helper (the Tauri
+          #    CI guide assumes it); the direct `tauri build` path here uses an
+          #    ephemeral keychain and ignores it. Passed through for parity.
+          # JIT entitlements for the Bun sidecar live in
+          # packages/app/src-tauri/entitlements.plist (wired via tauri.conf.json).
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ACCOUNT_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        # `tauri build --target <triple>` puts bundles under
+        # target/<triple>/release/bundle. pnpm forwards the trailing args to the
+        # app's `tauri` script. The substituted command has no shell-isms, so it
+        # runs identically under bash (linux/macOS) and pwsh (windows).
+        run: pnpm --filter @book.dev/app run tauri build --target ${{ matrix.target }}
 
       - name: Upload bundles to the v${{ needs.release.outputs.version }} release
         shell: bash
@@ -180,7 +235,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="v${{ needs.release.outputs.version }}"
-          base="packages/app/src-tauri/target/release/bundle"
+          # --target builds land under target/<triple>/release/bundle. The two
+          # macOS legs produce arch-suffixed DMGs (…_aarch64.dmg / …_x64.dmg), so
+          # they attach to the same release without clobbering each other.
+          base="packages/app/src-tauri/target/${{ matrix.target }}/release/bundle"
           shopt -s nullglob
           files=(
             "$base"/dmg/*.dmg

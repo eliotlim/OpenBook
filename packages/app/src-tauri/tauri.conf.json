@@ -17,7 +17,10 @@
     ],
     "externalBin": [
       "binaries/openbook-server"
-    ]
+    ],
+    "macOS": {
+      "entitlements": "entitlements.plist"
+    }
   },
   "productName": "OpenBook",
   "mainBinaryName": "OpenBook",

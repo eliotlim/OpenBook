@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS hardened-runtime entitlements.
+
+  Tauri applies this single file to EVERY signed executable in the bundle: the
+  main OpenBook app AND the bundled `openbook-server` sidecar. The sidecar is a
+  `bun build --compile` binary, so it embeds JavaScriptCore and JITs JavaScript
+  at runtime. The hardened runtime (on by default for notarized Developer ID
+  builds) blocks JIT unless these entitlements are granted — without them the
+  sidecar is killed the instant it tries to compile code, and the app can never
+  reach its data layer. The main app (Rust + WKWebView) doesn't itself need
+  these, but sharing them is harmless; WKWebView's JS runs in a separate,
+  Apple-signed process.
+
+  Reference: https://bun.com/docs/guides/runtime/codesign-macos-executable
+
+  If the sidecar still fails to start in a *notarized* build, add Bun's two
+  broader fallbacks below (kept out by default because they meaningfully weaken
+  the main app's hardening):
+    com.apple.security.cs.disable-executable-page-protection
+    com.apple.security.cs.allow-dyld-environment-variables
+-->
+<plist version="1.0">
+<dict>
+  <!-- Allow JavaScriptCore to allocate executable memory for JIT (required on Apple Silicon). -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- JSC also maps executable pages outside the MAP_JIT path. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- The self-contained Bun runtime embeds its own code; don't enforce same-team library validation. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
