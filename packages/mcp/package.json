@@ -1,6 +1,6 @@
 {
   "name": "@book.dev/mcp",
-  "version": "1.61.2",
+  "version": "1.61.3",
   "description": "OpenBook MCP server: lets MCP clients (Claude Desktop, Claude Code, …) read and write an OpenBook workspace over stdio.",
   "private": true,
   "type": "module",

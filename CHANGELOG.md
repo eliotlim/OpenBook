@@ -1,3 +1,14 @@
+## 1.61.3 (2026-06-26)
+
+### 🩹 Fixes
+
+- **ui:** sidebar settings/menu buttons highlight on press, not shrink ([81334ce](https://github.com/eliotlim/OpenBook/commit/81334ce))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim
+
 ## 1.61.2 (2026-06-26)
 
 ### 🩹 Fixes
