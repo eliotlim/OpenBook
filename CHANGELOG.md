@@ -1,3 +1,21 @@
+## 1.61.0 (2026-06-26)
+
+### 🚀 Features
+
+- ipc support for dev server ([bd67271](https://github.com/eliotlim/OpenBook/commit/bd67271))
+- **ci:** sign + notarize macOS builds and ship per-arch ([dc470d9](https://github.com/eliotlim/OpenBook/commit/dc470d9))
+- **ui:** add a compact-database button to reclaim PGlite bloat (OB-164) ([116b708](https://github.com/eliotlim/OpenBook/commit/116b708))
+
+### 🩹 Fixes
+
+- site keychain management ([31b3312](https://github.com/eliotlim/OpenBook/commit/31b3312))
+- **server:** self-maintain PGlite + skip no-op saves (OB-164) ([daa1ca0](https://github.com/eliotlim/OpenBook/commit/daa1ca0))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim
+
 ## 1.60.0 (2026-06-22)
 
 ### 🚀 Features
