@@ -1,3 +1,4 @@
+import {HTTPException} from 'hono/http-exception';
 import {randomUUID} from './uuid';
 import type {
   AccessCtx,
@@ -1102,6 +1103,15 @@ export class PageStore {
     return commentFromRow(rows[0]);
   }
 
+  /** Fetch a single comment by id (for access gating on its parent page). */
+  async getComment(id: string): Promise<StoredComment | null> {
+    const rows = await this.db.query<CommentRowRecord>(
+      `SELECT ${COMMENT_COLS} FROM comments WHERE id = $1`,
+      [id],
+    );
+    return rows.length > 0 ? commentFromRow(rows[0]) : null;
+  }
+
   async deleteComment(id: string): Promise<boolean> {
     const rows = await this.db.query('DELETE FROM comments WHERE id = $1 RETURNING id', [id]);
     return rows.length > 0;
@@ -1193,7 +1203,11 @@ export class PageStore {
     // value is idempotent and allowed; the first claim (from unset) is allowed —
     // the transactional first-writer-wins CAS for the claim itself is OB-191.
     if (current.ownerSubject && next.ownerSubject !== current.ownerSubject) {
-      throw new Error('ownerSubject is claim-once and cannot be cleared or changed (OB-182 §2.6)');
+      // 409 (not a 500): clearing/re-pointing a claimed owner is a conflicting
+      // request, so `PUT /api/instance {ownerSubject:null}` surfaces as 409.
+      throw new HTTPException(409, {
+        message: 'ownerSubject is claim-once and cannot be cleared or changed (OB-182 §2.6)',
+      });
     }
     // Config footgun guard (OB-182 §2.4, Sasha N2): `emailAuthority` MUST be a
     // trusted issuer. If it names an issuer the instance doesn't trust, no token

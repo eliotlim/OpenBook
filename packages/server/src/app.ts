@@ -302,6 +302,9 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // Postgres autovacuums and shouldn't be exclusively locked + rewritten by a
   // client, so it answers 409 there (OB-164).
   app.post(API.compact, async (c) => {
+    // VACUUM FULL takes an exclusive lock — gate it to an instance writer so it
+    // can't be used as an anonymous DoS (OB-190 follow-up).
+    await requireCreate(c, store);
     if (!opts.embedded) {
       return c.json({error: 'compaction is only available for the embedded database'}, 409);
     }
@@ -309,9 +312,19 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.json({before, after, reclaimed: Math.max(0, before - after)});
   });
 
-  app.get(API.exportSpace, async (c) => c.json(await store.exportAll()));
+  // Whole-instance dump: every non-deleted page + all databases, unfiltered. Gate
+  // to an instance writer (owner/admin/loopback) — a non-member/guest must not be
+  // able to exfiltrate every restricted/members page in one request (OB-190
+  // follow-up, [CRITICAL]).
+  app.get(API.exportSpace, async (c) => {
+    await requireCreate(c, store);
+    return c.json(await store.exportAll());
+  });
 
   app.post(API.importSpace, async (c) => {
+    // Wholesale overwrite/inject of pages + databases — instance-writer only
+    // (OB-190 follow-up, [HIGH]).
+    await requireCreate(c, store);
     const req = await c.req.json<ImportRequest>();
     const result = await store.importBundle(req);
     await broadcastList();
@@ -642,6 +655,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   });
 
   app.patch('/api/suggestions/:id', async (c) => {
+    // Accept/reject + the returned payload are page content — gate on WRITE of the
+    // parent page so a non-grantee with the UUID can't read restricted content or
+    // drive an accept/reject (OB-190 follow-up, [MED-HIGH]). A missing suggestion
+    // and an unreadable parent both 404 (no existence oracle).
+    const existing = await store.getSuggestion(c.req.param('id'));
+    if (!existing) return c.json({error: 'suggestion not found'}, 404);
+    await requireAccess(c, store, 'write', existing.pageId);
     const patch = await c.req.json<SuggestionUpdate>();
     const suggestion = await store.updateSuggestion(c.req.param('id'), patch);
     if (!suggestion) return c.json({error: 'suggestion not found'}, 404);
@@ -649,6 +669,9 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   });
 
   app.delete('/api/suggestions/:id', async (c) => {
+    const existing = await store.getSuggestion(c.req.param('id'));
+    if (!existing) return c.json({error: 'suggestion not found'}, 404);
+    await requireAccess(c, store, 'write', existing.pageId);
     const deleted = await store.deleteSuggestion(c.req.param('id'));
     if (!deleted) return c.json({error: 'suggestion not found'}, 404);
     return c.body(null, 204);
@@ -669,6 +692,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   });
 
   app.delete('/api/comments/:id', async (c) => {
+    // Gate deletion on WRITE of the parent page (OB-190 follow-up, [MED]). A
+    // missing comment and an unreadable parent both 404 (no existence oracle).
+    const existing = await store.getComment(c.req.param('id'));
+    if (!existing) return c.json({error: 'comment not found'}, 404);
+    await requireAccess(c, store, 'write', existing.pageId);
     const deleted = await store.deleteComment(c.req.param('id'));
     if (!deleted) return c.json({error: 'comment not found'}, 404);
     return c.body(null, 204);
