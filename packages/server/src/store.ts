@@ -1,5 +1,6 @@
 import {randomUUID} from './uuid';
 import type {
+  AclLevel,
   BackupConfig,
   CommentInput,
   CommentRun,
@@ -10,9 +11,14 @@ import type {
   ImportRequest,
   ImportResult,
   InstanceConfig,
+  Member,
+  MemberRole,
+  MemberStatus,
+  PageAcl,
   PageInput,
   PageMeta,
   PageSnapshot,
+  PageVisibility,
   Principal,
   RowInput,
   StoredComment,
@@ -26,7 +32,7 @@ import type {
   SuggestionUpdate,
   VerifiedVia,
 } from '@book.dev/sdk';
-import {DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, latestSnapshotAuthor, projectExports, propertiesReferencePage, remapBundle, stampSnapshotAuthors, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, isEmailAuthoritative, latestSnapshotAuthor, projectExports, propertiesReferencePage, remapBundle, stampSnapshotAuthors, stampSnapshotMtimes, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import type {Db} from './dbCore';
 import {runMigrations} from './migrations';
 
@@ -1176,6 +1182,16 @@ export class PageStore {
   /** Shallow-merge a patch into the instance policy and persist it. */
   async updateInstanceConfig(patch: Partial<InstanceConfig>): Promise<InstanceConfig> {
     const next = {...(await this.getInstanceConfig()), ...patch};
+    // Config footgun guard (OB-182 §2.4, Sasha N2): `emailAuthority` MUST be a
+    // trusted issuer. If it names an issuer the instance doesn't trust, no token
+    // from it ever verifies, so every persona / email-ACL grant silently stops
+    // matching (it fails *safe* → deny, but invisibly). Reject the write instead
+    // of letting the policy drift into that dead state.
+    if (next.emailAuthority && !next.trustedIssuers.some((i) => i.issuer === next.emailAuthority)) {
+      throw new Error(
+        `emailAuthority ${next.emailAuthority} must be one of trustedIssuers (OB-182 §2.4)`,
+      );
+    }
     await this.db.query(
       `INSERT INTO settings (key, value) VALUES ('instance', $1::jsonb)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
@@ -1219,6 +1235,321 @@ export class PageStore {
     );
     return next;
   }
+
+  // ── Sharing & access: roster, per-page visibility + ACL (OB-189) ──────────────
+  //
+  // Storage ops behind the OB-182 §1 `authorize()` decision. This layer is pure
+  // CRUD + the §4.3 invite-claim rewrite; it does NOT enforce access on routes or
+  // streams (that wiring — `requireAccess`, principal-aware fan-out, the request →
+  // `AccessCtx` build — is OB-190) and it does not resolve `inherit` up the parent
+  // chain (the effective-visibility walk is assembled by OB-190 from these reads).
+
+  /** Every roster row, newest first. */
+  async listMembers(): Promise<Member[]> {
+    const rows = await this.db.query<MemberRow>(
+      `SELECT ${MEMBER_COLS} FROM members ORDER BY created_at DESC`,
+    );
+    return rows.map(memberFromRow);
+  }
+
+  /**
+   * Add a roster row (OB-182 §2.1). A row is an EMAIL PERSONA (`email` set,
+   * `subject` NULL until claimed) or a SUBJECT/handle MEMBER (`subject` set).
+   * `status` is **required and always written explicitly** — an email invite must
+   * pass `status='invited'` and never inherit the column's `'active'` default
+   * (Sasha N1). For an email row, `issuer` pins the email-authority (B1); it
+   * defaults to the instance's `emailAuthority` when omitted.
+   */
+  async addMember(input: AddMemberInput): Promise<Member> {
+    const email = normalizeEmail(input.email);
+    const subject = input.subject ?? null;
+    if (!email && !subject) throw new Error('a member needs a subject or an email');
+    const issuer = input.issuer ?? (await this.getInstanceConfig()).emailAuthority ?? DEFAULT_ACCOUNT_URL;
+    const rows = await this.db.query<MemberRow>(
+      `INSERT INTO members (id, subject, email, issuer, role, status, invited_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING ${MEMBER_COLS}`,
+      [randomUUID(), subject, email, issuer, input.role ?? 'viewer', input.status, input.invitedBy ?? null],
+    );
+    return memberFromRow(rows[0]);
+  }
+
+  /** Patch a roster row's bound subject / role / status (activate, suspend, …). */
+  async updateMember(id: string, patch: MemberPatch): Promise<Member | null> {
+    const rows = await this.db.query<MemberRow>(
+      `UPDATE members SET
+         subject = COALESCE($2, subject),
+         role    = COALESCE($3, role),
+         status  = COALESCE($4, status)
+       WHERE id = $1
+       RETURNING ${MEMBER_COLS}`,
+      [id, patch.subject ?? null, patch.role ?? null, patch.status ?? null],
+    );
+    return rows.length > 0 ? memberFromRow(rows[0]) : null;
+  }
+
+  /** Remove a roster row by id. */
+  async removeMember(id: string): Promise<boolean> {
+    const rows = await this.db.query('DELETE FROM members WHERE id = $1 RETURNING id', [id]);
+    return rows.length > 0;
+  }
+
+  /**
+   * Resolve the principal's request-time roster role (OB-182 §2.1 / S3) — the
+   * input to `AccessCtx.role`. Only `status='active'` rows bound to the
+   * principal's `subject` count; a pure subject/handle member matches on subject
+   * alone (any trusted issuer), a persona row additionally requires the ACTIVE
+   * persona email under the pinned authority (`lower(email)==principal.email` AND
+   * `issuer==emailAuthority`, B1). `invited`/`suspended` rows grant nothing, and
+   * an email match NEVER yields a role directly. Returns the highest matching
+   * role (admin ≻ viewer), or `null`. Non-`jws` principals always resolve to
+   * `null` (N8 — guest/local/unverified are never roster members).
+   */
+  async resolveMemberRole(principal: Principal): Promise<MemberRole | null> {
+    if (principal.verifiedVia !== 'jws') return null;
+    const config = await this.getInstanceConfig();
+    const emailOk = isEmailAuthoritative(principal, config) && !!principal.email;
+    const personaEmail = principal.email?.toLowerCase();
+    const rows = await this.db.query<{role: string; email: string | null; issuer: string}>(
+      'SELECT role, email, issuer FROM members WHERE status = \'active\' AND subject = $1',
+      [principal.subject],
+    );
+    let best: MemberRole | null = null;
+    for (const row of rows) {
+      const matches =
+        row.email === null
+          ? true // pure subject/handle member — bound subject is enough
+          : emailOk && row.email.toLowerCase() === personaEmail && row.issuer === config.emailAuthority;
+      if (matches) best = higherRole(best, row.role);
+    }
+    return best;
+  }
+
+  /** A page's stored visibility scope (raw — `inherit` not yet resolved), or
+   *  `null` when the page doesn't exist. */
+  async getPageVisibility(pageId: string): Promise<PageVisibility | null> {
+    const rows = await this.db.query<{visibility: string}>(
+      'SELECT visibility FROM pages WHERE id = $1',
+      [pageId],
+    );
+    return rows.length > 0 ? (rows[0].visibility as PageVisibility) : null;
+  }
+
+  /** Set a page's visibility scope. Returns `false` when the page is missing.
+   *  Deliberately does NOT touch `updated_at`: visibility is an access attribute,
+   *  not document content, so it must not look like an edit to the mirror/mtimes. */
+  async setPageVisibility(pageId: string, visibility: PageVisibility): Promise<boolean> {
+    const rows = await this.db.query(
+      'UPDATE pages SET visibility = $2 WHERE id = $1 RETURNING id',
+      [pageId, visibility],
+    );
+    return rows.length > 0;
+  }
+
+  /** Every ACL grant on a page (OB-182 §2.3), oldest first. */
+  async getPageAcl(pageId: string): Promise<PageAcl[]> {
+    const rows = await this.db.query<AclRow>(
+      `SELECT ${ACL_COLS} FROM page_acl WHERE page_id = $1 ORDER BY created_at ASC`,
+      [pageId],
+    );
+    return rows.map(aclFromRow);
+  }
+
+  /**
+   * Upsert a per-page ACL grant (OB-182 §2.3). Exactly one grantee key — `subject`
+   * XOR `email`; an email grant pins the `issuer` (defaults to the instance's
+   * `emailAuthority`, B1). `page_acl` is PK-less, so the grant is keyed on
+   * `(page_id, subject)` or `(page_id, lower(email))` [Quinn]: any existing grant
+   * for that key is replaced (delete-then-insert in one transaction).
+   */
+  async setPageAcl(pageId: string, grant: AclGrantInput): Promise<PageAcl> {
+    const email = normalizeEmail(grant.email);
+    const subject = grant.subject ?? null;
+    if (!subject === !email) {
+      throw new Error('a page ACL grant needs exactly one of subject or email');
+    }
+    const issuer = email
+      ? (grant.issuer ?? (await this.getInstanceConfig()).emailAuthority ?? DEFAULT_ACCOUNT_URL)
+      : null;
+    return this.db.begin(async (tx) => {
+      if (subject) {
+        await tx.query('DELETE FROM page_acl WHERE page_id = $1 AND subject = $2', [pageId, subject]);
+      } else {
+        await tx.query('DELETE FROM page_acl WHERE page_id = $1 AND lower(email) = $2', [pageId, email]);
+      }
+      const rows = await tx.query<AclRow>(
+        `INSERT INTO page_acl (page_id, subject, email, issuer, level, invited_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING ${ACL_COLS}`,
+        [pageId, subject, email, issuer, grant.level, grant.invitedBy ?? null],
+      );
+      return aclFromRow(rows[0]);
+    });
+  }
+
+  /** Remove a per-page ACL grant, keyed on `(page_id, subject)` or
+   *  `(page_id, lower(email))` [Quinn]. */
+  async removePageAcl(pageId: string, key: AclKey): Promise<boolean> {
+    const rows =
+      'subject' in key
+        ? await this.db.query('DELETE FROM page_acl WHERE page_id = $1 AND subject = $2 RETURNING page_id', [
+          pageId,
+          key.subject,
+        ])
+        : await this.db.query(
+          'DELETE FROM page_acl WHERE page_id = $1 AND lower(email) = $2 RETURNING page_id',
+          [pageId, normalizeEmail(key.email)],
+        );
+    return rows.length > 0;
+  }
+
+  /**
+   * The invite-claim rewrite (OB-182 §4.3 step 3) — the storage primitive that
+   * binds an email persona to the now-signed-in subject. MANDATORY (N10): once a
+   * principal presents an authoritative persona JWS, every `invited` roster row
+   * and every `email` ACL grant under the same pinned issuer is rewritten to be
+   * subject-keyed, so all future lookups go by subject and a later email change
+   * can never silently re-open access. Runs in one transaction:
+   *  - `members`: bind `subject` + flip `status` `'invited'→'active'` (email kept).
+   *  - `page_acl`: rewrite to `subject`, clearing `email`/`issuer` — first dropping
+   *    any email grant that would collide with an existing subject grant on the
+   *    same page (the `(page_id, subject)` unique index).
+   * A no-op for a non-authoritative principal. Returns the rows touched.
+   *
+   * Note: *triggering* this on sign-in / per request is enforcement wiring — left
+   * to OB-190/191; this method is the complete, reusable storage operation.
+   */
+  async claimMemberships(principal: Principal): Promise<{members: number; acls: number}> {
+    const config = await this.getInstanceConfig();
+    if (!isEmailAuthoritative(principal, config) || !principal.email || !config.emailAuthority) {
+      return {members: 0, acls: 0};
+    }
+    const email = principal.email.toLowerCase();
+    const authority = config.emailAuthority;
+    const subject = principal.subject;
+    return this.db.begin(async (tx) => {
+      const members = await tx.query(
+        `UPDATE members SET subject = $1, status = 'active'
+          WHERE status = 'invited' AND subject IS NULL AND lower(email) = $2 AND issuer = $3
+          RETURNING id`,
+        [subject, email, authority],
+      );
+      await tx.query(
+        `DELETE FROM page_acl pa
+          WHERE pa.email IS NOT NULL AND lower(pa.email) = $1 AND pa.issuer = $2
+            AND EXISTS (SELECT 1 FROM page_acl s WHERE s.page_id = pa.page_id AND s.subject = $3)`,
+        [email, authority, subject],
+      );
+      const acls = await tx.query(
+        `UPDATE page_acl SET subject = $1, email = NULL, issuer = NULL
+          WHERE email IS NOT NULL AND lower(email) = $2 AND issuer = $3
+          RETURNING page_id`,
+        [subject, email, authority],
+      );
+      return {members: members.length, acls: acls.length};
+    });
+  }
+}
+
+// ── Sharing & access: input shapes + row mappers (OB-189) ────────────────────
+
+/** Input to {@link PageStore.addMember}. `status` is required (Sasha N1). */
+export interface AddMemberInput {
+  /** Bound `iss#sub`; omit/null for an unclaimed email persona. */
+  subject?: string | null;
+  /** Persona email (lowercased on write); omit for a subject/handle member. */
+  email?: string | null;
+  /** Pinned email-authority for a persona (B1); defaults to the instance's
+   *  `emailAuthority` when omitted. */
+  issuer?: string;
+  role?: MemberRole;
+  /** Explicit lifecycle — an email invite MUST pass `'invited'` (Sasha N1). */
+  status: MemberStatus;
+  invitedBy?: string | null;
+}
+
+/** Patch to {@link PageStore.updateMember}; only provided fields change. */
+export interface MemberPatch {
+  subject?: string | null;
+  role?: MemberRole;
+  status?: MemberStatus;
+}
+
+/** Input to {@link PageStore.setPageAcl} — exactly one grantee key. */
+export interface AclGrantInput {
+  subject?: string | null;
+  email?: string | null;
+  /** Pinned email-authority for an email grant (B1); defaults to the instance's
+   *  `emailAuthority`. Ignored for a subject grant. */
+  issuer?: string | null;
+  level: AclLevel;
+  invitedBy?: string | null;
+}
+
+/** Key identifying one ACL grant for removal: by subject XOR by email. */
+export type AclKey = {subject: string} | {email: string};
+
+/** Lowercase + trim an email, or `null`. */
+function normalizeEmail(email: string | null | undefined): string | null {
+  const trimmed = email?.trim().toLowerCase();
+  return trimmed ? trimmed : null;
+}
+
+/** Pick the higher-privilege role (admin ≻ viewer) across matching roster rows. */
+function higherRole(current: MemberRole | null, next: string): MemberRole | null {
+  if (next === 'admin' || current === 'admin') return 'admin';
+  if (next === 'viewer' || current === 'viewer') return 'viewer';
+  return current;
+}
+
+const MEMBER_COLS = 'id, subject, email, issuer, role, status, invited_by, created_at';
+
+interface MemberRow {
+  id: string;
+  subject: string | null;
+  email: string | null;
+  issuer: string;
+  role: string;
+  status: string;
+  invited_by: string | null;
+  created_at: Date | string;
+}
+
+function memberFromRow(row: MemberRow): Member {
+  return {
+    id: row.id,
+    subject: row.subject ?? null,
+    email: row.email ?? null,
+    issuer: row.issuer,
+    role: row.role as MemberRole,
+    status: row.status as MemberStatus,
+    invitedBy: row.invited_by ?? null,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+const ACL_COLS = 'page_id, subject, email, issuer, level, invited_by, created_at';
+
+interface AclRow {
+  page_id: string;
+  subject: string | null;
+  email: string | null;
+  issuer: string | null;
+  level: string;
+  invited_by: string | null;
+  created_at: Date | string;
+}
+
+function aclFromRow(row: AclRow): PageAcl {
+  return {
+    pageId: row.page_id,
+    subject: row.subject ?? null,
+    email: row.email ?? null,
+    issuer: row.issuer ?? null,
+    level: row.level as AclLevel,
+    invitedBy: row.invited_by ?? null,
+    createdAt: toIso(row.created_at),
+  };
 }
 
 interface PluginRow {

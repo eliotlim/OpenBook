@@ -185,6 +185,16 @@ export {
   type InstanceInfo,
   type StoredEdit,
 } from './provenance';
+export {
+  authorize,
+  isEmailAuthoritative,
+  type Role,
+  type EffectiveVisibility,
+  type AclEntry,
+  type AccessPage,
+  type AccessCtx,
+  type Decision,
+} from './authorize';
 export {snapshotText, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock} from './content';
 export {
   snapshotBlocks,
