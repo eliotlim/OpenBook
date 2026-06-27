@@ -65,6 +65,14 @@ describe('title → editor', () => {
     expect(blockType(roots.get(0))).toBe('paragraph');
     expect(document.activeElement?.getAttribute('data-block-text')).toBe(blockId(roots.get(0)));
   });
+
+  it('focusStart() does NOTHING on a read-only, text-less doc (viewer cannot seed a paragraph)', () => {
+    const doc = new Y.Doc(); // no blocks at all
+    const ref = React.createRef<BlockEditorHandle>();
+    render(<BlockEditor doc={doc} readOnly focusRef={ref} />);
+    act(() => ref.current!.focusStart());
+    expect(rootBlocks(doc).length).toBe(0); // no mutation — the handoff is a no-op
+  });
 });
 
 describe('editor → title', () => {

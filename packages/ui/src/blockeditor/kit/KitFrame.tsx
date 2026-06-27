@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import {KitSettings} from './KitSettings';
+import {useKitPageLock} from './lock';
 import {varNameFromLabel} from './options';
 
 /**
@@ -78,6 +79,11 @@ export const ConfigToggle: React.FC<{
  * so it looks like the text it replaces; falls back to a static span when the
  * editor is read-only (or the block's group is locked). `stopPropagation` keeps
  * keystrokes out of the surrounding block editor's shortcuts.
+ *
+ * On a read-only page the widget's *control* revives (interactive exemption)
+ * with a `liveEditor`, so `readOnly` arrives `false` here — but the label is
+ * chrome, not a control, and must stay frozen. {@link useKitPageLock} re-freezes
+ * it independently of the control's editor.
  */
 export const KitInlineText: React.FC<{
   value: string;
@@ -87,7 +93,8 @@ export const KitInlineText: React.FC<{
   className?: string;
   onCommit: (value: string) => void;
 }> = ({value, placeholder, ariaLabel, readOnly, className, onCommit}) => {
-  if (readOnly) {
+  const pageLocked = useKitPageLock();
+  if (readOnly || pageLocked) {
     return <span className={className}>{value || placeholder}</span>;
   }
   return (

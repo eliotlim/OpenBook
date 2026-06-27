@@ -58,7 +58,7 @@ import {MentionMenu} from './MentionMenu';
 import {EmojiMenu} from './EmojiMenu';
 import {LinkPicker} from './LinkPicker';
 import {hasKitConfig, openKitConfig} from './kit/kitConfig';
-import {KitLockContext, useKitLock} from './kit/lock';
+import {KitLockContext, KitPageLockContext, useKitLock} from './kit/lock';
 import {KitInlineText} from './kit/KitFrame';
 import {groupInputs, inputValue, setInputValue} from './kit/scope';
 import {sectionCompletion, type CompletionStat} from './kit/completion';
@@ -143,6 +143,11 @@ export const BlockEditor: React.FC<{
   // first when the document has none), caret at its start.
   useImperativeHandle(focusRef, () => ({
     focusStart() {
+      // A read-only page (viewer / present) has no caret surface to hand off to —
+      // and must never mutate the doc. Guarding here covers every entry point
+      // (the locked title's Enter / ↓ still reaches this, see PageHeader), so a
+      // viewer can't seed a paragraph into a text-less doc.
+      if (editor.readOnly) return;
       const ids = editor.textBlockIds();
       if (ids.length === 0) editor.insertAfter(null, {type: 'paragraph'});
       else editor.requestCaret({blockId: ids[0], offset: 0});
@@ -608,9 +613,11 @@ export const BlockEditor: React.FC<{
         }
       }}
     >
-      <KitLockContext.Provider value={readOnlyLock}>
-        <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} container={null} />
-      </KitLockContext.Provider>
+      <KitPageLockContext.Provider value={readOnly}>
+        <KitLockContext.Provider value={readOnlyLock}>
+          <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} container={null} />
+        </KitLockContext.Provider>
+      </KitPageLockContext.Provider>
       {slash.open && (
         <SlashMenu
           state={slash}

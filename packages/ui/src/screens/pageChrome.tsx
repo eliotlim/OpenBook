@@ -111,7 +111,7 @@ export const PageHeader: React.FC<{
       {readOnly ? (
         <span
           className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none"
-          aria-label={t('page.changeIcon')}
+          aria-hidden
         >
           <PageIcon value={icon} fallback="📄" />
         </span>
@@ -134,6 +134,9 @@ export const PageHeader: React.FC<{
         placeholder={readOnly ? '' : t('common.untitled')}
         onChange={(e) => onTitleChange?.(e.target.value)}
         onKeyDown={(e) => {
+          // A read-only title is still focusable; never hand off from it (the
+          // editor guards too, but don't even invoke the handoff for a viewer).
+          if (readOnly) return;
           // Enter, or ↓ from the title's last line, hands the caret to the
           // editor below (one continuous caret surface) instead of just
           // blurring — the title and the body read as a single document.
