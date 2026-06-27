@@ -1,3 +1,22 @@
+## 1.62.0 (2026-06-27)
+
+### 🚀 Features
+
+- **server:** multi-user identity, guest gate & change provenance (OB-165) ([7ea2483](https://github.com/eliotlim/OpenBook/commit/7ea2483))
+- **server:** scheduled tiered backups (OB-166) ([b0d41fd](https://github.com/eliotlim/OpenBook/commit/b0d41fd))
+- **server:** bound edit-log growth with a retention sweep (OB-165) ([a860962](https://github.com/eliotlim/OpenBook/commit/a860962))
+- **server:** server-stamp verified author identity on suggestions/comments (OB-165) ([20942df](https://github.com/eliotlim/OpenBook/commit/20942df))
+- **server:** carry verified authorship through the sync/merge path (OB-170) ([fe7ddc9](https://github.com/eliotlim/OpenBook/commit/fe7ddc9))
+- **server:** audience-bind the identity verifier (OB-177) ([4809679](https://github.com/eliotlim/OpenBook/commit/4809679))
+- **ui:** client identity plumbing + guest-access UI (OB-165) ([29a2ea9](https://github.com/eliotlim/OpenBook/commit/29a2ea9))
+- **ui:** fetch + send account-issued identity JWS; default-trust the issuer (OB-165) ([be09732](https://github.com/eliotlim/OpenBook/commit/be09732))
+- **ui:** "edited by" provenance indicator in the page header (OB-165) ([ca2b548](https://github.com/eliotlim/OpenBook/commit/ca2b548))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim
+
 ## 1.61.3 (2026-06-26)
 
 ### 🩹 Fixes
