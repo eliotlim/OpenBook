@@ -209,6 +209,66 @@ const MIGRATIONS: Migration[] = [
       'ALTER TABLE comments ADD COLUMN IF NOT EXISTS author_verified TEXT',
     ],
   },
+  {
+    // Sharing & access schema (OB-188; contract docs/sharing-access-contract-spike-OB-182.md).
+    // SCHEMA ONLY — no authorization logic (OB-189) or enforcement/middleware
+    // (OB-190) here. Purely additive + idempotent: absent roster rows + every
+    // existing page defaulting to visibility='inherit' + the unclaimed-instance
+    // short-circuit means a live local workspace behaves exactly as before; no
+    // backfill is required.
+    //
+    // `members` is the data-server-native roster (the instance owns subject→role).
+    // A row is one of two shapes (§2.1): an EMAIL PERSONA (invited by email,
+    // `subject` NULL until the invitee signs in and claims it) or a SUBJECT/handle
+    // MEMBER (`email` NULL). One account `subject` may back several persona rows —
+    // one per verified email — each its own workspace member with its own role.
+    // `issuer` PINS the email-authority for a persona so a federated issuer can
+    // never satisfy an account.book.pub-scoped grant (B1); the CHECK enforces that
+    // any email row carries that pin. The partial-unique indexes use `lower(email)`
+    // (case-insensitive persona uniqueness) — verified to create + enforce on the
+    // embedded PGlite (PostgreSQL 17.5).
+    //
+    // `page_acl` is the per-page override (open a restricted/members page to one
+    // persona, or elevate a viewer to writer on a single page). A table — not a
+    // `pages.acl` JSONB blob — so the share UI's cross-cutting queries
+    // ("everything shared with email X", "who can access this page") are plain
+    // indexed selects and the invite-claim rewrite is a transactional UPDATE across
+    // `members` + `page_acl`. Exactly one grantee key per row (subject XOR email);
+    // an email grant MUST pin an issuer (B1); cascade-deletes with its page.
+    name: '0011_sharing_access',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS members (
+        id          UUID        PRIMARY KEY,
+        subject     TEXT,
+        email       TEXT,
+        issuer      TEXT        NOT NULL DEFAULT 'https://account.book.pub',
+        role        TEXT        NOT NULL DEFAULT 'viewer',
+        status      TEXT        NOT NULL DEFAULT 'active',
+        invited_by  TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CHECK (email IS NOT NULL OR subject IS NOT NULL)
+      )`,
+      'CREATE UNIQUE INDEX IF NOT EXISTS members_email_key ON members (lower(email)) WHERE email IS NOT NULL',
+      'CREATE UNIQUE INDEX IF NOT EXISTS members_subject_key ON members (subject) WHERE email IS NULL AND subject IS NOT NULL',
+      'CREATE INDEX IF NOT EXISTS members_subject_idx ON members (subject) WHERE subject IS NOT NULL',
+      'ALTER TABLE pages ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT \'inherit\'',
+      `CREATE TABLE IF NOT EXISTS page_acl (
+        page_id     UUID        NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        subject     TEXT,
+        email       TEXT,
+        issuer      TEXT,
+        level       TEXT        NOT NULL,
+        invited_by  TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CHECK ((subject IS NOT NULL) <> (email IS NOT NULL)),
+        CHECK (email IS NULL OR issuer IS NOT NULL)
+      )`,
+      'CREATE INDEX IF NOT EXISTS page_acl_page_idx ON page_acl (page_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS page_acl_page_subj_key ON page_acl (page_id, subject) WHERE subject IS NOT NULL',
+      'CREATE UNIQUE INDEX IF NOT EXISTS page_acl_page_email_key ON page_acl (page_id, lower(email)) WHERE email IS NOT NULL',
+      'CREATE INDEX IF NOT EXISTS page_acl_email_idx ON page_acl (lower(email)) WHERE email IS NOT NULL',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

@@ -115,6 +115,79 @@ export interface PageInput {
   parentId?: string | null;
 }
 
+/**
+ * Sharing & access model (OB-188; contract docs/sharing-access-contract-spike-OB-182.md).
+ * These are the data-model types behind migration 0011 — the roster row, the
+ * per-page ACL row, and the per-page visibility scope. The *authorization* layer
+ * (`authorize()` in §1.1) is OB-189 and is intentionally NOT defined here.
+ */
+
+/**
+ * Per-page audience scope (OB-182 §1.1). `inherit` resolves up the **parent**
+ * chain for an ordinary page (or, for a database row, via the database host page)
+ * down to `InstanceConfig.defaultVisibility` at the root. The other four are the
+ * fixed audience scopes: `public` (anyone, incl. anonymous), `authenticated` (any
+ * signed-in jws user), `members` (active roster members), `restricted`
+ * (owner/admin/ACL only).
+ */
+export type PageVisibility = 'inherit' | 'public' | 'authenticated' | 'members' | 'restricted';
+
+/** Alias for {@link PageVisibility} (the OB-188 directive's shorthand name). */
+export type Visibility = PageVisibility;
+
+/** The two OSS roster roles (OB-182): `admin` = full access, `viewer` = locked
+ *  read-only. (Contract §1.1 names this union `Role`.) */
+export type MemberRole = 'admin' | 'viewer';
+
+/**
+ * Lifecycle of a roster row (OB-182 §2.1). `invited` = an email persona not yet
+ * claimed by a signed-in subject; `active` = bound + live; `suspended` = retained
+ * but grants nothing. Only `active` rows resolve to a role at request time (S3).
+ */
+export type MemberStatus = 'invited' | 'active' | 'suspended';
+
+/** Per-page ACL grant level (OB-182 §1.1). */
+export type AclLevel = 'read' | 'write';
+
+/**
+ * One roster row — the data-server-native `members` table (OB-182 §2.1). A row is
+ * either an EMAIL PERSONA (`email` set, `subject` NULL until claimed on sign-in)
+ * or a SUBJECT/handle MEMBER (`subject` set, `email` NULL). One account `subject`
+ * may back several persona rows — one per verified email — each its own member
+ * with its own role. `issuer` PINS the email-authority for a persona so a federated
+ * issuer can never satisfy an `account.book.pub`-scoped grant (B1).
+ */
+export interface Member {
+  id: string;
+  /** Bound `iss#sub`; `null` until an email persona is claimed. */
+  subject: string | null;
+  /** Persona email (lowercased); `null` for a subject/handle member. */
+  email: string | null;
+  /** The pinned email-authority issuer for a persona (B1). */
+  issuer: string;
+  role: MemberRole;
+  status: MemberStatus;
+  /** The principal subject that issued the invite, if any. */
+  invitedBy: string | null;
+  createdAt: string;
+}
+
+/**
+ * One per-page ACL grant — a row of the `page_acl` table (OB-182 §2.3). Exactly
+ * one grantee key is set: `subject` (a grantee already bound to any trusted issuer)
+ * XOR `email` (a grantee by persona email, lowercased). An email grant MUST pin an
+ * `issuer` (the email-authority — B1).
+ */
+export interface PageAcl {
+  pageId: string;
+  subject: string | null;
+  email: string | null;
+  issuer: string | null;
+  level: AclLevel;
+  invitedBy: string | null;
+  createdAt: string;
+}
+
 /** Status of a desktop install's local server. */
 export interface ServerInfo {
   /** Whether the local server is currently running. */
