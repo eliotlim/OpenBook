@@ -1,5 +1,6 @@
 import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
 import {searchEmojis, type EmojiMatch} from '@/lib/emoji';
+import {useTranslation} from '@/providers';
 import {blockText, findBlock} from './model';
 import type {SlashState} from './SlashMenu';
 import type {BlockEditorController} from './useBlockEditor';
@@ -19,6 +20,7 @@ export const EmojiMenu: React.FC<{
   /** Insert the chosen glyph (plain text) at the offset where ":" was typed. */
   onInsertText: (blockId: string, anchorOffset: number, text: string) => void;
 }> = ({state, editor, anchorEl, onClose, onInsertText}) => {
+  const {t} = useTranslation();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{left: number; top: number; maxHeight: number} | null>(null);
   const [index, setIndex] = useState(0);
@@ -65,6 +67,10 @@ export const EmojiMenu: React.FC<{
     if (ev.key === 'ArrowDown') setIndex((i) => (i + 1) % Math.max(1, items.length));
     else if (ev.key === 'ArrowUp') setIndex((i) => (i - 1 + Math.max(1, items.length)) % Math.max(1, items.length));
     else if (ev.key === 'Enter' || ev.key === 'Tab') pick(items[index]);
+    // The closing ':' of ":smile:" commits the TOP match (GitHub/Slack/Discord
+    // muscle memory) regardless of any arrow navigation — forwarded by the text
+    // block when a ':' is typed while this menu is open on a matching query.
+    else if (ev.key === ':') pick(items[0]);
     else if (ev.key === 'Escape') onClose();
     // (deliberately keyed on the event counter alone, like SlashMenu)
   }, [state.keyEvent?.n]);
@@ -98,33 +104,36 @@ export const EmojiMenu: React.FC<{
       ref={ref}
       className="obe-slash"
       style={pos ? {left: pos.left, top: pos.top, maxHeight: pos.maxHeight} : {left: 0, top: 0, visibility: 'hidden'}}
-      role="listbox"
-      aria-label="Insert an emoji"
     >
       {items.length === 0 ? (
-        <div className="obe-slash-group" role="presentation">
-          Type to search emoji…
+        // The bare ":" (no query yet) shows a muted prompt — a live status node,
+        // NOT a fake option inside a listbox, so a screen reader doesn't
+        // announce an empty option.
+        <div className="obe-slash-empty" role="status" aria-live="polite">
+          {t('emoji.searchEmoji')}
         </div>
       ) : (
-        items.map((item, i) => (
-          <button
-            key={item.name}
-            type="button"
-            role="option"
-            aria-selected={i === index}
-            className={`obe-slash-item${i === index ? ' obe-slash-active' : ''}`}
-            onMouseEnter={() => setIndex(i)}
-            onMouseDown={(e) => {
-              e.preventDefault(); // keep the caret in the document
-              pick(item);
-            }}
-          >
-            <span className="obe-slash-emoji" aria-hidden>
-              {item.emoji}
-            </span>
-            <span className="obe-slash-label">{item.name}</span>
-          </button>
-        ))
+        <div role="listbox" aria-label={t('emoji.label')}>
+          {items.map((item, i) => (
+            <button
+              key={item.name}
+              type="button"
+              role="option"
+              aria-selected={i === index}
+              className={`obe-slash-item${i === index ? ' obe-slash-active' : ''}`}
+              onMouseEnter={() => setIndex(i)}
+              onMouseDown={(e) => {
+                e.preventDefault(); // keep the caret in the document
+                pick(item);
+              }}
+            >
+              <span className="obe-slash-emoji" aria-hidden>
+                {item.emoji}
+              </span>
+              <span className="obe-slash-label">{item.name}</span>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );

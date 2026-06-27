@@ -336,18 +336,32 @@ export const BlockEditor: React.FC<{
       mention,
       emoji,
       spellcheck,
-      openSlash: (id, anchorOffset) => setSlash({open: true, blockId: id, anchorOffset, query: '', index: 0}),
+      openSlash: (id, anchorOffset) => {
+        // Only one trigger menu at a time — opening this closes its siblings so
+        // typing e.g. "/ :" never stacks two popovers.
+        setSlash({open: true, blockId: id, anchorOffset, query: '', index: 0});
+        closeMention();
+        closeEmoji();
+      },
       updateSlash: (caret) => setSlash((s) => triggerOpen(caret, s, '/')),
       closeSlash,
       slashKey: (key) => {
         // handled inside SlashMenu via props — stored here so text blocks can forward keys
         setSlash((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}}));
       },
-      openMention: (id, anchorOffset) => setMention({open: true, blockId: id, anchorOffset, query: '', index: 0}),
+      openMention: (id, anchorOffset) => {
+        setMention({open: true, blockId: id, anchorOffset, query: '', index: 0});
+        closeSlash();
+        closeEmoji();
+      },
       updateMention: (caret) => setMention((s) => triggerOpen(caret, s, '@')),
       closeMention,
       mentionKey: (key) => setMention((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}})),
-      openEmoji: (id, anchorOffset) => setEmoji({open: true, blockId: id, anchorOffset, query: '', index: 0}),
+      openEmoji: (id, anchorOffset) => {
+        setEmoji({open: true, blockId: id, anchorOffset, query: '', index: 0});
+        closeSlash();
+        closeMention();
+      },
       updateEmoji: (caret) => setEmoji((s) => triggerOpen(caret, s, ':')),
       closeEmoji,
       emojiKey: (key) => setEmoji((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}})),

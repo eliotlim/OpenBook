@@ -127,7 +127,9 @@ export const PageHeader: React.FC<{
           if (e.key === 'Enter') {
             e.preventDefault();
             onLeaveToEditor?.();
-          } else if (e.key === 'ArrowDown' && caretOnLastLine(e.currentTarget)) {
+          } else if (e.key === 'ArrowDown' && !e.shiftKey && caretOnLastLine(e.currentTarget)) {
+            // Plain ↓ on the last line hands off; Shift+↓ extends the textarea
+            // selection (let the browser own it) instead of leaving the title.
             e.preventDefault();
             onLeaveToEditor?.();
           }

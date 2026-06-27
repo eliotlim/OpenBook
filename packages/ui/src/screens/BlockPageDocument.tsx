@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import * as Y from 'yjs';
 import type {PageSnapshot} from '@book.dev/sdk';
 import {BlockEditor, type BlockEditorHandle} from '@/blockeditor/BlockEditor';
@@ -85,6 +85,11 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   // ↑/Backspace at the editor's top jumps back to the end of the title.
   const titleRef = useRef<PageTitleHandle>(null);
   const editorRef = useRef<BlockEditorHandle>(null);
+  // Stable identities — both refs never change, but a fresh arrow each render
+  // would. onLeaveToTitle is a dep of BlockEditor's `ui` useMemo, so an unstable
+  // one rebuilds that surface on every render (e.g. each save-status tick).
+  const leaveToTitle = useCallback(() => titleRef.current?.focusEnd(), []);
+  const leaveToEditor = useCallback(() => editorRef.current?.focusStart(), []);
 
   // ── Load (or migrate) ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -339,7 +344,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
               onIconChange={onIconChange}
               onTitleActiveChange={onTitleActiveChange}
               focusRef={titleRef}
-              onLeaveToEditor={() => editorRef.current?.focusStart()}
+              onLeaveToEditor={leaveToEditor}
             />
             {pageId && <PageProperties pageId={pageId} />}
           </div>
@@ -358,7 +363,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
                 spellcheck={preferences.general.spellcheck}
                 pageId={pageId}
                 focusRef={editorRef}
-                onLeaveToTitle={() => titleRef.current?.focusEnd()}
+                onLeaveToTitle={leaveToTitle}
               />
             )}
             {/* Inline review affordances (provider-aware, portaled into the

@@ -1507,6 +1507,14 @@ a.obe-mention {
   user-select: none;
 }
 .obe-slash-group:first-child { padding-top: 0.2rem; }
+/* The ":" picker's awaiting-a-query prompt: muted + sentence case, NOT the
+   uppercase category-header look of .obe-slash-group. */
+.obe-slash-empty {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  color: hsl(var(--muted-foreground));
+  user-select: none;
+}
 .obe-slash-label { font-size: 0.9rem; font-weight: 500; }
 .obe-slash-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
