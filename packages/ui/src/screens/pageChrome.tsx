@@ -2,6 +2,7 @@ import React, {useEffect, useImperativeHandle, useRef} from 'react';
 import type {PageSnapshot} from '@book.dev/sdk';
 import {useTranslation} from '@/providers';
 import {IconPicker} from '@/components/IconPicker';
+import {PageIcon} from '@/components/PageIcon';
 import {consumePendingRename, onRenamePageRequest} from '@/lib/pageActions';
 
 /**
@@ -48,6 +49,8 @@ export const PageHeader: React.FC<{
   title: string;
   icon: string;
   pageId?: string;
+  /** Read-only (a viewer who can't write the page): the title + icon lock down. */
+  readOnly?: boolean;
   onTitleChange?: (title: string) => void;
   onIconChange?: (emoji: string) => void;
   onTitleActiveChange?: (active: boolean) => void;
@@ -55,7 +58,7 @@ export const PageHeader: React.FC<{
   onLeaveToEditor?: () => void;
   /** Lets the host (BlockPageDocument) drive focus back here from the editor. */
   focusRef?: React.Ref<PageTitleHandle>;
-}> = ({title, icon, pageId, onTitleChange, onIconChange, onTitleActiveChange, onLeaveToEditor, focusRef}) => {
+}> = ({title, icon, pageId, readOnly = false, onTitleChange, onIconChange, onTitleActiveChange, onLeaveToEditor, focusRef}) => {
   const {t} = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -105,20 +108,30 @@ export const PageHeader: React.FC<{
 
   return (
     <div className="pt-2 pb-1">
-      <IconPicker
-        value={icon}
-        onPick={(emoji) => onIconChange?.(emoji)}
-        ariaLabel={t('page.changeIcon')}
-        className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-hover"
-      />
+      {readOnly ? (
+        <span
+          className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none"
+          aria-label={t('page.changeIcon')}
+        >
+          <PageIcon value={icon} fallback="📄" />
+        </span>
+      ) : (
+        <IconPicker
+          value={icon}
+          onPick={(emoji) => onIconChange?.(emoji)}
+          ariaLabel={t('page.changeIcon')}
+          className="-ml-1 mb-1 inline-flex h-[68px] w-[68px] items-center justify-center rounded-lg text-[3.5rem] leading-none transition-colors hover:bg-hover"
+        />
+      )}
       {/* A textarea (not an input) so long titles wrap instead of clipping;
           auto-grown to fit, Enter commits rather than inserting a newline. */}
       <textarea
         ref={inputRef}
         rows={1}
+        readOnly={readOnly}
         className="ob-page-title w-full resize-none overflow-hidden bg-transparent text-[2.5rem] font-bold leading-tight tracking-tight outline-hidden placeholder:text-muted-foreground/35"
         value={title}
-        placeholder={t('common.untitled')}
+        placeholder={readOnly ? '' : t('common.untitled')}
         onChange={(e) => onTitleChange?.(e.target.value)}
         onKeyDown={(e) => {
           // Enter, or ↓ from the title's last line, hands the caret to the
