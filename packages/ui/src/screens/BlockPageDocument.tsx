@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import * as Y from 'yjs';
 import type {PageSnapshot} from '@book.dev/sdk';
-import {BlockEditor} from '@/blockeditor/BlockEditor';
+import {BlockEditor, type BlockEditorHandle} from '@/blockeditor/BlockEditor';
 import {
   createSeededDoc,
   decodeSnapshot,
@@ -36,7 +36,7 @@ import {BlockReviewMarkers} from '@/components/review/BlockReviewMarkers';
 import {useConfirm, usePreferences, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
-import {PageHeader, type PageDocumentProps} from './pageChrome';
+import {PageHeader, type PageDocumentProps, type PageTitleHandle} from './pageChrome';
 
 /**
  * The CRDT block editor mounted as a page document. Speaks the same contract
@@ -80,6 +80,11 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The editor's positioned wrapper — inline review indicators portal into it.
   const editorWrapRef = useRef<HTMLDivElement | null>(null);
+  // The title and the editor form one continuous caret surface: each holds an
+  // imperative handle so Enter/↓ in the title jumps into the first block, and
+  // ↑/Backspace at the editor's top jumps back to the end of the title.
+  const titleRef = useRef<PageTitleHandle>(null);
+  const editorRef = useRef<BlockEditorHandle>(null);
 
   // ── Load (or migrate) ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -333,6 +338,8 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
               onTitleChange={onTitleChange}
               onIconChange={onIconChange}
               onTitleActiveChange={onTitleActiveChange}
+              focusRef={titleRef}
+              onLeaveToEditor={() => editorRef.current?.focusStart()}
             />
             {pageId && <PageProperties pageId={pageId} />}
           </div>
@@ -350,6 +357,8 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
                 compact={hasDatabase}
                 spellcheck={preferences.general.spellcheck}
                 pageId={pageId}
+                focusRef={editorRef}
+                onLeaveToTitle={() => titleRef.current?.focusEnd()}
               />
             )}
             {/* Inline review affordances (provider-aware, portaled into the

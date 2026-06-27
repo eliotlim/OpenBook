@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState} from 'react';
 import {Boxes, Check, ChevronDown, ChevronRight, EyeOff, GripVertical, Lock, LockOpen, Plus, RefreshCw} from 'lucide-react';
 import type * as Y from 'yjs';
 import {
@@ -97,6 +97,14 @@ export interface EditorUI {
   emojiKey(key: string): void;
   toggleFormat(key: keyof InlineAttrs, value?: string): void;
   scheduleToolbar(): void;
+  /** Leave the editor for the page title above (↑/←/Backspace at the very top). */
+  leaveToTitle?(): void;
+}
+
+/** Imperative handle the host uses to hand the caret into the editor. */
+export interface BlockEditorHandle {
+  /** Focus the first text block at its start, creating a paragraph if empty. */
+  focusStart(): void;
 }
 
 export type DropRegion = 'above' | 'below' | 'left' | 'right';
@@ -118,9 +126,23 @@ export const BlockEditor: React.FC<{
   spellcheck?: boolean;
   /** The page hosting this editor — powers the "New page/database" commands. */
   pageId?: string;
-}> = ({doc, readOnly = false, ariaLabel, fullWidth = false, compact = false, spellcheck = true, pageId}) => {
+  /** Imperative handle so the title can hand the caret to the first block. */
+  focusRef?: React.Ref<BlockEditorHandle>;
+  /** Leave the editor for the title above (caret at the top of the document). */
+  onLeaveToTitle?: () => void;
+}> = ({doc, readOnly = false, ariaLabel, fullWidth = false, compact = false, spellcheck = true, pageId, focusRef, onLeaveToTitle}) => {
   const editor = useBlockEditor(doc, readOnly);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // Title → editor: focus the first text block (creating an empty paragraph
+  // first when the document has none), caret at its start.
+  useImperativeHandle(focusRef, () => ({
+    focusStart() {
+      const ids = editor.textBlockIds();
+      if (ids.length === 0) editor.insertAfter(null, {type: 'paragraph'});
+      else editor.requestCaret({blockId: ids[0], offset: 0});
+    },
+  }), [editor]);
 
   const [slash, setSlash] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
   const [mention, setMention] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
@@ -331,8 +353,9 @@ export const BlockEditor: React.FC<{
       emojiKey: (key) => setEmoji((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}})),
       toggleFormat,
       scheduleToolbar,
+      leaveToTitle: onLeaveToTitle,
     };
-  }, [slash, mention, emoji, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck]);
+  }, [slash, mention, emoji, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck, onLeaveToTitle]);
 
   // ── Drag and drop ────────────────────────────────────────────────────────
   const computeRegion = (e: React.DragEvent | React.PointerEvent, el: HTMLElement, allowSides: boolean): DropRegion => {
