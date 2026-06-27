@@ -1,4 +1,4 @@
-import React, {useEffect, useRef} from 'react';
+import React, {useEffect, useImperativeHandle, useRef} from 'react';
 import type {PageSnapshot} from '@book.dev/sdk';
 import {useTranslation} from '@/providers';
 import {IconPicker} from '@/components/IconPicker';
@@ -38,6 +38,12 @@ export interface PageDocumentProps {
   hasDatabase?: boolean;
 }
 
+/** Imperative handle the host uses to hand the caret back from the editor. */
+export interface PageTitleHandle {
+  /** Focus the title and place the caret at the end (editor → title hand-off). */
+  focusEnd(): void;
+}
+
 export const PageHeader: React.FC<{
   title: string;
   icon: string;
@@ -45,9 +51,23 @@ export const PageHeader: React.FC<{
   onTitleChange?: (title: string) => void;
   onIconChange?: (emoji: string) => void;
   onTitleActiveChange?: (active: boolean) => void;
-}> = ({title, icon, pageId, onTitleChange, onIconChange, onTitleActiveChange}) => {
+  /** Hand the caret down to the editor (Enter, or ↓ on the title's last line). */
+  onLeaveToEditor?: () => void;
+  /** Lets the host (BlockPageDocument) drive focus back here from the editor. */
+  focusRef?: React.Ref<PageTitleHandle>;
+}> = ({title, icon, pageId, onTitleChange, onIconChange, onTitleActiveChange, onLeaveToEditor, focusRef}) => {
   const {t} = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(focusRef, () => ({
+    focusEnd() {
+      const el = inputRef.current;
+      if (!el) return;
+      el.focus();
+      const end = el.value.length;
+      el.setSelectionRange(end, end);
+    },
+  }), []);
 
   // Auto-grow the title textarea to its content (it never scrolls).
   useEffect(() => {
@@ -101,9 +121,15 @@ export const PageHeader: React.FC<{
         placeholder={t('common.untitled')}
         onChange={(e) => onTitleChange?.(e.target.value)}
         onKeyDown={(e) => {
+          // Enter, or ↓ from the title's last line, hands the caret to the
+          // editor below (one continuous caret surface) instead of just
+          // blurring — the title and the body read as a single document.
           if (e.key === 'Enter') {
             e.preventDefault();
-            e.currentTarget.blur();
+            onLeaveToEditor?.();
+          } else if (e.key === 'ArrowDown' && caretOnLastLine(e.currentTarget)) {
+            e.preventDefault();
+            onLeaveToEditor?.();
           }
         }}
         onFocus={() => onTitleActiveChange?.(true)}
@@ -113,3 +139,37 @@ export const PageHeader: React.FC<{
     </div>
   );
 };
+
+/**
+ * Whether a collapsed caret sits on the textarea's last visual line — so ↓ has
+ * nowhere to go inside the title and should hand off to the editor. Textareas
+ * expose no caret rect, so the wrapped text up to the caret is measured in a
+ * mirror div and its top compared against the full height (the title holds no
+ * newlines — Enter leaves — but a long title still soft-wraps).
+ */
+function caretOnLastLine(el: HTMLTextAreaElement): boolean {
+  if (el.selectionStart !== el.selectionEnd) return false; // a range, not a caret
+  if (el.selectionStart >= el.value.length) return true; // caret at the very end
+  const cs = getComputedStyle(el);
+  const mirror = document.createElement('div');
+  for (const prop of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'letterSpacing', 'padding', 'boxSizing'] as const) {
+    mirror.style[prop] = cs[prop];
+  }
+  mirror.style.position = 'absolute';
+  mirror.style.visibility = 'hidden';
+  mirror.style.whiteSpace = 'pre-wrap';
+  mirror.style.wordWrap = 'break-word';
+  mirror.style.width = `${el.clientWidth}px`;
+  const marker = document.createElement('span');
+  marker.textContent = '\u200b';
+  mirror.append(
+    document.createTextNode(el.value.slice(0, el.selectionStart)),
+    marker,
+    document.createTextNode(el.value.slice(el.selectionStart) || '\u200b'),
+  );
+  document.body.appendChild(mirror);
+  const lineHeight = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.3 || 24;
+  const onLast = marker.offsetTop > mirror.scrollHeight - lineHeight * 1.5;
+  mirror.remove();
+  return onLast;
+}

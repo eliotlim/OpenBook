@@ -510,6 +510,10 @@ export const TextBlockView: React.FC<{
       if (indent > 0) {
         apply(() => setBlockProp(block, 'indent', indent - 1));
         editor.requestCaret({blockId: id, offset: 0});
+      } else if (ui.leaveToTitle && !siblingTextId(editor, id, -1)) {
+        // First (empty) block: Backspace at its start hands the caret back up
+        // to the page title instead of deleting the line.
+        ui.leaveToTitle();
       } else {
         editor.mergeUp(id);
       }
@@ -539,6 +543,10 @@ export const TextBlockView: React.FC<{
       if (prev) {
         e.preventDefault();
         editor.requestCaret({blockId: prev, offset: 'end'});
+      } else if (ui.leaveToTitle) {
+        // Nothing above in the editor — leave for the page title, caret at its end.
+        e.preventDefault();
+        ui.leaveToTitle();
       }
       return;
     }
