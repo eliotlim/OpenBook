@@ -1488,6 +1488,14 @@ a.obe-mention {
   color: hsl(var(--muted-foreground));
 }
 .obe-slash-active .obe-slash-icon { color: hsl(var(--foreground)); }
+/* Emoji glyph in the ":" picker, sized to sit where a command icon would. */
+.obe-slash-emoji {
+  width: 1.05rem;
+  flex-shrink: 0;
+  font-size: 1.05rem;
+  line-height: 1;
+  text-align: center;
+}
 /* Category headers between groups of slash commands. */
 .obe-slash-group {
   padding: 0.45rem 0.6rem 0.2rem;

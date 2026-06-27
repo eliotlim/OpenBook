@@ -148,8 +148,9 @@ export const TextBlockView: React.FC<{
     case 'insertReplacementText': {
       ev.preventDefault();
       const data = ev.data ?? '';
-      // Slash / mention menus: '/' or '@' at the start or after whitespace.
-      if ((data === '/' || data === '@') && !isCode && type !== 'cell') {
+      // Slash / mention / emoji menus: '/', '@' or ':' at the start or after
+      // whitespace (a mid-word ':' like "3:30" must not trigger the picker).
+      if ((data === '/' || data === '@' || data === ':') && !isCode && type !== 'cell') {
         const before = text.toString().slice(0, sel.start);
         if (before === '' || /\s$/.test(before)) {
           apply(() => {
@@ -158,7 +159,8 @@ export const TextBlockView: React.FC<{
           });
           editor.requestCaret({blockId: id, offset: sel.start + 1});
           if (data === '/') ui.openSlash(id, sel.start);
-          else ui.openMention(id, sel.start);
+          else if (data === '@') ui.openMention(id, sel.start);
+          else ui.openEmoji(id, sel.start);
           return;
         }
       }
@@ -181,12 +183,13 @@ export const TextBlockView: React.FC<{
       editor.requestCaret({blockId: id, offset: sel.start + data.length});
       if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash(sel.start + data.length);
       if (ui.mention.open && ui.mention.blockId === id) ui.updateMention(sel.start + data.length);
+      if (ui.emoji.open && ui.emoji.blockId === id) ui.updateEmoji(sel.start + data.length);
       return;
     }
 
     case 'insertParagraph': {
       ev.preventDefault();
-      if (ui.slash.open || ui.mention.open) return; // Enter belongs to the open menu
+      if (ui.slash.open || ui.mention.open || ui.emoji.open) return; // Enter belongs to the open menu
       if (type === 'cell') {
         // Tables are grids: Enter moves down the column, growing the table
         // at the bottom edge — it never splits a cell.
@@ -243,6 +246,7 @@ export const TextBlockView: React.FC<{
         editor.requestCaret({blockId: id, offset: sel.start - len});
         if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash(sel.start - len);
         if (ui.mention.open && ui.mention.blockId === id) ui.updateMention(sel.start - len);
+        if (ui.emoji.open && ui.emoji.blockId === id) ui.updateEmoji(sel.start - len);
       } else if (type === 'cell') {
         // Never merge table cells — Backspace at a cell's start is a no-op.
       } else {
@@ -416,6 +420,13 @@ export const TextBlockView: React.FC<{
         return;
       }
     }
+    if (ui.emoji.open && ui.emoji.blockId === id) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(e.key)) {
+        e.preventDefault();
+        ui.emojiKey(e.key);
+        return;
+      }
+    }
 
     const mod = e.metaKey || e.ctrlKey;
     if (mod && !isCode) {
@@ -571,6 +582,7 @@ export const TextBlockView: React.FC<{
         if (editor.focusedId === id) editor.setFocusedId(null);
         if (ui.slash.open && ui.slash.blockId === id) ui.closeSlash();
         if (ui.mention.open && ui.mention.blockId === id) ui.closeMention();
+        if (ui.emoji.open && ui.emoji.blockId === id) ui.closeEmoji();
       }}
       onMouseUp={() => ui.scheduleToolbar()}
       onKeyUp={(e) => {
