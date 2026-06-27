@@ -174,7 +174,6 @@ export function authorize(principal: Principal, page: AccessPage, ctx: AccessCtx
   const {config} = ctx;
   const isLocal = principal.verifiedVia === 'local';
   const isJws = principal.verifiedVia === 'jws';
-  const isGuest = principal.kind === 'guest';
 
   // Rule 0 — unclaimed instance: legacy short-circuit, preserving today's
   // loopback behaviour exactly. Roster/scope/ACL don't exist until claimed; the
@@ -195,8 +194,15 @@ export function authorize(principal: Principal, page: AccessPage, ctx: AccessCtx
   const aclMatch = matchAcl(principal, page.acl, ctx); // rule 3
   const isAdmin = ctx.role === 'admin'; // rule 4
   const isViewer = ctx.role === 'viewer'; // rule 4
-  // Rule 6 floor: a guest is denied even `public` when guests are disabled.
-  const guestBlocked = isGuest && config.guestAccess === 'off';
+  // Rule 6 floor: the guest class is denied even `public` when guests are
+  // disabled. Hardened (OB-190, OB-189 security review #1) to the WHOLE
+  // unauthenticated class — any principal that is neither an authenticated `jws`
+  // user nor the loopback owner. `kind==='guest'` is the common case, but a
+  // non-request-assertable `unverified`/`synced` `user` principal must never slip
+  // past the `guestAccess='off'` floor onto a `public` page either (defence in
+  // depth behind the middleware, which already rejects such principals at the gate
+  // on an identity-enabled instance).
+  const guestBlocked = !isJws && !isLocal && config.guestAccess === 'off';
   const scopeRead = scopeAllowsRead(principal, ctx, guestBlocked); // rule 5
 
   // WRITE — only rules 1/2/3(write)/4(admin) ever grant it. `viewer` is locked,
