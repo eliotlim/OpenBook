@@ -5,13 +5,14 @@ import {KitLockContext} from './kit/lock';
 import {useBlockEditor} from './useBlockEditor';
 import {blockId, type BlockMap} from './model';
 
-/** Slash/mention start closed; present-mode text is locked so they never open. */
+/** Slash/mention/emoji start closed; present-mode text is locked so they never open. */
 const CLOSED: EditorUI['slash'] = {open: false, blockId: '', anchorOffset: 0, query: '', index: 0};
 
 /** A no-op editor UI for the read-only present surface. */
 const READONLY_UI: EditorUI = {
   slash: CLOSED,
   mention: CLOSED,
+  emoji: CLOSED,
   spellcheck: false,
   openSlash() {},
   updateSlash() {},
@@ -21,6 +22,10 @@ const READONLY_UI: EditorUI = {
   updateMention() {},
   closeMention() {},
   mentionKey() {},
+  openEmoji() {},
+  updateEmoji() {},
+  closeEmoji() {},
+  emojiKey() {},
   toggleFormat() {},
   scheduleToolbar() {},
 };

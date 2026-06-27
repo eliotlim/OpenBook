@@ -55,6 +55,7 @@ import {TextBlockView} from './TextBlockView';
 import {COLOR_TOKENS, isColorToken} from './colors';
 import {SlashMenu, type SlashState} from './SlashMenu';
 import {MentionMenu} from './MentionMenu';
+import {EmojiMenu} from './EmojiMenu';
 import {LinkPicker} from './LinkPicker';
 import {hasKitConfig, openKitConfig} from './kit/kitConfig';
 import {KitLockContext, useKitLock} from './kit/lock';
@@ -80,6 +81,7 @@ import {requestComment, requestSuggestEdit, suggestHostReady} from '@/lib/sugges
 export interface EditorUI {
   slash: SlashState;
   mention: SlashState;
+  emoji: SlashState;
   spellcheck: boolean;
   openSlash(blockId: string, anchorOffset: number): void;
   updateSlash(caret: number): void;
@@ -89,6 +91,10 @@ export interface EditorUI {
   updateMention(caret: number): void;
   closeMention(): void;
   mentionKey(key: string): void;
+  openEmoji(blockId: string, anchorOffset: number): void;
+  updateEmoji(caret: number): void;
+  closeEmoji(): void;
+  emojiKey(key: string): void;
   toggleFormat(key: keyof InlineAttrs, value?: string): void;
   scheduleToolbar(): void;
 }
@@ -118,6 +124,7 @@ export const BlockEditor: React.FC<{
 
   const [slash, setSlash] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
   const [mention, setMention] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
+  const [emoji, setEmoji] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [linkPicker, setLinkPicker] = useState<{kind: 'page' | 'database'; blockId: string; anchorOffset: number} | null>(null);
@@ -292,8 +299,9 @@ export const BlockEditor: React.FC<{
   const ui = useMemo<EditorUI>(() => {
     const closeSlash = (): void => setSlash((s) => ({...s, open: false, query: '', index: 0}));
     const closeMention = (): void => setMention((s) => ({...s, open: false, query: '', index: 0}));
+    const closeEmoji = (): void => setEmoji((s) => ({...s, open: false, query: '', index: 0}));
     // The query tracker is trigger-agnostic — it just slices text after the
-    // anchor up to the caret, so the slash and mention menus share it.
+    // anchor up to the caret, so the slash, mention and emoji menus share it.
     const triggerOpen = (caret: number, s: SlashState, trigger: string): SlashState => {
       if (!s.open) return s;
       const found = findBlock(doc, s.blockId);
@@ -304,6 +312,7 @@ export const BlockEditor: React.FC<{
     return {
       slash,
       mention,
+      emoji,
       spellcheck,
       openSlash: (id, anchorOffset) => setSlash({open: true, blockId: id, anchorOffset, query: '', index: 0}),
       updateSlash: (caret) => setSlash((s) => triggerOpen(caret, s, '/')),
@@ -316,10 +325,14 @@ export const BlockEditor: React.FC<{
       updateMention: (caret) => setMention((s) => triggerOpen(caret, s, '@')),
       closeMention,
       mentionKey: (key) => setMention((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}})),
+      openEmoji: (id, anchorOffset) => setEmoji({open: true, blockId: id, anchorOffset, query: '', index: 0}),
+      updateEmoji: (caret) => setEmoji((s) => triggerOpen(caret, s, ':')),
+      closeEmoji,
+      emojiKey: (key) => setEmoji((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}})),
       toggleFormat,
       scheduleToolbar,
     };
-  }, [slash, mention, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck]);
+  }, [slash, mention, emoji, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck]);
 
   // ── Drag and drop ────────────────────────────────────────────────────────
   const computeRegion = (e: React.DragEvent | React.PointerEvent, el: HTMLElement, allowSides: boolean): DropRegion => {
@@ -572,6 +585,15 @@ export const BlockEditor: React.FC<{
           anchorEl={blockEl(mention.blockId)}
           onClose={ui.closeMention}
           onMentionPage={insertMention}
+          onInsertText={insertTextAt}
+        />
+      )}
+      {emoji.open && (
+        <EmojiMenu
+          state={emoji}
+          editor={editor}
+          anchorEl={blockEl(emoji.blockId)}
+          onClose={ui.closeEmoji}
           onInsertText={insertTextAt}
         />
       )}
