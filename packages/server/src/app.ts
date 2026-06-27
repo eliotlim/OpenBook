@@ -4,6 +4,7 @@ import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
 import {
   API,
+  type AclLevel,
   type BackupCadence,
   type BackupConfig,
   type CommentInput,
@@ -12,6 +13,8 @@ import {
   type ImportRequest,
   type InstanceConfig,
   type InstanceInfo,
+  type MemberRole,
+  type MemberStatus,
   type PageInput,
   type Principal,
   type RowInput,
@@ -25,6 +28,7 @@ import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
 import {guestGate, resolvePrincipal, type IdentityProvider} from './principal';
 import {requireAccess, requireCreate, requireDbAccess, streamGates} from './access';
+import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
 import type {AppEnv} from './appEnv';
 import type {AiService} from './ai/service';
@@ -76,6 +80,13 @@ export interface AppOptions {
    * filesystem), where backups are reported unavailable.
    */
   backups?: BackupController;
+  /**
+   * Account handle-resolution seam (OB-191 / OB-195). When wired, inviting by a
+   * bare handle (not an email or `iss#sub`) resolves through it; absent, a bare
+   * handle is rejected with guidance to invite by email or subject (§4.4 — account
+   * handles aren't built yet). See {@link resolveInvitee}.
+   */
+  handleResolver?: HandleResolver;
 }
 
 export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono<AppEnv> {
@@ -327,18 +338,117 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   // Update the policy (guest gate, trusted issuers, owner). Once an owner is
   // claimed, only the owner may change it; before then (fresh instance) any
-  // caller may set it — matching the desktop single-user reality where the first
-  // user claims the workspace.
+  // caller may set policy — matching the desktop single-user reality where the
+  // first user claims the workspace.
   app.put(API.instance, async (c) => {
     const principal = c.get('principal');
     const current = await store.getInstanceConfig();
+    const patch = await c.req.json<Partial<InstanceConfig>>();
+
+    // Owner-claim (OB-182 §2.6 B2). Setting `ownerSubject` on a still-unclaimed
+    // instance is the ONE-TIME claim: route it through the atomic compare-and-set
+    // and bind the VERIFIED claimer's own subject — never a client-supplied value,
+    // and only a verified (jws) identity may claim. The CAS makes first-writer-wins
+    // race-safe; a second concurrent claim 409s rather than silently overwriting.
+    if (!current.ownerSubject && patch.ownerSubject !== undefined) {
+      if (principal.verifiedVia !== 'jws') {
+        return c.json({error: 'only a verified identity can claim instance ownership'}, 403);
+      }
+      const {config, claimed} = await store.claimOwnership(principal.subject);
+      if (!claimed) return c.json({error: 'this instance has already been claimed'}, 409);
+      // Apply any other policy fields the claim request carried (the CAS already
+      // owns `ownerSubject` + the §2.6 bootstrap, so it's stripped here).
+      const rest: Partial<InstanceConfig> = {...patch};
+      delete rest.ownerSubject;
+      const next = Object.keys(rest).length > 0 ? await store.updateInstanceConfig(rest) : config;
+      logEdit(c, null, 'instance.claim', principal.subject);
+      return c.json(next);
+    }
+
+    // Post-claim (or non-claim) policy update: once claimed, only the owner.
     if (current.ownerSubject && principal.subject !== current.ownerSubject) {
       return c.json({error: 'only the instance owner can change multi-user policy'}, 403);
     }
-    const patch = await c.req.json<Partial<InstanceConfig>>();
     const next = await store.updateInstanceConfig(patch);
     logEdit(c, null, 'instance.policy', `guestAccess=${next.guestAccess}`);
     return c.json(next);
+  });
+
+  // ── Sharing: roster invites + per-page ACL (OB-191; §4.3) ─────────────────────
+  // Invite by email (an unclaimed persona, bound on first sign-in by the existing
+  // claim-on-sign-in middleware) or by handle/subject (granted immediately). The
+  // roster is instance-wide, so managing it is gated like creating at the root
+  // (owner / admin / loopback); a page's ACL is gated on write of that page.
+
+  app.get(API.members, async (c) => {
+    await requireCreate(c, store);
+    return c.json(await store.listMembers());
+  });
+
+  app.post(API.members, async (c) => {
+    await requireCreate(c, store);
+    const body = await c.req.json<{invitee?: string; role?: MemberRole; status?: MemberStatus}>();
+    const resolved = await resolveInvitee(body.invitee ?? '', opts.handleResolver);
+    // By-email ⇒ an unclaimed persona (default 'invited'); by-subject ⇒ an already
+    // known identity (default 'active').
+    const status = body.status ?? (resolved.email ? 'invited' : 'active');
+    const member = await store.addMember({
+      email: resolved.email ?? null,
+      subject: resolved.subject ?? null,
+      role: body.role ?? 'viewer',
+      status,
+      invitedBy: c.get('principal').subject,
+    });
+    logEdit(c, null, 'member.invite', resolved.email ?? resolved.subject ?? '');
+    return c.json(member, 201);
+  });
+
+  app.patch(`${API.members}/:id`, async (c) => {
+    await requireCreate(c, store);
+    const patch = await c.req.json<{role?: MemberRole; status?: MemberStatus}>();
+    const member = await store.updateMember(c.req.param('id'), patch);
+    if (!member) return c.json({error: 'member not found'}, 404);
+    logEdit(c, null, 'member.update', member.id);
+    return c.json(member);
+  });
+
+  app.delete(`${API.members}/:id`, async (c) => {
+    await requireCreate(c, store);
+    const removed = await store.removeMember(c.req.param('id'));
+    if (!removed) return c.json({error: 'member not found'}, 404);
+    logEdit(c, null, 'member.revoke', c.req.param('id'));
+    return c.body(null, 204);
+  });
+
+  app.get(`${API.pages}/:id/acl`, async (c) => {
+    await requireAccess(c, store, 'write', c.req.param('id'));
+    return c.json(await store.getPageAcl(c.req.param('id')));
+  });
+
+  app.post(`${API.pages}/:id/acl`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'write', id);
+    const body = await c.req.json<{invitee?: string; level?: AclLevel}>();
+    const resolved = await resolveInvitee(body.invitee ?? '', opts.handleResolver);
+    const grant = await store.setPageAcl(id, {
+      email: resolved.email ?? null,
+      subject: resolved.subject ?? null,
+      level: body.level ?? 'read',
+      invitedBy: c.get('principal').subject,
+    });
+    logEdit(c, id, 'acl.share', resolved.email ?? resolved.subject ?? '');
+    return c.json(grant, 201);
+  });
+
+  app.delete(`${API.pages}/:id/acl`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'write', id);
+    const subject = c.req.query('subject');
+    const email = c.req.query('email');
+    if (!subject && !email) return c.json({error: 'a subject or email query param is required'}, 400);
+    const removed = await store.removePageAcl(id, subject ? {subject} : {email: email as string});
+    if (!removed) return c.json({error: 'acl grant not found'}, 404);
+    return c.body(null, 204);
   });
 
   // A page's change provenance (the edit log), newest first. The top row is its
@@ -673,6 +783,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // HTTPException; surface them as the JSON `{error}` shape the API uses,
     // preserving the gate's 403/404 (never collapse them to a 500 below).
     if (err instanceof HTTPException) {
+      return c.json({error: err.message}, err.status);
+    }
+    // Invite-resolution failures (bad email, unresolvable handle) carry their own
+    // 400/422 status — surface them in the API `{error}` shape (OB-191).
+    if (err instanceof InviteResolutionError) {
       return c.json({error: err.message}, err.status);
     }
     if (isUniqueViolation(err)) {

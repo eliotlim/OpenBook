@@ -1200,17 +1200,77 @@ export class PageStore {
     // from it ever verifies, so every persona / email-ACL grant silently stops
     // matching (it fails *safe* → deny, but invisibly). Reject the write instead
     // of letting the policy drift into that dead state.
-    if (next.emailAuthority && !next.trustedIssuers.some((i) => i.issuer === next.emailAuthority)) {
-      throw new Error(
-        `emailAuthority ${next.emailAuthority} must be one of trustedIssuers (OB-182 §2.4)`,
-      );
-    }
+    assertEmailAuthorityTrusted(next);
     await this.db.query(
       `INSERT INTO settings (key, value) VALUES ('instance', $1::jsonb)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
       [JSON.stringify(next)],
     );
     return next;
+  }
+
+  /**
+   * Atomically claim instance ownership (OB-182 §2.6 B2, the TOCTOU close). Binds
+   * `ownerSubject` to a verified subject via a **compare-and-set**: the UPDATE
+   * only matches while `ownerSubject` is still unset (`WHERE NOT (value ?
+   * 'ownerSubject')`), so a racing second claimant's update affects **0 rows** and
+   * loses — first-writer-wins, never a read-modify-write of the whole blob. At the
+   * claim, in the **same transaction**, the §2.6 bootstrap fires atomically: set
+   * `ownerSubject`; set `defaultVisibility='members'` (Fork 1); downgrade
+   * `guestAccess 'write'→'read'` (Fork 2, defense in depth); default
+   * `emailAuthority` to account.book.pub. Existing policy (trustedIssuers,
+   * audience, …) is preserved. Returns the resulting config and whether THIS call
+   * won the claim (`claimed:false` ⇒ already owned — the caller should 409/observe
+   * the winner). Caller verifies the subject is its own jws subject (route).
+   */
+  async claimOwnership(subject: string): Promise<{config: InstanceConfig; claimed: boolean}> {
+    return this.db.begin(async (tx) => {
+      // Ensure a settings row exists to target, without clobbering any stored
+      // policy (an empty `{}` merges under DEFAULT_INSTANCE_CONFIG on read).
+      await tx.query(
+        'INSERT INTO settings (key, value) VALUES (\'instance\', \'{}\'::jsonb) ON CONFLICT (key) DO NOTHING',
+      );
+      // Lock + read the row. `FOR UPDATE` serializes a concurrent claimant on real
+      // Postgres (the second blocks here, then re-reads the committed, now-claimed
+      // row); PGlite already serializes via its single-connection mutex.
+      const rows = await tx.query<{value: InstanceConfig | string}>(
+        'SELECT value FROM settings WHERE key = \'instance\' FOR UPDATE',
+      );
+      const current: InstanceConfig = {
+        ...DEFAULT_INSTANCE_CONFIG,
+        ...parseJson<Partial<InstanceConfig>>(rows[0]?.value, {}),
+      };
+      // Already claimed ⇒ this caller lost the race (or it's a re-claim attempt).
+      if (current.ownerSubject) return {config: current, claimed: false};
+
+      const next: InstanceConfig = {
+        ...current,
+        ownerSubject: subject,
+        defaultVisibility: current.defaultVisibility ?? 'members',
+        guestAccess: current.guestAccess === 'write' ? 'read' : current.guestAccess,
+        emailAuthority: current.emailAuthority ?? DEFAULT_ACCOUNT_URL,
+      };
+      assertEmailAuthorityTrusted(next);
+
+      const updated = await tx.query<{value: unknown}>(
+        `UPDATE settings SET value = $1::jsonb
+           WHERE key = 'instance' AND NOT (value ? 'ownerSubject')
+           RETURNING value`,
+        [JSON.stringify(next)],
+      );
+      // CAS lost (a concurrent claim slipped in between read and write) ⇒ 0 rows.
+      // Re-read so we return the *winning* config, not our rejected one.
+      if (updated.length === 0) {
+        const after = await tx.query<{value: InstanceConfig | string}>(
+          'SELECT value FROM settings WHERE key = \'instance\'',
+        );
+        return {
+          config: {...DEFAULT_INSTANCE_CONFIG, ...parseJson<Partial<InstanceConfig>>(after[0]?.value, {})},
+          claimed: false,
+        };
+      }
+      return {config: next, claimed: true};
+    });
   }
 
   // ── Scheduled-backup policy (OB-166) ──────────────────────────────────────────
@@ -1710,6 +1770,20 @@ export interface AclGrantInput {
 
 /** Key identifying one ACL grant for removal: by subject XOR by email. */
 export type AclKey = {subject: string} | {email: string};
+
+/**
+ * Config footgun guard (OB-182 §2.4, Sasha N2): `emailAuthority` MUST be one of
+ * `trustedIssuers`. If it names an issuer the instance doesn't trust, no token
+ * from it ever verifies, so every persona / email-ACL grant silently stops
+ * matching — it fails *safe* (→ deny) but invisibly. Reject the write instead of
+ * letting the policy drift into that dead state. Shared by `updateInstanceConfig`
+ * and `claimOwnership`.
+ */
+function assertEmailAuthorityTrusted(config: InstanceConfig): void {
+  if (config.emailAuthority && !config.trustedIssuers.some((i) => i.issuer === config.emailAuthority)) {
+    throw new Error(`emailAuthority ${config.emailAuthority} must be one of trustedIssuers (OB-182 §2.4)`);
+  }
+}
 
 /** Lowercase + trim an email, or `null`. */
 function normalizeEmail(email: string | null | undefined): string | null {

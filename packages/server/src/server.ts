@@ -90,6 +90,44 @@ type NodeServer = ReturnType<typeof serve>;
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 4319;
+
+/** Loopback hosts safe to bind unclaimed — only the machine owner can reach them. */
+export function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase();
+  return h === 'localhost' || h === '::1' || h === '[::1]' || h.startsWith('127.');
+}
+
+/**
+ * The §2.6 boot backstop (B2). A reachable-but-unclaimed instance is rule-0
+ * anonymous-world-writable; the exposure invariant forbids it. The publish/forward
+ * FLOW requires a claim, but an operator hand-running the server bound to a
+ * non-loopback interface *outside* that flow would slip past it — so the server
+ * itself is the last line: refuse to bind beyond loopback while `ownerSubject` is
+ * unset AND no `accessToken` gates reachability. Either an access token (a
+ * reachability gate) or a claimed owner makes the bind safe; neither + a public
+ * bind is the forbidden state, caught at boot rather than at the first anonymous
+ * write. `allowOverride` (env `OPENBOOK_ALLOW_UNCLAIMED_EXPOSURE`) downgrades the
+ * refusal to a loud warning — the spike's "refuse to start (or loudly warn)".
+ */
+export function assertExposureSafe(args: {
+  host: string;
+  hasAccessToken: boolean;
+  ownerSubject: string | undefined;
+  allowOverride?: boolean;
+}): void {
+  const {host, hasAccessToken, ownerSubject, allowOverride} = args;
+  if (isLoopbackHost(host) || hasAccessToken || ownerSubject) return;
+  const msg =
+    `OpenBook refuses to bind to a non-loopback interface (${host}) while the instance is unclaimed ` +
+    'and no accessToken is configured: it would be anonymous and world-writable on the network ' +
+    '(OB-182 §2.6). Claim an owner, set an accessToken, or bind to loopback. Set ' +
+    'OPENBOOK_ALLOW_UNCLAIMED_EXPOSURE=1 to override (NOT recommended).';
+  if (allowOverride) {
+    console.error(`WARNING: ${msg}`);
+    return;
+  }
+  throw new Error(msg);
+}
 const DEFAULT_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const DEFAULT_TRASH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const DEFAULT_EDIT_LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
@@ -115,6 +153,28 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
 
   const store = new PageStore(db);
   await store.migrate();
+
+  // Exposure backstop (OB-182 §2.6 B2): never bind beyond loopback while the
+  // instance is unclaimed AND ungated by an accessToken. Evaluated before any
+  // listener is created — and the store is closed on refusal so a rejected boot
+  // releases its handle. The default loopback bind stays claim-free (back-compat).
+  {
+    const willBindTcp = opts.port != null || opts.host != null || !opts.socketPath;
+    if (willBindTcp) {
+      const {ownerSubject} = await store.getInstanceConfig();
+      try {
+        assertExposureSafe({
+          host: opts.host ?? DEFAULT_HOST,
+          hasAccessToken: !!opts.accessToken,
+          ownerSubject,
+          allowOverride: !!process.env.OPENBOOK_ALLOW_UNCLAIMED_EXPOSURE,
+        });
+      } catch (err) {
+        await db.close();
+        throw err;
+      }
+    }
+  }
 
   // Trash cleanup job: periodically purge pages whose `deleted_at` is older than
   // the retention window. Runs once on boot to catch up after downtime, then on
