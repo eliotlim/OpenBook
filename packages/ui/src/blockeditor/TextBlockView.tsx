@@ -16,6 +16,7 @@ import {
   type TextRun,
 } from './model';
 import {attrsAt, diffText, readSelection, runsToHtml, writeSelection} from './richtext';
+import {searchEmojis} from '@/lib/emoji';
 import type {BlockEditorController} from './useBlockEditor';
 import type {EditorUI} from './BlockEditor';
 
@@ -148,6 +149,22 @@ export const TextBlockView: React.FC<{
     case 'insertReplacementText': {
       ev.preventDefault();
       const data = ev.data ?? '';
+      // Colon-terminated emoji insert (":smile:" → 😄), matching GitHub/Slack/
+      // Discord muscle memory: when the ":" picker is already open on a
+      // non-empty query that has matches, the closing ":" commits the top match
+      // instead of typing a literal ":". Forwarded to the EmojiMenu (which owns
+      // removing the ":query" and inserting the glyph). No match → fall through
+      // and insert the literal ":" below.
+      if (
+        data === ':' &&
+        ui.emoji.open &&
+        ui.emoji.blockId === id &&
+        ui.emoji.query.trim() !== '' &&
+        searchEmojis(ui.emoji.query).length > 0
+      ) {
+        ui.emojiKey(':');
+        return;
+      }
       // Slash / mention / emoji menus: '/', '@' or ':' at the start or after
       // whitespace (a mid-word ':' like "3:30" must not trigger the picker).
       if ((data === '/' || data === '@' || data === ':') && !isCode && type !== 'cell') {
