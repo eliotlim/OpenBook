@@ -8,6 +8,7 @@
 
 import {DEFAULT_ACCOUNT_URL} from './account';
 import type {Jwks, Principal, VerifiedVia} from './identity';
+import type {PageVisibility} from './types';
 
 /** What an unauthenticated (guest) caller may do on this instance. */
 export type GuestAccess =
@@ -44,6 +45,20 @@ export interface InstanceConfig {
   /** Require every identity token to be audience-bound to {@link audience}
    *  (reject unscoped tokens). Multi-server hardening. */
   requireAudience?: boolean;
+  /**
+   * Default audience scope a page's `visibility='inherit'` resolves to at the root
+   * (OB-182 §2.4, Fork 1). Set to `'members'` (private) when the instance is
+   * claimed; an unclaimed instance never reaches the access path. Never `'inherit'`.
+   */
+  defaultVisibility?: Exclude<PageVisibility, 'inherit'>;
+  /**
+   * The ONE issuer whose `email` claim is trusted for persona / email-ACL matching
+   * (OB-182 §2.4, B1). Subject-based grants work for any {@link trustedIssuers}
+   * entry, but only a token from `emailAuthority` can satisfy an email persona or
+   * an email ACL. Must be one of {@link trustedIssuers} or every email grant
+   * silently (and safely) stops matching. Defaults to account.book.pub.
+   */
+  emailAuthority?: string;
 }
 
 export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
@@ -53,6 +68,12 @@ export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
   // consulted when an `iss=account.book.pub` assertion is actually presented; the
   // JWKS is fetched + cached lazily. Override or extend in instance settings.
   trustedIssuers: [{issuer: DEFAULT_ACCOUNT_URL, jwksUrl: `${DEFAULT_ACCOUNT_URL}/api/identity/jwks`}],
+  // `inherit` at the root resolves here. Private-by-default once claimed (Fork 1);
+  // an unclaimed instance short-circuits before this is ever consulted (rule 0).
+  defaultVisibility: 'members',
+  // account.book.pub is the default email-authority — the one issuer whose `email`
+  // claim drives persona / email-ACL matching (B1). It is already trusted above.
+  emailAuthority: DEFAULT_ACCOUNT_URL,
 };
 
 /**

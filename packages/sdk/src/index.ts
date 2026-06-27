@@ -1,4 +1,18 @@
-export type {PageSnapshot, PageMeta, StoredPage, PageInput, ServerInfo, ServerControls} from './types';
+export type {
+  PageSnapshot,
+  PageMeta,
+  StoredPage,
+  PageInput,
+  ServerInfo,
+  ServerControls,
+  PageVisibility,
+  Visibility,
+  MemberRole,
+  MemberStatus,
+  AclLevel,
+  Member,
+  PageAcl,
+} from './types';
 export {emptyPageSnapshot} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential} from './client';
