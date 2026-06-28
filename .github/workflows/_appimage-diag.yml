@@ -14,6 +14,14 @@
 name: _AppImage diag (temporary)
 
 on:
+  # Branch-scoped push trigger: a workflow_dispatch-only workflow can't be
+  # dispatched from a non-default branch (GitHub only registers dispatch after
+  # the file lands on the default branch). Scoping push to THIS branch only lets
+  # the diag auto-run on push here without firing on any other branch. Remove
+  # together with this whole temporary file once the root cause is fixed.
+  push:
+    branches:
+      - fix/appimage-linuxdeploy
   workflow_dispatch:
     inputs:
       ref:
