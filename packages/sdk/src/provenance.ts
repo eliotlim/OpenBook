@@ -59,6 +59,61 @@ export interface InstanceConfig {
    * silently (and safely) stops matching. Defaults to account.book.pub.
    */
   emailAuthority?: string;
+  /**
+   * When this instance is a MANAGED workspace (OB-199), the account workspace it
+   * is bound to. Set, the periodic roster sync projects that workspace's roster
+   * (admins / viewers + the workspace owner) into the local `members` table so
+   * `members`-scope + admin/viewer roles resolve for direct (non-edge) access too.
+   * Unset ⇒ a standalone instance; the sync is inert. Additive — absence is the
+   * pre-OB-199 single-instance behaviour. Holds non-secret COORDINATES only; the
+   * credential the instance presents to read the roster is supplied out-of-band
+   * (never persisted in policy). See {@link WorkspaceBinding}.
+   */
+  workspaceBinding?: WorkspaceBinding;
+}
+
+/**
+ * Binds a managed instance to an account workspace (OB-199). Non-secret
+ * coordinates only — the roster-read credential is injected at runtime, never
+ * stored here. Set by the owner (via the instance-policy route) or learned during
+ * the forwarding/claim flow.
+ */
+export interface WorkspaceBinding {
+  /** The account workspace id this instance serves. */
+  workspaceId: string;
+  /**
+   * Base URL of the account that owns the workspace (where the roster lives).
+   * Defaults to the instance `emailAuthority` (account.book.pub) when omitted.
+   */
+  accountBaseUrl?: string;
+}
+
+/**
+ * One entry of the account workspace roster (OB-197 contract), as consumed by the
+ * OB-199 sync. Identifies a member by a bound `subject` (`iss#sub`) and/or a
+ * persona `email`, with the workspace role. The account is the producer; the
+ * instance only reads this shape (it never writes the account).
+ */
+export interface WorkspaceRosterEntry {
+  /** Bound `iss#sub` of the member, when the account exposes it. */
+  subject?: string;
+  /** Persona email (any case; lowercased on sync). */
+  email?: string;
+  role: MemberRole;
+}
+
+/**
+ * The account workspace roster returned by `GET /api/workspaces/:id/members`
+ * (OB-197), as consumed by the OB-199 sync. `ownerSubject` is the workspace
+ * owner's bound subject (`iss#sub`) — admitted as an admin even when it differs
+ * from the instance's own site owner (OB-198 F2), so the workspace owner is never
+ * locked out of a workspace they own.
+ */
+export interface WorkspaceRoster {
+  workspaceId: string;
+  /** Bound `iss#sub` of the workspace owner (admitted as admin). */
+  ownerSubject?: string;
+  members: WorkspaceRosterEntry[];
 }
 
 export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {

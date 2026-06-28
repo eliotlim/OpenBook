@@ -129,6 +129,15 @@ export const API = {
    */
   pageVisibility: (id: string): string => `/api/pages/${encodeURIComponent(id)}/visibility`,
 
+  // ── Managed workspace: instance ↔ workspace roster sync — OB-199 ─────────────
+  /**
+   * On-demand roster sync of a managed instance: `GET` reports the binding +
+   * last-sync status; `POST` pulls the bound workspace roster from the account and
+   * reconciles it into the local roster (managed rows only). Instance-writer
+   * (owner/admin/loopback) only. The same sync also runs periodically.
+   */
+  workspaceSync: '/api/workspace/sync',
+
   // ── Scheduled backups — OB-166 ───────────────────────────────────────────────
   /** Scheduled-backup policy: `GET` returns {@link BackupStatus}; `PUT` updates
    *  the policy and returns the new status. */

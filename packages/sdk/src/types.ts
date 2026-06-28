@@ -156,6 +156,14 @@ export type MemberRole = 'admin' | 'viewer';
  */
 export type MemberStatus = 'invited' | 'active' | 'suspended';
 
+/**
+ * Where a roster row came from (OB-199). `local` = a locally-issued invite (the
+ * OB-191 path); `managed` = projected from the bound account workspace's roster by
+ * the periodic sync. The two coexist: the managed sync only ever touches `managed`
+ * rows, so a local invite is never clobbered (and vice-versa).
+ */
+export type MemberSource = 'local' | 'managed';
+
 /** Per-page ACL grant level (OB-182 §1.1). */
 export type AclLevel = 'read' | 'write';
 
@@ -177,6 +185,12 @@ export interface Member {
   issuer: string;
   role: MemberRole;
   status: MemberStatus;
+  /**
+   * Provenance of the row (OB-199): `local` for a locally-issued invite (OB-191),
+   * `managed` for a row projected from the bound workspace roster. Defaults to
+   * `local`; the managed sync only ever writes/removes `managed` rows.
+   */
+  source: MemberSource;
   /** The principal subject that issued the invite, if any. */
   invitedBy: string | null;
   createdAt: string;

@@ -9,6 +9,7 @@ export type {
   Visibility,
   MemberRole,
   MemberStatus,
+  MemberSource,
   AclLevel,
   Member,
   PageAcl,
@@ -185,6 +186,9 @@ export {
   type InstanceConfig,
   type InstanceInfo,
   type StoredEdit,
+  type WorkspaceBinding,
+  type WorkspaceRoster,
+  type WorkspaceRosterEntry,
 } from './provenance';
 export {
   authorize,

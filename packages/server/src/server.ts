@@ -8,6 +8,7 @@ import {BookMirror} from './mirror';
 import {AiService} from './ai/service';
 import {IdentityService} from './instanceConfig';
 import {BackupScheduler} from './backups';
+import {RosterSyncer, httpRosterFetcher} from './rosterSync';
 import {writeFileSync, rmSync, unlinkSync} from 'node:fs';
 import {createServer} from 'node:http';
 import path from 'node:path';
@@ -75,6 +76,16 @@ export interface StartOptions {
    * unauthenticated workspace isn't open to anyone who can reach the port.
    */
   accessToken?: string;
+  /**
+   * Managed-workspace roster sync (OB-199). When this instance is bound to an
+   * account workspace ({@link InstanceConfig.workspaceBinding}), the credential it
+   * presents to read the workspace roster (a forwarding/site or device bearer
+   * token). Supplied OUT-OF-BAND (never persisted in policy); also read from
+   * `OPENBOOK_WORKSPACE_SYNC_TOKEN`. Absent ⇒ the request is unauthenticated (the
+   * account-side per-instance auth endpoint is a pending cross-repo dependency,
+   * OB-199). The sync is inert unless a binding is configured.
+   */
+  workspaceSyncToken?: string;
 }
 
 export interface RunningServer {
@@ -250,10 +261,21 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const backups = new BackupScheduler(store, {defaultDir: defaultBackupDir});
   backups.start();
 
+  // Managed-workspace roster sync (OB-199): when this instance is bound to an
+  // account workspace, periodically (+ on demand) pull that workspace's roster and
+  // reconcile it into the local `members` table, so `members`-scope + admin/viewer
+  // roles resolve for direct access too. Inert (a cheap config read) until a
+  // binding is configured. The credential is supplied out-of-band; `unref`'d.
+  const syncToken = opts.workspaceSyncToken ?? process.env.OPENBOOK_WORKSPACE_SYNC_TOKEN;
+  const roster = new RosterSyncer(store, {
+    fetchRoster: httpRosterFetcher({authorization: syncToken ? () => syncToken : undefined}),
+  });
+  roster.start();
+
   // One hub is shared between the HTTP/SSE app and the disk mirror, so a
   // re-imported page fans out to every connected client too.
   const hub = new PageHub();
-  const app = createApp(store, ai, hub, {accessToken: opts.accessToken, embedded: !opts.databaseUrl, identity, backups});
+  const app = createApp(store, ai, hub, {accessToken: opts.accessToken, embedded: !opts.databaseUrl, identity, backups, roster});
 
   // The server can listen on a Unix domain socket (the desktop's portless IPC
   // default), a TCP port (headless, or the LAN bind added when publishing), or
@@ -352,6 +374,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     close: async () => {
       await ai.dispose();
       backups.stop();
+      roster.stop();
       if (cleanupTimer) clearInterval(cleanupTimer);
       if (maintenanceTimer) clearInterval(maintenanceTimer);
       if (reconcileTimer) clearTimeout(reconcileTimer);
