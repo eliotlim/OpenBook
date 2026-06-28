@@ -253,7 +253,15 @@ jobs:
         # `tauri build --target <triple>` puts bundles under
         # target/<triple>/release/bundle. pnpm forwards the trailing args to the
         # app's `tauri` script.
-        run: pnpm --filter @book.dev/app run tauri build --target ${{ matrix.target }}
+        #
+        # `--verbose` ONLY on the ubuntu leg: Tauri's bundler swallows
+        # linuxdeploy's own stdout/stderr unless verbose is on, so a failing
+        # AppImage step only ever prints the generic `failed to run linuxdeploy`
+        # wrapper (see the ubuntu-22.04 AppImage failures). Verbose surfaces the
+        # real linuxdeploy / linuxdeploy-plugin-gtk error (the failing sub-step +
+        # file) directly in the CI log. macOS/Windows legs evaluate to '' and are
+        # byte-for-byte unchanged.
+        run: pnpm --filter @book.dev/app run tauri build --target ${{ matrix.target }}${{ matrix.platform == 'ubuntu-22.04' && ' --verbose' || '' }}
 
       - name: Upload bundles to the v${{ needs.release.outputs.version }} release
         shell: bash
