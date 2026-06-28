@@ -4,6 +4,7 @@ import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
 import {
   API,
+  FORWARDED_HEADER,
   PAGE_VISIBILITIES,
   type AclLevel,
   type BackupCadence,
@@ -133,6 +134,30 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       return next();
     });
   }
+
+  // Forwarded-exposure backstop (OB-209). Forwarding is an OUTBOUND tunnel: the
+  // instance stays on loopback/IPC, so a forwarded inbound request slips past the
+  // BOOT exposure backstop (`assertExposureSafe`, which only guards a *listener*
+  // bind). The tunnel client marks every request it forwards (`FORWARDED_HEADER`);
+  // if such a request reaches a still-UNCLAIMED instance, `authorize()` rule-0 would
+  // short-circuit to the legacy guest gate (default `guestAccess:'write'`) and serve
+  // it anonymous + world-writable over the public address (OB-182 §2.6 B2). Fail
+  // closed: the exposed path is only ever served once the instance is claimed. The
+  // publish flow claims BEFORE it exposes (the client guard); this is the origin-side
+  // last line if that is ever bypassed (a stale client, a replayed marker, a manual
+  // tunnel). A loopback request never carries the marker, so the local single-user
+  // experience is untouched. `/health` is not under `/api/*` and stays reachable.
+  app.use('/api/*', async (c, next) => {
+    if (!c.req.header(FORWARDED_HEADER)) return next();
+    const {ownerSubject} = await store.getInstanceConfig();
+    if (!ownerSubject) {
+      return c.json(
+        {error: 'this instance is not claimed; forwarding requires an instance owner before it can be exposed (OB-182 §2.6)'},
+        403,
+      );
+    }
+    return next();
+  });
 
   // Principal resolution + guest-access gate (OB-165). Runs after the
   // reachability gate above (a different axis: "may you reach this instance" vs.

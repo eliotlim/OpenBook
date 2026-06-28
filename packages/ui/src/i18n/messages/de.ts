@@ -604,12 +604,35 @@ export const de: PartialMessages = {
     },
   },
   forwarding: {
+    title: 'Ins Web weiterleiten',
+    description:
+      'Sichere dir eine private ✦.book.pub-Adresse, die die Bücher dieses Geräts in jedem Browser öffnet — nichts zu hosten, nichts im Netzwerk freizugeben.',
+    toggle: 'Dieses Gerät weiterleiten',
+    signInHint: 'Melde dich zuerst bei deinem Konto an, um eine Adresse zu sichern.',
+    signIn: 'Anmelden',
+    registering: 'Verbinden…',
+    address: 'Deine Adresse',
+    addressHint: 'Öffnet die Bücher dieses Geräts in jedem Browser, solange es online ist.',
+    copy: 'Kopieren',
+    copied: 'Kopiert',
+    failed: 'Registrierung fehlgeschlagen: {error}',
     partialUnscoped:
       'Die Weiterleitung ist aktiv, aber dein Konto hat kein auf die Site begrenztes Owner-Token ausgestellt, daher bleibt die strikte Audience-Isolierung aus (ein für eine andere Site ausgestelltes Token wird weiterhin abgewiesen, und der Tunnel funktioniert normal).',
     ensureRescope:
       'Die Weiterleitung wurde fortgesetzt, aber diese Sitzung konnte dein Owner-Token noch nicht auf die Site begrenzen. Dein bestehender Zugriff bleibt unverändert; melde dich erneut an, falls eine Anfrage abgelehnt wird.',
     bindFailed: 'Die Weiterleitung ist aktiv, aber das Absichern der Site-Audience wurde nicht abgeschlossen: {error}',
     unbindHeld: 'Die Audience-Bindung konnte beim Ausschalten der Weiterleitung nicht vollständig gelöst werden: {error}',
+    claimWarning:
+      'Beim ersten Einschalten werden die Bücher dieses Geräts deinem Konto zugeordnet und privat geschaltet — nur du und von dir eingeladene Mitglieder können sie öffnen. Das lässt sich nicht rückgängig machen.',
+    claimRefusedUnverified: 'Zum Veröffentlichen muss die Identität deines Kontos zuerst verifiziert werden.',
+    refreshIdentity: 'Identität aktualisieren',
+    claimFailed:
+      'Dieses Gerät konnte deinem Konto nicht zugeordnet werden und wurde daher nicht veröffentlicht. Versuche es erneut.',
+    status: {
+      live: 'Live',
+      connecting: 'Verbinden',
+      offline: 'Offline',
+    },
   },
   connection: {
     title: 'Verbindung',

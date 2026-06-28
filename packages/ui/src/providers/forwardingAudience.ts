@@ -147,6 +147,65 @@ export async function ensureForwardingAudience(host: string, deps: AudienceBindD
   return bindForwardingAudience(host, deps);
 }
 
+/** The result of ensuring the instance is claimed before it is exposed. */
+export type ForwardingClaimOutcome =
+  /** We atomically claimed ownership to the enabling account's verified subject. */
+  | {status: 'claimed'}
+  /** Already claimed (by this owner or anyone) — nothing to do; safe to expose. */
+  | {status: 'already'}
+  /**
+   * Couldn't claim, so we won't expose. `code` is the stable discriminant the surface
+   * localizes + styles by severity: `unverified` is a precondition the signed-in owner
+   * clears by verifying their identity (NOT a crash); `claim-failed` is a genuine
+   * failure. `reason` is the English fallback for logs / non-UI callers — the UI routes
+   * `code` through `t()` (`forwarding.claimRefusedUnverified` / `forwarding.claimFailed`).
+   */
+  | {status: 'refused'; code: 'unverified' | 'claim-failed'; reason: string};
+
+/**
+ * English fallback when forwarding is refused because the account identity is not
+ * JWS-verified yet (on desktop the default owner is `verifiedVia:'local'`). The owner
+ * IS already signed in on this path — what's missing is a verified identity, not an
+ * account — so this guides verifying, not signing in. UI: `forwarding.claimRefusedUnverified`.
+ */
+export const UNVERIFIED_CLAIM_REASON =
+  'To publish, your account identity needs to be verified first.';
+
+/** English fallback when the claim write did not land. UI: `forwarding.claimFailed`. */
+export const CLAIM_FAILED_REASON =
+  'Couldn’t claim this device for your account, so it wasn’t published. Try again.';
+
+/**
+ * Publish-implies-claim (OB-209). Forwarding turns the local instance into a public
+ * ingress that BYPASSES the boot exposure backstop (`assertExposureSafe` only guards
+ * a listener bind; the tunnel reaches the loopback server). An UNCLAIMED instance
+ * short-circuits `authorize()` rule-0 to the legacy guest gate (default
+ * `guestAccess:'write'`) — so exposing it unclaimed = anonymous world-write. We
+ * therefore CLAIM before we expose: atomically bind ownership to the enabling
+ * account's OWN verified subject (the server routes this through the OB-191 CAS and
+ * only ever binds the verified principal — never a client-supplied value), and refuse
+ * to dial out when there is no verified identity to claim with. Idempotent: a
+ * re-enable on an already-claimed instance is a no-op.
+ */
+export async function ensureClaimedForForwarding(deps: AudienceBindDeps): Promise<ForwardingClaimOutcome> {
+  const info = await deps.getInstanceInfo();
+  if (info.ownerSubject) return {status: 'already'}; // claim is one-way; already safe to expose
+  // Unclaimed: only a verified (jws) identity may claim — and publish requires one.
+  if (info.you.verifiedVia !== 'jws') return {status: 'refused', code: 'unverified', reason: UNVERIFIED_CLAIM_REASON};
+  try {
+    // The patch value only TRIGGERS the claim; the server binds `you.subject` from the
+    // request's verified principal, so a client can never claim to someone else.
+    const next = await deps.setInstancePolicy({ownerSubject: info.you.subject});
+    if (next.ownerSubject) return {status: 'claimed'};
+  } catch {
+    // The write was rejected (a race claimed it first, or the identity was refused).
+    // Fall through to a re-read: if it is now claimed, exposing is safe regardless.
+  }
+  const after = await deps.getInstanceInfo();
+  if (after.ownerSubject) return {status: 'claimed'}; // landed (ours, or a concurrent claim)
+  return {status: 'refused', code: 'claim-failed', reason: CLAIM_FAILED_REASON};
+}
+
 /** The result of unwinding the audience binding on disable. */
 export type AudienceUnbindOutcome =
   /** `requireAudience` was relaxed and the owner token re-minted unscoped. */

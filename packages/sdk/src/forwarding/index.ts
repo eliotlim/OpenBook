@@ -23,5 +23,6 @@ export {
   decodeControl,
   encodeBody,
   decodeBody,
+  FORWARDED_HEADER,
   type ControlFrame,
 } from './tunnelProtocol';

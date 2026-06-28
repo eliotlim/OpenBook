@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {ForwardingClient, MemoryKeyStore, mintSiteKeypair, type SiteIdentity} from '@book.dev/sdk';
+import {ForwardingClient, FORWARDED_HEADER, MemoryKeyStore, mintSiteKeypair, type SiteIdentity} from '@book.dev/sdk';
 
 const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}});
@@ -162,6 +162,55 @@ describe('ForwardingClient.start (live serving)', () => {
     ws.sockets[0].onmessage?.({data: JSON.stringify({t: 'req', id: 1, method: 'GET', path: '/api/pages', headers: []})});
     await waitFor(() => localCalls.length === 1);
     expect(localCalls).toEqual(['/api/pages']);
+  });
+
+  it('marks every forwarded request as exposed, overriding any inbound marker (OB-209)', async () => {
+    const kp = await mintSiteKeypair();
+    const accountFetch: typeof fetch = async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/sites') return json({site: {id: 's1', prefix: 'p', host: 'p.book.pub', publicKey: kp.publicKey}, privateKey: kp.privateKey}, 201);
+      if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
+      if (path === '/api/sites/attach-ticket') return json({ticket: 'TICKET', relayBase: 'wss://relay.book.pub', host: 'p.book.pub', region: 'iad1'});
+      throw new Error(`unexpected ${path}`);
+    };
+    const seen: Headers[] = [];
+    const localFetch: typeof fetch = async (_input, init) => {
+      seen.push(new Headers(init?.headers));
+      return new Response('[]', {status: 200});
+    };
+
+    const ws = fakeWebSocket();
+    const client = new ForwardingClient({
+      accountUrl: 'https://account.book.pub',
+      authToken: 'tok',
+      keyStore: new MemoryKeyStore(),
+      localOrigin: '',
+      fetchImpl: accountFetch,
+      localFetchImpl: localFetch,
+      webSocketImpl: ws.ctor,
+    });
+    await client.start();
+    await waitFor(() => ws.sockets.length === 1);
+
+    // A relay-forwarded request carrying a SPOOFED marker value + a real identity
+    // header. The tunnel must (a) pass the identity through, and (b) overwrite the
+    // marker with its own '1' — it is never client-supplied, so the origin can trust
+    // it to fail closed while unclaimed.
+    ws.sockets[0].onmessage?.({
+      data: JSON.stringify({
+        t: 'req',
+        id: 1,
+        method: 'GET',
+        path: '/api/pages',
+        headers: [
+          [FORWARDED_HEADER, 'spoofed-0'],
+          ['X-OpenBook-Identity', 'a.b.c'],
+        ],
+      }),
+    });
+    await waitFor(() => seen.length === 1);
+    expect(seen[0].get(FORWARDED_HEADER)).toBe('1'); // our marker, not the spoof
+    expect(seen[0].get('X-OpenBook-Identity')).toBe('a.b.c'); // identity still flows through
   });
 
   it('mints a FRESH ticket on every reconnect (no stale-ticket attach loop)', async () => {

@@ -921,6 +921,11 @@ export const en = {
       'Forwarding resumed, but this session could not scope your owner token to the site yet. Your existing access is unchanged; sign in again if a request is refused.',
     bindFailed: 'Forwarding is on, but securing the site audience didn’t finish: {error}',
     unbindHeld: 'Couldn’t fully relax the audience binding while turning forwarding off: {error}',
+    claimWarning:
+      'The first time you turn this on, this device’s books are claimed to your account and made private — only you and members you invite can open them. This can’t be undone.',
+    claimRefusedUnverified: 'To publish, your account identity needs to be verified first.',
+    refreshIdentity: 'Refresh identity',
+    claimFailed: 'Couldn’t claim this device for your account, so it wasn’t published. Try again.',
     status: {
       live: 'Live',
       connecting: 'Connecting',

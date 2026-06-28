@@ -23,6 +23,7 @@ export {
   MemoryKeyStore,
   mintSiteKeypair,
   signWithSiteKey,
+  FORWARDED_HEADER,
   type KeyStore,
   type SiteIdentity,
   type ForwardingClientOptions,

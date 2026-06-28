@@ -609,6 +609,28 @@ export const zh: PartialMessages = {
       '转发已恢复，但本次会话尚无法将你的所有者令牌限定到该站点。你现有的访问不受影响；若请求被拒绝，请重新登录。',
     bindFailed: '转发已开启，但未能完成站点受众的加固：{error}',
     unbindHeld: '关闭转发时未能完全解除受众绑定：{error}',
+    title: '转发到网络',
+    description:
+      '获取一个私有的 ✦.book.pub 地址，即可在任意浏览器中打开本设备的图书 —— 无需托管，也无需在网络中暴露。',
+    toggle: '转发本设备',
+    signInHint: '请先登录你的账户以获取地址。',
+    signIn: '登录',
+    registering: '连接中…',
+    address: '你的地址',
+    addressHint: '只要设备在线，就能在任意浏览器中打开本设备的图书。',
+    copy: '复制',
+    copied: '已复制',
+    failed: '注册失败：{error}',
+    claimWarning:
+      '首次开启时，本设备的图书将归属到你的账户并默认设为私有 —— 只有你和你邀请的成员可以打开。此操作无法撤销。',
+    claimRefusedUnverified: '要发布，需先验证你的账户身份。',
+    refreshIdentity: '刷新身份',
+    claimFailed: '无法将本设备归属到你的账户，因此未发布。请重试。',
+    status: {
+      live: '在线',
+      connecting: '连接中',
+      offline: '离线',
+    },
   },
   connection: {
     title: '连接',

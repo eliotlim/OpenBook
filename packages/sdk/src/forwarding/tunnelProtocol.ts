@@ -4,6 +4,18 @@
 // binary) prefixed with the id, so large payloads and SSE stream without base64
 // overhead. Shared by the relay (open.book.pub) and the tunnel client below.
 
+/**
+ * Marks a request as having arrived through the tunnel — i.e. an EXPOSED inbound
+ * request, not a loopback/IPC one (OB-209). Forwarding is an outbound tunnel: the
+ * instance stays on loopback, so a forwarded request bypasses the boot exposure
+ * backstop (`assertExposureSafe`, which only guards a listener bind). The tunnel
+ * client SETS this on every request it forwards (overriding any inbound value — it
+ * is never client-supplied), so the origin can recognise the exposed path and fail
+ * closed while the instance is still unclaimed (where `authorize()` rule-0 would
+ * otherwise serve anonymous world-write). Loopback requests never carry it.
+ */
+export const FORWARDED_HEADER = 'X-OpenBook-Forwarded';
+
 export type ControlFrame =
   // handshake (double-gated attach)
   | {t: 'challenge'; nonce: string}
