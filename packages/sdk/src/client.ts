@@ -11,7 +11,7 @@ import type {
   AiStreamEvent,
   AiTasksResponse,
 } from './ai';
-import type {PageInput, PageMeta, StoredPage} from './types';
+import type {AclLevel, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, StoredPage} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult} from './backup';
 import type {
@@ -651,6 +651,55 @@ export class HttpDataClient implements DataClient {
   async listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]> {
     const path = limit ? `${API.pageEdits(pageId)}?limit=${limit}` : API.pageEdits(pageId);
     return this.request<StoredEdit[]>('GET', path);
+  }
+
+  // ── Sharing: roster invites + per-page ACL (OB-191) ──────────────────────────
+
+  /** The member roster (instance-writer only). */
+  async listMembers(): Promise<Member[]> {
+    return this.request<Member[]>('GET', API.members);
+  }
+
+  /**
+   * Invite someone to the roster by `invitee` — an email (an unclaimed persona,
+   * bound to their subject on first sign-in), or a handle/subject (`iss#sub`,
+   * granted immediately). `status` defaults server-side (email → `invited`,
+   * subject → `active`).
+   */
+  async inviteMember(invitee: string, opts: {role?: MemberRole; status?: MemberStatus} = {}): Promise<Member> {
+    return this.request<Member>('POST', API.members, {invitee, role: opts.role, status: opts.status});
+  }
+
+  /** Patch a roster row's role/status (activate, suspend, change role). */
+  async updateMember(id: string, patch: {role?: MemberRole; status?: MemberStatus}): Promise<Member> {
+    return this.request<Member>('PATCH', API.member(id), patch);
+  }
+
+  /** Revoke a roster row by id. `true` if one was removed. */
+  async removeMember(id: string): Promise<boolean> {
+    const res = await this.authFetch(`${this.baseUrl}${API.member(id)}`, {method: 'DELETE'});
+    if (res.status === 404) return false;
+    await throwIfNotOk(res);
+    return true;
+  }
+
+  /** A page's per-page ACL grants (requires write on the page). */
+  async listPageAcl(pageId: string): Promise<PageAcl[]> {
+    return this.request<PageAcl[]>('GET', API.pageAcl(pageId));
+  }
+
+  /** Share a page with `invitee` (email or handle/subject) at `level`. */
+  async sharePage(pageId: string, invitee: string, level: AclLevel = 'read'): Promise<PageAcl> {
+    return this.request<PageAcl>('POST', API.pageAcl(pageId), {invitee, level});
+  }
+
+  /** Revoke a page ACL grant by subject XOR email. `true` if one was removed. */
+  async unsharePage(pageId: string, key: {subject: string} | {email: string}): Promise<boolean> {
+    const query = 'subject' in key ? `subject=${encodeURIComponent(key.subject)}` : `email=${encodeURIComponent(key.email)}`;
+    const res = await this.authFetch(`${this.baseUrl}${API.pageAcl(pageId)}?${query}`, {method: 'DELETE'});
+    if (res.status === 404) return false;
+    await throwIfNotOk(res);
+    return true;
   }
 
   async getBackupStatus(): Promise<BackupStatus> {

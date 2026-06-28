@@ -107,6 +107,22 @@ export const API = {
   /** A page's change provenance (the edit log), newest first: `GET`. */
   pageEdits: (id: string): string => `/api/pages/${encodeURIComponent(id)}/edits`,
 
+  // ── Sharing: roster invites + per-page ACL — OB-191 ──────────────────────────
+  /**
+   * The member roster: `GET` (list) / `POST` (invite by email or handle/subject).
+   * Instance-writer (owner/admin/loopback) only — managing or even seeing the
+   * roster is a privileged action.
+   */
+  members: '/api/members',
+  /** A single roster row: `PATCH` (role/status) / `DELETE` (revoke). */
+  member: (id: string): string => `/api/members/${encodeURIComponent(id)}`,
+  /**
+   * A page's per-page ACL grants: `GET` (list) / `POST` (share to an email or
+   * handle/subject) / `DELETE` (`?subject=` | `?email=` to revoke). Gated on
+   * write of the page itself (you manage sharing of pages you can write).
+   */
+  pageAcl: (id: string): string => `/api/pages/${encodeURIComponent(id)}/acl`,
+
   // ── Scheduled backups — OB-166 ───────────────────────────────────────────────
   /** Scheduled-backup policy: `GET` returns {@link BackupStatus}; `PUT` updates
    *  the policy and returns the new status. */

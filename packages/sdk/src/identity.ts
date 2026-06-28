@@ -45,6 +45,15 @@ export interface Principal {
   issuer: string;
   /** Human-readable display name, when known. */
   name: string;
+  /**
+   * The single **active-persona email** (lowercased), when the issuer asserts one
+   * (OB-182 §1.1/§3). Net-new threading from the verified `email` claim — there is
+   * never an `emails[]` array (Fork 4/5): one token carries exactly one persona
+   * facet. Only ever *trusted* for persona / email-ACL matching when the principal
+   * is `verifiedVia==='jws'` AND `issuer === config.emailAuthority` (the
+   * `emailIsAuthoritative` gate, B1); on any other principal it is at most an
+   * attribution hint. Absent when the issuer asserts no email. */
+  email?: string;
   verifiedVia: VerifiedVia;
   /** Which signed credential authorized this (users only): issuer key id + assertion id. */
   assertion?: {kid?: string; jti?: string};
@@ -282,13 +291,21 @@ export async function verifyIdentity(jws: string, jwks: Jwks, opts: VerifyOption
   return {ok: true, claims, header};
 }
 
+/** The active-persona email (lowercased) carried by an assertion, if any. */
+function personaEmail(claims: IdentityClaims): string | undefined {
+  const email = claims.email?.trim().toLowerCase();
+  return email ? email : undefined;
+}
+
 /** Build a verified user principal from validated claims. */
 export function principalFromClaims(claims: IdentityClaims, header?: IdentityHeader): Principal {
+  const email = personaEmail(claims);
   return {
     kind: 'user',
     subject: `${claims.iss}#${claims.sub}`,
     issuer: claims.iss,
     name: claims.name ?? '',
+    ...(email ? {email} : {}),
     verifiedVia: 'jws',
     assertion: {kid: header?.kid, jti: claims.jti},
   };
@@ -300,11 +317,15 @@ export function principalFromClaims(claims: IdentityClaims, header?: IdentityHea
  * claimed subject, flagged `unverified`.
  */
 export function unverifiedPrincipalFromClaims(claims: IdentityClaims): Principal {
+  const email = personaEmail(claims);
   return {
     kind: 'user',
     subject: `${claims.iss}#${claims.sub}`,
     issuer: claims.iss,
     name: claims.name ?? '',
+    // Carried for attribution only — an unverified principal is never `jws`, so
+    // `emailIsAuthoritative` is false and this email never drives a grant (B1/N8).
+    ...(email ? {email} : {}),
     verifiedVia: 'unverified',
     assertion: {jti: claims.jti},
   };
