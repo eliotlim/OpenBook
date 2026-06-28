@@ -1,6 +1,6 @@
 {
   "name": "@book.dev/sdk",
-  "version": "1.62.0",
+  "version": "1.63.0",
   "description": "Shared OpenBook types and HTTP client used by the server, desktop, and web.",
   "publishConfig": {
     "access": "public"

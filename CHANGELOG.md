@@ -1,3 +1,22 @@
+## 1.63.0 (2026-06-28)
+
+### 🚀 Features
+
+- **server:** members + per-page visibility/ACL schema (OB-188) ([7784528](https://github.com/eliotlim/OpenBook/commit/7784528))
+- **server:** access-control core — roster, roles, per-page ACL, enforcement (Epic A · OB-189–191) ([#23](https://github.com/eliotlim/OpenBook/pull/23))
+- **ui:** emoji autocomplete via ":" trigger in the block editor ([c500f4e](https://github.com/eliotlim/OpenBook/commit/c500f4e))
+- **ui:** title ⇄ editor caret hand-off ([0a66fcc](https://github.com/eliotlim/OpenBook/commit/0a66fcc))
+- **ui:** whole-document read-only / viewer rendering (OB-205) ([#24](https://github.com/eliotlim/OpenBook/pull/24))
+
+### 🩹 Fixes
+
+- **ui:** address review on block-editor muscle-memory (menus, a11y, i18n, colon-insert) ([d71828a](https://github.com/eliotlim/OpenBook/commit/d71828a))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim @eliotlim
+
 ## 1.62.0 (2026-06-27)
 
 ### 🚀 Features

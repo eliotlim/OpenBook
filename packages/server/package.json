@@ -1,6 +1,6 @@
 {
   "name": "@book.dev/server",
-  "version": "1.62.0",
+  "version": "1.63.0",
   "description": "OpenBook server: page store (Postgres) + HTTP API. Runs headless or embedded in the desktop app.",
   "private": true,
   "type": "module",
