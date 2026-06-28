@@ -4,7 +4,7 @@ import {createApp} from './app';
 import {type Db, createPgliteDb, PostgresDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
-import {BookMirror, MirrorLockedError} from './mirror';
+import {BookMirror, MirrorLockedError, WriteBudgetError} from './mirror';
 import {AiService} from './ai/service';
 import {IdentityService} from './instanceConfig';
 import {BackupScheduler} from './backups';
@@ -372,6 +372,13 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
       // Another live process already owns this book folder (OB-241): run without a
       // mirror rather than fight it. The owning process keeps the folder in sync.
       if (err instanceof MirrorLockedError) {
+        console.warn(`OpenBook: ${err.message} — running without the on-disk mirror.`);
+        mirror = null;
+      } else if (err instanceof WriteBudgetError) {
+        // A tight write budget (ER-2) tripped during the awaited bootstrap reconcile
+        // (create → reconcileAll → flush). The mirror is a derived convenience, not
+        // the canonical store, so a budget trip must degrade to running without it —
+        // never crash startup. (The runaway it guards is still surfaced by the log.)
         console.warn(`OpenBook: ${err.message} — running without the on-disk mirror.`);
         mirror = null;
       } else {

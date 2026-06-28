@@ -7,7 +7,7 @@ import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {bookHtmlToPage, pageToBookHtml, type PageSnapshot} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
-import {BookMirror, MirrorLockedError} from './mirror';
+import {BookMirror, MirrorLockedError, WriteBudgetError} from './mirror';
 
 const snap = (text: string): PageSnapshot => ({
   editorjs: {blocks: [{id: 'b1', type: 'paragraph', data: {text}}]},
@@ -298,5 +298,62 @@ describe('BookMirror single-owner lock (OB-241)', () => {
     const second = await BookMirror.create({store, dir: bookDir, watch: false});
     expect(second).toBeTruthy();
     await second.close();
+  });
+});
+
+describe('BookMirror WriteBudgetError hardening (ER-5 carry-forward)', () => {
+  const lockFile = (): string => join(bookDir, '.openbook-mirror.lock');
+
+  it('a budget trip during the bootstrap reconcile rejects AND releases the lock', async () => {
+    await store.upsertPage({name: 'Boot', data: snap('x')});
+    // A byte budget of 1 trips on the very first page write during create()'s
+    // awaited reconcile→flush. Pre-fix this rejected with the lock still held.
+    await expect(
+      BookMirror.create({store, dir: bookDir, watch: false, writeBudget: {bytes: 1, intervalMs: 60_000}}),
+    ).rejects.toBeInstanceOf(WriteBudgetError);
+    // The single-owner lock was released on the failed bootstrap, so a clean retry
+    // (here: the server degrading to run-without-mirror, then a later restart) can
+    // re-acquire the directory rather than being permanently locked out.
+    expect(existsSync(lockFile())).toBe(false);
+    const retry = await BookMirror.create({store, dir: bookDir, watch: false});
+    expect(retry).toBeTruthy();
+    await retry.close();
+  });
+
+  it('a live write-through budget trip is caught/logged, not an unhandled rejection', async () => {
+    const logs: string[] = [];
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown): void => {
+      rejections.push(reason);
+    };
+    process.on('unhandledRejection', onRejection);
+    try {
+      // Empty store at open → the bootstrap does no counted writes, so the tight
+      // budget has headroom until the live enqueues below.
+      const mirror = await BookMirror.create({
+        store,
+        dir: bookDir,
+        watch: false,
+        writeDebounceMs: 10,
+        writeBudget: {writes: 1, intervalMs: 60_000},
+        log: (m) => logs.push(m),
+      });
+      const a = await store.upsertPage({name: 'A', data: snap('a')});
+      const b = await store.upsertPage({name: 'B', data: snap('b')});
+      // Two enqueues schedule ONE debounced flush; draining both trips the budget on
+      // the timer-driven write-through path (`scheduleFlush → void flush()`), which
+      // has no awaiter — so it must be `.catch`-logged, never left unhandled.
+      mirror.enqueueWrite(a.id);
+      mirror.enqueueWrite(b.id);
+      await new Promise((r) => setTimeout(r, 120)); // let the timer fire + flush settle
+      expect(logs.some((m) => m.includes('scheduled flush failed'))).toBe(true);
+      await mirror.close().catch(() => undefined); // close re-drains → may re-trip; swallow
+    } finally {
+      process.removeListener('unhandledRejection', onRejection);
+    }
+    await new Promise((r) => setTimeout(r, 20)); // drain any trailing microtasks
+    // The crux: the trip surfaced via the log, not as an unhandled promise rejection
+    // that could crash the host process.
+    expect(rejections.filter((r) => r instanceof WriteBudgetError)).toHaveLength(0);
   });
 });
