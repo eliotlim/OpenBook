@@ -72,6 +72,14 @@ jobs:
       - name: Record patchelf version (linuxdeploy uses the system patchelf for rpath)
         run: patchelf --version || true
 
+      # Mirror the release.yml fix: seed the patched GTK plugin so this diag
+      # exercises (and proves) the fix rather than the broken upstream plugin.
+      - name: Seed patched linuxdeploy GTK plugin
+        run: |
+          mkdir -p "$HOME/.cache/tauri"
+          cp packages/app/src-tauri/linux/linuxdeploy-plugin-gtk.sh "$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
+          chmod +x "$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
+
       # The actual repro. `-vv` (two -v) makes Tauri's bundler stream
       # linuxdeploy + linuxdeploy-plugin-gtk stdout/stderr, so the real error
       # (e.g. `ERROR: Failed to run plugin: gtk`, an `ldd` failure, a
