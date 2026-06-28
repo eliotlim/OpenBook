@@ -58,7 +58,7 @@ import {MentionMenu} from './MentionMenu';
 import {EmojiMenu} from './EmojiMenu';
 import {LinkPicker} from './LinkPicker';
 import {hasKitConfig, openKitConfig} from './kit/kitConfig';
-import {KitLockContext, useKitLock} from './kit/lock';
+import {KitLockContext, KitPageLockContext, useKitLock} from './kit/lock';
 import {KitInlineText} from './kit/KitFrame';
 import {groupInputs, inputValue, setInputValue} from './kit/scope';
 import {sectionCompletion, type CompletionStat} from './kit/completion';
@@ -133,11 +133,21 @@ export const BlockEditor: React.FC<{
 }> = ({doc, readOnly = false, ariaLabel, fullWidth = false, compact = false, spellcheck = true, pageId, focusRef, onLeaveToTitle}) => {
   const editor = useBlockEditor(doc, readOnly);
   const rootRef = useRef<HTMLDivElement>(null);
+  // Whole-document read-only (viewer / present): a lock context wraps the tree so
+  // `BlockBody` freezes text + structure while interactive widgets stay live —
+  // the present-mode treatment, lifted to a normal page. Stable identity so the
+  // root provider doesn't re-render every consumer on each doc version tick.
+  const readOnlyLock = useMemo(() => ({locked: readOnly}), [readOnly]);
 
   // Title → editor: focus the first text block (creating an empty paragraph
   // first when the document has none), caret at its start.
   useImperativeHandle(focusRef, () => ({
     focusStart() {
+      // A read-only page (viewer / present) has no caret surface to hand off to —
+      // and must never mutate the doc. Guarding here covers every entry point
+      // (the locked title's Enter / ↓ still reaches this, see PageHeader), so a
+      // viewer can't seed a paragraph into a text-less doc.
+      if (editor.readOnly) return;
       const ids = editor.textBlockIds();
       if (ids.length === 0) editor.insertAfter(null, {type: 'paragraph'});
       else editor.requestCaret({blockId: ids[0], offset: 0});
@@ -560,7 +570,7 @@ export const BlockEditor: React.FC<{
   return (
     <div
       ref={rootRef}
-      className={['obe-root', fullWidth && 'obe-full', compact && 'obe-compact'].filter(Boolean).join(' ')}
+      className={['obe-root', fullWidth && 'obe-full', compact && 'obe-compact', readOnly && 'obe-readonly'].filter(Boolean).join(' ')}
       role="region"
       aria-label={ariaLabel ?? 'Page content'}
       onKeyDownCapture={onRootKeyDownCapture}
@@ -603,7 +613,11 @@ export const BlockEditor: React.FC<{
         }
       }}
     >
-      <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} container={null} />
+      <KitPageLockContext.Provider value={readOnly}>
+        <KitLockContext.Provider value={readOnlyLock}>
+          <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} container={null} />
+        </KitLockContext.Provider>
+      </KitPageLockContext.Provider>
       {slash.open && (
         <SlashMenu
           state={slash}
@@ -1365,11 +1379,19 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   const locked = useKitLock();
   const lockText = locked && !editor.readOnly;
   const interactive = blockProp<boolean>(block, 'interactive') ?? true;
+  // Whole-document read-only (a viewer who can't write, or present mode): the
+  // editor itself is read-only AND the page-level lock context is set. Text and
+  // structure freeze (via `editor.readOnly`), but an interactive widget stays
+  // LIVE for the reader — the same exemption a locked group grants, lifted to the
+  // page. It just never persists (the host skips saving). An author opt-out
+  // (`interactive: false`) freezes the widget too.
+  const pageLocked = editor.readOnly && locked;
   const textEditor = useMemo(() => (lockText ? {...editor, readOnly: true} : editor), [editor, lockText]);
-  const kitEditor = useMemo(
-    () => (lockText && !interactive ? {...editor, readOnly: true} : editor),
-    [editor, lockText, interactive],
-  );
+  const liveEditor = useMemo(() => ({...editor, readOnly: false}), [editor]);
+  const kitEditor = useMemo(() => {
+    if (pageLocked) return interactive ? liveEditor : editor; // viewer/present: live unless opted out
+    return lockText && !interactive ? {...editor, readOnly: true} : editor; // group lock (unchanged)
+  }, [editor, liveEditor, pageLocked, lockText, interactive]);
 
   switch (type) {
   case 'divider':

@@ -15,6 +15,7 @@ import {buildDocumentModel} from '@/export/documentModel';
 import {toMarkdown} from '@/export/toMarkdown';
 import {downloadBlob} from '@/lib/download';
 import {useData} from '@/data';
+import {useCanWrite} from '@/lib/useCanWrite';
 import {connectBroadcast} from '@/blockeditor/provider';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
@@ -74,6 +75,10 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const {preferences} = usePreferences();
   const client = useData();
   const confirm = useConfirm();
+  // A viewer who can't write this instance reads the whole document locked: no
+  // edit chrome, interactive widgets still live (OB-205). Coarse + server-enforced
+  // — see useCanWrite. Defaults writable, so the owner case never flashes locked.
+  const canWrite = useCanWrite();
   const [doc, setDoc] = useState<Y.Doc | null>(null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'save failed'>('idle');
   const lastSnapshot = useRef<PageSnapshot | null>(null);
@@ -125,7 +130,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
 
   // ── Save local edits ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!doc || !onSave) return;
+    if (!doc || !onSave || !canWrite) return;
     const handler = (_update: Uint8Array, origin: unknown): void => {
       // Only local edits save; merged remote state was saved by its author.
       if (origin === 'bc-remote' || origin === 'server') return;
@@ -174,7 +179,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       doc.off('update', handler);
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [doc, onSave]);
+  }, [doc, onSave, canWrite]);
 
   // ── Live collaboration ────────────────────────────────────────────────────
   // Server-pushed snapshots merge into the live doc (CRDT union, no clobber).
@@ -340,6 +345,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
               title={title}
               icon={icon}
               pageId={pageId}
+              readOnly={!canWrite}
               onTitleChange={onTitleChange}
               onIconChange={onIconChange}
               onTitleActiveChange={onTitleActiveChange}
@@ -357,6 +363,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
             {doc && (
               <BlockEditor
                 doc={doc}
+                readOnly={!canWrite}
                 ariaLabel={title || 'Page content'}
                 fullWidth={fullWidth}
                 compact={hasDatabase}

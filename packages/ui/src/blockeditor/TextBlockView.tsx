@@ -588,7 +588,9 @@ export const TextBlockView: React.FC<{
       aria-multiline="true"
       aria-label={ariaLabelFor(type)}
       data-block-text={id}
-      data-placeholder={editor.focusedId === id && type === 'paragraph' ? 'Type “/” for commands…' : placeholder}
+      // No placeholder on a read-only surface: an empty block must not advertise
+      // "Type / for commands…" / "Heading" to a viewer who can't type.
+      data-placeholder={editor.readOnly ? undefined : editor.focusedId === id && type === 'paragraph' ? 'Type “/” for commands…' : placeholder}
       className={`obe-text obe-text-${type}`}
       spellCheck={ui.spellcheck && !isCode}
       onKeyDown={onKeyDown}

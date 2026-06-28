@@ -1215,6 +1215,19 @@ a.obe-mention {
    show their "Add a description…" edit placeholder on the read-only stage. */
 .ob-present .obe-kit-inline:placeholder-shown { display: none; }
 
+/* Whole-document read-only (OB-205): a viewer who can't write sees the page as
+   locked. The editor's own `readOnly` path already drops the gutter, drag
+   handles, inline toolbar, block menus, container "+" buttons and the
+   click-to-append affordance at the JS level; these few are always rendered
+   (CSS-gated like present mode), so hide them here too. Interactive widgets stay
+   live — only their edit chrome (the ⚙ / code actions) goes. */
+.obe-root.obe-readonly .obe-kit-gear,
+.obe-root.obe-readonly .obe-code-actions { display: none !important; }
+.obe-root.obe-readonly .obe-kit-inline:placeholder-shown { display: none; }
+/* The group sync / lock / gate buttons are author chrome — disabled for a
+   viewer, so don't show them disabled-but-present. */
+.obe-root.obe-readonly .obe-group-btn { display: none; }
+
 /* Top-right exit / view toggle — auto-hidden in full screen until hover. */
 .ob-present-topbar { display: flex; gap: 0.35rem; }
 .ob-present-full .ob-present-topbar {
