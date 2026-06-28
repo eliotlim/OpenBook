@@ -2,7 +2,7 @@
  * Managed-workspace roster sync (OB-199) — the instance side of "bind instance ↔
  * workspace". When an instance is bound to an account workspace
  * ({@link InstanceConfig.workspaceBinding}), this pulls that workspace's roster
- * from the account (`GET /api/workspaces/:id/members`, the OB-197 contract) and
+ * from the account (`GET /api/workspaces/:id/roster`, the OB-197 contract) and
  * reconciles it into the local `members` table, so the `members`-scope +
  * admin/viewer roles resolve for DIRECT (non-edge) access too and the binding is
  * coherent with what the edge admits (OB-198).
@@ -42,6 +42,23 @@ import type {ManagedMemberInput, PageStore, RosterSyncResult} from './store';
  * legitimately removes all managed rows.
  */
 export type RosterFetcher = (binding: ResolvedBinding, signal?: AbortSignal) => Promise<WorkspaceRoster>;
+
+/**
+ * Mints a fresh per-instance roster assertion (the `Authorization: Bearer <…>`
+ * value) for the bound workspace. INJECTED by the host so the actual signing
+ * happens in the layer that holds the site private key (the desktop OS keychain),
+ * and the raw key never enters the data-server. The data-server only ever sees the
+ * resulting opaque bearer string.
+ *
+ * Called once per fetch so the assertion's `ts` is always fresh (the account's
+ * freshness window is ±5 min). Returns `null` (or no provider at all) ⇒ send no
+ * auth header — today's inert default, before an instance is bound + the desktop
+ * keychain wiring lands. A THROW (e.g. the keychain is locked / signing failed)
+ * propagates into the fetcher and routes through the fail-safe path (last-good
+ * roster retained, `lastError` recorded) — it never falls back to an
+ * unauthenticated request.
+ */
+export type RosterAssertionProvider = (workspaceId: string) => Promise<string | null> | string | null;
 
 /** A binding with its account base URL resolved (never null). */
 export interface ResolvedBinding {
@@ -293,25 +310,34 @@ function normEmail(email: string | null | undefined): string | null {
 }
 
 /**
- * The default HTTP roster fetcher. Reads `GET <account>/api/workspaces/:id/members`
- * and presents the instance's credential (when one is wired) as a bearer token.
+ * The default HTTP roster fetcher. Reads `GET <account>/api/workspaces/:id/roster`
+ * and presents a fresh per-instance roster assertion (minted by the injected
+ * {@link RosterAssertionProvider}) as a `Bearer` token.
  *
- * NOTE (cross-repo dependency): the account endpoint must authenticate the
- * INSTANCE/SITE (not an end user) and authorize it to read its bound workspace's
- * roster. Until that exists, `authorization` is unwired and the request is
- * unauthenticated — the sync is built against the documented contract and mocked
- * in tests. Throws on any non-OK / network error, AND on a malformed-but-200 body
- * (Sasha INFO-1), so the syncer keeps last-good and records the failure.
+ * The account endpoint authenticates the INSTANCE/SITE (not an end user) and
+ * authorizes it to read its bound workspace's roster: the assertion is an Ed25519
+ * signature by the site's private key, verified against the Site row's registered
+ * public key (see `signRosterAssertion` in `@book.dev/sdk`). The signing happens in
+ * the keychain-holding layer (the provider), so the raw key never reaches here.
+ *
+ * With no provider (today's default) the request is unauthenticated — inert until
+ * an instance is bound + the desktop keychain wiring lands. Throws on any non-OK /
+ * network error, AND on a malformed-but-200 body (Sasha INFO-1), so the syncer
+ * keeps last-good and records the failure; a provider that throws routes through
+ * the same fail-safe (it never downgrades to an unauthenticated request).
  */
 export function httpRosterFetcher(opts: {
   fetchImpl?: typeof fetch;
-  /** Supplies the instance credential (forwarding/site or device token), if any. */
-  authorization?: () => Promise<string | null> | string | null;
+  /**
+   * Mints a fresh signed roster assertion for the workspace (the keychain layer).
+   * Absent / returns null ⇒ no auth header. A throw → fail-safe (last-good kept).
+   */
+  assertionProvider?: RosterAssertionProvider;
 } = {}): RosterFetcher {
   const fetchImpl = opts.fetchImpl ?? fetch;
   return async (binding, signal) => {
-    const url = `${binding.accountBaseUrl}/api/workspaces/${encodeURIComponent(binding.workspaceId)}/members`;
-    const token = await opts.authorization?.();
+    const url = `${binding.accountBaseUrl}/api/workspaces/${encodeURIComponent(binding.workspaceId)}/roster`;
+    const token = await opts.assertionProvider?.(binding.workspaceId);
     const headers: Record<string, string> = {Accept: 'application/json'};
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetchImpl(url, {headers, signal});

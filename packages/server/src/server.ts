@@ -8,7 +8,7 @@ import {BookMirror} from './mirror';
 import {AiService} from './ai/service';
 import {IdentityService} from './instanceConfig';
 import {BackupScheduler} from './backups';
-import {RosterSyncer, httpRosterFetcher} from './rosterSync';
+import {RosterSyncer, httpRosterFetcher, type RosterAssertionProvider} from './rosterSync';
 import {writeFileSync, rmSync, unlinkSync} from 'node:fs';
 import {createServer} from 'node:http';
 import path from 'node:path';
@@ -77,13 +77,27 @@ export interface StartOptions {
    */
   accessToken?: string;
   /**
-   * Managed-workspace roster sync (OB-199). When this instance is bound to an
-   * account workspace ({@link InstanceConfig.workspaceBinding}), the credential it
-   * presents to read the workspace roster (a forwarding/site or device bearer
-   * token). Supplied OUT-OF-BAND (never persisted in policy); also read from
-   * `OPENBOOK_WORKSPACE_SYNC_TOKEN`. Absent ⇒ the request is unauthenticated (the
-   * account-side per-instance auth endpoint is a pending cross-repo dependency,
-   * OB-199). The sync is inert unless a binding is configured.
+   * Managed-workspace roster sync (OB-199). Mints a FRESH signed roster assertion
+   * per fetch for the bound workspace's `GET /api/workspaces/:id/roster` call. The
+   * signing happens HERE in the provider (the keychain-holding layer), so the site
+   * private key never enters the data-server — the server only sees the resulting
+   * bearer string. Preferred over {@link workspaceSyncToken}.
+   *
+   * DEFERRED desktop wiring (OB-199 follow-up): the desktop runs the data-server as
+   * a separate sidecar process while the site key lives in the webview OS keychain,
+   * so the provider must round-trip over IPC — a Tauri command (`ipc.rs`) the
+   * sidecar's provider calls, handled in the webview by loading the keychain
+   * identity and calling `signRosterAssertion({privateKey, publicKey, workspaceId})`
+   * from `@book.dev/sdk` (see `ForwardingProvider`, which already holds
+   * `forwarding.keyStore`). Until that lands the provider is unset ⇒ no auth header.
+   */
+  rosterAssertionProvider?: RosterAssertionProvider;
+  /**
+   * Legacy/back-compat: a STATIC out-of-band bearer for the roster fetch (a
+   * forwarding/site or device token), also read from `OPENBOOK_WORKSPACE_SYNC_TOKEN`.
+   * Superseded by {@link rosterAssertionProvider} (which is fresh per fetch); used
+   * only when no provider is supplied. Absent + no provider ⇒ the request is
+   * unauthenticated. The sync is inert unless a binding is configured.
    */
   workspaceSyncToken?: string;
 }
@@ -265,10 +279,15 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   // account workspace, periodically (+ on demand) pull that workspace's roster and
   // reconcile it into the local `members` table, so `members`-scope + admin/viewer
   // roles resolve for direct access too. Inert (a cheap config read) until a
-  // binding is configured. The credential is supplied out-of-band; `unref`'d.
+  // binding is configured. Auth: prefer the injected assertion provider (mints a
+  // fresh site-signed assertion per fetch in the keychain layer — the raw key never
+  // reaches here); else fall back to a static out-of-band bearer; else no header.
+  // `unref`'d.
   const syncToken = opts.workspaceSyncToken ?? process.env.OPENBOOK_WORKSPACE_SYNC_TOKEN;
+  const assertionProvider: RosterAssertionProvider | undefined =
+    opts.rosterAssertionProvider ?? (syncToken ? () => syncToken : undefined);
   const roster = new RosterSyncer(store, {
-    fetchRoster: httpRosterFetcher({authorization: syncToken ? () => syncToken : undefined}),
+    fetchRoster: httpRosterFetcher({assertionProvider}),
   });
   roster.start();
 

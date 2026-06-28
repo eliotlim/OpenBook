@@ -24,11 +24,15 @@ import {
   RosterSyncer,
   httpRosterFetcher,
   resolveDesiredRoster,
+  type RosterAssertionProvider,
   type RosterFetcher,
 } from './rosterSync';
 import {
   mintIdentityKeypair,
+  mintSiteKeypair,
   signIdentity,
+  signRosterAssertion,
+  verifyRosterAssertion,
   type IdentityClaims,
   type IdentityKeypair,
   type Jwks,
@@ -290,6 +294,29 @@ describe('robustness (OB-199 hardening)', () => {
     expect(status.lastSyncAt).toBeNull();
   });
 
+  it('a signer error keeps the last-good roster + records the failure (no widening)', async () => {
+    await bind();
+    next = {workspaceId: 'ws1', members: [{subject: sub('alice'), role: 'admin'}]};
+    await syncer().syncNow(); // seed last-good via the module mock fetcher
+    expect(await store.listMembers()).toHaveLength(1);
+
+    // The keychain-holding signer fails (e.g. locked) → the fetcher throws BEFORE
+    // any request, routing through run()'s fetch try/catch (fail-safe).
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({workspaceId: 'ws1', members: []}), {status: 200})) as unknown as typeof fetch;
+    const assertionProvider: RosterAssertionProvider = () => {
+      throw new Error('keychain locked');
+    };
+    const s = new RosterSyncer(store, {fetchRoster: httpRosterFetcher({fetchImpl, assertionProvider})});
+    await expect(s.syncNow()).rejects.toThrow('keychain locked');
+
+    // Last-good roster intact (never dropped, never widened); failure recorded.
+    expect(bySubject(await store.listMembers(), sub('alice'))).toMatchObject({role: 'admin'});
+    const status = await s.status();
+    expect(status.lastError).toContain('keychain locked');
+    expect(status.lastSyncAt).toBeNull();
+  });
+
   it('records a store-reconcile failure (Quinn #2) and leaves the roster intact', async () => {
     await bind();
     next = {workspaceId: 'ws1', members: [{subject: sub('alice'), role: 'admin'}]};
@@ -412,17 +439,76 @@ describe('resolveDesiredRoster (pure projection)', () => {
 describe('httpRosterFetcher', () => {
   const binding = {workspaceId: 'ws 1', accountBaseUrl: 'https://acct.test'};
 
-  it('GETs the workspace roster endpoint and presents the credential as a bearer', async () => {
+  it('GETs the /roster endpoint and presents the assertion as a bearer', async () => {
     let seen: {url: string; auth: string | null} | null = null;
     const fetchImpl = (async (url: string, init?: RequestInit) => {
       seen = {url, auth: new Headers(init?.headers).get('Authorization')};
       return new Response(JSON.stringify({workspaceId: 'ws 1', members: []}), {status: 200});
     }) as unknown as typeof fetch;
-    const fetcher = httpRosterFetcher({fetchImpl, authorization: () => 'tok-123'});
+    const fetcher = httpRosterFetcher({fetchImpl, assertionProvider: () => 'tok-123'});
     const roster = await fetcher(binding);
     expect(roster.members).toEqual([]);
-    expect(seen!.url).toBe('https://acct.test/api/workspaces/ws%201/members'); // workspaceId encoded
+    expect(seen!.url).toBe('https://acct.test/api/workspaces/ws%201/roster'); // workspaceId encoded
     expect(seen!.auth).toBe('Bearer tok-123');
+  });
+
+  it('passes the workspaceId to the assertion provider', async () => {
+    let askedFor: string | null = null;
+    const fetchImpl = (async () =>
+      new Response(JSON.stringify({workspaceId: 'ws 1', members: []}), {status: 200})) as unknown as typeof fetch;
+    const assertionProvider: RosterAssertionProvider = (workspaceId) => {
+      askedFor = workspaceId;
+      return 'tok';
+    };
+    await httpRosterFetcher({fetchImpl, assertionProvider})(binding);
+    expect(askedFor).toBe('ws 1'); // the raw (un-encoded) bound id
+  });
+
+  it('mints a FRESH assertion per fetch (provider invoked every call)', async () => {
+    let calls = 0;
+    const seen: (string | null)[] = [];
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers).get('Authorization'));
+      return new Response(JSON.stringify({workspaceId: 'ws 1', members: []}), {status: 200});
+    }) as unknown as typeof fetch;
+    const fetcher = httpRosterFetcher({fetchImpl, assertionProvider: () => `tok-${++calls}`});
+    await fetcher(binding);
+    await fetcher(binding);
+    expect(calls).toBe(2);
+    expect(seen).toEqual(['Bearer tok-1', 'Bearer tok-2']); // distinct, fresh per fetch
+  });
+
+  it('sends NO auth header when no provider is wired (today\'s inert default)', async () => {
+    let auth: string | null = 'sentinel';
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      auth = new Headers(init?.headers).get('Authorization');
+      return new Response(JSON.stringify({workspaceId: 'ws 1', members: []}), {status: 200});
+    }) as unknown as typeof fetch;
+    await httpRosterFetcher({fetchImpl})(binding);
+    expect(auth).toBeNull();
+  });
+
+  it('a null assertion (no identity yet) sends no auth header', async () => {
+    let auth: string | null = 'sentinel';
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      auth = new Headers(init?.headers).get('Authorization');
+      return new Response(JSON.stringify({workspaceId: 'ws 1', members: []}), {status: 200});
+    }) as unknown as typeof fetch;
+    await httpRosterFetcher({fetchImpl, assertionProvider: () => null})(binding);
+    expect(auth).toBeNull();
+  });
+
+  it('a signer that THROWS fails the fetch BEFORE any request (fail-safe, never unauthenticated)', async () => {
+    let fetched = false;
+    const fetchImpl = (async () => {
+      fetched = true;
+      return new Response(JSON.stringify({workspaceId: 'ws 1', members: []}), {status: 200});
+    }) as unknown as typeof fetch;
+    const assertionProvider: RosterAssertionProvider = () => {
+      throw new Error('keychain locked');
+    };
+    await expect(httpRosterFetcher({fetchImpl, assertionProvider})(binding)).rejects.toThrow('keychain locked');
+    expect(fetched).toBe(false); // no request went out — never downgrades to unauthenticated
   });
 
   it('throws on a non-OK response (so the syncer keeps last-good)', async () => {
@@ -466,6 +552,82 @@ describe('httpRosterFetcher', () => {
       {subject: 'iss#a', role: 'admin'},
       {email: 'b@x.test', role: 'viewer'},
     ]);
+  });
+});
+
+// ── The roster assertion (OB-199 wiring): the site-signed bearer the fetcher ───
+//     presents. Signing uses a REAL site keypair (the desktop keychain layer); the
+//     data-server only ever sees the opaque bearer string.
+describe('signRosterAssertion / verifyRosterAssertion (SDK contract)', () => {
+  const workspaceId = 'ws-xyz';
+  let kp: Awaited<ReturnType<typeof mintSiteKeypair>>;
+
+  beforeEach(async () => {
+    kp = await mintSiteKeypair();
+  });
+
+  /** Decode the base64url payload half WITHOUT the verifier, to assert raw shape. */
+  const decodePayload = (assertion: string): Record<string, unknown> => {
+    const b64 = assertion.split('.')[0].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+  };
+
+  it('frames the bearer as base64url(payload).base64url(sig) with the contract payload', async () => {
+    const before = Date.now();
+    const assertion = await signRosterAssertion({privateKey: kp.privateKey, publicKey: kp.publicKey, workspaceId});
+    const after = Date.now();
+    const parts = assertion.split('.');
+    expect(parts).toHaveLength(2); // exactly two base64url segments
+    expect(parts.every((p) => /^[A-Za-z0-9_-]+$/.test(p))).toBe(true);
+    const payload = decodePayload(assertion);
+    expect(payload).toMatchObject({v: 'openbook.roster.v1', pub: kp.publicKey, workspaceId});
+    expect(payload.ts).toBeGreaterThanOrEqual(before); // ts stamped at sign time
+    expect(payload.ts).toBeLessThanOrEqual(after);
+  });
+
+  it('round-trips: verifies against the site public key', async () => {
+    const assertion = await signRosterAssertion({privateKey: kp.privateKey, publicKey: kp.publicKey, workspaceId});
+    expect(await verifyRosterAssertion({assertion, publicKey: kp.publicKey, workspaceId})).toMatchObject({
+      v: 'openbook.roster.v1',
+      pub: kp.publicKey,
+      workspaceId,
+    });
+  });
+
+  it('stamps a FRESH ts per call', async () => {
+    const a = await signRosterAssertion({privateKey: kp.privateKey, publicKey: kp.publicKey, workspaceId, now: () => 1_000});
+    const b = await signRosterAssertion({privateKey: kp.privateKey, publicKey: kp.publicKey, workspaceId, now: () => 2_000});
+    expect(decodePayload(a).ts).toBe(1_000);
+    expect(decodePayload(b).ts).toBe(2_000);
+    expect(a).not.toBe(b);
+  });
+
+  it('verify rejects a wrong workspace, wrong key, tampered sig, or stale ts (→ null)', async () => {
+    const at = 10_000;
+    const assertion = await signRosterAssertion({privateKey: kp.privateKey, publicKey: kp.publicKey, workspaceId, now: () => at});
+    const other = await mintSiteKeypair();
+    expect(await verifyRosterAssertion({assertion, publicKey: kp.publicKey, workspaceId: 'other-ws', now: at})).toBeNull();
+    expect(await verifyRosterAssertion({assertion, publicKey: other.publicKey, workspaceId, now: at})).toBeNull();
+    // Tamper the signature half (flip the first base64url char).
+    const [b64, sig] = assertion.split('.');
+    const tampered = `${b64}.${(sig[0] === 'A' ? 'B' : 'A')}${sig.slice(1)}`;
+    expect(await verifyRosterAssertion({assertion: tampered, publicKey: kp.publicKey, workspaceId, now: at})).toBeNull();
+    // Stale (outside the ±5min window) vs. fresh (inside).
+    expect(await verifyRosterAssertion({assertion, publicKey: kp.publicKey, workspaceId, now: at + 6 * 60 * 1000})).toBeNull();
+    expect(await verifyRosterAssertion({assertion, publicKey: kp.publicKey, workspaceId, now: at})).not.toBeNull();
+  });
+
+  it('a real signed assertion flows through httpRosterFetcher and verifies (end-to-end)', async () => {
+    let bearer: string | null = null;
+    const fetchImpl = (async (_url: string, init?: RequestInit) => {
+      bearer = new Headers(init?.headers).get('Authorization')?.replace(/^Bearer /, '') ?? null;
+      return new Response(JSON.stringify({workspaceId, members: []}), {status: 200});
+    }) as unknown as typeof fetch;
+    const assertionProvider: RosterAssertionProvider = (ws) =>
+      signRosterAssertion({privateKey: kp.privateKey, publicKey: kp.publicKey, workspaceId: ws});
+    await httpRosterFetcher({fetchImpl, assertionProvider})({workspaceId, accountBaseUrl: 'https://acct.test'});
+    expect(bearer).not.toBeNull();
+    expect(await verifyRosterAssertion({assertion: bearer!, publicKey: kp.publicKey, workspaceId})).toMatchObject({workspaceId});
   });
 });
 

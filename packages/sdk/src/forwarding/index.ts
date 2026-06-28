@@ -11,6 +11,15 @@ export {ForwardingClient, MemoryKeyStore, type KeyStore, type SiteIdentity, type
 export {TunnelClient, type TunnelStatus, type TunnelClientOptions} from './tunnelClient';
 export {mintSiteKeypair, signWithSiteKey, verifyWithSiteKey, type SiteKeypair} from './siteKey';
 export {
+  signRosterAssertion,
+  verifyRosterAssertion,
+  ROSTER_ASSERTION_VERSION,
+  ROSTER_ASSERTION_SKEW_MS,
+  type RosterAssertionPayload,
+  type SignRosterAssertionInput,
+  type VerifyRosterAssertionInput,
+} from './rosterAssertion';
+export {
   buildAttachMessage,
   buildReattachMessage,
   buildRelayAttachMessage,
