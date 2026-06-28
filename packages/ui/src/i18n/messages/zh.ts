@@ -568,6 +568,35 @@ export const zh: PartialMessages = {
       title: '登录与邮箱',
       description: '邮箱和第三方登录（Google、GitHub、Apple）将随账户一起推出。目前还没有可登录的对象。',
     },
+    switcher: {
+      heading: '账户',
+      activeAccount: '当前账户',
+      active: '使用中',
+      syncing: '同步中…',
+      error: '需要处理',
+      dormant: '已登录',
+      switchTo: '切换到 {name}',
+      addAnother: '添加另一个账户',
+      removeAccount: '从此设备移除 {name}',
+      removeConfirmTitle: '移除 {name}？',
+      removeConfirmBody:
+        '这只会在此设备上忘记 {name}——随时重新登录即可恢复。你的其他账户和本地数据不受影响。',
+      signOutActiveHint:
+        '退出登录会在此设备上忘记当前账户；你的其他账户仍保持登录。若要彻底吊销某台设备，请在账户面板中将其移除。',
+    },
+    error: {
+      rejected: '此次登录被拒绝。请重试。',
+      rejectedReauth: '此次登录被拒绝。请重新登录。',
+      unreachable: '无法连接 account.book.pub。请检查你的网络连接。',
+      syncFailed: '同步失败——将在下次更改时重试。',
+      invalidCode: '这看起来不是有效的代码。请粘贴浏览器中的代码（或完整的 openbook:// 链接）。',
+    },
+    nudge: {
+      title: '同步并发布',
+      body: '免费注册即可让你的偏好设置和工作区在多设备间保持同步——随后即可将你的作品发布到网络上。本地优先仍是默认。',
+      cta: '免费开始',
+      dismiss: '关闭',
+    },
     support: {
       title: '支持 OpenBook',
       description: 'OpenBook 是独立的开源项目。分享它并提供反馈有助于它成长。赞助方式即将推出。',

@@ -869,6 +869,35 @@ export const en = {
       manualPlaceholder: 'Paste your code or openbook://auth-callback#token=… link',
       manualSubmit: 'Sign in with code',
     },
+    switcher: {
+      heading: 'Accounts',
+      activeAccount: 'Active account',
+      active: 'Active',
+      syncing: 'Syncing…',
+      error: 'Needs attention',
+      dormant: 'Signed in',
+      switchTo: 'Switch to {name}',
+      addAnother: 'Add another account',
+      removeAccount: 'Remove {name} from this device',
+      removeConfirmTitle: 'Remove {name}?',
+      removeConfirmBody:
+        'This forgets {name} on this device only — sign in again any time to restore it. Your other accounts and your local data are untouched.',
+      signOutActiveHint:
+        'Sign out forgets the active account on this device; your other accounts stay signed in. To fully revoke a device, remove it in your account dashboard.',
+    },
+    error: {
+      rejected: 'That sign-in was rejected. Please try again.',
+      rejectedReauth: 'That sign-in was rejected. Please sign in again.',
+      unreachable: 'Could not reach account.book.pub. Check your connection.',
+      syncFailed: 'Sync failed — will retry on the next change.',
+      invalidCode: 'That doesn’t look like a valid code. Paste the code (or the whole openbook:// link) from the browser.',
+    },
+    nudge: {
+      title: 'Sync and publish',
+      body: 'Sign up free to keep your preferences and workspaces in sync across devices — then publish your work to the web. Local-first stays the default.',
+      cta: 'Get started free',
+      dismiss: 'Dismiss',
+    },
     support: {
       title: 'Support OpenBook',
       description: 'OpenBook is independent and open source. Sharing it and sending feedback helps it grow. Sponsorship options are on the way.',

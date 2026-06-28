@@ -10,6 +10,7 @@ import {
 import {usePlatformLibrary, type AccountSecretStore} from './PlatformLibraryProvider';
 import {usePreferences, type Preferences} from './PreferencesProvider';
 import {useWorkspace, type Workspace} from './WorkspaceProvider';
+import {t} from '@/i18n';
 
 /**
  * Signs the app in to account.book.pub via the deep-link flow and keeps the
@@ -588,11 +589,11 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
         if (err instanceof AccountError && err.status === 401) {
           // Token rejected/revoked — forget this account.
           setStatus('error');
-          setError('That sign-in was rejected. Please sign in again.');
+          setError(t('account.error.rejectedReauth'));
           await forgetRef.current(id);
         } else {
           setStatus('error');
-          setError('Could not reach account.book.pub. Check your connection.');
+          setError(t('account.error.unreachable'));
         }
       } finally {
         activatingDepth.current = Math.max(0, activatingDepth.current - 1);
@@ -649,11 +650,11 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
         if (err instanceof AccountError && err.status === 401) {
           clearIdentity();
           setStatus('error');
-          setError('That sign-in was rejected. Please try again.');
+          setError(t('account.error.rejected'));
         } else {
           // Keep the existing active connection on a transient network error.
           setStatus(activeIdRef.current ? 'connected' : 'disconnected');
-          setError('Could not reach account.book.pub. Check your connection.');
+          setError(t('account.error.unreachable'));
         }
       } finally {
         activatingDepth.current = Math.max(0, activatingDepth.current - 1);
@@ -804,7 +805,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
         })
         .catch(() => {
           setStatus('error');
-          setError('Sync failed — will retry on the next change.');
+          setError(t('account.error.syncFailed'));
         });
     }, 1200);
     return () => clearTimeout(id);
@@ -841,7 +842,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       const tok = extractToken(raw);
       if (!tok) {
         setStatus((s) => (token ? s : 'error'));
-        setError('That doesn’t look like a valid code. Paste the code (or the whole openbook:// link) from the browser.');
+        setError(t('account.error.invalidCode'));
         return;
       }
       pendingState.current = null;

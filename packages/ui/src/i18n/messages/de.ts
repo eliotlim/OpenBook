@@ -569,6 +569,35 @@ export const de: PartialMessages = {
       title: 'Anmeldung & E-Mail',
       description: 'E-Mail und verbundene Anmeldung (Google, GitHub, Apple) kommen mit den Konten. Es gibt noch nichts, wo man sich anmelden könnte.',
     },
+    switcher: {
+      heading: 'Konten',
+      activeAccount: 'Aktives Konto',
+      active: 'Aktiv',
+      syncing: 'Wird synchronisiert…',
+      error: 'Aktion erforderlich',
+      dormant: 'Angemeldet',
+      switchTo: 'Zu {name} wechseln',
+      addAnother: 'Weiteres Konto hinzufügen',
+      removeAccount: '{name} von diesem Gerät entfernen',
+      removeConfirmTitle: '{name} entfernen?',
+      removeConfirmBody:
+        'Damit wird {name} nur auf diesem Gerät vergessen – melde dich jederzeit wieder an, um es wiederherzustellen. Deine anderen Konten und lokalen Daten bleiben unberührt.',
+      signOutActiveHint:
+        'Beim Abmelden wird das aktive Konto auf diesem Gerät vergessen; deine anderen Konten bleiben angemeldet. Um ein Gerät vollständig zu widerrufen, entferne es im Konto-Dashboard.',
+    },
+    error: {
+      rejected: 'Diese Anmeldung wurde abgelehnt. Bitte versuche es erneut.',
+      rejectedReauth: 'Diese Anmeldung wurde abgelehnt. Bitte melde dich erneut an.',
+      unreachable: 'account.book.pub war nicht erreichbar. Prüfe deine Verbindung.',
+      syncFailed: 'Synchronisierung fehlgeschlagen – wird bei der nächsten Änderung erneut versucht.',
+      invalidCode: 'Das sieht nicht nach einem gültigen Code aus. Füge den Code (oder den ganzen openbook://-Link) aus dem Browser ein.',
+    },
+    nudge: {
+      title: 'Synchronisieren und veröffentlichen',
+      body: 'Registriere dich kostenlos, damit deine Einstellungen und Arbeitsbereiche geräteübergreifend synchron bleiben – danach kannst du deine Arbeit im Web veröffentlichen. Local-First bleibt Standard.',
+      cta: 'Kostenlos starten',
+      dismiss: 'Schließen',
+    },
     support: {
       title: 'OpenBook unterstützen',
       description: 'OpenBook ist unabhängig und quelloffen. Es zu teilen und Feedback zu senden hilft beim Wachsen. Sponsoring-Optionen sind in Arbeit.',

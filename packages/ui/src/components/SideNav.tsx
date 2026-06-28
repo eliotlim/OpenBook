@@ -9,6 +9,7 @@ import FavoritesNav from '@/components/FavoritesNav';
 import {SuggestedNav} from '@/components/SidebarSections';
 import WorkspaceNavigationTree from '@/components/WorkspaceNavigationTree';
 import CommandToggle from '@/components/CommandToggle';
+import OnboardingNudge from '@/components/OnboardingNudge';
 
 export default function SideNav() {
   const {hud} = useHud();
@@ -39,6 +40,7 @@ export default function SideNav() {
         <div className="mt-1 min-h-0 flex-1 overflow-hidden border-t border-border/40">
           <WorkspaceNavigationTree />
         </div>
+        <OnboardingNudge />
         <div className="flex items-center border-t border-border/60 px-2 py-1.5">
           <ProfileMenu />
         </div>

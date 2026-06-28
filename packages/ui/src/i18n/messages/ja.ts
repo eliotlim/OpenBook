@@ -569,6 +569,35 @@ export const ja: PartialMessages = {
       title: 'サインインとメール',
       description: 'メールと連携サインイン（Google、GitHub、Apple）はアカウントとともに登場します。まだサインインできる先はありません。',
     },
+    switcher: {
+      heading: 'アカウント',
+      activeAccount: '使用中のアカウント',
+      active: '使用中',
+      syncing: '同期中…',
+      error: '対応が必要',
+      dormant: 'サインイン済み',
+      switchTo: '{name} に切り替える',
+      addAnother: '別のアカウントを追加',
+      removeAccount: '{name} をこの端末から削除',
+      removeConfirmTitle: '{name} を削除しますか？',
+      removeConfirmBody:
+        'この端末から {name} を解除するだけです。いつでも再度サインインすれば復元できます。他のアカウントやローカルデータには影響しません。',
+      signOutActiveHint:
+        'サインアウトすると、この端末で使用中のアカウントが解除されます。他のアカウントはサインインしたままです。端末を完全に無効化するには、アカウントのダッシュボードから削除してください。',
+    },
+    error: {
+      rejected: 'サインインが拒否されました。もう一度お試しください。',
+      rejectedReauth: 'サインインが拒否されました。もう一度サインインしてください。',
+      unreachable: 'account.book.pub に接続できませんでした。接続を確認してください。',
+      syncFailed: '同期に失敗しました。次の変更時に再試行します。',
+      invalidCode: '有効なコードではないようです。ブラウザからコード（または openbook:// リンク全体）を貼り付けてください。',
+    },
+    nudge: {
+      title: '同期して公開',
+      body: '無料で登録すると、設定とワークスペースを端末間で同期できます。そのうえで、作品をウェブに公開できます。ローカルファーストが既定のままです。',
+      cta: '無料で始める',
+      dismiss: '閉じる',
+    },
     support: {
       title: 'OpenBook を支援',
       description: 'OpenBook は独立したオープンソースです。共有やフィードバックが成長を助けます。スポンサーの仕組みも準備中です。',
