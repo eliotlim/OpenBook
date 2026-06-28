@@ -178,6 +178,26 @@ const PAGE_COLUMNS =
 const PAGE_FROM = 'pages p LEFT JOIN databases d ON d.page_id = p.id';
 
 /**
+ * Stable content hash of an import bundle (ER-6). Re-applying a byte-identical
+ * bundle yields the same key, so the second apply short-circuits to the recorded
+ * result instead of duplicating the whole workspace. Pages/databases are sorted by
+ * id first so a reordered-but-identical bundle still matches; a genuinely distinct
+ * bundle hashes differently and imports normally. SHA-256 (no collision-overwrite
+ * risk across distinct bundles); runs in Node ≥ 19 and the browser PGlite home via
+ * `globalThis.crypto.subtle`.
+ */
+async function bundleKey(req: ImportRequest): Promise<string> {
+  const byId = <T extends {id: string}>(a: T, b: T): number => a.id.localeCompare(b.id);
+  const canonical = JSON.stringify({
+    mode: req.mode ?? 'copy',
+    pages: [...req.pages].sort(byId),
+    databases: [...req.databases].sort(byId),
+  });
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
  * The one and only OpenBook storage implementation: pages in Postgres. The
  * embedded (desktop) and remote (server) modes differ only in the {@link Db}
  * backend passed in.
@@ -310,24 +330,71 @@ export class PageStore {
    * by id, replacing pages in place. Returns counts + the old→new id map.
    */
   async importBundle(req: ImportRequest): Promise<ImportResult> {
-    const result =
-      req.mode === 'overwrite'
-        ? await this.importOverwrite(req.pages, req.databases)
-        : await this.importCopy(req.pages, req.databases);
-    // OB-170: a page may carry verified per-block authorship from the instance
-    // it was authored on. Record that as a `synced` edit-log entry so the
-    // original author — not the importer — is credited on this instance.
-    await this.recordSyncedAttribution(req.pages, result.idMap);
-    return result;
+    // ER-6: re-applying the SAME bundle must be a no-op. `copy` mode re-IDs +
+    // INSERTs the whole bundle as fresh pages on every call and the route appends
+    // a `space.import` edit each time, so an idempotent re-apply (a future
+    // workspace-sync/restore daemon re-POSTing its bundle — the OB-241 shape one
+    // level up) would otherwise duplicate the entire workspace and grow the edit
+    // log unbounded.
+    //
+    // The whole import runs in ONE transaction that CLAIMS the bundle's content
+    // hash FIRST. A separate `SELECT … then import` is a check-then-act race: two
+    // overlapping imports of the same bundle would both see no prior row and both
+    // apply (copy mode re-IDs, so there's no page-level conflict to stop the
+    // second) → the workspace is duplicated. Claiming the key up front closes that:
+    //  - winner: its `INSERT … RETURNING` yields the key → it imports, then writes
+    //    the real result into the claimed row before commit.
+    //  - loser: `ON CONFLICT DO NOTHING` yields no row → it re-reads the committed
+    //    result and returns a no-op `deduped`. On PGlite the mutex serializes whole
+    //    transactions; on real Postgres the unique-index lock on `import_log.key`
+    //    makes the loser block on the winner, then dedupe. A genuinely *distinct*
+    //    bundle hashes differently and imports normally.
+    const key = await bundleKey(req);
+    return this.db.begin(async (tx) => {
+      const claim = await tx.query<{key: string}>(
+        `INSERT INTO import_log (key, result) VALUES ($1, '{}'::jsonb)
+         ON CONFLICT (key) DO NOTHING RETURNING key`,
+        [key],
+      );
+      if (claim.length === 0) {
+        const prior = await tx.query<{result: ImportResult | string}>('SELECT result FROM import_log WHERE key = $1', [key]);
+        const recorded = parseJson<ImportResult>(prior[0]?.result, {created: 0, overwritten: 0, renamed: 0, idMap: {}});
+        return {...recorded, deduped: true};
+      }
+      const result =
+        req.mode === 'overwrite'
+          ? await this.importOverwriteTx(tx, req.pages, req.databases)
+          : await this.importCopyTx(tx, req.pages, req.databases);
+      // OB-170: a page may carry verified per-block authorship from the instance it
+      // was authored on. Credit that as a `synced` edit-log entry — in the SAME
+      // transaction so a crash can't leave the claimed key committed without its
+      // attribution (which a later re-apply would then skip as `deduped`, losing it).
+      await this.recordSyncedAttributionTx(tx, req.pages, result.idMap);
+      await tx.query('UPDATE import_log SET result = $2::jsonb WHERE key = $1', [key, JSON.stringify(result)]);
+      return result;
+    });
   }
 
-  /** Credit the carried verified author of each imported page (OB-170). */
-  private async recordSyncedAttribution(pages: StoredPage[], idMap: Record<string, string>): Promise<void> {
+  /** Credit the carried verified author of each imported page (OB-170), on the
+   *  import transaction so attribution commits atomically with the pages. */
+  private async recordSyncedAttributionTx(tx: Db, pages: StoredPage[], idMap: Record<string, string>): Promise<void> {
     for (const p of pages) {
       const subject = latestSnapshotAuthor(p.data);
       if (!subject) continue;
-      await this.logEdit({
-        pageId: idMap[p.id] ?? p.id,
+      const pageId = idMap[p.id] ?? p.id;
+      // ER-6: skip when an identical `page.synced` credit already exists for this
+      // (page, subject). The bundle-level content hash already makes re-applying
+      // the same bundle a no-op; this is the second line of defence so that
+      // re-importing *overlapping* pages by id (overwrite mode, or a partly-changed
+      // re-export) can't pile up duplicate attribution rows for the same author.
+      const seen = await tx.query<{id: string}>(
+        `SELECT id FROM edit_log
+         WHERE page_id = $1 AND author_subject = $2 AND kind = 'page.synced' LIMIT 1`,
+        [pageId, subject],
+      );
+      if (seen.length > 0) continue;
+      await this.logEditOn(tx, {
+        pageId,
         author: {
           kind: 'user',
           subject,
@@ -341,82 +408,78 @@ export class PageStore {
     }
   }
 
-  private async importCopy(pages: StoredPage[], databases: StoredDatabase[]): Promise<ImportResult> {
+  private async importCopyTx(tx: Db, pages: StoredPage[], databases: StoredDatabase[]): Promise<ImportResult> {
     const {pages: rp, databases: rd, idMap} = remapBundle(pages, databases, randomUUID);
     let renamed = 0;
-    await this.db.begin(async (tx) => {
-      const taken = new Set<string>();
-      const names = new Map<string, string | null>();
-      for (const p of rp) {
-        if (!p.name) {
-          names.set(p.id, null);
-          continue;
-        }
-        const free = await freeName(tx, p.name, taken, 'imported');
-        if (free !== p.name) renamed += 1;
-        taken.add(free);
-        names.set(p.id, free);
+    const taken = new Set<string>();
+    const names = new Map<string, string | null>();
+    for (const p of rp) {
+      if (!p.name) {
+        names.set(p.id, null);
+        continue;
       }
-      // Insert pages first (parent_id/database_id deferred so the FKs resolve).
-      let i = 0;
-      for (const p of rp) {
-        await tx.query(
-          `INSERT INTO pages (id, name, data, properties, position, created_at, updated_at)
-           VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, now())`,
-          [p.id, names.get(p.id) ?? null, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), 1_000_000 + i, p.createdAt],
-        );
-        i += 1;
+      const free = await freeName(tx, p.name, taken, 'imported');
+      if (free !== p.name) renamed += 1;
+      taken.add(free);
+      names.set(p.id, free);
+    }
+    // Insert pages first (parent_id/database_id deferred so the FKs resolve).
+    let i = 0;
+    for (const p of rp) {
+      await tx.query(
+        `INSERT INTO pages (id, name, data, properties, position, created_at, updated_at)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, now())`,
+        [p.id, names.get(p.id) ?? null, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), 1_000_000 + i, p.createdAt],
+      );
+      i += 1;
+    }
+    for (const d of rd) {
+      await tx.query(
+        'INSERT INTO databases (id, page_id, name, schema, updated_at) VALUES ($1, $2, $3, $4::jsonb, now())',
+        [d.id, d.pageId, d.name, JSON.stringify(d.schema)],
+      );
+    }
+    for (const p of rp) {
+      if (p.parentId || p.databaseId) {
+        await tx.query('UPDATE pages SET parent_id = $2, database_id = $3 WHERE id = $1', [p.id, p.parentId, p.databaseId]);
       }
-      for (const d of rd) {
-        await tx.query(
-          'INSERT INTO databases (id, page_id, name, schema, updated_at) VALUES ($1, $2, $3, $4::jsonb, now())',
-          [d.id, d.pageId, d.name, JSON.stringify(d.schema)],
-        );
-      }
-      for (const p of rp) {
-        if (p.parentId || p.databaseId) {
-          await tx.query('UPDATE pages SET parent_id = $2, database_id = $3 WHERE id = $1', [p.id, p.parentId, p.databaseId]);
-        }
-      }
-    });
+    }
     return {created: rp.length, overwritten: 0, renamed, idMap};
   }
 
-  private async importOverwrite(pages: StoredPage[], databases: StoredDatabase[]): Promise<ImportResult> {
+  private async importOverwriteTx(tx: Db, pages: StoredPage[], databases: StoredDatabase[]): Promise<ImportResult> {
     let created = 0;
     let overwritten = 0;
     const idMap: Record<string, string> = {};
-    await this.db.begin(async (tx) => {
-      const taken = new Set<string>();
-      for (const p of pages) {
-        idMap[p.id] = p.id;
-        const existing = await tx.query<{id: string}>('SELECT id FROM pages WHERE id = $1', [p.id]);
-        if (existing.length > 0) overwritten += 1;
-        else created += 1;
-        // Keep the page's own name; suffix only if a *different* live page holds it.
-        const name = p.name ? await freeName(tx, p.name, taken, 'imported', p.id) : null;
-        if (name) taken.add(name);
-        await tx.query(
-          `INSERT INTO pages (id, name, data, properties, created_at, updated_at)
-           VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, now())
-           ON CONFLICT (id) DO UPDATE SET
-             name = EXCLUDED.name, data = EXCLUDED.data, properties = EXCLUDED.properties,
-             deleted_at = NULL, updated_at = now()`,
-          [p.id, name, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), p.createdAt],
-        );
-      }
-      for (const d of databases) {
-        await tx.query(
-          `INSERT INTO databases (id, page_id, name, schema, updated_at)
-           VALUES ($1, $2, $3, $4::jsonb, now())
-           ON CONFLICT (id) DO UPDATE SET page_id = EXCLUDED.page_id, name = EXCLUDED.name, schema = EXCLUDED.schema, updated_at = now()`,
-          [d.id, d.pageId, d.name, JSON.stringify(d.schema)],
-        );
-      }
-      for (const p of pages) {
-        await tx.query('UPDATE pages SET parent_id = $2, database_id = $3 WHERE id = $1', [p.id, p.parentId, p.databaseId]);
-      }
-    });
+    const taken = new Set<string>();
+    for (const p of pages) {
+      idMap[p.id] = p.id;
+      const existing = await tx.query<{id: string}>('SELECT id FROM pages WHERE id = $1', [p.id]);
+      if (existing.length > 0) overwritten += 1;
+      else created += 1;
+      // Keep the page's own name; suffix only if a *different* live page holds it.
+      const name = p.name ? await freeName(tx, p.name, taken, 'imported', p.id) : null;
+      if (name) taken.add(name);
+      await tx.query(
+        `INSERT INTO pages (id, name, data, properties, created_at, updated_at)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, now())
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name, data = EXCLUDED.data, properties = EXCLUDED.properties,
+           deleted_at = NULL, updated_at = now()`,
+        [p.id, name, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), p.createdAt],
+      );
+    }
+    for (const d of databases) {
+      await tx.query(
+        `INSERT INTO databases (id, page_id, name, schema, updated_at)
+         VALUES ($1, $2, $3, $4::jsonb, now())
+         ON CONFLICT (id) DO UPDATE SET page_id = EXCLUDED.page_id, name = EXCLUDED.name, schema = EXCLUDED.schema, updated_at = now()`,
+        [d.id, d.pageId, d.name, JSON.stringify(d.schema)],
+      );
+    }
+    for (const p of pages) {
+      await tx.query('UPDATE pages SET parent_id = $2, database_id = $3 WHERE id = $1', [p.id, p.parentId, p.databaseId]);
+    }
     return {created, overwritten, renamed: 0, idMap};
   }
 
@@ -563,9 +626,62 @@ export class PageStore {
    * `database_id` and manual `properties` are owned by the database row APIs.
    * On update only `name`/`data` change, so a routine content save never
    * clobbers a page's parent, database membership, or properties.
+   *
+   * ER-7: a keyless create (no `id`) mints a fresh UUID each call, so a retried/
+   * replayed create POST would otherwise duplicate the page (the client-side OB-241
+   * analogue). When the caller carries an `idempotencyKey`, the create is deduped
+   * PER-PRINCIPAL — a replay with the same (principal, key) returns the page the
+   * first call minted. The key is *claimed* before the page is written (an `INSERT
+   * … ON CONFLICT DO NOTHING` on the per-principal PK) so even on a non-serialized
+   * backend two racing replays can't both create a page. Scoping the claim to the
+   * resolved principal subject means one principal's key can never collide with or
+   * overwrite another's write.
+   *
+   * The per-principal guarantee rests on subject UNIQUENESS — verified jws users
+   * (`iss#sub`) and the local owner (`local:owner`). When there is no resolved
+   * principal subject we skip the claim entirely and fall through to a normal
+   * (non-idempotent) create, rather than key on a shared sentinel that would let
+   * unrelated keyless callers collide. (Anonymous guests share one subject and are
+   * the write-excluded class under a locked instance, so they're not relied on here.)
    */
   async upsertPage(input: PageInput, author?: Principal): Promise<StoredPage> {
+    const clientKey = input.idempotencyKey?.trim();
+    const subject = author?.subject;
+    if (!input.id && clientKey && subject) {
+      return this.db.begin(async (tx) => {
+        const newId = randomUUID();
+        const claim = await tx.query<{page_id: string}>(
+          `INSERT INTO write_keys (author_subject, client_key, page_id)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (author_subject, client_key) DO NOTHING
+           RETURNING page_id`,
+          [subject, clientKey, newId],
+        );
+        // The key was already claimed by an earlier create from THIS principal →
+        // this is a replay. Return the page that create minted (whatever its
+        // current state), so the replay never produces a second page.
+        if (claim.length === 0) {
+          const keyed = await tx.query<{page_id: string}>(
+            'SELECT page_id FROM write_keys WHERE author_subject = $1 AND client_key = $2',
+            [subject, clientKey],
+          );
+          const keyedId = keyed[0]?.page_id ?? newId;
+          const rows = await tx.query<PageRow>(`SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.id = $1`, [keyedId]);
+          if (rows.length > 0) return pageFromRow(rows[0]);
+          // The keyed page was hard-purged — re-create it under its recorded id so
+          // the key stays consistent across any further replays (rare edge).
+          return this.upsertPageTx(tx, keyedId, input, author);
+        }
+        return this.upsertPageTx(tx, newId, input, author);
+      });
+    }
     const id = input.id ?? randomUUID();
+    return this.db.begin((tx) => this.upsertPageTx(tx, id, input, author));
+  }
+
+  /** The page upsert body, run on a caller-supplied transaction so the ER-7 key
+   *  claim and the page write commit atomically. */
+  private async upsertPageTx(tx: Db, id: string, input: PageInput, author?: Principal): Promise<StoredPage> {
     // Stamp per-block mtimes relative to the page's prior content so an
     // unchanged block keeps its timestamp and a changed one is restamped — the
     // change signal the disk mirror, watcher, and conflict resolver read. The
@@ -573,47 +689,45 @@ export class PageStore {
     // concurrent save can't race the stamp. The same prior read also stamps
     // per-block verified authorship (OB-170), so attribution travels with the
     // snapshot through any later sync.
-    return this.db.begin(async (tx) => {
-      const prior = await tx.query<PageRow>('SELECT data FROM pages WHERE id = $1', [id]);
-      const priorData = prior.length > 0 ? parseSnapshot(prior[0].data) : null;
-      const stamped = stampSnapshotMtimes(priorData, input.data ?? EMPTY_SNAPSHOT, new Date().toISOString());
-      const data = stampSnapshotAuthors(priorData, stamped, verifiedSubject(author));
-      const rows = await tx.query<PageRow>(
-        // A new page is appended to the bottom of its sibling group (one past the
-        // current max position). Like `parent_id`, `position` is set only on
-        // insert — a routine content save (ON CONFLICT) never reorders the page.
-        //
-        // The `WHERE` on DO UPDATE skips a no-op save: when the (re-stamped) name
-        // and data are unchanged, re-saving would only leak a dead MVCC tuple —
-        // pure bloat on PGlite, which has no autovacuum (OB-164). `IS DISTINCT
-        // FROM` compares the *normalized* jsonb value, so a different key order or
-        // whitespace alone doesn't count as a change. A skipped update also leaves
-        // `updated_at` untouched, so the mirror/watcher don't see a phantom edit.
-        `INSERT INTO pages (id, name, data, parent_id, position, updated_at)
-         VALUES ($1, $2, $3::jsonb, $4,
-           (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NOT DISTINCT FROM $4),
-           now())
-         ON CONFLICT (id) DO UPDATE
-           SET name = EXCLUDED.name,
-               data = EXCLUDED.data,
-               updated_at = now()
-           WHERE pages.data IS DISTINCT FROM EXCLUDED.data
-              OR pages.name IS DISTINCT FROM EXCLUDED.name
-         RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
-           (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
-        [id, input.name ?? null, JSON.stringify(data), input.parentId ?? null],
+    const prior = await tx.query<PageRow>('SELECT data FROM pages WHERE id = $1', [id]);
+    const priorData = prior.length > 0 ? parseSnapshot(prior[0].data) : null;
+    const stamped = stampSnapshotMtimes(priorData, input.data ?? EMPTY_SNAPSHOT, new Date().toISOString());
+    const data = stampSnapshotAuthors(priorData, stamped, verifiedSubject(author));
+    const rows = await tx.query<PageRow>(
+      // A new page is appended to the bottom of its sibling group (one past the
+      // current max position). Like `parent_id`, `position` is set only on
+      // insert — a routine content save (ON CONFLICT) never reorders the page.
+      //
+      // The `WHERE` on DO UPDATE skips a no-op save: when the (re-stamped) name
+      // and data are unchanged, re-saving would only leak a dead MVCC tuple —
+      // pure bloat on PGlite, which has no autovacuum (OB-164). `IS DISTINCT
+      // FROM` compares the *normalized* jsonb value, so a different key order or
+      // whitespace alone doesn't count as a change. A skipped update also leaves
+      // `updated_at` untouched, so the mirror/watcher don't see a phantom edit.
+      `INSERT INTO pages (id, name, data, parent_id, position, updated_at)
+       VALUES ($1, $2, $3::jsonb, $4,
+         (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NOT DISTINCT FROM $4),
+         now())
+       ON CONFLICT (id) DO UPDATE
+         SET name = EXCLUDED.name,
+             data = EXCLUDED.data,
+             updated_at = now()
+         WHERE pages.data IS DISTINCT FROM EXCLUDED.data
+            OR pages.name IS DISTINCT FROM EXCLUDED.name
+       RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
+         (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
+      [id, input.name ?? null, JSON.stringify(data), input.parentId ?? null],
+    );
+    // Empty result ⇒ the no-op `WHERE` skipped the write; the stored row is
+    // already current, so return it unchanged.
+    if (rows.length === 0) {
+      const existing = await tx.query<PageRow>(
+        `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.id = $1`,
+        [id],
       );
-      // Empty result ⇒ the no-op `WHERE` skipped the write; the stored row is
-      // already current, so return it unchanged.
-      if (rows.length === 0) {
-        const existing = await tx.query<PageRow>(
-          `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.id = $1`,
-          [id],
-        );
-        return pageFromRow(existing[0]);
-      }
-      return pageFromRow(rows[0]);
-    });
+      return pageFromRow(existing[0]);
+    }
+    return pageFromRow(rows[0]);
   }
 
   /**
@@ -1176,8 +1290,18 @@ export class PageStore {
    * after the mutation commits, so a lost log row never costs data.
    */
   async logEdit(entry: {pageId: string | null; author: Principal; kind: string; summary?: string}): Promise<void> {
+    await this.logEditOn(this.db, entry);
+  }
+
+  /** Append one edit-log row on a caller-supplied {@link Db} — the store's
+   *  connection (best-effort, post-commit) or an open transaction (e.g. import
+   *  attribution, where it must commit atomically with the pages). */
+  private async logEditOn(
+    db: Db,
+    entry: {pageId: string | null; author: Principal; kind: string; summary?: string},
+  ): Promise<void> {
     const a = entry.author;
-    await this.db.query(
+    await db.query(
       `INSERT INTO edit_log
          (id, page_id, author_subject, author_issuer, author_name, verified_via, kind, assertion_kid, assertion_jti, summary)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
@@ -1212,6 +1336,30 @@ export class PageStore {
       [Math.trunc(retentionMs)],
     );
     return rows.length;
+  }
+
+  /**
+   * Prune the idempotency ledgers (ER-6 `import_log`, ER-7 `write_keys`) older than
+   * `retentionMs` — the same periodic sweep as the edit log, for the same reason
+   * (bound growth on the autovacuum-less embedded store, OB-164). `retentionMs`
+   * doubles as the dedup window: once a key is pruned, re-applying its bundle /
+   * replaying its create is treated as new. `<= 0` keeps the ledgers forever (no-op).
+   * Returns the number of rows pruned across both tables.
+   */
+  async purgeOldIdempotencyKeys(retentionMs: number): Promise<number> {
+    if (!(retentionMs > 0)) return 0;
+    const ms = Math.trunc(retentionMs);
+    const imports = await this.db.query<{key: string}>(
+      `DELETE FROM import_log
+       WHERE created_at <= now() - ($1::bigint * interval '1 millisecond') RETURNING key`,
+      [ms],
+    );
+    const writes = await this.db.query<{page_id: string}>(
+      `DELETE FROM write_keys
+       WHERE created_at <= now() - ($1::bigint * interval '1 millisecond') RETURNING page_id`,
+      [ms],
+    );
+    return imports.length + writes.length;
   }
 
   /** Read the edit log — a single page's history, or the whole instance's,

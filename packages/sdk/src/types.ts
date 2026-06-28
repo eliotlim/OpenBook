@@ -113,6 +113,15 @@ export interface PageInput {
    * created; a later content save with the same id leaves the parent untouched.
    */
   parentId?: string | null;
+  /**
+   * Optional client idempotency key for the **create** path (no `id`). A retried/
+   * replayed keyless create carrying the same key returns the page the first call
+   * minted instead of a duplicate (ER-7). Ignored when `id` is present (an id-bearing
+   * upsert is already idempotent via the store's `ON CONFLICT` no-op). Scoped to the
+   * server-resolved principal, so one user's key never collides with another's. Not
+   * persisted on the page — it only keys the dedup ledger.
+   */
+  idempotencyKey?: string;
 }
 
 /**
