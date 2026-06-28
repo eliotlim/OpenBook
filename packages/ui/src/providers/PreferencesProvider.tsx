@@ -36,7 +36,21 @@ export const DEFAULT_PREFERENCES: Preferences = {
 };
 
 /** A nested partial — every key optional, recursively — for `update(patch)`. */
-type DeepPartial<T> = {[K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K]};
+export type DeepPartial<T> = {[K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K]};
+
+/**
+ * Shallow-merge a `patch` per section (one level of nesting) over `base`. The single
+ * normalization `update` applies — exported so the account-sync layer can predict the
+ * exact post-merge {profile,general,features} shape it will produce, and record that
+ * (not the raw server blob) as its no-op baseline (ER-9).
+ */
+export function mergePreferences(base: Preferences, patch: DeepPartial<Preferences>): Preferences {
+  return {
+    profile: {...base.profile, ...patch.profile},
+    general: {...base.general, ...patch.general},
+    features: {...base.features, ...patch.features} as Record<string, FeatureVisibility>,
+  };
+}
 
 interface PreferencesContextValue {
   preferences: Preferences;
@@ -96,11 +110,7 @@ export const PreferencesProvider: React.FC<React.PropsWithChildren<unknown>> = (
 
   const update = useCallback((patch: DeepPartial<Preferences>) => {
     setPreferences((prev) => {
-      const next: Preferences = {
-        profile: {...prev.profile, ...patch.profile},
-        general: {...prev.general, ...patch.general},
-        features: {...prev.features, ...patch.features} as Record<string, FeatureVisibility>,
-      };
+      const next = mergePreferences(prev, patch);
       try {
         localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(next));
       } catch {

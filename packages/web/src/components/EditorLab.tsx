@@ -38,10 +38,17 @@ export default function EditorLab() {
 
   useEffect(() => {
     let saveTimer: ReturnType<typeof setTimeout> | null = null;
+    let lastSaved: string | null = null;
     const onUpdate = (): void => {
       if (saveTimer) clearTimeout(saveTimer);
       saveTimer = setTimeout(() => {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(encodeBlockDoc(doc)));
+        // No-op skip (ER-9), mirroring BlockPageDocument: an undo/redo round-trip
+        // re-fires `update` with byte-identical content, so re-serializing the same
+        // snapshot back to localStorage is wasted work (lab page only).
+        const serialized = JSON.stringify(encodeBlockDoc(doc));
+        if (serialized === lastSaved) return;
+        lastSaved = serialized;
+        localStorage.setItem(STORAGE_KEY, serialized);
       }, 400);
     };
     doc.on('update', onUpdate);

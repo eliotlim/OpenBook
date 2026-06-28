@@ -9,7 +9,7 @@ import {
   setIdentityToken,
 } from '@book.dev/sdk';
 import {usePlatformLibrary, type AccountSecretStore} from './PlatformLibraryProvider';
-import {usePreferences, type Preferences} from './PreferencesProvider';
+import {usePreferences, mergePreferences, type Preferences, type DeepPartial} from './PreferencesProvider';
 import {useWorkspace, type Workspace} from './WorkspaceProvider';
 import {t} from '@/i18n';
 
@@ -436,13 +436,28 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
 
   /** Adopt a pulled blob into the live providers. */
   const adopt = useCallback(
-    (settings: Record<string, unknown>) => {
+    (settings: Record<string, unknown>): SyncBlob => {
+      // Apply the server settings AND return the exact local {preferences, workspaces}
+      // shape they normalize to, so the caller can record it as the sync baseline
+      // (ER-9). The debounced push compares JSON.stringify of the LOCAL state, which
+      // adopt re-keys through updatePreferences (always {profile,general,features}
+      // merged over current) + replaceWorkspaces (filters, guarantees a local
+      // workspace, may synth one with a RANDOM id) — so the raw server blob rarely
+      // byte-matches it. blobRef still holds the pre-adopt values here (the setStates
+      // below land on the next render), so derive the post-adopt blob from the same
+      // merge helper, and capture replaceWorkspaces' exact (non-deterministic) output
+      // from its return value rather than recomputing it.
+      let preferences = blobRef.current.preferences;
       if (settings.preferences && typeof settings.preferences === 'object') {
-        updatePreferences(settings.preferences as Partial<Preferences>);
+        const patch = settings.preferences as DeepPartial<Preferences>;
+        preferences = mergePreferences(preferences, patch);
+        updatePreferences(patch);
       }
+      let workspaces = blobRef.current.workspaces;
       if (Array.isArray(settings.workspaces)) {
-        replaceWorkspaces(settings.workspaces as Workspace[]);
+        workspaces = replaceWorkspaces(settings.workspaces as Workspace[]);
       }
+      return {preferences, workspaces};
     },
     [updatePreferences, replaceWorkspaces],
   );
@@ -472,8 +487,11 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
         lastSyncedBlob.current = JSON.stringify(currentBlob());
         return updatedAt;
       }
-      adopt(settings);
-      lastSyncedBlob.current = JSON.stringify(settings);
+      // Baseline against the LOCAL shape adopt just applied (its return value), not
+      // the raw server blob: adopt normalizes both sections, so the server JSON rarely
+      // byte-matches the push's local serialization — a stale baseline fired one
+      // redundant putSettings per activation (ER-9).
+      lastSyncedBlob.current = JSON.stringify(adopt(settings));
       return updatedAt;
     },
     [client, currentBlob, adopt],

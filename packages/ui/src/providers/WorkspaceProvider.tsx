@@ -37,8 +37,10 @@ export interface WorkspaceContext {
   /** Edit a workspace's name/icon/url in place. */
   updateWorkspace: (id: string, patch: Partial<Omit<Workspace, 'id'>>) => void;
   /** Replace the whole list (account sync adopting a synced list). Always keeps a
-   *  local workspace + the active server present, and never switches servers. */
-  replaceWorkspaces: (list: Workspace[]) => void;
+   *  local workspace + the active server present, and never switches servers. Returns
+   *  the normalized list it stored (it may filter/prepend/synthesize entries), so the
+   *  caller can record the exact result as a sync baseline (ER-9). */
+  replaceWorkspaces: (list: Workspace[]) => Workspace[];
 }
 
 const WORKSPACES_KEY = 'openbook.workspaces';
@@ -129,7 +131,7 @@ export const WorkspaceContext = createContext<WorkspaceContext>({
   addWorkspace: () => LOCAL_WORKSPACE,
   removeWorkspace: () => undefined,
   updateWorkspace: () => undefined,
-  replaceWorkspaces: () => undefined,
+  replaceWorkspaces: () => [],
 });
 
 export const useWorkspace = () => useContext(WorkspaceContext);
@@ -208,7 +210,7 @@ export const WorkspaceProvider: React.FC<PropsWithChildren<unknown>> = ({childre
     });
   }, []);
 
-  const replaceWorkspaces = useCallback((incoming: Workspace[]) => {
+  const replaceWorkspaces = useCallback((incoming: Workspace[]): Workspace[] => {
     let list = (Array.isArray(incoming) ? incoming : []).filter(isWorkspace);
     // Always keep a way back to the local server.
     if (!list.some((w) => w.serverUrl === null)) list = [LOCAL_WORKSPACE, ...list];
@@ -221,6 +223,9 @@ export const WorkspaceProvider: React.FC<PropsWithChildren<unknown>> = ({childre
     // Re-resolve which one is active by server (ids may differ across devices).
     setCurrentId(currentIdFor(list));
     writeWorkspaces(list);
+    // Return the stored list so account sync can baseline against the exact shape
+    // (incl. a synthesized override workspace's random id) the push will serialize.
+    return list;
   }, []);
 
   const value = useMemo<WorkspaceContext>(

@@ -764,7 +764,11 @@ export class PageStore {
 
       await tx.query('UPDATE pages SET parent_id = $2, updated_at = now() WHERE id = $1', [id, parentId]);
       for (let i = 0; i < orderedIds.length; i += 1) {
-        await tx.query('UPDATE pages SET position = $2 WHERE id = $1', [orderedIds[i], i]);
+        // No-op-skip (ER-9): only write rows whose position actually changes — the
+        // same `IS DISTINCT FROM` guard `upsertPage` uses — so a renumber that leaves
+        // most siblings put doesn't churn a dead MVCC tuple per row (PGlite has no
+        // autovacuum, OB-164).
+        await tx.query('UPDATE pages SET position = $2 WHERE id = $1 AND position IS DISTINCT FROM $2', [orderedIds[i], i]);
       }
       return true;
     });
@@ -1080,7 +1084,11 @@ export class PageStore {
   async reorderRows(databaseId: string, orderedIds: string[]): Promise<boolean> {
     await this.db.begin(async (tx) => {
       for (let i = 0; i < orderedIds.length; i += 1) {
-        await tx.query('UPDATE pages SET position = $3 WHERE id = $1 AND database_id = $2', [
+        // No-op-skip (ER-9): the `position IS DISTINCT FROM $3` guard (the pattern
+        // `upsertPage` uses) writes only rows that actually moved, so a reorder that
+        // leaves most rows in place doesn't leak a dead MVCC tuple per row (PGlite has
+        // no autovacuum, OB-164).
+        await tx.query('UPDATE pages SET position = $3 WHERE id = $1 AND database_id = $2 AND position IS DISTINCT FROM $3', [
           orderedIds[i],
           databaseId,
           i,
