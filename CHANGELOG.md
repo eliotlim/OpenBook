@@ -1,3 +1,18 @@
+## 1.64.0 (2026-06-28)
+
+### 🚀 Features
+
+- sharing & membership program — remaining issues (review by commits) ([#26](https://github.com/eliotlim/OpenBook/pull/26))
+
+### 🩹 Fixes
+
+- **release:** bundle Linux AppImage with the Bun sidecar (patch linuxdeploy GTK plugin) ([#27](https://github.com/eliotlim/OpenBook/pull/27), [#8604](https://github.com/eliotlim/OpenBook/issues/8604), [#147](https://github.com/eliotlim/OpenBook/issues/147))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim @eliotlim
+
 ## 1.63.0 (2026-06-28)
 
 ### 🚀 Features
