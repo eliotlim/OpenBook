@@ -75,8 +75,13 @@ jobs:
   #
   # `nx release` (fixed mode, see nx.json) bumps every package to the new
   # version, writes CHANGELOG.md, commits + tags `vX.Y.Z`, pushes both to main
-  # (commit message carries [skip ci]; a GITHUB_TOKEN push can't re-trigger CI
-  # anyway), and creates the GitHub release from the changelog. --skip-publish
+  # over SSH using DEPLOY_KEY (a write-enabled deploy key authenticates as a real
+  # actor, so the push clears branch-protection/ruleset restrictions the ephemeral
+  # GITHUB_TOKEN can't). The commit message carries [skip ci], now LOAD-BEARING:
+  # unlike a GITHUB_TOKEN push, a deploy-key push to main WOULD re-trigger this
+  # `on: push` workflow — [skip ci] is the only thing preventing a release loop,
+  # so nx release must keep stamping it. nx release still uses GITHUB_TOKEN for the
+  # GitHub Release API. --skip-publish
   # leaves the npm step to the `publish-npm` job below, which ships the two
   # public libraries (@book.dev/sdk + @book.dev/ui); the rest stay private.
   release:
@@ -93,6 +98,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # Push the version-bump commit + tag over SSH as a write-enabled deploy
+          # key (public half: Settings → Deploy keys, "Allow write access"; private
+          # half: the DEPLOY_KEY repo secret) instead of the ephemeral GITHUB_TOKEN.
+          # persist-credentials keeps the key wired up for nx release's `git push`.
+          # Pattern: opengovsg/FormSG#9661 + #9662.
+          ssh-key: ${{ secrets.DEPLOY_KEY }}
+          persist-credentials: true
           fetch-depth: 0
           ref: main # commit/tag land on the branch, not a detached HEAD
       - name: Setup pnpm
