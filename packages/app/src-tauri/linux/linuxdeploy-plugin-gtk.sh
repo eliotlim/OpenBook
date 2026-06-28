@@ -328,7 +328,11 @@ __ob_shelter_dir=""
 __ob_restore_sheltered() {
     [ -n "$__ob_shelter_dir" ] && [ -d "$__ob_shelter_dir" ] || return 0
     if [ -n "$(ls -A "$__ob_shelter_dir" 2>/dev/null)" ]; then
-        cp -a "$__ob_shelter_dir"/. "$APPDIR/usr/bin/" 2>/dev/null || true
+        # Non-fatal (we're in the EXIT trap) but make a failure LOUD: a silently
+        # dropped sidecar would otherwise ship a sidecar-less AppImage with a
+        # green build and no signal. Let cp's own stderr through (no swallow) and
+        # add an explicit warning.
+        cp -a "$__ob_shelter_dir"/. "$APPDIR/usr/bin/" || echo "OpenBook patch: WARNING — failed to restore sheltered binary(ies) into $APPDIR/usr/bin; the resulting AppImage may be MISSING its sidecar" >&2
     fi
     rm -rf "$__ob_shelter_dir"
 }
