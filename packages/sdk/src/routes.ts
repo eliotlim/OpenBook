@@ -122,6 +122,12 @@ export const API = {
    * write of the page itself (you manage sharing of pages you can write).
    */
   pageAcl: (id: string): string => `/api/pages/${encodeURIComponent(id)}/acl`,
+  /**
+   * A page's audience-scope visibility (OB-182 §1.1): `GET` returns
+   * `{visibility}` (read-gated); `PUT` `{visibility}` sets it (write-gated — same
+   * "you manage sharing of pages you can write" rule as the ACL).
+   */
+  pageVisibility: (id: string): string => `/api/pages/${encodeURIComponent(id)}/visibility`,
 
   // ── Scheduled backups — OB-166 ───────────────────────────────────────────────
   /** Scheduled-backup policy: `GET` returns {@link BackupStatus}; `PUT` updates

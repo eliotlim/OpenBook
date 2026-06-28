@@ -11,7 +11,7 @@ import type {
   AiStreamEvent,
   AiTasksResponse,
 } from './ai';
-import type {AclLevel, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, StoredPage} from './types';
+import type {AclLevel, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVisibility, StoredPage} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult} from './backup';
 import type {
@@ -176,6 +176,19 @@ export interface DataClient {
   setInstancePolicy(patch: Partial<InstanceConfig>): Promise<InstanceConfig>;
   /** A page's change provenance (the edit log), newest first. */
   listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]>;
+
+  // ── Sharing: per-page visibility scope + ACL (OB-182 §1.1; OB-191/203) ────────
+  /** A page's stored visibility scope (raw — `inherit` not yet resolved), or
+   *  `null` if the page does not exist. */
+  getPageVisibility(pageId: string): Promise<PageVisibility | null>;
+  /** Set a page's visibility scope (manager-only — gated on page write). */
+  setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility>;
+  /** A page's per-page ACL grants (manager-only — gated on page write). */
+  listPageAcl(pageId: string): Promise<PageAcl[]>;
+  /** Share a page with `invitee` (email or handle/subject) at `level`. */
+  sharePage(pageId: string, invitee: string, level?: AclLevel): Promise<PageAcl>;
+  /** Revoke a page ACL grant by subject XOR email. `true` if one was removed. */
+  unsharePage(pageId: string, key: {subject: string} | {email: string}): Promise<boolean>;
 
   // ── Scheduled backups (OB-166) ───────────────────────────────────────────────
   /** Scheduled-backup policy + per-cadence status. */
@@ -681,6 +694,19 @@ export class HttpDataClient implements DataClient {
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;
+  }
+
+  /** A page's stored visibility scope (raw — `inherit` not yet resolved), or
+   *  `null` if the page does not exist. Gated on read of the page. */
+  async getPageVisibility(pageId: string): Promise<PageVisibility | null> {
+    const {visibility} = await this.request<{visibility: PageVisibility}>('GET', API.pageVisibility(pageId));
+    return visibility;
+  }
+
+  /** Set a page's visibility scope. Gated on write of the page (manage = write). */
+  async setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility> {
+    const res = await this.request<{visibility: PageVisibility}>('PUT', API.pageVisibility(pageId), {visibility});
+    return res.visibility;
   }
 
   /** A page's per-page ACL grants (requires write on the page). */

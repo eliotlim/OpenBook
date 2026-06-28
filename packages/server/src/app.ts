@@ -4,6 +4,7 @@ import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
 import {
   API,
+  PAGE_VISIBILITIES,
   type AclLevel,
   type BackupCadence,
   type BackupConfig,
@@ -16,6 +17,7 @@ import {
   type MemberRole,
   type MemberStatus,
   type PageInput,
+  type PageVisibility,
   type Principal,
   type RowInput,
   type SuggestionInput,
@@ -339,12 +341,14 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // leaks private JWKS material — trusted issuers are returned as URLs only.
   app.get(API.instance, async (c) => {
     const config = await store.getInstanceConfig();
+    const principal = c.get('principal');
     const info: InstanceInfo = {
       guestAccess: config.guestAccess,
       ownerSubject: config.ownerSubject ?? null,
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience ?? null,
-      you: c.get('principal'),
+      you: principal,
+      youRole: await store.resolveMemberRole(principal, config),
     };
     return c.json(info);
   });
@@ -462,6 +466,29 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const removed = await store.removePageAcl(id, subject ? {subject} : {email: email as string});
     if (!removed) return c.json({error: 'acl grant not found'}, 404);
     return c.body(null, 204);
+  });
+
+  // A page's audience-scope visibility (OB-182 §1.1). Read is gated on reading the
+  // page (so a viewer can see "who can see this"); changing it is gated on write
+  // of the page — the same "you manage sharing of pages you can write" rule as the
+  // ACL. `requireAccess` 404s a page the caller can't even read (hide existence).
+  app.get(`${API.pages}/:id/visibility`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'read', id);
+    return c.json({visibility: (await store.getPageVisibility(id)) ?? 'inherit'});
+  });
+
+  app.put(`${API.pages}/:id/visibility`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'write', id);
+    const {visibility} = await c.req.json<{visibility?: PageVisibility}>();
+    if (!visibility || !PAGE_VISIBILITIES.includes(visibility)) {
+      return c.json({error: 'a valid visibility scope is required'}, 400);
+    }
+    const ok = await store.setPageVisibility(id, visibility);
+    if (!ok) return c.json({error: 'page not found'}, 404);
+    logEdit(c, id, 'page.visibility', visibility);
+    return c.json({visibility});
   });
 
   // A page's change provenance (the edit log), newest first. The top row is its

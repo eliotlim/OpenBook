@@ -8,7 +8,7 @@
 
 import {DEFAULT_ACCOUNT_URL} from './account';
 import type {Jwks, Principal, VerifiedVia} from './identity';
-import type {PageVisibility} from './types';
+import type {MemberRole, PageVisibility} from './types';
 
 /** What an unauthenticated (guest) caller may do on this instance. */
 export type GuestAccess =
@@ -90,6 +90,13 @@ export interface InstanceInfo {
   audience: string | null;
   /** Who the server resolved you to be on this request. */
   you: Principal;
+  /**
+   * Your active-persona roster role on this request (OB-182 §1.1), or `null` if
+   * you aren't an active member. Lets a client gate manager-only UI (the per-page
+   * Share dialog) without a per-page probe: `admin` (and the owner / loopback,
+   * derivable from {@link you} + {@link ownerSubject}) manage sharing.
+   */
+  youRole: MemberRole | null;
 }
 
 /** One recorded change — a row of the append-only edit log. */

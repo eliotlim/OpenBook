@@ -1,4 +1,5 @@
 import type {
+  AclLevel,
   AiConfig,
   AiSearchResponse,
   AiSkill,
@@ -16,9 +17,11 @@ import type {
   ImportResult,
   InstanceConfig,
   InstanceInfo,
+  PageAcl,
   PageInput,
   PageMeta,
   PageSubscription,
+  PageVisibility,
   PluginPackage,
   RowInput,
   RowUpdate,
@@ -35,6 +38,7 @@ import type {
 import {BACKUP_CADENCES, BACKUP_CADENCE_MS, localPrincipal} from '@book.dev/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
+import {resolveInvitee} from './invites';
 
 /**
  * A {@link DataClient} that talks to a {@link PageStore} directly, in the same
@@ -303,6 +307,9 @@ export class LocalDataClient implements DataClient {
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience ?? null,
       you: localPrincipal(),
+      // The in-webview caller is the implicit local owner, never a roster member;
+      // manage capability comes from the loopback-owner rung, not a role.
+      youRole: null,
     };
   }
 
@@ -312,6 +319,37 @@ export class LocalDataClient implements DataClient {
 
   listPageEdits(pageId: string, limit?: number): Promise<StoredEdit[]> {
     return this.store.listEdits(pageId, limit);
+  }
+
+  // ── Sharing: per-page visibility scope + ACL (OB-182 §1.1; OB-191/203) ────────
+  // The single-process owner manages everything; resolveInvitee normalizes the
+  // free email-or-handle string exactly as the HTTP route does.
+
+  async getPageVisibility(pageId: string): Promise<PageVisibility | null> {
+    return this.store.getPageVisibility(pageId);
+  }
+
+  async setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility> {
+    await this.store.setPageVisibility(pageId, visibility);
+    return visibility;
+  }
+
+  listPageAcl(pageId: string): Promise<PageAcl[]> {
+    return this.store.getPageAcl(pageId);
+  }
+
+  async sharePage(pageId: string, invitee: string, level: AclLevel = 'read'): Promise<PageAcl> {
+    const resolved = await resolveInvitee(invitee);
+    return this.store.setPageAcl(pageId, {
+      email: resolved.email ?? null,
+      subject: resolved.subject ?? null,
+      level,
+      invitedBy: localPrincipal().subject,
+    });
+  }
+
+  unsharePage(pageId: string, key: {subject: string} | {email: string}): Promise<boolean> {
+    return this.store.removePageAcl(pageId, key);
   }
 
   // ── Scheduled backups (OB-166) ───────────────────────────────────────────────

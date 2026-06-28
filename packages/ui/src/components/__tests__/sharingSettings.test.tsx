@@ -26,6 +26,7 @@ describe('SharingSection (guest access)', () => {
         trustedIssuers: [],
         audience: null,
         you: guestPrincipal('Caryl'),
+        youRole: null,
       }),
       setInstancePolicy: async () => ({guestAccess: 'write', trustedIssuers: []}),
     };
@@ -53,6 +54,7 @@ describe('SharingSection (guest access)', () => {
         trustedIssuers: [],
         audience: null,
         you: guestPrincipal('Dana'),
+        youRole: null,
       }),
       setInstancePolicy: async () => ({guestAccess: 'read', trustedIssuers: []}),
     };

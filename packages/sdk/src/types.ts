@@ -135,6 +135,16 @@ export type PageVisibility = 'inherit' | 'public' | 'authenticated' | 'members' 
 /** Alias for {@link PageVisibility} (the OB-188 directive's shorthand name). */
 export type Visibility = PageVisibility;
 
+/** Every {@link PageVisibility} value, in escalating-privacy order — the source of
+ *  truth for server-side validation and the share dialog's scope picker. */
+export const PAGE_VISIBILITIES: readonly PageVisibility[] = [
+  'inherit',
+  'public',
+  'authenticated',
+  'members',
+  'restricted',
+];
+
 /** The two OSS roster roles (OB-182): `admin` = full access, `viewer` = locked
  *  read-only. (Contract §1.1 names this union `Role`.) */
 export type MemberRole = 'admin' | 'viewer';
