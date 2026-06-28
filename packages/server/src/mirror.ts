@@ -10,7 +10,6 @@ import {
 import {existsSync, watch, type FSWatcher} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {randomUUID} from 'node:crypto';
-import {hostname} from 'node:os';
 import {
   bookHtmlToPage,
   contentHash,
@@ -20,6 +19,7 @@ import {
   type StoredDatabase,
   type StoredPage,
 } from '@book.dev/sdk';
+import {DirLock, DirLockedError, type DirLockInfo} from './dirLock';
 import type {PageStore} from './store';
 
 /** What the mirror last wrote for a page — drives dedup + own-write filtering. */
@@ -65,13 +65,6 @@ const STATE_FILE = '.openbook-mirror.json';
 const LOCK_FILE = '.openbook-mirror.lock';
 const MAX_DEPTH = 64;
 
-/** Persisted single-owner lock on a mirror directory. */
-interface MirrorLock {
-  pid: number;
-  host: string;
-  startedAt: string;
-}
-
 /**
  * Thrown by {@link BookMirror.create} when another **live** process already owns
  * the mirror directory (OB-241). A second `openbook-server` pointed at the same
@@ -79,11 +72,14 @@ interface MirrorLock {
  * would see the other's writes as external edits — a mutual DB-wins conflict war
  * that mints duplicate "(conflicted copy)" pages on both sides. The caller
  * (server bootstrap) catches this and simply runs without a mirror.
+ *
+ * Backed by the reusable {@link DirLock}; the mirror translates its
+ * {@link DirLockedError} into this type to preserve the public contract.
  */
 export class MirrorLockedError extends Error {
   constructor(
     readonly dir: string,
-    readonly holder: MirrorLock,
+    readonly holder: DirLockInfo,
   ) {
     super(`book mirror: ${dir} is already owned by pid ${holder.pid} on ${holder.host} (since ${holder.startedAt})`);
     this.name = 'MirrorLockedError';
@@ -220,7 +216,9 @@ export class BookMirror {
   private watchers: FSWatcher[] = [];
   private importTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closed = false;
-  private holdsLock = false;
+  /** True only during {@link close}'s authorized final drain (lets it bypass the closed-guard). */
+  private closing = false;
+  private lock: DirLock | null = null;
 
   // ── Write-amplification metrics + budget (ER-2) ──────────────────────────────
   /** Cumulative metrics (never reset); read via {@link metrics}. */
@@ -258,12 +256,24 @@ export class BookMirror {
     // Single-owner guard (OB-241): claim the directory before doing any work, so a
     // second process can't watch + write-through the same folder and war with us.
     await mirror.acquireLock();
-    await mirror.loadState();
-    // reconcile re-enqueues anything stale; flush drains both the reconciled set
-    // and any journal entries a prior crash left un-flushed.
-    await mirror.reconcileAll();
-    await mirror.flush();
-    if (mirror.doWatch) mirror.startWatch();
+    try {
+      await mirror.loadState();
+      // reconcile re-enqueues anything stale; flush drains both the reconciled set
+      // and any journal entries a prior crash left un-flushed.
+      await mirror.reconcileAll();
+      await mirror.flush();
+      if (mirror.doWatch) mirror.startWatch();
+    } catch (err) {
+      // A post-lock failure (e.g. a WriteBudgetError tripping during the bootstrap
+      // reconcile) must not strand the single-owner lock OR leave a timer armed:
+      // `reconcileAll` arms a debounced flush, so without teardown an orphaned
+      // flush would fire ~writeDebounceMs later and write-through with NO lock held.
+      // teardown() clears that timer (+ import timers + watchers) and marks closed;
+      // then release the lock so the caller can degrade to running without a mirror.
+      mirror.teardown();
+      await mirror.releaseLock();
+      throw err;
+    }
     return mirror;
   }
 
@@ -308,61 +318,37 @@ export class BookMirror {
   }
 
   /**
-   * Claim exclusive ownership of the mirror directory. Throws
-   * {@link MirrorLockedError} when another **live** process already holds it; a
-   * stale lock (the holder's pid is gone, or it's our own crashed prior instance)
-   * is taken over. The lock file name starts with `.` so the watcher ignores it.
+   * Claim exclusive ownership of the mirror directory via the reusable
+   * {@link DirLock}. Throws {@link MirrorLockedError} when another **live** process
+   * already holds it; a stale lock (the holder's pid is gone, or it's our own
+   * crashed prior instance) is taken over. The lock file name starts with `.` so
+   * the watcher ignores it. `DirLock` claims atomically (write-temp + `link`), so
+   * two simultaneous starts can't both win (TOCTOU closed).
    */
   private async acquireLock(): Promise<void> {
-    let prior: MirrorLock | null = null;
     try {
-      prior = JSON.parse(await readFile(this.lockPath, 'utf8')) as MirrorLock;
-    } catch {
-      prior = null; // no lock, or unreadable — free to claim.
-    }
-    if (prior && this.isLockLive(prior)) throw new MirrorLockedError(this.dir, prior);
-    await this.atomicWrite(
-      this.lockPath,
-      JSON.stringify({pid: process.pid, host: hostname(), startedAt: new Date().toISOString()} satisfies MirrorLock),
-    );
-    this.holdsLock = true;
-  }
-
-  /** Is a recorded lock held by a different, still-running process? */
-  private isLockLive(lock: MirrorLock): boolean {
-    if (typeof lock.pid !== 'number') return false; // malformed → ignore.
-    // A lock from another machine on a network-synced folder: we can't probe its
-    // liveness, so assume live to avoid a cross-host write war.
-    if (lock.host && lock.host !== hostname()) return true;
-    // Our own pid: a prior instance in this process crashed/was abandoned (e.g. a
-    // restart replay) — safe to take over.
-    if (lock.pid === process.pid) return false;
-    try {
-      process.kill(lock.pid, 0); // signal 0 only probes; doesn't kill.
-      return true; // the process exists.
+      this.lock = await DirLock.acquire(this.lockPath);
     } catch (err) {
-      // ESRCH → no such process (dead, take over); EPERM → alive but not ours.
-      return (err as NodeJS.ErrnoException).code === 'EPERM';
+      // Translate to the mirror's public error type (the bootstrap caller catches
+      // it to degrade to running without a mirror).
+      if (err instanceof DirLockedError) throw new MirrorLockedError(this.dir, err.holder);
+      throw err;
     }
   }
 
   private async releaseLock(): Promise<void> {
-    if (!this.holdsLock) return;
-    this.holdsLock = false;
-    try {
-      await rm(this.lockPath, {force: true});
-    } catch {
-      // Best-effort: a stale lock is re-evaluated by liveness on the next start.
-    }
+    await this.lock?.release();
+    this.lock = null;
   }
 
   // ── Write-amplification metrics + budget (ER-2) ──────────────────────────────
 
   /**
    * Cumulative disk-write metrics since this instance opened. Counted at the
-   * single chokepoint {@link atomicWrite}, so they cover page files, the state
-   * journal, and the lock. Used by the soak suite to assert constant
-   * amplification and a zero-write converged steady state.
+   * single chokepoint {@link atomicWrite}, so they cover page files and the state
+   * journal (the single-owner lock is claimed by {@link DirLock}, outside this
+   * chokepoint). Used by the soak suite to assert constant amplification and a
+   * zero-write converged steady state.
    */
   metrics(): MirrorMetrics {
     return {writeCount: this.writeCount, bytesWritten: this.bytesWritten, renameCount: this.renameCount};
@@ -438,7 +424,10 @@ export class BookMirror {
     if (this.flushTimer) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
-      void this.flush();
+      // A budget trip (ER-2) rejects this drain; on the timer-driven write-through
+      // path there is no awaiter, so catch-log it (like the import path) rather than
+      // let it surface as an unhandled promise rejection that could crash the host.
+      void this.flush().catch((err) => this.log(`book mirror: scheduled flush failed: ${String(err)}`));
     }, this.writeDebounceMs);
   }
 
@@ -453,6 +442,11 @@ export class BookMirror {
   }
 
   private async drain(): Promise<void> {
+    // Defense-in-depth (ER-5 review): once torn down, never touch disk again — an
+    // orphaned/stray flush (e.g. a timer that outlived a failed create()) must be a
+    // no-op rather than write-through with no lock held. close()'s own final drain
+    // sets `closing` to bypass this.
+    if (this.closed && !this.closing) return;
     // Process snapshots of the pending set until it's empty (new work can arrive
     // mid-drain). Each entry is cleared after its attempt — a transient failure
     // is recovered on the next reconcile (the DB is canonical), and a crash
@@ -499,6 +493,9 @@ export class BookMirror {
   }
 
   private async writePageFile(pageId: string): Promise<void> {
+    // Defense-in-depth (ER-5 review): never write a page after teardown — guards the
+    // same orphaned-flush window as drain(), at the single per-page write site.
+    if (this.closed && !this.closing) return;
     const page = await this.store.getPage(pageId);
     if (!page) {
       // Gone since enqueue — treat as a delete.
@@ -732,8 +729,14 @@ export class BookMirror {
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────────
 
-  /** Stop watching, drain all pending writes, and persist. Call on shutdown. */
-  async close(): Promise<void> {
+  /**
+   * Stop the mirror's background work: mark it closed (so no further enqueue or
+   * stray flush touches disk), cancel the debounced flush + every import timer, and
+   * detach all watchers. Shared by {@link close} and by {@link create}'s failure
+   * path, so a mirror that fails to open never leaves a timer armed to write-through
+   * with no lock held. Idempotent.
+   */
+  private teardown(): void {
     this.closed = true;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
@@ -743,9 +746,23 @@ export class BookMirror {
     this.importTimers.clear();
     for (const w of this.watchers) w.close();
     this.watchers = [];
-    await this.flush();
-    await this.statePersist;
-    await this.releaseLock();
+  }
+
+  /** Stop watching, drain all pending writes, and persist. Call on shutdown. */
+  async close(): Promise<void> {
+    // Flush-on-exit (OB-132): the final drain must run, so authorize it past the
+    // closed-guard via `closing` BEFORE teardown marks us closed. Always release the
+    // single-owner lock afterwards, even if that drain trips the write budget
+    // (ER-2/ER-5) — a corruption-class guard must never strand the lock.
+    this.closing = true;
+    this.teardown();
+    try {
+      await this.flush();
+      await this.statePersist;
+    } finally {
+      this.closing = false;
+      await this.releaseLock();
+    }
   }
 }
 

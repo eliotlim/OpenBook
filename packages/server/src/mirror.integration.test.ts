@@ -171,4 +171,29 @@ describe('desktop robustness acceptance (server + mirror)', () => {
     expect(file).toBeTruthy();
     expect(await readFile(file, 'utf8')).toContain('last edit before exit');
   });
+
+  it('degrades to run-without-mirror (does not crash startup) when the bootstrap reconcile trips the write budget (ER-5)', async () => {
+    cleanDirs();
+    // Phase 1: seed a page with the mirror healthy (no budget), then shut down.
+    server = await startServer({dataDir, bookDir, host: '127.0.0.1', port: PORT});
+    const seeded = await new HttpDataClient(server.url).savePage({name: 'Seed', data: snap('seed body')});
+    await server.close();
+    server = null;
+
+    // Phase 2: restart under a byte budget of 1 (set via the env the mirror reads).
+    // The awaited bootstrap create→reconcileAll→flush trips on the first page write;
+    // the server must catch WriteBudgetError and run without a mirror, NOT crash.
+    const prevBudget = process.env.OPENBOOK_WRITE_BUDGET;
+    process.env.OPENBOOK_WRITE_BUDGET = JSON.stringify({bytes: 1, intervalMs: 60_000});
+    try {
+      server = await startServer({dataDir, bookDir, host: '127.0.0.1', port: PORT});
+    } finally {
+      if (prevBudget === undefined) delete process.env.OPENBOOK_WRITE_BUDGET;
+      else process.env.OPENBOOK_WRITE_BUDGET = prevBudget;
+    }
+    // The server is up and serving despite the degraded mirror — the canonical store
+    // is unaffected.
+    const survivor = await new HttpDataClient(server.url).getPage(seeded.id);
+    expect(survivor?.name).toBe('Seed');
+  });
 });
