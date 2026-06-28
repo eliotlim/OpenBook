@@ -17,6 +17,9 @@ import type {
   ImportResult,
   InstanceConfig,
   InstanceInfo,
+  Member,
+  MemberRole,
+  MemberStatus,
   PageAcl,
   PageInput,
   PageMeta,
@@ -350,6 +353,37 @@ export class LocalDataClient implements DataClient {
 
   unsharePage(pageId: string, key: {subject: string} | {email: string}): Promise<boolean> {
     return this.store.removePageAcl(pageId, key);
+  }
+
+  // ── Sharing: the instance member roster (OB-191) ──────────────────────────────
+  // The single-process owner manages the roster directly; resolveInvitee
+  // normalizes the free email-or-handle string exactly as the HTTP route does.
+
+  listMembers(): Promise<Member[]> {
+    return this.store.listMembers();
+  }
+
+  async inviteMember(invitee: string, opts: {role?: MemberRole; status?: MemberStatus} = {}): Promise<Member> {
+    const resolved = await resolveInvitee(invitee);
+    // By-email ⇒ an unclaimed persona (default 'invited'); by-subject ⇒ active.
+    const status = opts.status ?? (resolved.email ? 'invited' : 'active');
+    return this.store.addMember({
+      email: resolved.email ?? null,
+      subject: resolved.subject ?? null,
+      role: opts.role ?? 'viewer',
+      status,
+      invitedBy: localPrincipal().subject,
+    });
+  }
+
+  async updateMember(id: string, patch: {role?: MemberRole; status?: MemberStatus}): Promise<Member> {
+    const member = await this.store.updateMember(id, patch);
+    if (!member) throw new Error('member not found');
+    return member;
+  }
+
+  removeMember(id: string): Promise<boolean> {
+    return this.store.removeMember(id);
   }
 
   // ── Scheduled backups (OB-166) ───────────────────────────────────────────────

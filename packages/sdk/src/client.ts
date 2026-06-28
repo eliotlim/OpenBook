@@ -189,6 +189,15 @@ export interface DataClient {
   sharePage(pageId: string, invitee: string, level?: AclLevel): Promise<PageAcl>;
   /** Revoke a page ACL grant by subject XOR email. `true` if one was removed. */
   unsharePage(pageId: string, key: {subject: string} | {email: string}): Promise<boolean>;
+  // ── Sharing: the instance member roster (OB-191; manager-only) ────────────────
+  /** The instance member roster. Manager-only (write at the instance default). */
+  listMembers(): Promise<Member[]>;
+  /** Invite by `invitee` — an email persona, or a handle/subject. */
+  inviteMember(invitee: string, opts?: {role?: MemberRole; status?: MemberStatus}): Promise<Member>;
+  /** Patch a roster row's role/status (change role, activate, suspend). */
+  updateMember(id: string, patch: {role?: MemberRole; status?: MemberStatus}): Promise<Member>;
+  /** Revoke a roster row by id. `true` if one was removed. */
+  removeMember(id: string): Promise<boolean>;
 
   // ── Scheduled backups (OB-166) ───────────────────────────────────────────────
   /** Scheduled-backup policy + per-cadence status. */

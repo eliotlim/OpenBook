@@ -10,7 +10,7 @@ import {
   HeartIcon,
   MixIcon,
 } from '@radix-ui/react-icons';
-import {ArchiveBoxIcon, CpuChipIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, WrenchIcon} from '@heroicons/react/24/outline';
+import {ArchiveBoxIcon, CpuChipIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, UserGroupIcon, WrenchIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
 import AppearanceSettings from '@/components/AppearanceSettings';
 import GeneralSettings from '@/components/GeneralSettings';
@@ -20,6 +20,7 @@ import ProfileSettings from '@/components/settings/ProfileSettings';
 import {ProfileAvatar} from '@/components/ProfileAvatar';
 import CustomisationSettings from '@/components/settings/CustomisationSettings';
 import ConnectionSettings from '@/components/settings/ConnectionSettings';
+import MembersSettings from '@/components/settings/MembersSettings';
 import AdminSettings from '@/components/settings/AdminSettings';
 import AccountSettings from '@/components/settings/AccountSettings';
 import {SignupSettings, SupportSettings, IntegrationsSettings} from '@/components/settings/stubs';
@@ -42,6 +43,7 @@ const TAB_META: Record<SettingsTab, {labelKey: TKey; icon: ComponentType<{classN
   signin: {labelKey: 'settings.tab.signin', icon: EnvelopeClosedIcon},
   support: {labelKey: 'settings.tab.support', icon: HeartIcon},
   connection: {labelKey: 'settings.tab.connection', icon: ServerStackIcon},
+  members: {labelKey: 'settings.tab.members', icon: UserGroupIcon},
   integrations: {labelKey: 'settings.tab.integrations', icon: MixIcon},
   extensions: {labelKey: 'settings.tab.extensions', icon: PuzzlePieceIcon},
   ai: {labelKey: 'settings.tab.ai', icon: CpuChipIcon},
@@ -64,6 +66,7 @@ const PANELS: Record<SettingsTab, ComponentType> = {
   signin: AccountSettings,
   support: SupportSettings,
   connection: ConnectionSettings,
+  members: MembersSettings,
   integrations: IntegrationsSettings,
   extensions: ExtensionsSettings,
   admin: AdminSettings,
