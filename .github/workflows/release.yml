@@ -336,10 +336,12 @@ jobs:
       # npm — upgrading it here is load-bearing. Node 24 (.nvmrc) ships npm 11.13
       # today, which already qualifies, but older 24.x point releases shipped
       # 11.3.0 (< 11.5.1), so pin the floor explicitly rather than trust the
-      # runner image.
+      # runner image. Bounded to ^11.5.1 (not @latest) so it auto-patches within
+      # 11.x but never silently jumps to a future npm major that could change
+      # OIDC/publish behaviour — same reasoning as pinning pnpm to 10.28.2.
       - name: Ensure npm >= 11.5.1 for OIDC trusted publishing
         run: |
-          npm install -g npm@latest
+          npm install -g npm@^11.5.1
           npm --version
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
