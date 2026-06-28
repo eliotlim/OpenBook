@@ -53,6 +53,12 @@ export interface BookMirrorOptions {
   importDebounceMs?: number;
   /** Watch the folder for external edits + re-import. Default true. */
   watch?: boolean;
+  /**
+   * Write-amplification guardrail (ER-2). Off unless set here or via the
+   * `OPENBOOK_WRITE_BUDGET` env flag (this option wins). A plain number is a
+   * writes-per-interval shorthand; see {@link WriteBudgetSpec}.
+   */
+  writeBudget?: WriteBudgetSpec | number;
 }
 
 const STATE_FILE = '.openbook-mirror.json';
@@ -82,6 +88,104 @@ export class MirrorLockedError extends Error {
     super(`book mirror: ${dir} is already owned by pid ${holder.pid} on ${holder.host} (since ${holder.startedAt})`);
     this.name = 'MirrorLockedError';
   }
+}
+
+/** Cumulative disk-write metrics, counted at the single chokepoint {@link BookMirror.atomicWrite}. */
+export interface MirrorMetrics {
+  /** Atomic file writes that reached disk (page files + state journal + lock). */
+  writeCount: number;
+  /** Total bytes written by those writes. */
+  bytesWritten: number;
+  /** `rename(tmp → final)` calls (one per successful atomic write). */
+  renameCount: number;
+}
+
+/**
+ * Write-amplification budget (OB-242 / ER-2). A guardrail for runaway disk churn
+ * — the kind the OB-241 conflict storm produced (10+ GB of duplicate writes).
+ * **Off by default**; only takes effect when {@link BookMirrorOptions.writeBudget}
+ * or the `OPENBOOK_WRITE_BUDGET` env flag is set. When a dimension is exceeded the
+ * mirror logs a warning **and throws** so the runaway surfaces loudly instead of
+ * silently burning disk.
+ */
+export interface WriteBudgetSpec {
+  /** Max atomic writes allowed per rolling interval. */
+  writes?: number;
+  /** Max bytes written per rolling interval. */
+  bytes?: number;
+  /** Max **brand-new** conflict copies for a single page id per copy window (ER-4). */
+  copies?: number;
+  /** Rolling window for `writes`/`bytes` (ms). Default 10_000. */
+  intervalMs?: number;
+  /** Rolling window for the per-page-id `copies` cap (ms). Default 10_000. */
+  copyWindowMs?: number;
+}
+
+/** Normalised budget with windows resolved — the in-memory form the guard reads. */
+interface ResolvedBudget {
+  writes: number | null;
+  bytes: number | null;
+  copies: number | null;
+  intervalMs: number;
+  copyWindowMs: number;
+}
+
+/** Thrown by the mirror when an active {@link WriteBudgetSpec} dimension is exceeded. */
+export class WriteBudgetError extends Error {
+  constructor(
+    readonly dimension: 'writes' | 'bytes' | 'copies',
+    readonly observed: number,
+    readonly limit: number,
+    readonly detail?: string,
+  ) {
+    super(
+      `book mirror: write budget exceeded — ${dimension} ${observed} > ${limit}` +
+        (detail ? ` (${detail})` : ''),
+    );
+    this.name = 'WriteBudgetError';
+  }
+}
+
+const DEFAULT_BUDGET_WINDOW_MS = 10_000;
+
+/**
+ * Parse a {@link WriteBudgetSpec} from an option object, a plain number (a bare
+ * writes-per-interval shorthand), or the `OPENBOOK_WRITE_BUDGET` env string
+ * (numeric or JSON). Returns `null` (the guard stays off) for an absent/blank or
+ * unparseable value — a malformed flag must never change behaviour, only warn.
+ */
+function parseWriteBudget(
+  raw: WriteBudgetSpec | number | string | undefined,
+  log: (msg: string) => void,
+): ResolvedBudget | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  let spec: WriteBudgetSpec | null = null;
+  if (typeof raw === 'number') spec = {writes: raw};
+  else if (typeof raw === 'object') spec = raw;
+  else {
+    const trimmed = raw.trim();
+    if (trimmed === '') return null;
+    if (/^\d+$/.test(trimmed)) spec = {writes: Number(trimmed)};
+    else {
+      try {
+        spec = JSON.parse(trimmed) as WriteBudgetSpec;
+      } catch {
+        log(`book mirror: ignoring unparseable OPENBOOK_WRITE_BUDGET=${raw}`);
+        return null;
+      }
+    }
+  }
+  const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
+  const resolved: ResolvedBudget = {
+    writes: num(spec.writes),
+    bytes: num(spec.bytes),
+    copies: num(spec.copies),
+    intervalMs: num(spec.intervalMs) ?? DEFAULT_BUDGET_WINDOW_MS,
+    copyWindowMs: num(spec.copyWindowMs) ?? DEFAULT_BUDGET_WINDOW_MS,
+  };
+  // Nothing actionable configured → leave the guard off.
+  if (resolved.writes === null && resolved.bytes === null && resolved.copies === null) return null;
+  return resolved;
 }
 
 /**
@@ -118,6 +222,18 @@ export class BookMirror {
   private closed = false;
   private holdsLock = false;
 
+  // ── Write-amplification metrics + budget (ER-2) ──────────────────────────────
+  /** Cumulative metrics (never reset); read via {@link metrics}. */
+  private writeCount = 0;
+  private bytesWritten = 0;
+  private renameCount = 0;
+  /** Active budget (null = off). Parsed once in {@link create}. */
+  private budget: ResolvedBudget | null = null;
+  /** Tumbling window for the writes/bytes budget. */
+  private window = {start: 0, writes: 0, bytes: 0};
+  /** Per-page-id rolling window for the conflict-copy cap (ER-4). */
+  private copyWindow = new Map<string, {start: number; count: number}>();
+
   private constructor(opts: BookMirrorOptions) {
     this.store = opts.store;
     this.dir = opts.dir;
@@ -135,6 +251,9 @@ export class BookMirror {
    */
   static async create(opts: BookMirrorOptions): Promise<BookMirror> {
     const mirror = new BookMirror(opts);
+    // Read the write-amplification budget once at open (option wins over env).
+    mirror.budget = parseWriteBudget(opts.writeBudget ?? process.env.OPENBOOK_WRITE_BUDGET, mirror.log);
+    mirror.window.start = Date.now();
     await mkdir(mirror.dir, {recursive: true});
     // Single-owner guard (OB-241): claim the directory before doing any work, so a
     // second process can't watch + write-through the same folder and war with us.
@@ -237,6 +356,66 @@ export class BookMirror {
     }
   }
 
+  // ── Write-amplification metrics + budget (ER-2) ──────────────────────────────
+
+  /**
+   * Cumulative disk-write metrics since this instance opened. Counted at the
+   * single chokepoint {@link atomicWrite}, so they cover page files, the state
+   * journal, and the lock. Used by the soak suite to assert constant
+   * amplification and a zero-write converged steady state.
+   */
+  metrics(): MirrorMetrics {
+    return {writeCount: this.writeCount, bytesWritten: this.bytesWritten, renameCount: this.renameCount};
+  }
+
+  /**
+   * Guard a pending write against the active budget **before** touching disk (so
+   * a trip never leaves a `.tmp` orphan). Advances the tumbling writes/bytes
+   * window and throws {@link WriteBudgetError} when a dimension is exceeded,
+   * after logging a warning. No-op when the budget is off.
+   */
+  private checkWriteBudget(bytes: number): void {
+    const b = this.budget;
+    if (!b || (b.writes === null && b.bytes === null)) return;
+    const now = Date.now();
+    if (now - this.window.start > b.intervalMs) this.window = {start: now, writes: 0, bytes: 0};
+    this.window.writes += 1;
+    this.window.bytes += bytes;
+    if (b.writes !== null && this.window.writes > b.writes) {
+      this.log(`book mirror: WRITE BUDGET TRIPPED — ${this.window.writes} writes in ${b.intervalMs}ms (limit ${b.writes})`);
+      throw new WriteBudgetError('writes', this.window.writes, b.writes, `${b.intervalMs}ms window`);
+    }
+    if (b.bytes !== null && this.window.bytes > b.bytes) {
+      this.log(`book mirror: WRITE BUDGET TRIPPED — ${this.window.bytes} bytes in ${b.intervalMs}ms (limit ${b.bytes})`);
+      throw new WriteBudgetError('bytes', this.window.bytes, b.bytes, `${b.intervalMs}ms window`);
+    }
+  }
+
+  /**
+   * Record a brand-new conflict copy minted for `pageId` and enforce the
+   * per-page-id copy cap (ER-4). One external divergence reuses its existing copy
+   * (no mint, no count), so this only grows for *distinct* divergent content;
+   * blowing the cap means a regression has re-opened the OB-241 storm. Warns then
+   * throws {@link WriteBudgetError}. No-op when the cap is off.
+   */
+  private recordConflictCopy(pageId: string): void {
+    const cap = this.budget?.copies ?? null;
+    if (cap === null) return;
+    const windowMs = this.budget!.copyWindowMs;
+    const now = Date.now();
+    const w = this.copyWindow.get(pageId);
+    if (!w || now - w.start > windowMs) {
+      this.copyWindow.set(pageId, {start: now, count: 1});
+      if (cap < 1) throw new WriteBudgetError('copies', 1, cap, `page ${pageId}`);
+      return;
+    }
+    w.count += 1;
+    if (w.count > cap) {
+      this.log(`book mirror: COPY BUDGET TRIPPED — ${w.count} conflict copies of ${pageId} in ${windowMs}ms (limit ${cap})`);
+      throw new WriteBudgetError('copies', w.count, cap, `page ${pageId}`);
+    }
+  }
+
   // ── Enqueue / flush ──────────────────────────────────────────────────────────
 
   /** Mark a page for (re)writing to disk. */
@@ -285,6 +464,12 @@ export class BookMirror {
           if (op === 'delete') await this.deletePageFile(pageId);
           else await this.writePageFile(pageId);
         } catch (err) {
+          // A tripped write budget (ER-2) is a deliberate circuit-breaker, not a
+          // transient per-page failure — surface it instead of logging on.
+          if (err instanceof WriteBudgetError) {
+            this.pending.delete(pageId);
+            throw err;
+          }
           this.log(`book mirror: failed to ${op} ${pageId}: ${String(err)}`);
         }
         this.pending.delete(pageId);
@@ -326,8 +511,31 @@ export class BookMirror {
     const hash = contentHash(html);
 
     const prior = this.index.get(pageId);
+    const moved = !!prior && prior.path !== rel;
     // A move/rename changes the path — remove the stale file first.
-    if (prior && prior.path !== rel) await this.removeRel(prior.path);
+    if (moved) await this.removeRel(prior!.path);
+
+    // No-op skip (ER-1): a converged steady state must do zero disk writes.
+    //  - rendered hash !== prior.hash → content changed: write (cheap path, no
+    //    extra read).
+    //  - rendered hash === prior.hash → the canonical bytes are unchanged, but we
+    //    must still confirm the FILE holds them before skipping. An external tool
+    //    can diverge the file while our rendered canonical hash is unchanged
+    //    (re-applying a stale-base edit); DB-wins requires we restore it, so the
+    //    skip is gated on the *actual* on-disk bytes, never index.hash alone.
+    if (!moved && prior && prior.hash === hash) {
+      let current: string | null = null;
+      try {
+        current = await readFile(abs, 'utf8');
+      } catch {
+        current = null; // missing/unreadable → fall through and (re)write.
+      }
+      if (current === html) {
+        // File already holds the canonical bytes — nothing to do.
+        if (this.doWatch) this.attachBookFolder(dirname(abs));
+        return;
+      }
+    }
 
     await mkdir(dirname(abs), {recursive: true});
     await this.atomicWrite(abs, html);
@@ -359,9 +567,16 @@ export class BookMirror {
   }
 
   private async atomicWrite(abs: string, content: string): Promise<void> {
+    // The single disk-write chokepoint (ER-2): budget-check first (so a trip
+    // never leaves a `.tmp` orphan), then count what actually reached disk.
+    const bytes = Buffer.byteLength(content, 'utf8');
+    this.checkWriteBudget(bytes);
     const tmp = `${abs}.${randomUUID()}.tmp`;
     await writeFile(tmp, content, 'utf8');
     await rename(tmp, abs); // atomic on the same filesystem
+    this.writeCount += 1;
+    this.bytesWritten += bytes;
+    this.renameCount += 1;
   }
 
   // ── Book path resolution ───────────────────────────────────────────────────────
@@ -493,8 +708,12 @@ export class BookMirror {
     const record = bookHtmlToPage(html);
     if (!record) return 'skipped';
 
+    const copiesBefore = this.store.copiesMinted;
     const result = await this.store.importBookPage({id: record.id, name: record.name, data: record.data}, meta.updatedAt);
     if (result.action !== 'unchanged') this.log(`re-imported ${rel}: ${result.action}`);
+    // A *brand-new* conflict copy (not an OB-241 reuse) counts against the
+    // per-page-id copy cap (ER-4) — the storm tripwire. Off unless a budget is set.
+    if (result.action === 'conflict' && this.store.copiesMinted > copiesBefore) this.recordConflictCopy(record.id);
     if (result.action === 'unchanged') {
       // Record the bytes so an identical re-fire is ignored, no DB write needed.
       this.index.set(record.id, {path: rel, hash: fileHash, updatedAt: meta.updatedAt});

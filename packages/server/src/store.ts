@@ -185,6 +185,18 @@ const PAGE_FROM = 'pages p LEFT JOIN databases d ON d.page_id = p.id';
 export class PageStore {
   constructor(private readonly db: Db) {}
 
+  /**
+   * Count of **brand-new** "(conflicted copy)" pages minted by
+   * {@link importBookPage} (ER-2 metric). The OB-241 idempotent-reuse branch does
+   * NOT increment this — only a genuinely distinct divergent edit does — so the
+   * mirror's per-page-id copy cap (ER-4) can detect a storm regression without
+   * being fooled by repeated re-applies of the same content.
+   */
+  private conflictCopiesMinted = 0;
+  get copiesMinted(): number {
+    return this.conflictCopiesMinted;
+  }
+
   /** Apply pending migrations. Idempotent. */
   async migrate(): Promise<void> {
     await runMigrations(this.db);
@@ -423,6 +435,13 @@ export class PageStore {
    *    so nothing is silently lost.
    *  - Otherwise (the file carries a newer/external edit, DB untouched since) →
    *    apply it to the existing page.
+   *
+   * **Convergence invariant (OB-241 / ER-4):** one external divergence ⇒ at most
+   * one conflict copy per (page-id, content). A cloud-sync daemon that re-applies
+   * the *same* stale-base file forever reuses its existing copy (idempotent), so
+   * the re-import loop settles; only a *distinct* divergent edit earns a new copy.
+   * {@link copiesMinted} counts just the new mints, and the mirror caps them per
+   * page-id within a window so a regression can't silently re-open the storm.
    */
   async importBookPage(
     record: {id: string; name: string | null; data: PageSnapshot},
@@ -497,7 +516,8 @@ export class PageStore {
       );
       if (existingCopy.length > 0) return {action: 'conflict' as const, page: pageFromRow(existingCopy[0])};
 
-      // Fresh id so it never collides with the canonical row.
+      // A genuinely distinct divergent edit → mint a fresh copy. Fresh id so it
+      // never collides with the canonical row.
       const baseName = (record.name ?? 'Untitled').trim() || 'Untitled';
       const taken = new Set<string>();
       const name = await freeName(tx, `${baseName} (conflicted copy ${nowIso})`, taken, 'conflicted copy');
@@ -509,6 +529,12 @@ export class PageStore {
            (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
         [randomUUID(), name, dataJson],
       );
+      // Count it only after the row lands (ER-2): the counter advances solely for
+      // genuinely new content, so the convergence invariant — one external
+      // divergence ⇒ at most one conflict copy per (page-id, content) — holds, and
+      // the mirror's per-page-id cap (ER-4) can spot a storm regression without
+      // being fooled by repeated re-applies of the same content.
+      this.conflictCopiesMinted += 1;
       return {action: 'conflict' as const, page: pageFromRow(copy[0])};
     });
   }
