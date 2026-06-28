@@ -24,7 +24,7 @@ import type {BookFolderFile, DataClient, ServerInfo} from '@book.dev/sdk';
 
 import {createDesktopClient, DEV_SERVER_URL} from './data/client';
 import {tauriFetch} from './data/ipc';
-import {createTauriKeyStore, createLocalStorageKeyStore} from './data/keychain';
+import {createTauriKeyStore, createLocalStorageKeyStore, createTauriAccountStore} from './data/keychain';
 
 import '@book.dev/ui/style.css';
 
@@ -140,6 +140,12 @@ const platform: PlatformLibrary = {
   windowControls,
   account: {
     redirectUri: 'openbook://auth-callback',
+    // Per-account device tokens live in the OS keychain, one namespaced entry per
+    // account id (OB-194 multi-account). Dev builds relink with a per-rebuild
+    // cdhash that loses keychain access (same reason as the forwarding key above),
+    // so dev falls back to the UI's namespaced-localStorage store (secretStore
+    // left undefined ⇒ the provider uses its localStorage fallback).
+    secretStore: import.meta.env.DEV ? undefined : createTauriAccountStore(),
     // Sign-in happens in the user's real browser (OAuth, then the deep link back).
     openSignIn: (url) => void openExternal(url).catch((e) => console.error('OpenBook: failed to open the browser:', e)),
     // Deliver the token from the `openbook://` deep link to the AccountProvider.
