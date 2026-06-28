@@ -58,6 +58,14 @@ export interface StartOptions {
    */
   editLogRetentionMs?: number;
   /**
+   * How long the idempotency ledgers (ER-6 `import_log`, ER-7 `write_keys`) are
+   * kept before the cleanup job prunes them, in milliseconds. Defaults to 7 days;
+   * `<= 0` keeps them forever. Doubles as the replay-dedup window: a re-applied
+   * bundle / replayed create older than this is treated as new. Bounds the ledgers'
+   * growth on the autovacuum-less embedded store (OB-164).
+   */
+  idempotencyRetentionMs?: number;
+  /**
    * Embedded (PGlite) only: how often the maintenance job runs CHECKPOINT +
    * VACUUM (ANALYZE), in milliseconds. Defaults to 5 minutes; `<= 0` disables.
    * Overridable via `OPENBOOK_MAINTENANCE_INTERVAL_MS`. Ignored for external
@@ -156,6 +164,7 @@ export function assertExposureSafe(args: {
 const DEFAULT_TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const DEFAULT_TRASH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const DEFAULT_EDIT_LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+const DEFAULT_IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
@@ -207,6 +216,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const retentionMs = opts.trashRetentionMs ?? DEFAULT_TRASH_RETENTION_MS;
   const cleanupIntervalMs = opts.trashCleanupIntervalMs ?? DEFAULT_TRASH_CLEANUP_INTERVAL_MS;
   const editLogRetentionMs = opts.editLogRetentionMs ?? DEFAULT_EDIT_LOG_RETENTION_MS;
+  const idempotencyRetentionMs = opts.idempotencyRetentionMs ?? DEFAULT_IDEMPOTENCY_RETENTION_MS;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   const sweepTrash = async (): Promise<void> => {
     try {
@@ -216,6 +226,10 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
       // grow unbounded on the autovacuum-less embedded store.
       const prunedEdits = await store.purgeOldEdits(editLogRetentionMs);
       if (prunedEdits > 0) console.log(`OpenBook edit-log cleanup: pruned ${prunedEdits} old entries`);
+      // Prune the idempotency ledgers (ER-6 import_log / ER-7 write_keys) in the
+      // same sweep — the retention doubles as the replay-dedup window.
+      const prunedKeys = await store.purgeOldIdempotencyKeys(idempotencyRetentionMs);
+      if (prunedKeys > 0) console.log(`OpenBook idempotency cleanup: pruned ${prunedKeys} old key(s)`);
     } catch (err) {
       console.error('OpenBook cleanup failed:', err);
     }

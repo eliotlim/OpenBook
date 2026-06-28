@@ -249,6 +249,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     } else {
       await requireCreate(c, store);
     }
+    // ER-7: a keyless create carrying an `input.idempotencyKey` is deduped
+    // per-principal inside `upsertPage` — a retried/replayed POST returns the page
+    // the first call minted instead of a duplicate. The key is scoped to this
+    // request's resolved principal, so it can never dedupe against another user's
+    // write. (The SDK also pre-mints the page id for keyless creates, so a replay
+    // hits the store's `ON CONFLICT` no-op even without a key.)
     const page = await store.upsertPage(input, c.get('principal'));
     hub.publishPage(page);
     await broadcastList();
@@ -377,8 +383,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await requireCreate(c, store);
     const req = await c.req.json<ImportRequest>();
     const result = await store.importBundle(req);
-    await broadcastList();
-    logEdit(c, null, 'space.import', `${result.created} created, ${result.overwritten} overwritten`);
+    // ER-6: a deduped re-apply wrote nothing — skip the list re-broadcast and the
+    // `space.import` provenance row (a sync/restore daemon re-POSTing its bundle
+    // would otherwise grow the edit log unboundedly). Only a real import is logged.
+    if (!result.deduped) {
+      await broadcastList();
+      logEdit(c, null, 'space.import', `${result.created} created, ${result.overwritten} overwritten`);
+    }
     return c.json(result);
   });
 

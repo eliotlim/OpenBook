@@ -41,6 +41,13 @@ export interface ImportResult {
   renamed: number;
   /** old page id → new page id (copy mode; identity in overwrite). */
   idMap: Record<string, string>;
+  /**
+   * True when this apply was a **replay** of an already-imported bundle (ER-6):
+   * the bundle's content hash matched a prior import, so nothing was written and
+   * the recorded counts/`idMap` are echoed back. Lets the caller skip side effects
+   * (e.g. appending a `space.import` provenance entry) on a no-op re-apply.
+   */
+  deduped?: boolean;
 }
 
 // ── Scheduled backups (OB-166) ────────────────────────────────────────────────

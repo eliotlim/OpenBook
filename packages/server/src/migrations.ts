@@ -282,6 +282,42 @@ const MIGRATIONS: Migration[] = [
       'ALTER TABLE members ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT \'local\'',
     ],
   },
+  {
+    // Idempotency ledgers (ER-6 / ER-7 — the OB-241 family of replay storms). Two
+    // small append-only ledgers that make a re-applied write a no-op:
+    //
+    //  - `import_log` keys a whole-bundle `/api/import` by a content hash of the
+    //    bundle. Re-applying the SAME bundle short-circuits to the recorded result
+    //    instead of re-INSERTing the entire workspace as fresh `copy`-mode pages +
+    //    appending N `page.synced` edit-log rows on every call (the trap a future
+    //    workspace-sync/restore daemon would otherwise fall into).
+    //
+    //  - `write_keys` keys a single keyless CREATE by (principal, client key) so a
+    //    retried/replayed create POST (flaky net / SDK retry) returns the original
+    //    page rather than minting a duplicate. The PRIMARY KEY is composite on
+    //    (author_subject, client_key) — the dedup is SCOPED PER-PRINCIPAL, so one
+    //    principal's key can never collide with or overwrite another's write.
+    //
+    // Both are pruned by the periodic cleanup (like `edit_log`) so they can't grow
+    // unbounded on the autovacuum-less embedded store (OB-164). Purely additive.
+    name: '0013_idempotency',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS import_log (
+        key         TEXT        PRIMARY KEY,
+        result      JSONB       NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      'CREATE INDEX IF NOT EXISTS import_log_created_at_idx ON import_log (created_at)',
+      `CREATE TABLE IF NOT EXISTS write_keys (
+        author_subject  TEXT        NOT NULL,
+        client_key      TEXT        NOT NULL,
+        page_id         UUID        NOT NULL,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (author_subject, client_key)
+      )`,
+      'CREATE INDEX IF NOT EXISTS write_keys_created_at_idx ON write_keys (created_at)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

@@ -503,7 +503,13 @@ export class HttpDataClient implements DataClient {
     if (input.id) {
       return this.request<StoredPage>('PUT', API.page(input.id), input);
     }
-    return this.request<StoredPage>('POST', API.pages, input);
+    // ER-7: pre-mint the id for a keyless create so a retried/replayed POST (flaky
+    // net, transport-level retry) re-sends the SAME id and the server's `ON CONFLICT`
+    // makes the replay a no-op instead of minting a duplicate page. If the caller
+    // already supplied an `idempotencyKey`, leave the create keyless — the server
+    // dedupes the replay per-principal on that key instead.
+    const body: PageInput = input.idempotencyKey ? input : {...input, id: globalThis.crypto.randomUUID()};
+    return this.request<StoredPage>('POST', API.pages, body);
   }
 
   async renamePage(id: string, name: string | null): Promise<StoredPage> {
