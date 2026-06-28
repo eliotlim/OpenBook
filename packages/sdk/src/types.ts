@@ -189,8 +189,9 @@ export interface Member {
    * Provenance of the row (OB-199): `local` for a locally-issued invite (OB-191),
    * `managed` for a row projected from the bound workspace roster. Defaults to
    * `local`; the managed sync only ever writes/removes `managed` rows.
+   * Optional: absent (a pre-OB-199 row / a test fixture) is treated as `local`.
    */
-  source: MemberSource;
+  source?: MemberSource;
   /** The principal subject that issued the invite, if any. */
   invitedBy: string | null;
   createdAt: string;

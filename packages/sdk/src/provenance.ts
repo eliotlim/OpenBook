@@ -146,8 +146,9 @@ export interface InstanceInfo {
   /** Whether this instance *requires* every identity token to be bound to
    *  {@link audience} (OB-202). Lets a client short-circuit the audience-bind on
    *  relaunch: when the server already persisted `audience==host && requireAudience`
-   *  it only needs to ensure its own token is scoped, never to relax + re-assert. */
-  requireAudience: boolean;
+   *  it only needs to ensure its own token is scoped, never to relax + re-assert.
+   *  Optional: absent (e.g. a pre-OB-202 server / a test fixture) is treated as `false`. */
+  requireAudience?: boolean;
   /** Who the server resolved you to be on this request. */
   you: Principal;
   /**
@@ -155,8 +156,9 @@ export interface InstanceInfo {
    * you aren't an active member. Lets a client gate manager-only UI (the per-page
    * Share dialog) without a per-page probe: `admin` (and the owner / loopback,
    * derivable from {@link you} + {@link ownerSubject}) manage sharing.
+   * Optional: absent (a pre-OB-203 server / a test fixture) is treated as `null`.
    */
-  youRole: MemberRole | null;
+  youRole?: MemberRole | null;
 }
 
 /** One recorded change — a row of the append-only edit log. */
