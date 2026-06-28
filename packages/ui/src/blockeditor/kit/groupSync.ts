@@ -74,10 +74,32 @@ function notify(key: string): void {
   subs.get(key)?.forEach((cb) => cb());
 }
 
-/** Loose equality for the small value shapes inputs publish (scalars + arrays). */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Loose deep equality for the small value shapes inputs publish: scalars,
+ * arrays, and plain objects (e.g. the `location` input's `{lat,lng,label}`).
+ *
+ * Object-valued inputs MUST compare structurally, not by reference. A render
+ * recomputes `inputValue` into a fresh object each time, so a reference compare
+ * always reports "changed" — which makes the GroupView publish effect re-write
+ * the store and `notify()` every synced pane on every edit (a latent publish↔
+ * adopt ping-pong once any object-valued input gains a real `setInputValue`).
+ */
 export function valueEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
-  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => x === b[i]);
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((x, i) => valueEqual(x, b[i]));
+  }
+  if (isPlainObject(a) && isPlainObject(b)) {
+    const keys = Object.keys(a);
+    if (keys.length !== Object.keys(b).length) return false;
+    return keys.every(
+      (k) => Object.prototype.hasOwnProperty.call(b, k) && valueEqual(a[k], b[k]),
+    );
+  }
   return false;
 }
 
