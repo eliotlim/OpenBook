@@ -208,6 +208,20 @@ jobs:
       - name: install frontend dependencies
         run: pnpm install --frozen-lockfile
 
+      # AppImage fix (ubuntu only): seed our patched linuxdeploy GTK plugin into
+      # Tauri's tool cache so the bundler reuses it instead of downloading the
+      # upstream one. The patch keeps linuxdeploy from running `ldd` on the Bun
+      # `--compile` openbook-server sidecar, which otherwise SIGABRTs linuxdeploy
+      # core (uncaught std::runtime_error "Failed to run ldd") and fails ONLY the
+      # AppImage step (.deb/.rpm don't run linuxdeploy). See the .sh header for
+      # the full why. macOS/Windows skip this step.
+      - name: Seed patched linuxdeploy GTK plugin (ubuntu only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          mkdir -p "$HOME/.cache/tauri"
+          cp packages/app/src-tauri/linux/linuxdeploy-plugin-gtk.sh "$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
+          chmod +x "$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
+
       # `tauri build` runs its beforeBuildCommand first, which builds the sdk,
       # ui, server sidecar (for SIDECAR_TARGET, set below), and frontend before
       # bundling. (Same as the local `build:desktop` script, plus an explicit
@@ -253,7 +267,15 @@ jobs:
         # `tauri build --target <triple>` puts bundles under
         # target/<triple>/release/bundle. pnpm forwards the trailing args to the
         # app's `tauri` script.
-        run: pnpm --filter @book.dev/app run tauri build --target ${{ matrix.target }}
+        #
+        # `--verbose` ONLY on the ubuntu leg: Tauri's bundler swallows
+        # linuxdeploy's own stdout/stderr unless verbose is on, so a failing
+        # AppImage step only ever prints the generic `failed to run linuxdeploy`
+        # wrapper (see the ubuntu-22.04 AppImage failures). Verbose surfaces the
+        # real linuxdeploy / linuxdeploy-plugin-gtk error (the failing sub-step +
+        # file) directly in the CI log. macOS/Windows legs evaluate to '' and are
+        # byte-for-byte unchanged.
+        run: pnpm --filter @book.dev/app run tauri build --target ${{ matrix.target }}${{ matrix.platform == 'ubuntu-22.04' && ' --verbose' || '' }}
 
       - name: Upload bundles to the v${{ needs.release.outputs.version }} release
         shell: bash
