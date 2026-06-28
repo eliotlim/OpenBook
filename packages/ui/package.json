@@ -2,6 +2,11 @@
   "name": "@book.dev/ui",
   "version": "1.63.0",
   "description": "",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eliotlim/OpenBook.git",
+    "directory": "packages/ui"
+  },
   "publishConfig": {
     "access": "public"
   },

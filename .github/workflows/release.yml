@@ -312,15 +312,29 @@ jobs:
   # before ui because ui depends on it; each publish is skipped when that version
   # is already on the registry, so a re-run after a partial failure is safe.
   #
-  # Auth: an npm *automation* token (these bypass publish-time 2FA) stored in the
-  # `NPM_TOKEN` repo secret (Settings → Secrets and variables → Actions).
+  # Auth: OIDC *trusted publishing* — no long-lived token. The job requests an
+  # OIDC id-token (permissions.id-token: write) which the npm CLI (>= 11.5.1)
+  # trades for a short-lived, per-publish registry token, after npmjs.com matches
+  # this repo+workflow+environment against the package's configured Trusted
+  # Publisher. Configure once per package on npmjs.com (Settings → Trusted
+  # Publishers): org `eliotlim`, repo `OpenBook`, workflow `release.yml`,
+  # environment `publish`. Replaces the expired/lost NPM_TOKEN that silently
+  # blocked the 1.61–1.63 publishes.
   publish-npm:
     name: Publish libraries to npm
     needs: [plan, release]
     if: needs.plan.outputs.new_release == 'true'
-    # Same as publish-tauri: NPM_TOKEN lives in the `publish` environment.
+    # Kept in `publish` for parity with publish-tauri, but no npm token is read
+    # from it anymore — auth is OIDC (below).
     environment: publish
     runs-on: ubuntu-latest
+    # OIDC trusted publishing: id-token mints the short-lived registry token AND
+    # signs the build-provenance attestation. contents: read is the floor for
+    # actions/checkout (the default `contents: read` is otherwise dropped once a
+    # job declares any explicit permissions).
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Checkout the release tag
         uses: actions/checkout@v4
@@ -333,17 +347,39 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: "pnpm"
-          # Writes an .npmrc that authenticates with NODE_AUTH_TOKEN below.
+          # Points npm at npmjs so the OIDC token exchange targets the right
+          # registry. No NODE_AUTH_TOKEN is set, so the `_authToken` line
+          # setup-node writes stays empty; npm >= 11.5.1 prefers the OIDC-minted
+          # token over an empty static one, so the empty line is harmless.
           registry-url: "https://registry.npmjs.org"
+      # Trusted publishing needs npm CLI >= 11.5.1. pnpm 10.x's `publish` shells
+      # out to whatever `npm` is on PATH (it only moved publishing in-process to
+      # libnpmpublish in pnpm 11), so the OIDC flow is actually performed by this
+      # npm — upgrading it here is load-bearing. Node 24 (.nvmrc) ships npm 11.13
+      # today, which already qualifies, but older 24.x point releases shipped
+      # 11.3.0 (< 11.5.1), so pin the floor explicitly rather than trust the
+      # runner image. Bounded to ^11.5.1 (not @latest) so it auto-patches within
+      # 11.x but never silently jumps to a future npm major that could change
+      # OIDC/publish behaviour — same reasoning as pinning pnpm to 10.28.2.
+      - name: Ensure npm >= 11.5.1 for OIDC trusted publishing
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Build the libraries (sdk first; ui imports its types)
         run: |
           pnpm --filter @book.dev/sdk build
           pnpm --filter @book.dev/ui build
-      - name: Publish to npm
+      - name: Publish to npm (OIDC trusted publishing)
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Trusted publishing attaches provenance automatically, but make it
+          # explicit and robust: pnpm forwards the environment to the `npm`
+          # subprocess, and npm reads NPM_CONFIG_PROVENANCE natively, so this
+          # doesn't depend on pnpm forwarding a --provenance flag. Provenance
+          # needs the public repo (it is) + a repository field in each
+          # package.json (added in this change).
+          NPM_CONFIG_PROVENANCE: "true"
         run: |
           set -euo pipefail
           publish() {
@@ -353,6 +389,10 @@ jobs:
               echo "$pkg@$ver already on the registry — skipping."
             else
               echo "Publishing $pkg@$ver…"
+              # pnpm rewrites ui's `@book.dev/sdk: workspace:*` to the real
+              # version at pack time, then hands off to `npm publish`, which does
+              # the OIDC token exchange + provenance. --access public keeps both
+              # packages public.
               pnpm --filter "$pkg" publish --no-git-checks --access public
             fi
           }
