@@ -243,6 +243,41 @@ describe('BookMirror re-import (disk → DB)', () => {
     expect((await store.listPages()).filter((p) => p.name?.includes('(conflicted copy'))).toHaveLength(2);
   });
 
+  it('removes a dropped-in file whose id matches a TRASHED page — no orphan leak (ER-9)', async () => {
+    // A page that has been moved to the trash: getPage(id) now returns null.
+    const page = await store.upsertPage({name: 'Ghost', data: snap('original')});
+    await store.deletePage(page.id);
+
+    const mirror = await BookMirror.create({store, dir: bookDir, watch: false});
+    // An external sync tool drops an old copy back in, at a path the mirror never
+    // indexed, carrying the trashed page's id but divergent content.
+    const id8 = page.id.slice(0, 8);
+    const folder = join(bookDir, `ghost--${id8}`);
+    await mkdir(folder, {recursive: true});
+    const droppedFile = join(folder, `ghost--${id8}.html`);
+    const html = pageToBookHtml({
+      id: page.id,
+      name: 'Ghost',
+      icon: null,
+      updatedAt: '2020-01-01T00:00:00.000Z',
+      data: snap('external edit'),
+    });
+    await writeFile(droppedFile, html, 'utf8');
+
+    const action = await mirror.importFile(droppedFile);
+    await mirror.flush();
+    // The trashed id can't be resurrected, so the disk content lands as a conflict copy.
+    expect(action).toBe('conflict');
+    // The dropped-in file is pruned in place — before the fix it leaked forever
+    // (writePageFile → getPage(null) → deletePageFile found no index entry to remove,
+    // and reconcileAll only prunes indexed paths).
+    expect(existsSync(droppedFile)).toBe(false);
+    // The divergent content was preserved as a conflict copy (with its own file).
+    const copies = (await store.listPages()).filter((p) => p.name?.includes('(conflicted copy'));
+    expect(copies).toHaveLength(1);
+    await mirror.close();
+  });
+
   it('recreates a page that is missing from the DB (restored backup)', async () => {
     const mirror = await BookMirror.create({store, dir: bookDir, watch: false});
     // A file for a page id the DB has never seen.

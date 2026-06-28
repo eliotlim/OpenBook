@@ -253,6 +253,14 @@ export class DirLock {
    * Returns `'won'` (we now hold the breaker), `'deferred'` (a live process is
    * recovering `b` — caller declines), or `'retry'` (a token leaked by a recoverer
    * that died mid-recovery was reclaimed; the caller should loop and re-elect).
+   *
+   * ER-5 accepted residual: a *fourth-order* two-owners window remains — a recoverer
+   * must die in the sub-ms gap between winning the token and the atomic breaker
+   * overwrite, survive the {@link BREAKER_STALE_MS} (30s) window, and have a peer hit a
+   * precise reclaim interleave. It is unclosable with pure-fs primitives (the reclaim
+   * is a recursive TOCTOU) and `flock` is unavailable in the bun-compiled sidecar (see
+   * the "Why not flock?" header note); astronomically gated and self-healing (the next
+   * acquire re-elects), so it is a reviewed, knowingly-accepted limitation.
    */
   private async recoverLeakedBreaker(b: DirLockInfo): Promise<'won' | 'deferred' | 'retry'> {
     const token = this.recoveryTokenPath(b);

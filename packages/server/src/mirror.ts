@@ -721,7 +721,20 @@ export class BookMirror {
     // hash; for 'conflict' it restores the DB-canonical content over the
     // externally-edited file (DB wins on disk too). A conflict also produced a
     // brand-new copy page, which gets its own file.
-    this.enqueueWrite(record.id);
+    //
+    // ER-9 orphan-file guard: a 'conflict' on an id that maps to a *trashed* page
+    // has NO live canonical row — the copy absorbed the dropped-in content (and gets
+    // its own file below). enqueueWrite(record.id) would then route writePageFile →
+    // getPage(null) → deletePageFile, which finds no index entry for the just-dropped
+    // file (we never indexed it) and removes nothing — the file would leak forever
+    // (reconcileAll only prunes indexed paths). Remove it directly at its imported
+    // rel-path. Only 'conflict' can lack a canonical row; 'created'/'updated' always
+    // have one, so the extra read is confined to the rare conflict path.
+    if (result.action === 'conflict' && !(await this.store.getPage(record.id))) {
+      await this.removeRel(rel);
+    } else {
+      this.enqueueWrite(record.id);
+    }
     if (result.page.id !== record.id) this.enqueueWrite(result.page.id);
     await this.onImported?.(result.page);
     return result.action;
