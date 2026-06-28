@@ -183,6 +183,50 @@ describe('claimed-instance content gating', () => {
   });
 });
 
+describe('per-page visibility route + youRole (OB-203)', () => {
+  let mem: string;
+
+  beforeEach(async () => {
+    await claim();
+    await store.addMember({subject: `${ISS}#admin`, role: 'admin', status: 'active'});
+    await store.addMember({subject: `${ISS}#viewer`, role: 'viewer', status: 'active'});
+    mem = (await store.upsertPage({name: `mem-${seq}`, data: snapshot()})).id;
+    await store.setPageVisibility(mem, 'members');
+  });
+
+  it('GET returns the scope to a reader; PUT changes it for a writer; a viewer is denied', async () => {
+    const a = app();
+    const read = await get(a, `/api/pages/${mem}/visibility`, await idFor('owner'));
+    expect(read.status).toBe(200);
+    expect(((await read.json()) as {visibility: string}).visibility).toBe('members');
+
+    const set = await put(a, `/api/pages/${mem}/visibility`, JSON.stringify({visibility: 'restricted'}), await idFor('owner'));
+    expect(set.status).toBe(200);
+    expect(await store.getPageVisibility(mem)).toBe('restricted');
+
+    // Now restricted: the viewer can't even read the scope (404 hides existence).
+    expect(
+      (await put(a, `/api/pages/${mem}/visibility`, JSON.stringify({visibility: 'public'}), await idFor('viewer'))).status,
+    ).toBe(404);
+  });
+
+  it('PUT rejects an unknown scope (400)', async () => {
+    const a = app();
+    const res = await put(a, `/api/pages/${mem}/visibility`, JSON.stringify({visibility: 'everyone'}), await idFor('owner'));
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /api/instance carries youRole for the manage-gate', async () => {
+    const a = app();
+    const roleOf = async (jws?: string) =>
+      ((await (await get(a, '/api/instance', jws)).json()) as {youRole: string | null}).youRole;
+    expect(await roleOf(await idFor('owner'))).toBeNull(); // owner isn't a roster row
+    expect(await roleOf(await idFor('admin'))).toBe('admin');
+    expect(await roleOf(await idFor('viewer'))).toBe('viewer');
+    expect(await roleOf()).toBeNull(); // anonymous guest
+  });
+});
+
 describe('principal-aware live fan-out (S4)', () => {
   let mem: string;
   let restr: string;

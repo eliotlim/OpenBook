@@ -41,6 +41,7 @@ export class IdentityService implements IdentityProvider {
     allowedIssuers: string[];
     audience?: string;
     requireAudience?: boolean;
+    ownerSubject?: string;
   }> {
     const config = await this.store.getInstanceConfig();
     return {
@@ -48,6 +49,7 @@ export class IdentityService implements IdentityProvider {
       allowedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience,
       requireAudience: config.requireAudience,
+      ownerSubject: config.ownerSubject,
     };
   }
 

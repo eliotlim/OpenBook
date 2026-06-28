@@ -16,6 +16,7 @@ import type {
   InstanceConfig,
   Member,
   MemberRole,
+  MemberSource,
   MemberStatus,
   PageAcl,
   PageInput,
@@ -1353,10 +1354,10 @@ export class PageStore {
     if (!email && !subject) throw new Error('a member needs a subject or an email');
     const issuer = input.issuer ?? (await this.getInstanceConfig()).emailAuthority ?? DEFAULT_ACCOUNT_URL;
     const rows = await this.db.query<MemberRow>(
-      `INSERT INTO members (id, subject, email, issuer, role, status, invited_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO members (id, subject, email, issuer, role, status, source, invited_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING ${MEMBER_COLS}`,
-      [randomUUID(), subject, email, issuer, input.role ?? 'viewer', input.status, input.invitedBy ?? null],
+      [randomUUID(), subject, email, issuer, input.role ?? 'viewer', input.status, input.source ?? 'local', input.invitedBy ?? null],
     );
     return memberFromRow(rows[0]);
   }
@@ -1379,6 +1380,112 @@ export class PageStore {
   async removeMember(id: string): Promise<boolean> {
     const rows = await this.db.query('DELETE FROM members WHERE id = $1 RETURNING id', [id]);
     return rows.length > 0;
+  }
+
+  /**
+   * Reconcile the bound workspace's roster into the local `members` table (OB-199)
+   * — the durable side of "instance ↔ workspace". The desired set (already
+   * owner-reconciled + deduped + site-owner-filtered by the caller) is projected
+   * onto `source='managed'` rows ONLY; `source='local'` rows (the OB-191 invite
+   * path) are never read-for-write nor deleted, so a local invite and a managed
+   * member coexist. The whole reconcile runs in one transaction:
+   *
+   *  - **upsert** a managed row per desired entry (insert when absent; on an
+   *    existing managed row only the `role` is reconciled — `subject`/`status` are
+   *    owned by the claim flow and never downgraded by a later sync);
+   *  - **remove** managed rows no longer in the desired set (dropped from the
+   *    workspace) — never a local row;
+   *  - **skip** a desired entry whose identity a LOCAL row already covers (don't
+   *    clobber the local invite, and don't collide on the unique index — coexist).
+   *
+   * Each entry is stored in one of the two roster shapes (§2.1): a `subject`-keyed
+   * member (`status='active'`) when a bound subject is known, else an `email`
+   * persona (`status='invited'`, bound on first sign-in by {@link claimMemberships}).
+   * Idempotent — an unchanged roster is a no-op.
+   */
+  async syncManagedRoster(desired: ManagedMemberInput[]): Promise<RosterSyncResult> {
+    return this.db.begin(async (tx) => {
+      const rows = await tx.query<MemberRow>(`SELECT ${MEMBER_COLS} FROM members`);
+      // Index existing rows by their identity keys, partitioned by provenance.
+      const managedBySubject = new Map<string, MemberRow>();
+      const managedByEmail = new Map<string, MemberRow>();
+      const localSubjects = new Set<string>();
+      const localEmails = new Set<string>();
+      for (const row of rows) {
+        const email = row.email ? row.email.toLowerCase() : null;
+        if (row.source === 'managed') {
+          if (row.subject) managedBySubject.set(row.subject, row);
+          if (email) managedByEmail.set(email, row);
+        } else {
+          if (row.subject) localSubjects.add(row.subject);
+          if (email) localEmails.add(email);
+        }
+      }
+
+      const kept = new Set<string>();
+      let added = 0;
+      let updated = 0;
+      let skipped = 0;
+
+      const reconcileRole = async (row: MemberRow, role: MemberRole): Promise<void> => {
+        kept.add(row.id);
+        // Only the role is reconciled — never the binding (subject/status), which a
+        // claimed managed persona owns; a later sync must not unbind or demote it.
+        if (row.role !== role) {
+          await tx.query('UPDATE members SET role = $2 WHERE id = $1', [row.id, role]);
+          updated += 1;
+        }
+      };
+
+      for (const want of desired) {
+        if (want.subject) {
+          const existing = managedBySubject.get(want.subject);
+          if (existing) {
+            await reconcileRole(existing, want.role);
+            continue;
+          }
+          // A local invite already grants this subject — leave it authoritative.
+          if (localSubjects.has(want.subject)) {
+            skipped += 1;
+            continue;
+          }
+          await tx.query(
+            `INSERT INTO members (id, subject, email, issuer, role, status, source)
+             VALUES ($1, $2, NULL, $3, $4, 'active', 'managed')`,
+            [randomUUID(), want.subject, want.issuer, want.role],
+          );
+          added += 1;
+        } else if (want.email) {
+          const email = want.email.toLowerCase();
+          const existing = managedByEmail.get(email);
+          if (existing) {
+            await reconcileRole(existing, want.role);
+            continue;
+          }
+          // A local invite/persona already owns this email — don't clobber/collide.
+          if (localEmails.has(email)) {
+            skipped += 1;
+            continue;
+          }
+          await tx.query(
+            `INSERT INTO members (id, subject, email, issuer, role, status, source)
+             VALUES ($1, NULL, $2, $3, $4, 'invited', 'managed')`,
+            [randomUUID(), email, want.issuer, want.role],
+          );
+          added += 1;
+        }
+      }
+
+      // Remove managed rows the workspace dropped — local rows are untouched.
+      let removed = 0;
+      for (const row of rows) {
+        if (row.source !== 'managed' || kept.has(row.id)) continue;
+        await tx.query('DELETE FROM members WHERE id = $1', [row.id]);
+        removed += 1;
+      }
+
+      return {added, updated, removed, skipped};
+    });
   }
 
   /**
@@ -1761,6 +1868,9 @@ export interface AddMemberInput {
   role?: MemberRole;
   /** Explicit lifecycle — an email invite MUST pass `'invited'` (Sasha N1). */
   status: MemberStatus;
+  /** Row provenance (OB-199); defaults to `'local'` (a hand-issued invite). The
+   *  managed-roster sync passes `'managed'`. */
+  source?: MemberSource;
   invitedBy?: string | null;
 }
 
@@ -1769,6 +1879,31 @@ export interface MemberPatch {
   subject?: string | null;
   role?: MemberRole;
   status?: MemberStatus;
+}
+
+/**
+ * One desired managed-roster member (OB-199), already resolved by the syncer
+ * (owner-reconciled, deduped, site-owner-filtered). Exactly one identity key is
+ * authoritative: a bound `subject` (preferred — stored as a subject member) or an
+ * `email` persona. `issuer` pins the email-authority for a persona row (B1).
+ */
+export interface ManagedMemberInput {
+  subject: string | null;
+  email: string | null;
+  issuer: string;
+  role: MemberRole;
+}
+
+/** Counts from a {@link PageStore.syncManagedRoster} reconcile (observability). */
+export interface RosterSyncResult {
+  /** Managed rows inserted (new workspace members). */
+  added: number;
+  /** Managed rows whose role was reconciled. */
+  updated: number;
+  /** Managed rows removed (dropped from the workspace). */
+  removed: number;
+  /** Desired entries skipped because a local invite already covers them. */
+  skipped: number;
 }
 
 /** Input to {@link PageStore.setPageAcl} — exactly one grantee key. */
@@ -1812,7 +1947,7 @@ function higherRole(current: MemberRole | null, next: string): MemberRole | null
   return current;
 }
 
-const MEMBER_COLS = 'id, subject, email, issuer, role, status, invited_by, created_at';
+const MEMBER_COLS = 'id, subject, email, issuer, role, status, source, invited_by, created_at';
 
 interface MemberRow {
   id: string;
@@ -1821,6 +1956,7 @@ interface MemberRow {
   issuer: string;
   role: string;
   status: string;
+  source: string;
   invited_by: string | null;
   created_at: Date | string;
 }
@@ -1833,6 +1969,7 @@ function memberFromRow(row: MemberRow): Member {
     issuer: row.issuer,
     role: row.role as MemberRole,
     status: row.status as MemberStatus,
+    source: (row.source as MemberSource) ?? 'local',
     invitedBy: row.invited_by ?? null,
     createdAt: toIso(row.created_at),
   };

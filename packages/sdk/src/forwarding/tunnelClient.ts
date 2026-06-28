@@ -11,7 +11,7 @@
 import {globalFetch, type FetchLike} from '../client';
 import {buildRelayAttachMessage} from './challenge';
 import {signWithSiteKey} from './siteKey';
-import {decodeBody, decodeControl, encodeBody, encodeControl, type ControlFrame} from './tunnelProtocol';
+import {decodeBody, decodeControl, encodeBody, encodeControl, FORWARDED_HEADER, type ControlFrame} from './tunnelProtocol';
 
 export type TunnelStatus = 'connecting' | 'online' | 'reconnecting' | 'offline';
 
@@ -210,11 +210,20 @@ export class TunnelClient {
 
     const url = `${this.opts.localOrigin.replace(/\/$/, '')}${frame.path}`;
     const headers = new Headers();
+    const forwardedLk = FORWARDED_HEADER.toLowerCase();
     for (const [k, v] of frame.headers) {
       const lk = k.toLowerCase();
       if (lk === 'host' || lk === 'connection' || lk === 'content-length') continue;
+      // Drop any inbound copy of the forwarded marker — it is OURS to assert, never
+      // client-supplied. The origin's exposure backstop trusts it precisely because
+      // only this client sets it (OB-209).
+      if (lk === forwardedLk) continue;
       headers.append(k, v);
     }
+    // Mark every forwarded request as exposed. Set unconditionally (after the strip
+    // above) so the origin can fail closed on the tunnelled path while the instance
+    // is still unclaimed, even if the UI claim-on-publish guard were bypassed.
+    headers.set(FORWARDED_HEADER, '1');
 
     const init: RequestInit & {duplex?: 'half'} = {method: frame.method, headers, signal: controller.signal};
     if (hasBody) {

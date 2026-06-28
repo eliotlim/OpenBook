@@ -9,11 +9,12 @@ export type {
   Visibility,
   MemberRole,
   MemberStatus,
+  MemberSource,
   AclLevel,
   Member,
   PageAcl,
 } from './types';
-export {emptyPageSnapshot} from './types';
+export {emptyPageSnapshot, PAGE_VISIBILITIES} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential} from './client';
 export {HttpDataClient} from './client';
@@ -23,10 +24,19 @@ export {
   MemoryKeyStore,
   mintSiteKeypair,
   signWithSiteKey,
+  verifyWithSiteKey,
+  FORWARDED_HEADER,
+  signRosterAssertion,
+  verifyRosterAssertion,
+  ROSTER_ASSERTION_VERSION,
+  ROSTER_ASSERTION_SKEW_MS,
   type KeyStore,
   type SiteIdentity,
   type ForwardingClientOptions,
   type TunnelStatus,
+  type RosterAssertionPayload,
+  type SignRosterAssertionInput,
+  type VerifyRosterAssertionInput,
 } from './forwarding';
 export type {
   DatabasePropertyType,
@@ -145,7 +155,7 @@ export {
   propertiesReferencePage,
   type VerificationValue,
 } from './pageProperties';
-export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, isMixedContentBlocked} from './connection';
+export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, getForwardingAudience, setForwardingAudience, isMixedContentBlocked} from './connection';
 export {
   AccountClient,
   AccountError,
@@ -184,6 +194,9 @@ export {
   type InstanceConfig,
   type InstanceInfo,
   type StoredEdit,
+  type WorkspaceBinding,
+  type WorkspaceRoster,
+  type WorkspaceRosterEntry,
 } from './provenance';
 export {
   authorize,
@@ -279,4 +292,4 @@ export type {
   AiTasksResponse,
   AiStreamEvent,
 } from './ai';
-export {providerSettings} from './ai';
+export {providerSettings, isPaidProvider} from './ai';

@@ -1,7 +1,15 @@
 import React, {createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
-import {ForwardingClient, type TunnelStatus} from '@book.dev/sdk';
+import {ForwardingClient, setForwardingAudience, type TunnelStatus} from '@book.dev/sdk';
 import {useAccount} from './AccountProvider';
 import {usePlatformLibrary} from './PlatformLibraryProvider';
+import {
+  ensureClaimedForForwarding,
+  ensureForwardingAudience,
+  unbindForwardingAudience,
+  type AudienceBindDeps,
+  type AudienceNoticeCode,
+} from './forwardingAudience';
+import {useData} from '@/data/DataProvider';
 
 /**
  * Owns the *.book.pub forwarding tunnel for the whole app, so it keeps running
@@ -30,6 +38,21 @@ interface ForwardingContextValue {
   host: string | null;
   busy: boolean;
   error: string | null;
+  /**
+   * A localizable audience-bind/unbind notice (OB-202), shown when the tunnel is up
+   * but the audience hardening is incomplete (`partialUnscoped`/`ensureRescope`), a
+   * bind step threw (`bindFailed`), or a disable couldn't confirm the relax
+   * (`unbindHeld`). The view maps `code` to a `forwarding.*` string; `detail` is the
+   * raw error for the `{error}` codes. `null` when there's nothing to show.
+   */
+  audienceNotice: {code: AudienceNoticeCode; detail?: string} | null;
+  /**
+   * Why a publish was refused before the tunnel opened, for localized + severity-aware
+   * display: `unverified` is a precondition (the signed-in owner just needs a verified
+   * identity — render it muted, like {@link signInHint}); `claim-failed` is a genuine
+   * failure (render it as an error). `null` when there's nothing to show.
+   */
+  claimRefusal: 'unverified' | 'claim-failed' | null;
   /** Turn forwarding on: claim the address (sign-in first if needed) + dial out. */
   enable: () => Promise<void>;
   /** Turn forwarding off: drop the tunnel but keep the site key (stable address). */
@@ -43,6 +66,8 @@ const DEFAULT: ForwardingContextValue = {
   host: null,
   busy: false,
   error: null,
+  audienceNotice: null,
+  claimRefusal: null,
   enable: async () => undefined,
   disable: () => undefined,
 };
@@ -57,7 +82,8 @@ const writeEnabled = (on: boolean): void => {
 
 export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const {forwarding} = usePlatformLibrary();
-  const {connected, token, accountUrl, signIn} = useAccount();
+  const {connected, token, accountUrl, signIn, remintIdentity} = useAccount();
+  const data = useData();
   const supported = !!forwarding;
 
   const clientRef = useRef<ForwardingClient | null>(null);
@@ -66,6 +92,8 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const [host, setHost] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [audienceNotice, setAudienceNotice] = useState<{code: AudienceNoticeCode; detail?: string} | null>(null);
+  const [claimRefusal, setClaimRefusal] = useState<'unverified' | 'claim-failed' | null>(null);
 
   // Show the reserved address even before the tunnel connects.
   useEffect(() => {
@@ -76,11 +104,62 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       .catch(() => undefined);
   }, [forwarding]);
 
+  // The side effects the audience-bind drives — the data-server policy writes
+  // (`PUT /api/instance`), the owner-token re-mint, and the local scoping seam.
+  // Bundled here so the orchestration (in `./forwardingAudience`) stays pure and
+  // unit-tested without React.
+  const audienceDeps = useMemo<AudienceBindDeps>(
+    () => ({
+      setInstancePolicy: (patch) => data.setInstancePolicy(patch),
+      getInstanceInfo: () => data.getInstanceInfo(),
+      remintIdentity: () => remintIdentity(),
+      setLocalAudience: setForwardingAudience,
+    }),
+    [data, remintIdentity],
+  );
+
+  // Bind the instance's identity audience to the canonical forwarded host (OB-202).
+  // Once exposed, the edge mints aud-scoped viewer tokens for this host, so the
+  // origin must accept that audience (and reject another site's — `requireAudience`,
+  // fail-closed). The local owner reaches the SAME server over loopback with their
+  // OWN token, so the bind is a seamless three-phase switch that proceeds to
+  // `requireAudience` ONLY once the owner's token is confirmed host-scoped, and
+  // rolls back rather than strand the owner — see `ensureForwardingAudience`.
+  // `ensure` also short-circuits on relaunch when the server already persisted the
+  // binding (it re-scopes this session's token instead of relaxing + re-asserting).
+  const bindAudience = useCallback(
+    async (assigned: string) => {
+      const outcome = await ensureForwardingAudience(assigned, audienceDeps);
+      // `bound` is the clean success; `partial`/`failed` keep the tunnel up (the local
+      // UX is unaffected) but surface why hardening is incomplete — as a localizable
+      // code, not raw English, so the view renders it through `t()`.
+      setAudienceNotice(outcome.status === 'bound' ? null : {code: outcome.code, detail: outcome.reason});
+    },
+    [audienceDeps],
+  );
+
   const startTunnel = useCallback(async () => {
     if (!forwarding || !token || clientRef.current) return;
     setBusy(true);
     setError(null);
+    setAudienceNotice(null);
+    setClaimRefusal(null);
     try {
+      // Publish implies claim (OB-209): an outbound tunnel exposes the loopback
+      // instance, bypassing the boot exposure backstop — so an UNCLAIMED instance
+      // would be served anonymous + world-writable (rule-0 → guestAccess:'write').
+      // Atomically claim ownership to this account's verified subject BEFORE dialing
+      // out; refuse (and roll the intent back) if there's no verified identity to
+      // claim with, so we never leave it unclaimed-and-exposed. The refusal is a
+      // localized, severity-aware notice (`claimRefusal`), not a raw `error` string.
+      const claim = await ensureClaimedForForwarding(audienceDeps);
+      if (claim.status === 'refused') {
+        setEnabled(false);
+        writeEnabled(false);
+        setStatus('offline');
+        setClaimRefusal(claim.code);
+        return;
+      }
       const client = new ForwardingClient({
         accountUrl,
         authToken: token,
@@ -92,6 +171,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       clientRef.current = client;
       const {host: assigned} = await client.start();
       setHost(assigned);
+      await bindAudience(assigned);
     } catch (e) {
       clientRef.current = null;
       setStatus('offline');
@@ -99,7 +179,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     } finally {
       setBusy(false);
     }
-  }, [forwarding, token, accountUrl]);
+  }, [forwarding, token, accountUrl, bindAudience, audienceDeps]);
 
   // Resume on launch / once the account connects, when forwarding is enabled.
   useEffect(() => {
@@ -125,11 +205,22 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     setStatus('offline');
     setEnabled(false);
     writeEnabled(false);
-  }, []);
+    setAudienceNotice(null);
+    setClaimRefusal(null);
+    // Unwind the audience binding SAFELY: relax `requireAudience` FIRST (while our
+    // token is still scoped, so the PUT verifies) and only THEN drop the scoping +
+    // re-mint unscoped. If the relax is NOT confirmed, the scoping is left intact
+    // rather than unscoping the owner behind a still-required audience (a permanent
+    // loopback lockout) — see `unbindForwardingAudience`.
+    void (async () => {
+      const outcome = await unbindForwardingAudience(audienceDeps);
+      if (outcome.status === 'held') setAudienceNotice({code: outcome.code, detail: outcome.reason});
+    })();
+  }, [audienceDeps]);
 
   const value = useMemo<ForwardingContextValue>(
-    () => ({supported, enabled, status, host, busy, error, enable, disable}),
-    [supported, enabled, status, host, busy, error, enable, disable],
+    () => ({supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, enable, disable}),
+    [supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, enable, disable],
   );
 
   return <ForwardingContext.Provider value={value}>{children}</ForwardingContext.Provider>;

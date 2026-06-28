@@ -35,6 +35,24 @@ export interface WindowControls {
 }
 
 /**
+ * Per-account device-token storage, namespaced by a local account id (OB-194).
+ * The client can hold several account.book.pub accounts at once (work + personal),
+ * so each account's bearer token gets its own slot — no shared key, no
+ * cross-account leakage. The desktop backs this with the OS keychain (one entry
+ * per account id, like {@link ForwardingPlatform.keyStore}); the web shell — and
+ * unsigned desktop *dev* builds, whose per-relink cdhash loses keychain access —
+ * leave it undefined and the UI falls back to a namespaced-`localStorage` store.
+ */
+export interface AccountSecretStore {
+  /** Read account `id`'s device token, or `null` when none is stored. */
+  get(id: string): Promise<string | null>;
+  /** Store (overwrite) account `id`'s device token. */
+  set(id: string, token: string): Promise<void>;
+  /** Forget account `id`'s device token. */
+  delete(id: string): Promise<void>;
+}
+
+/**
  * How the host completes account.book.pub's deep-link sign-in. The desktop sets
  * a custom-scheme `redirectUri` (`openbook://auth-callback`), opens the browser
  * itself, and delivers the minted token back through the OS deep-link
@@ -50,6 +68,9 @@ export interface AccountPlatform {
   /** Subscribe to deep-link callbacks carrying the minted token; returns an
    *  unsubscribe. Desktop only — web receives the token via its callback page. */
   onCallback?: (cb: (params: {token: string; state: string}) => void) => () => void;
+  /** Secure, per-account device-token storage (OB-194). Omit on web / desktop dev;
+   *  the UI then falls back to a namespaced-`localStorage` store. */
+  secretStore?: AccountSecretStore;
 }
 
 /**

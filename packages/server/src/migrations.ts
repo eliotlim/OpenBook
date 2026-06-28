@@ -269,6 +269,19 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS page_acl_email_idx ON page_acl (lower(email)) WHERE email IS NOT NULL',
     ],
   },
+  {
+    // OB-199 — tag each roster row with its PROVENANCE. A row is now either a
+    // `local` invite (the OB-191 path) or a `managed` row projected from the bound
+    // account workspace's roster by the periodic sync. The two coexist: the sync
+    // only ever writes/removes `managed` rows, so a local invite is never clobbered
+    // — and a managed row never masquerades as a hand-issued one. Additive +
+    // idempotent: every pre-existing row is a `local` invite, which is exactly the
+    // column default, so no backfill is needed.
+    name: '0012_member_source',
+    statements: [
+      'ALTER TABLE members ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT \'local\'',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

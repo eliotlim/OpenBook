@@ -135,6 +135,16 @@ export type PageVisibility = 'inherit' | 'public' | 'authenticated' | 'members' 
 /** Alias for {@link PageVisibility} (the OB-188 directive's shorthand name). */
 export type Visibility = PageVisibility;
 
+/** Every {@link PageVisibility} value, in escalating-privacy order — the source of
+ *  truth for server-side validation and the share dialog's scope picker. */
+export const PAGE_VISIBILITIES: readonly PageVisibility[] = [
+  'inherit',
+  'public',
+  'authenticated',
+  'members',
+  'restricted',
+];
+
 /** The two OSS roster roles (OB-182): `admin` = full access, `viewer` = locked
  *  read-only. (Contract §1.1 names this union `Role`.) */
 export type MemberRole = 'admin' | 'viewer';
@@ -145,6 +155,14 @@ export type MemberRole = 'admin' | 'viewer';
  * but grants nothing. Only `active` rows resolve to a role at request time (S3).
  */
 export type MemberStatus = 'invited' | 'active' | 'suspended';
+
+/**
+ * Where a roster row came from (OB-199). `local` = a locally-issued invite (the
+ * OB-191 path); `managed` = projected from the bound account workspace's roster by
+ * the periodic sync. The two coexist: the managed sync only ever touches `managed`
+ * rows, so a local invite is never clobbered (and vice-versa).
+ */
+export type MemberSource = 'local' | 'managed';
 
 /** Per-page ACL grant level (OB-182 §1.1). */
 export type AclLevel = 'read' | 'write';
@@ -167,6 +185,13 @@ export interface Member {
   issuer: string;
   role: MemberRole;
   status: MemberStatus;
+  /**
+   * Provenance of the row (OB-199): `local` for a locally-issued invite (OB-191),
+   * `managed` for a row projected from the bound workspace roster. Defaults to
+   * `local`; the managed sync only ever writes/removes `managed` rows.
+   * Optional: absent (a pre-OB-199 row / a test fixture) is treated as `local`.
+   */
+  source?: MemberSource;
   /** The principal subject that issued the invite, if any. */
   invitedBy: string | null;
   createdAt: string;

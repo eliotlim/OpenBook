@@ -3,6 +3,7 @@ import {Link2, Star} from 'lucide-react';
 import {useTranslation} from '@/providers';
 import {IconButton} from '@/components/ui/icon-button';
 import NavContextMenu from '@/components/NavContextMenu';
+import ShareDialog, {useCanManageSharing} from '@/components/ShareDialog';
 import {copyPageLink} from '@/lib/pageActions';
 import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
 import {pageSaveStatus, pageSaveStatusVersion, subscribePageSaveStatus} from '@/lib/pageSaveStatus';
@@ -39,6 +40,10 @@ export default function PageActionsCluster({pageId}: {pageId: string | null}) {
     () => false,
   );
 
+  // The Share control is gated to users who can manage page sharing (owner /
+  // admin / loopback, or anyone who may write on a still-unclaimed instance).
+  const canManageSharing = useCanManageSharing();
+
   return (
     <div className="flex items-center gap-0.5">
       {statusKey && (
@@ -49,6 +54,7 @@ export default function PageActionsCluster({pageId}: {pageId: string | null}) {
           {t(statusKey)}
         </span>
       )}
+      {actionable && canManageSharing && <ShareDialog pageId={targetPageId!} />}
       <IconButton
         size="sm"
         disabled={!actionable}

@@ -34,8 +34,8 @@ function ForwardingStatusBadge({status}: {status: ForwardingStatus}) {
  * running when this panel closes; here we just drive it and show status.
  */
 function ForwardingSection() {
-  const {supported, enabled, status, host, busy, error, enable, disable} = useForwarding();
-  const {connected} = useAccount();
+  const {supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, enable, disable} = useForwarding();
+  const {connected, remintIdentity} = useAccount();
   const {t} = useTranslation();
   const [copied, setCopied] = useState(false);
 
@@ -59,6 +59,32 @@ function ForwardingSection() {
         <Switch checked={enabled} disabled={busy} onCheckedChange={(v) => void (v ? enable() : disable())} />
       </label>
       {!connected && <p className="text-xs text-muted-foreground">{t('forwarding.signInHint')}</p>}
+      {/* Forewarn before the flip: the first forward permanently claims this device's
+          books to the account and makes them private by default. Mirrors the prior-art
+          LAN `connection.publishWarning` box. Hidden once on, or while a refusal shows. */}
+      {connected && !enabled && !claimRefusal && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
+          {t('forwarding.claimWarning')}
+        </p>
+      )}
+      {/* A precondition, not a crash: the owner is signed in but their identity isn't
+          verified yet. Render it muted (like `signInHint`) with a refresh affordance —
+          reserve the destructive red below for a genuine claim failure. */}
+      {claimRefusal === 'unverified' && (
+        <p className="text-xs text-muted-foreground">
+          {t('forwarding.claimRefusedUnverified')}{' '}
+          <button
+            type="button"
+            onClick={() => void remintIdentity()}
+            className="font-medium underline underline-offset-2 hover:text-foreground"
+          >
+            {t('forwarding.refreshIdentity')}
+          </button>
+        </p>
+      )}
+      {claimRefusal === 'claim-failed' && (
+        <p className="text-sm text-destructive">{t('forwarding.claimFailed')}</p>
+      )}
       {host && (
         <SettingsField label={t('forwarding.address')} className="max-w-lg">
           <div className="flex items-center gap-2">
@@ -73,6 +99,11 @@ function ForwardingSection() {
         </SettingsField>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {audienceNotice && (
+        <p className="text-sm text-destructive">
+          {t(`forwarding.${audienceNotice.code}`, {error: audienceNotice.detail ?? ''})}
+        </p>
+      )}
     </SettingsSection>
   );
 }

@@ -13,12 +13,14 @@
 
 import type {Context} from 'hono';
 import {
+  API,
   decodeIdentity,
   guestPrincipal,
   principalFromClaims,
   unverifiedPrincipalFromClaims,
   verifyIdentity,
   type GuestAccess,
+  type InstanceConfig,
   type Jwks,
   type Principal,
 } from '@book.dev/sdk';
@@ -36,13 +38,15 @@ export const IDENTITY_QUERY = 'identity';
  * absent the instance behaves as a legacy single-user, guest-everyone server.
  */
 export interface IdentityProvider {
-  /** Current guest policy, the issuer URLs this instance trusts, and this
-   *  server's own audience binding (OB-177). */
+  /** Current guest policy, the issuer URLs this instance trusts, this server's own
+   *  audience binding (OB-177), and the claimed owner subject — the loopback-owner
+   *  recovery is gated on a claimed instance (OB-202). */
   policy(): Promise<{
     guestAccess: GuestAccess;
     allowedIssuers: string[];
     audience?: string;
     requireAudience?: boolean;
+    ownerSubject?: string;
   }>;
   /** The (cached, offline-capable) JWKS for an issuer, or `null` if untrusted/unknown. */
   jwks(issuer: string): Promise<Jwks | null>;
@@ -104,4 +108,87 @@ export function guestGate(principal: Principal, guestAccess: GuestAccess, method
     return {status: 403, error: 'guest access is read-only on this instance'};
   }
   return null;
+}
+
+/**
+ * Loopback-owner recovery from an audience lockout (OB-202).
+ *
+ * Binding the instance audience with `requireAudience` (forwarding-on) can strand
+ * the local owner: they reach the same server over loopback with their OWN token,
+ * and if that token is ever unscoped (or scoped to a different audience) while
+ * `requireAudience` is on, {@link resolvePrincipal} rejects it 401 — before any
+ * route runs — so they can't even relax the policy that locked them out. The
+ * enable/disable flow is written to never ENTER that state, but this is the
+ * always-available escape hatch if it ever does (a crash mid-switch, a stale
+ * config, a manual edit).
+ *
+ * A token rejected ONLY for audience is not a forgery: it's a real user whose
+ * token carries a valid signature from a trusted issuer and is in its time window
+ * — just scoped elsewhere (or unscoped). For the SOLE purpose of RELAXING this
+ * instance's own audience requirement, accept that token as its verified principal
+ * and let the request through. This is deliberately the narrowest possible hatch:
+ *
+ *  - it fires only on a CLAIMED instance (`ownerSubject` set) — an unclaimed instance
+ *    has no lockout to recover from (Sasha #1);
+ *  - and only for a `PUT /api/instance` whose patch's SOLE key is
+ *    `requireAudience:false` — a literal relax. A bundled patch is rejected so it can
+ *    never ride the recovered owner principal through the route as a full policy edit
+ *    (Sasha #3 / Quinn #1).
+ *
+ * The route's existing owner-check still gates WHO may apply it, and relaxing is pure
+ * de-escalation — no third party gains anything (a replayed token would have to name
+ * this instance's own owner subject, i.e. be the owner's own token). Everything else
+ * stays 401: this never resurrects a bad-signature, expired, or untrusted-issuer
+ * token, and never grants any escalating change.
+ *
+ * Returns the verified owner-candidate principal to proceed with, or `null` to
+ * keep the original rejection.
+ */
+export async function recoverAudienceLockedPrincipal(
+  c: Context,
+  identity: IdentityProvider | undefined,
+): Promise<Principal | null> {
+  if (!identity) return null;
+  // Only the instance-policy write, and only a de-escalating relax.
+  if (c.req.method !== 'PUT' || c.req.path !== API.instance) return null;
+  let patch: Partial<InstanceConfig>;
+  try {
+    patch = await c.req.json<Partial<InstanceConfig>>(); // Hono caches; the route re-reads this body
+  } catch {
+    return null;
+  }
+  // Relax-ONLY (Sasha #3 / Quinn #1): accept a patch whose SOLE key is
+  // `requireAudience:false`. A recovered token rides the route's owner-check, so a
+  // bundled patch (e.g. `{requireAudience:false, guestAccess:'off'}`) would otherwise
+  // apply in full — reject anything beyond the bare relax and let the original
+  // audience 401 stand. The owner drops the requirement first, then makes any further
+  // change with a normally-verified (re-scoped) token.
+  if (Object.keys(patch).length !== 1 || patch.requireAudience !== false) return null;
+
+  const {allowedIssuers, ownerSubject} = await identity.policy();
+  // Owner-gated (Sasha #1): recovery is the owner's escape hatch from a lockout, so
+  // it only applies on a CLAIMED instance. An unclaimed instance has no audience
+  // lockout to recover from — its `PUT /api/instance` is already open to any caller —
+  // so make the owner-only intent explicit rather than lean on the route's unclaimed
+  // branch.
+  if (!ownerSubject) return null;
+
+  const jws = c.req.header(IDENTITY_HEADER) ?? c.req.query(IDENTITY_QUERY);
+  if (!jws) return null;
+  const decoded = decodeIdentity(jws);
+  if (!decoded) return null;
+  const jwks = await identity.jwks(decoded.claims.iss);
+  if (!jwks) return null;
+  // Verify EVERYTHING except the audience: signature, issuer, and time window must
+  // still hold, so this never resurrects a forged, expired, or untrusted token.
+  // Neutralise only the audience check by matching the token to its OWN `aud` —
+  // accepting both an unscoped token and one scoped to a different site, the exact
+  // two states that lock the owner out.
+  const res = await verifyIdentity(jws, jwks, {
+    allowedIssuers,
+    audience: decoded.claims.aud,
+    nowMs: identity.now?.(),
+  });
+  if (!res.ok) return null;
+  return principalFromClaims(res.claims, res.header);
 }

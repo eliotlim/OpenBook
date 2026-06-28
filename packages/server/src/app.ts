@@ -4,6 +4,8 @@ import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
 import {
   API,
+  FORWARDED_HEADER,
+  PAGE_VISIBILITIES,
   type AclLevel,
   type BackupCadence,
   type BackupConfig,
@@ -16,6 +18,7 @@ import {
   type MemberRole,
   type MemberStatus,
   type PageInput,
+  type PageVisibility,
   type Principal,
   type RowInput,
   type SuggestionInput,
@@ -26,10 +29,11 @@ import {PageStore} from './store';
 import {PageHub} from './hub';
 import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
-import {guestGate, resolvePrincipal, type IdentityProvider} from './principal';
+import {guestGate, recoverAudienceLockedPrincipal, resolvePrincipal, type IdentityProvider} from './principal';
 import {requireAccess, requireCreate, requireDbAccess, streamGates} from './access';
 import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
+import type {RosterController} from './rosterSync';
 import type {AppEnv} from './appEnv';
 import type {AiService} from './ai/service';
 
@@ -87,6 +91,13 @@ export interface AppOptions {
    * handles aren't built yet). See {@link resolveInvitee}.
    */
   handleResolver?: HandleResolver;
+  /**
+   * Managed-workspace roster sync (OB-199). When provided (the instance is bound,
+   * or could be), the `/api/workspace/sync` routes report binding status and run
+   * an on-demand reconcile of the bound workspace roster into the local roster.
+   * Omitted ⇒ the routes report "unavailable" (standalone instance).
+   */
+  roster?: RosterController;
 }
 
 export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono<AppEnv> {
@@ -132,6 +143,30 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     });
   }
 
+  // Forwarded-exposure backstop (OB-209). Forwarding is an OUTBOUND tunnel: the
+  // instance stays on loopback/IPC, so a forwarded inbound request slips past the
+  // BOOT exposure backstop (`assertExposureSafe`, which only guards a *listener*
+  // bind). The tunnel client marks every request it forwards (`FORWARDED_HEADER`);
+  // if such a request reaches a still-UNCLAIMED instance, `authorize()` rule-0 would
+  // short-circuit to the legacy guest gate (default `guestAccess:'write'`) and serve
+  // it anonymous + world-writable over the public address (OB-182 §2.6 B2). Fail
+  // closed: the exposed path is only ever served once the instance is claimed. The
+  // publish flow claims BEFORE it exposes (the client guard); this is the origin-side
+  // last line if that is ever bypassed (a stale client, a replayed marker, a manual
+  // tunnel). A loopback request never carries the marker, so the local single-user
+  // experience is untouched. `/health` is not under `/api/*` and stays reachable.
+  app.use('/api/*', async (c, next) => {
+    if (!c.req.header(FORWARDED_HEADER)) return next();
+    const {ownerSubject} = await store.getInstanceConfig();
+    if (!ownerSubject) {
+      return c.json(
+        {error: 'this instance is not claimed; forwarding requires an instance owner before it can be exposed (OB-182 §2.6)'},
+        403,
+      );
+    }
+    return next();
+  });
+
   // Principal resolution + guest-access gate (OB-165). Runs after the
   // reachability gate above (a different axis: "may you reach this instance" vs.
   // "who are you / may a guest do this"). Always sets `c.principal` — a guest
@@ -140,7 +175,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // an anonymous guest with full access.
   app.use('/api/*', async (c, next) => {
     const resolved = await resolvePrincipal(c, opts.identity);
-    if ('reject' in resolved) return c.json({error: resolved.reject.error}, resolved.reject.status);
+    if ('reject' in resolved) {
+      // Loopback-owner audience-lockout recovery (OB-202): a token rejected solely
+      // for its audience may still relax this instance's own audience requirement,
+      // so the owner is never permanently stranded behind it. Everything else stays
+      // rejected, and the instance route's owner-check still gates WHO may apply it.
+      const recovered = await recoverAudienceLockedPrincipal(c, opts.identity);
+      if (recovered) {
+        c.set('principal', recovered);
+        return next();
+      }
+      return c.json({error: resolved.reject.error}, resolved.reject.status);
+    }
     const principal = resolved.principal;
     c.set('principal', principal);
     if (opts.identity) {
@@ -192,9 +238,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.post(API.pages, async (c) => {
     const input = await c.req.json<PageInput>();
-    // A POST with an id of an existing page is an update (write on that page);
-    // otherwise it creates a new page (write at the instance default scope).
-    if (input.id && (await store.decidePageAccess(c.get('principal'), input.id)).exists) {
+    // A POST whose id names a page the caller may READ is an update (write-gated on
+    // that page); anything else is a create (gated at the instance default scope).
+    // Keying on read-access — not mere existence — closes the N6 existence oracle:
+    // an existing-but-unreadable id and a nonexistent id both fall to the create
+    // gate and answer alike (403 for a non-creator), so POST can't distinguish a
+    // private page from a missing one.
+    if (input.id && (await store.canReadPage(c.get('principal'), input.id))) {
       await requireAccess(c, store, 'write', input.id);
     } else {
       await requireCreate(c, store);
@@ -339,12 +389,15 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // leaks private JWKS material — trusted issuers are returned as URLs only.
   app.get(API.instance, async (c) => {
     const config = await store.getInstanceConfig();
+    const principal = c.get('principal');
     const info: InstanceInfo = {
       guestAccess: config.guestAccess,
       ownerSubject: config.ownerSubject ?? null,
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience ?? null,
-      you: c.get('principal'),
+      requireAudience: config.requireAudience ?? false,
+      you: principal,
+      youRole: await store.resolveMemberRole(principal, config),
     };
     return c.json(info);
   });
@@ -433,6 +486,32 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.body(null, 204);
   });
 
+  // ── Managed workspace: roster sync (OB-199) ──────────────────────────────────
+  // Report binding/last-sync status, and run an on-demand reconcile of the bound
+  // workspace roster into the local roster. Instance-writer (owner/admin/loopback)
+  // only — same gate as managing the roster directly. The reconcile is the same
+  // one the periodic syncer runs; it fails safe (keeps last-good) on a fetch error.
+
+  app.get(API.workspaceSync, async (c) => {
+    await requireCreate(c, store);
+    if (!opts.roster) return c.json({bound: false, available: false}, 200);
+    return c.json({available: true, ...(await opts.roster.status())});
+  });
+
+  app.post(API.workspaceSync, async (c) => {
+    await requireCreate(c, store);
+    if (!opts.roster) return c.json({error: 'roster sync is not available on this instance'}, 501);
+    try {
+      const result = await opts.roster.syncNow();
+      if (!result) return c.json({error: 'this instance is not bound to a workspace'}, 409);
+      logEdit(c, null, 'workspace.sync', `+${result.added}/~${result.updated}/-${result.removed}`);
+      return c.json(result);
+    } catch (err) {
+      // Fail-safe: the roster is untouched; surface the upstream failure as a 502.
+      return c.json({error: err instanceof Error ? err.message : 'roster sync failed'}, 502);
+    }
+  });
+
   app.get(`${API.pages}/:id/acl`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));
     return c.json(await store.getPageAcl(c.req.param('id')));
@@ -464,6 +543,29 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.body(null, 204);
   });
 
+  // A page's audience-scope visibility (OB-182 §1.1). Read is gated on reading the
+  // page (so a viewer can see "who can see this"); changing it is gated on write
+  // of the page — the same "you manage sharing of pages you can write" rule as the
+  // ACL. `requireAccess` 404s a page the caller can't even read (hide existence).
+  app.get(`${API.pages}/:id/visibility`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'read', id);
+    return c.json({visibility: (await store.getPageVisibility(id)) ?? 'inherit'});
+  });
+
+  app.put(`${API.pages}/:id/visibility`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'write', id);
+    const {visibility} = await c.req.json<{visibility?: PageVisibility}>();
+    if (!visibility || !PAGE_VISIBILITIES.includes(visibility)) {
+      return c.json({error: 'a valid visibility scope is required'}, 400);
+    }
+    const ok = await store.setPageVisibility(id, visibility);
+    if (!ok) return c.json({error: 'page not found'}, 404);
+    logEdit(c, id, 'page.visibility', visibility);
+    return c.json({visibility});
+  });
+
   // A page's change provenance (the edit log), newest first. The top row is its
   // "last edited by". `?limit=` caps the count (default 100, max 1000).
   app.get(`${API.pages}/:id/edits`, async (c) => {
@@ -476,7 +578,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   // Backup policy + per-cadence status (last/next run, on-disk count). 501 when
   // the host can't write files (the in-webview store reports this client-side).
+  // Owner-gated like the policy below: the status leaks the backup folder path,
+  // retention, and snapshot counts, so it's not served to viewers/guests.
   app.get(API.backups, async (c) => {
+    await requireCreate(c, store);
     if (!opts.backups) return c.json({error: 'scheduled backups are not available on this server'}, 501);
     return c.json(await opts.backups.status());
   });
@@ -498,8 +603,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   });
 
   // Run a snapshot immediately (the "Back up now" action). `{cadence}` selects the
-  // tier (default daily); 409 when no backup directory is configured.
+  // tier (default daily); 409 when no backup directory is configured. Owner-gated
+  // (like the policy routes) so a non-owner can't trigger snapshot work — no
+  // unauthorized DoS.
   app.post(API.backupRun, async (c) => {
+    await requireCreate(c, store);
     if (!opts.backups) return c.json({error: 'scheduled backups are not available on this server'}, 501);
     const body = await c.req.json<{cadence?: BackupCadence}>().catch(() => ({}) as {cadence?: BackupCadence});
     const result = await opts.backups.runNow(body.cadence);

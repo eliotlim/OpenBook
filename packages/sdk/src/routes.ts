@@ -122,6 +122,21 @@ export const API = {
    * write of the page itself (you manage sharing of pages you can write).
    */
   pageAcl: (id: string): string => `/api/pages/${encodeURIComponent(id)}/acl`,
+  /**
+   * A page's audience-scope visibility (OB-182 §1.1): `GET` returns
+   * `{visibility}` (read-gated); `PUT` `{visibility}` sets it (write-gated — same
+   * "you manage sharing of pages you can write" rule as the ACL).
+   */
+  pageVisibility: (id: string): string => `/api/pages/${encodeURIComponent(id)}/visibility`,
+
+  // ── Managed workspace: instance ↔ workspace roster sync — OB-199 ─────────────
+  /**
+   * On-demand roster sync of a managed instance: `GET` reports the binding +
+   * last-sync status; `POST` pulls the bound workspace roster from the account and
+   * reconciles it into the local roster (managed rows only). Instance-writer
+   * (owner/admin/loopback) only. The same sync also runs periodically.
+   */
+  workspaceSync: '/api/workspace/sync',
 
   // ── Scheduled backups — OB-166 ───────────────────────────────────────────────
   /** Scheduled-backup policy: `GET` returns {@link BackupStatus}; `PUT` updates

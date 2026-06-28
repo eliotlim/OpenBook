@@ -1,5 +1,6 @@
 import {invoke} from '@tauri-apps/api/core';
 import type {KeyStore, SiteIdentity} from '@book.dev/sdk';
+import type {AccountSecretStore} from '@book.dev/ui';
 
 /**
  * A {@link KeyStore} backed by the OS keychain (via the Rust `keychain_*`
@@ -54,4 +55,21 @@ export const createLocalStorageKeyStore = (): KeyStore => ({
   async clear() {
     localStorage.removeItem(DEV_SITE_IDENTITY_KEY);
   },
+});
+
+/**
+ * An {@link AccountSecretStore} backed by the OS keychain (via the `keychain_*`
+ * commands), one entry per account id (OB-194). The client can hold several
+ * account.book.pub accounts at once, so each device token gets its own namespaced
+ * keychain slot — the secret never lands on disk in the clear, and no account can
+ * read another's token. A signed release build uses this; dev builds fall back to
+ * the UI's namespaced-localStorage store (the per-relink cdhash loses keychain
+ * access, exactly as for the forwarding key above).
+ */
+const ACCOUNT_TOKEN_PREFIX = 'account.token.';
+
+export const createTauriAccountStore = (): AccountSecretStore => ({
+  get: (id) => invoke<string | null>('keychain_get', {key: ACCOUNT_TOKEN_PREFIX + id}),
+  set: (id, token) => invoke('keychain_set', {key: ACCOUNT_TOKEN_PREFIX + id, value: token}),
+  delete: (id) => invoke('keychain_delete', {key: ACCOUNT_TOKEN_PREFIX + id}),
 });
