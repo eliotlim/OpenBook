@@ -10,6 +10,7 @@ import {
 import {existsSync, watch, type FSWatcher} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {hostname} from 'node:os';
 import {
   bookHtmlToPage,
   contentHash,
@@ -55,7 +56,33 @@ export interface BookMirrorOptions {
 }
 
 const STATE_FILE = '.openbook-mirror.json';
+const LOCK_FILE = '.openbook-mirror.lock';
 const MAX_DEPTH = 64;
+
+/** Persisted single-owner lock on a mirror directory. */
+interface MirrorLock {
+  pid: number;
+  host: string;
+  startedAt: string;
+}
+
+/**
+ * Thrown by {@link BookMirror.create} when another **live** process already owns
+ * the mirror directory (OB-241). A second `openbook-server` pointed at the same
+ * book folder would otherwise watch + write-through the same files, and each
+ * would see the other's writes as external edits — a mutual DB-wins conflict war
+ * that mints duplicate "(conflicted copy)" pages on both sides. The caller
+ * (server bootstrap) catches this and simply runs without a mirror.
+ */
+export class MirrorLockedError extends Error {
+  constructor(
+    readonly dir: string,
+    readonly holder: MirrorLock,
+  ) {
+    super(`book mirror: ${dir} is already owned by pid ${holder.pid} on ${holder.host} (since ${holder.startedAt})`);
+    this.name = 'MirrorLockedError';
+  }
+}
 
 /**
  * The on-disk book-file mirror (OB-134/135/136). pglite stays canonical; this
@@ -89,6 +116,7 @@ export class BookMirror {
   private watchers: FSWatcher[] = [];
   private importTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closed = false;
+  private holdsLock = false;
 
   private constructor(opts: BookMirrorOptions) {
     this.store = opts.store;
@@ -108,6 +136,9 @@ export class BookMirror {
   static async create(opts: BookMirrorOptions): Promise<BookMirror> {
     const mirror = new BookMirror(opts);
     await mkdir(mirror.dir, {recursive: true});
+    // Single-owner guard (OB-241): claim the directory before doing any work, so a
+    // second process can't watch + write-through the same folder and war with us.
+    await mirror.acquireLock();
     await mirror.loadState();
     // reconcile re-enqueues anything stale; flush drains both the reconciled set
     // and any journal entries a prior crash left un-flushed.
@@ -149,6 +180,61 @@ export class BookMirror {
       // so a failed persist (e.g. the dir was removed) must never crash the app.
       .catch((err) => this.log(`book mirror: state persist failed: ${String(err)}`));
     return this.statePersist;
+  }
+
+  // ── Single-owner lock (OB-241) ───────────────────────────────────────────────
+
+  private get lockPath(): string {
+    return join(this.dir, LOCK_FILE);
+  }
+
+  /**
+   * Claim exclusive ownership of the mirror directory. Throws
+   * {@link MirrorLockedError} when another **live** process already holds it; a
+   * stale lock (the holder's pid is gone, or it's our own crashed prior instance)
+   * is taken over. The lock file name starts with `.` so the watcher ignores it.
+   */
+  private async acquireLock(): Promise<void> {
+    let prior: MirrorLock | null = null;
+    try {
+      prior = JSON.parse(await readFile(this.lockPath, 'utf8')) as MirrorLock;
+    } catch {
+      prior = null; // no lock, or unreadable — free to claim.
+    }
+    if (prior && this.isLockLive(prior)) throw new MirrorLockedError(this.dir, prior);
+    await this.atomicWrite(
+      this.lockPath,
+      JSON.stringify({pid: process.pid, host: hostname(), startedAt: new Date().toISOString()} satisfies MirrorLock),
+    );
+    this.holdsLock = true;
+  }
+
+  /** Is a recorded lock held by a different, still-running process? */
+  private isLockLive(lock: MirrorLock): boolean {
+    if (typeof lock.pid !== 'number') return false; // malformed → ignore.
+    // A lock from another machine on a network-synced folder: we can't probe its
+    // liveness, so assume live to avoid a cross-host write war.
+    if (lock.host && lock.host !== hostname()) return true;
+    // Our own pid: a prior instance in this process crashed/was abandoned (e.g. a
+    // restart replay) — safe to take over.
+    if (lock.pid === process.pid) return false;
+    try {
+      process.kill(lock.pid, 0); // signal 0 only probes; doesn't kill.
+      return true; // the process exists.
+    } catch (err) {
+      // ESRCH → no such process (dead, take over); EPERM → alive but not ours.
+      return (err as NodeJS.ErrnoException).code === 'EPERM';
+    }
+  }
+
+  private async releaseLock(): Promise<void> {
+    if (!this.holdsLock) return;
+    this.holdsLock = false;
+    try {
+      await rm(this.lockPath, {force: true});
+    } catch {
+      // Best-effort: a stale lock is re-evaluated by liveness on the next start.
+    }
   }
 
   // ── Enqueue / flush ──────────────────────────────────────────────────────────
@@ -440,6 +526,7 @@ export class BookMirror {
     this.watchers = [];
     await this.flush();
     await this.statePersist;
+    await this.releaseLock();
   }
 }
 

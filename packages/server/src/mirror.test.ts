@@ -1,13 +1,13 @@
 import {existsSync, readdirSync} from 'node:fs';
-import {readFile, writeFile, readdir} from 'node:fs/promises';
+import {readFile, writeFile, readdir, mkdir} from 'node:fs/promises';
 import {rmSync} from 'node:fs';
-import {tmpdir} from 'node:os';
+import {hostname, tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {bookHtmlToPage, pageToBookHtml, type PageSnapshot} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
-import {BookMirror} from './mirror';
+import {BookMirror, MirrorLockedError} from './mirror';
 
 const snap = (text: string): PageSnapshot => ({
   editorjs: {blocks: [{id: 'b1', type: 'paragraph', data: {text}}]},
@@ -187,6 +187,62 @@ describe('BookMirror re-import (disk → DB)', () => {
     await mirror.close();
   });
 
+  it('converges to ONE conflict copy when an external tool re-applies the same divergent file (OB-241)', async () => {
+    // Reproduces the runaway: a cloud-sync daemon (Dropbox/iCloud) re-applies the
+    // same remote (divergent, stale-base) version over and over. The mirror keeps
+    // restoring the canonical bytes, so the file diverges again every round — and
+    // before the fix each round minted a fresh "(conflicted copy)" page + file,
+    // a 10 GB write storm. It must now settle at exactly one copy.
+    const page = await store.upsertPage({name: 'Hello World', data: snap('v0')});
+    const base = page.updatedAt;
+    const mirror = await BookMirror.create({store, dir: bookDir, watch: false});
+    const file = await onlyHtmlFile();
+
+    // The DB advances (a real app edit), making it strictly newer than the base.
+    await new Promise((r) => setTimeout(r, 5));
+    await store.upsertPage({id: page.id, name: 'Hello World', data: snap('v1 from app')});
+    mirror.enqueueWrite(page.id);
+    await mirror.flush();
+
+    const diverged = pageToBookHtml({id: page.id, name: 'Hello World', icon: null, updatedAt: base, data: snap('v1 from disk')});
+    for (let i = 0; i < 10; i += 1) {
+      await writeFile(file, diverged, 'utf8'); // the sync daemon re-applies the remote
+      const action = await mirror.importFile(file);
+      expect(action).toBe('conflict');
+      await mirror.flush(); // restore canonical + (idempotently) mirror the copy
+    }
+
+    const conflictCopies = (await store.listPages()).filter((p) => p.name?.includes('(conflicted copy'));
+    expect(conflictCopies).toHaveLength(1); // one external divergence ⇒ exactly one copy
+    // Data safety preserved: the disk version survives, the DB kept the app's edit.
+    const copy = await store.getPage(conflictCopies[0].id);
+    expect(JSON.stringify(copy?.data.editorjs)).toContain('v1 from disk');
+    expect(JSON.stringify((await store.getPage(page.id))?.data.editorjs)).toContain('v1 from app');
+    await mirror.close();
+  });
+
+  it('importBookPage reuses an existing conflict copy for identical divergent content (OB-241)', async () => {
+    const page = await store.upsertPage({name: 'Doc', data: snap('v0')});
+    const base = page.updatedAt;
+    await new Promise((r) => setTimeout(r, 5));
+    await store.upsertPage({id: page.id, name: 'Doc', data: snap('app edit')});
+    const divergent = snap('disk edit');
+
+    const r1 = await store.importBookPage({id: page.id, name: 'Doc', data: divergent}, base);
+    const r2 = await store.importBookPage({id: page.id, name: 'Doc', data: divergent}, base);
+    expect(r1.action).toBe('conflict');
+    expect(r2.action).toBe('conflict');
+    expect(r2.page.id).toBe(r1.page.id); // same copy reused, not a duplicate
+    const copies = (await store.listPages()).filter((p) => p.name?.includes('(conflicted copy'));
+    expect(copies).toHaveLength(1);
+
+    // A *different* divergent edit still earns its own copy (no data lost).
+    const r3 = await store.importBookPage({id: page.id, name: 'Doc', data: snap('a different disk edit')}, base);
+    expect(r3.action).toBe('conflict');
+    expect(r3.page.id).not.toBe(r1.page.id);
+    expect((await store.listPages()).filter((p) => p.name?.includes('(conflicted copy'))).toHaveLength(2);
+  });
+
   it('recreates a page that is missing from the DB (restored backup)', async () => {
     const mirror = await BookMirror.create({store, dir: bookDir, watch: false});
     // A file for a page id the DB has never seen.
@@ -200,5 +256,47 @@ describe('BookMirror re-import (disk → DB)', () => {
     expect(action).toBe('created');
     expect((await store.getPage(id))?.name).toBe('Restored');
     await mirror.close();
+  });
+});
+
+describe('BookMirror single-owner lock (OB-241)', () => {
+  const lockPath = (): string => join(bookDir, '.openbook-mirror.lock');
+
+  it('refuses to mirror a directory a live foreign process owns', async () => {
+    await mkdir(bookDir, {recursive: true});
+    // A lock from another machine (network-synced folder): liveness is unknowable,
+    // so we must assume it is live and decline rather than start a write war.
+    await writeFile(
+      lockPath(),
+      JSON.stringify({pid: process.pid, host: 'some-other-host', startedAt: new Date().toISOString()}),
+      'utf8',
+    );
+    await expect(BookMirror.create({store, dir: bookDir, watch: false})).rejects.toBeInstanceOf(MirrorLockedError);
+  });
+
+  it('takes over a stale lock whose holder is gone', async () => {
+    await mkdir(bookDir, {recursive: true});
+    await writeFile(
+      lockPath(),
+      JSON.stringify({pid: 999999, host: hostname(), startedAt: new Date().toISOString()}),
+      'utf8',
+    );
+    // The recorded pid is dead → safe to claim. Mirroring proceeds normally.
+    const page = await store.upsertPage({name: 'After Takeover', data: snap('ok')});
+    const mirror = await BookMirror.create({store, dir: bookDir, watch: false});
+    const folder = join(bookDir, readdirSync(bookDir).find((d) => d.startsWith('after-takeover--'))!);
+    expect(readdirSync(folder).some((f) => f.endsWith('.html'))).toBe(true);
+    expect(page.id).toBeTruthy();
+    await mirror.close();
+  });
+
+  it('releases the lock on close so the next start can re-acquire it', async () => {
+    await store.upsertPage({name: 'Cycle', data: snap('x')});
+    const first = await BookMirror.create({store, dir: bookDir, watch: false});
+    await first.close();
+    // A fresh instance over the same dir must not be blocked by the prior lock.
+    const second = await BookMirror.create({store, dir: bookDir, watch: false});
+    expect(second).toBeTruthy();
+    await second.close();
   });
 });
