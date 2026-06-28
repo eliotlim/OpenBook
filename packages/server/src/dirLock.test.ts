@@ -139,13 +139,23 @@ async function raceClaims(path: string, n: number): Promise<string[]> {
 }
 
 /** Run `rounds` independent races of `n` claimants; assert exactly one winner each. */
-async function stress(opts: {n: number; rounds: number; seedStale: boolean}): Promise<void> {
+async function stress(opts: {n: number; rounds: number; seedStale: boolean; seedLeakedBreaker?: boolean}): Promise<void> {
   for (let r = 0; r < opts.rounds; r += 1) {
     const roundDir = mkdtempSync(join(tmpdir(), 'ob-dirlock-stress-'));
     const path = join(roundDir, 'race.lock');
     if (opts.seedStale) {
       // A post-crash leftover from a dead pid that every claimant must take over.
       writeFileSync(path, JSON.stringify({pid: 999_999, host: hostname(), startedAt: new Date().toISOString()}));
+    }
+    if (opts.seedLeakedBreaker) {
+      // A leaked breaker: dead pid, aged past the recovery window — so EVERY claimant
+      // hits the breaker-RECOVERY path at once (Sasha's config). This is the path the
+      // read→rename gap got wrong (two recoverers → two owners); the token-gated
+      // recovery must yield exactly one winner.
+      writeFileSync(
+        `${path}.breaker`,
+        JSON.stringify({pid: 999_999, host: hostname(), startedAt: new Date(Date.now() - 60_000).toISOString()}),
+      );
     }
     try {
       const verdicts = await raceClaims(path, opts.n);
@@ -170,4 +180,15 @@ describe('DirLock exactly-one-owner stress (cross-process)', () => {
     // breaker-serialized takeover it must be exactly one across many rounds.
     await stress({n: 8, rounds: 10, seedStale: true});
   }, 150_000);
+
+  it('breaker-RECOVERY path: N claimants over a stale lock + leaked breaker → exactly one winner every round', async () => {
+    // Adopts Sasha's recover config: pre-seed a dead-pid stale lock AND a leaked
+    // (dead-pid, aged) breaker, so every claimant takes the breaker-recovery path
+    // simultaneously. The earlier `rename`-away recovery double-granted here
+    // (two recoverers → two owners → two PGlite opens); token-gated recovery must
+    // keep it to exactly one. (n is set above the 8-core dev box to maximise the
+    // contention that exposes a regression; the path is exercised every round
+    // regardless of core count because the leaked breaker is pre-seeded.)
+    await stress({n: 16, rounds: 20, seedStale: true, seedLeakedBreaker: true});
+  }, 240_000);
 });

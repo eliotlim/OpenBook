@@ -44,15 +44,20 @@ const MAX_CLAIM_ATTEMPTS = 64;
 const MAX_BREAKER_ATTEMPTS = 16;
 
 /**
- * A breaker held longer than this **and** whose owner pid is dead is provably
- * abandoned (its critical section is a handful of metadata syscalls — milliseconds,
- * never seconds), so it is safe to recover. The window is deliberately generous so
- * a *fresh* breaker (age ≈ 0) can never be mistaken for a leaked one — which is
- * what makes the (otherwise destructive) breaker recovery race-free in practice.
+ * Only a recovery **token** held longer than this (and whose owner is dead) is
+ * reclaimed. A recovery token is created and removed within a sub-millisecond
+ * window, so a token older than this can only be the litter of a process that died
+ * mid-recovery; a *fresh* token (age ≈ 0, from a live recoverer) is never past it,
+ * so an active recoverer is never displaced. (The leaked *breaker* itself needs no
+ * age gate — recovery is gated by an atomic identity-keyed token, not by age.)
  */
 const BREAKER_STALE_MS = 30_000;
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/** Whether two lock bodies identify the same acquisition (the full triple). */
+const sameIdentity = (a: DirLockInfo, b: DirLockInfo): boolean =>
+  a.pid === b.pid && a.host === b.host && a.startedAt === b.startedAt;
 
 /**
  * A reusable single-owner lock on a filesystem path (generalised from the OB-241
@@ -205,37 +210,96 @@ export class DirLock {
   }
 
   /**
-   * Win the takeover serializer. Returns true while we hold it; false when another
-   * claimant is actively taking over (the caller backs off + retries). A breaker
-   * whose owner is dead AND which is older than {@link BREAKER_STALE_MS} is provably
-   * leaked (a crash mid-takeover); it is recovered with an atomic `rename`-away so
-   * exactly one recoverer wins for a given breaker inode.
+   * Win the takeover serializer ("breaker"). Returns true while we hold it; false
+   * when another claimant is actively taking over (the caller backs off + retries).
+   *
+   * Recovering a **leaked** breaker (owner genuinely dead) is the corruption-critical
+   * step an earlier `rename`-away version got wrong: it read the leaked breaker `B0`,
+   * then `rename(breakerPath → grave)` acted on whatever was at `breakerPath` *at
+   * execution time* — which a peer recoverer may already have replaced with its own
+   * fresh breaker `B1`. Moving `B1` aside let two processes both "recover" and both
+   * enter the takeover → two owners (reproduced). So recovery is now gated by a
+   * **token whose name is derived from `B0`'s identity**: only the one process that
+   * wins `exclusiveCreate(token)` may touch this exact `B0`, and it replaces it via an
+   * atomic rename-overwrite (no empty window). While `B0` sits at `breakerPath` no
+   * fresh breaker is ever created (cold creators see it occupied; rival recoverers
+   * lose the token), so the wrong-inode displacement is structurally impossible —
+   * which is what keeps the inner `rm(path)` at {@link claim} safe (single-entry).
    */
   private async acquireBreaker(): Promise<boolean> {
     for (let i = 0; i < MAX_BREAKER_ATTEMPTS; i += 1) {
+      // Cold path: create the breaker on a free slot.
       if (await this.exclusiveCreate(this.breakerPath, this.info())) return true;
       const b = await this.readInfo(this.breakerPath);
       if (!b) {
         await sleep(2); // mid-create / just-removed — settle then retry
         continue;
       }
-      if (!this.breakerRecyclable(b)) return false; // a live taker holds it — defer to them
-      // Provably leaked → recover. `rename` removes the breaker atomically; the
-      // loser of a concurrent recovery gets ENOENT and simply retries.
-      try {
-        await rename(this.breakerPath, `${this.breakerPath}.${randomUUID()}.dead`);
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-      }
-      // best-effort sweep of any grave we (or a peer) renamed aside is unnecessary —
-      // they are dotfiles ignored by the watcher; leave them for the next rm/clean.
+      if (DirLock.isLive(b)) return false; // a live (or cross-host) taker holds it — defer
+      // `b` is a leaked breaker (owner dead). Elect the SOLE recoverer of this exact
+      // `b` and let only it replace the breaker.
+      const outcome = await this.recoverLeakedBreaker(b);
+      if (outcome === 'won') return true;
+      if (outcome === 'deferred') return false; // a live recoverer owns the token
+      // 'retry' → a token from a crashed recoverer was reclaimed; loop and re-elect.
     }
     return false;
   }
 
-  private breakerRecyclable(b: DirLockInfo): boolean {
-    if (DirLock.isLive(b)) return false; // a live (or cross-host) owner is never recyclable
-    const started = Date.parse(b.startedAt);
+  /**
+   * Recover leaked breaker `b`. Win a token keyed to `b`'s identity (so exactly one
+   * process recovers a given leaked breaker), then replace `b` with our own breaker
+   * via an atomic overwrite — no empty window for a cold-creator to slip into.
+   * Returns `'won'` (we now hold the breaker), `'deferred'` (a live process is
+   * recovering `b` — caller declines), or `'retry'` (a token leaked by a recoverer
+   * that died mid-recovery was reclaimed; the caller should loop and re-elect).
+   */
+  private async recoverLeakedBreaker(b: DirLockInfo): Promise<'won' | 'deferred' | 'retry'> {
+    const token = this.recoveryTokenPath(b);
+    if (await this.exclusiveCreate(token, this.info())) {
+      try {
+        // Re-verify the breaker is STILL the exact `b` we're recovering before
+        // overwriting it. The token is released only AFTER the replace below and at
+        // most one process holds it at a time, so a *prior* recoverer (which has
+        // since released the token, letting us win it) has already replaced `b` —
+        // breakerPath then no longer equals `b`, and overwriting its live breaker
+        // would double-grant. In that case abort: that recoverer is live and wins.
+        const cur = await this.readInfo(this.breakerPath);
+        if (!cur || !sameIdentity(cur, b)) return 'deferred';
+        await this.replaceInPlace(this.breakerPath, this.info()); // B0 → ours, atomic
+        return 'won';
+      } finally {
+        await rm(token, {force: true}); // happy-path cleanup — no token litter (ER-9)
+      }
+    }
+    // Lost the token: normally a live recoverer holds it (defer). The exception is a
+    // recoverer that died in the sub-ms window between winning the token and
+    // overwriting the breaker — then the token is leaked. Reclaim it ONLY when its
+    // owner is dead AND it is aged past the window, so a fresh token (age ≈ 0) from a
+    // live recoverer is never displaced.
+    const t = await this.readInfo(token);
+    if (t && !DirLock.isLive(t) && this.agedOut(t)) {
+      await rm(token, {force: true});
+      return 'retry';
+    }
+    return 'deferred';
+  }
+
+  /** Token path keyed to a leaked breaker's identity, so all its recoverers contend for one token. */
+  private recoveryTokenPath(b: DirLockInfo): string {
+    const ts = Date.parse(b.startedAt);
+    return `${this.breakerPath}.rec.${b.pid}.${Number.isFinite(ts) ? ts : 'x'}`;
+  }
+
+  /** Atomically replace whatever is at `dest` with `body` — write-temp then rename-overwrite, no gap. */
+  private async replaceInPlace(dest: string, body: DirLockInfo): Promise<void> {
+    const tmp = `${dest}.${randomUUID()}.tmp`;
+    await writeFile(tmp, JSON.stringify(body), 'utf8');
+    await rename(tmp, dest);
+  }
+
+  private agedOut(info: DirLockInfo): boolean {
+    const started = Date.parse(info.startedAt);
     if (!Number.isFinite(started)) return true; // unparseable timestamp → treat as leaked
     return Date.now() - started > BREAKER_STALE_MS;
   }
@@ -264,7 +328,7 @@ export class DirLock {
     this.mine = null;
     try {
       const cur = await this.readInfo(this.path);
-      if (cur && mine && cur.pid === mine.pid && cur.host === mine.host && cur.startedAt === mine.startedAt) {
+      if (cur && mine && sameIdentity(cur, mine)) {
         await rm(this.path, {force: true});
       }
     } catch {
