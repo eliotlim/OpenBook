@@ -230,9 +230,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.post(API.pages, async (c) => {
     const input = await c.req.json<PageInput>();
-    // A POST with an id of an existing page is an update (write on that page);
-    // otherwise it creates a new page (write at the instance default scope).
-    if (input.id && (await store.decidePageAccess(c.get('principal'), input.id)).exists) {
+    // A POST whose id names a page the caller may READ is an update (write-gated on
+    // that page); anything else is a create (gated at the instance default scope).
+    // Keying on read-access — not mere existence — closes the N6 existence oracle:
+    // an existing-but-unreadable id and a nonexistent id both fall to the create
+    // gate and answer alike (403 for a non-creator), so POST can't distinguish a
+    // private page from a missing one.
+    if (input.id && (await store.canReadPage(c.get('principal'), input.id))) {
       await requireAccess(c, store, 'write', input.id);
     } else {
       await requireCreate(c, store);
@@ -540,7 +544,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   // Backup policy + per-cadence status (last/next run, on-disk count). 501 when
   // the host can't write files (the in-webview store reports this client-side).
+  // Owner-gated like the policy below: the status leaks the backup folder path,
+  // retention, and snapshot counts, so it's not served to viewers/guests.
   app.get(API.backups, async (c) => {
+    await requireCreate(c, store);
     if (!opts.backups) return c.json({error: 'scheduled backups are not available on this server'}, 501);
     return c.json(await opts.backups.status());
   });
@@ -562,8 +569,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   });
 
   // Run a snapshot immediately (the "Back up now" action). `{cadence}` selects the
-  // tier (default daily); 409 when no backup directory is configured.
+  // tier (default daily); 409 when no backup directory is configured. Owner-gated
+  // (like the policy routes) so a non-owner can't trigger snapshot work — no
+  // unauthorized DoS.
   app.post(API.backupRun, async (c) => {
+    await requireCreate(c, store);
     if (!opts.backups) return c.json({error: 'scheduled backups are not available on this server'}, 501);
     const body = await c.req.json<{cadence?: BackupCadence}>().catch(() => ({}) as {cadence?: BackupCadence});
     const result = await opts.backups.runNow(body.cadence);

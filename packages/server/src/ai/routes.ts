@@ -3,6 +3,7 @@ import {streamSSE} from 'hono/streaming';
 import {API, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiProvider, type AiSkill, type PluginAgentTool} from '@book.dev/sdk';
 import type {PageStore} from '../store';
 import type {AppEnv} from '../appEnv';
+import {requireCreate} from '../access';
 import {AgentRunner, type AgentMessage} from './agent';
 import type {AiService} from './service';
 
@@ -24,6 +25,10 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   });
 
   app.post(API.aiIndex, async (c) => {
+    // Rebuilding the whole-workspace index is an instance-wide maintenance action
+    // (it reads every page), so gate it to an instance writer (owner/admin/loopback)
+    // — a viewer/guest can't trigger a global re-index.
+    await requireCreate(c, store);
     const index = await ai.ensureIndex(true);
     return c.json({pages: new Set(index.docs.map((d) => d.pageId)).size, chunks: index.docs.length});
   });
@@ -31,7 +36,14 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   app.post(API.aiSearch, async (c) => {
     const {query, limit} = (await c.req.json()) as {query?: string; limit?: number};
     if (!query?.trim()) return c.json({results: [], mode: 'lexical'});
-    return c.json(await ai.search(query, Math.min(Math.max(limit ?? 8, 1), 25)));
+    // The index spans every page; filter ranked hits to the ones THIS principal may
+    // read so search can't surface restricted/members snippets on a shared instance.
+    // The access base is resolved once and amortised across the per-page checks.
+    const principal = c.get('principal');
+    const base = await store.accessBase(principal);
+    return c.json(
+      await ai.search(query, Math.min(Math.max(limit ?? 8, 1), 25), (pageId) => store.canReadPage(principal, pageId, base)),
+    );
   });
 
   app.post(API.aiTasks, async (c) => {
@@ -119,7 +131,10 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     const selection = body.selection?.trim() || undefined;
     let context: {pageTitle?: string; pageId?: string; pageText?: string; selection?: string} | undefined;
     if (body.pageId || selection) {
-      const page = body.pageId ? await store.getPage(body.pageId).catch(() => null) : null;
+      // Access-gate the ambient page so the agent can't be handed a page this
+      // caller can't read (getPageFor → null for a non-member on a restricted/
+      // members page); a non-reader just gets no page context.
+      const page = body.pageId ? await store.getPageFor(c.get('principal'), body.pageId).catch(() => null) : null;
       const pageText = page ? snapshotText(page.data).slice(0, 4000) || undefined : undefined;
       if (pageText || selection) {
         context = {pageTitle: page?.name ?? undefined, pageId: body.pageId, pageText, selection};
