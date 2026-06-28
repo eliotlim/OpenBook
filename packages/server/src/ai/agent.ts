@@ -12,6 +12,7 @@ import {
   type DatabaseSelectOption,
   type InterviewStep,
   type PluginAgentTool,
+  type Principal,
   type StoredSuggestion,
   type SuggestionKind,
 } from '@book.dev/sdk';
@@ -89,6 +90,15 @@ export interface AgentRunOptions {
   /** Called once after a run that created, moved, or otherwise restructured pages
    *  — so the host can re-broadcast the page list (the sidebar stays live). */
   onPagesChanged?: () => void | Promise<void>;
+  /**
+   * The request principal whose access bounds every read/write tool (OB-190
+   * follow-up). When OMITTED the runner is DEFAULT-DENY: its tools read/write
+   * nothing rather than the whole workspace — so an unexpected caller can never
+   * turn the agent into a cross-page oracle. The route always supplies the
+   * resolved principal (a guest on an unclaimed instance still gets everything,
+   * the legacy single-user path, because `authorize()` grants guests blanket
+   * access there). */
+  principal?: Principal;
 }
 
 interface ToolDef {
@@ -132,6 +142,8 @@ export class AgentRunner {
   private suggestions: StoredSuggestion[] = [];
   /** Whether the user has granted direct (review-free) edit access this run. */
   private readonly directEdits: boolean;
+  /** The request principal that bounds every tool's access (undefined ⇒ default-deny). */
+  private readonly principal?: Principal;
   /** Set when a tool changed the page tree (create/move) → broadcast on finish. */
   private pagesTouched = false;
   /** Proposals to apply DIRECTLY this run (when {@link directEdits}). */
@@ -146,6 +158,7 @@ export class AgentRunner {
     private readonly options: AgentRunOptions = {},
   ) {
     this.directEdits = options.allowDirectEdits === true;
+    this.principal = options.principal;
     this.tools = [
       ...this.readTools(),
       ...this.writeTools(),
@@ -155,6 +168,63 @@ export class AgentRunner {
       ...this.interactiveTools(),
       ...this.pluginToolDefs(),
     ];
+  }
+
+  // ── Access gating (OB-190 follow-up) ─────────────────────────────────────────
+  //
+  // Every read/write tool runs through these so the agent reads and edits ONLY
+  // what its {@link principal} may — the same per-page visibility + ACL decisions
+  // the content routes enforce via `access.ts`/`store.*For`. Default-deny by
+  // construction: with NO principal the runner reads nothing and writes nothing
+  // (so a runner built off the access path can't leak the workspace). The legacy
+  // single-user path is unaffected — an unclaimed instance resolves a guest
+  // principal that `authorize()` grants blanket read/write.
+
+  /** The page if the caller may READ it (default-deny: no principal ⇒ null). */
+  private async readablePage(id: string): Promise<Awaited<ReturnType<PageStore['getPage']>>> {
+    if (!this.principal) return null;
+    return this.store.getPageFor(this.principal, id);
+  }
+
+  /** The database hosted on a page the caller may READ, or null (default-deny). An
+   *  unreadable host reports as "no database" upstream — no existence oracle. */
+  private async readableDbByPage(pageId: string): Promise<Awaited<ReturnType<PageStore['getDatabaseByPage']>>> {
+    if (!this.principal || !(await this.store.canReadPage(this.principal, pageId))) return null;
+    return this.store.getDatabaseByPage(pageId);
+  }
+
+  /** A database's rows, filtered to the readable subset (default-deny). Gates on
+   *  the host page then drops rows the caller can't read (per-row visibility). */
+  private async readableRows(databaseId: string): Promise<Awaited<ReturnType<PageStore['listRows']>>> {
+    if (!this.principal) return [];
+    return this.store.listRowsFor(this.principal, databaseId);
+  }
+
+  /** The database on a page the caller may WRITE, or null with a message
+   *  (default-deny). An unreadable host is reported as "no database" (no oracle);
+   *  a readable-but-not-writable host reports the write denial. */
+  private async writableDbForPage(
+    pageId: string,
+  ): Promise<{db: Awaited<ReturnType<PageStore['getDatabaseByPage']>>; err?: string}> {
+    if (!this.principal) return {db: null, err: 'That page hosts no database.'};
+    const {decision, exists} = await this.store.decidePageAccess(this.principal, pageId);
+    if (!exists || !decision.canRead) return {db: null, err: 'That page hosts no database.'};
+    if (!decision.canWrite) return {db: null, err: 'You do not have write access to that page.'};
+    const db = await this.store.getDatabaseByPage(pageId);
+    return db ? {db} : {db: null, err: 'That page hosts no database.'};
+  }
+
+  /** May the caller CREATE a new top-level page/database here? (default-deny). */
+  private async canCreate(): Promise<boolean> {
+    if (!this.principal) return false;
+    return (await this.store.decideCreateAccess(this.principal)).canWrite;
+  }
+
+  /** May the caller WRITE this existing page? (default-deny). */
+  private async canWritePage(pageId: string): Promise<boolean> {
+    if (!this.principal) return false;
+    const {decision, exists} = await this.store.decidePageAccess(this.principal, pageId);
+    return exists && decision.canWrite;
   }
 
   // ── Read tools ──────────────────────────────────────────────────────────────
@@ -167,7 +237,13 @@ export class AgentRunner {
         args: '{"query": string}',
         schema: obj({query: str('What to look for.')}, ['query']),
         run: async (args) => {
-          const res = await this.ai.search(String(args.query ?? ''), 5);
+          const principal = this.principal;
+          if (!principal) return 'No matching notes.';
+          // Filter ranked hits to the pages THIS caller may read (per-principal),
+          // amortising the roster lookup across the candidates — same gate as the
+          // /api/ai/search route, so the agent can't surface restricted snippets.
+          const base = await this.store.accessBase(principal);
+          const res = await this.ai.search(String(args.query ?? ''), 5, (pageId) => this.store.canReadPage(principal, pageId, base));
           if (res.results.length === 0) return 'No matching notes.';
           return res.results.map((r) => `- [${r.pageId}] ${r.title}: ${r.snippet}`).join('\n');
         },
@@ -178,7 +254,9 @@ export class AgentRunner {
         args: '{}',
         schema: obj({}),
         run: async () => {
-          const pages = await this.store.listPages();
+          if (!this.principal) return 'No pages.';
+          const pages = await this.store.listPagesFor(this.principal);
+          if (pages.length === 0) return 'No pages.';
           return pages.slice(0, 40).map((p) => `- [${p.id}] ${p.name ?? 'Untitled'}`).join('\n');
         },
       },
@@ -188,7 +266,7 @@ export class AgentRunner {
         args: '{"pageId": string}',
         schema: obj({pageId: str('The page id.')}, ['pageId']),
         run: async (args) => {
-          const page = await this.store.getPage(String(args.pageId ?? ''));
+          const page = await this.readablePage(String(args.pageId ?? ''));
           if (!page) return 'Page not found.';
           return `Title: ${page.name ?? 'Untitled'}\n\n${clip(snapshotText(page.data) || '(empty page)', 3000)}`;
         },
@@ -199,7 +277,7 @@ export class AgentRunner {
         args: '{"pageId": string}',
         schema: obj({pageId: str('The page id.')}, ['pageId']),
         run: async (args) => {
-          const page = await this.store.getPage(String(args.pageId ?? ''));
+          const page = await this.readablePage(String(args.pageId ?? ''));
           if (!page) return 'Page not found.';
           const lines = blockTree(page.data);
           return lines.length ? lines.join('\n') : '(empty document)';
@@ -211,7 +289,7 @@ export class AgentRunner {
         args: '{"pageId": string}',
         schema: obj({pageId: str('The page id.')}, ['pageId']),
         run: async (args) => {
-          const page = await this.store.getPage(String(args.pageId ?? ''));
+          const page = await this.readablePage(String(args.pageId ?? ''));
           if (!page) return 'Page not found.';
           const scope = kitValues(page.data);
           const keys = Object.keys(scope);
@@ -225,7 +303,7 @@ export class AgentRunner {
         args: '{"pageId": string}',
         schema: obj({pageId: str('The page hosting the database.')}, ['pageId']),
         run: async (args) => {
-          const db = await this.store.getDatabaseByPage(String(args.pageId ?? ''));
+          const db = await this.readableDbByPage(String(args.pageId ?? ''));
           if (!db) return 'That page hosts no database.';
           const views = db.schema.views ?? [];
           if (views.length === 0) return `Database "${db.name ?? 'Untitled'}" has no views.`;
@@ -240,9 +318,9 @@ export class AgentRunner {
         args: '{"pageId": string, "rowId": string}',
         schema: obj({pageId: str('The page hosting the database.'), rowId: str('The row (page) id.')}, ['pageId', 'rowId']),
         run: async (args) => {
-          const db = await this.store.getDatabaseByPage(String(args.pageId ?? ''));
+          const db = await this.readableDbByPage(String(args.pageId ?? ''));
           if (!db) return 'That page hosts no database.';
-          const rows = await this.store.listRows(db.id);
+          const rows = await this.readableRows(db.id);
           const row = rows.find((r) => r.id === String(args.rowId ?? ''));
           if (!row) return 'Row not found in this database.';
           return [
@@ -259,13 +337,13 @@ export class AgentRunner {
         args: '{"pageId": string}',
         schema: obj({pageId: str('The page hosting the database.')}, ['pageId']),
         run: async (args) => {
-          const db = await this.store.getDatabaseByPage(String(args.pageId ?? ''));
+          const db = await this.readableDbByPage(String(args.pageId ?? ''));
           if (!db) return 'That page hosts no database.';
           const props = (db.schema.properties ?? []).map((p) => {
             const opts = p.options?.length ? ` options=[${p.options.map((o) => `${o.id}:${o.label}`).join(', ')}]` : '';
             return `  - [${p.id}] ${p.name} (${p.type})${opts}`;
           });
-          const rows = await this.store.listRows(db.id);
+          const rows = await this.readableRows(db.id);
           const rowLines = rows.slice(0, 40).map((r) => `  - [${r.id}] ${r.name ?? 'Untitled'}`);
           return [
             `Database "${db.name ?? 'Untitled'}" (database id ${db.id}).`,
@@ -291,11 +369,10 @@ export class AgentRunner {
    * label) — they are resolved against the live schema before writing.
    */
   private databaseTools(): ToolDef[] {
-    /** Resolve the database hosted on a page, or null with a message. */
-    const dbForPage = async (pageId: string): Promise<{db: Awaited<ReturnType<PageStore['getDatabaseByPage']>>; err?: string}> => {
-      const db = await this.store.getDatabaseByPage(pageId);
-      return db ? {db} : {db: null, err: 'That page hosts no database.'};
-    };
+    // Every structural DB tool mutates the store IMMEDIATELY (no review), so each
+    // resolves its host page through {@link writableDbForPage} — write-gated and
+    // default-deny — before touching the schema or rows.
+    const dbForPage = (pageId: string) => this.writableDbForPage(pageId);
     return [
       {
         name: 'create_database',
@@ -321,6 +398,7 @@ export class AgentRunner {
           ['title'],
         ),
         run: async (args) => {
+          if (!(await this.canCreate())) return 'You do not have permission to create databases on this instance.';
           const title = String(args.title ?? '').trim();
           if (!title) return 'A title is required.';
           const specs = Array.isArray(args.properties) ? args.properties : [];
@@ -453,7 +531,12 @@ export class AgentRunner {
           const {db, err} = await dbForPage(String(args.pageId ?? ''));
           if (!db) return err!;
           const rowId = String(args.rowId ?? '');
-          const rows = await this.store.listRows(db.id);
+          // Gated on host-page WRITE (dbForPage); the merge base is read through the
+          // per-row access-aware accessor (mirrors set_db_cell's readableRows below),
+          // so an individually read-restricted row under a writable host is invisible
+          // here — it reports "Row not found" and can be neither written nor
+          // title-echoed (no existence oracle / no leak / no write past the host gate).
+          const rows = await this.readableRows(db.id);
           const existing = rows.find((r) => r.id === rowId);
           if (!existing) return 'Row not found in this database.';
           const patch: {name?: string | null; properties?: Record<string, unknown>} = {};
@@ -483,6 +566,7 @@ export class AgentRunner {
         schema: obj({title: str('The page title (must be unique).'), content: str('Optional plain-text body.')}, ['title']),
         write: false, // creation is non-destructive — keep it immediate like before
         run: async (args) => {
+          if (!(await this.canCreate())) return 'You do not have permission to create pages on this instance.';
           const title = String(args.title ?? '').trim();
           if (!title) return 'A title is required.';
           try {
@@ -503,7 +587,7 @@ export class AgentRunner {
         run: async (args) => {
           const pageId = String(args.pageId ?? '');
           const content = String(args.content ?? '');
-          const page = await this.store.getPage(pageId);
+          const page = await this.readablePage(pageId);
           if (!page) return 'Page not found.';
           if (!content.trim()) return 'Nothing to append.';
           return this.propose({
@@ -525,7 +609,7 @@ export class AgentRunner {
           const pageId = String(args.pageId ?? '');
           const blockId = String(args.blockId ?? '');
           const text = String(args.text ?? '');
-          const page = await this.store.getPage(pageId);
+          const page = await this.readablePage(pageId);
           if (!page) return 'Page not found.';
           const before = blockTextById(page.data, blockId);
           if (before === null) return `No block "${blockId}" on that page — use inspect_page_structure.`;
@@ -563,7 +647,7 @@ export class AgentRunner {
         run: async (args) => {
           const pageId = String(args.pageId ?? '');
           const blockId = String(args.blockId ?? '');
-          const page = await this.store.getPage(pageId);
+          const page = await this.readablePage(pageId);
           if (!page) return 'Page not found.';
           const info = blockInfoById(page.data, blockId);
           if (!info) return `No block "${blockId}" on that page — use inspect_page_structure.`;
@@ -592,7 +676,7 @@ export class AgentRunner {
         run: async (args) => {
           const pageId = String(args.pageId ?? '');
           const blockId = String(args.blockId ?? '');
-          const page = await this.store.getPage(pageId);
+          const page = await this.readablePage(pageId);
           if (!page) return 'Page not found.';
           const before = blockTextById(page.data, blockId);
           if (before === null) return `No block "${blockId}" on that page — use inspect_page_structure.`;
@@ -616,7 +700,7 @@ export class AgentRunner {
           const pageId = String(args.pageId ?? '');
           const name = String(args.name ?? '');
           const value = args.value;
-          const page = await this.store.getPage(pageId);
+          const page = await this.readablePage(pageId);
           if (!page) return 'Page not found.';
           const scope = kitValues(page.data);
           if (!(name in scope)) return `No input named "${name}" on that page — use get_kit_values.`;
@@ -649,9 +733,9 @@ export class AgentRunner {
           const rowId = String(args.rowId ?? '');
           const propertyId = String(args.propertyId ?? '');
           const value = args.value;
-          const db = await this.store.getDatabaseByPage(pageId);
+          const db = await this.readableDbByPage(pageId);
           if (!db) return 'That page hosts no database.';
-          const rows = await this.store.listRows(db.id);
+          const rows = await this.readableRows(db.id);
           const row = rows.find((r) => r.id === rowId);
           if (!row) return 'Row not found in this database.';
           const prop = (db.schema.properties ?? []).find((p) => p.id === propertyId);
@@ -703,7 +787,7 @@ export class AgentRunner {
         write: true,
         run: async (args) => {
           const pageId = String(args.pageId ?? '');
-          const page = await this.store.getPage(pageId);
+          const page = await this.readablePage(pageId);
           if (!page) return 'Page not found.';
           const blocks = Array.isArray(args.blocks) ? (args.blocks as unknown[]) : [];
           if (blocks.length === 0) return 'No blocks to add.';
@@ -737,7 +821,7 @@ export class AgentRunner {
         write: true,
         run: async (args) => {
           const pageId = String(args.pageId ?? '');
-          const page = await this.store.getPage(pageId);
+          const page = await this.readablePage(pageId);
           if (!page) return 'Page not found.';
           const theme: Record<string, unknown> = {};
           if (typeof args.themeId === 'string' && THEME_IDS.has(args.themeId)) theme.themeId = args.themeId;
@@ -792,10 +876,15 @@ export class AgentRunner {
           ['pageId'],
         ),
         run: async (args) => {
+          const principal = this.principal;
+          if (!principal) return 'Page not found.';
           const pageId = String(args.pageId ?? '');
-          const page = await this.store.getPage(pageId);
+          const page = await this.store.getPageFor(principal, pageId);
           if (!page) return 'Page not found.';
-          const pages = await this.store.listPages();
+          if (!(await this.canWritePage(pageId))) return 'You do not have write access to that page.';
+          // Compute the tree from the pages this caller can READ, so move_page can't
+          // reveal (or nest under) pages they can't see.
+          const pages = await this.store.listPagesFor(principal);
           if (!pages.some((p) => p.id === pageId)) return 'move_page handles workspace pages, not database rows.';
           const parentId = args.parentId === undefined ? page.parentId ?? null : args.parentId === null ? null : String(args.parentId);
           if (parentId === pageId) return 'A page cannot be its own parent.';
@@ -898,7 +987,7 @@ export class AgentRunner {
         // append_blocks: enqueue a proposal from the plugin's blocks/args.
         const pageId = String(args.pageId ?? '');
         const blocks = Array.isArray(args.blocks) ? args.blocks : [];
-        const page = await this.store.getPage(pageId);
+        const page = await this.readablePage(pageId);
         if (!page) return 'Page not found (the plugin tool needs a valid pageId).';
         if (blocks.length === 0) return 'The plugin tool produced no blocks.';
         return this.propose({
@@ -919,9 +1008,13 @@ export class AgentRunner {
    * the user's approval.
    */
   private async propose(proposal: Omit<AgentProposal, 'id'>): Promise<string> {
+    const pageId = proposal.pageId ?? String(proposal.payload.pageId ?? '');
+    if (!pageId) return 'No target page for the edit.';
     if (this.directEdits) {
-      const pageId = proposal.pageId ?? String(proposal.payload.pageId ?? '');
-      if (!pageId) return 'No target page for the edit.';
+      // A direct apply mutates the page — require WRITE access (default-deny). The
+      // suggestion path below only needs READ (the tool already read the page),
+      // matching the human "Suggest edit" route (read may propose, never apply).
+      if (!(await this.canWritePage(pageId))) return 'You do not have write access to that page.';
       this.pendingApply.push({...proposal, id: shortId('chg')});
       return `Applying directly (you granted edit access): ${proposal.summary}. Do not repeat it; continue or answer.`;
     }

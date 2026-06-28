@@ -280,4 +280,4 @@ export type {
   AiTasksResponse,
   AiStreamEvent,
 } from './ai';
-export {providerSettings} from './ai';
+export {providerSettings, isPaidProvider} from './ai';

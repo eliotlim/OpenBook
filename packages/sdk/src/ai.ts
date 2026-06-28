@@ -80,6 +80,19 @@ export function providerSettings(config: AiConfig, provider: AiProvider): AiProv
   return {};
 }
 
+/**
+ * Whether a provider is a **paid / hosted** engine — `openai` (an OpenAI-style
+ * endpoint that may be `api.openai.com`) or `claude` (Anthropic's hosted API).
+ * Both can bill per token and send content off the machine, so paid inference is
+ * fenced behind sign-in on a claimed multi-user instance (a guest must not be
+ * able to rack up inference cost). The rest — `off`/`mock`/`llama`/`mlx` — run
+ * locally and free, and stay open. The single source of truth for "is this
+ * inference paid"; routes and UI both classify the configured provider through it.
+ */
+export function isPaidProvider(provider: AiProvider): boolean {
+  return provider === 'openai' || provider === 'claude';
+}
+
 export interface AiStatus {
   config: AiConfig;
   /** The engine can generate text right now. */
