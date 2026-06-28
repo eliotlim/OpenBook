@@ -474,8 +474,30 @@ export class PageStore {
       }
 
       // Conflict (or a colliding-id trashed page): import the disk version as a
-      // brand-new, suffixed page so the user can reconcile. Fresh id so it never
-      // collides with the canonical row.
+      // suffixed copy so nothing is silently lost (DB-wins, no data loss).
+      const dataJson = JSON.stringify(record.data);
+
+      // Idempotency (OB-241): an external sync tool (Dropbox/iCloud/Syncthing) can
+      // re-apply the *same* divergent file over and over — each carrying the same
+      // stale base — and the conflict-restore keeps rewriting the canonical bytes
+      // back over it, so the file diverges again on the very next re-apply. Minting
+      // a fresh copy each time produced an unbounded "(conflicted copy)" storm
+      // (10+ GB of duplicate pages/files). Before inserting, reuse an existing
+      // conflict copy that already holds this exact content, so one external
+      // divergence yields at most ONE copy and the re-import loop converges. The
+      // safety guarantee is unchanged: the divergent content is still preserved.
+      const existingCopy = await tx.query<PageRow>(
+        `SELECT id, name, data, database_id, parent_id, properties, created_at, updated_at,
+           (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id
+         FROM pages
+         WHERE deleted_at IS NULL AND id <> $1 AND name LIKE '% (conflicted copy%' AND data = $2::jsonb
+         ORDER BY created_at ASC
+         LIMIT 1`,
+        [record.id, dataJson],
+      );
+      if (existingCopy.length > 0) return {action: 'conflict' as const, page: pageFromRow(existingCopy[0])};
+
+      // Fresh id so it never collides with the canonical row.
       const baseName = (record.name ?? 'Untitled').trim() || 'Untitled';
       const taken = new Set<string>();
       const name = await freeName(tx, `${baseName} (conflicted copy ${nowIso})`, taken, 'conflicted copy');
@@ -485,7 +507,7 @@ export class PageStore {
            (SELECT COALESCE(MAX(position), -1) + 1 FROM pages WHERE parent_id IS NULL), now())
          RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
            (SELECT id FROM databases WHERE page_id = pages.id) AS hosted_database_id`,
-        [randomUUID(), name, JSON.stringify(record.data)],
+        [randomUUID(), name, dataJson],
       );
       return {action: 'conflict' as const, page: pageFromRow(copy[0])};
     });

@@ -4,7 +4,7 @@ import {createApp} from './app';
 import {type Db, createPgliteDb, PostgresDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
-import {BookMirror} from './mirror';
+import {BookMirror, MirrorLockedError} from './mirror';
 import {AiService} from './ai/service';
 import {IdentityService} from './instanceConfig';
 import {BackupScheduler} from './backups';
@@ -357,21 +357,35 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   let mirrorUnsub: (() => void) | null = null;
   let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
   if (opts.bookDir) {
-    mirror = await BookMirror.create({
-      store,
-      dir: opts.bookDir,
-      // A re-imported page must reach open clients, so publish it on the hub.
-      onImported: async (page) => {
-        hub.publishPage(page);
-        hub.publishList(await store.listPages());
-      },
-      log: (m) => console.log(`[book-mirror] ${m}`),
-    });
+    try {
+      mirror = await BookMirror.create({
+        store,
+        dir: opts.bookDir,
+        // A re-imported page must reach open clients, so publish it on the hub.
+        onImported: async (page) => {
+          hub.publishPage(page);
+          hub.publishList(await store.listPages());
+        },
+        log: (m) => console.log(`[book-mirror] ${m}`),
+      });
+    } catch (err) {
+      // Another live process already owns this book folder (OB-241): run without a
+      // mirror rather than fight it. The owning process keeps the folder in sync.
+      if (err instanceof MirrorLockedError) {
+        console.warn(`OpenBook: ${err.message} — running without the on-disk mirror.`);
+        mirror = null;
+      } else {
+        throw err;
+      }
+    }
+  }
+  if (mirror) {
+    const m = mirror;
     const scheduleReconcile = (): void => {
       if (reconcileTimer) return;
       reconcileTimer = setTimeout(() => {
         reconcileTimer = null;
-        void mirror?.reconcileAll();
+        void m.reconcileAll();
       }, 2000);
       reconcileTimer.unref?.();
     };
@@ -379,9 +393,9 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     // (deletes, moves, renames, row-property edits) ride a debounced reconcile,
     // which diffs every page's updatedAt against what's on disk.
     mirrorUnsub = hub.subscribeLive((event) => {
-      if (event.type === 'page') mirror!.enqueueWrite(event.page.id);
+      if (event.type === 'page') m.enqueueWrite(event.page.id);
       else if (event.type === 'deleted') {
-        mirror!.enqueueDelete(event.id);
+        m.enqueueDelete(event.id);
         scheduleReconcile();
       } else if (event.type === 'list') scheduleReconcile();
     });
