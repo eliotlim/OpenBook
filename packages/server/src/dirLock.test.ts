@@ -72,6 +72,19 @@ describe('DirLock single-owner semantics', () => {
     await second.release();
   });
 
+  it('release() will NOT delete a lock that no longer identifies this process', async () => {
+    // [ER-5 review, LOW] A claimant that lost a race (or an abandoned older instance)
+    // must never delete the true live holder's lock on a later release()/close().
+    const lock = await DirLock.acquire(lockPath());
+    // Simulate the lock having been taken over by another live holder (different body).
+    const usurper: DirLockInfo = {pid: process.pid, host: hostname(), startedAt: '2099-01-01T00:00:00.000Z'};
+    writeHolder(usurper);
+    await lock.release();
+    // The usurper's lock survives — release saw the body was no longer ours.
+    expect(existsSync(lockPath())).toBe(true);
+    expect((await readHolder()).startedAt).toBe('2099-01-01T00:00:00.000Z');
+  });
+
   it('isLive: cross-host assumed live; dead pid + own pid taken over', () => {
     expect(DirLock.isLive({pid: process.pid, host: 'elsewhere', startedAt: 'x'})).toBe(true); // cross-host → live
     expect(DirLock.isLive({pid: 999_999, host: hostname(), startedAt: 'x'})).toBe(false); // dead pid → take over
@@ -80,21 +93,22 @@ describe('DirLock single-owner semantics', () => {
   });
 });
 
-// ── Cross-process O_EXCL race (TOCTOU closure) ──────────────────────────────────
-// In-process the two claimants would share `process.pid`, so the loser would treat
-// the winner's lock as its own abandoned instance and take over — both "win". The
-// race only has meaning across real OS processes (distinct pids), which is also the
-// real-world scenario: two `openbook-server` starts pointed at one dir. Each child
-// claims the same lock at a shared wall-clock barrier; exactly one must win.
+// ── Cross-process exactly-one-owner stress (TOCTOU + takeover atomicity) ─────────
+// The takeover path is only meaningful across real OS processes (distinct pids):
+// in-process, two claimants share process.pid, so a loser would treat the winner's
+// lock as its own abandoned instance. A blind read→rm→link takeover double-grants
+// here (Sasha reproduced ~19/30 rounds with 2–4 winners); the breaker-serialized
+// takeover must yield EXACTLY ONE winner every round — on the free path AND the
+// stale-lock (post-crash dead-pid) path that was broken.
 
 const DIRLOCK_SRC = fileURLToPath(new URL('./dirLock.ts', import.meta.url));
 const SERVER_SRC_DIR = fileURLToPath(new URL('.', import.meta.url));
 
-/** Spawn N children racing to claim `path`; returns each child's verdict. */
-async function raceClaims(path: string, n: number): Promise<string[]> {
+let childScript: string;
+beforeEach(() => {
+  // Each child claims at a shared wall-clock barrier (so they collide), holds
+  // briefly so a racing peer sees a *live* foreign holder, then releases.
   const child = join(mkdtempSync(join(tmpdir(), 'ob-dirlock-child-')), 'claim.ts');
-  // The child claims, holds briefly (so a racing peer sees a *live* foreign holder),
-  // then releases. WON/DECLINED is its only stdout line.
   const source = [
     `import {DirLock, DirLockedError} from ${JSON.stringify(DIRLOCK_SRC)};`,
     '(async () => {',
@@ -103,7 +117,7 @@ async function raceClaims(path: string, n: number): Promise<string[]> {
     '  try {',
     '    const lock = await DirLock.acquire(p);',
     '    process.stdout.write("WON");',
-    '    await new Promise((r) => setTimeout(r, 400));',
+    '    await new Promise((r) => setTimeout(r, 200));',
     '    await lock.release();',
     '  } catch (e) {',
     '    process.stdout.write(e instanceof DirLockedError ? "DECLINED" : "ERR:" + (e && e.message));',
@@ -111,29 +125,49 @@ async function raceClaims(path: string, n: number): Promise<string[]> {
     '})();',
   ].join('\n');
   writeFileSync(child, source, 'utf8');
-  const barrier = String(Date.now() + 800); // give every child time to spawn + reach the spin
+  childScript = child;
+});
+
+/** Race `n` child processes to claim `path`; returns each child's verdict. */
+async function raceClaims(path: string, n: number): Promise<string[]> {
+  const barrier = String(Date.now() + 800); // time for every child to spawn + reach the spin
   const run = (): Promise<string> =>
-    pexec(process.execPath, ['--import', 'tsx', child, path, barrier], {cwd: SERVER_SRC_DIR})
+    pexec(process.execPath, ['--import', 'tsx', childScript, path, barrier], {cwd: SERVER_SRC_DIR})
       .then((r) => r.stdout.trim())
       .catch((e: Error) => `THROW:${e.message}`);
   return Promise.all(Array.from({length: n}, run));
 }
 
-describe('DirLock O_EXCL race (cross-process)', () => {
-  it('two near-simultaneous claims on a free path → exactly one wins', async () => {
-    const path = join(dir, 'race-free.lock');
-    const verdicts = await raceClaims(path, 2);
-    expect(verdicts.filter((v) => v === 'WON')).toHaveLength(1);
-    expect(verdicts.filter((v) => v === 'DECLINED')).toHaveLength(1);
-  }, 30_000);
+/** Run `rounds` independent races of `n` claimants; assert exactly one winner each. */
+async function stress(opts: {n: number; rounds: number; seedStale: boolean}): Promise<void> {
+  for (let r = 0; r < opts.rounds; r += 1) {
+    const roundDir = mkdtempSync(join(tmpdir(), 'ob-dirlock-stress-'));
+    const path = join(roundDir, 'race.lock');
+    if (opts.seedStale) {
+      // A post-crash leftover from a dead pid that every claimant must take over.
+      writeFileSync(path, JSON.stringify({pid: 999_999, host: hostname(), startedAt: new Date().toISOString()}));
+    }
+    try {
+      const verdicts = await raceClaims(path, opts.n);
+      const won = verdicts.filter((v) => v === 'WON');
+      const errored = verdicts.filter((v) => v.startsWith('ERR') || v.startsWith('THROW'));
+      // The crux: never more than one owner, and never zero (someone must win).
+      expect({round: r, won: won.length, verdicts}).toEqual({round: r, won: 1, verdicts});
+      expect({round: r, errored}).toEqual({round: r, errored: []});
+    } finally {
+      rmSync(roundDir, {recursive: true, force: true});
+    }
+  }
+}
 
-  it('concurrent takeover of a STALE lock still admits exactly one winner', async () => {
-    const path = join(dir, 'race-stale.lock');
-    // A dead-pid lock both children must take over: the exclusive `link` retry must
-    // still let only one re-create it (without O_EXCL both would take over + win).
-    writeFileSync(path, JSON.stringify({pid: 999_999, host: hostname(), startedAt: new Date().toISOString()}));
-    const verdicts = await raceClaims(path, 3);
-    expect(verdicts.filter((v) => v === 'WON')).toHaveLength(1);
-    expect(verdicts.filter((v) => v === 'DECLINED')).toHaveLength(2);
-  }, 40_000);
+describe('DirLock exactly-one-owner stress (cross-process)', () => {
+  it('free path: N claimants on a fresh lock → exactly one winner every round', async () => {
+    await stress({n: 8, rounds: 5, seedStale: false});
+  }, 90_000);
+
+  it('stale-takeover path: N claimants over a dead-pid lock → exactly one winner every round', async () => {
+    // This is the case the blind-rm takeover got wrong (multiple winners). With the
+    // breaker-serialized takeover it must be exactly one across many rounds.
+    await stress({n: 8, rounds: 10, seedStale: true});
+  }, 150_000);
 });

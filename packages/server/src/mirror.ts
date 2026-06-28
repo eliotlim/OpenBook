@@ -216,6 +216,8 @@ export class BookMirror {
   private watchers: FSWatcher[] = [];
   private importTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private closed = false;
+  /** True only during {@link close}'s authorized final drain (lets it bypass the closed-guard). */
+  private closing = false;
   private lock: DirLock | null = null;
 
   // ── Write-amplification metrics + budget (ER-2) ──────────────────────────────
@@ -263,11 +265,12 @@ export class BookMirror {
       if (mirror.doWatch) mirror.startWatch();
     } catch (err) {
       // A post-lock failure (e.g. a WriteBudgetError tripping during the bootstrap
-      // reconcile) must not strand the single-owner lock — release it so the caller
-      // can cleanly degrade to running without a mirror, and a retry can re-acquire.
-      mirror.closed = true;
-      for (const w of mirror.watchers) w.close();
-      mirror.watchers = [];
+      // reconcile) must not strand the single-owner lock OR leave a timer armed:
+      // `reconcileAll` arms a debounced flush, so without teardown an orphaned
+      // flush would fire ~writeDebounceMs later and write-through with NO lock held.
+      // teardown() clears that timer (+ import timers + watchers) and marks closed;
+      // then release the lock so the caller can degrade to running without a mirror.
+      mirror.teardown();
       await mirror.releaseLock();
       throw err;
     }
@@ -439,6 +442,11 @@ export class BookMirror {
   }
 
   private async drain(): Promise<void> {
+    // Defense-in-depth (ER-5 review): once torn down, never touch disk again — an
+    // orphaned/stray flush (e.g. a timer that outlived a failed create()) must be a
+    // no-op rather than write-through with no lock held. close()'s own final drain
+    // sets `closing` to bypass this.
+    if (this.closed && !this.closing) return;
     // Process snapshots of the pending set until it's empty (new work can arrive
     // mid-drain). Each entry is cleared after its attempt — a transient failure
     // is recovered on the next reconcile (the DB is canonical), and a crash
@@ -485,6 +493,9 @@ export class BookMirror {
   }
 
   private async writePageFile(pageId: string): Promise<void> {
+    // Defense-in-depth (ER-5 review): never write a page after teardown — guards the
+    // same orphaned-flush window as drain(), at the single per-page write site.
+    if (this.closed && !this.closing) return;
     const page = await this.store.getPage(pageId);
     if (!page) {
       // Gone since enqueue — treat as a delete.
@@ -718,8 +729,14 @@ export class BookMirror {
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────────
 
-  /** Stop watching, drain all pending writes, and persist. Call on shutdown. */
-  async close(): Promise<void> {
+  /**
+   * Stop the mirror's background work: mark it closed (so no further enqueue or
+   * stray flush touches disk), cancel the debounced flush + every import timer, and
+   * detach all watchers. Shared by {@link close} and by {@link create}'s failure
+   * path, so a mirror that fails to open never leaves a timer armed to write-through
+   * with no lock held. Idempotent.
+   */
+  private teardown(): void {
     this.closed = true;
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
@@ -729,13 +746,21 @@ export class BookMirror {
     this.importTimers.clear();
     for (const w of this.watchers) w.close();
     this.watchers = [];
-    // Always release the single-owner lock, even if the final drain trips the write
-    // budget (ER-2/ER-5) — a corruption-class guard must never strand the lock and
-    // block the next clean start.
+  }
+
+  /** Stop watching, drain all pending writes, and persist. Call on shutdown. */
+  async close(): Promise<void> {
+    // Flush-on-exit (OB-132): the final drain must run, so authorize it past the
+    // closed-guard via `closing` BEFORE teardown marks us closed. Always release the
+    // single-owner lock afterwards, even if that drain trips the write budget
+    // (ER-2/ER-5) — a corruption-class guard must never strand the lock.
+    this.closing = true;
+    this.teardown();
     try {
       await this.flush();
       await this.statePersist;
     } finally {
+      this.closing = false;
       await this.releaseLock();
     }
   }
