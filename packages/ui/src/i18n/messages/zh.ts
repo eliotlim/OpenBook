@@ -602,6 +602,14 @@ export const zh: PartialMessages = {
       description: 'OpenBook 是独立的开源项目。分享它并提供反馈有助于它成长。赞助方式即将推出。',
     },
   },
+  forwarding: {
+    partialUnscoped:
+      '转发已开启，但你的账户未签发限定到本站点的所有者令牌，因此严格的受众隔离仍处于关闭状态（为其他站点签发的令牌仍会被拒绝，隧道可正常使用）。',
+    ensureRescope:
+      '转发已恢复，但本次会话尚无法将你的所有者令牌限定到该站点。你现有的访问不受影响；若请求被拒绝，请重新登录。',
+    bindFailed: '转发已开启，但未能完成站点受众的加固：{error}',
+    unbindHeld: '关闭转发时未能完全解除受众绑定：{error}',
+  },
   connection: {
     title: '连接',
     description: '选择本设备读写页面的位置。',

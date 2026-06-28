@@ -3,6 +3,7 @@ import {
   AccountClient,
   AccountError,
   decodeIdentity,
+  getForwardingAudience,
   getServerUrlOverride,
   resolveAccountUrl,
   setIdentityToken,
@@ -95,6 +96,10 @@ interface AccountContextValue {
   addAccount: () => void;
   /** Forget account `id` locally (token + metadata). Switches active away from it. */
   removeAccount: (id: string) => void;
+  /** Re-mint the active identity JWS now (e.g. after forwarding on/off changes the
+   *  required audience, OB-202). Resolves to the audience the issuer scoped the new
+   *  token to, or null when unscoped / nothing minted / disconnected. */
+  remintIdentity: () => Promise<string | null>;
 }
 
 const AccountContext = createContext<AccountContextValue | null>(null);
@@ -165,6 +170,8 @@ interface Persona {
   subject: string;
   email: string | null;
   name: string | null;
+  /** The audience the issuer actually scoped the minted token to (OB-202), or null. */
+  aud: string | null;
 }
 
 /**
@@ -483,7 +490,9 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
   const refreshIdentity = useCallback(
     async (tok: string): Promise<Persona | null> => {
       try {
-        const aud = dataServerAudience();
+        // Forwarding (OB-202) scopes the owner's own token to the forwarded host;
+        // otherwise fall back to the connected data-server's host (OB-177).
+        const aud = getForwardingAudience() ?? dataServerAudience();
         const res = await client.getIdentityToken(tok, aud);
         setIdentityToken(res?.identity ?? null);
         if (identityTimer.current) clearTimeout(identityTimer.current);
@@ -497,6 +506,10 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
           subject: `${decoded.claims.iss}#${decoded.claims.sub}`,
           email: decoded.claims.email ? decoded.claims.email.toLowerCase() : null,
           name: decoded.claims.name ?? null,
+          // The aud the issuer ACTUALLY bound the token to (it only honours `aud`
+          // when it runs an allowlist) — the forwarding bind requires the audience
+          // only on a genuinely host-scoped token (OB-202).
+          aud: decoded.claims.aud ?? null,
         };
       } catch {
         // Network/transient error — keep whatever we had; a later sync retries.
@@ -921,6 +934,13 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     [accounts, activeAccountId, accountUrlDefault],
   );
 
+  // OB-202: re-mint the active identity now so the owner is re-scoped before the
+  // data server starts requiring a (forwarding) audience; returns the minted aud.
+  const remintIdentity = useCallback(
+    async (): Promise<string | null> => (token ? ((await refreshRef.current(token))?.aud ?? null) : null),
+    [token],
+  );
+
   const value = useMemo<AccountContextValue>(
     () => ({
       status,
@@ -940,6 +960,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       setActiveAccount,
       addAccount: signIn,
       removeAccount,
+      remintIdentity,
     }),
     [
       status,
@@ -957,6 +978,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       activeAccountId,
       setActiveAccount,
       removeAccount,
+      remintIdentity,
     ],
   );
 

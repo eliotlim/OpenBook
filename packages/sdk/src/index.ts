@@ -145,7 +145,7 @@ export {
   propertiesReferencePage,
   type VerificationValue,
 } from './pageProperties';
-export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, isMixedContentBlocked} from './connection';
+export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, getForwardingAudience, setForwardingAudience, isMixedContentBlocked} from './connection';
 export {
   AccountClient,
   AccountError,

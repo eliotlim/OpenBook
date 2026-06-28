@@ -112,3 +112,34 @@ export function setGuestName(name: string | null): void {
   if (guestName) localStorage.setItem(GUEST_NAME_KEY, guestName);
   else localStorage.removeItem(GUEST_NAME_KEY);
 }
+
+/**
+ * The canonical audience this instance is exposed under (OB-202). When forwarding
+ * is on, the instance binds its identity `audience` to its `<prefix>.book.cloud`
+ * host with `requireAudience` (OB-177) — so the edge-minted, aud-scoped viewer JWS
+ * verifies, and a token for a *different* site is rejected. The catch: the local
+ * owner reaches the SAME server over loopback/IPC, so their own identity token must
+ * be minted for this same host (one shared audience — not the deferred
+ * multi-audience case), or `requireAudience` would lock the owner out. The
+ * forwarding flow records the host here; AccountProvider reads it to scope the
+ * owner's token. Persisted so a relaunch scopes correctly *before* the tunnel
+ * re-dials.
+ */
+const FORWARDING_AUDIENCE_KEY = 'openbook.forwarding.audience';
+
+/** The canonical forwarded host to scope identity tokens to, or `null` if off. */
+export function getForwardingAudience(): string | null {
+  if (typeof localStorage === 'undefined') return null;
+  const value = localStorage.getItem(FORWARDING_AUDIENCE_KEY);
+  return value && value.trim().length > 0 ? value.trim() : null;
+}
+
+/** Set (or clear, with `null`) the forwarded host the owner's token is scoped to. */
+export function setForwardingAudience(host: string | null): void {
+  if (typeof localStorage === 'undefined') return;
+  if (host && host.trim().length > 0) {
+    localStorage.setItem(FORWARDING_AUDIENCE_KEY, host.trim());
+  } else {
+    localStorage.removeItem(FORWARDING_AUDIENCE_KEY);
+  }
+}

@@ -88,6 +88,11 @@ export interface InstanceInfo {
   /** This server's audience identifier, so a client can request an `aud`-scoped
    *  identity token (OB-177). `null` for the single-server (unscoped) model. */
   audience: string | null;
+  /** Whether this instance *requires* every identity token to be bound to
+   *  {@link audience} (OB-202). Lets a client short-circuit the audience-bind on
+   *  relaunch: when the server already persisted `audience==host && requireAudience`
+   *  it only needs to ensure its own token is scoped, never to relax + re-assert. */
+  requireAudience: boolean;
   /** Who the server resolved you to be on this request. */
   you: Principal;
   /**

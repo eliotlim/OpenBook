@@ -34,7 +34,7 @@ function ForwardingStatusBadge({status}: {status: ForwardingStatus}) {
  * running when this panel closes; here we just drive it and show status.
  */
 function ForwardingSection() {
-  const {supported, enabled, status, host, busy, error, enable, disable} = useForwarding();
+  const {supported, enabled, status, host, busy, error, audienceNotice, enable, disable} = useForwarding();
   const {connected} = useAccount();
   const {t} = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -73,6 +73,11 @@ function ForwardingSection() {
         </SettingsField>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {audienceNotice && (
+        <p className="text-sm text-destructive">
+          {t(`forwarding.${audienceNotice.code}`, {error: audienceNotice.detail ?? ''})}
+        </p>
+      )}
     </SettingsSection>
   );
 }

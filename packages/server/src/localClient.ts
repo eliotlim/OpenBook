@@ -309,6 +309,7 @@ export class LocalDataClient implements DataClient {
       ownerSubject: config.ownerSubject ?? null,
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience ?? null,
+      requireAudience: config.requireAudience ?? false,
       you: localPrincipal(),
       // The in-webview caller is the implicit local owner, never a roster member;
       // manage capability comes from the loopback-owner rung, not a role.

@@ -915,6 +915,12 @@ export const en = {
     copy: 'Copy',
     copied: 'Copied',
     failed: 'Couldn’t register: {error}',
+    partialUnscoped:
+      'Forwarding is on, but your account did not issue a site-scoped owner token, so strict audience isolation stays off (a token minted for a different site is still rejected, and the tunnel works normally).',
+    ensureRescope:
+      'Forwarding resumed, but this session could not scope your owner token to the site yet. Your existing access is unchanged; sign in again if a request is refused.',
+    bindFailed: 'Forwarding is on, but securing the site audience didn’t finish: {error}',
+    unbindHeld: 'Couldn’t fully relax the audience binding while turning forwarding off: {error}',
     status: {
       live: 'Live',
       connecting: 'Connecting',

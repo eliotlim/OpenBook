@@ -28,7 +28,7 @@ import {PageStore} from './store';
 import {PageHub} from './hub';
 import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
-import {guestGate, resolvePrincipal, type IdentityProvider} from './principal';
+import {guestGate, recoverAudienceLockedPrincipal, resolvePrincipal, type IdentityProvider} from './principal';
 import {requireAccess, requireCreate, requireDbAccess, streamGates} from './access';
 import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
@@ -142,7 +142,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // an anonymous guest with full access.
   app.use('/api/*', async (c, next) => {
     const resolved = await resolvePrincipal(c, opts.identity);
-    if ('reject' in resolved) return c.json({error: resolved.reject.error}, resolved.reject.status);
+    if ('reject' in resolved) {
+      // Loopback-owner audience-lockout recovery (OB-202): a token rejected solely
+      // for its audience may still relax this instance's own audience requirement,
+      // so the owner is never permanently stranded behind it. Everything else stays
+      // rejected, and the instance route's owner-check still gates WHO may apply it.
+      const recovered = await recoverAudienceLockedPrincipal(c, opts.identity);
+      if (recovered) {
+        c.set('principal', recovered);
+        return next();
+      }
+      return c.json({error: resolved.reject.error}, resolved.reject.status);
+    }
     const principal = resolved.principal;
     c.set('principal', principal);
     if (opts.identity) {
@@ -347,6 +358,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       ownerSubject: config.ownerSubject ?? null,
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience ?? null,
+      requireAudience: config.requireAudience ?? false,
       you: principal,
       youRole: await store.resolveMemberRole(principal, config),
     };
