@@ -139,7 +139,7 @@ describe('OB-241 — conflict-copy storm convergence', () => {
 });
 
 describe('OB-241 — nested (conflict-of-conflict) convergence + name capping', () => {
-  it("a conflict copy's OWN mirror file converges and does NOT grow a (…)(…)(…) chain", async () => {
+  it('a conflict copy\'s OWN mirror file converges and does NOT grow a (…)(…)(…) chain', async () => {
     // The owner's in-the-wild case: a page whose NAME is already a conflict copy
     // ("Hello World (conflicted copy T1)") has its own mirror file diverge. Pre-fix
     // each re-apply would mint a deeper-nested name. It must converge to one copy
