@@ -33,7 +33,53 @@ type WorkerFixtures = {
   dataServer: string;
 };
 
-export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
+type TestFixtures = {
+  /**
+   * Opt a spec into structural per-test workspace isolation (OB-223). Set once
+   * per file with `test.use({freshWorkspace: true})`: before EACH test the
+   * worker's data server is wiped, so pages and rows can use plain fixed names
+   * without 409-ing against names a sibling test (sharing this worker) left
+   * behind. Replaces the old per-spec discipline of `reclaimNames()` +
+   * `Date.now()`-suffixed names. Default off, so accumulating specs are
+   * unaffected.
+   */
+  freshWorkspace: boolean;
+  /** Auto fixture that performs the reset; never requested directly. */
+  _workspaceReset: void;
+};
+
+/**
+ * Trash every live page on the worker's data server, freeing all
+ * workspace-unique names before the test runs. Rows are pages too, so a single
+ * whole-space export → delete pass clears row titles as well (mirrors
+ * seed.ts#reclaimNames, but for the whole workspace and over plain `fetch` so
+ * it needs no APIRequestContext fixture).
+ */
+async function resetWorkspace(serverUrl: string): Promise<void> {
+  const res = await fetch(`${serverUrl}/api/export`);
+  if (!res.ok) return; // a brand-new worker server is already empty
+  const bundle = (await res.json()) as {pages?: {id: string}[]};
+  await Promise.all(
+    (bundle.pages ?? []).map((p) =>
+      fetch(`${serverUrl}/api/pages/${p.id}`, {method: 'DELETE'}).catch(() => undefined),
+    ),
+  );
+}
+
+export const test = base.extend<TestFixtures, WorkerFixtures>({
+  freshWorkspace: [false, {option: true}],
+
+  // Auto: when the spec opted in, start every test from an empty workspace.
+  // Runs before the test body (and its first navigation), so the app loads the
+  // cleaned workspace; a no-op (and no network call) when not enabled.
+  _workspaceReset: [
+    async ({freshWorkspace, dataServer}, use) => {
+      if (freshWorkspace) await resetWorkspace(dataServer);
+      await use();
+    },
+    {auto: true},
+  ],
+
   dataServer: [
     // eslint-disable-next-line no-empty-pattern -- Playwright fixtures take a destructured first arg
     async ({}, use, workerInfo) => {

@@ -5,6 +5,7 @@ import tseslint from 'typescript-eslint';
 import react from 'eslint-plugin-react';
 import nextPlugin from '@next/eslint-plugin-next';
 import globals from 'globals';
+import e2eIsolation from './eslint-rules/e2e-workspace-isolation.mjs';
 
 export default tseslint.config(
   {
@@ -65,5 +66,13 @@ export default tseslint.config(
       // Pages live at packages/web/src/pages, not a root ./pages dir.
       '@next/next/no-html-link-for-pages': 'off',
     },
+  },
+  {
+    // Structural workspace isolation for the Playwright e2e suite (OB-223):
+    // forbid the manual name-collision workarounds and require specs that seed
+    // hardcoded page/row names to opt into the per-test `freshWorkspace` reset.
+    files: ['packages/web/e2e/**/*.spec.ts'],
+    plugins: {e2e: e2eIsolation},
+    rules: {'e2e/workspace-isolation': 'error'},
   },
 );

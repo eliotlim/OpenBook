@@ -1,5 +1,10 @@
 import {test, expect, takeSnapshot, chooseValue} from './fixtures';
-import {reclaimNames, SERVER} from './seed';
+import {SERVER} from './seed';
+
+// Per-test workspace reset: each test builds a fresh database and some seed
+// fixed row titles, so a clean workspace before each test keeps them
+// collision-free without manual name reclamation.
+test.use({freshWorkspace: true});
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
@@ -138,8 +143,7 @@ test('timeline click-to-place: clicking the empty canvas adds a dated item', {ta
 });
 
 // A dateless row appears as its own lane (no bar) that you click to schedule.
-test('timeline unscheduled row: a dateless row gets a click-to-place lane', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'Floating'); // row titles are workspace-unique
+test('timeline unscheduled row: a dateless row gets a click-to-place lane', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
 
@@ -213,8 +217,7 @@ test('dependency graph: shows rows as connected nodes', {tag: ['@database']}, as
 
 // Opening a database row shows its columns in the page-view properties panel,
 // with a config menu to show/hide and to organise them into groups.
-test('page-view properties: configure visibility and groups', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'Row X'); // row titles are workspace-unique; free it for reruns
+test('page-view properties: configure visibility and groups', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();

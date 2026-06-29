@@ -1,5 +1,9 @@
 import {test, expect, takeSnapshot, chooseValue} from './fixtures';
-import {reclaimNames} from './seed';
+
+// Per-test workspace reset: each test builds a fresh database and some seed
+// fixed row titles, so a clean workspace before each test keeps them
+// collision-free without manual name reclamation.
+test.use({freshWorkspace: true});
 
 /** Create a fresh database via the command palette and wait for its view. */
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
@@ -13,8 +17,7 @@ async function newDatabase(page: import('@playwright/test').Page): Promise<void>
 
 // A formula column computes from another property (here the row title) — the
 // headline "simple expression formula" feature, end to end.
-test('database formula: a formula column computes from other properties', {tag: ['@database', '@visual', '@p1']}, async ({page, request}, testInfo) => {
-  await reclaimNames(request, 'World'); // row titles are workspace-unique; free it for reruns
+test('database formula: a formula column computes from other properties', {tag: ['@database', '@visual', '@p1']}, async ({page}, testInfo) => {
   await newDatabase(page);
 
   // Add a formula column that greets the row's title.

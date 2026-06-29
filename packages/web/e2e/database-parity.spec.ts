@@ -2,12 +2,14 @@
 // per-test snapshot (its archive helper is flaky in headless CI runs).
 import {test, expect, chooseValue, chooseLabel} from './fixtures';
 import {readFileSync} from 'node:fs';
-import {reclaimNames} from './seed';
 
-// Every test creates its own database (newDatabase) or seeds under a
-// Date.now()-unique name, and fixed row names are reclaimed per test — so the
-// file (40 tests, the suite's longest by far) fans out across workers.
+// Every test creates its own database (newDatabase) and uses plain fixed row
+// names. The file (40 tests, the suite's longest by far) fans out across
+// workers that each share one data server, so the per-test freshWorkspace reset
+// is what keeps those fixed names collision-free — no manual reclaiming or
+// Date.now() suffixes needed.
 test.describe.configure({mode: 'parallel'});
+test.use({freshWorkspace: true});
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
@@ -86,8 +88,7 @@ test('rollup property: counts related rows', {tag: ['@database']}, async ({page}
 });
 
 // Dragging a row between days on the calendar reschedules its date.
-test('calendar drag: reschedule a row by dragging to another day', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'Event'); // typed row titles are workspace-unique; free them for reruns
+test('calendar drag: reschedule a row by dragging to another day', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
   await page.getByRole('button', {name: 'New row'}).click();
@@ -161,8 +162,7 @@ test('column reorder: drag a column header', {tag: ['@database']}, async ({page}
 });
 
 // Exporting a view downloads its rows as CSV.
-test('export CSV: downloads the view rows', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'CsvRow');
+test('export CSV: downloads the view rows', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
@@ -181,8 +181,7 @@ test('export CSV: downloads the view rows', {tag: ['@database']}, async ({page, 
 });
 
 // Importing a CSV creates rows, mapping columns by name (here the default Notes).
-test('import CSV: creates rows from a file', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'Alpha', 'Beta'); // the CSV names rows; creation 409s if they're taken
+test('import CSV: creates rows from a file', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
 
   await page.getByRole('button', {name: 'View options'}).click();
@@ -203,8 +202,7 @@ test('import CSV: creates rows from a file', {tag: ['@database']}, async ({page,
 });
 
 // The row menu can duplicate a row (title + properties + content).
-test('duplicate row: copies a row', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'Original', 'Original (copy)');
+test('duplicate row: copies a row', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
@@ -255,8 +253,7 @@ test('files property: add a file URL', {tag: ['@database']}, async ({page}) => {
 });
 
 // Filters combine as an OR group across two conditions.
-test('filter groups: OR across two conditions', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'Apple', 'Banana');
+test('filter groups: OR across two conditions', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
@@ -287,8 +284,7 @@ test('filter groups: OR across two conditions', {tag: ['@database']}, async ({pa
 
 // A two-way dependency mirrors links onto a generated partner property:
 // linking A → B from A's column auto-populates B's "(related)" column.
-test('two-way dependency: linking one side populates the inverse', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'Task A', 'Task B');
+test('two-way dependency: linking one side populates the inverse', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Blocks', 'dependency');
 
@@ -343,8 +339,7 @@ test('number show-as-bar: renders a progress fill scaled to the value', {tag: ['
 });
 
 // Saving a row as a template lets a later "New ▾" recreate its property values.
-test('row templates: save a row as a template and create from it', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'Bug report');
+test('row templates: save a row as a template and create from it', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Priority', 'number');
 
@@ -575,12 +570,10 @@ test('frozen name column: the Name header and cells are sticky', {tag: ['@databa
 });
 
 // The list view can be grouped, like the table — rows fall under group headers.
-test('list view grouping: group a list by Status', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'ListGroupRow');
+test('list view grouping: group a list by Status', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
-  // A name no other test uses — page names are workspace-unique across the run.
   await title.fill('ListGroupRow');
   await title.blur();
   await page.getByRole('table').getByRole('button', {name: 'Empty'}).first().click();
@@ -599,8 +592,7 @@ test('list view grouping: group a list by Status', {tag: ['@database']}, async (
 
 // Renaming a row to a name that already exists (workspace names are unique) is
 // handled gracefully — the title reverts instead of crashing the app.
-test('duplicate rename: reverts instead of crashing', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'UniqueTitleX'); // row 0 must be able to claim it; row 1's clash is the test
+test('duplicate rename: reverts instead of crashing', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
@@ -771,8 +763,7 @@ test('bulk set status: applies a value to selected rows', {tag: ['@database']}, 
 });
 
 // The toolbar count shows "X of Y" when a search/filter narrows the rows.
-test('filtered row count: shows X of Y', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'Findme');
+test('filtered row count: shows X of Y', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
@@ -806,8 +797,7 @@ test('collapse all groups: folds and unfolds every group', {tag: ['@database']},
 });
 
 // "Insert below" from the row menu adds a row right after the chosen one.
-test('insert row below: positions the new row after the source', {tag: ['@database']}, async ({page, request}) => {
-  await reclaimNames(request, 'RowOne', 'RowTwo');
+test('insert row below: positions the new row after the source', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
@@ -845,13 +835,10 @@ test('rename view tab: double-click to rename', {tag: ['@database']}, async ({pa
 test('insert row above: positions the new row before the source', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
-  // Run-tagged: page names are globally unique, so bare names 409 when the
-  // suite reuses a dev server whose earlier runs created them.
-  const tag = Date.now();
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
-  await titles.nth(0).fill(`First ${tag}`);
+  await titles.nth(0).fill('First');
   await titles.nth(0).blur();
-  await titles.nth(1).fill(`Second ${tag}`);
+  await titles.nth(1).fill('Second');
   await titles.nth(1).blur();
 
   // Insert above the second row (its menu = nth(1) actions).
@@ -860,7 +847,7 @@ test('insert row above: positions the new row before the source', {tag: ['@datab
 
   // Order is now First, (new untitled), Second.
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(3);
-  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(0)).toHaveValue(`First ${tag}`);
+  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(0)).toHaveValue('First');
   await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(1)).toHaveValue('');
-  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(2)).toHaveValue(`Second ${tag}`);
+  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(2)).toHaveValue('Second');
 });
