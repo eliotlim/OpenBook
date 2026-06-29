@@ -3,6 +3,15 @@ import {test, expect, takeSnapshot, chooseValue, chooseLabel} from './fixtures';
 // Relations are database↔database (1:1 / 1:n / n:n) with an optional reverse
 // link. A relation column targets another database and links its rows.
 
+// NOTE on the two short waits below: these are deliberately fixed sleeps, not
+// web-first waits. The page-title / row-title rename saves debounced, and the
+// data server pushes a live page-list update; if the next step (navigate away,
+// or even just observe the persisted name) lands before the debounce flushes,
+// the still-unsaved title reverts to "Untitled" and the rename is lost — the
+// long-standing "UI renames silently revert" race (see seed.ts). Every signal
+// we could await (the sidebar name, /api/pages, /api/export) either rides that
+// same revert or perturbs the in-flight save and *causes* it. A brief idle
+// pause lets the save flush first; it's the one place a sleep is load-bearing.
 async function newDatabase(page: import('@playwright/test').Page, title: string): Promise<void> {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
@@ -12,10 +21,8 @@ async function newDatabase(page: import('@playwright/test').Page, title: string)
   await expect(page.getByRole('button', {name: 'Add column'})).toBeVisible();
   await page.getByLabel('Page title').fill(title);
   await page.keyboard.press('Tab'); // commit the rename so it reaches the nav list
-  // The rename saves debounced; let it flush before we navigate away, so the
-  // new database shows (by this name) in the next database's relation picker.
   await expect(page.getByLabel('Page title')).toHaveValue(title);
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(900); // load-bearing: let the debounced rename flush (see note above)
 }
 
 async function addRowNamed(page: import('@playwright/test').Page, name: string): Promise<void> {
@@ -24,7 +31,7 @@ async function addRowNamed(page: import('@playwright/test').Page, name: string):
   await title.fill(name);
   await title.blur(); // commit (Escape cancels the edit)
   await expect(title).toHaveValue(name);
-  await page.waitForTimeout(700); // let the debounced rename persist before we navigate
+  await page.waitForTimeout(700); // load-bearing: let the debounced rename flush (see note above)
 }
 
 test('database relations: a relation column links rows from a target database', async ({page}, testInfo) => {

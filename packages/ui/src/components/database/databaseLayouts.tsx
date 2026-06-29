@@ -639,6 +639,7 @@ export const BoardView: React.FC<{
               'flex shrink-0 items-center gap-1.5 rounded-md bg-muted/30 px-2 py-1.5 text-xs font-medium',
               isCollapsed ? 'w-11 justify-center' : 'w-64',
               isOption(group.key) && 'cursor-grab active:cursor-grabbing',
+              dragCol === group.key && 'opacity-40',
               overKey === cellKey(group.key, null) && 'ring-1 ring-brand/40',
             )}
           >
@@ -846,6 +847,7 @@ export const BoardView: React.FC<{
                     className={cn(
                       'flex items-center gap-1.5 px-1 text-xs font-medium',
                       isOption(group.key) && 'cursor-grab active:cursor-grabbing',
+                      dragCol === group.key && 'opacity-40',
                     )}
                   >
                     {group.color && (

@@ -66,9 +66,16 @@ test('settings: every provider is configurable in its own panel + the radio pick
   // readiness network call); it persists under providers.claude.
   await page.getByPlaceholder('sk-ant-…').fill('sk-ant-test-key');
   await page.getByPlaceholder('sk-ant-…').blur();
-  await page.waitForTimeout(300);
+  // The key saves debounced to the server; poll until it lands (web-first).
+  await expect
+    .poll(async () => {
+      const s = (await (await request.get(`${SERVER}/api/ai/status`)).json()) as {
+        config?: {providers?: {claude?: {apiKey?: string}}};
+      };
+      return s.config?.providers?.claude?.apiKey;
+    })
+    .toBe('sk-ant-test-key');
   const status = await (await request.get(`${SERVER}/api/ai/status`)).json();
-  expect(status.config.providers?.claude?.apiKey).toBe('sk-ant-test-key');
   expect(status.config.provider).toBe('off');
   await page.keyboard.press('Escape');
 });

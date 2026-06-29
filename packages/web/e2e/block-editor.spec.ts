@@ -211,10 +211,12 @@ test('block selection: Escape selects, Backspace deletes, undo restores', async 
 
 test('todo checkbox toggles and persists through reload', async ({page}) => {
   await freshLab(page);
+  const before = await page.evaluate(() => localStorage.getItem('obe-lab-doc'));
   await page.locator('.obe-todo-box').check();
   await expect(page.locator('.obe-todo')).toHaveClass(/obe-todo-done/);
-  // The lab autosaves (debounced) to localStorage.
-  await page.waitForTimeout(700);
+  // The lab autosaves (debounced) to localStorage; wait for that write to land
+  // before reloading (reload drops in-memory state).
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('obe-lab-doc'))).not.toBe(before);
   await page.reload();
   await expect(page.locator('.obe-todo')).toHaveClass(/obe-todo-done/);
 });

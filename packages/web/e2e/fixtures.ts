@@ -14,7 +14,7 @@ import type {Locator, Page} from '@playwright/test';
  * its polluted-rerun flakes.
  *
  * The worker's server URL must match `SERVER` in seed.ts, which derives the
- * same port from `TEST_PARALLEL_INDEX` for API seeding.
+ * same port from `TEST_WORKER_INDEX` for API seeding.
  */
 
 export const WORKER_BASE_PORT = 4400;
