@@ -147,7 +147,7 @@ export class ForwardingClient {
    * (an untrusted hint — the relay still verifies the ticket + site-key signature
    * after connecting); omitting it makes the upgrade fail with 400 "missing site".
    */
-  private async mintAttach(id: SiteIdentity): Promise<{relayWsUrl: string; ticket: string}> {
+  private async mintAttach(id: SiteIdentity): Promise<{relayWsUrl: string; ticket: string; host: string}> {
     const {nonce, ts} = await this.challenge(id.publicKey);
     const signature = await signWithSiteKey(
       id.privateKey,
@@ -160,12 +160,24 @@ export class ForwardingClient {
     return {
       relayWsUrl: `${res.relayBase.replace(/\/$/, '')}/__tunnel?site=${encodeURIComponent(id.siteId)}`,
       ticket: res.ticket,
+      host: res.host, // canonical host for this prefix; heals a stale book.pub→book.cloud
     };
   }
 
   /** Begin forwarding the local instance. Resolves with the public host. */
   async start(): Promise<{host: string}> {
-    const id = await this.ensureSite();
+    const stored = await this.ensureSite();
+    // Mint once up front to learn the canonical host for our prefix. After the
+    // book.pub→book.cloud root migration, a persisted identity can carry a stale
+    // host while the edge now mints aud=<prefix>.book.cloud — the origin would then
+    // reject every forwarded request as `wrong-audience`. The account returns the
+    // fresh host on attach; adopt + persist it so the recorded aud heals itself.
+    const {host} = await this.mintAttach(stored);
+    const id = host && host !== stored.host ? {...stored, host} : stored;
+    if (id !== stored) {
+      await this.opts.keyStore.save(id);
+      this.identity = id;
+    }
     this.tunnel = new TunnelClient({
       ticketProvider: () => this.mintAttach(id), // fresh ticket per (re)connect
       privateKey: id.privateKey,

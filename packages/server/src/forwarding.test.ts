@@ -243,7 +243,9 @@ describe('ForwardingClient.start (live serving)', () => {
     await client.start();
     await waitFor(() => ws.sockets.length === 1); // first dial: mint + open
     expect(ws.sockets).toHaveLength(1);
-    expect(ticketMints).toBe(1);
+    // Two mints by now: start() mints once up front to learn the canonical host
+    // (the stale-host audience heal), then the first dial mints its own ticket.
+    expect(ticketMints).toBe(2);
 
     // The relay drops the socket (expired ticket / takeover / network blip). The
     // tunnel must reconnect AND mint a brand-new ticket — reusing the first one
@@ -251,7 +253,84 @@ describe('ForwardingClient.start (live serving)', () => {
     ws.sockets[0].onclose?.();
     await waitFor(() => ws.sockets.length === 2); // reconnect (500ms backoff) + fresh mint
     expect(ws.sockets).toHaveLength(2);
-    expect(ticketMints).toBe(2);
+    expect(ticketMints).toBe(3); // up-front heal mint + one per dial (2 dials)
     expect(ws.sockets[1].url).toBe('wss://relay.book.pub/__tunnel?site=s1');
+  });
+});
+
+/**
+ * After the book.pub→book.cloud root-domain migration, an identity persisted at
+ * provision time carries a stale host (`<prefix>.book.pub`), but the edge now
+ * mints `aud=<prefix>.book.cloud` — so the origin rejects every forwarded request
+ * as `identity rejected: wrong-audience`. The account returns the canonical host
+ * on attach; start() mints once up front to learn it, then adopts + persists the
+ * refreshed identity so the recorded audience heals itself.
+ */
+describe('ForwardingClient.start (stale-host audience heal)', () => {
+  // A keystore seeded with `host`, whose save() calls are counted (the seed save
+  // happens before the spy is installed, so only a heal write registers).
+  const spyKeyStore = async (host: string): Promise<{store: MemoryKeyStore; saves: () => number}> => {
+    const store = new MemoryKeyStore();
+    const kp = await mintSiteKeypair();
+    await store.save({siteId: 's1', prefix: 'p', host, publicKey: kp.publicKey, privateKey: kp.privateKey});
+    let saves = 0;
+    const orig = store.save.bind(store);
+    store.save = async (id: SiteIdentity): Promise<void> => {
+      saves += 1;
+      await orig(id);
+    };
+    return {store, saves: () => saves};
+  };
+
+  // Account API for a held key: reattach succeeds, attach-ticket reports
+  // `attachHost` as the canonical host for this prefix.
+  const healFetch =
+    (attachHost: string): typeof fetch =>
+    async (input) => {
+      const path = new URL(String(input)).pathname;
+      if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
+      if (path === '/api/sites/reattach') return json({ok: true});
+      if (path === '/api/sites/attach-ticket')
+        return json({ticket: 'TICKET', relayBase: 'wss://relay.book.cloud', host: attachHost, region: 'iad1'});
+      throw new Error(`unexpected ${path}`);
+    };
+
+  const healClient = (keyStore: MemoryKeyStore, attachHost: string): ForwardingClient => {
+    const ws = fakeWebSocket();
+    return new ForwardingClient({
+      accountUrl: 'https://account.book.cloud',
+      authToken: 'tok',
+      keyStore,
+      localOrigin: '',
+      fetchImpl: healFetch(attachHost),
+      localFetchImpl: async () => new Response('[]', {status: 200}),
+      webSocketImpl: ws.ctor,
+    });
+  };
+
+  it('adopts + persists the fresh host when the stored one is stale', async () => {
+    const {store, saves} = await spyKeyStore('p.book.pub'); // pre-migration host
+    const client = healClient(store, 'p.book.cloud'); // account now reports book.cloud
+
+    const result = await client.start();
+    client.stop();
+
+    expect(result).toEqual({host: 'p.book.cloud'}); // start() returns the canonical host
+    expect(saves()).toBe(1); // healed identity persisted exactly once
+    const reloaded = await store.load();
+    expect(reloaded?.host).toBe('p.book.cloud');
+    expect(reloaded?.siteId).toBe('s1'); // only the host changed; the key is preserved
+    expect(client.site?.host).toBe('p.book.cloud'); // in-memory identity updated too
+  });
+
+  it('does not re-persist when the stored host is already canonical', async () => {
+    const {store, saves} = await spyKeyStore('p.book.cloud');
+    const client = healClient(store, 'p.book.cloud');
+
+    const result = await client.start();
+    client.stop();
+
+    expect(result).toEqual({host: 'p.book.cloud'});
+    expect(saves()).toBe(0); // nothing to heal → no keychain write
   });
 });
