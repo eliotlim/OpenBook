@@ -194,6 +194,11 @@ fn spawn_sidecar(app: &AppHandle, data_dir: &str, socket_path: &str, cfg: &HostC
         .sidecar("openbook-server")
         .map_err(|e| format!("failed to locate server sidecar: {e}"))?
         .args(args)
+        // The ONLY thing that arms the sidecar's parent-death watch (stdin-EOF +
+        // ppid poll → graceful shutdown). It must be an explicit host signal: a
+        // headless/e2e/docker run with `--data-dir` over a /dev/null stdin is
+        // otherwise indistinguishable from a sidecar and would self-terminate.
+        .env("OPENBOOK_SIDECAR", "1")
         .spawn()
         .map_err(|e| format!("failed to spawn server sidecar: {e}"))?;
 
@@ -446,6 +451,11 @@ fn main() {
             let mut child = None;
             if managed {
                 let handle = app.handle().clone();
+                // Clean up a sidecar orphaned by a prior non-graceful host exit
+                // (Force Quit / crash / kill -9) before spawning — it still holds
+                // the single-owner PGlite/mirror lock, which our fresh spawn would
+                // otherwise collide with. Pid-reuse-guarded (see reap_orphan_sidecar).
+                reap_orphan_sidecar(&data_dir);
                 child = Some(spawn_sidecar(&handle, &data_dir, &socket_path, &config)?);
                 ipc::start_live_bridge(
                     handle.clone(),
@@ -485,15 +495,35 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                if let Some(state) = app_handle.try_state::<AppState>() {
-                    if let Some(child) = state.child.lock().unwrap().take() {
-                        stop_server_child(child);
-                    }
-                }
+        .run(|app_handle, event| match event {
+            // Stop the sidecar on the way out so it isn't orphaned (an orphan keeps
+            // the PGlite/mirror lock and blocks the next launch). `ExitRequested`
+            // fires on window-close; `Exit` also fires for macOS `Cmd+Q` /
+            // `terminate:`, where `ExitRequested` may not. Both route through the
+            // idempotent helper (its `take()` yields the child only once), and we
+            // don't rely on the shell plugin's own cleanup — it doesn't track this
+            // Rust-spawned child.
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+                stop_managed_server(app_handle);
             }
+            _ => {}
         });
+}
+
+/// Take and stop the managed sidecar, if one is running. Idempotent: `take()`
+/// hands out the child once, so calling this from both the `ExitRequested` and
+/// `Exit` run-event arms is safe.
+fn stop_managed_server(app_handle: &AppHandle) {
+    let Some(state) = app_handle.try_state::<AppState>() else {
+        return;
+    };
+    // Take the child and DROP the lock guard before the (blocking, up to
+    // SHUTDOWN_GRACE_MS) stop — holding it across the wait would block a
+    // concurrent publish_server/respawn IPC on the same mutex.
+    let child = state.child.lock().unwrap().take();
+    if let Some(child) = child {
+        stop_server_child(child);
+    }
 }
 
 /// Stop the server sidecar, giving it a chance to flush pending writes first.
@@ -538,5 +568,218 @@ fn stop_server_child(child: CommandChild) {
     #[cfg(not(unix))]
     {
         let _ = child.kill();
+    }
+}
+
+// ── Startup reaper (cleans up a sidecar orphaned by a prior crash/force-quit) ──
+//
+// A non-graceful prior host exit (Force Quit / crash / `kill -9` / logout SIGKILL)
+// can leave the `openbook-server` sidecar running. That orphan still holds the
+// single-owner PGlite/mirror `DirLock`, so the next launch's fresh spawn collides
+// (the lock correctly DECLINES against the live orphan rather than corrupt PGlite).
+// The single-instance plugin guarantees we are the only host, so any leftover
+// sidecar is genuinely abandoned and safe to stop. The parent-death watch in the
+// sidecar (layer A) prevents *new* orphans; this reaps ones from before the fix or
+// from a path where that watch didn't fire.
+
+/// A prior run's pid, parsed from a lock/discovery file. Both
+/// `.openbook-pglite.lock` (`{pid,host,startedAt}`) and `server.json`
+/// (`{url,port,pid,startedAt}`) carry a `pid`; serde ignores the other fields.
+/// Gated `any(unix, test)` so a Windows release build (no reaper) gets no
+/// dead-code warning.
+#[cfg(any(unix, test))]
+#[derive(Deserialize)]
+struct PriorRun {
+    pid: i32,
+}
+
+/// Does `ps_comm` (a `ps -p <pid> -o comm=` line — the **executable**, not its
+/// args) identify our sidecar? True iff the executable's basename starts with
+/// `openbook-server`.
+///
+/// This is the **pid-reuse guard**, factored out so it is unit-testable. We match
+/// the executable, NOT the full command line: a recycled pid running
+/// `tail -f …/openbook-server.log`, `grep openbook-server`, `less …openbook-server`,
+/// or an editor on such a path has `comm` = `tail`/`grep`/`less`/the editor and is
+/// correctly REJECTED, so we never SIGTERM a bystander. The basename-prefix covers
+/// the per-arch binary `openbook-server-<triple>` (e.g.
+/// `openbook-server-aarch64-apple-darwin`) and Linux's 15-char `comm` truncation
+/// of it (`openbook-server`). The reaper is release-only (`managed`), so the live
+/// holder of our data dir is always the compiled binary — never a `node`/`tsx` dev
+/// process.
+///
+/// Gated `any(unix, test)` (used by the unix reaper + the all-platform unit test)
+/// so a Windows release build gets no dead-code warning.
+#[cfg(any(unix, test))]
+fn comm_is_openbook_server(ps_comm: &str) -> bool {
+    let name = ps_comm.trim();
+    let base = name.rsplit('/').next().unwrap_or(name); // basename of the executable
+    base.starts_with("openbook-server")
+}
+
+#[cfg(unix)]
+fn read_pid_from(path: &Path) -> Option<i32> {
+    let body = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str::<PriorRun>(&body).ok().map(|r| r.pid)
+}
+
+/// Pid of a prior sidecar, preferring the PGlite lock (always written in embedded
+/// mode) and falling back to the TCP discovery file.
+#[cfg(unix)]
+fn prior_sidecar_pid(data_dir: &str) -> Option<i32> {
+    read_pid_from(&Path::new(data_dir).join(".openbook-pglite.lock"))
+        .or_else(|| read_pid_from(&Path::new(data_dir).join("server.json")))
+}
+
+/// Whether `pid` is a live process. `kill(pid, 0)` only probes: `0` = alive,
+/// `ESRCH` = gone, `EPERM` = exists but owned by another user (still alive).
+#[cfg(unix)]
+fn pid_is_alive(pid: i32) -> bool {
+    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if rc == 0 {
+        return true;
+    }
+    matches!(std::io::Error::last_os_error().raw_os_error(), Some(libc::EPERM))
+}
+
+/// Confirm the live `pid` is actually our sidecar (not a recycled pid) by reading
+/// its **executable** (`ps -o comm=`, not its args) and matching the basename.
+/// Fails safe: if `ps` can't confirm, returns false so we never signal an
+/// unverified pid.
+#[cfg(unix)]
+fn pid_is_openbook_server(pid: i32) -> bool {
+    match std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "comm="])
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            comm_is_openbook_server(&String::from_utf8_lossy(&out.stdout))
+        }
+        _ => false,
+    }
+}
+
+/// Stop a sidecar orphaned by a prior non-graceful host exit, before we spawn a
+/// fresh one. SIGTERMs the orphan ONLY after confirming (a) the recorded pid is
+/// alive and (b) it is genuinely an `openbook-server` — the pid-reuse guard, a
+/// hard requirement, since signalling a recycled pid would kill an unrelated
+/// process. We deliberately do **not** escalate to SIGKILL: a half-killed PGlite
+/// can leave an unrecoverable WAL (OB-164), and if SIGTERM is somehow ignored the
+/// new spawn's `DirLock` declines safely rather than risking corruption.
+#[cfg(unix)]
+fn reap_orphan_sidecar(data_dir: &str) {
+    let Some(pid) = prior_sidecar_pid(data_dir) else {
+        return;
+    };
+    if pid <= 1 {
+        return; // never touch pid 0/1 (a malformed/sentinel body)
+    }
+    if !pid_is_alive(pid) {
+        return; // dead → the lock is stale; DirLock takes it over on spawn
+    }
+    if !pid_is_openbook_server(pid) {
+        eprintln!(
+            "[reaper] pid {pid} from a prior run is alive but is not an openbook-server (pid reuse) — not signalling"
+        );
+        return;
+    }
+    eprintln!("[reaper] stopping orphaned openbook-server pid {pid} from a prior run");
+    // SAFETY: plain kill(2) with a pid we've confirmed is our abandoned sidecar.
+    unsafe {
+        libc::kill(pid as libc::pid_t, libc::SIGTERM);
+    }
+    // Wait briefly for it to checkpoint + release the lock before we spawn.
+    const REAP_GRACE_MS: u64 = 5000;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(REAP_GRACE_MS);
+    while pid_is_alive(pid) {
+        if std::time::Instant::now() >= deadline {
+            eprintln!(
+                "[reaper] pid {pid} still alive after {REAP_GRACE_MS}ms — proceeding (DirLock will arbitrate)"
+            );
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+#[cfg(not(unix))]
+fn reap_orphan_sidecar(_data_dir: &str) {
+    // Windows orphan reaping (tasklist/taskkill) is a follow-up. The sidecar's
+    // stdin-EOF parent-death watch (layer A) covers host death cross-platform, so
+    // new orphans shouldn't occur there either.
+}
+
+#[cfg(test)]
+mod reaper_tests {
+    use super::comm_is_openbook_server;
+
+    #[test]
+    fn accepts_the_per_arch_sidecar_binary() {
+        // macOS `comm=` is the full executable path; Linux truncates `comm` to 15
+        // chars (`openbook-server`). Both basenames start with `openbook-server`.
+        assert!(comm_is_openbook_server(
+            "/Applications/OpenBook.app/Contents/MacOS/openbook-server-aarch64-apple-darwin\n"
+        ));
+        assert!(comm_is_openbook_server("openbook-server-aarch64-apple-darwin"));
+        assert!(comm_is_openbook_server("openbook-server")); // Linux truncated comm
+    }
+
+    #[test]
+    fn rejects_an_unrelated_recycled_pid() {
+        // The pid-reuse guard matches the EXECUTABLE (comm), not args, so a recycled
+        // pid running a tool that merely *mentions* the path is rejected — we never
+        // SIGTERM a bystander.
+        assert!(!comm_is_openbook_server("tail")); // `tail -f …/openbook-server.log`
+        assert!(!comm_is_openbook_server("grep")); // `grep openbook-server`
+        assert!(!comm_is_openbook_server("less")); // `less …/openbook-server.log`
+        assert!(!comm_is_openbook_server("/usr/bin/node")); // dev `node … packages/server`
+        assert!(!comm_is_openbook_server("/bin/zsh"));
+        assert!(!comm_is_openbook_server(""));
+    }
+
+    // Control-flow guard: absent / empty / garbage lock content yields no pid, so
+    // the reaper signals nothing; a real (extra-field) lock body yields the pid,
+    // and server.json is the fallback. Unix-gated (read_pid_from/prior_sidecar_pid
+    // are #[cfg(unix)]).
+    #[cfg(unix)]
+    #[test]
+    fn read_pid_from_handles_absent_garbage_and_valid_locks() {
+        use super::{prior_sidecar_pid, read_pid_from};
+        use std::fs;
+
+        let dir = std::env::temp_dir().join(format!(
+            "ob-reaper-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let data_dir = dir.to_str().unwrap();
+        let lock = dir.join(".openbook-pglite.lock");
+
+        // Absent → None (no lock, no signal).
+        assert_eq!(read_pid_from(&lock), None);
+        assert_eq!(prior_sidecar_pid(data_dir), None);
+
+        // Empty / garbage → None (never parse a pid out of junk).
+        fs::write(&lock, b"").unwrap();
+        assert_eq!(read_pid_from(&lock), None);
+        fs::write(&lock, b"not json at all").unwrap();
+        assert_eq!(read_pid_from(&lock), None);
+
+        // Real lock body shape (extra host/startedAt fields ignored) → the pid.
+        fs::write(&lock, br#"{"pid":4242,"host":"h","startedAt":"2026-01-01T00:00:00.000Z"}"#).unwrap();
+        assert_eq!(read_pid_from(&lock), Some(4242));
+        assert_eq!(prior_sidecar_pid(data_dir), Some(4242));
+
+        // server.json is the fallback when the pglite lock is absent.
+        fs::remove_file(&lock).unwrap();
+        let server_json = dir.join("server.json");
+        fs::write(&server_json, br#"{"url":"http://x","port":4319,"pid":777,"startedAt":"x"}"#).unwrap();
+        assert_eq!(prior_sidecar_pid(data_dir), Some(777));
+
+        fs::remove_dir_all(&dir).ok();
     }
 }

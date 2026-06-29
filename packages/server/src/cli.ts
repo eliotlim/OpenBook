@@ -1,6 +1,7 @@
 import {resolve} from 'node:path';
 import type {PGliteOptions} from '@electric-sql/pglite';
 import {startServer} from './server';
+import {installSidecarParentDeath} from './parentDeath';
 
 /**
  * Shared CLI runner for both entrypoints (`bin.ts` for Node, `bin.bun.ts` for
@@ -78,16 +79,25 @@ export async function runCli(overrides: CliOverrides = {}): Promise<void> {
   // Machine-readable readiness line the desktop host parses from stdout.
   console.log(`OPENBOOK_READY ${running.url}`);
 
+  // Idempotent: SIGINT/SIGTERM and the parent-death watches (stdin EOF + ppid
+  // poll) can all fire — and race — for the same exit. The guard runs the
+  // checkpoint + mirror drain + lock release exactly once.
   let shuttingDown = false;
-  const shutdown = async () => {
+  const shutdown = (): void => {
     if (shuttingDown) return;
     shuttingDown = true;
-    try {
-      await running.close();
-    } finally {
-      process.exit(0);
-    }
+    void running
+      .close()
+      .catch((err) => console.error('OpenBook: error during shutdown:', err))
+      .finally(() => process.exit(0));
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+
+  // Desktop sidecar only: also self-terminate if the host that spawned us dies
+  // non-gracefully (Force Quit / crash / kill -9 / logout SIGKILL). Otherwise the
+  // sidecar orphans, keeps the PGlite/mirror lock, and the next launch can't take
+  // over (the lock correctly declines against a live owner). No-op for the
+  // headless CLI and tests — see isSidecarMode().
+  installSidecarParentDeath(shutdown);
 }
