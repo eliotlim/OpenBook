@@ -19,6 +19,15 @@ import type {Locator, Page} from '@playwright/test';
 
 export const WORKER_BASE_PORT = 4400;
 
+/**
+ * Prefix for each worker's throwaway PGlite data dir; the worker index is
+ * appended (e.g. `…-w0`). Kept as a single source of truth so the
+ * global-teardown reaper (e2e/global-teardown.ts) can find and remove the dirs
+ * a crashed worker leaves behind. Deliberately literal `/tmp` (not os.tmpdir,
+ * which is `/var/folders/…` on macOS) so the path matches across both files.
+ */
+export const WORKER_DATA_DIR_PREFIX = '/tmp/openbook-web-e2e-data-w';
+
 type WorkerFixtures = {
   /** This worker's data-server URL; starting it is the fixture's job. */
   dataServer: string;
@@ -34,7 +43,7 @@ export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
       // replacement worker. workerIndex is never reused.
       const port = WORKER_BASE_PORT + workerInfo.workerIndex;
       const url = `http://127.0.0.1:${port}`;
-      const dataDir = `/tmp/openbook-web-e2e-data-w${workerInfo.workerIndex}`;
+      const dataDir = `${WORKER_DATA_DIR_PREFIX}${workerInfo.workerIndex}`;
       rmSync(dataDir, {recursive: true, force: true});
 
       // Nothing may be listening here already: a leaked server from an

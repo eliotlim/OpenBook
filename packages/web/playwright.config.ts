@@ -21,6 +21,10 @@ const WEB_PORT = 3000;
 
 export default defineConfig({
   testDir: './e2e',
+  // After the run, reap any per-worker data servers / throwaway data dirs that
+  // a hard-killed worker leaked (see e2e/global-teardown.ts) — otherwise the
+  // next run's pre-flight squatter check aborts on the stranded :44xx server.
+  globalTeardown: './e2e/global-teardown.ts',
   // Spec files run in parallel across workers (each with its own isolated
   // data server); tests *within* a file stay ordered — many build on the
   // page state their file accumulated.
