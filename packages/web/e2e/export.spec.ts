@@ -15,7 +15,7 @@ async function exportFromMenu(page: Page, item: string) {
   return download;
 }
 
-test('page export: Markdown, HTML and vector PDFs download', async ({page, request}) => {
+test('page export: Markdown, HTML and vector PDFs download', {tag: ['@export', '@p1']}, async ({page, request}) => {
   const id = await newPage(request, 'Export Spec', [
     {type: 'header', data: {text: 'Title', level: 2}},
     {type: 'paragraph', data: {text: 'hello <b>world</b>'}},
@@ -45,7 +45,7 @@ test('page export: Markdown, HTML and vector PDFs download', async ({page, reque
 // live offline — is covered by "interactive HTML: option inputs and buttons
 // drive code, charts, lights offline" below.
 
-test('backup: export downloads a bundle and restore brings pages back', async ({page, request}, testInfo) => {
+test('backup: export downloads a bundle and restore brings pages back', {tag: ['@export', '@visual']}, async ({page, request}, testInfo) => {
   await newPage(request, 'Backup Spec Page', [{type: 'paragraph', data: {text: 'content'}}]);
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
@@ -86,7 +86,7 @@ test('backup: export downloads a bundle and restore brings pages back', async ({
 // The full kit stays interactive offline: radio pills, checklists, dropdowns,
 // toggles and action buttons all drive multi-line live code, charts, and
 // status lights in the exported file — not just sliders.
-test('interactive HTML: option inputs and buttons drive code, charts, lights offline', async ({page, request, context}) => {
+test('interactive HTML: option inputs and buttons drive code, charts, lights offline', {tag: ['@export']}, async ({page, request, context}) => {
   const res = await request.post(`${SERVER}/api/pages`, {
     data: {
       name: `Export kit ${Date.now()}`,

@@ -18,7 +18,7 @@ async function openEditor(page: import('@playwright/test').Page, pageId: string)
   }).toPass({timeout: 10_000});
 }
 
-test('@ menu links an existing page inline and navigates to it', async ({page, request}) => {
+test('@ menu links an existing page inline and navigates to it', {tag: ['@editor']}, async ({page, request}) => {
   const targetId = await newPage(request, 'Roadmap E2E');
   const hostId = await newPage(request, 'Mention Host');
 
@@ -46,7 +46,7 @@ test('@ menu links an existing page inline and navigates to it', async ({page, r
 
 // Visual: the @ mention menu open (kept in its own test — taking a snapshot
 // mid-edit disrupts the editor selection that the insert flow relies on).
-test('@ menu visual', async ({page, request}, testInfo) => {
+test('@ menu visual', {tag: ['@editor', '@visual']}, async ({page, request}, testInfo) => {
   await newPage(request, 'Roadmap E2E');
   const hostId = await newPage(request, 'Mention Snapshot Host');
   await openEditor(page, hostId);

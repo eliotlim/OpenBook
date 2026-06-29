@@ -5,7 +5,7 @@ import {SERVER} from './seed';
 //  - rows mirror the page icon (default 📄), matching the page header;
 //  - right-clicking a row opens the page context menu (not the browser default),
 //    which requires the tree row to forward the ContextMenuTrigger's handlers.
-test('sidebar row shows the page icon and opens its context menu on right-click', async ({page}, testInfo) => {
+test('sidebar row shows the page icon and opens its context menu on right-click', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
   await page.goto('/');
 
   const row = page.getByRole('treeitem').first();
@@ -21,7 +21,7 @@ test('sidebar row shows the page icon and opens its context menu on right-click'
 // The restructured sidebar chrome: trash is a nav row under Settings, the
 // color mode lives in the profile menu, and the Suggested section appears
 // above the tree with a collapsible header (no Recents — too noisy).
-test('sidebar chrome: trash row, color mode in profile menu, suggested section', async ({page, request}) => {
+test('sidebar chrome: trash row, color mode in profile menu, suggested section', {tag: ['@shell']}, async ({page, request}) => {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
 

@@ -49,7 +49,7 @@ async function stubAccountService(page: Page): Promise<void> {
   });
 }
 
-test('account switcher: lists accounts and switches the active one', async ({page}, testInfo) => {
+test('account switcher: lists accounts and switches the active one', {tag: ['@sharing', '@visual']}, async ({page}, testInfo) => {
   await stubAccountService(page);
   await page.addInitScript((accounts) => {
     localStorage.setItem('openbook.accounts', JSON.stringify(accounts));
@@ -75,7 +75,7 @@ test('account switcher: lists accounts and switches the active one', async ({pag
   await expect(page.locator('[data-account-id="acct-personal"]')).toHaveAttribute('data-active', 'false');
 });
 
-test('onboarding nudge: shows when unauthenticated and opens sign-in', async ({page}, testInfo) => {
+test('onboarding nudge: shows when unauthenticated and opens sign-in', {tag: ['@sharing', '@visual']}, async ({page}, testInfo) => {
   await page.goto('/');
 
   const nudge = page.locator('[data-onboarding-nudge]');
@@ -88,7 +88,7 @@ test('onboarding nudge: shows when unauthenticated and opens sign-in', async ({p
   await expect(page.getByRole('button', {name: 'Continue with account.book.pub'})).toBeVisible();
 });
 
-test('onboarding nudge: dismissal sticks across reloads', async ({page}) => {
+test('onboarding nudge: dismissal sticks across reloads', {tag: ['@sharing']}, async ({page}) => {
   await page.goto('/');
 
   const nudge = page.locator('[data-onboarding-nudge]');

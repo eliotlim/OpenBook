@@ -19,7 +19,7 @@ async function newPageWithText(page: Pg, text: string): Promise<void> {
   await expect(page.locator('[data-block-row]').first()).toContainText(text);
 }
 
-test('suggest edit: proposes a change shown in Review as a before→after diff', async ({page}) => {
+test('suggest edit: proposes a change shown in Review as a before→after diff', {tag: ['@review', '@p1']}, async ({page}) => {
   await newPageWithText(page, 'Original text');
 
   // Right-click the block row → the review affordances appear once the host is ready.
@@ -43,7 +43,7 @@ test('suggest edit: proposes a change shown in Review as a before→after diff',
   // its e2e click is flaky against the pane's enter transition.)
 });
 
-test('comment: leaving a standalone rich-text comment on a block', async ({page}) => {
+test('comment: leaving a standalone rich-text comment on a block', {tag: ['@review', '@p1']}, async ({page}) => {
   await newPageWithText(page, 'A block to discuss');
 
   // Right-click → "Comment…" opens the Review pane with the block's thread and a

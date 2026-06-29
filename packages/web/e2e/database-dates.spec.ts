@@ -24,7 +24,7 @@ async function seed(request: APIRequestContext): Promise<string> {
   ]) await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {...r, name: `${r.name} ${tag}`}});
   return pageId;
 }
-test('relative date display', async ({page, request}) => {
+test('relative date display', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();
@@ -34,7 +34,7 @@ test('relative date display', async ({page, request}) => {
 });
 
 // Right-clicking a date cell offers relative "Filter by date" presets.
-test('date cell context menu: relative date filter presets', async ({page, request}) => {
+test('date cell context menu: relative date filter presets', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();
@@ -50,7 +50,7 @@ test('date cell context menu: relative date filter presets', async ({page, reque
 
 // Regression: rows whose date property is a {start, end} *range* must appear on
 // the calendar (they once bucketed to null and the month rendered empty).
-test('calendar shows rows dated with a start–end range', async ({page, request}) => {
+test('calendar shows rows dated with a start–end range', {tag: ['@database']}, async ({page, request}) => {
   const p = await request.post(`${SERVER}/api/pages`, {data: {name: `RangeCal ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}}});
   const pageId = ((await p.json()) as {id: string}).id;
   const rangeSchema = {

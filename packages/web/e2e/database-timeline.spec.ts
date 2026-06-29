@@ -19,7 +19,7 @@ async function addColumn(page: import('@playwright/test').Page, name: string, ty
 }
 
 // A timeline view lays a dated row out as a bar on a month axis.
-test('timeline view: a dated row renders as a bar', async ({page}, testInfo) => {
+test('timeline view: a dated row renders as a bar', {tag: ['@database', '@visual']}, async ({page}, testInfo) => {
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
 
@@ -35,7 +35,7 @@ test('timeline view: a dated row renders as a bar', async ({page}, testInfo) => 
 });
 
 // A dependency property links one row to another (drawn as arrows on a timeline).
-test('dependencies: link a row to another row', async ({page}) => {
+test('dependencies: link a row to another row', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Depends', 'dependency');
 
@@ -54,7 +54,7 @@ test('dependencies: link a row to another row', async ({page}) => {
 });
 
 // A timeline bar can be dragged to reschedule the row's date.
-test('timeline drag: dragging a bar reschedules the row', async ({page}) => {
+test('timeline drag: dragging a bar reschedules the row', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'When', 'date');
 
@@ -83,7 +83,7 @@ test('timeline drag: dragging a bar reschedules the row', async ({page}) => {
 });
 
 // Drag from one bar's link handle onto another to create a dependency edge.
-test('timeline drag-to-link: drag one bar onto another to add a dependency', async ({page}) => {
+test('timeline drag-to-link: drag one bar onto another to add a dependency', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'When', 'date');
   await addColumn(page, 'Depends', 'dependency');
@@ -118,7 +118,7 @@ test('timeline drag-to-link: drag one bar onto another to add a dependency', asy
 });
 
 // With no dated rows, clicking the empty canvas places a new item at that date.
-test('timeline click-to-place: clicking the empty canvas adds a dated item', async ({page}) => {
+test('timeline click-to-place: clicking the empty canvas adds a dated item', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
 
@@ -138,7 +138,7 @@ test('timeline click-to-place: clicking the empty canvas adds a dated item', asy
 });
 
 // A dateless row appears as its own lane (no bar) that you click to schedule.
-test('timeline unscheduled row: a dateless row gets a click-to-place lane', async ({page, request}) => {
+test('timeline unscheduled row: a dateless row gets a click-to-place lane', {tag: ['@database']}, async ({page, request}) => {
   await reclaimNames(request, 'Floating'); // row titles are workspace-unique
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
@@ -169,7 +169,7 @@ test('timeline unscheduled row: a dateless row gets a click-to-place lane', asyn
 });
 
 // The zoom selector switches the axis between daily…yearly granularities.
-test('timeline scale: switching zoom updates the axis', async ({page}) => {
+test('timeline scale: switching zoom updates the axis', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
   await page.getByRole('button', {name: 'New row'}).click();
@@ -188,7 +188,7 @@ test('timeline scale: switching zoom updates the axis', async ({page}) => {
 });
 
 // A dependency graph view lays rows out as connected nodes.
-test('dependency graph: shows rows as connected nodes', async ({page}) => {
+test('dependency graph: shows rows as connected nodes', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Depends', 'dependency');
 
@@ -213,7 +213,7 @@ test('dependency graph: shows rows as connected nodes', async ({page}) => {
 
 // Opening a database row shows its columns in the page-view properties panel,
 // with a config menu to show/hide and to organise them into groups.
-test('page-view properties: configure visibility and groups', async ({page, request}) => {
+test('page-view properties: configure visibility and groups', {tag: ['@database']}, async ({page, request}) => {
   await reclaimNames(request, 'Row X'); // row titles are workspace-unique; free it for reruns
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
@@ -234,7 +234,7 @@ test('page-view properties: configure visibility and groups', async ({page, requ
 // Regression: a timeline over *separate* Start/End columns must move both
 // edges in one drag — two sequential single-property writes raced and the
 // second reverted the first (only one edge moved).
-test('timeline drag with separate start/end columns moves both dates', async ({page, request}) => {
+test('timeline drag with separate start/end columns moves both dates', {tag: ['@database']}, async ({page, request}) => {
   const schema = {
     properties: [
       {id: 'p_start', name: 'Start', type: 'date'},

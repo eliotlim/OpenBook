@@ -5,7 +5,7 @@ import {SERVER} from './seed';
 // widgets (quick actions, recents, favorites, recently edited). It lives at
 // ?page=home like a real page, so deep links and reloads restore it.
 
-test('home: greeting, jump-back-in tile, and a persistent customization', async ({page, request}) => {
+test('home: greeting, jump-back-in tile, and a persistent customization', {tag: ['@shell']}, async ({page, request}) => {
   // Visit a known page first so it lands in the recents trail.
   const res = await request.post(`${SERVER}/api/pages`, {
     data: {name: `Home Trail ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}},
@@ -41,7 +41,7 @@ test('home: greeting, jump-back-in tile, and a persistent customization', async 
   await expect(page).toHaveURL(new RegExp(`page=${id}`));
 });
 
-test('home: a quick action creates a page and the breadcrumb names Home', async ({page}) => {
+test('home: a quick action creates a page and the breadcrumb names Home', {tag: ['@shell']}, async ({page}) => {
   await page.goto('/?page=home');
   await expect(page.locator('[data-home-screen]')).toBeVisible();
 

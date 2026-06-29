@@ -12,7 +12,7 @@ import {SERVER} from './seed';
 // mutated (the per-worker data server is shared across spec files; closing the
 // gate for real would 403 every other spec's guest writes), and the page content
 // still loads from the untouched server.
-test('a read-only viewer sees no edit chrome, cannot type, but widgets stay live', async ({page, request}, testInfo) => {
+test('a read-only viewer sees no edit chrome, cannot type, but widgets stay live', {tag: ['@sharing', '@visual', '@p1']}, async ({page, request}, testInfo) => {
   const blockdoc = {
     blocks: [
       {id: 'h1', type: 'heading', props: {level: 1}, text: [{t: 'Read Only Report'}]},

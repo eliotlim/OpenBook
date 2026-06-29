@@ -32,7 +32,7 @@ async function revealHeaderControls(page: import('@playwright/test').Page): Prom
   await page.locator('.ob-page-title').hover();
 }
 
-test('page properties: set an owner and verify the page', async ({page}, testInfo) => {
+test('page properties: set an owner and verify the page', {tag: ['@editor', '@visual']}, async ({page}, testInfo) => {
   await freshPage(page);
 
   // Owner: reveal the header controls, open the editor, type a name, commit.
@@ -57,7 +57,7 @@ test('page properties: set an owner and verify the page', async ({page}, testInf
   await expect(page.getByText('Verified', {exact: true})).toBeVisible();
 });
 
-test('page properties: backlinks list the pages that link here', async ({page, request}) => {
+test('page properties: backlinks list the pages that link here', {tag: ['@editor']}, async ({page, request}) => {
   // Page names are workspace-unique: free any prior run's names first.
   await reclaimNames(request, 'Backlink target', 'Linking page');
 

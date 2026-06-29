@@ -11,7 +11,7 @@ const textSnapshot = (text: string) => ({
   names: [],
 });
 
-test('split pane: full height on the right, resizable, closable', async ({page, request}) => {
+test('split pane: full height on the right, resizable, closable', {tag: ['@shell', '@p1']}, async ({page, request}) => {
   const a = await newPage(request, 'Split Primary', textSnapshot('Primary document body.'));
   const b = await newPage(request, 'Split Secondary', textSnapshot('Secondary document body.'));
 
@@ -47,7 +47,7 @@ test('split pane: full height on the right, resizable, closable', async ({page, 
   await expect(page.locator('main').getByText('Primary document body.')).toBeVisible();
 });
 
-test('palette: Split view opens the current page beside itself', async ({page, request}, testInfo) => {
+test('palette: Split view opens the current page beside itself', {tag: ['@shell', '@visual']}, async ({page, request}, testInfo) => {
   const a = await newPage(request, 'Split Palette Page', textSnapshot('Palette split body.'));
   await page.goto(`/?page=${a}`);
   await expect(page.locator('main').getByText('Palette split body.')).toBeVisible();

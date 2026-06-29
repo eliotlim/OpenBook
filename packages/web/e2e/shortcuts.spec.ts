@@ -9,7 +9,7 @@ const columnIsFull = (page: import('@playwright/test').Page) =>
 // The command palette: opens with the keyboard, groups app commands, and runs
 // one (Toggle full width) — proving the shared command registry is wired to both
 // the palette and the global key handler.
-test('command palette: opens with ⌘K, groups commands, and runs one', async ({page}, testInfo) => {
+test('command palette: opens with ⌘K, groups commands, and runs one', {tag: ['@shell', '@visual', '@p1']}, async ({page}, testInfo) => {
   await page.goto('/');
   // Wait for the app to hydrate (the global key handler attaches on mount).
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
@@ -33,7 +33,7 @@ test('command palette: opens with ⌘K, groups commands, and runs one', async ({
 });
 
 // A global shortcut fires while the editor has focus: ⌘. toggles full width.
-test('keyboard shortcut: ⌘. toggles the full-width view', async ({page}) => {
+test('keyboard shortcut: ⌘. toggles the full-width view', {tag: ['@shell']}, async ({page}) => {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   const before = await columnIsFull(page);
@@ -43,7 +43,7 @@ test('keyboard shortcut: ⌘. toggles the full-width view', async ({page}) => {
 
 // The sidebar row reveals quick actions on hover: a "+" to add a subpage and a
 // "⋯" that re-opens the same page context menu.
-test('sidebar: hover row actions add a subpage and open the page menu', async ({page}, testInfo) => {
+test('sidebar: hover row actions add a subpage and open the page menu', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
   await page.goto('/');
   const row = page.getByRole('treeitem').first();
   await row.hover();
@@ -62,7 +62,7 @@ test('sidebar: hover row actions add a subpage and open the page menu', async ({
 
 // The enriched page context menu carries the new actions, and Rename focuses the
 // page title field.
-test('page menu: rename, copy link, duplicate, split — and rename focuses the title', async ({page}, testInfo) => {
+test('page menu: rename, copy link, duplicate, split — and rename focuses the title', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
   await page.goto('/');
   // Right-click the page title (page chrome, not a block) — the page menu lives
   // on the non-block areas of the body; a block shows its own context menu.
@@ -82,7 +82,7 @@ test('page menu: rename, copy link, duplicate, split — and rename focuses the 
 // Regression: cmdk ≥1.0 marks ENABLED items data-disabled="false", and a
 // presence-matching Tailwind variant greyed out and pointer-disabled every
 // row — keyboard still worked, so only a real CLICK catches this.
-test('command palette: items are clickable and not greyed out', async ({page, request}) => {
+test('command palette: items are clickable and not greyed out', {tag: ['@shell']}, async ({page, request}) => {
   const res = await request.post(`${SERVER}/api/pages`, {
     data: {name: `Palette Click ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}},
   });
