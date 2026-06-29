@@ -1,3 +1,15 @@
+## 1.65.1 (2026-06-29)
+
+### 🩹 Fixes
+
+- **desktop:** stop orphaning the sidecar on non-graceful exit (parent-death + Exit + reaper) ([#38](https://github.com/eliotlim/OpenBook/pull/38))
+- **sdk:** heal stale forwarding host on attach (book.pub→book.cloud) ([#37](https://github.com/eliotlim/OpenBook/pull/37))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim @eliotlim
+
 ## 1.65.0 (2026-06-29)
 
 ### 🚀 Features
