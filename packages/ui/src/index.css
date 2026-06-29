@@ -100,6 +100,14 @@
      three-stop elevation so overlays read as clearly above the page without a
      hard edge. Used everywhere via the `shadow-overlay` utility. */
   --shadow-overlay: 0 2px 4px hsl(20 14% 12% / 0.06), 0 8px 16px -4px hsl(20 14% 12% / 0.10), 0 24px 48px -12px hsl(20 14% 12% / 0.20);
+  /* Hairline RESTING shadow for notebook "sheets" / resting cards — a close
+     contact shadow only, no lift. The hover-lift is the separate --shadow-lift.
+     Tracks --foreground so it adapts per theme. Exposed as `shadow-sheet`. */
+  --shadow-sheet: 0 1px 2px hsl(var(--foreground) / 0.04), 0 1px 3px hsl(var(--foreground) / 0.05);
+  /* Hairline-ring shadow for transient menus (slash menu, inline toolbar): a
+     1px ring plus a soft, tight drop so they read as quietly above the text
+     without the heavier --shadow-overlay. Exposed as `shadow-menu`. */
+  --shadow-menu: 0 0 0 1px hsl(var(--foreground) / 0.03), 0 3px 10px -3px hsl(var(--foreground) / 0.1);
 
   @keyframes accordion-down {
     from {
@@ -194,6 +202,20 @@
     /* Backdrop blur behind modal/search overlays. 0 = off (the default); the
        appearance "blur overlays" preference raises it. See ThemeProvider. */
     --overlay-blur: 0px;
+    /* ── Interaction tokens ───────────────────────────────────────────────────
+       Focus rings as full box-shadows (consumed via `shadow-[var(--ring-*)]`),
+       kept out of @theme so they don't collide with Tailwind's ring utility
+       namespace. They reference --background/--ring, so they flip per theme
+       without a .dark override. --ring-control: crisp 2px-offset keyboard ring
+       for clickable controls (buttons). --ring-field: soft 3px flush glow for
+       text fields. */
+    --ring-control: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--ring));
+    --ring-field: 0 0 0 3px hsl(var(--ring) / 0.4);
+    /* Press-darken ink for FILLED controls (mixed into the fill on :active).
+       Theme-dependent: black in light, white in dark — see the .dark override —
+       so the pressed feedback always shifts the fill toward "ink" (darkens on
+       light fills, lightens on dark fills). */
+    --press-ink: hsl(0 0% 0%);
   }
 
   .dark {
@@ -228,6 +250,8 @@
     --brand: 207 70% 57%;
     --brand-foreground: 0 0% 100%;
     --brand-subtle: 208 48% 22%;
+    /* White ink in dark mode: pressing a dark fill lightens it (see :root). */
+    --press-ink: hsl(0 0% 100%);
   }
 
   html,
@@ -437,9 +461,7 @@
   background-color: hsl(var(--background));
   border: 1px solid hsl(var(--border));
   border-radius: var(--ob-page-radius);
-  box-shadow:
-    0 1px 2px hsl(var(--foreground) / 0.04),
-    0 1px 3px hsl(var(--foreground) / 0.05);
+  box-shadow: var(--shadow-sheet);
   overflow: hidden;
 }
 /* Split view: the two pages meet at a central seam (the book's spine). No gap;
@@ -1476,9 +1498,7 @@ a.obe-mention {
   border: 1px solid hsl(var(--border));
   border-radius: 10px;
   /* Quiet elevation: a hairline ring + a soft, tight shadow. */
-  box-shadow:
-    0 0 0 1px hsl(var(--foreground) / 0.03),
-    0 3px 10px -3px hsl(var(--foreground) / 0.1);
+  box-shadow: var(--shadow-menu);
   padding: 0.3rem;
 }
 .obe-slash-item {
@@ -1556,9 +1576,7 @@ a.obe-mention {
   background: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
   border-radius: 9px;
-  box-shadow:
-    0 0 0 1px hsl(var(--foreground) / 0.03),
-    0 3px 10px -3px hsl(var(--foreground) / 0.1);
+  box-shadow: var(--shadow-menu);
   padding: 3px;
 }
 .obe-tb-btn {
