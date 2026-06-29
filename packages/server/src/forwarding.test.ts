@@ -286,14 +286,14 @@ describe('ForwardingClient.start (stale-host audience heal)', () => {
   // `attachHost` as the canonical host for this prefix.
   const healFetch =
     (attachHost: string): typeof fetch =>
-    async (input) => {
-      const path = new URL(String(input)).pathname;
-      if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
-      if (path === '/api/sites/reattach') return json({ok: true});
-      if (path === '/api/sites/attach-ticket')
-        return json({ticket: 'TICKET', relayBase: 'wss://relay.book.cloud', host: attachHost, region: 'iad1'});
-      throw new Error(`unexpected ${path}`);
-    };
+      async (input) => {
+        const path = new URL(String(input)).pathname;
+        if (path === '/api/sites/challenge') return json({nonce: 'n', ts: Date.now()});
+        if (path === '/api/sites/reattach') return json({ok: true});
+        if (path === '/api/sites/attach-ticket')
+          return json({ticket: 'TICKET', relayBase: 'wss://relay.book.cloud', host: attachHost, region: 'iad1'});
+        throw new Error(`unexpected ${path}`);
+      };
 
   const healClient = (keyStore: MemoryKeyStore, attachHost: string): ForwardingClient => {
     const ws = fakeWebSocket();

@@ -34,7 +34,7 @@ function fakeTimer(): {
   tick: () => void;
   cleared: boolean;
   unrefed: boolean;
-} {
+  } {
   const state = {cb: (): void => {}, cleared: false, unrefed: false};
   return {
     setIntervalImpl(cb) {
