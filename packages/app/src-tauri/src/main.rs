@@ -446,6 +446,11 @@ fn main() {
             let mut child = None;
             if managed {
                 let handle = app.handle().clone();
+                // Clean up a sidecar orphaned by a prior non-graceful host exit
+                // (Force Quit / crash / kill -9) before spawning — it still holds
+                // the single-owner PGlite/mirror lock, which our fresh spawn would
+                // otherwise collide with. Pid-reuse-guarded (see reap_orphan_sidecar).
+                reap_orphan_sidecar(&data_dir);
                 child = Some(spawn_sidecar(&handle, &data_dir, &socket_path, &config)?);
                 ipc::start_live_bridge(
                     handle.clone(),
@@ -485,15 +490,30 @@ fn main() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|app_handle, event| {
-            if let tauri::RunEvent::ExitRequested { .. } = event {
-                if let Some(state) = app_handle.try_state::<AppState>() {
-                    if let Some(child) = state.child.lock().unwrap().take() {
-                        stop_server_child(child);
-                    }
-                }
+        .run(|app_handle, event| match event {
+            // Stop the sidecar on the way out so it isn't orphaned (an orphan keeps
+            // the PGlite/mirror lock and blocks the next launch). `ExitRequested`
+            // fires on window-close; `Exit` also fires for macOS `Cmd+Q` /
+            // `terminate:`, where `ExitRequested` may not. Both route through the
+            // idempotent helper (its `take()` yields the child only once), and we
+            // don't rely on the shell plugin's own cleanup — it doesn't track this
+            // Rust-spawned child.
+            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+                stop_managed_server(app_handle);
             }
+            _ => {}
         });
+}
+
+/// Take and stop the managed sidecar, if one is running. Idempotent: `take()`
+/// hands out the child once, so calling this from both the `ExitRequested` and
+/// `Exit` run-event arms is safe.
+fn stop_managed_server(app_handle: &AppHandle) {
+    if let Some(state) = app_handle.try_state::<AppState>() {
+        if let Some(child) = state.child.lock().unwrap().take() {
+            stop_server_child(child);
+        }
+    }
 }
 
 /// Stop the server sidecar, giving it a chance to flush pending writes first.
@@ -538,5 +558,147 @@ fn stop_server_child(child: CommandChild) {
     #[cfg(not(unix))]
     {
         let _ = child.kill();
+    }
+}
+
+// ── Startup reaper (cleans up a sidecar orphaned by a prior crash/force-quit) ──
+//
+// A non-graceful prior host exit (Force Quit / crash / `kill -9` / logout SIGKILL)
+// can leave the `openbook-server` sidecar running. That orphan still holds the
+// single-owner PGlite/mirror `DirLock`, so the next launch's fresh spawn collides
+// (the lock correctly DECLINES against the live orphan rather than corrupt PGlite).
+// The single-instance plugin guarantees we are the only host, so any leftover
+// sidecar is genuinely abandoned and safe to stop. The parent-death watch in the
+// sidecar (layer A) prevents *new* orphans; this reaps ones from before the fix or
+// from a path where that watch didn't fire.
+
+/// A prior run's pid, parsed from a lock/discovery file. Both
+/// `.openbook-pglite.lock` (`{pid,host,startedAt}`) and `server.json`
+/// (`{url,port,pid,startedAt}`) carry a `pid`; serde ignores the other fields.
+#[derive(Deserialize)]
+struct PriorRun {
+    pid: i32,
+}
+
+/// Does `ps_command_line` (a `ps -p <pid> -o command=` line) identify our sidecar?
+///
+/// This is the **pid-reuse guard**, factored out so it is unit-testable. The
+/// sidecar binary is named `openbook-server[-<target-triple>]`, so its presence in
+/// the live process's command line is a strong identity signal: a recycled pid now
+/// running an unrelated process will not match, so we never SIGTERM a bystander.
+fn command_line_is_openbook_server(ps_command_line: &str) -> bool {
+    ps_command_line.contains("openbook-server")
+}
+
+#[cfg(unix)]
+fn read_pid_from(path: &Path) -> Option<i32> {
+    let body = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str::<PriorRun>(&body).ok().map(|r| r.pid)
+}
+
+/// Pid of a prior sidecar, preferring the PGlite lock (always written in embedded
+/// mode) and falling back to the TCP discovery file.
+#[cfg(unix)]
+fn prior_sidecar_pid(data_dir: &str) -> Option<i32> {
+    read_pid_from(&Path::new(data_dir).join(".openbook-pglite.lock"))
+        .or_else(|| read_pid_from(&Path::new(data_dir).join("server.json")))
+}
+
+/// Whether `pid` is a live process. `kill(pid, 0)` only probes: `0` = alive,
+/// `ESRCH` = gone, `EPERM` = exists but owned by another user (still alive).
+#[cfg(unix)]
+fn pid_is_alive(pid: i32) -> bool {
+    let rc = unsafe { libc::kill(pid as libc::pid_t, 0) };
+    if rc == 0 {
+        return true;
+    }
+    matches!(std::io::Error::last_os_error().raw_os_error(), Some(libc::EPERM))
+}
+
+/// Confirm the live `pid` is actually our sidecar (not a recycled pid) by reading
+/// its command line via `ps`. Fails safe: if `ps` can't confirm, returns false so
+/// we never signal an unverified pid.
+#[cfg(unix)]
+fn pid_is_openbook_server(pid: i32) -> bool {
+    match std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            command_line_is_openbook_server(&String::from_utf8_lossy(&out.stdout))
+        }
+        _ => false,
+    }
+}
+
+/// Stop a sidecar orphaned by a prior non-graceful host exit, before we spawn a
+/// fresh one. SIGTERMs the orphan ONLY after confirming (a) the recorded pid is
+/// alive and (b) it is genuinely an `openbook-server` — the pid-reuse guard, a
+/// hard requirement, since signalling a recycled pid would kill an unrelated
+/// process. We deliberately do **not** escalate to SIGKILL: a half-killed PGlite
+/// can leave an unrecoverable WAL (OB-164), and if SIGTERM is somehow ignored the
+/// new spawn's `DirLock` declines safely rather than risking corruption.
+#[cfg(unix)]
+fn reap_orphan_sidecar(data_dir: &str) {
+    let Some(pid) = prior_sidecar_pid(data_dir) else {
+        return;
+    };
+    if pid <= 1 {
+        return; // never touch pid 0/1 (a malformed/sentinel body)
+    }
+    if !pid_is_alive(pid) {
+        return; // dead → the lock is stale; DirLock takes it over on spawn
+    }
+    if !pid_is_openbook_server(pid) {
+        eprintln!(
+            "[reaper] pid {pid} from a prior run is alive but is not an openbook-server (pid reuse) — not signalling"
+        );
+        return;
+    }
+    eprintln!("[reaper] stopping orphaned openbook-server pid {pid} from a prior run");
+    // SAFETY: plain kill(2) with a pid we've confirmed is our abandoned sidecar.
+    unsafe {
+        libc::kill(pid as libc::pid_t, libc::SIGTERM);
+    }
+    // Wait briefly for it to checkpoint + release the lock before we spawn.
+    const REAP_GRACE_MS: u64 = 5000;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(REAP_GRACE_MS);
+    while pid_is_alive(pid) {
+        if std::time::Instant::now() >= deadline {
+            eprintln!(
+                "[reaper] pid {pid} still alive after {REAP_GRACE_MS}ms — proceeding (DirLock will arbitrate)"
+            );
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+#[cfg(not(unix))]
+fn reap_orphan_sidecar(_data_dir: &str) {
+    // Windows orphan reaping (tasklist/taskkill) is a follow-up. The sidecar's
+    // stdin-EOF parent-death watch (layer A) covers host death cross-platform, so
+    // new orphans shouldn't occur there either.
+}
+
+#[cfg(test)]
+mod reaper_tests {
+    use super::command_line_is_openbook_server;
+
+    #[test]
+    fn matches_a_sidecar_command_line() {
+        assert!(command_line_is_openbook_server(
+            "/Applications/OpenBook.app/Contents/MacOS/openbook-server-aarch64-apple-darwin --data-dir /x --socket /x/openbook.sock"
+        ));
+        assert!(command_line_is_openbook_server("openbook-server --data-dir /x"));
+    }
+
+    #[test]
+    fn rejects_an_unrelated_recycled_pid() {
+        // The pid-reuse guard: a recycled pid running something else must not match,
+        // so the reaper never SIGTERMs a bystander.
+        assert!(!command_line_is_openbook_server("/bin/zsh -l"));
+        assert!(!command_line_is_openbook_server("node /some/other/server.js"));
+        assert!(!command_line_is_openbook_server(""));
     }
 }
