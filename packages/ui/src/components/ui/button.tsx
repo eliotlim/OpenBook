@@ -6,20 +6,21 @@ import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
   // Motion: transition colour + shadow + a subtle press-down (active:scale), all
-  // on the global ease-out tempo. Focus: a crisp 2px ring inset from the control
-  // (offset) that only shows for keyboard nav — the native-app focus look.
-  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform] active:scale-[0.97] focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
+  // on the global ease-out tempo. Filled variants also press-darken on :active
+  // (the fill mixed toward --press-ink). Focus: a crisp 2px-offset keyboard ring
+  // (--ring-control) that only shows for keyboard nav — the native-app focus look.
+  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform] active:scale-[0.97] focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
   {
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90",
+          "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 active:bg-[color-mix(in_srgb,hsl(var(--primary)),var(--press-ink)_8%)]",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90 active:bg-[color-mix(in_srgb,hsl(var(--destructive)),var(--press-ink)_8%)]",
         outline:
           "border border-input bg-transparent shadow-xs hover:bg-hover hover:text-accent-foreground",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
+          "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80 active:bg-[color-mix(in_srgb,hsl(var(--secondary)),var(--press-ink)_8%)]",
         ghost: "hover:bg-hover hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
       },
