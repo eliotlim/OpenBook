@@ -135,6 +135,38 @@ export interface Jwks {
   keys: Jwk[];
 }
 
+// ── Token revocation (OB-106) ─────────────────────────────────────────────────
+
+/** One revoked subject in an issuer's revocation set. */
+export interface RevocationEntry {
+  /** The user id (issuer-local `sub`) whose tokens are revoked. */
+  sub: string;
+  /** Epoch seconds: a token for this `sub` is revoked when its `iat` is older than this. */
+  since: number;
+  /** Why the subject was revoked (advisory; not part of the trust decision). */
+  reason?: 'deleted' | 'signed-out' | string;
+}
+
+/**
+ * An issuer's set of revoked subjects (OB-106). The issuer publishes it as an
+ * EdDSA-signed JWS (same shape as an identity token) which the consumer verifies
+ * with {@link verifyRevocations} against the issuer's JWKS, then hands to
+ * {@link verifyIdentity}: a token is revoked iff its `iss` matches {@link iss} and
+ * this set lists the token's `sub` with `since` newer than the token's `iat`. A
+ * short-lived snapshot — the issuer stamps `iat`/`ttl`; the consumer refreshes on
+ * its own cadence (and the short token TTL backstops a stale set).
+ */
+export interface RevocationSet {
+  /** Issuer URL these revocations apply to (must equal the token's `iss`). */
+  iss: string;
+  /** When the issuer produced this snapshot (epoch seconds). */
+  iat?: number;
+  /** How long the snapshot stays fresh, in seconds (advisory). */
+  ttl?: number;
+  /** The revoked subjects. */
+  revocations: RevocationEntry[];
+}
+
 /** An issuer signing keypair (dev/test issuer, or the account service). */
 export interface IdentityKeypair {
   /** The public key as a JWK (publish in the JWKS). */
@@ -158,6 +190,20 @@ export async function mintIdentityKeypair(kid = 'dev-1'): Promise<IdentityKeypai
 }
 
 /**
+ * Sign an arbitrary JSON payload into a compact EdDSA JWS:
+ * `base64url(header).base64url(payload).base64url(sig)`. Shared by the identity
+ * assertion ({@link signIdentity}) and the revocation document
+ * ({@link signRevocations}) — both are the same JWS shape over a different payload.
+ */
+async function signCompactJws(privateKeyPkcs8: string, payload: unknown, kid?: string): Promise<string> {
+  const header: IdentityHeader = {alg: 'EdDSA', typ: 'JWT', ...(kid ? {kid} : {})};
+  const signingInput = `${b64uEncodeString(JSON.stringify(header))}.${b64uEncodeString(JSON.stringify(payload))}`;
+  const key = await crypto.subtle.importKey('pkcs8', b64uDecode(privateKeyPkcs8), ED25519, false, ['sign']);
+  const sig = await crypto.subtle.sign(ED25519, key, utf8(signingInput));
+  return `${signingInput}.${b64uEncode(new Uint8Array(sig))}`;
+}
+
+/**
  * Sign an identity assertion (issuer side / dev / tests). Produces a compact
  * EdDSA JWS: `base64url(header).base64url(claims).base64url(sig)`.
  */
@@ -166,11 +212,7 @@ export async function signIdentity(
   claims: IdentityClaims,
   kid?: string,
 ): Promise<string> {
-  const header: IdentityHeader = {alg: 'EdDSA', typ: 'JWT', ...(kid ? {kid} : {})};
-  const signingInput = `${b64uEncodeString(JSON.stringify(header))}.${b64uEncodeString(JSON.stringify(claims))}`;
-  const key = await crypto.subtle.importKey('pkcs8', b64uDecode(privateKeyPkcs8), ED25519, false, ['sign']);
-  const sig = await crypto.subtle.sign(ED25519, key, utf8(signingInput));
-  return `${signingInput}.${b64uEncode(new Uint8Array(sig))}`;
+  return signCompactJws(privateKeyPkcs8, claims, kid);
 }
 
 /**
@@ -200,7 +242,9 @@ export type VerifyFailure =
   | 'expired'
   | 'not-yet-valid'
   | 'untrusted-issuer'
-  | 'wrong-audience';
+  | 'wrong-audience'
+  /** The issuer revoked this subject's tokens issued before the token's `iat` (OB-106). */
+  | 'revoked';
 
 export type VerifyResult =
   | {ok: true; claims: IdentityClaims; header: IdentityHeader}
@@ -226,6 +270,43 @@ export interface VerifyOptions {
    * can't be handed an unscoped, freely-replayable assertion.
    */
   requireAudience?: boolean;
+  /**
+   * The issuer's (already-signature-verified) revocation set (OB-106). When
+   * supplied, a token whose `iss` matches the set and whose `sub` is listed with
+   * a `since` newer than the token's `iat` is rejected as `revoked`. Obtain it
+   * with {@link verifyRevocations} so the set itself is trusted; omit it to skip
+   * the revocation check (fail-open — the short token TTL is the backstop).
+   */
+  revocations?: RevocationSet;
+}
+
+/**
+ * Verify a compact EdDSA JWS's *signature* against a JWKS. Pure + offline.
+ * Returns `'unknown-key'` when no key matches the header `kid`, `'bad-signature'`
+ * when candidate keys exist but none validated, and `'ok'` on success. Shared by
+ * the identity-token ({@link verifyIdentity}) and revocation-document
+ * ({@link verifyRevocations}) verifiers — both prove the same EdDSA signature.
+ */
+async function verifyCompactSignature(
+  jws: string,
+  header: IdentityHeader,
+  jwks: Jwks,
+): Promise<'ok' | 'unknown-key' | 'bad-signature'> {
+  // Pick candidate keys: the kid-matched one, else every key (kid is a hint).
+  const candidates = header.kid ? jwks.keys.filter((k) => k.kid === header.kid) : jwks.keys;
+  if (candidates.length === 0) return 'unknown-key';
+  const parts = jws.split('.');
+  const signingInput = utf8(`${parts[0]}.${parts[1]}`);
+  const sig = b64uDecode(parts[2]);
+  for (const jwk of candidates) {
+    try {
+      const key = await crypto.subtle.importKey('raw', b64uDecode(jwk.x), ED25519, false, ['verify']);
+      if (await crypto.subtle.verify(ED25519, key, sig, signingInput)) return 'ok';
+    } catch {
+      // Malformed key — try the next candidate.
+    }
+  }
+  return 'bad-signature';
 }
 
 /**
@@ -233,8 +314,9 @@ export interface VerifyOptions {
  * caller supplies the (cached) key set, so no network call happens here.
  *
  * Returns `{ok:true, claims}` only on a fresh, signature-valid, in-window,
- * trusted-issuer assertion. On failure returns a reason (and the decoded claims
- * when they parsed, so the server can record a claimed-but-unverified identity).
+ * trusted-issuer, non-revoked assertion. On failure returns a reason (and the
+ * decoded claims when they parsed, so the server can record a claimed-but-
+ * unverified identity).
  */
 export async function verifyIdentity(jws: string, jwks: Jwks, opts: VerifyOptions = {}): Promise<VerifyResult> {
   const decoded = decodeIdentity(jws);
@@ -245,26 +327,8 @@ export async function verifyIdentity(jws: string, jwks: Jwks, opts: VerifyOption
     return {ok: false, reason: 'untrusted-issuer', claims};
   }
 
-  // Pick candidate keys: the kid-matched one, else every key (kid is a hint).
-  const candidates = header.kid ? jwks.keys.filter((k) => k.kid === header.kid) : jwks.keys;
-  if (candidates.length === 0) return {ok: false, reason: 'unknown-key', claims};
-
-  const parts = jws.split('.');
-  const signingInput = utf8(`${parts[0]}.${parts[1]}`);
-  const sig = b64uDecode(parts[2]);
-  let verified = false;
-  for (const jwk of candidates) {
-    try {
-      const key = await crypto.subtle.importKey('raw', b64uDecode(jwk.x), ED25519, false, ['verify']);
-      if (await crypto.subtle.verify(ED25519, key, sig, signingInput)) {
-        verified = true;
-        break;
-      }
-    } catch {
-      // Malformed key — try the next candidate.
-    }
-  }
-  if (!verified) return {ok: false, reason: 'bad-signature', claims};
+  const sigCheck = await verifyCompactSignature(jws, header, jwks);
+  if (sigCheck !== 'ok') return {ok: false, reason: sigCheck, claims};
 
   // Time window (after the signature is proven, so we can distinguish expired
   // from forged). Tolerance covers clock skew and short offline spells.
@@ -288,7 +352,80 @@ export async function verifyIdentity(jws: string, jwks: Jwks, opts: VerifyOption
     return {ok: false, reason: 'wrong-audience', claims};
   }
 
+  // Revocation (OB-106). Checked LAST — after the signature and the time/aud
+  // window — so only a genuine, in-window token can ever be marked revoked (a
+  // forged token has already failed). The set was signature-verified by the
+  // caller (see {@link verifyRevocations}). A token is revoked when its issuer
+  // published a revocation for this `sub` whose `since` is newer than the token's
+  // `iat`, so a fresh re-login (a newer `iat`) is unaffected.
+  const rev = opts.revocations;
+  if (rev && rev.iss === claims.iss && typeof claims.iat === 'number') {
+    const entry = rev.revocations.find((r) => r.sub === claims.sub);
+    if (entry && claims.iat < entry.since) return {ok: false, reason: 'revoked', claims};
+  }
+
   return {ok: true, claims, header};
+}
+
+/**
+ * Validate + normalise a decoded revocations payload into a {@link RevocationSet}.
+ * Returns `null` when the top-level shape is wrong (so a malformed document is
+ * ignored rather than trusted), and drops any entry missing a `sub` or a numeric
+ * `since`.
+ */
+function normalizeRevocationSet(payload: unknown): RevocationSet | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as {iss?: unknown; iat?: unknown; ttl?: unknown; revocations?: unknown};
+  if (typeof p.iss !== 'string' || !Array.isArray(p.revocations)) return null;
+  const revocations: RevocationEntry[] = [];
+  for (const raw of p.revocations) {
+    if (!raw || typeof raw !== 'object') continue;
+    const e = raw as {sub?: unknown; since?: unknown; reason?: unknown};
+    if (typeof e.sub !== 'string' || typeof e.since !== 'number') continue;
+    revocations.push({sub: e.sub, since: e.since, ...(typeof e.reason === 'string' ? {reason: e.reason} : {})});
+  }
+  return {
+    iss: p.iss,
+    ...(typeof p.iat === 'number' ? {iat: p.iat} : {}),
+    ...(typeof p.ttl === 'number' ? {ttl: p.ttl} : {}),
+    revocations,
+  };
+}
+
+/**
+ * Verify an issuer's revocation document — a compact EdDSA JWS, the same format
+ * as an identity token — against the issuer's JWKS, returning the parsed
+ * {@link RevocationSet}. Pure + offline (the caller supplies the cached JWKS).
+ * Returns `null` on a malformed document, unsupported alg, or bad signature, so a
+ * forged or unsigned document can never revoke anything.
+ */
+export async function verifyRevocations(jws: string, jwks: Jwks): Promise<RevocationSet | null> {
+  const parts = jws.split('.');
+  if (parts.length !== 3) return null;
+  let header: IdentityHeader;
+  let payload: unknown;
+  try {
+    header = JSON.parse(b64uDecodeString(parts[0])) as IdentityHeader;
+    payload = JSON.parse(b64uDecodeString(parts[1]));
+  } catch {
+    return null;
+  }
+  if (header.alg !== 'EdDSA') return null;
+  if ((await verifyCompactSignature(jws, header, jwks)) !== 'ok') return null;
+  return normalizeRevocationSet(payload);
+}
+
+/**
+ * Sign a revocation document (issuer side / dev / tests) — the counterpart to
+ * {@link verifyRevocations}. Produces the same compact EdDSA JWS the account
+ * service publishes at its revocations endpoint.
+ */
+export async function signRevocations(
+  privateKeyPkcs8: string,
+  set: RevocationSet,
+  kid?: string,
+): Promise<string> {
+  return signCompactJws(privateKeyPkcs8, set, kid);
 }
 
 /** The active-persona email (lowercased) carried by an assertion, if any. */

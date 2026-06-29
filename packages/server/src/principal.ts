@@ -23,6 +23,7 @@ import {
   type InstanceConfig,
   type Jwks,
   type Principal,
+  type RevocationSet,
 } from '@book.dev/sdk';
 
 /** Header carrying the identity assertion (JWS). */
@@ -50,6 +51,15 @@ export interface IdentityProvider {
   }>;
   /** The (cached, offline-capable) JWKS for an issuer, or `null` if untrusted/unknown. */
   jwks(issuer: string): Promise<Jwks | null>;
+  /**
+   * The issuer's (cached, signature-verified, offline-capable) revocation set
+   * (OB-106), or `null` when the issuer publishes none / it can't be obtained
+   * cold. `null` is benign — the revocation check is skipped (fail-open), with the
+   * short token TTL as the backstop. Mirrors {@link jwks}'s caching + last-good
+   * fallback; only the cold-miss handling differs (jwks `null` ⇒ reject, since we
+   * then can't verify the signature at all; revocations `null` ⇒ allow).
+   */
+  revocations(issuer: string): Promise<RevocationSet | null>;
   /** Clock injection point (tests). Defaults to `Date.now()`. */
   now?(): number;
 }
@@ -91,8 +101,19 @@ export async function resolvePrincipal(c: Context, identity: IdentityProvider | 
   if (!decoded) return {reject: {status: 401, error: 'malformed identity assertion'}};
   const jwks = await identity.jwks(decoded.claims.iss);
   if (!jwks) return {reject: {status: 401, error: 'identity from an untrusted issuer'}};
+  // Revocation set (OB-106): signature-verified + cached upstream. `null` is benign
+  // (no revocations / unobtainable cold) → the check is skipped, never a downgrade.
+  const revocations = await identity.revocations(decoded.claims.iss);
   const {allowedIssuers, audience, requireAudience} = await identity.policy();
-  const res = await verifyIdentity(jws, jwks, {allowedIssuers, audience, requireAudience, nowMs: identity.now?.()});
+  const res = await verifyIdentity(jws, jwks, {
+    allowedIssuers,
+    audience,
+    requireAudience,
+    revocations: revocations ?? undefined,
+    nowMs: identity.now?.(),
+  });
+  // A revoked token is a 401 like `expired` — a bad credential is an error, never a
+  // silent downgrade to guest.
   if (!res.ok) return {reject: {status: 401, error: `identity rejected: ${res.reason}`}};
   return {principal: principalFromClaims(res.claims, res.header)};
 }
@@ -179,14 +200,16 @@ export async function recoverAudienceLockedPrincipal(
   if (!decoded) return null;
   const jwks = await identity.jwks(decoded.claims.iss);
   if (!jwks) return null;
-  // Verify EVERYTHING except the audience: signature, issuer, and time window must
-  // still hold, so this never resurrects a forged, expired, or untrusted token.
-  // Neutralise only the audience check by matching the token to its OWN `aud` —
-  // accepting both an unscoped token and one scoped to a different site, the exact
-  // two states that lock the owner out.
+  const revocations = await identity.revocations(decoded.claims.iss);
+  // Verify EVERYTHING except the audience: signature, issuer, time window, AND
+  // revocation must still hold, so this never resurrects a forged, expired,
+  // untrusted, or revoked token. Neutralise only the audience check by matching the
+  // token to its OWN `aud` — accepting both an unscoped token and one scoped to a
+  // different site, the exact two states that lock the owner out.
   const res = await verifyIdentity(jws, jwks, {
     allowedIssuers,
     audience: decoded.claims.aud,
+    revocations: revocations ?? undefined,
     nowMs: identity.now?.(),
   });
   if (!res.ok) return null;

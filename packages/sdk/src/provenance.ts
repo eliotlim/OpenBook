@@ -7,7 +7,7 @@
  */
 
 import {DEFAULT_ACCOUNT_URL} from './account';
-import type {Jwks, Principal, VerifiedVia} from './identity';
+import type {Jwks, Principal, RevocationSet, VerifiedVia} from './identity';
 import type {MemberRole, PageVisibility} from './types';
 
 /** What an unauthenticated (guest) caller may do on this instance. */
@@ -28,6 +28,19 @@ export interface TrustedIssuerConfig {
   /** Inline / cached JWKS — makes verification offline-capable (and is how the
    *  dev issuer ships its key). */
   jwks?: Jwks;
+  /**
+   * Where to (re)fetch the issuer's revocation document (OB-106) — an EdDSA-signed
+   * JWS verified against the issuer's JWKS. Polled + cached like {@link jwksUrl},
+   * with a last-good offline fallback. Absent ⇒ this issuer publishes no
+   * revocations and every signature-valid, in-window token is honoured.
+   */
+  revocationsUrl?: string;
+  /**
+   * Inline / cached revocation set — config-trusted (like an inline {@link jwks}),
+   * so it needs no signature check. Mainly for the dev issuer and tests; the real
+   * account issuer ships a signed document via {@link revocationsUrl}.
+   */
+  revocations?: RevocationSet;
 }
 
 /** The instance's multi-user policy, persisted in the `settings` table. */
@@ -122,7 +135,15 @@ export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
   // (the shared root that makes identities federate across instances). Only ever
   // consulted when an `iss=account.book.pub` assertion is actually presented; the
   // JWKS is fetched + cached lazily. Override or extend in instance settings.
-  trustedIssuers: [{issuer: DEFAULT_ACCOUNT_URL, jwksUrl: `${DEFAULT_ACCOUNT_URL}/api/identity/jwks`}],
+  trustedIssuers: [
+    {
+      issuer: DEFAULT_ACCOUNT_URL,
+      jwksUrl: `${DEFAULT_ACCOUNT_URL}/api/identity/jwks`,
+      // Consult account.book.pub's revocation list (OB-106) — signed against the
+      // same JWKS, cached with a last-good offline fallback.
+      revocationsUrl: `${DEFAULT_ACCOUNT_URL}/api/identity/revocations`,
+    },
+  ],
   // `inherit` at the root resolves here. Private-by-default once claimed (Fork 1);
   // an unclaimed instance short-circuits before this is ever consulted (rule 0).
   defaultVisibility: 'members',
