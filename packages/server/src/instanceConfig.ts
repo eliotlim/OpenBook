@@ -9,7 +9,7 @@
  * makes verification fully offline (and is how the dev issuer registers).
  */
 
-import type {Jwks} from '@book.dev/sdk';
+import {verifyRevocations, type Jwks, type RevocationSet} from '@book.dev/sdk';
 import type {PageStore} from './store';
 import type {IdentityProvider} from './principal';
 
@@ -26,6 +26,7 @@ const DEFAULT_JWKS_TTL_MS = 10 * 60 * 1000;
 
 export class IdentityService implements IdentityProvider {
   private readonly jwksCache = new Map<string, {jwks: Jwks; at: number}>();
+  private readonly revocationsCache = new Map<string, {set: RevocationSet; at: number}>();
 
   constructor(
     private readonly store: PageStore,
@@ -74,6 +75,45 @@ export class IdentityService implements IdentityProvider {
     } catch {
       // Offline / network error: fall back to the last good key set if we have one.
       return cached?.jwks ?? null;
+    }
+  }
+
+  /**
+   * The issuer's revocation set (OB-106) — a carbon copy of {@link jwks}'s plumbing
+   * (inline-config short-circuit, in-memory cache, ~10-min TTL, last-good offline
+   * fallback), with one extra step: the fetched document is an EdDSA-signed JWS, so
+   * it is signature-verified against the issuer's cached JWKS before it is trusted.
+   * Returns `null` when the issuer publishes no revocations, or when the document
+   * is unobtainable/forged cold (no cache) — benign: the caller skips the check
+   * (fail-open), with the short token TTL as the backstop.
+   */
+  async revocations(issuer: string): Promise<RevocationSet | null> {
+    const config = await this.store.getInstanceConfig();
+    const trusted = config.trustedIssuers.find((i) => i.issuer === issuer);
+    if (!trusted) return null;
+    // Inline / cached-in-config set → config-trusted, fully offline-capable.
+    if (trusted.revocations) return trusted.revocations;
+    if (!trusted.revocationsUrl) return null;
+
+    const ttl = this.opts.jwksTtlMs ?? DEFAULT_JWKS_TTL_MS;
+    const cached = this.revocationsCache.get(issuer);
+    if (cached && this.now() - cached.at < ttl) return cached.set;
+
+    // The document is signed against the issuer's JWKS — fetch the keys first (its
+    // own cache + offline fallback) so we can prove the signature before trusting it.
+    const keys = await this.jwks(issuer);
+    if (!keys) return cached?.set ?? null;
+
+    try {
+      const res = await (this.opts.fetchImpl ?? fetch)(trusted.revocationsUrl);
+      if (!res.ok) return cached?.set ?? null; // keep serving the last good set
+      const set = await verifyRevocations(await res.text(), keys);
+      if (!set) return cached?.set ?? null; // forged / malformed → never trust it
+      this.revocationsCache.set(issuer, {set, at: this.now()});
+      return set;
+    } catch {
+      // Offline / network error: fall back to the last good set if we have one.
+      return cached?.set ?? null;
     }
   }
 }
