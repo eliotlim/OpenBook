@@ -1,3 +1,23 @@
+## 1.65.0 (2026-06-29)
+
+### 🚀 Features
+
+- **server:** mirror no-op write skip + write-amp budget + convergence invariant + soak (ER-1/2/3/4) ([#30](https://github.com/eliotlim/OpenBook/pull/30))
+- **server:** single-owner DirLock + pglite dataDir lock + WriteBudgetError hardening (ER-5) ([#31](https://github.com/eliotlim/OpenBook/pull/31))
+- **server:** idempotent /api/import + client write-replay idempotency (ER-6/7) ([#32](https://github.com/eliotlim/OpenBook/pull/32))
+- **server:** consume JWS revocation list to reject revoked tokens (OB-106) ([#35](https://github.com/eliotlim/OpenBook/pull/35))
+
+### 🩹 Fixes
+
+- **cleanup:** ER-9 low-severity bundle ([#34](https://github.com/eliotlim/OpenBook/pull/34))
+- **server:** converge book-mirror conflict path to stop "(conflicted copy)" write storm (OB-241) ([#29](https://github.com/eliotlim/OpenBook/pull/29))
+- **ui:** make groupSync valueEqual structural for plain objects (ER-8) ([#33](https://github.com/eliotlim/OpenBook/pull/33))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim @eliotlim
+
 ## 1.64.0 (2026-06-28)
 
 ### 🚀 Features
