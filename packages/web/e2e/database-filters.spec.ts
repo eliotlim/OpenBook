@@ -20,7 +20,7 @@ async function seed(request: APIRequestContext): Promise<string> {
   return pageId;
 }
 
-test('filter chips show and remove active filters', async ({page, request}) => {
+test('filter chips show and remove active filters', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();
@@ -41,7 +41,7 @@ test('filter chips show and remove active filters', async ({page, request}) => {
 });
 
 // Active sorts also show as removable chips below the toolbar.
-test('sort chips show and remove active sorts', async ({page, request}) => {
+test('sort chips show and remove active sorts', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();
@@ -53,7 +53,7 @@ test('sort chips show and remove active sorts', async ({page, request}) => {
 });
 
 // "Clear filters & sorts" in the view options resets the view in one click.
-test('view options: clear filters and sorts', async ({page, request}) => {
+test('view options: clear filters and sorts', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();

@@ -13,13 +13,13 @@ async function openFieldMap(page: import('@playwright/test').Page): Promise<void
   await expect(page.getByLabel('Page title')).toHaveValue(/^Field map/);
 }
 
-test('field-map template: lands on a map view with the Map and Table tabs', async ({page}) => {
+test('field-map template: lands on a map view with the Map and Table tabs', {tag: ['@database']}, async ({page}) => {
   await openFieldMap(page);
   await expect(page.getByRole('button', {name: 'Map', exact: true})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Table', exact: true})).toBeVisible();
 });
 
-test('map renders Leaflet tiles, group-coloured markers, and a legend', async ({page}) => {
+test('map renders Leaflet tiles, group-coloured markers, and a legend', {tag: ['@database']}, async ({page}) => {
   await openFieldMap(page);
 
   // The Leaflet map mounts (lazy chunk) with the OSM tile layer + attribution.
@@ -36,14 +36,14 @@ test('map renders Leaflet tiles, group-coloured markers, and a legend', async ({
   }
 });
 
-test('the address-only row surfaces in the Unplaced affordance with a geocode action', async ({page}) => {
+test('the address-only row surfaces in the Unplaced affordance with a geocode action', {tag: ['@database']}, async ({page}) => {
   await openFieldMap(page);
   // One seeded row (Lisbon partner) has an address but no coordinates.
   await expect(page.getByRole('button', {name: /Unplaced \(\d+\)/})).toBeVisible();
   await expect(page.getByRole('button', {name: /Geocode/})).toBeVisible();
 });
 
-test('switching to the Table view shows the location column and rows', async ({page}) => {
+test('switching to the Table view shows the location column and rows', {tag: ['@database']}, async ({page}) => {
   await openFieldMap(page);
   await page.getByRole('button', {name: 'Table', exact: true}).click();
   await expect(page.getByRole('columnheader', {name: /Region/})).toBeVisible();

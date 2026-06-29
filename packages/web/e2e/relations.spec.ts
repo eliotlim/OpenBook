@@ -34,7 +34,7 @@ async function addRowNamed(page: import('@playwright/test').Page, name: string):
   await page.waitForTimeout(700); // load-bearing: let the debounced rename flush (see note above)
 }
 
-test('database relations: a relation column links rows from a target database', async ({page}, testInfo) => {
+test('database relations: a relation column links rows from a target database', {tag: ['@database', '@visual']}, async ({page}, testInfo) => {
   const ts = Date.now();
   const projects = `Projects ${ts}`;
   const projectRow = `Website relaunch ${ts}`;
@@ -71,7 +71,7 @@ test('database relations: a relation column links rows from a target database', 
   await takeSnapshot(page, testInfo); // visual: a cross-database relation + hover card
 });
 
-test('database relations: a two-way link adds a reverse column and mirrors links', async ({page}) => {
+test('database relations: a two-way link adds a reverse column and mirrors links', {tag: ['@database']}, async ({page}) => {
   const ts = Date.now();
   const projects = `Proj ${ts}`;
   const projectRow = `Apollo ${ts}`;
@@ -114,7 +114,7 @@ test('database relations: a two-way link adds a reverse column and mirrors links
 });
 
 // A couple of the new scalar column types still render their editors.
-test('database types: url and multi-select columns are available', async ({page}) => {
+test('database types: url and multi-select columns are available', {tag: ['@database']}, async ({page}) => {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
 

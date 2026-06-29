@@ -13,7 +13,7 @@ async function newDatabase(page: import('@playwright/test').Page): Promise<void>
 
 // A formula column computes from another property (here the row title) — the
 // headline "simple expression formula" feature, end to end.
-test('database formula: a formula column computes from other properties', async ({page, request}, testInfo) => {
+test('database formula: a formula column computes from other properties', {tag: ['@database', '@visual', '@p1']}, async ({page, request}, testInfo) => {
   await reclaimNames(request, 'World'); // row titles are workspace-unique; free it for reruns
   await newDatabase(page);
 
@@ -37,7 +37,7 @@ test('database formula: a formula column computes from other properties', async 
 });
 
 // The view switcher offers the new layouts and they render without error.
-test('database views: board, gallery, and bar chart layouts render', async ({page}, testInfo) => {
+test('database views: board, gallery, and bar chart layouts render', {tag: ['@database', '@visual', '@p1']}, async ({page}, testInfo) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
 
@@ -59,7 +59,7 @@ test('database views: board, gallery, and bar chart layouts render', async ({pag
 
 // The bar chart is interactive: a readout, click-to-drill into a bar's rows, and
 // a second-level "Break down by" control in the view options.
-test('database bar chart: drill-down and breakdown control', async ({page}, testInfo) => {
+test('database bar chart: drill-down and breakdown control', {tag: ['@database', '@visual']}, async ({page}, testInfo) => {
   await newDatabase(page);
 
   // A named row so it's identifiable once we drill into the chart. The name is
@@ -92,7 +92,7 @@ test('database bar chart: drill-down and breakdown control', async ({page}, test
 });
 
 // A table column footer can summarise its values (here, a row count).
-test('database summaries: a column footer calculation renders', async ({page}) => {
+test('database summaries: a column footer calculation renders', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('button', {name: 'New row'}).click();
@@ -104,7 +104,7 @@ test('database summaries: a column footer calculation renders', async ({page}) =
 });
 
 // The quick-search box filters the active view's rows.
-test('database quick search: filters rows by text', async ({page}) => {
+test('database quick search: filters rows by text', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   // Run-tagged: a bare 'Findme' 409s against database-parity.spec's row.

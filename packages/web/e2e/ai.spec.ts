@@ -28,7 +28,7 @@ test.afterAll(async ({request}) => {
   await setProvider(request, 'off');
 });
 
-test('settings: AI tab shows providers and engine status', async ({page, request}) => {
+test('settings: AI tab shows providers and engine status', {tag: ['@ai']}, async ({page, request}) => {
   await setProvider(request, 'off');
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
@@ -43,7 +43,7 @@ test('settings: AI tab shows providers and engine status', async ({page, request
   await page.keyboard.press('Escape');
 });
 
-test('settings: every provider is configurable in its own panel + the radio picks the default', async ({page, request}) => {
+test('settings: every provider is configurable in its own panel + the radio picks the default', {tag: ['@ai']}, async ({page, request}) => {
   await setProvider(request, 'off');
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
@@ -80,7 +80,7 @@ test('settings: every provider is configurable in its own panel + the radio pick
   await page.keyboard.press('Escape');
 });
 
-test('AI search: palette command opens the dialog; results navigate', async ({page, request}) => {
+test('AI search: palette command opens the dialog; results navigate', {tag: ['@ai']}, async ({page, request}) => {
   await setProvider(request, 'mock');
   const name = `AI Search Note ${Date.now()}`;
   const created = await request.post(`${SERVER}/api/pages`, {
@@ -111,7 +111,7 @@ test('AI search: palette command opens the dialog; results navigate', async ({pa
   await expect(page).toHaveURL(new RegExp(id));
 });
 
-test('editor: Break into tasks and Continue writing run through the engine', async ({page, request}) => {
+test('editor: Break into tasks and Continue writing run through the engine', {tag: ['@ai']}, async ({page, request}) => {
   await setProvider(request, 'mock');
   const created = await request.post(`${SERVER}/api/pages`, {
     data: {
@@ -160,7 +160,7 @@ test('editor: Break into tasks and Continue writing run through the engine', asy
   await expect(page.getByText('This continues the document with a mock completion.')).toBeVisible();
 });
 
-test('assistant panel: ask a question, watch the tool run, get a grounded answer', async ({page, request}) => {
+test('assistant panel: ask a question, watch the tool run, get a grounded answer', {tag: ['@ai']}, async ({page, request}) => {
   await setProvider(request, 'mock');
   const name = `Agent Note ${Date.now()}`;
   await request.post(`${SERVER}/api/pages`, {
@@ -220,7 +220,7 @@ test('assistant panel: ask a question, watch the tool run, get a grounded answer
   await expect(panel).toHaveCount(0);
 });
 
-test('assistant panel: a multi-step interview collects answers and resumes the agent', async ({page, request}) => {
+test('assistant panel: a multi-step interview collects answers and resumes the agent', {tag: ['@ai']}, async ({page, request}) => {
   await setProvider(request, 'mock');
   const panel = await openAssistant(page);
   await panel.locator('[data-agent-input]').fill('interview me about the doc');
@@ -243,7 +243,7 @@ test('assistant panel: a multi-step interview collects answers and resumes the a
   await expect(panel.locator('[data-agent-item="assistant"]').last()).toContainText('I have what I need');
 });
 
-test('assistant panel: granting direct edit access resumes the agent', async ({page, request}) => {
+test('assistant panel: granting direct edit access resumes the agent', {tag: ['@ai']}, async ({page, request}) => {
   await setProvider(request, 'mock');
   const panel = await openAssistant(page);
   await panel.locator('[data-agent-input]').fill('edit directly please');
@@ -260,7 +260,7 @@ test('assistant panel: granting direct edit access resumes the agent', async ({p
   await expect(panel.locator('[data-agent-item="assistant"]').last()).toContainText('I have what I need');
 });
 
-test('with AI off, the slash menu hides AI actions but search stays lexical', async ({page, request}) => {
+test('with AI off, the slash menu hides AI actions but search stays lexical', {tag: ['@ai']}, async ({page, request}) => {
   await setProvider(request, 'off');
   const search = await request.post(`${SERVER}/api/ai/search`, {data: {query: 'migration rollback'}});
   const body = (await search.json()) as {mode: string; results: unknown[]};

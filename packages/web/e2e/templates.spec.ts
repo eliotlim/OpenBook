@@ -23,7 +23,7 @@ async function pick(page: import('@playwright/test').Page, id: string): Promise<
   await page.locator(`[data-template="${id}"]`).click();
 }
 
-test('gallery: lists every template with names and descriptions', async ({page}, testInfo) => {
+test('gallery: lists every template with names and descriptions', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
   await hydrated(page);
   await openGallery(page);
 
@@ -37,7 +37,7 @@ test('gallery: lists every template with names and descriptions', async ({page},
   await expect(page.getByText('Start with a template')).toBeHidden();
 });
 
-test('grocery price tracker: baskets steer the cheapest pick and the budget light', async ({page}) => {
+test('grocery price tracker: baskets steer the cheapest pick and the budget light', {tag: ['@shell']}, async ({page}) => {
   await hydrated(page);
   await pick(page, 'grocery-tracker');
 
@@ -54,7 +54,7 @@ test('grocery price tracker: baskets steer the cheapest pick and the budget ligh
   await expect(status).toHaveAttribute('data-status', 'bad');
 });
 
-test('project task board: a kanban database grouped by status', async ({page}) => {
+test('project task board: a kanban database grouped by status', {tag: ['@shell']}, async ({page}) => {
   await hydrated(page);
   await pick(page, 'task-board');
 
@@ -72,7 +72,7 @@ test('project task board: a kanban database grouped by status', async ({page}) =
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(7);
 });
 
-test('reading list: a shelf-grouped gallery database', async ({page}) => {
+test('reading list: a shelf-grouped gallery database', {tag: ['@shell']}, async ({page}) => {
   await hydrated(page);
   await pick(page, 'reading-list');
 
@@ -87,7 +87,7 @@ test('reading list: a shelf-grouped gallery database', async ({page}) => {
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(6);
 });
 
-test('project intake: a gated wizard with a live prioritisation', async ({page}) => {
+test('project intake: a gated wizard with a live prioritisation', {tag: ['@shell']}, async ({page}) => {
   await hydrated(page);
   await pick(page, 'project-intake');
 
@@ -100,7 +100,7 @@ test('project intake: a gated wizard with a live prioritisation', async ({page})
   await expect(page.locator('.obe-kit-status').first()).toHaveAttribute('data-status', 'ok');
 });
 
-test('savings & investing: sliders steer a live compounding projection', async ({page}) => {
+test('savings & investing: sliders steer a live compounding projection', {tag: ['@shell']}, async ({page}) => {
   await hydrated(page);
   await pick(page, 'savings-planner');
 
@@ -117,7 +117,7 @@ test('savings & investing: sliders steer a live compounding projection', async (
   await expect(page.locator('.obe-code-out', {hasText: 'After 30 years'}).first()).toBeVisible();
 });
 
-test('instantiating a template twice suffixes the page and row names (names are unique)', async ({page}) => {
+test('instantiating a template twice suffixes the page and row names (names are unique)', {tag: ['@shell']}, async ({page}) => {
   // A database template is the hard case: its sample-row pages share the
   // workspace-unique name space too, so both runs must fully materialize.
   await hydrated(page);

@@ -30,7 +30,7 @@ async function exportPdf(page: Page, item: string) {
   return dl;
 }
 
-test('reactive block-doc exports a vector PDF (paged + continuous)', async ({page, request}) => {
+test('reactive block-doc exports a vector PDF (paged + continuous)', {tag: ['@export']}, async ({page, request}) => {
   const id = await seedPage(request, 'Quarter close', {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: {blocks: BLOCKS}} as never);
   await page.goto(`/?page=${id}`);
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();

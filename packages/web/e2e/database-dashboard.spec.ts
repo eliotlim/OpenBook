@@ -35,7 +35,7 @@ async function seed(request: APIRequestContext): Promise<string> {
 }
 
 // Dashboard metric cards aggregate the view's *filtered* rows and recompute live.
-test('dashboard metric cards: compute, recompute on filter, and add', async ({page, request}) => {
+test('dashboard metric cards: compute, recompute on filter, and add', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();

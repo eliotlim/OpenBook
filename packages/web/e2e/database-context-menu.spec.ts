@@ -32,7 +32,7 @@ async function seed(request: APIRequestContext): Promise<string> {
 
 // Right-clicking a cell opens a context menu offering "filter by this value",
 // sort, and row actions — quick UX without hunting for the row/column menus.
-test('cell context menu: filter by value and row actions', async ({page, request}) => {
+test('cell context menu: filter by value and row actions', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();
@@ -54,7 +54,7 @@ test('cell context menu: filter by value and row actions', async ({page, request
 });
 
 // Board (and gallery) cards get the same right-click row actions.
-test('board card context menu: duplicate via right-click', async ({page, request}) => {
+test('board card context menu: duplicate via right-click', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();
@@ -69,7 +69,7 @@ test('board card context menu: duplicate via right-click', async ({page, request
 });
 
 // "Group by this column" from the cell context menu groups the table.
-test('cell context menu: group by column', async ({page, request}) => {
+test('cell context menu: group by column', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();
@@ -81,7 +81,7 @@ test('cell context menu: group by column', async ({page, request}) => {
 });
 
 // Right-clicking a column header offers column actions (hide, sort, group, …).
-test('column header context menu: hide column', async ({page, request}) => {
+test('column header context menu: hide column', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();

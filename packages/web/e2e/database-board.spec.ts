@@ -25,7 +25,7 @@ async function seed(request: APIRequestContext): Promise<string> {
   return pageId;
 }
 
-test('board column footer: configurable calculation', async ({page, request}) => {
+test('board column footer: configurable calculation', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
 
@@ -42,7 +42,7 @@ test('board column footer: configurable calculation', async ({page, request}) =>
 });
 
 // The board has a collapse-all / expand-all toggle (parity with table & list).
-test('board: collapse all and expand all columns', async ({page, request}) => {
+test('board: collapse all and expand all columns', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   const card = page.locator('[draggable="true"]').filter({hasText: /A |B |C /});
@@ -59,7 +59,7 @@ test('board: collapse all and expand all columns', async ({page, request}) => {
 
 // The trailing ghost column mints a new group (select option) without leaving
 // the board.
-test('board: add a group from the trailing ghost column', async ({page, request}) => {
+test('board: add a group from the trailing ghost column', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
 

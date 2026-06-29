@@ -17,7 +17,7 @@ async function openMembers(page: import('@playwright/test').Page): Promise<void>
   await expect(page.getByRole('heading', {name: 'Members'})).toBeVisible();
 }
 
-test('members: list, invite by email, and change a role', async ({page, request}, testInfo) => {
+test('members: list, invite by email, and change a role', {tag: ['@sharing', '@visual']}, async ({page, request}, testInfo) => {
   await openMembers(page);
 
   // A fresh instance starts with an empty roster + the invite affordance.

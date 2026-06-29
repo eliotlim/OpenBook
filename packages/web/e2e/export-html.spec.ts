@@ -43,7 +43,7 @@ async function seed(request: APIRequestContext): Promise<string> {
 
 // The interactive HTML export bundles the page's whole reachable subtree into one
 // self-contained file: databases render as tables and every nested page navigates.
-test('interactive HTML export: databases render and nested pages navigate', async ({page, request}, testInfo) => {
+test('interactive HTML export: databases render and nested pages navigate', {tag: ['@export']}, async ({page, request}, testInfo) => {
   const rootId = await seed(request);
   await page.goto(`/?page=${rootId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();

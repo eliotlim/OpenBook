@@ -12,7 +12,7 @@ async function openRoadmap(page: import('@playwright/test').Page): Promise<void>
   await expect(page.getByLabel('Page title')).toHaveValue(/^Product roadmap/);
 }
 
-test('board: Area sub-group renders as full-width lane bars above the cards', async ({page}) => {
+test('board: Area sub-group renders as full-width lane bars above the cards', {tag: ['@database']}, async ({page}) => {
   await openRoadmap(page);
   await page.getByRole('button', {name: 'Board', exact: true}).click();
 
@@ -31,7 +31,7 @@ test('board: Area sub-group renders as full-width lane bars above the cards', as
   await expect(page.getByRole('button', {name: 'Expand Core lane'})).toBeVisible();
 });
 
-test('timeline: groups render as collapsible Gantt bands', async ({page}) => {
+test('timeline: groups render as collapsible Gantt bands', {tag: ['@database']}, async ({page}) => {
   await openRoadmap(page);
   // Roadmap opens on the timeline; bands are labelled by Area.
   await expect(page.getByRole('button', {name: 'Timeline', exact: true})).toBeVisible();
@@ -61,7 +61,7 @@ async function dragGutter(
 // can't break us — we drag whatever is currently second up to the front.
 const firstWord = (s: string): string => s.trim().split(/\s+/)[0];
 
-test('board: dragging a lane gutter reorders the swimlanes', async ({page}) => {
+test('board: dragging a lane gutter reorders the swimlanes', {tag: ['@database']}, async ({page}) => {
   await openRoadmap(page);
   await page.getByRole('button', {name: 'Board', exact: true}).click();
   const lanes = page.locator('[data-lane-key]');
@@ -76,7 +76,7 @@ test('board: dragging a lane gutter reorders the swimlanes', async ({page}) => {
   await expect(lanes.first()).toContainText(second);
 });
 
-test('timeline: dragging a band gutter reorders the bands', async ({page}) => {
+test('timeline: dragging a band gutter reorders the bands', {tag: ['@database']}, async ({page}) => {
   await openRoadmap(page);
   const bands = page.locator('[data-band-key]');
   await expect(bands.nth(1)).toBeVisible(); // at least two bands

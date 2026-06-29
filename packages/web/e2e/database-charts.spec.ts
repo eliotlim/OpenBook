@@ -42,7 +42,7 @@ async function seed(request: APIRequestContext): Promise<string> {
 
 // The pie/sunburst is interactive: a sunburst of SVG slices that highlight on
 // hover (lighting the matching slice, dimming the rest) and drill on click.
-test('pie chart: slices highlight on hover and drill on click', async ({page, request}) => {
+test('pie chart: slices highlight on hover and drill on click', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   const total = page.getByText('Total 7').first();

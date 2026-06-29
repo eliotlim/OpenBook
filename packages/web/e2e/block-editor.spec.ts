@@ -42,7 +42,7 @@ async function caretAtEnd(page: import('@playwright/test').Page, nth: number): P
 const blockTypes = (page: import('@playwright/test').Page): Promise<string[]> =>
   page.evaluate(() => [...document.querySelectorAll('[data-block-type]')].map((r) => (r as HTMLElement).dataset.blockType!));
 
-test('typing, Enter split, and markdown shortcuts build structure', async ({page}) => {
+test('typing, Enter split, and markdown shortcuts build structure', {tag: ['@editor', '@p1']}, async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 1);
   await page.keyboard.type(' Plus typed text.');
@@ -62,7 +62,7 @@ test('typing, Enter split, and markdown shortcuts build structure', async ({page
   await expect(page.locator('.obe-list')).toHaveCount(2);
 });
 
-test('slash menu inserts blocks; query filters; Escape closes', async ({page}, testInfo) => {
+test('slash menu inserts blocks; query filters; Escape closes', {tag: ['@editor', '@visual', '@p1']}, async ({page}, testInfo) => {
   await freshLab(page);
   await caretAtEnd(page, 2);
   await page.keyboard.press('Enter');
@@ -90,7 +90,7 @@ test('slash menu inserts blocks; query filters; Escape closes', async ({page}, t
 // Regression: the editor folds fixed popups on document scroll via a CAPTURE
 // listener — which also saw the slash menu's own internal scroll and closed
 // it the moment you tried to browse a long item list.
-test('slash menu scrolls internally without closing', async ({page}) => {
+test('slash menu scrolls internally without closing', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);
   await page.keyboard.press('Enter');
@@ -112,7 +112,7 @@ test('slash menu scrolls internally without closing', async ({page}) => {
   await expect(page.locator('.obe-slash-item')).toHaveCount(1);
 });
 
-test('inline toolbar formats a selection as bold rich-text runs', async ({page}) => {
+test('inline toolbar formats a selection as bold rich-text runs', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   // Select the word "scratch" in the intro paragraph.
   await page.evaluate(() => {
@@ -148,7 +148,7 @@ test('inline toolbar formats a selection as bold rich-text runs', async ({page})
   await expect(page.locator('.obe-text strong')).toHaveCount(0);
 });
 
-test('drag a block beside another to create columns; mobile stays stacked', async ({page}) => {
+test('drag a block beside another to create columns; mobile stays stacked', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   const heading = page.locator('[data-block-row][data-block-type=todo]');
   const target = page.locator('[data-block-row][data-block-type=paragraph]').first();
@@ -168,7 +168,7 @@ test('drag a block beside another to create columns; mobile stays stacked', asyn
   expect(direction).toBe('column');
 });
 
-test('REAL mouse drag: handle drags a block beside another into columns', async ({page}) => {
+test('REAL mouse drag: handle drags a block beside another into columns', {tag: ['@editor']}, async ({page}) => {
   // Regression guard: making the handle a Radix menu trigger killed genuine
   // HTML5 drags (the menu's overlay swallowed them) while synthetic
   // dragstart/drop dispatches kept passing. This test drags for real.
@@ -195,7 +195,7 @@ test('REAL mouse drag: handle drags a block beside another into columns', async 
   await expect(page.locator('.obe-root > [data-block-row][data-block-type=todo]')).toHaveCount(1);
 });
 
-test('block selection: Escape selects, Backspace deletes, undo restores', async ({page}) => {
+test('block selection: Escape selects, Backspace deletes, undo restores', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 1);
   await page.keyboard.press('Escape');
@@ -209,7 +209,7 @@ test('block selection: Escape selects, Backspace deletes, undo restores', async 
   await expect(page.locator('.obe-text').nth(1)).toContainText('A scratch document');
 });
 
-test('todo checkbox toggles and persists through reload', async ({page}) => {
+test('todo checkbox toggles and persists through reload', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   const before = await page.evaluate(() => localStorage.getItem('obe-lab-doc'));
   await page.locator('.obe-todo-box').check();
@@ -221,7 +221,7 @@ test('todo checkbox toggles and persists through reload', async ({page}) => {
   await expect(page.locator('.obe-todo')).toHaveClass(/obe-todo-done/);
 });
 
-test('CRDT: edits in one tab appear live in another', async ({page, context}) => {
+test('CRDT: edits in one tab appear live in another', {tag: ['@editor']}, async ({page, context}) => {
   await freshLab(page);
   const other = await context.newPage();
   await other.goto('/editor-lab');
@@ -241,7 +241,7 @@ test('CRDT: edits in one tab appear live in another', async ({page, context}) =>
   await other.close();
 });
 
-test('real page: legacy EditorJS content migrates, saves, and reopens in the block editor', async ({page, request}) => {
+test('real page: legacy EditorJS content migrates, saves, and reopens in the block editor', {tag: ['@editor', '@p1']}, async ({page, request}) => {
   // Seed a legacy page through the API (run-tagged name — workspace-unique).
   const res = await request.post(`${SERVER}/api/pages`, {
     data: {
@@ -293,7 +293,7 @@ test('real page: legacy EditorJS content migrates, saves, and reopens in the blo
   await expect(page.locator('.obe-text').nth(1)).toContainText('Now ours.');
 });
 
-test('reactive plugins: a slider drives live code (and legacy formulas still render)', async ({page, request}) => {
+test('reactive plugins: a slider drives live code (and legacy formulas still render)', {tag: ['@editor', '@p1']}, async ({page, request}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);
 
@@ -345,7 +345,7 @@ test('reactive plugins: a slider drives live code (and legacy formulas still ren
   await expect(page.locator('.obe-formula-out')).toHaveText('15');
 });
 
-test('block page: interactive HTML export stays live offline', async ({page, request, context}) => {
+test('block page: interactive HTML export stays live offline', {tag: ['@editor']}, async ({page, request, context}) => {
   // A legacy reactive page, migrated into the block editor on open.
   const res = await request.post(`${SERVER}/api/pages`, {
     data: {
@@ -392,7 +392,7 @@ test('block page: interactive HTML export stays live offline', async ({page, req
   await viewer.close();
 });
 
-test('table cells are a grid: Enter moves down, Tab walks cells, Backspace never merges', async ({page}) => {
+test('table cells are a grid: Enter moves down, Tab walks cells, Backspace never merges', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);
   await page.keyboard.press('Enter');
@@ -422,7 +422,7 @@ test('table cells are a grid: Enter moves down, Tab walks cells, Backspace never
   expect(await cellCounts()).toEqual([3, 3, 3, 3]);
 });
 
-test('cross-block selection becomes block selection and deletes cleanly', async ({page}) => {
+test('cross-block selection becomes block selection and deletes cleanly', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await page.evaluate(() => {
     const blocks = [...document.querySelectorAll('.obe-text')];
@@ -442,7 +442,7 @@ test('cross-block selection becomes block selection and deletes cleanly', async 
   await expect(page.locator('[data-block-type=heading]')).toHaveCount(1);
 });
 
-test('handle menu: turn into a heading and delete from the menu', async ({page}) => {
+test('handle menu: turn into a heading and delete from the menu', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   const row = page.locator('[data-block-row][data-block-type=paragraph]');
   await row.locator('.obe-text').hover();
@@ -462,7 +462,7 @@ test('handle menu: turn into a heading and delete from the menu', async ({page})
   await expect(page.locator('.obe-h2')).toHaveCount(0);
 });
 
-test('mention runs navigate to their page on click', async ({page, request}) => {
+test('mention runs navigate to their page on click', {tag: ['@editor']}, async ({page, request}) => {
   const target = await request.post(`${SERVER}/api/pages`, {
     data: {name: `MentionNav target ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}},
   });
@@ -482,7 +482,7 @@ test('mention runs navigate to their page on click', async ({page, request}) => 
   await expect(page).toHaveURL(new RegExp(targetId));
 });
 
-test('clipboard: block selection copies three flavours and pastes back losslessly', async ({page}) => {
+test('clipboard: block selection copies three flavours and pastes back losslessly', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   // Select the paragraph as a block, copy via a synthetic clipboard event.
   await caretAtEnd(page, 1);
@@ -514,7 +514,7 @@ test('clipboard: block selection copies three flavours and pastes back losslessl
   await expect(page.locator('.obe-text').nth(3)).toContainText('A scratch document');
 });
 
-test('clipboard: external rich HTML pastes as real blocks', async ({page}) => {
+test('clipboard: external rich HTML pastes as real blocks', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);
   await page.evaluate(() => {
@@ -538,7 +538,7 @@ test('clipboard: external rich HTML pastes as real blocks', async ({page}) => {
 test.describe('link edge typing', () => {
   test.describe.configure({retries: 1});
 
-  test('typing at a link\'s trailing edge does not extend the link', async ({page}) => {
+  test('typing at a link\'s trailing edge does not extend the link', {tag: ['@editor']}, async ({page}) => {
     await freshLab(page);
     await expect(page.locator('.obe-text').nth(1)).toContainText('scratch');
     // Link the word "scratch" via the toolbar. Retried as one unit: a late lab
@@ -585,7 +585,7 @@ test.describe('link edge typing', () => {
   });
 });
 
-test('table editing: type in cells, add a row and a column', async ({page}) => {
+test('table editing: type in cells, add a row and a column', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await caretAtEnd(page, 2);
   await page.keyboard.press('Enter');
