@@ -13,35 +13,37 @@
  * gone the kernel reparents us (ppid → 1 / a subreaper) and `process.kill(ppid,
  * 0)` reports `ESRCH`. Either observation triggers the same graceful shutdown.
  *
- * Everything here is **gated to sidecar mode** ({@link isSidecarMode}) so the
- * headless CLI (`bin.ts`), `bin.bun.ts` interactive runs, and the test suite are
- * never wired up — only a real desktop-spawned sidecar self-terminates.
+ * `cli.ts`'s `runCli` always *calls* {@link installSidecarParentDeath} (so the
+ * mechanism is reachable from `bin.ts`/`bin.bun.ts`), but it only **arms** when
+ * {@link isSidecarMode} sees the explicit host-set `OPENBOOK_SIDECAR=1`. So the
+ * headless CLI, `pnpm dev`, e2e/CI/docker/systemd runs, and the test suite are
+ * excluded *by construction* — only a desktop-spawned sidecar (the one thing the
+ * host marks with that env) self-terminates. `startServer` is never touched.
  */
 
-/** Inputs that decide whether we were launched as the desktop sidecar. */
+/** Inputs that decide whether the desktop host launched us as its sidecar. */
 export interface SidecarModeProbe {
-  /** Process argv (defaults to `process.argv`). */
-  argv?: string[];
   /** Env (defaults to `process.env`). */
   env?: Record<string, string | undefined>;
-  /** `process.stdin.isTTY` (undefined for a pipe, true for a terminal). */
-  stdinIsTTY?: boolean;
 }
 
 /**
- * True only when this process was launched as the desktop sidecar: a `--socket`
- * or `--data-dir` flag (or the matching env) is present **and** stdin is not a
- * TTY (the host hands us a pipe, never a terminal). The TTY check is what keeps
- * an interactive `--data-dir` run (e.g. `pnpm dev` in a terminal) from arming the
- * parent-death wiring, so closing the terminal's stdin can't shut the dev server.
+ * True only when the desktop host **explicitly** marked us as its managed sidecar
+ * by setting `OPENBOOK_SIDECAR=1` on our environment (see `main.rs spawn_sidecar`).
+ *
+ * This is a single, deliberate, host-set signal — it is NOT inferred from flags or
+ * a non-TTY stdin. Inference was unsafe: a headless / e2e / docker / systemd run
+ * with `--data-dir` and `stdin=/dev/null` is indistinguishable from a sidecar, so
+ * it would arm the parent-death watch and `stdin.resume()` on `/dev/null` emits
+ * `'end'` immediately → the server self-terminates right after `OPENBOOK_READY`.
+ * The web e2e fixture spawns exactly that shape (`bin.ts --data-dir … --port …`,
+ * `stdio:'ignore'`), and the ppid poll would likewise misfire on `ppid===1` for a
+ * daemonized deployment. Only the host knows it is the parent whose death we must
+ * follow, so only the host opts us in.
  */
 export function isSidecarMode(probe: SidecarModeProbe = {}): boolean {
-  const argv = probe.argv ?? process.argv;
   const env = probe.env ?? process.env;
-  const stdinIsTTY = probe.stdinIsTTY ?? process.stdin.isTTY;
-  const hasSocket = argv.includes('--socket') || Boolean(env.OPENBOOK_SOCKET);
-  const hasDataDir = argv.includes('--data-dir') || Boolean(env.OPENBOOK_DATA_DIR);
-  return (hasSocket || hasDataDir) && !stdinIsTTY;
+  return env.OPENBOOK_SIDECAR === '1';
 }
 
 /** A minimal stdin surface — just what the parent-death watch touches. */

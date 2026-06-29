@@ -55,27 +55,28 @@ function fakeTimer(): {
   };
 }
 
-describe('isSidecarMode (layer A gate — must be a no-op outside the sidecar)', () => {
-  it('is true with --data-dir over a piped (non-TTY) stdin', () => {
-    expect(isSidecarMode({argv: ['node', 'bin', '--data-dir', '/x'], env: {}, stdinIsTTY: undefined})).toBe(true);
+describe('isSidecarMode (layer A gate — armed ONLY by the explicit host env)', () => {
+  it('is true only with OPENBOOK_SIDECAR=1 (the host-set signal)', () => {
+    expect(isSidecarMode({env: {OPENBOOK_SIDECAR: '1'}})).toBe(true);
   });
 
-  it('is true with --socket over a piped stdin', () => {
-    expect(isSidecarMode({argv: ['node', 'bin', '--socket', '/x.sock'], env: {}, stdinIsTTY: false})).toBe(true);
+  it('is FALSE for the web e2e spawn shape (--data-dir, non-TTY /dev/null stdin, NO env)', () => {
+    // The CRITICAL regression: packages/web/e2e/fixtures.ts spawns
+    // `bin.ts --data-dir <dir> --port <n>` with stdio:'ignore' (stdin=/dev/null,
+    // isTTY=undefined). Inference armed the watch → stdin.resume() on /dev/null
+    // emits 'end' → the server self-terminated. The env gate makes it impossible.
+    expect(isSidecarMode({env: {OPENBOOK_DATA_DIR: '/x', OPENBOOK_PORT: '4400'}})).toBe(false);
+    expect(isSidecarMode({env: {}})).toBe(false);
   });
 
-  it('honours the OPENBOOK_DATA_DIR / OPENBOOK_SOCKET env', () => {
-    expect(isSidecarMode({argv: ['node', 'bin'], env: {OPENBOOK_DATA_DIR: '/x'}, stdinIsTTY: false})).toBe(true);
-    expect(isSidecarMode({argv: ['node', 'bin'], env: {OPENBOOK_SOCKET: '/x.sock'}, stdinIsTTY: false})).toBe(true);
+  it('is FALSE for any value other than the exact "1"', () => {
+    expect(isSidecarMode({env: {OPENBOOK_SIDECAR: ''}})).toBe(false);
+    expect(isSidecarMode({env: {OPENBOOK_SIDECAR: '0'}})).toBe(false);
+    expect(isSidecarMode({env: {OPENBOOK_SIDECAR: 'true'}})).toBe(false);
   });
 
-  it('is FALSE when stdin is a TTY (interactive run, e.g. pnpm dev in a terminal)', () => {
-    expect(isSidecarMode({argv: ['node', 'bin', '--data-dir', '/x'], env: {}, stdinIsTTY: true})).toBe(false);
-  });
-
-  it('is FALSE for the headless CLI / tests (no socket and no data-dir flag)', () => {
-    expect(isSidecarMode({argv: ['node', 'bin', '--port', '4319'], env: {}, stdinIsTTY: undefined})).toBe(false);
-    expect(isSidecarMode({argv: ['node', 'bin'], env: {}, stdinIsTTY: false})).toBe(false);
+  it('does NOT arm on --socket/--data-dir without the env (headless/docker/systemd)', () => {
+    expect(isSidecarMode({env: {OPENBOOK_SOCKET: '/x.sock'}})).toBe(false);
   });
 });
 
@@ -176,29 +177,25 @@ describe('watchParentDeath', () => {
 });
 
 describe('installSidecarParentDeath (gate + wire)', () => {
-  it('is a no-op outside sidecar mode and never touches stdin', () => {
+  it('is a no-op for the e2e spawn shape (--data-dir, no env) and never touches stdin', () => {
     const onDeath = vi.fn();
     const stdin = fakeStdin();
     const setIntervalImpl = vi.fn();
     const stop = installSidecarParentDeath(onDeath, {
-      argv: ['node', 'bin'], // no --socket / --data-dir
-      env: {},
-      stdinIsTTY: false,
+      env: {OPENBOOK_DATA_DIR: '/x'}, // e2e/headless: data-dir set, but NOT OPENBOOK_SIDECAR
       stdin,
       setIntervalImpl,
     });
     expect(stop).toBeUndefined();
-    expect(stdin.resumed).toBe(false); // not wired at all
+    expect(stdin.resumed).toBe(false); // never resume() /dev/null → no spurious 'end'
     expect(setIntervalImpl).not.toHaveBeenCalled();
   });
 
-  it('wires the watches in sidecar mode', () => {
+  it('wires the watches only when the host set OPENBOOK_SIDECAR=1', () => {
     const onDeath = vi.fn();
     const stdin = fakeStdin();
     const stop = installSidecarParentDeath(onDeath, {
-      argv: ['node', 'bin', '--data-dir', '/x'],
-      env: {},
-      stdinIsTTY: undefined,
+      env: {OPENBOOK_SIDECAR: '1', OPENBOOK_DATA_DIR: '/x'},
       stdin,
       ppid: 100,
       getPpid: () => 100,
