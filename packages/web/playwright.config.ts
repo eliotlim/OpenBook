@@ -13,9 +13,11 @@ import {defineConfig, devices} from '@playwright/test';
  * and the tsx servers both resolve `@book.dev/{ui,sdk}` from their dist. CI
  * runs `verify` (which builds libs) before this.
  *
- * Visual diffs: tests import from `e2e/fixtures` (which extends
- * `@chromatic-com/playwright`), archiving the DOM each run. `pnpm chromatic`
- * uploads those archives (needs CHROMATIC_PROJECT_TOKEN).
+ * Visual diffs: archiving is decoupled from functional runs (OB-222). Tests
+ * import from `e2e/fixtures`, which only extends `@chromatic-com/playwright`
+ * (and archives the DOM) when `CHROMATIC_ARCHIVE=1`; otherwise it's plain
+ * `@playwright/test`. `pnpm chromatic` sets that flag, archives just the
+ * `@visual` specs, then uploads (needs CHROMATIC_PROJECT_TOKEN).
  */
 const WEB_PORT = 3000;
 
