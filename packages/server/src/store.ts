@@ -171,6 +171,26 @@ const freeName = async (
   }
 };
 
+/**
+ * Strip any trailing `(conflicted copy …)` suffix(es) from a page name (OB-241).
+ * A conflict-of-conflict (the owner's in-the-wild case: a copy's OWN mirror file
+ * diverges) would otherwise mint `X (conflicted copy T1) (conflicted copy T2)` and
+ * deep-chain on every cycle. By re-deriving from the ORIGINAL base name and
+ * re-adding exactly one level, the chain is capped at depth 1. This only shapes
+ * the *new* copy's name — idempotent reuse keys on the full stored
+ * `name LIKE '% (conflicted copy%'` + `data` (see {@link PageStore.importBookPage}),
+ * so reuse semantics are unaffected by how the new name is derived. The
+ * `[^()]*` class can't span nested parens, so an unrelated `(parenthetical)` in a
+ * title is never touched.
+ */
+const stripConflictSuffix = (name: string): string => {
+  for (;;) {
+    const next = name.replace(/\s*\(conflicted copy[^()]*\)\s*$/u, '');
+    if (next === name) return name;
+    name = next;
+  }
+};
+
 // Column list for a full page fetch, including the hosted-database join.
 const PAGE_COLUMNS =
   'p.id, p.name, p.data, p.database_id, p.parent_id, p.properties, p.deleted_at, p.created_at, p.updated_at, ' +
@@ -580,8 +600,11 @@ export class PageStore {
       if (existingCopy.length > 0) return {action: 'conflict' as const, page: pageFromRow(existingCopy[0])};
 
       // A genuinely distinct divergent edit → mint a fresh copy. Fresh id so it
-      // never collides with the canonical row.
-      const baseName = (record.name ?? 'Untitled').trim() || 'Untitled';
+      // never collides with the canonical row. Strip any existing
+      // "(conflicted copy …)" suffix first (OB-241): a conflict-of-conflict re-adds
+      // exactly one level instead of deep-chaining `(…)(…)(…)`. Reuse semantics
+      // above are unaffected — they key on the stored name + data, not this derivation.
+      const baseName = stripConflictSuffix((record.name ?? 'Untitled').trim()).trim() || 'Untitled';
       const taken = new Set<string>();
       const name = await freeName(tx, `${baseName} (conflicted copy ${nowIso})`, taken, 'conflicted copy');
       const copy = await tx.query<PageRow>(
