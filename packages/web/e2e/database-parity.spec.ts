@@ -45,6 +45,15 @@ async function addColumn(page: import('@playwright/test').Page, name: string, ty
   await expect(page.getByText(name, {exact: true})).toBeVisible();
 }
 
+// Empty groups fold by default ("Collapse empty groups" is on), so a board with
+// no rows shows every column as a narrow Expand strip. Turn the toggle off so
+// the empty columns expand into full, draggable/collapsible headers.
+async function expandEmptyGroups(page: import('@playwright/test').Page): Promise<void> {
+  await page.getByRole('button', {name: 'View options'}).click();
+  await page.getByText('Collapse empty groups').click();
+  await page.keyboard.press('Escape');
+}
+
 // A status property edits via a grouped dropdown (To-do / In progress / Complete).
 test('status property: grouped option dropdown', async ({page}) => {
   await newDatabase(page);
@@ -113,14 +122,19 @@ test('calendar drag: reschedule a row by dragging to another day', async ({page,
 
 // Dragging a kanban column header reorders the group property's options.
 test('board column reorder: drag a kanban column', async ({page}) => {
-  await newDatabase(page); // default Board view groups by Status (Todo / In progress / Done)
-  await page.getByRole('button', {name: 'Board', exact: true}).click();
+  await newDatabase(page); // default columns Status (Todo / In progress / Done) + Notes
+  await page.getByRole('button', {name: 'Board', exact: true}).click(); // groups by Status
+
+  // A fresh board has no rows, so every status column auto-collapses (empty
+  // groups fold by default). Turn that off so the headers expand + drag.
+  await expandEmptyGroups(page);
 
   // Columns start ordered Todo · In progress · Done.
   const cols = page.locator('[data-col-key]');
   await expect(cols.first()).toContainText('Todo');
 
   await cols.filter({hasText: 'Done'}).dispatchEvent('dragstart');
+  await expect(cols.filter({hasText: 'Done'})).toHaveClass(/opacity-40/); // drag state applied (mirrors the calendar/option-reorder drags)
   await cols.filter({hasText: 'Todo'}).dispatchEvent('dragover');
   await cols.filter({hasText: 'Todo'}).dispatchEvent('drop');
   await cols.filter({hasText: 'Done'}).dispatchEvent('dragend');
@@ -442,42 +456,51 @@ test('reorder select options: drag an option to the top', async ({page}) => {
 
 // Kanban columns can be collapsed to a narrow strip and expanded again.
 test('board column collapse: fold and unfold a kanban column', async ({page}) => {
-  await newDatabase(page); // default Board view groups by Status (Todo / In progress / Done)
-  await page.getByRole('button', {name: 'Board', exact: true}).click();
+  await newDatabase(page); // default columns Status (Todo / In progress / Done) + Notes
+  await page.getByRole('button', {name: 'Board', exact: true}).click(); // groups by Status
+  await expandEmptyGroups(page); // a rowless board folds every column otherwise
 
   // Collapse the Todo column → its expand affordance appears, collapse one goes.
+  // Assert on presence (count), not visibility, so the toggle's width/chevron
+  // transition can't flap the result mid-animation.
   await page.getByRole('button', {name: 'Collapse Todo column'}).click();
-  await expect(page.getByRole('button', {name: 'Expand Todo column'})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Expand Todo column'})).toHaveCount(1);
   await expect(page.getByRole('button', {name: 'Collapse Todo column'})).toHaveCount(0);
 
   // Expand it again.
   await page.getByRole('button', {name: 'Expand Todo column'}).click();
-  await expect(page.getByRole('button', {name: 'Collapse Todo column'})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Collapse Todo column'})).toHaveCount(1);
+  await expect(page.getByRole('button', {name: 'Expand Todo column'})).toHaveCount(0);
 });
 
-// "Hide empty groups" drops grouped columns/sections that currently have no rows.
-test('hide empty groups: empty Status groups disappear when toggled', async ({page}) => {
+// "Collapse empty groups" (on by default) folds groups that currently have no
+// rows; on a board they shrink to a narrow Expand strip, and turning the toggle
+// off reopens them.
+test('collapse empty groups: empty board columns fold by default, toggle reopens them', async ({page}) => {
   await newDatabase(page); // Status select: Todo / In progress / Done
 
-  // One row in the Todo group; the other two stay empty.
+  // One row in the Todo group; the other two status groups stay empty.
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('table').getByRole('button', {name: 'Empty'}).first().click();
   await page.getByRole('menuitem', {name: 'Todo'}).click();
 
-  // Group the table by Status → three group headers, two of them empty.
-  await page.getByRole('button', {name: 'View options'}).click();
-  await chooseLabel(page, page.getByLabel('Group by'), 'Status');
-  await page.keyboard.press('Escape');
-  await expect(page.getByRole('table').getByText('In progress')).toBeVisible();
-  await expect(page.getByRole('table').getByText('Done')).toBeVisible();
+  // On the board (groups by Status) the empty In progress / Done columns fold to
+  // an Expand strip by default, while the populated Todo column stays open.
+  await page.getByRole('button', {name: 'Board', exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Expand In progress column'})).toHaveCount(1);
+  await expect(page.getByRole('button', {name: 'Expand Done column'})).toHaveCount(1);
+  await expect(page.getByRole('button', {name: 'Collapse Todo column'})).toHaveCount(1);
 
-  // Hide empty groups → only Todo (the non-empty group) remains.
+  // Turn "Collapse empty groups" off → the empty columns reopen (their Collapse
+  // affordance appears; the Expand strip is gone). Count-based so the re-render
+  // settles before the assertions resolve.
   await page.getByRole('button', {name: 'View options'}).click();
-  await page.getByText('Hide empty groups').click();
+  await page.getByText('Collapse empty groups').click();
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', {name: 'Todo 1'})).toBeVisible(); // Todo group header (label + count)
-  await expect(page.getByRole('table').getByText('In progress')).toHaveCount(0);
-  await expect(page.getByRole('table').getByText('Done')).toHaveCount(0);
+  await expect(page.getByRole('button', {name: 'Collapse In progress column'})).toHaveCount(1);
+  await expect(page.getByRole('button', {name: 'Collapse Done column'})).toHaveCount(1);
+  await expect(page.getByRole('button', {name: 'Expand In progress column'})).toHaveCount(0);
+  await expect(page.getByRole('button', {name: 'Expand Done column'})).toHaveCount(0);
 });
 
 // A date property can "Include time", switching its cell to a datetime input

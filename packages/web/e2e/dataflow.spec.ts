@@ -95,10 +95,19 @@ test('dataflow composition: a row page shows its exports flowing into the parent
   await expect(outlet).toContainText('Total');
   await expect(outlet.locator('[data-flow-outlet-page]')).toContainText(`Projects ${tag}`);
 
-  // Drive the model, let the save debounce flush the new exports…
+  // Drive the model; the row page autosaves the recomputed exports (debounced).
   await page.getByLabel('rate value').fill('8');
   await expect(page.locator('[data-flow-node="code"] [data-flow-value]')).toHaveText('24');
-  await page.waitForTimeout(900);
+  // Wait (web-first) for the export to actually persist before walking up — the
+  // parent's expr cell reads the row's stored `total` (24) when we navigate to it.
+  await expect
+    .poll(async () => {
+      const snap = (await (await request.get(`${SERVER}/api/pages/${rowId}`)).json()) as {
+        data?: {values?: [string, unknown][]};
+      };
+      return (snap.data?.values ?? []).some(([, v]) => v === 24);
+    })
+    .toBe(true);
 
   // …then walk up via the outlet: the parent's expr cell carries the value.
   await outlet.click();

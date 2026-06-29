@@ -26,7 +26,10 @@ test('gallery grouping: cards split into sections by a property', async ({page, 
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'New card'}).waitFor();
   // Two group sections (Todo, Done) — one card under Todo, two under Done.
+  // Each section also renders a group-header toggle button, so count the cards
+  // inside the card grid (not every button) and let the assertions retry until
+  // the rows have streamed in and the grid is fully rendered.
   await expect(page.locator('[data-group]')).toHaveCount(2);
-  await expect(page.locator('[data-group="s_done"]').getByRole('button')).toHaveCount(2);
-  await expect(page.locator('[data-group="s_todo"]').getByRole('button')).toHaveCount(1);
+  await expect(page.locator('[data-group="s_done"] .grid button')).toHaveCount(2);
+  await expect(page.locator('[data-group="s_todo"] .grid button')).toHaveCount(1);
 });

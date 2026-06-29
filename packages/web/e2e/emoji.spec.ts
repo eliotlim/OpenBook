@@ -11,11 +11,14 @@ test('the profile avatar opens the grid picker and applies a choice', async ({pa
   await expect(avatar).toHaveText('🙂'); // the fallback before a pick
   await avatar.click();
 
-  const picker = page.locator('.EmojiPickerReact');
-  await expect(picker).toBeVisible();
-  await picker.locator('input').first().fill('heart');
-  await picker.locator('[data-unified]').first().click();
+  // The in-house grid picker (replaced emoji-picker-react): a search box + a
+  // glyph grid inside a Radix popover.
+  const search = page.getByPlaceholder('Search emoji…');
+  await expect(search).toBeVisible();
+  await search.fill('heart');
+  const picker = page.locator('[data-radix-popper-content-wrapper]');
+  await picker.locator('button[title]').first().click(); // first matching glyph
 
-  await expect(picker).toBeHidden(); // picking closes the popover
-  await expect(avatar).not.toHaveText('🙂'); // the avatar updated
+  await expect(search).toBeHidden(); // picking closes the popover
+  await expect(avatar).not.toHaveText('🙂'); // the avatar updated to the pick
 });
