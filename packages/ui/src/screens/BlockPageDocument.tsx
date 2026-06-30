@@ -17,9 +17,10 @@ import {downloadBlob} from '@/lib/download';
 import {useData} from '@/data';
 import {useCanWrite} from '@/lib/useCanWrite';
 import {connectBroadcast} from '@/blockeditor/provider';
-import {connectPageRelay, isRemoteOrigin} from '@/blockeditor/relay';
+import {connectPageRelay} from '@/blockeditor/relay';
+import {connectPageSaver} from '@/blockeditor/saver';
 import {connectPageAwareness, blockSelection} from '@/blockeditor/awareness';
-import {registerOpenAwareness} from '@/lib/openAwareness';
+import {registerOpenAwareness, openAwareness, subscribeOpenAwareness} from '@/lib/openAwareness';
 import {PresenceAvatars} from '@/components/presence/PresenceAvatars';
 import {RemoteCursors} from '@/components/presence/RemoteCursors';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
@@ -87,7 +88,6 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   const [doc, setDoc] = useState<Y.Doc | null>(null);
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'save failed'>('idle');
   const lastSnapshot = useRef<PageSnapshot | null>(null);
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The editor's positioned wrapper — inline review indicators portal into it.
   const editorWrapRef = useRef<HTMLDivElement | null>(null);
   // The title and the editor form one continuous caret surface: each holds an
@@ -137,60 +137,91 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   }, [pageId]);  
 
   // ── Save local edits ──────────────────────────────────────────────────────
+  // Project the live doc into the durable snapshot and persist it (the single
+  // checkpoint behind the live relay). Resolves on a save (or a no-op skip), REJECTS
+  // on failure — the saver controller relies on that to keep this client "unconfirmed"
+  // and retry. Called by {@link connectPageSaver}, never directly on every keystroke,
+  // so the timing/election lives in one place.
+  const performSave = useCallback(async (): Promise<void> => {
+    if (!doc || !onSave) return;
+    const prev = lastSnapshot.current;
+    const base = prev ?? {editorjs: {blocks: []}, values: [], names: []};
+    // Re-project the reactive context on every save: `values`/`names` are what the page
+    // EXPORTS (a parent database's expr columns read them via projectExports), so they
+    // must track the live document, and a named live-code output must publish its
+    // computed value too — the projection only carries its runtime expression.
+    const projected = blockSnapshotToEditorJs({...base, editor: 'blocks', blockdoc: encodeSnapshot(doc)});
+    const values = new Map(projected.values);
+    const {results} = computeScope(doc);
+    for (const [, cellId] of projected.names) {
+      if (values.has(cellId)) continue;
+      const result = results.get(cellId);
+      if (result && !result.error) values.set(cellId, result.value);
+    }
+    const snapshot: PageSnapshot = {...projected, values: [...values]};
+    // Skip a no-op save: a Y.Doc change that nets to no difference in what the page
+    // persists (an undo/redo round-trip, an edit to an unprojected prop, or a recompute
+    // yielding identical values) shouldn't write — re-saving identical content only
+    // churns a dead row version, and PGlite has no autovacuum to reclaim it (OB-164).
+    // Same projection order each time, so a JSON compare is exact.
+    if (prev && JSON.stringify(snapshot) === JSON.stringify(prev)) {
+      setStatus('saved');
+      return;
+    }
+    lastSnapshot.current = snapshot;
+    setStatus('saving');
+    try {
+      await onSave(snapshot);
+      setStatus('saved');
+    } catch (e) {
+      setStatus('save failed');
+      throw e;
+    }
+  }, [doc, onSave]);
+  // The controller calls the latest projection without re-subscribing every render.
+  const performSaveRef = useRef(performSave);
+  performSaveRef.current = performSave;
+
+  // Track the live awareness INSTANCE for this page (registered by the awareness effect
+  // below). Only re-renders when it (un)registers — not on every cursor move — so the
+  // saver controller re-binds to the real presence once it's up, and runs solo before.
+  const [awarenessInstance, setAwarenessInstance] = useState(() => openAwareness(pageId));
   useEffect(() => {
-    if (!doc || !onSave || !canWrite) return;
-    const handler = (_update: Uint8Array, origin: unknown): void => {
-      // Only local edits save; merged remote state was saved by its author. This
-      // includes `'net'` (an incremental update from the live relay — Collab T1):
-      // a viewer receiving a peer's edit must not also fire a redundant snapshot
-      // save (OB-164 write-amp). See blockeditor/relay.ts `isRemoteOrigin`.
-      if (isRemoteOrigin(origin)) return;
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-      setStatus('saving');
-      saveTimer.current = setTimeout(() => {
-        const prev = lastSnapshot.current;
-        const base = prev ?? {editorjs: {blocks: []}, values: [], names: []};
-        // Re-project the reactive context on every save: `values`/`names` are
-        // what the page EXPORTS (a parent database's expr columns read them
-        // via projectExports), so they must track the live document, and a
-        // named live-code output must publish its computed value too — the
-        // projection only carries its runtime expression.
-        const projected = blockSnapshotToEditorJs({
-          ...base,
-          editor: 'blocks',
-          blockdoc: encodeSnapshot(doc),
-        });
-        const values = new Map(projected.values);
-        const {results} = computeScope(doc);
-        for (const [, cellId] of projected.names) {
-          if (values.has(cellId)) continue;
-          const result = results.get(cellId);
-          if (result && !result.error) values.set(cellId, result.value);
-        }
-        const snapshot: PageSnapshot = {...projected, values: [...values]};
-        // Skip a no-op save: a Y.Doc `update` that nets to no change in what the
-        // page persists (an undo/redo round-trip, an edit to an unprojected prop,
-        // or a recompute yielding identical values) shouldn't write — re-saving
-        // identical content only churns a dead row version, and PGlite has no
-        // autovacuum to reclaim it (OB-164). The server guarantees this too, but
-        // skipping here also avoids the round-trip. Same projection order each
-        // time, so a JSON compare is exact.
-        if (prev && JSON.stringify(snapshot) === JSON.stringify(prev)) {
-          setStatus('saved');
-          return;
-        }
-        lastSnapshot.current = snapshot;
-        void Promise.resolve(onSave(snapshot))
-          .then(() => setStatus('saved'))
-          .catch(() => setStatus('save failed'));
-      }, 600);
-    };
-    doc.on('update', handler);
-    return () => {
-      doc.off('update', handler);
-      if (saveTimer.current) clearTimeout(saveTimer.current);
-    };
-  }, [doc, onSave, canWrite]);
+    const sync = (): void => setAwarenessInstance(openAwareness(pageId));
+    sync();
+    return subscribeOpenAwareness(sync);
+  }, [pageId]);
+
+  // ── Single-saver election (Collab T3) ──────────────────────────────────────
+  // With N concurrent editors the relay converges every doc live, but each one still
+  // debounce-saves the WHOLE snapshot on its own edits → N overlapping whole-snapshot
+  // writes per burst (OB-164/OB-242 write-amp) where ONE save persists the same
+  // converged doc for everyone. connectPageSaver elects a single saver per page (the
+  // lowest-clientID present writer, surfaced through awareness): only it runs the
+  // debounced save, persisting the converged doc whoever authored the change; the rest
+  // skip it (their edits relay into the saver's doc + are persisted there). Handover on
+  // saver-leave (next writer dirty-on-election saves), the last writer standing / an
+  // offline client (no awareness) always saves, and a degraded-relay backstop keeps a
+  // non-saver saving its own edits when the saver can't confirm them — never a lost
+  // edit. See blockeditor/saver.ts.
+  //
+  // Runs UNCONDITIONALLY for a write-capable OR read-only client (no `!canWrite`
+  // guard): the controller already no-ops a viewer (never elected, never saves), and
+  // running it is what lets a viewer publish `canWrite:false` to peers. `useCanWrite`
+  // defaults `true` while it loads, so without this a client that resolves to a viewer
+  // would leak a stale `canWrite:true` into awareness (the true→false re-run would just
+  // early-return and never republish), letting it win the election ~1/N, 403 every
+  // save, and strand real writers on the backstop — defeating the write-amp win.
+  useEffect(() => {
+    if (!doc || !onSave) return;
+    const conn = connectPageSaver(doc, awarenessInstance ?? null, {
+      canWrite,
+      save: () => performSaveRef.current(),
+      onPending: () => setStatus('saving'),
+      onPersisted: () => setStatus('saved'),
+    });
+    return () => conn.disconnect();
+  }, [doc, onSave, canWrite, awarenessInstance]);
 
   // ── Live collaboration ────────────────────────────────────────────────────
   // Server-pushed snapshots merge into the live doc (CRDT union, no clobber).

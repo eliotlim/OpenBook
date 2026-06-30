@@ -97,6 +97,54 @@ export function presencePeers(
 }
 
 /**
+ * Saver election (Collab T3): deterministically pick the single client that should run
+ * the durable snapshot save, among the present *writers*. With N concurrent editors the
+ * relay fans every edit so all docs converge live, but each editor still debounce-saves
+ * the WHOLE snapshot on its own edits — N overlapping whole-snapshot writes per burst
+ * (OB-164/OB-242 write-amp) where ONE suffices (they all hold the same converged doc).
+ *
+ * Every peer computes the SAME answer from the shared awareness map — the lowest
+ * `clientID` among present clients that advertise `canWrite` — so exactly one persists.
+ * The others' edits relay live into the elected saver's doc, so they ARE persisted (by
+ * the saver), just once. Returns the elected `clientID`, or `null` when no writer is
+ * present yet (an unconverged election — the caller's solo fallback covers it).
+ *
+ * `canWrite` is read from each peer's published awareness field; the LOCAL client's own
+ * capability is passed in (its awareness entry may not have flushed yet, and it's the
+ * authority on itself). A peer that doesn't advertise `canWrite` (an older client, or a
+ * viewer) is treated as a non-writer — never elected — so a write-capable client never
+ * defers persistence to one that can't actually save (no silent data loss).
+ */
+export function electSaver(
+  states: Map<number, AwarenessState>,
+  {localClientId, localCanWrite}: {localClientId: number; localCanWrite: boolean},
+): number | null {
+  let saver: number | null = null;
+  for (const [clientId, state] of states) {
+    const writer = clientId === localClientId ? localCanWrite : state?.canWrite === true;
+    if (!writer) continue;
+    if (saver === null || clientId < saver) saver = clientId;
+  }
+  return saver;
+}
+
+/**
+ * Whether THIS client is the elected saver (see {@link electSaver}). A viewer never
+ * saves. When no writer has resolved yet — the awareness isn't initialised, or we're
+ * momentarily the only writer and our own state hasn't published — the local writer
+ * saves rather than strand an un-persisted doc on an election that hasn't converged
+ * (the solo / last-writer-standing fallback).
+ */
+export function isElectedSaver(
+  states: Map<number, AwarenessState>,
+  opts: {localClientId: number; localCanWrite: boolean},
+): boolean {
+  if (!opts.localCanWrite) return false;
+  const saver = electSaver(states, opts);
+  return saver === null || saver === opts.localClientId;
+}
+
+/**
  * Resolve a peer's selection (carried as `Y.RelativePosition` JSON so it survives
  * concurrent edits) back to absolute character offsets within its block's text —
  * the round-trip T4's tests pinned. Returns null when there's no caret (block-level
