@@ -173,8 +173,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-next-${{ hashFiles('pnpm-lock.yaml') }}-
 
+      # Exclude @flaky from the gating full-suite: a demonstrated flake (T1
+      # contract) must never red `main`. Those quarantined specs are still
+      # monitored nightly (nightly-e2e.yml runs the full suite INCLUDING @flaky).
       - name: Run Playwright e2e (shard ${{ matrix.shard }}/4)
-        run: pnpm --filter @book.dev/web exec playwright test --shard=${{ matrix.shard }}/4 --reporter=blob
+        run: pnpm --filter @book.dev/web exec playwright test --grep-invert @flaky --shard=${{ matrix.shard }}/4 --reporter=blob
 
       # Blob reports are merge-able; sharding names each file uniquely
       # (report-<shard>.zip), so merge-multiple in `e2e-report` won't collide.

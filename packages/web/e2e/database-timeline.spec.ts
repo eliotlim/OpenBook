@@ -59,7 +59,7 @@ test('dependencies: link a row to another row', {tag: ['@database']}, async ({pa
 });
 
 // A timeline bar can be dragged to reschedule the row's date.
-test('timeline drag: dragging a bar reschedules the row', {tag: ['@database']}, async ({page}) => {
+test('timeline drag: dragging a bar reschedules the row', {tag: ['@database', '@flaky']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'When', 'date');
 
@@ -123,7 +123,7 @@ test('timeline drag-to-link: drag one bar onto another to add a dependency', {ta
 });
 
 // With no dated rows, clicking the empty canvas places a new item at that date.
-test('timeline click-to-place: clicking the empty canvas adds a dated item', {tag: ['@database']}, async ({page}) => {
+test('timeline click-to-place: clicking the empty canvas adds a dated item', {tag: ['@database', '@flaky']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
 
