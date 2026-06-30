@@ -21,15 +21,138 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
-          cache: "pnpm"
+          cache: "pnpm" # caches the pnpm store
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Verify
         run: pnpm run verify
 
-  # Browser e2e against the web shell + Chromatic visual diffs.
+  # Browser e2e against the web shell, sharded across 4 runners. Each shard runs
+  # the existing per-shard worker count (playwright.config.ts) and emits a blob
+  # report; the `e2e-report` job merges those into one HTML report. The gate is
+  # this matrix job — every shard must pass.
   e2e:
-    name: Playwright e2e + Chromatic
+    name: Playwright e2e (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      # Don't cancel the other shards when one fails — we still want their blob
+      # reports so the merged report covers the whole suite.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm" # caches the pnpm store
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Cache the built workspace libs (sdk/ui/server dist) — Next dev and the
+      # per-worker data servers resolve @book.dev/* from these. Keyed on lib
+      # source + build config + lockfile, so any source change rebuilds.
+      - name: Cache built libs
+        id: libs-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/sdk/dist
+            packages/ui/dist
+            packages/server/dist
+            packages/server/assets
+          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
+      - name: Build libs
+        if: steps.libs-cache.outputs.cache-hit != 'true'
+        run: pnpm run build:libs
+
+      # Resolve the installed Playwright version so the browser cache busts on
+      # upgrade rather than serving binaries for the wrong version.
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(pnpm --filter @book.dev/web exec playwright --version | awk '{print $NF}')" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+      # On a cache miss, download browsers + OS deps. On a hit the browser
+      # binaries are restored from cache, but the apt-level OS deps never are,
+      # so install just those.
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @book.dev/web exec playwright install --with-deps chromium
+      - name: Install Playwright OS deps
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @book.dev/web exec playwright install-deps chromium
+
+      # Cache the Next.js dev compile cache to speed `next dev` startup.
+      - name: Cache Next.js dev cache
+        uses: actions/cache@v4
+        with:
+          path: packages/web/.next/cache
+          key: ${{ runner.os }}-next-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('packages/web/**/*.[jt]s', 'packages/web/**/*.[jt]sx') }}
+          restore-keys: |
+            ${{ runner.os }}-next-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      - name: Run Playwright e2e (shard ${{ matrix.shard }}/4)
+        run: pnpm --filter @book.dev/web exec playwright test --shard=${{ matrix.shard }}/4 --reporter=blob
+
+      # Blob reports are merge-able; sharding names each file uniquely
+      # (report-<shard>.zip), so merge-multiple in `e2e-report` won't collide.
+      - name: Upload blob report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: packages/web/blob-report
+          retention-days: 7
+
+  # Merge the per-shard blob reports into a single HTML report. Runs even when a
+  # shard failed (always()) so the report covers the whole suite; this job is
+  # NOT the gate (the `e2e` matrix job is), so its success never masks a failed
+  # shard.
+  e2e-report:
+    name: Merge Playwright reports
+    if: always()
+    needs: [e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm" # caches the pnpm store
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Download blob reports
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/web/all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+      - name: Merge into one HTML report
+        run: pnpm --filter @book.dev/web exec playwright merge-reports --reporter=html ./all-blob-reports
+      - name: Upload merged HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: packages/web/playwright-report
+          retention-days: 7
+
+  # Chromatic visual diffs. Decoupled from the functional shards (OB-222): it
+  # archives only the @visual specs, so it runs once as its own job rather than
+  # redundantly inside each of the 4 shards.
+  chromatic:
+    name: Chromatic visual diffs
     runs-on: ubuntu-latest
     env:
       CHROMATIC_PROJECT_TOKEN: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
@@ -43,23 +166,38 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version-file: ".nvmrc"
-          cache: "pnpm"
+          cache: "pnpm" # caches the pnpm store
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build libs (Playwright servers resolve @book.dev/* from dist)
-        run: pnpm run build:libs
-      - name: Install Playwright browsers
-        run: pnpm --filter @book.dev/web exec playwright install --with-deps chromium
-      - name: Run Playwright e2e
-        run: pnpm run test:e2e:web
-      - name: Upload Playwright report
-        if: always()
-        uses: actions/upload-artifact@v4
+      - name: Cache built libs
+        id: libs-cache
+        uses: actions/cache@v4
         with:
-          name: playwright-report
-          path: packages/web/playwright-report
-          retention-days: 7
-      # Visual diffs. Skipped automatically when the token secret isn't set.
+          path: |
+            packages/sdk/dist
+            packages/ui/dist
+            packages/server/dist
+            packages/server/assets
+          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
+      - name: Build libs
+        if: steps.libs-cache.outputs.cache-hit != 'true'
+        run: pnpm run build:libs
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(pnpm --filter @book.dev/web exec playwright --version | awk '{print $NF}')" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @book.dev/web exec playwright install --with-deps chromium
+      - name: Install Playwright OS deps
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @book.dev/web exec playwright install-deps chromium
+      # Skipped automatically when the token secret isn't set.
       - name: Chromatic visual diffs
         if: ${{ env.CHROMATIC_PROJECT_TOKEN != '' }}
         run: pnpm run chromatic
