@@ -17,6 +17,7 @@ import {downloadBlob} from '@/lib/download';
 import {useData} from '@/data';
 import {useCanWrite} from '@/lib/useCanWrite';
 import {connectBroadcast} from '@/blockeditor/provider';
+import {connectPageRelay, isRemoteOrigin} from '@/blockeditor/relay';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
@@ -132,8 +133,11 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   useEffect(() => {
     if (!doc || !onSave || !canWrite) return;
     const handler = (_update: Uint8Array, origin: unknown): void => {
-      // Only local edits save; merged remote state was saved by its author.
-      if (origin === 'bc-remote' || origin === 'server') return;
+      // Only local edits save; merged remote state was saved by its author. This
+      // includes `'net'` (an incremental update from the live relay — Collab T1):
+      // a viewer receiving a peer's edit must not also fire a redundant snapshot
+      // save (OB-164 write-amp). See blockeditor/relay.ts `isRemoteOrigin`.
+      if (isRemoteOrigin(origin)) return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       setStatus('saving');
       saveTimer.current = setTimeout(() => {
@@ -205,6 +209,17 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     const conn = connectBroadcast(doc, `page:${pageId}`);
     return () => conn.disconnect();
   }, [doc, pageId]);
+
+  // Cross-device live collaboration (Collab T2): incremental Yjs updates over the
+  // existing SSE-down / POST-up transport — a late-joiner sync handshake on connect,
+  // then live convergence between the 600ms snapshot saves (not on them). Augments
+  // the same-browser BroadcastChannel above; the snapshot save stays the durable
+  // checkpoint and the backstop when the transport degrades. See blockeditor/relay.ts.
+  useEffect(() => {
+    if (!doc || !pageId) return;
+    const conn = connectPageRelay(doc, pageId, client);
+    return () => conn.disconnect();
+  }, [doc, pageId, client]);
 
   // A page whose code blocks include one named openbook.json is an authorable
   // plugin — surface "Export as plugin" in the menu, live as the user types.

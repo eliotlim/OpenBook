@@ -130,6 +130,27 @@ export interface DataClient {
   /** Subscribe to live page-list updates. Returns an unsubscribe fn. */
   subscribePages(onList: (pages: PageMeta[]) => void): () => void;
 
+  // ── Live collaboration: incremental relay + late-joiner sync (Collab T1/T2) ──
+  /**
+   * Relay one incremental Yjs update for a page to other open editors. `update` is
+   * the base64 CRDT bytes; `clientId` is the author's `Y.Doc` id so the author's
+   * own echo can be dropped. Ephemeral — never persisted (durability stays with
+   * {@link savePage}'s debounced snapshot).
+   */
+  postPageUpdate(id: string, update: string, clientId: number): Promise<void>;
+  /**
+   * Subscribe to a page's incremental Yjs updates. `onUpdate` fires with the base64
+   * CRDT bytes + the author's `clientId`. Returns an unsubscribe fn.
+   */
+  subscribePageUpdates(id: string, onUpdate: (update: string, clientId: number) => void): () => void;
+  /**
+   * Late-joiner handshake: send the local doc's base64 state vector, receive the
+   * base64 update carrying exactly the ops this client is missing (or `null` when
+   * the server has nothing newer than the snapshot the client already loaded). This
+   * is how a client joining mid-session converges to the CURRENT doc.
+   */
+  syncPageUpdates(id: string, stateVector: string): Promise<string | null>;
+
   // ── Databases ──────────────────────────────────────────────────────────────
   /** Create a database for a host page. */
   createDatabase(input: DatabaseInput): Promise<StoredDatabase>;
@@ -290,6 +311,12 @@ class LiveStream {
   private readonly listListeners = new Set<(pages: PageMeta[]) => void>();
   private readonly pageListeners = new Map<string, Set<PageSubscription>>();
   private readonly rowsListeners = new Map<string, Set<(rows: DatabaseRow[]) => void>>();
+  // Live collaboration — per-page incremental Yjs-update listeners (Collab T1).
+  // Unlike the others these carry no durable state, so they are NOT resynced on
+  // reconnect: a frame missed while the stream was down (or while a tunnel buffers
+  // the SSE body, see the poll fallback below) is recovered from the next snapshot
+  // `page` event and the on-connect sync handshake — never lost.
+  private readonly pageUpdateListeners = new Map<string, Set<(update: string, clientId: number) => void>>();
   // The source reconnects on its own after a drop (server/app restart). We track
   // a prior disconnect so that, on the *next* successful open, we re-fetch every
   // open subscription — the firehose only replays the page *list* on connect, so
@@ -331,7 +358,22 @@ class LiveStream {
       this.pageListeners.get(id)?.forEach((s) => s.onDeleted?.(id));
     } else if (ev.type === 'rows') {
       this.rowsListeners.get(ev.databaseId as string)?.forEach((fn) => fn(ev.rows as DatabaseRow[]));
+    } else if (ev.type === 'yupdate') {
+      this.pageUpdateListeners
+        .get(ev.pageId as string)
+        ?.forEach((fn) => fn(ev.update as string, ev.clientId as number));
     }
+  }
+
+  /**
+   * Whether the live stream has fallen back to poll-mode (Collab T1, tunnel
+   * degrade): the SSE body can't stream (the *.book.pub release tunnel buffers it),
+   * so `yupdate` frames never arrive. A caller can surface this to explain why live
+   * collaboration is running at snapshot-rate rather than keystroke-rate — POST-up
+   * (ingest + sync) still works, so this is a receive-side degrade, never data loss.
+   */
+  isPolling(): boolean {
+    return this.pollTimer != null;
   }
 
   private ensureOpen(): void {
@@ -340,7 +382,7 @@ class LiveStream {
     const handle = (e: {data?: string}): void => {
       if (e.data != null) this.dispatch(e.data);
     };
-    for (const name of ['list', 'page', 'deleted', 'rows']) source.addEventListener(name, handle);
+    for (const name of ['list', 'page', 'deleted', 'rows', 'yupdate']) source.addEventListener(name, handle);
     // A drop sets `sawError`; the source auto-reconnects and fires `open` again,
     // at which point we resync so every client transparently re-attaches after a
     // server or app restart (OB-132).
@@ -432,7 +474,12 @@ class LiveStream {
   }
 
   private maybeClose(): void {
-    if (this.listListeners.size === 0 && this.pageListeners.size === 0 && this.rowsListeners.size === 0) {
+    if (
+      this.listListeners.size === 0 &&
+      this.pageListeners.size === 0 &&
+      this.rowsListeners.size === 0 &&
+      this.pageUpdateListeners.size === 0
+    ) {
       this.source?.close();
       this.source = null;
       // Tear down both fallbacks and reset, so a later re-subscribe re-evaluates
@@ -487,6 +534,21 @@ class LiveStream {
     set.add(fn);
     return () => {
       this.removeFromMap(this.rowsListeners, databaseId, fn);
+      this.maybeClose();
+    };
+  }
+
+  /** Subscribe to a page's incremental Yjs updates (Collab T1). */
+  onPageUpdate(id: string, fn: (update: string, clientId: number) => void): () => void {
+    this.ensureOpen();
+    let set = this.pageUpdateListeners.get(id);
+    if (!set) {
+      set = new Set();
+      this.pageUpdateListeners.set(id, set);
+    }
+    set.add(fn);
+    return () => {
+      this.removeFromMap(this.pageUpdateListeners, id, fn);
       this.maybeClose();
     };
   }
@@ -671,6 +733,27 @@ export class HttpDataClient implements DataClient {
 
   subscribePages(onList: (pages: PageMeta[]) => void): () => void {
     return this.liveStream().onList(onList);
+  }
+
+  /** Relay one incremental Yjs update (Collab T1); ephemeral, no store write. */
+  async postPageUpdate(id: string, update: string, clientId: number): Promise<void> {
+    const res = await this.authFetch(`${this.baseUrl}${API.pageUpdates(id)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({update, clientId}),
+      cache: 'no-store',
+    });
+    await throwIfNotOk(res);
+  }
+
+  subscribePageUpdates(id: string, onUpdate: (update: string, clientId: number) => void): () => void {
+    return this.liveStream().onPageUpdate(id, onUpdate);
+  }
+
+  /** Late-joiner sync handshake (Collab T1): state vector in, missing ops out. */
+  async syncPageUpdates(id: string, stateVector: string): Promise<string | null> {
+    const {update} = await this.request<{update: string | null}>('POST', API.pageSync(id), {sv: stateVector});
+    return update ?? null;
   }
 
   // ── Databases ──────────────────────────────────────────────────────────────

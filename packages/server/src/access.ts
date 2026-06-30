@@ -81,10 +81,33 @@ export function streamGates(store: PageStore, principal: Principal): {
   live: EventGate<LiveEvent>;
   rowsFor: (databaseId: string) => EventGate<RowsEvent>;
 } {
+  // Per-connection read-gate cache (Collab T1). A live collab session fans out a
+  // `yupdate` per keystroke-batch; re-running `canReadPage` (a DB read) on every
+  // frame, for every subscriber, is the firehose's hot cost. Cache the per-page
+  // read decision for this connection and re-evaluate ONLY when the store's access
+  // epoch advances — bumped by every visibility / ACL / policy / membership / page
+  // delete-restore mutation. So a permission change takes effect on the very next
+  // frame, while steady-state collaboration pays one decision per page, not per
+  // frame. Coarse-but-safe: an epoch bump clears the whole cache (never stale-allow).
+  const readCache = new Map<string, boolean>();
+  let cacheGen = store.accessGeneration();
+  const canReadPageCached = async (pageId: string): Promise<boolean> => {
+    const gen = store.accessGeneration();
+    if (gen !== cacheGen) {
+      readCache.clear();
+      cacheGen = gen;
+    }
+    const hit = readCache.get(pageId);
+    if (hit !== undefined) return hit;
+    const can = await store.canReadPage(principal, pageId);
+    readCache.set(pageId, can);
+    return can;
+  };
+
   return {
     list: async (event) => ({type: 'list', pages: await store.filterReadablePages(principal, event.pages)}),
     page: async (event) =>
-      event.type === 'deleted' ? event : (await store.canReadPage(principal, event.page.id)) ? event : null,
+      event.type === 'deleted' ? event : (await canReadPageCached(event.page.id)) ? event : null,
     rowsFor: (databaseId) => async (event) =>
       (await store.canReadDatabase(principal, databaseId))
         ? {type: 'rows', rows: await store.filterReadableRows(principal, event.rows)}
@@ -96,11 +119,15 @@ export function streamGates(store: PageStore, principal: Principal): {
       case 'deleted':
         return event;
       case 'page':
-        return (await store.canReadPage(principal, event.page.id)) ? event : null;
+        return (await canReadPageCached(event.page.id)) ? event : null;
       case 'rows':
         return (await store.canReadDatabase(principal, event.databaseId))
           ? {type: 'rows', databaseId: event.databaseId, rows: await store.filterReadableRows(principal, event.rows)}
           : null;
+      case 'yupdate':
+        // An incremental update rides the same per-page read gate as a full `page`
+        // snapshot (and shares the cache), so the relay can't become a read bypass.
+        return (await canReadPageCached(event.pageId)) ? event : null;
       }
     },
   };

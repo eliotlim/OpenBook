@@ -17,7 +17,11 @@ export type LiveEvent =
   | {type: 'list'; pages: PageMeta[]}
   | {type: 'page'; page: StoredPage}
   | {type: 'deleted'; id: string}
-  | {type: 'rows'; databaseId: string; rows: DatabaseRow[]};
+  | {type: 'rows'; databaseId: string; rows: DatabaseRow[]}
+  // Live collaboration (Collab T1): an opaque incremental Yjs update (base64)
+  // relayed for a page, carrying the author's `Y.Doc` clientId so the author's own
+  // connection can drop the echo. Ephemeral — never persisted (see publishPageUpdate).
+  | {type: 'yupdate'; pageId: string; update: string; clientId: number};
 
 /**
  * A per-subscriber access gate (OB-190, contract §1.4 / S4). Given an outbound
@@ -142,6 +146,17 @@ export class PageHub {
   publishRows(databaseId: string, rows: DatabaseRow[]): void {
     this.rowsListeners.get(databaseId)?.forEach((sub) => PageHub.deliver<RowsEvent>(sub, {type: 'rows', rows}));
     this.liveListeners.forEach((sub) => PageHub.deliver<LiveEvent>(sub, {type: 'rows', databaseId, rows}));
+  }
+
+  /**
+   * Relay one incremental Yjs update for a page to the firehose (Collab T1). Pure
+   * fan-out — it writes nothing to the store (the debounced snapshot save is the
+   * durable checkpoint); each firehose subscriber's `live` gate still read-filters
+   * it, and the `clientId` lets a subscriber drop its own echo. Catch-up for a late
+   * joiner is handled separately by {@link CollabRelay}.
+   */
+  publishPageUpdate(pageId: string, update: string, clientId: number): void {
+    this.liveListeners.forEach((sub) => PageHub.deliver<LiveEvent>(sub, {type: 'yupdate', pageId, update, clientId}));
   }
 
   /** Whether anyone is watching a database's rows (per-db channel or firehose). */

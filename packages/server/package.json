@@ -41,7 +41,8 @@
     "@hono/node-server": "^2.0.4",
     "@book.dev/sdk": "workspace:*",
     "hono": "^4.12.0",
-    "postgres": "^3.4.9"
+    "postgres": "^3.4.9",
+    "yjs": "^13.6.31"
   },
   "devDependencies": {
     "@electric-sql/pglite-socket": "^0.1.6",

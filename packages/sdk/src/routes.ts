@@ -30,6 +30,24 @@ export const API = {
   /** SSE stream of a single page's live updates + deletion. */
   pageStream: (id: string): string => `/api/pages/${encodeURIComponent(id)}/stream`,
   /**
+   * Live collaboration — incremental update ingest (Collab T1). `POST` an opaque
+   * base64 Yjs update `{update, clientId}`; the server fans it out to readers as a
+   * `yupdate` firehose frame (write-gated in, read-gated out) and folds it into an
+   * in-memory relay doc so a late joiner can catch up — but persists NOTHING. The
+   * debounced snapshot save (`PUT /api/pages/:id`) remains the sole durable
+   * checkpoint, so the relay is a best-effort live nudge, never a system of record.
+   */
+  pageUpdates: (id: string): string => `/api/pages/${encodeURIComponent(id)}/updates`,
+  /**
+   * Live collaboration — late-joiner sync handshake (Collab T1). `POST {sv}` (the
+   * client's base64 Yjs state vector); the server replies `{update}` with exactly
+   * the ops the client is missing, computed from the relay doc (seeded from the
+   * durable snapshot + every relayed update since). Read-gated. This is what lets a
+   * client that connects mid-session converge to the CURRENT doc, not just future
+   * edits.
+   */
+  pageSync: (id: string): string => `/api/pages/${encodeURIComponent(id)}/sync`,
+  /**
    * The multiplexed live stream: one SSE connection carrying every event (page
    * list, page updates/deletions, database rows). Clients open exactly one of
    * these per tab and filter by the ids they care about, so an open tab costs a

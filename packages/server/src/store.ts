@@ -237,6 +237,28 @@ export class PageStore {
     return this.conflictCopiesMinted;
   }
 
+  /**
+   * A monotonically increasing "access epoch" bumped whenever anything that can
+   * change a read/write decision is mutated — a page's visibility, a per-page
+   * ACL grant, the instance policy (guest gate / trusted issuers / owner), the
+   * member roster, a sign-in claim, or a page delete/restore. The live-stream
+   * read gate (`streamGates`) caches its per-page `canReadPage` decision for a
+   * connection's life and re-evaluates only when this epoch advances, so the
+   * firehose doesn't re-authorize every `yupdate` frame yet a permission change
+   * takes effect on the very next frame (Collab T1). Coarse by design: any access
+   * mutation invalidates every cached decision — always safe (never stale-allows),
+   * at most an occasional needless re-check.
+   */
+  private accessGen = 0;
+  /** The current access epoch (see {@link accessGen}). */
+  accessGeneration(): number {
+    return this.accessGen;
+  }
+  /** Advance the access epoch — call after any read/write-affecting mutation. */
+  private bumpAccess(): void {
+    this.accessGen += 1;
+  }
+
   /** Apply pending migrations. Idempotent. */
   async migrate(): Promise<void> {
     await runMigrations(this.db);
@@ -795,6 +817,14 @@ export class PageStore {
       }
       return true;
     });
+    // NOTE (Collab T1, access epoch): reparenting deliberately does NOT bumpAccess
+    // today — a page's read decision is independent of its parent because ancestor
+    // visibility-INHERITANCE isn't implemented (see `effectiveVisibility`, which only
+    // resolves a page's OWN `inherit` to the instance default, not to an ancestor).
+    // WHEN the ancestor-walk lands, a move (and a parent's visibility/ACL change)
+    // becomes read-access-relevant for the whole subtree → add a `bumpAccess()` here
+    // (and bump on a parent's visibility/ACL mutation for its descendants) so the
+    // live read-gate cache can't serve a now-stale decision.
     return ok ? this.getPage(id) : null;
   }
 
@@ -888,6 +918,9 @@ export class PageStore {
        RETURNING id`,
       [id],
     );
+    // Trashing a page removes it from every reader's view — invalidate the live
+    // read-gate cache so an open relay stops emitting its updates (Collab T1).
+    if (rows.length > 0) this.bumpAccess();
     return rows.length > 0;
   }
 
@@ -934,6 +967,7 @@ export class PageStore {
       }
       return true;
     });
+    if (ok) this.bumpAccess(); // restored pages re-enter readers' views (Collab T1)
     return ok ? this.getPage(id) : null;
   }
 
@@ -1448,6 +1482,7 @@ export class PageStore {
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
       [JSON.stringify(next)],
     );
+    this.bumpAccess(); // guest gate / issuers / owner all change decisions (Collab T1)
     return next;
   }
 
@@ -1511,6 +1546,7 @@ export class PageStore {
           claimed: false,
         };
       }
+      this.bumpAccess(); // a fresh owner claim narrows the guest gate (Collab T1)
       return {config: next, claimed: true};
     });
   }
@@ -1586,6 +1622,7 @@ export class PageStore {
        RETURNING ${MEMBER_COLS}`,
       [randomUUID(), subject, email, issuer, input.role ?? 'viewer', input.status, input.source ?? 'local', input.invitedBy ?? null],
     );
+    this.bumpAccess(); // a new roster grant can change decisions (Collab T1)
     return memberFromRow(rows[0]);
   }
 
@@ -1600,12 +1637,14 @@ export class PageStore {
        RETURNING ${MEMBER_COLS}`,
       [id, patch.subject ?? null, patch.role ?? null, patch.status ?? null],
     );
+    if (rows.length > 0) this.bumpAccess(); // role/status change alters decisions (Collab T1)
     return rows.length > 0 ? memberFromRow(rows[0]) : null;
   }
 
   /** Remove a roster row by id. */
   async removeMember(id: string): Promise<boolean> {
     const rows = await this.db.query('DELETE FROM members WHERE id = $1 RETURNING id', [id]);
+    if (rows.length > 0) this.bumpAccess(); // a revoked grant removes access (Collab T1)
     return rows.length > 0;
   }
 
@@ -1711,6 +1750,9 @@ export class PageStore {
         removed += 1;
       }
 
+      // Any roster change can alter a live decision (Collab T1); a pure no-op
+      // reconcile leaves the epoch untouched so caches survive.
+      if (added > 0 || updated > 0 || removed > 0) this.bumpAccess();
       return {added, updated, removed, skipped};
     });
   }
@@ -1764,6 +1806,7 @@ export class PageStore {
       'UPDATE pages SET visibility = $2 WHERE id = $1 RETURNING id',
       [pageId, visibility],
     );
+    if (rows.length > 0) this.bumpAccess(); // scope change alters who may read (Collab T1)
     return rows.length > 0;
   }
 
@@ -1805,6 +1848,9 @@ export class PageStore {
         [pageId, subject, email, issuer, grant.level, grant.invitedBy ?? null],
       );
       return aclFromRow(rows[0]);
+    }).then((acl) => {
+      this.bumpAccess(); // a new per-page grant changes read decisions (Collab T1)
+      return acl;
     });
   }
 
@@ -1821,6 +1867,7 @@ export class PageStore {
           'DELETE FROM page_acl WHERE page_id = $1 AND lower(email) = $2 RETURNING page_id',
           [pageId, normalizeEmail(key.email)],
         );
+    if (rows.length > 0) this.bumpAccess(); // a revoked grant removes read access (Collab T1)
     return rows.length > 0;
   }
 
@@ -1867,6 +1914,9 @@ export class PageStore {
           RETURNING page_id`,
         [subject, email, authority],
       );
+      // A claim re-keys invited grants to the now-signed-in subject — its access
+      // is live this same request, so invalidate the live read-gate cache too.
+      if (members.length > 0 || acls.length > 0) this.bumpAccess();
       return {members: members.length, acls: acls.length};
     });
   }
@@ -1917,7 +1967,14 @@ export class PageStore {
 
   /** Resolve `inherit` to an effective scope (§2.2/N9): a database row via its
    *  database HOST PAGE, an ordinary page straight to the instance default. The
-   *  ancestor PARENT walk (and the host's own parent walk) is OB-207. */
+   *  ancestor PARENT walk (and the host's own parent walk) is OB-207.
+   *
+   *  Collab T1 (access epoch) hook: because this does NOT yet walk ancestors, a
+   *  page's read decision depends only on its OWN visibility/ACL — so `movePage`
+   *  needs no `bumpAccess`. WHEN OB-207 makes a parent's scope inheritable, a
+   *  parent's visibility/ACL change AND a reparent both become read-relevant for the
+   *  whole subtree, and each must then `bumpAccess()` (see the note in `movePage`)
+   *  so the live read-gate cache (`streamGates`) can't serve a stale decision. */
   private async effectiveVisibility(
     row: {visibility: PageVisibility; databaseId: string | null},
     base: AccessBase,
