@@ -2392,6 +2392,7 @@ dependencies = [
 name = "openbook-app"
 version = "0.0.0"
 dependencies = [
+ "base64 0.22.1",
  "keyring",
  "libc",
  "serde",

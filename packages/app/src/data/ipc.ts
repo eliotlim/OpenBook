@@ -35,9 +35,23 @@ export const tauriFetch: FetchLike = async (input, init = {}) => {
 /** One message of a streamed response (mirrors Rust's `StreamMessage`). */
 type StreamMessage =
   | {kind: 'head'; status: number; headers: [string, string][]}
-  | {kind: 'chunk'; data: number[]}
+  | {kind: 'chunk'; data: string} // base64; see `base64ToBytes`
   | {kind: 'end'}
   | {kind: 'error'; message: string};
+
+/**
+ * Decode a base64 chunk (Rust's `StreamMessage::Chunk`) back to its exact bytes.
+ * The Rust side base64-encodes each body slice — far more compact over the Tauri
+ * bridge than serde's JSON integer array (~1.33× vs ~4–6×) — so we decode here.
+ * `atob` yields a binary string (one char per byte, 0–255), kept byte-exact by
+ * reading `charCodeAt`; the bytes never round-trip through UTF-8.
+ */
+const base64ToBytes = (b64: string): Uint8Array => {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+};
 
 const safeClose = (c: ReadableStreamDefaultController<Uint8Array> | null): void => {
   try {
@@ -119,7 +133,7 @@ export const tauriStreamFetch: FetchLike = async (input, init = {}) => {
         settled = true;
         resolve(new Response(respBody, {status: msg.status, headers: msg.headers}));
       } else if (msg.kind === 'chunk') {
-        controller?.enqueue(new Uint8Array(msg.data));
+        controller?.enqueue(base64ToBytes(msg.data));
       } else if (msg.kind === 'end') {
         closed = true;
         safeClose(controller);
