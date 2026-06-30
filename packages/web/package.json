@@ -10,6 +10,7 @@
     "lint-fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test",
+    "test:e2e:core": "playwright test --grep @p1 --grep-invert @flaky",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:feature": "node e2e/run-feature.mjs",
     "chromatic:archive": "CHROMATIC_ARCHIVE=1 playwright test --grep @visual",
