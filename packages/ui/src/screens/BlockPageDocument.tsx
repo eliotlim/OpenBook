@@ -17,6 +17,7 @@ import {downloadBlob} from '@/lib/download';
 import {useData} from '@/data';
 import {useCanWrite} from '@/lib/useCanWrite';
 import {connectBroadcast} from '@/blockeditor/provider';
+import {connectPageRelay} from '@/blockeditor/relay';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
@@ -133,7 +134,10 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     if (!doc || !onSave || !canWrite) return;
     const handler = (_update: Uint8Array, origin: unknown): void => {
       // Only local edits save; merged remote state was saved by its author.
-      if (origin === 'bc-remote' || origin === 'server') return;
+      // `'net'` is an incremental update applied from the live relay (Collab T0
+      // spike) — like `'server'`/`'bc-remote'`, its author persists it, so a
+      // viewer receiving it must not also kick off a redundant snapshot save.
+      if (origin === 'bc-remote' || origin === 'server' || origin === 'net') return;
       if (saveTimer.current) clearTimeout(saveTimer.current);
       setStatus('saving');
       saveTimer.current = setTimeout(() => {
@@ -205,6 +209,17 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     const conn = connectBroadcast(doc, `page:${pageId}`);
     return () => conn.disconnect();
   }, [doc, pageId]);
+
+  // Cross-device live collaboration (Collab T0 spike): incremental Y-updates over
+  // the existing SSE-down / POST-up transport, converging open editors between the
+  // 600ms snapshot saves — not on them. Augments (does not replace) the
+  // same-browser BroadcastChannel above; the snapshot save stays the durable
+  // checkpoint. See blockeditor/relay.ts.
+  useEffect(() => {
+    if (!doc || !pageId) return;
+    const conn = connectPageRelay(doc, pageId, client);
+    return () => conn.disconnect();
+  }, [doc, pageId, client]);
 
   // A page whose code blocks include one named openbook.json is an authorable
   // plugin — surface "Export as plugin" in the menu, live as the user types.

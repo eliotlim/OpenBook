@@ -30,6 +30,16 @@ export const API = {
   /** SSE stream of a single page's live updates + deletion. */
   pageStream: (id: string): string => `/api/pages/${encodeURIComponent(id)}/stream`,
   /**
+   * Incremental Y-update relay for live collaboration (Collab T0 spike): `POST`
+   * an opaque base64 CRDT update `{update, clientId}`. The server broadcasts it
+   * to the firehose as a `yupdate` frame (read-gated, suppressed at the author's
+   * own doc by `clientId`) WITHOUT persisting — durability stays with the
+   * debounced snapshot save (`PUT /api/pages/:id`). The relay is therefore
+   * ephemeral: a client offline when an update flew catches up from the next
+   * snapshot.
+   */
+  pageUpdates: (id: string): string => `/api/pages/${encodeURIComponent(id)}/updates`,
+  /**
    * The multiplexed live stream: one SSE connection carrying every event (page
    * list, page updates/deletions, database rows). Clients open exactly one of
    * these per tab and filter by the ids they care about, so an open tab costs a

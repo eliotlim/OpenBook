@@ -101,6 +101,11 @@ export function streamGates(store: PageStore, principal: Principal): {
         return (await store.canReadDatabase(principal, event.databaseId))
           ? {type: 'rows', databaseId: event.databaseId, rows: await store.filterReadableRows(principal, event.rows)}
           : null;
+      case 'yupdate':
+        // Collab T0 spike: an incremental Y-update rides the same per-page read
+        // gate as a full `page` snapshot — a subscriber who can't read the page
+        // never sees its updates (the relay can't become a read bypass).
+        return (await store.canReadPage(principal, event.pageId)) ? event : null;
       }
     },
   };

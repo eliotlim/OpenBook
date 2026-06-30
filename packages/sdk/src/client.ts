@@ -130,6 +130,20 @@ export interface DataClient {
   /** Subscribe to live page-list updates. Returns an unsubscribe fn. */
   subscribePages(onList: (pages: PageMeta[]) => void): () => void;
 
+  // ── Live incremental collaboration (Collab T0 spike) ─────────────────────────
+  /**
+   * Relay one incremental Y-update for a page to other open editors (T0 spike).
+   * `update` is the base64 CRDT bytes; `clientId` is the author's Y.Doc id so the
+   * author's own connection can drop the echo. Ephemeral — the server does not
+   * persist it (durability stays with {@link savePage}'s debounced snapshot).
+   */
+  postPageUpdate(id: string, update: string, clientId: number): Promise<void>;
+  /**
+   * Subscribe to a page's incremental Y-updates (T0 spike). `onUpdate` fires with
+   * the base64 CRDT bytes + the author's `clientId`. Returns an unsubscribe fn.
+   */
+  subscribePageUpdates(id: string, onUpdate: (update: string, clientId: number) => void): () => void;
+
   // ── Databases ──────────────────────────────────────────────────────────────
   /** Create a database for a host page. */
   createDatabase(input: DatabaseInput): Promise<StoredDatabase>;
@@ -290,6 +304,10 @@ class LiveStream {
   private readonly listListeners = new Set<(pages: PageMeta[]) => void>();
   private readonly pageListeners = new Map<string, Set<PageSubscription>>();
   private readonly rowsListeners = new Map<string, Set<(rows: DatabaseRow[]) => void>>();
+  // Collab T0 spike: per-page incremental Y-update listeners. Unlike the others
+  // these carry no durable state, so they are NOT resynced on reconnect — a missed
+  // update is recovered from the next snapshot `page` event.
+  private readonly pageUpdateListeners = new Map<string, Set<(update: string, clientId: number) => void>>();
   // The source reconnects on its own after a drop (server/app restart). We track
   // a prior disconnect so that, on the *next* successful open, we re-fetch every
   // open subscription — the firehose only replays the page *list* on connect, so
@@ -331,6 +349,10 @@ class LiveStream {
       this.pageListeners.get(id)?.forEach((s) => s.onDeleted?.(id));
     } else if (ev.type === 'rows') {
       this.rowsListeners.get(ev.databaseId as string)?.forEach((fn) => fn(ev.rows as DatabaseRow[]));
+    } else if (ev.type === 'yupdate') {
+      this.pageUpdateListeners
+        .get(ev.pageId as string)
+        ?.forEach((fn) => fn(ev.update as string, ev.clientId as number));
     }
   }
 
@@ -340,7 +362,7 @@ class LiveStream {
     const handle = (e: {data?: string}): void => {
       if (e.data != null) this.dispatch(e.data);
     };
-    for (const name of ['list', 'page', 'deleted', 'rows']) source.addEventListener(name, handle);
+    for (const name of ['list', 'page', 'deleted', 'rows', 'yupdate']) source.addEventListener(name, handle);
     // A drop sets `sawError`; the source auto-reconnects and fires `open` again,
     // at which point we resync so every client transparently re-attaches after a
     // server or app restart (OB-132).
@@ -432,7 +454,12 @@ class LiveStream {
   }
 
   private maybeClose(): void {
-    if (this.listListeners.size === 0 && this.pageListeners.size === 0 && this.rowsListeners.size === 0) {
+    if (
+      this.listListeners.size === 0 &&
+      this.pageListeners.size === 0 &&
+      this.rowsListeners.size === 0 &&
+      this.pageUpdateListeners.size === 0
+    ) {
       this.source?.close();
       this.source = null;
       // Tear down both fallbacks and reset, so a later re-subscribe re-evaluates
@@ -487,6 +514,21 @@ class LiveStream {
     set.add(fn);
     return () => {
       this.removeFromMap(this.rowsListeners, databaseId, fn);
+      this.maybeClose();
+    };
+  }
+
+  /** Subscribe to a page's incremental Y-updates (Collab T0 spike). */
+  onPageUpdate(id: string, fn: (update: string, clientId: number) => void): () => void {
+    this.ensureOpen();
+    let set = this.pageUpdateListeners.get(id);
+    if (!set) {
+      set = new Set();
+      this.pageUpdateListeners.set(id, set);
+    }
+    set.add(fn);
+    return () => {
+      this.removeFromMap(this.pageUpdateListeners, id, fn);
       this.maybeClose();
     };
   }
@@ -671,6 +713,21 @@ export class HttpDataClient implements DataClient {
 
   subscribePages(onList: (pages: PageMeta[]) => void): () => void {
     return this.liveStream().onList(onList);
+  }
+
+  /** POST one incremental Y-update (Collab T0 spike); ephemeral, no store write. */
+  async postPageUpdate(id: string, update: string, clientId: number): Promise<void> {
+    const res = await this.authFetch(`${this.baseUrl}${API.pageUpdates(id)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({update, clientId}),
+      cache: 'no-store',
+    });
+    await throwIfNotOk(res);
+  }
+
+  subscribePageUpdates(id: string, onUpdate: (update: string, clientId: number) => void): () => void {
+    return this.liveStream().onPageUpdate(id, onUpdate);
   }
 
   // ── Databases ──────────────────────────────────────────────────────────────

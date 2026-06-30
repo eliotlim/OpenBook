@@ -199,6 +199,22 @@ export class LocalDataClient implements DataClient {
     return this.hub.subscribeList((event) => onList(event.pages));
   }
 
+  // ── Live incremental collaboration (Collab T0 spike) ─────────────────────────
+  // Mirrors the HTTP relay over the in-process hub so a same-store second window
+  // sees incremental updates between snapshot saves. No persistence (the snapshot
+  // save stays the durable checkpoint), matching the HTTP route.
+
+  postPageUpdate(id: string, update: string, clientId: number): Promise<void> {
+    this.hub.publishPageUpdate(id, update, clientId);
+    return Promise.resolve();
+  }
+
+  subscribePageUpdates(id: string, onUpdate: (update: string, clientId: number) => void): () => void {
+    return this.hub.subscribeLive((event) => {
+      if (event.type === 'yupdate' && event.pageId === id) onUpdate(event.update, event.clientId);
+    });
+  }
+
   // ── Databases ──────────────────────────────────────────────────────────────
 
   async createDatabase(input: DatabaseInput): Promise<StoredDatabase> {

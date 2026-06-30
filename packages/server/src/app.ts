@@ -309,6 +309,24 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.json(page);
   });
 
+  // Incremental Y-update relay (Collab T0 spike). Write-gated like a content save,
+  // it broadcasts an opaque CRDT update to the firehose as a `yupdate` frame
+  // (read-gated per subscriber) so open editors converge live — between the 600ms
+  // snapshot saves, not on them. Deliberately writes NOTHING to the store: the
+  // debounced `PUT` snapshot remains the durable checkpoint (OB-164 save path is
+  // untouched), so this stays a cheap, lossy nudge. Not attributed to the edit log
+  // (the snapshot save logs `page.save`). 204 on success; 400 on a malformed body.
+  app.post(`${API.pages}/:id/updates`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'write', id);
+    const body = await c.req.json<{update?: string; clientId?: number}>().catch(() => ({}) as {update?: string; clientId?: number});
+    if (typeof body.update !== 'string' || body.update.length === 0) {
+      return c.json({error: 'missing or invalid update'}, 400);
+    }
+    hub.publishPageUpdate(id, body.update, typeof body.clientId === 'number' ? body.clientId : 0);
+    return c.body(null, 204);
+  });
+
   // The backlink graph: pages whose document links to this one. Read-gated on the
   // target page, and the returned linking pages are filtered to those the caller
   // may read (a restricted page that links here must not leak via a backlink).
