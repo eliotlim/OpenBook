@@ -112,9 +112,11 @@ export interface BackupStatus {
 /**
  * Pure: re-key a bundle for copy-mode import. Mints a fresh id for every page and
  * database, remaps every internal reference (`parentId`, `databaseId`,
- * `hostedDatabaseId`, a database's `pageId`, and `@`-mention `data-page-id`s
- * embedded in block HTML), and returns the rewritten pages/databases plus the
- * `oldId → newId` map. References to pages outside the bundle are left as-is.
+ * `hostedDatabaseId`, a database's `pageId`, and `@`-mentions — both the EditorJS
+ * HTML form (`data-page-id`) and the block-doc run form (an `m` attr, the shape
+ * the block-native editor and importers emit)), and returns the rewritten
+ * pages/databases plus the `oldId → newId` map. References to pages outside the
+ * bundle are left as-is.
  * Unit-tested; the store layer adds DB-aware name de-duplication on top.
  */
 export function remapBundle(
@@ -130,7 +132,13 @@ export function remapBundle(
   const remapMentions = (data: StoredPage['data']): StoredPage['data'] => {
     let json = JSON.stringify(data);
     for (const [oldId, nid] of Object.entries(idMap)) {
+      // EditorJS HTML mention: `data-page-id=\"id\"` (the inner quotes are escaped
+      // because the HTML lives inside a JSON string value once serialised).
       json = json.split(`data-page-id=\\"${oldId}\\"`).join(`data-page-id=\\"${nid}\\"`);
+      // Block-doc mention run: an `m` attr (`{"a":{"m":"id"}}`) — structured JSON,
+      // so the quotes are plain. Anchored on the exact bundle id (a unique token),
+      // so it never rewrites an unrelated value.
+      json = json.split(`"m":"${oldId}"`).join(`"m":"${nid}"`);
     }
     return JSON.parse(json) as StoredPage['data'];
   };

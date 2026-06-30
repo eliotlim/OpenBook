@@ -77,6 +77,11 @@ describe('markdownToBlocks — block mapping', () => {
     ]);
   });
 
+  it('clamps the list indent at 4 (CSS only defines .obe-indent-1..4)', () => {
+    const blocks = only('- a\n  - b\n    - c\n      - d\n        - e\n          - f');
+    expect(blocks.map((b) => b.props?.indent)).toEqual([undefined, 1, 2, 3, 4, 4]);
+  });
+
   it('maps GFM task lists to todo blocks with checked', () => {
     const blocks = only('- [ ] open\n- [x] done');
     expect(blocks.map((b) => [b.type, b.props?.checked ?? false, plain(b)])).toEqual([

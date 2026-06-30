@@ -104,6 +104,13 @@ export interface ImportedAsset {
 
 /** A row of an {@link ImportedDatabase} — becomes a page inside the database. */
 export interface ImportedRow {
+  /**
+   * A stable synthetic id for this row's page, honored by the **bundle** writer
+   * ({@link buildImportBundle}) so a cross-page `@`-mention (an `m` run) can point
+   * at the row before the server re-keys it. Optional — when omitted the bundle
+   * mints one. The create writer ignores it (the store assigns the id there).
+   */
+  id?: string;
   /** The row's page title. */
   title: string;
   /** Manual property values, keyed by schema property id. */
@@ -128,6 +135,13 @@ export interface ImportedDatabase {
  * `children` + per-page `database` is the whole shape an importer builds.
  */
 export interface ImportedPage {
+  /**
+   * A stable synthetic id, honored by the **bundle** writer
+   * ({@link buildImportBundle}) so cross-page `@`-mentions resolve to this page
+   * before the server re-keys the whole graph. Optional — the bundle mints one
+   * when omitted; the create writer ignores it (the store assigns the id there).
+   */
+  id?: string;
   title: string;
   icon?: string;
   blocks: ImportedBlock[];
@@ -369,7 +383,8 @@ export function buildImportBundle(
 
   const emitRows = (rows: ImportedRow[], databaseId: string, parentRowId: string | null): void => {
     for (const row of rows) {
-      const id = newId();
+      // A parser may pin a stable id (so cross-page mentions resolve); else mint one.
+      const id = row.id ?? newId();
       pages.push({
         id,
         name: row.title || null,
@@ -387,7 +402,8 @@ export function buildImportBundle(
   };
 
   const emitPage = (page: ImportedPage, parentId: string | null): void => {
-    const id = newId();
+    // A parser may pin a stable id (so cross-page mentions resolve); else mint one.
+    const id = page.id ?? newId();
     const hostedDatabaseId = page.database ? newId() : null;
     pages.push({
       id,
