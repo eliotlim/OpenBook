@@ -41,6 +41,14 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
 
   const nameRef = useRef<string | null>(null);
   const renameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True while the user has typed a title the server hasn't confirmed yet. The
+  // `updatedAt` ordering guard below can't protect the title on its own: a
+  // concurrent page write (a content save, this page's database-creation echo,
+  // or a peer) comes back with a *newer* updatedAt but the *pre-rename* name,
+  // which would otherwise overwrite the freshly-typed title and — via
+  // `nameRef` — get re-persisted by the pending rename. While this is set,
+  // incoming names are not applied (OB-278: "UI renames silently revert").
+  const hasPendingRenameRef = useRef(false);
   // Highest updatedAt this client has saved or applied — used to drop stale
   // events. Echo handling (not re-saving content a peer sent us) lives in
   // PageDocument's content-digest check, so this is just an ordering guard.
@@ -53,7 +61,10 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
       // Stale event (older than what we've already applied/saved) — ignore.
       if (page.updatedAt <= lastUpdatedRef.current) return;
       lastUpdatedRef.current = page.updatedAt;
-      if (!titleActiveRef.current) {
+      // Don't let an incoming name overwrite the title while the field is
+      // focused (the user is typing) or a local rename is still unconfirmed
+      // (its echo predates this edit) — OB-278.
+      if (!titleActiveRef.current && !hasPendingRenameRef.current) {
         setTitle(page.name ?? '');
         nameRef.current = page.name ?? null;
         setPageHint(pageId, page.name);
@@ -69,11 +80,34 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
 
+  // Commit the debounced rename and drop the pending-rename guard once the
+  // server confirms it. The guard stays up while the request is in flight so a
+  // stale page echo can't revert the title mid-rename (OB-278). Called by the
+  // debounce timer and on blur (commit) — clearing any pending timer first so a
+  // blur-then-quick-navigate can't strand the rename in an un-fired debounce.
+  const commitRename = useCallback(() => {
+    if (renameTimer.current) {
+      clearTimeout(renameTimer.current);
+      renameTimer.current = null;
+    }
+    if (!hasPendingRenameRef.current) return;
+    void client
+      .renamePage(pageId, nameRef.current)
+      .then((saved) => {
+        lastUpdatedRef.current = saved.updatedAt;
+        // Clear the guard only once the server matches our latest local name; a
+        // keystroke that landed mid-flight keeps it pending for its own commit.
+        if ((saved.name ?? null) === nameRef.current) hasPendingRenameRef.current = false;
+      })
+      .catch(() => undefined);
+  }, [client, pageId]);
+
   // Seed title/icon and reset live state on every page switch.
   useEffect(() => {
     const meta = pagesRef.current.find((p) => p.id === pageId);
     setTitle(meta?.name ?? '');
     nameRef.current = meta?.name ?? null;
+    hasPendingRenameRef.current = false;
     setIncoming(undefined);
     // Seed from the nav-list meta when we have it; otherwise leave `undefined`
     // until getPage/subscribePage resolves it (don't carry the prior page's id).
@@ -86,9 +120,13 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
 
   const onLoad = useCallback(async (): Promise<PageSnapshot | null> => {
     const page = await client.getPage(pageId);
-    nameRef.current = page?.name ?? null;
-    setTitle(page?.name ?? '');
-    setPageHint(pageId, page?.name ?? null);
+    // A slow load can resolve after the user has already started renaming; the
+    // server's pre-rename name must not clobber the in-progress edit (OB-278).
+    if (!hasPendingRenameRef.current) {
+      nameRef.current = page?.name ?? null;
+      setTitle(page?.name ?? '');
+      setPageHint(pageId, page?.name ?? null);
+    }
     if (page) {
       lastUpdatedRef.current = page.updatedAt;
       setResolvedHostedDbId(page.hostedDatabaseId);
@@ -109,18 +147,12 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     (next: string) => {
       setTitle(next);
       nameRef.current = next.trim().length > 0 ? next : null;
+      hasPendingRenameRef.current = true;
       setPageHint(pageId, nameRef.current);
       if (renameTimer.current) clearTimeout(renameTimer.current);
-      renameTimer.current = setTimeout(() => {
-        void client
-          .renamePage(pageId, nameRef.current)
-          .then((saved) => {
-            lastUpdatedRef.current = saved.updatedAt;
-          })
-          .catch(() => undefined);
-      }, 600);
+      renameTimer.current = setTimeout(commitRename, 600);
     },
-    [client, pageId],
+    [pageId, setPageHint, commitRename],
   );
 
   const onIconChange = useCallback(
@@ -144,9 +176,16 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     void deletePage(pageId);
   }, [pageId, deletePage, confirm, preferences.general.confirmOnTrash, t]);
 
-  const onTitleActiveChange = useCallback((active: boolean) => {
-    titleActiveRef.current = active;
-  }, []);
+  const onTitleActiveChange = useCallback(
+    (active: boolean) => {
+      titleActiveRef.current = active;
+      // Blur commits the title (Tab, or clicking into the body / another page):
+      // persist now instead of waiting out the debounce, so the rename is durable
+      // the moment the field is left and a quick navigate can't drop it (OB-278).
+      if (!active) commitRename();
+    },
+    [commitRename],
+  );
 
   // Real-time: apply page snapshots saved by other clients. Our own echoes are
   // harmless now — applying identical content is a no-op patch and the

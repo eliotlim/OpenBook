@@ -12,6 +12,10 @@ import {test, expect, takeSnapshot, chooseValue, chooseLabel} from './fixtures';
 // we could await (the sidebar name, /api/pages, /api/export) either rides that
 // same revert or perturbs the in-flight save and *causes* it. A brief idle
 // pause lets the save flush first; it's the one place a sleep is load-bearing.
+//
+// The optimistic-title *revert* itself is fixed in ConnectedPageDocument
+// (OB-278; see the dedicated reload test below); these sleeps remain to let the
+// rename land + stream into the nav list the relation picker reads.
 async function newDatabase(page: import('@playwright/test').Page, title: string): Promise<void> {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
@@ -19,6 +23,10 @@ async function newDatabase(page: import('@playwright/test').Page, title: string)
   await page.getByPlaceholder(/Search pages or run a command/).fill('New database');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button', {name: 'Add column'})).toBeVisible();
+  // `goto('/')` can restore the *previous* database page (which also has an "Add
+  // column" button), so wait for the fresh database — its title is still empty —
+  // before typing, or the fill lands on the old page and renames the wrong one.
+  await expect(page.getByLabel('Page title')).toHaveValue('');
   await page.getByLabel('Page title').fill(title);
   await page.keyboard.press('Tab'); // commit the rename so it reaches the nav list
   await expect(page.getByLabel('Page title')).toHaveValue(title);
@@ -134,4 +142,37 @@ test('database types: url and multi-select columns are available', {tag: ['@data
   await urlInput.fill('example.com');
   await urlInput.blur();
   await expect(page.getByRole('link', {name: 'Open'}).first()).toBeVisible();
+});
+
+// OB-278: a page-title rename must survive a save/echo race + a reload. The
+// optimistic title used to be reverted by a concurrent page-write echo carrying
+// the pre-rename name (and that stale name then got re-persisted) — here we type
+// a title, wait for the rename to actually persist, then reload from the server
+// and assert it stuck. (Before the fix, the title silently reverted to empty
+// even before reloading; see the baseline of `newDatabase`'s toHaveValue.)
+test('page title: a rename persists across a reload (OB-278)', {tag: ['@database']}, async ({page}) => {
+  const name = `Renamed ${Date.now()}`;
+
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByPlaceholder(/Search pages or run a command/).fill('New database');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', {name: 'Add column'})).toBeVisible();
+  await expect(page.getByLabel('Page title')).toHaveValue(''); // the fresh database page
+
+  // Type the title; the rename debounces into a PATCH /api/pages/:id. Await the
+  // OK round-trip so the reload below reads a *persisted* name, not a racing one.
+  const renamed = page.waitForResponse(
+    (r) => r.request().method() === 'PATCH' && /\/api\/pages\/[^/]+$/.test(r.url()) && r.ok(),
+  );
+  await page.getByLabel('Page title').fill(name);
+  await page.keyboard.press('Tab');
+  await expect(page.getByLabel('Page title')).toHaveValue(name);
+  await renamed;
+
+  // Reload reads the persisted name from the server: it must still be the rename,
+  // never the pre-rename "Untitled".
+  await page.reload();
+  await expect(page.getByLabel('Page title')).toHaveValue(name);
 });
