@@ -71,6 +71,9 @@ export interface HudProps {
   templates: {
     open: boolean;
   };
+  importer: {
+    open: boolean;
+  };
   ai: {
     open: boolean;
   };
@@ -103,6 +106,9 @@ export const HudDefault: HudProps = {
   templates: {
     open: false,
   },
+  importer: {
+    open: false,
+  },
   ai: {
     open: false,
   },
@@ -129,6 +135,7 @@ export const loadHudStorage = (): HudProps => {
     // Never restore transient overlays open (the trash, the template gallery).
     trash: {open: false},
     templates: {open: false},
+    importer: {open: false},
     ai: {open: false},
     agent: {open: false},
     present: {...HudDefault.present},
@@ -144,6 +151,7 @@ export const saveHudStorage = (hud: HudProps) => {
     settings: {...hud.settings, open: false},
     trash: {open: false},
     templates: {open: false},
+    importer: {open: false},
     ai: {open: false},
     agent: {open: false},
     present: {...HudDefault.present},

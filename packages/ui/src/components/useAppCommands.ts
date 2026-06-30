@@ -19,6 +19,7 @@ import {GitFork,
   Table2,
   Sparkles,
   Trash2,
+  Upload,
 } from 'lucide-react';
 import {seedSampleDocument} from '@book.dev/sdk';
 import {useData} from '@/data';
@@ -115,6 +116,14 @@ export function useAppCommands(): AppCommand[] {
         keywords: 'template gallery starter tasks roadmap reading meeting planner create',
         icon: LayoutTemplate,
         run: () => setHud((draft) => {draft.templates.open = true; return draft;}),
+      },
+      {
+        id: 'import-content',
+        group: 'create',
+        title: t('command.importContent'),
+        keywords: 'import notion markdown bring content migrate upload zip',
+        icon: Upload,
+        run: () => setHud((draft) => {draft.importer.open = true; return draft;}),
       },
       {
         id: 'ai-search',

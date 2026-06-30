@@ -8,7 +8,7 @@ import {
   type BackupStatus,
   type SpaceBackup,
 } from '@book.dev/sdk';
-import {CalendarClock, Database, Download, FolderDown, FolderUp, Upload} from 'lucide-react';
+import {CalendarClock, Database, Download, FileUp, FolderDown, FolderUp, Upload} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Switch} from '@/components/ui/switch';
 import {
@@ -20,7 +20,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {useData} from '@/data';
-import {useConfirm, useNavigation, usePlatformLibrary, useTranslation} from '@/providers';
+import {useConfirm, useHud, useNavigation, usePlatformLibrary, useTranslation} from '@/providers';
 import {writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
 import {ICON_PROPERTY_ID} from '@book.dev/sdk';
 import {downloadText} from '@/lib/download';
@@ -50,6 +50,7 @@ export default function BackupSettings() {
   const {reload} = useNavigation();
   const confirm = useConfirm();
   const {t} = useTranslation();
+  const {setHud} = useHud();
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [busy, setBusy] = useState<null | 'export' | 'import' | 'folder' | 'compact'>(null);
@@ -188,6 +189,25 @@ export default function BackupSettings() {
           />
         </div>
         {status && <p className="text-sm text-muted-foreground">{status}</p>}
+      </section>
+
+      <section className="flex flex-col gap-2 border-t border-border pt-6">
+        <h3 className="text-lg font-semibold">{t('backup.importHeading')}</h3>
+        <p className="text-sm text-muted-foreground">{t('backup.importIntro')}</p>
+        <div className="mt-1 flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => setHud((draft) => {
+              draft.importer.open = true;
+              return draft;
+            })}
+            disabled={busy !== null}
+            className="gap-2"
+          >
+            <FileUp className="h-4 w-4" />
+            {t('backup.importContent')}
+          </Button>
+        </div>
       </section>
 
       <section className="flex flex-col gap-2 border-t border-border pt-6">
