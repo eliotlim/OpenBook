@@ -21,6 +21,7 @@ import {
   summarizeImportedDoc,
   type ImportSummary,
 } from '@/lib/importContent';
+import {isImportAbortError, parseImportInWorker, type ImportParseProgress} from '@/lib/importParse';
 
 /** Extensions the file picker offers — Notion export zips and Markdown files. */
 const ACCEPT = '.zip,.md,.markdown,.mdown,.mkd,.txt';
@@ -35,7 +36,7 @@ const ACCEPT = '.zip,.md,.markdown,.mdown,.mkd,.txt';
  */
 type Phase =
   | {step: 'pick'}
-  | {step: 'reading'}
+  | {step: 'reading'; progress?: ImportParseProgress}
   | {step: 'preview'; doc: ImportedDoc; summary: ImportSummary; sourceLabel: string}
   | {step: 'importing'; summary: ImportSummary}
   | {step: 'done'; summary: ImportSummary; jumpTarget: string | null}
@@ -63,6 +64,10 @@ export default function ImportDialog() {
   // Guards against a same-frame double-click on "Import" firing the write twice
   // (harmless under copy-mode dedup, but tidier blocked at the source).
   const importingRef = useRef(false);
+  // Aborts (and terminates) an in-flight parse worker when the dialog closes or
+  // unmounts mid-parse, so a big import left half-parsed doesn't keep a worker
+  // churning in the background.
+  const parseAbortRef = useRef<AbortController | null>(null);
 
   const open = hud.importer.open;
   const [phase, setPhase] = useState<Phase>({step: 'pick'});
@@ -70,15 +75,21 @@ export default function ImportDialog() {
   const [pasteText, setPasteText] = useState('');
 
   // Reset to a clean picker each time the dialog opens, so a previous import's
-  // result or error never greets the next one.
+  // result or error never greets the next one; abort any parse still running
+  // when it closes.
   useEffect(() => {
     if (open) {
       setPhase({step: 'pick'});
       setPasteOpen(false);
       setPasteText('');
       importingRef.current = false;
+    } else {
+      parseAbortRef.current?.abort();
     }
   }, [open]);
+
+  // Belt-and-braces: kill an in-flight parse worker if the whole dialog unmounts.
+  useEffect(() => () => parseAbortRef.current?.abort(), []);
 
   const setOpen = useCallback(
     (next: boolean) =>
@@ -107,11 +118,11 @@ export default function ImportDialog() {
     [plural],
   );
 
-  // Parse a picked source into the IR and move to the preview (or surface a
-  // friendly error). Empty results don't advance — there's nothing to import.
+  // Land a parsed IR on the preview (or surface "nothing to import"). The
+  // summary is computed by the parser (in the worker, off the main thread) and
+  // handed in, so the dialog never re-walks the tree on the main thread.
   const toPreview = useCallback(
-    (doc: ImportedDoc, sourceLabel: string) => {
-      const summary = summarizeImportedDoc(doc);
+    (doc: ImportedDoc, summary: ImportSummary, sourceLabel: string) => {
       if (summary.pages === 0) {
         setPhase({step: 'error', message: t('importer.empty')});
         return;
@@ -124,31 +135,49 @@ export default function ImportDialog() {
   const onFile = useCallback(
     async (file: File) => {
       setPhase({step: 'reading'});
+      // A fresh controller per parse; aborting it (on close/unmount) terminates
+      // the worker. Cancel any prior parse first.
+      parseAbortRef.current?.abort();
+      const controller = new AbortController();
+      parseAbortRef.current = controller;
       try {
         const format = detectImportFormat(file.name);
         if (!format) {
           setPhase({step: 'error', message: t('importer.unsupported')});
           return;
         }
-        const doc =
+        // Heavy work (unzip + parse + IR + summarize) runs in a Web Worker so a
+        // big import doesn't freeze the UI; the spinner stays live and shows the
+        // parse's progress. Falls back to a main-thread parse if a worker can't
+        // be hosted (e.g. a webview that rejects the worker).
+        const source =
           format === 'notion-zip'
-            ? parseImportSource({format, bytes: new Uint8Array(await file.arrayBuffer()), fileName: file.name})
-            : parseImportSource({format, text: await file.text(), fileName: file.name});
-        toPreview(doc, file.name);
+            ? ({format, bytes: new Uint8Array(await file.arrayBuffer()), fileName: file.name} as const)
+            : ({format, text: await file.text(), fileName: file.name} as const);
+        const {doc, summary} = await parseImportInWorker(source, {
+          signal: controller.signal,
+          onProgress: (progress) => setPhase({step: 'reading', progress}),
+        });
+        toPreview(doc, summary, file.name);
       } catch (e) {
+        // The dialog closed mid-parse — it's unmounting/reset, so show nothing.
+        if (isImportAbortError(e)) return;
         setPhase({step: 'error', message: t('importer.parseFailed', {error: (e as Error).message})});
       }
     },
     [t, toPreview],
   );
 
+  // Pasted Markdown is small by nature, so it parses inline (no worker spin-up):
+  // the same pure parser the worker wraps, just on the main thread.
   const onPaste = useCallback(() => {
     if (!pasteText.trim()) {
       setPhase({step: 'error', message: t('importer.emptyPaste')});
       return;
     }
     try {
-      toPreview(parseImportSource({format: 'markdown', text: pasteText}), t('importer.pastedLabel'));
+      const doc = parseImportSource({format: 'markdown', text: pasteText});
+      toPreview(doc, summarizeImportedDoc(doc), t('importer.pastedLabel'));
     } catch (e) {
       setPhase({step: 'error', message: t('importer.parseFailed', {error: (e as Error).message})});
     }
@@ -242,11 +271,18 @@ export default function ImportDialog() {
           </div>
         )}
 
-        {/* ── Reading / parsing the file ─────────────────────────────────── */}
+        {/* ── Reading / parsing the file (off the main thread) ───────────── */}
         {phase.step === 'reading' && (
-          <div role="status" className="flex items-center justify-center gap-2 py-10 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            {t('importer.reading')}
+          <div role="status" className="flex flex-col items-center justify-center gap-1 py-10 text-sm text-muted-foreground">
+            <span className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              {t('importer.reading')}
+            </span>
+            {phase.progress?.pages ? (
+              <span className="text-xs">
+                {plural(phase.progress.pages, 'importer.summaryPageOne', 'importer.summaryPage')}
+              </span>
+            ) : null}
           </div>
         )}
 
