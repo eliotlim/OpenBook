@@ -10,7 +10,7 @@ const TINY_PNG = Buffer.from(
   'base64',
 );
 
-test('profile menu: initials by default, named monogram, edit via settings', async ({page}) => {
+test('profile menu: initials by default, named monogram, edit via settings', {tag: ['@shell']}, async ({page}) => {
   await page.goto('/');
   const profileButton = page.locator('[data-profile-menu]');
   await expect(profileButton).toContainText('Anonymous');
@@ -29,7 +29,7 @@ test('profile menu: initials by default, named monogram, edit via settings', asy
   await expect(profileButton.locator('[data-avatar-kind="initials"]')).toHaveText('AL');
 });
 
-test('profile avatar: an uploaded image replaces the initials, reset restores them', async ({page}) => {
+test('profile avatar: an uploaded image replaces the initials, reset restores them', {tag: ['@shell']}, async ({page}) => {
   await page.goto('/');
   const profileButton = page.locator('[data-profile-menu]');
   await profileButton.click();
@@ -42,7 +42,7 @@ test('profile avatar: an uploaded image replaces the initials, reset restores th
   await expect(profileButton.locator('[data-avatar-kind="initials"]')).toBeVisible();
 });
 
-test('profile menu: About OpenBook opens the about dialog', async ({page}) => {
+test('profile menu: About OpenBook opens the about dialog', {tag: ['@shell']}, async ({page}) => {
   await page.goto('/');
   await page.locator('[data-profile-menu]').click();
   await page.getByRole('menuitem', {name: 'About OpenBook'}).click();

@@ -56,7 +56,7 @@ async function rowsOf(request: import('@playwright/test').APIRequestContext, dbI
   return (await (await request.get(`${SERVER}/api/databases/${dbId}/rows`)).json()) as {id: string; name: string | null; parentId: string | null}[];
 }
 
-test('board grouped by sub-items: a column per parent, drag a card to re-parent', async ({page, request}) => {
+test('board grouped by sub-items: a column per parent, drag a card to re-parent', {tag: ['@database']}, async ({page, request}) => {
   const {pageId, dbId, epicB, tag} = await seed(request, 'drag');
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Board', exact: true}).click();
@@ -82,7 +82,7 @@ test('board grouped by sub-items: a column per parent, drag a card to re-parent'
   await expect(cols.filter({hasText: 'No parent'})).toHaveCount(0);
 });
 
-test('board grouped by sub-items: "+ New" in a parent column creates a sub-item', async ({page, request}) => {
+test('board grouped by sub-items: "+ New" in a parent column creates a sub-item', {tag: ['@database']}, async ({page, request}) => {
   const {pageId, dbId, epicA, tag} = await seed(request, 'new');
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Board', exact: true}).click();
@@ -97,7 +97,7 @@ test('board grouped by sub-items: "+ New" in a parent column creates a sub-item'
     .toBe(3);
 });
 
-test('pie chart grouped by sub-items: one slice per parent, sized by its children', async ({page, request}) => {
+test('pie chart grouped by sub-items: one slice per parent, sized by its children', {tag: ['@database']}, async ({page, request}) => {
   const {pageId, tag} = await seed(request, 'pie');
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Pie', exact: true}).click();
@@ -110,7 +110,7 @@ test('pie chart grouped by sub-items: one slice per parent, sized by its childre
   await expect(page.getByRole('button', {name: new RegExp(`Epic Beta ${tag}`)})).toContainText('1');
 });
 
-test('table grouped by sub-items via view options: children under parent headings', async ({page, request}) => {
+test('table grouped by sub-items via view options: children under parent headings', {tag: ['@database']}, async ({page, request}) => {
   const {pageId, tag} = await seed(request, 'tbl');
   await page.goto(`/?page=${pageId}`);
   await expect(page.getByRole('button', {name: 'Table', exact: true})).toBeVisible();

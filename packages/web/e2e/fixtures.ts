@@ -1,8 +1,38 @@
 import {spawn} from 'node:child_process';
 import {rmSync} from 'node:fs';
 import {join} from 'node:path';
-import {test as base} from '@chromatic-com/playwright';
+import {takeSnapshot as chromaticTakeSnapshot, test as chromaticTest} from '@chromatic-com/playwright';
+import {expect, test as playwrightTest} from '@playwright/test';
 import type {Locator, Page} from '@playwright/test';
+
+/**
+ * Decouple Chromatic visual archiving from functional e2e (OB-222).
+ *
+ * `@chromatic-com/playwright`'s `test` adds an auto fixture
+ * (`performChromaticSnapshot`) that, on EVERY test, intercepts the page's
+ * network to build a resource archive, snapshots the DOM via the injected
+ * `__chromatic_takeSnapshot` browser script, and writes a `chromatic-archives/`
+ * bundle to disk. That work — and its dependency on the snapshot infra (the
+ * flake we pin a pnpm patch for) — is only wanted for the deliberate `@visual`
+ * checkpoints uploaded by the `chromatic` script. Functional runs (`--grep
+ * @p1`, per-area, nightly) shouldn't pay for it or be coupled to it.
+ *
+ * So we gate the base `test`: only the Chromatic/visual job opts in by setting
+ * `CHROMATIC_ARCHIVE=1` (see the `chromatic` script). Otherwise we extend the
+ * plain Playwright `test`, which has no archiving fixture at all. `@visual`
+ * specs still run as ordinary functional tests in the ungated path because
+ * {@link takeSnapshot} is a no-op there.
+ *
+ * A dedicated flag (not bare `CHROMATIC`) avoids any ambiguity with the
+ * `chromatic` CLI / Storybook's own `CHROMATIC` convention.
+ */
+const ARCHIVE_VISUALS = process.env.CHROMATIC_ARCHIVE === '1';
+
+// Cast to the plain Playwright `TestType`: the Chromatic `test` is a strict
+// superset (same fixtures plus opt-in ChromaticConfig options, none of which
+// any spec uses), so erasing those extra options here is sound and keeps the
+// `.extend` below identically typed on both paths.
+const base = (ARCHIVE_VISUALS ? chromaticTest : playwrightTest) as typeof playwrightTest;
 
 /**
  * Worker isolation for the e2e suite: every Playwright worker runs its own
@@ -19,12 +49,67 @@ import type {Locator, Page} from '@playwright/test';
 
 export const WORKER_BASE_PORT = 4400;
 
+/**
+ * Prefix for each worker's throwaway PGlite data dir; the worker index is
+ * appended (e.g. `…-w0`). Kept as a single source of truth so the
+ * global-teardown reaper (e2e/global-teardown.ts) can find and remove the dirs
+ * a crashed worker leaves behind. Deliberately literal `/tmp` (not os.tmpdir,
+ * which is `/var/folders/…` on macOS) so the path matches across both files.
+ */
+export const WORKER_DATA_DIR_PREFIX = '/tmp/openbook-web-e2e-data-w';
+
 type WorkerFixtures = {
   /** This worker's data-server URL; starting it is the fixture's job. */
   dataServer: string;
 };
 
-export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
+type TestFixtures = {
+  /**
+   * Opt a spec into structural per-test workspace isolation (OB-223). Set once
+   * per file with `test.use({freshWorkspace: true})`: before EACH test the
+   * worker's data server is wiped, so pages and rows can use plain fixed names
+   * without 409-ing against names a sibling test (sharing this worker) left
+   * behind. Replaces the old per-spec discipline of `reclaimNames()` +
+   * `Date.now()`-suffixed names. Default off, so accumulating specs are
+   * unaffected.
+   */
+  freshWorkspace: boolean;
+  /** Auto fixture that performs the reset; never requested directly. */
+  _workspaceReset: void;
+};
+
+/**
+ * Trash every live page on the worker's data server, freeing all
+ * workspace-unique names before the test runs. Rows are pages too, so a single
+ * whole-space export → delete pass clears row titles as well (mirrors
+ * seed.ts#reclaimNames, but for the whole workspace and over plain `fetch` so
+ * it needs no APIRequestContext fixture).
+ */
+async function resetWorkspace(serverUrl: string): Promise<void> {
+  const res = await fetch(`${serverUrl}/api/export`);
+  if (!res.ok) return; // a brand-new worker server is already empty
+  const bundle = (await res.json()) as {pages?: {id: string}[]};
+  await Promise.all(
+    (bundle.pages ?? []).map((p) =>
+      fetch(`${serverUrl}/api/pages/${p.id}`, {method: 'DELETE'}).catch(() => undefined),
+    ),
+  );
+}
+
+export const test = base.extend<TestFixtures, WorkerFixtures>({
+  freshWorkspace: [false, {option: true}],
+
+  // Auto: when the spec opted in, start every test from an empty workspace.
+  // Runs before the test body (and its first navigation), so the app loads the
+  // cleaned workspace; a no-op (and no network call) when not enabled.
+  _workspaceReset: [
+    async ({freshWorkspace, dataServer}, use) => {
+      if (freshWorkspace) await resetWorkspace(dataServer);
+      await use();
+    },
+    {auto: true},
+  ],
+
   dataServer: [
     // eslint-disable-next-line no-empty-pattern -- Playwright fixtures take a destructured first arg
     async ({}, use, workerInfo) => {
@@ -34,7 +119,7 @@ export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
       // replacement worker. workerIndex is never reused.
       const port = WORKER_BASE_PORT + workerInfo.workerIndex;
       const url = `http://127.0.0.1:${port}`;
-      const dataDir = `/tmp/openbook-web-e2e-data-w${workerInfo.workerIndex}`;
+      const dataDir = `${WORKER_DATA_DIR_PREFIX}${workerInfo.workerIndex}`;
       rmSync(dataDir, {recursive: true, force: true});
 
       // Nothing may be listening here already: a leaked server from an
@@ -112,7 +197,17 @@ export const test = base.extend<NonNullable<unknown>, WorkerFixtures>({
   },
 });
 
-export {expect, takeSnapshot} from '@chromatic-com/playwright';
+export {expect};
+
+/**
+ * On the Chromatic/visual job this is the real archiving snapshot; on every
+ * functional run it's a no-op, so `@visual` specs can call it freely and still
+ * execute as plain functional tests without producing (or depending on) any
+ * Chromatic archive. Signature matches the real `takeSnapshot` overloads.
+ */
+export const takeSnapshot: typeof chromaticTakeSnapshot = ARCHIVE_VISUALS
+  ? chromaticTakeSnapshot
+  : async () => {};
 
 /**
  * Drive the custom {@link Select} (the Popover-based dropdown that replaced the

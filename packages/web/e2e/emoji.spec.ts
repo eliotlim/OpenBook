@@ -2,7 +2,7 @@ import {test, expect} from './fixtures';
 
 // The inline `:shortcode` emoji flow was an EditorJS-only affordance and went
 // away with the classic editor; the profile avatar's grid picker lives on.
-test('the profile avatar opens the grid picker and applies a choice', async ({page}) => {
+test('the profile avatar opens the grid picker and applies a choice', {tag: ['@shell']}, async ({page}) => {
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
   await page.getByRole('button', {name: 'Profile'}).click();

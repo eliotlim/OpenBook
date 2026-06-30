@@ -23,7 +23,7 @@ const insert = async (page: import('@playwright/test').Page, query: string, labe
   await item.first().click();
 };
 
-test('inputs publish to the scope; live code reads them all', async ({page}) => {
+test('inputs publish to the scope; live code reads them all', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'number', 'Number stepper');
   await insert(page, 'toggle', 'Toggle switch');
@@ -47,7 +47,7 @@ test('inputs publish to the scope; live code reads them all', async ({page}) => 
   await expect(code.locator('.obe-code-out')).toContainText('result = two');
 });
 
-test('checklist publishes its selection as an array', async ({page}) => {
+test('checklist publishes its selection as an array', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'choice checklist', 'Choice checklist');
   await insert(page, 'livecode', 'Live code');
@@ -61,7 +61,7 @@ test('checklist publishes its selection as an array', async ({page}) => {
   await expect(code.locator('.obe-code-out')).toContainText('result = 2');
 });
 
-test('radio group: arrow keys move and select (roving tabindex)', async ({page}) => {
+test('radio group: arrow keys move and select (roving tabindex)', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'radio', 'Radio group');
   const group = page.getByRole('radiogroup');
@@ -76,7 +76,7 @@ test('radio group: arrow keys move and select (roving tabindex)', async ({page})
   await expect(group.getByRole('radio', {name: 'Three'})).toHaveAttribute('aria-checked', 'true');
 });
 
-test('chart + status light + button: the full artifact loop', async ({page}, testInfo) => {
+test('chart + status light + button: the full artifact loop', {tag: ['@editor', '@visual']}, async ({page}, testInfo) => {
   await freshLab(page);
   await insert(page, 'number', 'Number stepper');
   await insert(page, 'chart', 'Chart');
@@ -122,7 +122,7 @@ test('chart + status light + button: the full artifact loop', async ({page}, tes
   await takeSnapshot(page, testInfo); // visual: a live artifact (stepper → chart/status)
 });
 
-test('live code: named outputs chain into formulas and charts', async ({page}) => {
+test('live code: named outputs chain into formulas and charts', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'number', 'Number stepper');
   await insert(page, 'livecode', 'Live code');
@@ -159,7 +159,7 @@ test('live code: named outputs chain into formulas and charts', async ({page}) =
   await expect(page.locator('.obe-codeblock-live')).toHaveCount(1);
 });
 
-test('compound growth: a live-code series drives a multi-series chart', async ({page}) => {
+test('compound growth: a live-code series drives a multi-series chart', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'slider', 'Slider');
   // Name the slider's variable in its settings popover (⚙ shown on hover).
@@ -190,7 +190,7 @@ test('compound growth: a live-code series drives a multi-series chart', async ({
   await expect(chart.locator('.obe-chart-legend text', {hasText: '10%'})).toBeVisible();
 });
 
-test('pie chart renders labelled slices with a legend', async ({page}) => {
+test('pie chart renders labelled slices with a legend', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'chart', 'Chart');
   const chart = page.locator('.obe-kit-chart');
@@ -204,7 +204,7 @@ test('pie chart renders labelled slices with a legend', async ({page}) => {
   await expect(chart.locator('.obe-chart-svg text', {hasText: 'Won · 53%'})).toBeVisible();
 });
 
-test('tooltip reveals on focus; link card carries its URL', async ({page}) => {
+test('tooltip reveals on focus; link card carries its URL', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'tooltip', 'Tooltip');
   await insert(page, 'link card', 'Link card');
@@ -224,7 +224,7 @@ test('tooltip reveals on focus; link card carries its URL', async ({page}) => {
   await expect(card).toContainText('OpenBook');
 });
 
-test('location block takes coordinates and links to a map', async ({page}) => {
+test('location block takes coordinates and links to a map', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'location', 'Location');
   await page.getByLabel('Latitude').fill('51.5074');
@@ -233,7 +233,7 @@ test('location block takes coordinates and links to a map', async ({page}) => {
   await expect(map).toHaveAttribute('href', /openstreetmap\.org.*51\.5074.*-0\.1278/);
 });
 
-test('HTML export keeps a kit artifact computing offline', async ({page, request}, testInfo) => {
+test('HTML export keeps a kit artifact computing offline', {tag: ['@editor']}, async ({page, request}, testInfo) => {
   // A real page: a stepper feeding a status light and a formula.
   const blockdoc = {
     blocks: [
@@ -281,7 +281,7 @@ test('HTML export keeps a kit artifact computing offline', async ({page, request
   await expect(fig.locator('svg text', {hasText: '20'})).toHaveCount(0);
 });
 
-test('dropdown publishes its pick; full-width radio renders stacked rows', async ({page}) => {
+test('dropdown publishes its pick; full-width radio renders stacked rows', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'dropdown', 'Dropdown');
   await insert(page, 'livecode', 'Live code');

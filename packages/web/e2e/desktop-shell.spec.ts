@@ -5,7 +5,7 @@ import {newPage, SERVER} from './seed';
 // tabs) moves the workspace switcher and the sidebar hide button into the
 // titlebar, before the tabs — where the real Tauri app draws them. On the web
 // (no `?shell=desktop`) they stay in the sidebar / nav bar.
-test('desktop shell: workspace switcher + sidebar toggle live in the titlebar', async ({page, request}, testInfo) => {
+test('desktop shell: workspace switcher + sidebar toggle live in the titlebar', {tag: ['@shell', '@visual']}, async ({page, request}, testInfo) => {
   const id = await newPage(request, 'Desktop Shell Demo');
 
   await page.goto(`/?page=${id}&shell=desktop`);

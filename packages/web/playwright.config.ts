@@ -13,14 +13,20 @@ import {defineConfig, devices} from '@playwright/test';
  * and the tsx servers both resolve `@book.dev/{ui,sdk}` from their dist. CI
  * runs `verify` (which builds libs) before this.
  *
- * Visual diffs: tests import from `e2e/fixtures` (which extends
- * `@chromatic-com/playwright`), archiving the DOM each run. `pnpm chromatic`
- * uploads those archives (needs CHROMATIC_PROJECT_TOKEN).
+ * Visual diffs: archiving is decoupled from functional runs (OB-222). Tests
+ * import from `e2e/fixtures`, which only extends `@chromatic-com/playwright`
+ * (and archives the DOM) when `CHROMATIC_ARCHIVE=1`; otherwise it's plain
+ * `@playwright/test`. `pnpm chromatic` sets that flag, archives just the
+ * `@visual` specs, then uploads (needs CHROMATIC_PROJECT_TOKEN).
  */
 const WEB_PORT = 3000;
 
 export default defineConfig({
   testDir: './e2e',
+  // After the run, reap any per-worker data servers / throwaway data dirs that
+  // a hard-killed worker leaked (see e2e/global-teardown.ts) — otherwise the
+  // next run's pre-flight squatter check aborts on the stranded :44xx server.
+  globalTeardown: './e2e/global-teardown.ts',
   // Spec files run in parallel across workers (each with its own isolated
   // data server); tests *within* a file stay ordered — many build on the
   // page state their file accumulated.

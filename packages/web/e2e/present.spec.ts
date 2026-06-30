@@ -3,7 +3,7 @@ import {SERVER} from './seed';
 
 // Present mode: a page rendered as a slide deck (split at dividers), read-only
 // but with live widgets, speaker notes surfaced only in the presenter console.
-test('present mode: slides, navigation, a live widget, and speaker notes', async ({page, request}) => {
+test('present mode: slides, navigation, a live widget, and speaker notes', {tag: ['@editor']}, async ({page, request}) => {
   const blockdoc = {
     blocks: [
       {id: 'h1', type: 'heading', props: {level: 1}, text: [{t: 'Slide One'}]},

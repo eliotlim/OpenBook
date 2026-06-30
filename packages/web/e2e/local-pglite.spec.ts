@@ -11,7 +11,7 @@ import {test, expect} from '@playwright/test';
  * answers queries (the shell renders), and writes survive a reload (IndexedDB
  * durability) — the whole point of running the store in the webview.
  */
-test('web runs on in-webview PGlite: a page created with no server survives a reload', async ({page}) => {
+test('web runs on in-webview PGlite: a page created with no server survives a reload', {tag: ['@datalayer', '@p1']}, async ({page}) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.stack ?? e.message));
 

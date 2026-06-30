@@ -1,0 +1,139 @@
+name: Nightly e2e (full suite incl. flaky)
+
+# Monitor-only run of the COMPLETE Playwright suite — including the @flaky specs
+# that ci.yml quarantines out of the gating runs (OB-227). Demonstrated flakes
+# (T1 contract) are excluded from PR + push→main gates so they can't red a
+# branch, but they still need eyes; this nightly run keeps them tracked. It is
+# deliberately NON-GATING: a flaky failure here produces a report artifact, it
+# does not page anyone (nothing depends on this workflow, and it gates no merge).
+on:
+  schedule:
+    # 07:00 UTC daily.
+    - cron: "0 7 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  # Full browser e2e against the web shell, sharded across 4 runners — the same
+  # sharding + caching pattern as ci.yml's `e2e` job, but WITHOUT
+  # `--grep-invert @flaky`, so the quarantined specs run here. Each shard emits a
+  # blob report; `nightly-report` merges them into one HTML report.
+  e2e:
+    name: Nightly Playwright e2e (shard ${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      # Keep every shard running even if one fails — we want the full report and
+      # this run gates nothing.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm" # caches the pnpm store
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Cache the built workspace libs (sdk/ui/server dist) — Next dev and the
+      # per-worker data servers resolve @book.dev/* from these. Keyed on lib
+      # source + build config + lockfile, so any source change rebuilds.
+      - name: Cache built libs
+        id: libs-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/sdk/dist
+            packages/ui/dist
+            packages/server/dist
+            packages/server/assets
+          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
+      - name: Build libs
+        if: steps.libs-cache.outputs.cache-hit != 'true'
+        run: pnpm run build:libs
+
+      # Resolve the installed Playwright version so the browser cache busts on
+      # upgrade rather than serving binaries for the wrong version.
+      - name: Resolve Playwright version
+        id: pw
+        run: echo "version=$(pnpm --filter @book.dev/web exec playwright --version | awk '{print $NF}')" >> "$GITHUB_OUTPUT"
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.pw.outputs.version }}
+      # On a cache miss, download browsers + OS deps. On a hit the browser
+      # binaries are restored from cache, but the apt-level OS deps never are,
+      # so install just those.
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @book.dev/web exec playwright install --with-deps chromium
+      - name: Install Playwright OS deps
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @book.dev/web exec playwright install-deps chromium
+
+      # Cache the Next.js dev compile cache to speed `next dev` startup.
+      - name: Cache Next.js dev cache
+        uses: actions/cache@v4
+        with:
+          path: packages/web/.next/cache
+          key: ${{ runner.os }}-next-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('packages/web/**/*.[jt]s', 'packages/web/**/*.[jt]sx') }}
+          restore-keys: |
+            ${{ runner.os }}-next-${{ hashFiles('pnpm-lock.yaml') }}-
+
+      # Full suite INCLUDING @flaky (no --grep-invert) — this is the whole point
+      # of the nightly run: monitor the quarantined specs.
+      - name: Run Playwright e2e (shard ${{ matrix.shard }}/4)
+        run: pnpm --filter @book.dev/web exec playwright test --shard=${{ matrix.shard }}/4 --reporter=blob
+
+      # Blob reports are merge-able; sharding names each file uniquely
+      # (report-<shard>.zip), so merge-multiple in `nightly-report` won't collide.
+      - name: Upload blob report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blob-report-${{ matrix.shard }}
+          path: packages/web/blob-report
+          retention-days: 7
+
+  # Merge the per-shard blob reports into a single HTML report. Runs even when a
+  # shard failed (always()) so the report covers the whole suite — including any
+  # flaky failures we want to inspect.
+  nightly-report:
+    name: Merge nightly Playwright reports
+    if: always()
+    needs: [e2e]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm" # caches the pnpm store
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Download blob reports
+        uses: actions/download-artifact@v4
+        with:
+          path: packages/web/all-blob-reports
+          pattern: blob-report-*
+          merge-multiple: true
+      - name: Merge into one HTML report
+        run: pnpm --filter @book.dev/web exec playwright merge-reports --reporter=html ./all-blob-reports
+      - name: Upload merged HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: packages/web/playwright-report
+          retention-days: 7

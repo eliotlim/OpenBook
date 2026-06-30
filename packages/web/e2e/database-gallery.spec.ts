@@ -21,7 +21,7 @@ async function seed(request: APIRequestContext): Promise<string> {
 }
 
 // A grouped gallery splits cards into titled sections by the group property.
-test('gallery grouping: cards split into sections by a property', async ({page, request}) => {
+test('gallery grouping: cards split into sections by a property', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'New card'}).waitFor();

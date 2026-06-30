@@ -20,7 +20,7 @@ async function seed(request: APIRequestContext): Promise<string> {
   ]) await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {...r, name: `${r.name} ${tag}`}});
   return pageId;
 }
-test('bulk set any select property', async ({page, request}) => {
+test('bulk set any select property', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();

@@ -17,7 +17,7 @@ async function openShare(page: import('@playwright/test').Page, pageId: string):
   await expect(page.getByRole('dialog')).toBeVisible();
 }
 
-test('share: set the page scope and grant a person view access', async ({page, request}, testInfo) => {
+test('share: set the page scope and grant a person view access', {tag: ['@sharing', '@visual']}, async ({page, request}, testInfo) => {
   const id = await newPage(request, `Share E2E ${testInfo.workerIndex}`);
 
   await openShare(page, id);

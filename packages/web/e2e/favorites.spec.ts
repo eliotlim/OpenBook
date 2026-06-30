@@ -3,7 +3,7 @@ import {test, expect, takeSnapshot} from './fixtures';
 // Pin a page from its menu → it appears in the sidebar Favourites section and
 // the command palette → unpin removes it. Favourites are device-local
 // (localStorage), so each test's fresh context starts with none.
-test('favorites: pin from the page menu, see it in the sidebar + palette, then unpin', async ({page}, testInfo) => {
+test('favorites: pin from the page menu, see it in the sidebar + palette, then unpin', {tag: ['@shell', '@visual', '@p1']}, async ({page}, testInfo) => {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   await expect(page.getByText('Favorites', {exact: true})).toHaveCount(0); // none yet
@@ -28,7 +28,7 @@ test('favorites: pin from the page menu, see it in the sidebar + palette, then u
 
 // Visiting a page records it; the palette's Recent group shows the one you're
 // no longer on.
-test('recents: a previously visited page appears in the palette Recent group', async ({page}) => {
+test('recents: a previously visited page appears in the palette Recent group', {tag: ['@shell']}, async ({page}) => {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
 

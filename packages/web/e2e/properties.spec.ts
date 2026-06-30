@@ -2,7 +2,12 @@ import {test, expect, takeSnapshot} from './fixtures';
 
 // The OpenBook data server is used to seed a linking page directly so the
 // backlink test is deterministic.
-import {reclaimNames, SERVER} from './seed';
+import {SERVER} from './seed';
+
+// Per-test workspace reset: these specs seed fixed page names ('Backlink
+// target' / 'Linking page'), so a clean workspace before each test keeps them
+// collision-free without manual name reclamation.
+test.use({freshWorkspace: true});
 
 // Always work on a brand-new page (⌘N) so stored owner/verification from a
 // previous run on the shared backend can't make these flaky.
@@ -32,7 +37,7 @@ async function revealHeaderControls(page: import('@playwright/test').Page): Prom
   await page.locator('.ob-page-title').hover();
 }
 
-test('page properties: set an owner and verify the page', async ({page}, testInfo) => {
+test('page properties: set an owner and verify the page', {tag: ['@editor', '@visual']}, async ({page}, testInfo) => {
   await freshPage(page);
 
   // Owner: reveal the header controls, open the editor, type a name, commit.
@@ -57,10 +62,7 @@ test('page properties: set an owner and verify the page', async ({page}, testInf
   await expect(page.getByText('Verified', {exact: true})).toBeVisible();
 });
 
-test('page properties: backlinks list the pages that link here', async ({page, request}) => {
-  // Page names are workspace-unique: free any prior run's names first.
-  await reclaimNames(request, 'Backlink target', 'Linking page');
-
+test('page properties: backlinks list the pages that link here', {tag: ['@editor']}, async ({page, request}) => {
   // Create a fresh target page on the server and open it directly (avoids any
   // ⌘N navigation race, and a brand-new id has no prior backlinks).
   const targetRes = await request.post(`${SERVER}/api/pages`, {

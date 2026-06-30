@@ -9,7 +9,7 @@ test.describe.configure({mode: 'parallel'});
 
 // ── Template-driven: the project-intake wizard ───────────────────────────────
 
-test('project-intake template: choice cards, accordion stages, and a progress bar', async ({page}) => {
+test('project-intake template: choice cards, accordion stages, and a progress bar', {tag: ['@editor']}, async ({page}) => {
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
   await page.getByRole('button', {name: 'Templates'}).click();
@@ -50,7 +50,7 @@ const insert = async (page: import('@playwright/test').Page, query: string, labe
   await item.first().click();
 };
 
-test('tag field: free-entry tags publish as chips', async ({page}) => {
+test('tag field: free-entry tags publish as chips', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'tag field', 'Tag field');
   const input = page.locator('.obe-kit-tag-input');
@@ -63,7 +63,7 @@ test('tag field: free-entry tags publish as chips', async ({page}) => {
   await expect(page.getByText('alpha', {exact: true})).toBeVisible();
 });
 
-test('searchable select: filter and pick an option', async ({page}) => {
+test('searchable select: filter and pick an option', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'searchable select', 'Searchable select');
   await page.locator('.obe-kit-searchtrigger').click();
@@ -71,7 +71,7 @@ test('searchable select: filter and pick an option', async ({page}) => {
   await expect(page.getByRole('option').first()).toBeVisible();
 });
 
-test('long text: typing publishes the value', async ({page}) => {
+test('long text: typing publishes the value', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'long text', 'Long text');
   const area = page.getByRole('textbox', {name: 'text value'});
@@ -80,19 +80,19 @@ test('long text: typing publishes the value', async ({page}) => {
   await expect(area).toHaveValue('A longer note.');
 });
 
-test('progress bar: renders a computed track', async ({page}) => {
+test('progress bar: renders a computed track', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'progress', 'Progress bar');
   await expect(page.getByRole('progressbar')).toBeVisible();
 });
 
-test('container: tabs inserts with its tab strip', async ({page}) => {
+test('container: tabs inserts with its tab strip', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'tabs', 'Tabs');
   await expect(page.locator('[data-block-type="tabs"]')).toBeVisible();
 });
 
-test('container: accordion inserts with a section', async ({page}) => {
+test('container: accordion inserts with a section', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await insert(page, 'accordion', 'Accordion');
   await expect(page.locator('[data-block-type="accordion"]')).toBeVisible();

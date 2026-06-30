@@ -1,7 +1,12 @@
 import {test, expect} from './fixtures';
 import type {APIRequestContext} from '@playwright/test';
 
-import {reclaimNames, SERVER} from './seed';
+import {SERVER} from './seed';
+
+// Per-test workspace reset: the seed below creates fixed-named pages and rows
+// ('Project Root', 'Ship the export', …), so a clean workspace before each test
+// keeps them collision-free without manual name reclamation.
+test.use({freshWorkspace: true});
 
 const schema = {
   properties: [
@@ -21,8 +26,8 @@ async function api(request: APIRequestContext, method: 'post' | 'put', path: str
 
 /** Seed a root page that links a subpage and hosts a database with row pages. */
 async function seed(request: APIRequestContext): Promise<string> {
-  // All four names are workspace-unique (rows are pages too) — free them for reruns.
-  await reclaimNames(request, 'Child Notes', 'Project Root', 'Ship the export', 'Write the tests');
+  // All four names are workspace-unique (rows are pages too); the per-test
+  // freshWorkspace reset guarantees they are free before each test.
   const child = await api(request, 'post', '/api/pages', {
     name: 'Child Notes',
     data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'Hello from the child page.'}}]}, values: [], names: []},
@@ -43,7 +48,7 @@ async function seed(request: APIRequestContext): Promise<string> {
 
 // The interactive HTML export bundles the page's whole reachable subtree into one
 // self-contained file: databases render as tables and every nested page navigates.
-test('interactive HTML export: databases render and nested pages navigate', async ({page, request}, testInfo) => {
+test('interactive HTML export: databases render and nested pages navigate', {tag: ['@export']}, async ({page, request}, testInfo) => {
   const rootId = await seed(request);
   await page.goto(`/?page=${rootId}`);
   await page.getByRole('button', {name: 'Add column'}).waitFor();

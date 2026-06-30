@@ -76,7 +76,7 @@ async function openExtensions(page: import('@playwright/test').Page): Promise<vo
   await page.getByRole('button', {name: 'Extensions', exact: true}).click();
 }
 
-test('install an unsigned zip: block, command, badge, disable, remove', async ({page, request}) => {
+test('install an unsigned zip: block, command, badge, disable, remove', {tag: ['@plugins']}, async ({page, request}) => {
   await openExtensions(page);
   await expect(page.getByText('No extensions installed')).toBeVisible();
 
@@ -123,7 +123,7 @@ test('install an unsigned zip: block, command, badge, disable, remove', async ({
   await expect(page.getByText('No extensions installed')).toBeVisible();
 });
 
-test('a page of named code blocks exports as an installable plugin zip', async ({page, request}) => {
+test('a page of named code blocks exports as an installable plugin zip', {tag: ['@plugins']}, async ({page, request}) => {
   // Author the plugin as a page: the manifest and entry live in named,
   // non-live code blocks.
   const manifest = {id: 'acme.page-authored', name: 'Page Authored', version: '1.0.0', main: 'index.ts', icon: '📦'};
@@ -179,7 +179,7 @@ test('a page of named code blocks exports as an installable plugin zip', async (
   await expect(card).toHaveCount(0);
 });
 
-test('a signed zip from a trusted registry shows Verified; tampering or distrust loses it', async ({page}) => {
+test('a signed zip from a trusted registry shows Verified; tampering or distrust loses it', {tag: ['@plugins']}, async ({page}) => {
   const {signature, publicKey} = await signFixture();
 
   await openExtensions(page);

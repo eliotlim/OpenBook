@@ -2,12 +2,14 @@
 // per-test snapshot (its archive helper is flaky in headless CI runs).
 import {test, expect, chooseValue, chooseLabel} from './fixtures';
 import {readFileSync} from 'node:fs';
-import {reclaimNames} from './seed';
 
-// Every test creates its own database (newDatabase) or seeds under a
-// Date.now()-unique name, and fixed row names are reclaimed per test — so the
-// file (40 tests, the suite's longest by far) fans out across workers.
+// Every test creates its own database (newDatabase) and uses plain fixed row
+// names. The file (40 tests, the suite's longest by far) fans out across
+// workers that each share one data server, so the per-test freshWorkspace reset
+// is what keeps those fixed names collision-free — no manual reclaiming or
+// Date.now() suffixes needed.
 test.describe.configure({mode: 'parallel'});
+test.use({freshWorkspace: true});
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
@@ -55,7 +57,7 @@ async function expandEmptyGroups(page: import('@playwright/test').Page): Promise
 }
 
 // A status property edits via a grouped dropdown (To-do / In progress / Complete).
-test('status property: grouped option dropdown', async ({page}) => {
+test('status property: grouped option dropdown', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Stage', 'status');
   await page.getByRole('button', {name: 'New row'}).click();
@@ -69,7 +71,7 @@ test('status property: grouped option dropdown', async ({page}) => {
 
 // A rollup property aggregates over a relation. Adding the rollup after a
 // dependency column defaults it to counting that dependency — no config needed.
-test('rollup property: counts related rows', async ({page}) => {
+test('rollup property: counts related rows', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Links', 'dependency');
   await addColumn(page, 'Count', 'rollup');
@@ -86,8 +88,7 @@ test('rollup property: counts related rows', async ({page}) => {
 });
 
 // Dragging a row between days on the calendar reschedules its date.
-test('calendar drag: reschedule a row by dragging to another day', async ({page, request}) => {
-  await reclaimNames(request, 'Event'); // typed row titles are workspace-unique; free them for reruns
+test('calendar drag: reschedule a row by dragging to another day', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
   await page.getByRole('button', {name: 'New row'}).click();
@@ -121,7 +122,7 @@ test('calendar drag: reschedule a row by dragging to another day', async ({page,
 });
 
 // Dragging a kanban column header reorders the group property's options.
-test('board column reorder: drag a kanban column', async ({page}) => {
+test('board column reorder: drag a kanban column', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page); // default columns Status (Todo / In progress / Done) + Notes
   await page.getByRole('button', {name: 'Board', exact: true}).click(); // groups by Status
 
@@ -144,7 +145,7 @@ test('board column reorder: drag a kanban column', async ({page}) => {
 });
 
 // Dragging a column header reorders the database's columns.
-test('column reorder: drag a column header', async ({page}) => {
+test('column reorder: drag a column header', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page); // default columns: Status, Notes
   // Header order is Name · Status · Notes · (Add column).
   await expect(page.getByRole('columnheader').nth(1)).toContainText('Status');
@@ -161,8 +162,7 @@ test('column reorder: drag a column header', async ({page}) => {
 });
 
 // Exporting a view downloads its rows as CSV.
-test('export CSV: downloads the view rows', async ({page, request}) => {
-  await reclaimNames(request, 'CsvRow');
+test('export CSV: downloads the view rows', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
@@ -181,8 +181,7 @@ test('export CSV: downloads the view rows', async ({page, request}) => {
 });
 
 // Importing a CSV creates rows, mapping columns by name (here the default Notes).
-test('import CSV: creates rows from a file', async ({page, request}) => {
-  await reclaimNames(request, 'Alpha', 'Beta'); // the CSV names rows; creation 409s if they're taken
+test('import CSV: creates rows from a file', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
 
   await page.getByRole('button', {name: 'View options'}).click();
@@ -203,8 +202,7 @@ test('import CSV: creates rows from a file', async ({page, request}) => {
 });
 
 // The row menu can duplicate a row (title + properties + content).
-test('duplicate row: copies a row', async ({page, request}) => {
-  await reclaimNames(request, 'Original', 'Original (copy)');
+test('duplicate row: copies a row', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
@@ -221,7 +219,7 @@ test('duplicate row: copies a row', async ({page, request}) => {
 });
 
 // A row can nest sub-items, which expand/collapse in the table.
-test('sub-items: nest a row and collapse it', async ({page}) => {
+test('sub-items: nest a row and collapse it', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
 
@@ -241,7 +239,7 @@ test('sub-items: nest a row and collapse it', async ({page}) => {
 // editor's retirement; only the old EditorJS inline-database insertion is gone.
 
 // A files & media property holds URLs (rendered as chips / image thumbnails).
-test('files property: add a file URL', async ({page}) => {
+test('files property: add a file URL', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Media', 'files');
   await page.getByRole('button', {name: 'New row'}).click();
@@ -255,8 +253,7 @@ test('files property: add a file URL', async ({page}) => {
 });
 
 // Filters combine as an OR group across two conditions.
-test('filter groups: OR across two conditions', async ({page, request}) => {
-  await reclaimNames(request, 'Apple', 'Banana');
+test('filter groups: OR across two conditions', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
@@ -287,8 +284,7 @@ test('filter groups: OR across two conditions', async ({page, request}) => {
 
 // A two-way dependency mirrors links onto a generated partner property:
 // linking A → B from A's column auto-populates B's "(related)" column.
-test('two-way dependency: linking one side populates the inverse', async ({page, request}) => {
-  await reclaimNames(request, 'Task A', 'Task B');
+test('two-way dependency: linking one side populates the inverse', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Blocks', 'dependency');
 
@@ -322,7 +318,7 @@ test('two-way dependency: linking one side populates the inverse', async ({page,
 
 // A number property can render "as a bar": the cell pairs its input with a
 // progress track filled relative to the target (default 100).
-test('number show-as-bar: renders a progress fill scaled to the value', async ({page}) => {
+test('number show-as-bar: renders a progress fill scaled to the value', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Score', 'number');
 
@@ -343,8 +339,7 @@ test('number show-as-bar: renders a progress fill scaled to the value', async ({
 });
 
 // Saving a row as a template lets a later "New ▾" recreate its property values.
-test('row templates: save a row as a template and create from it', async ({page, request}) => {
-  await reclaimNames(request, 'Bug report');
+test('row templates: save a row as a template and create from it', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Priority', 'number');
 
@@ -372,7 +367,7 @@ test('row templates: save a row as a template and create from it', async ({page,
 });
 
 // A grouped table shows each group's own calculation, not just one table total.
-test('per-group summaries: each group footer shows its own sum', async ({page}) => {
+test('per-group summaries: each group footer shows its own sum', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Amount', 'number');
 
@@ -409,7 +404,7 @@ test('per-group summaries: each group footer shows its own sum', async ({page}) 
 
 // A unique_id column auto-numbers rows — backfilling existing ones — and renders
 // with the configured prefix (TASK-1, TASK-2…).
-test('unique id: auto-numbers rows with a prefix', async ({page}) => {
+test('unique id: auto-numbers rows with a prefix', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
 
   // Two rows exist before the ID column is added.
@@ -434,7 +429,7 @@ test('unique id: auto-numbers rows with a prefix', async ({page}) => {
 
 // Select options can be reordered by dragging their handle; order drives the
 // dropdown list and the board's kanban columns.
-test('reorder select options: drag an option to the top', async ({page}) => {
+test('reorder select options: drag an option to the top', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page); // default Status select: Todo · In progress · Done
 
   await page.getByRole('columnheader', {name: 'Status Property options'}).getByLabel('Property options').click();
@@ -455,7 +450,7 @@ test('reorder select options: drag an option to the top', async ({page}) => {
 });
 
 // Kanban columns can be collapsed to a narrow strip and expanded again.
-test('board column collapse: fold and unfold a kanban column', async ({page}) => {
+test('board column collapse: fold and unfold a kanban column', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page); // default columns Status (Todo / In progress / Done) + Notes
   await page.getByRole('button', {name: 'Board', exact: true}).click(); // groups by Status
   await expandEmptyGroups(page); // a rowless board folds every column otherwise
@@ -476,7 +471,7 @@ test('board column collapse: fold and unfold a kanban column', async ({page}) =>
 // "Collapse empty groups" (on by default) folds groups that currently have no
 // rows; on a board they shrink to a narrow Expand strip, and turning the toggle
 // off reopens them.
-test('collapse empty groups: empty board columns fold by default, toggle reopens them', async ({page}) => {
+test('collapse empty groups: empty board columns fold by default, toggle reopens them', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page); // Status select: Todo / In progress / Done
 
   // One row in the Todo group; the other two status groups stay empty.
@@ -505,7 +500,7 @@ test('collapse empty groups: empty board columns fold by default, toggle reopens
 
 // A date property can "Include time", switching its cell to a datetime input
 // that stores YYYY-MM-DDTHH:mm.
-test('date include time: cell becomes a datetime input', async ({page}) => {
+test('date include time: cell becomes a datetime input', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'When', 'date');
 
@@ -523,7 +518,7 @@ test('date include time: cell becomes a datetime input', async ({page}) => {
 });
 
 // A gallery's card size (Small / Medium / Large) changes the grid track width.
-test('gallery card size: switches the card grid width', async ({page}) => {
+test('gallery card size: switches the card grid width', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
 
   // Open a gallery view (defaults to medium cards). The empty grid has no height,
@@ -541,7 +536,7 @@ test('gallery card size: switches the card grid width', async ({page}) => {
 });
 
 // Clicking a day's "+" on the calendar creates a row dated to that day.
-test('calendar quick-add: click a day to create a dated row', async ({page}) => {
+test('calendar quick-add: click a day to create a dated row', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
 
@@ -561,7 +556,7 @@ test('calendar quick-add: click a day to create a dated row', async ({page}) => 
 });
 
 // The Name column is frozen (sticky) so it stays put when a wide table scrolls.
-test('frozen name column: the Name header and cells are sticky', async ({page}) => {
+test('frozen name column: the Name header and cells are sticky', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
 
@@ -575,12 +570,10 @@ test('frozen name column: the Name header and cells are sticky', async ({page}) 
 });
 
 // The list view can be grouped, like the table — rows fall under group headers.
-test('list view grouping: group a list by Status', async ({page, request}) => {
-  await reclaimNames(request, 'ListGroupRow');
+test('list view grouping: group a list by Status', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
-  // A name no other test uses — page names are workspace-unique across the run.
   await title.fill('ListGroupRow');
   await title.blur();
   await page.getByRole('table').getByRole('button', {name: 'Empty'}).first().click();
@@ -599,8 +592,7 @@ test('list view grouping: group a list by Status', async ({page, request}) => {
 
 // Renaming a row to a name that already exists (workspace names are unique) is
 // handled gracefully — the title reverts instead of crashing the app.
-test('duplicate rename: reverts instead of crashing', async ({page, request}) => {
-  await reclaimNames(request, 'UniqueTitleX'); // row 0 must be able to claim it; row 1's clash is the test
+test('duplicate rename: reverts instead of crashing', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
@@ -620,7 +612,7 @@ test('duplicate rename: reverts instead of crashing', async ({page, request}) =>
 });
 
 // View tabs can be dragged to reorder them.
-test('reorder view tabs: drag a view tab to the front', async ({page}) => {
+test('reorder view tabs: drag a view tab to the front', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page); // default views: Table · Board · List
   const tabs = page.locator('[data-view-tab]');
   await expect(tabs.first()).toContainText('Table');
@@ -638,7 +630,7 @@ test('reorder view tabs: drag a view tab to the front', async ({page}) => {
 });
 
 // A column header menu can sort the view by that column ascending/descending.
-test('column header sort: sort ascending from the property menu', async ({page}) => {
+test('column header sort: sort ascending from the property menu', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Num', 'number');
 
@@ -660,7 +652,7 @@ test('column header sort: sort ascending from the property menu', async ({page})
 });
 
 // A number column can use a Pound (£) format, shown in read-only displays.
-test('currency format: pound shows in the summary footer', async ({page}) => {
+test('currency format: pound shows in the summary footer', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Price', 'number');
 
@@ -682,7 +674,7 @@ test('currency format: pound shows in the summary footer', async ({page}) => {
 });
 
 // "Hide in view" from a column's menu removes that column from the table.
-test('hide column in view: removes the column header', async ({page}) => {
+test('hide column in view: removes the column header', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page); // default columns: Status, Notes
   await expect(page.getByRole('columnheader', {name: /Notes/})).toBeVisible();
 
@@ -695,7 +687,7 @@ test('hide column in view: removes the column header', async ({page}) => {
 });
 
 // Rows can be multi-selected and deleted in bulk from the selection bar.
-test('bulk select: delete multiple rows at once', async ({page}) => {
+test('bulk select: delete multiple rows at once', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 3);
   await expect(page.getByRole('table').getByLabel('Select row')).toHaveCount(3);
@@ -712,7 +704,7 @@ test('bulk select: delete multiple rows at once', async ({page}) => {
 });
 
 // "Duplicate property" clones a column (config + position) as "<name> copy".
-test('duplicate property: clones a column next to it', async ({page}) => {
+test('duplicate property: clones a column next to it', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Budget', 'number');
 
@@ -725,7 +717,7 @@ test('duplicate property: clones a column next to it', async ({page}) => {
 });
 
 // The selection bar can duplicate the selected rows in bulk.
-test('bulk duplicate: copies the selected rows', async ({page}) => {
+test('bulk duplicate: copies the selected rows', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
   await expect(page.getByRole('table').getByLabel('Select row')).toHaveCount(2);
@@ -739,7 +731,7 @@ test('bulk duplicate: copies the selected rows', async ({page}) => {
 });
 
 // A sorted column shows a direction indicator in its header (data-sort hook).
-test('sort indicator: header reflects the active sort direction', async ({page}) => {
+test('sort indicator: header reflects the active sort direction', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Score', 'number');
 
@@ -756,7 +748,7 @@ test('sort indicator: header reflects the active sort direction', async ({page})
 });
 
 // The selection bar can set a select/status value on all selected rows at once.
-test('bulk set status: applies a value to selected rows', async ({page}) => {
+test('bulk set status: applies a value to selected rows', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page); // Status select: Todo / In progress / Done
   await addRows(page, 2);
 
@@ -771,8 +763,7 @@ test('bulk set status: applies a value to selected rows', async ({page}) => {
 });
 
 // The toolbar count shows "X of Y" when a search/filter narrows the rows.
-test('filtered row count: shows X of Y', async ({page, request}) => {
-  await reclaimNames(request, 'Findme');
+test('filtered row count: shows X of Y', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
@@ -786,7 +777,7 @@ test('filtered row count: shows X of Y', async ({page, request}) => {
 });
 
 // A grouped table offers Collapse all / Expand all to fold every group at once.
-test('collapse all groups: folds and unfolds every group', async ({page}) => {
+test('collapse all groups: folds and unfolds every group', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByRole('table').getByRole('button', {name: 'Empty'}).first().click();
@@ -806,8 +797,7 @@ test('collapse all groups: folds and unfolds every group', async ({page}) => {
 });
 
 // "Insert below" from the row menu adds a row right after the chosen one.
-test('insert row below: positions the new row after the source', async ({page, request}) => {
-  await reclaimNames(request, 'RowOne', 'RowTwo');
+test('insert row below: positions the new row after the source', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
@@ -828,7 +818,7 @@ test('insert row below: positions the new row after the source', async ({page, r
 });
 
 // Double-clicking a view tab renames it inline.
-test('rename view tab: double-click to rename', async ({page}) => {
+test('rename view tab: double-click to rename', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page); // default views: Table · Board · List
   await page.getByRole('button', {name: 'Table', exact: true}).dblclick();
 
@@ -842,16 +832,13 @@ test('rename view tab: double-click to rename', async ({page}) => {
 });
 
 // "Insert above" from the row menu adds a row right before the chosen one.
-test('insert row above: positions the new row before the source', async ({page}) => {
+test('insert row above: positions the new row before the source', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
-  // Run-tagged: page names are globally unique, so bare names 409 when the
-  // suite reuses a dev server whose earlier runs created them.
-  const tag = Date.now();
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
-  await titles.nth(0).fill(`First ${tag}`);
+  await titles.nth(0).fill('First');
   await titles.nth(0).blur();
-  await titles.nth(1).fill(`Second ${tag}`);
+  await titles.nth(1).fill('Second');
   await titles.nth(1).blur();
 
   // Insert above the second row (its menu = nth(1) actions).
@@ -860,7 +847,7 @@ test('insert row above: positions the new row before the source', async ({page})
 
   // Order is now First, (new untitled), Second.
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(3);
-  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(0)).toHaveValue(`First ${tag}`);
+  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(0)).toHaveValue('First');
   await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(1)).toHaveValue('');
-  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(2)).toHaveValue(`Second ${tag}`);
+  await expect(page.getByRole('table').getByPlaceholder('Untitled').nth(2)).toHaveValue('Second');
 });

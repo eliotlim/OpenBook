@@ -1,6 +1,6 @@
 import {test, expect, takeSnapshot} from './fixtures';
 
-test('settings: grouped sections, stubs, and admin danger zone', async ({page}, testInfo) => {
+test('settings: grouped sections, stubs, and admin danger zone', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
 
@@ -22,7 +22,7 @@ test('settings: grouped sections, stubs, and admin danger zone', async ({page}, 
   await expect(page.getByRole('button', {name: 'Reset', exact: true})).toBeVisible();
 });
 
-test('settings: profile edits persist across reload', async ({page}) => {
+test('settings: profile edits persist across reload', {tag: ['@shell', '@p1']}, async ({page}) => {
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
   await page.getByRole('button', {name: 'Profile'}).click();

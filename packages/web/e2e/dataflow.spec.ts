@@ -25,7 +25,7 @@ const reactivePage = (tag: string) => ({
   },
 });
 
-test('dataflow view: graph renders, values follow edits, node click locates the block', async ({page, request}) => {
+test('dataflow view: graph renders, values follow edits, node click locates the block', {tag: ['@editor']}, async ({page, request}) => {
   const res = await request.post(`${SERVER}/api/pages`, {data: reactivePage(`${Date.now()}`)});
   const {id} = (await res.json()) as {id: string};
   await page.goto(`/?page=${id}`);
@@ -59,7 +59,7 @@ test('dataflow view: graph renders, values follow edits, node click locates the 
   await expect(page.locator('[data-flow-node]')).toHaveCount(5);
 });
 
-test('dataflow composition: a row page shows its exports flowing into the parent', async ({page, request}) => {
+test('dataflow composition: a row page shows its exports flowing into the parent', {tag: ['@editor']}, async ({page, request}) => {
   const tag = `${Date.now()}`;
   // A parent page hosting a database with an expr column reading `total`.
   const host = await request.post(`${SERVER}/api/pages`, {
@@ -115,7 +115,7 @@ test('dataflow composition: a row page shows its exports flowing into the parent
   await expect(page.getByRole('table')).toContainText('24');
 });
 
-test('dataflow view: a page with no reactive blocks shows the empty state', async ({page, request}) => {
+test('dataflow view: a page with no reactive blocks shows the empty state', {tag: ['@editor']}, async ({page, request}) => {
   const res = await request.post(`${SERVER}/api/pages`, {
     data: {
       name: `Dataflow Empty ${Date.now()}`,

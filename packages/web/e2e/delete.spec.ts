@@ -5,7 +5,7 @@ import {SERVER} from './seed';
 // the dialog is centered (not top-left), and confirming soft-deletes the page
 // into the trash.
 
-test('delete page: centered in-app confirm moves the page to the trash', async ({page, request}, testInfo) => {
+test('delete page: centered in-app confirm moves the page to the trash', {tag: ['@shell', '@visual']}, async ({page, request}, testInfo) => {
   await page.goto('/');
 
   const actions = page.getByRole('button', {name: 'Page actions'});

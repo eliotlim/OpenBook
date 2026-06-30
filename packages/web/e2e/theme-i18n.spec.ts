@@ -3,7 +3,7 @@ import {test, expect, takeSnapshot, chooseValue} from './fixtures';
 const primary = (page: import('@playwright/test').Page) =>
   page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--primary').trim());
 
-test('color theme: switching the palette updates the accent and persists', async ({page}, testInfo) => {
+test('color theme: switching the palette updates the accent and persists', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
   await page.getByRole('button', {name: 'Appearance'}).click();
@@ -19,7 +19,7 @@ test('color theme: switching the palette updates the accent and persists', async
   await expect.poll(() => primary(page)).toBe(forest); // persisted
 });
 
-test('language: switching translates the chrome and persists', async ({page}, testInfo) => {
+test('language: switching translates the chrome and persists', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
   await page.goto('/');
   await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toBe('en');
 
