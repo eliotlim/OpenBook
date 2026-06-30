@@ -48,6 +48,18 @@ export const API = {
    */
   pageSync: (id: string): string => `/api/pages/${encodeURIComponent(id)}/sync`,
   /**
+   * Live collaboration — ephemeral awareness/presence (Collab T4). `POST` a base64
+   * `y-protocols/awareness` update `{update, clientId}` to publish this client's
+   * presence (cursor / selection); the server **re-stamps the identity** from the
+   * verified principal (so name/colour can't be spoofed via the body) and fans it
+   * out to readers as an `awareness` firehose frame. Unlike `/updates` this is
+   * **read-gated** — a viewer (read, not write) appears present, the T6 "viewers
+   * broadcast presence" behaviour. `GET` returns the current presence snapshot
+   * (`{updates: base64[]}`) so a late joiner sees who's here immediately. Persists
+   * NOTHING — never in the durable snapshot, never in the edit log.
+   */
+  pageAwareness: (id: string): string => `/api/pages/${encodeURIComponent(id)}/awareness`,
+  /**
    * The multiplexed live stream: one SSE connection carrying every event (page
    * list, page updates/deletions, database rows). Clients open exactly one of
    * these per tab and filter by the ids they care about, so an open tab costs a

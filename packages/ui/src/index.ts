@@ -12,4 +12,8 @@ export type {HudProps, SettingsTab, SettingsMode} from './lib/hud';
 // upgrades legacy EditorJS snapshots to the block document on open.
 export {BlockEditor, createDoc as createBlockDoc, createSeededDoc as createSeededBlockDoc, decodeSnapshot as decodeBlockDoc, encodeSnapshot as encodeBlockDoc, migrateEditorJs, docToJSON as blockDocToJSON, type BlockDocSnapshot, type BlockJSON} from './blockeditor';
 export {connectBroadcast, type BroadcastConnection, type PresencePeer} from './blockeditor';
+// Live collaboration (Collab T4): the presence/awareness data layer + the registry
+// the remote-cursor surface (Collab T5) reads peers/selections from.
+export {connectPageAwareness, blockSelection, type AwarenessConnection, type AwarenessIdentity, type AwarenessSelection, type AwarenessState} from './blockeditor';
+export {openAwareness, registerOpenAwareness, subscribeOpenAwareness} from './lib/openAwareness';
 export {registerCustomBlock, registerReactiveBlocks, registerArtifactKit, blocksToHtml, blocksToMarkdown, type CustomBlockDef, type CustomBlockProps} from './blockeditor';

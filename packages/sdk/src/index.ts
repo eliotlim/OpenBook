@@ -169,6 +169,8 @@ export {
   guestPrincipal,
   localPrincipal,
   principalId,
+  colorForIdentity,
+  IDENTITY_COLORS,
   mintIdentityKeypair,
   signIdentity,
   decodeIdentity,

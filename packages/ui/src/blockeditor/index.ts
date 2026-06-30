@@ -1,6 +1,15 @@
 export {BlockEditor} from './BlockEditor';
 export {useBlockEditor} from './useBlockEditor';
 export {connectBroadcast, type BroadcastConnection, type PresencePeer} from './provider';
+export {connectPageRelay, isRemoteOrigin, type RelayConnection} from './relay';
+export {
+  connectPageAwareness,
+  blockSelection,
+  type AwarenessConnection,
+  type AwarenessIdentity,
+  type AwarenessSelection,
+  type AwarenessState,
+} from './awareness';
 export {
   createDoc,
   createSeededDoc,

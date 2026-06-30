@@ -29,6 +29,7 @@ import {
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {CollabRelay} from './collab';
+import {AwarenessRelay, awarenessUser, stampAwarenessIdentity} from './collabAwareness';
 import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
 import {guestGate, recoverAudienceLockedPrincipal, resolvePrincipal, type IdentityProvider} from './principal';
@@ -109,6 +110,9 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // seeded from the durable snapshot, so a late joiner can sync to the current doc.
   // Persists nothing — the debounced snapshot save stays the sole durable checkpoint.
   const relay = new CollabRelay();
+  // Ephemeral presence (Collab T4): per-page identity-stamped awareness snapshot so
+  // a late joiner sees who's here at once. Persists nothing, like the relay above.
+  const awarenessRelay = new AwarenessRelay();
   // Loads a page's durable snapshot as raw Yjs update bytes — the seed base for the
   // relay doc. The block document stores its CRDT state as base64 in `blockdoc.update`.
   const loadRelayBase = async (pageId: string): Promise<Uint8Array | null> => {
@@ -385,6 +389,61 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     },
   );
 
+  // ── Live collaboration: ephemeral awareness / presence (Collab T4) ────────────
+
+  // An awareness update is tiny — one client's identity + selection, JSON-encoded.
+  // Cap the body well below the relay's so a hostile reader can't inflate presence
+  // with a giant blob; 413 past it.
+  const AWARENESS_MAX_BYTES = 64 * 1024; // 64 KiB per /awareness POST
+
+  // Publish this client's presence. READ-gated (unlike /updates' write gate): a
+  // viewer — read but not write — DOES appear present (the T6 "viewers broadcast
+  // presence" behaviour), while a non-reader 404s and the page's existence stays
+  // hidden. The identity is RE-STAMPED from the verified principal, so the body
+  // can't spoof name/colour (only its own selection). Fanned out read-gated +
+  // folded into the presence snapshot for late joiners. Persists NOTHING — never a
+  // store write, never in the edit log. 204 / 400 / 413.
+  app.post(
+    `${API.pages}/:id/awareness`,
+    bodyLimit({maxSize: AWARENESS_MAX_BYTES, onError: (c) => c.json({error: 'request body too large'}, 413)}),
+    async (c) => {
+      const id = c.req.param('id');
+      await requireAccess(c, store, 'read', id);
+      const body = await c.req
+        .json<{update?: string; clientId?: number}>()
+        .catch(() => ({}) as {update?: string; clientId?: number});
+      if (typeof body.update !== 'string' || body.update.length === 0) {
+        return c.json({error: 'missing or invalid update'}, 400);
+      }
+      const clientId = typeof body.clientId === 'number' ? body.clientId : 0;
+      // Re-stamp identity from THIS request's verified principal — the only
+      // who-you-are the server trusts — and keep ONLY this one client's state, so the
+      // body may set a selection, never another user's name or a phantom cursor.
+      const {stamped, present} = stampAwarenessIdentity(
+        Buffer.from(body.update, 'base64'),
+        awarenessUser(c.get('principal')),
+        clientId,
+      );
+      if (stamped.length === 0) return c.json({error: 'missing or invalid update'}, 400);
+      const stampedB64 = Buffer.from(stamped).toString('base64');
+      hub.publishPageAwareness(id, stampedB64, clientId); // live fan-out (read-gated)
+      // Track the snapshot: a still-present state refreshes it, a pure removal drops it.
+      if (present) awarenessRelay.ingest(id, clientId, stamped);
+      else awarenessRelay.remove(id, clientId);
+      return c.body(null, 204);
+    },
+  );
+
+  // Current presence snapshot for a late joiner (Collab T4). Read-gated like the
+  // sync handshake. Returns every present client's already-stamped awareness update
+  // so a client connecting mid-session sees who's here immediately, rather than
+  // waiting out the next periodic awareness refresh. Empty when nobody else is here.
+  app.get(`${API.pages}/:id/awareness`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'read', id);
+    return c.json({updates: awarenessRelay.snapshot(id).map((u) => Buffer.from(u).toString('base64'))});
+  });
+
   // The backlink graph: pages whose document links to this one. Read-gated on the
   // target page, and the returned linking pages are filtered to those the caller
   // may read (a restricted page that links here must not leak via a backlink).
@@ -423,6 +482,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (!deleted) return c.json({error: 'page not found'}, 404);
     hub.publishDeleted(id);
     relay.forget(id); // free the page's relay doc (Collab T1); reseeds if restored
+    awarenessRelay.forget(id); // drop any lingering presence (Collab T4)
     await broadcastList();
     if (existing?.databaseId) await broadcastRows(existing.databaseId);
     logEdit(c, id, 'page.delete', existing?.name ?? '');

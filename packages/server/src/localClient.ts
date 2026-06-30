@@ -42,6 +42,7 @@ import {BACKUP_CADENCES, BACKUP_CADENCE_MS, localPrincipal} from '@book.dev/sdk'
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {CollabRelay} from './collab';
+import {AwarenessRelay, awarenessUser, stampAwarenessIdentity} from './collabAwareness';
 import {resolveInvitee} from './invites';
 
 /**
@@ -65,6 +66,9 @@ export class LocalDataClient implements DataClient {
   // Live-collaboration catch-up memory (Collab T1) — mirrors the HTTP app's relay
   // so a second in-process window can sync to the current doc. Persists nothing.
   private readonly relay = new CollabRelay();
+  // Ephemeral presence (Collab T4) — mirrors the HTTP app's awareness relay so a
+  // second in-process window sees presence + a late joiner gets the snapshot.
+  private readonly awarenessRelay = new AwarenessRelay();
 
   constructor(
     private readonly store: PageStore,
@@ -147,6 +151,8 @@ export class LocalDataClient implements DataClient {
     const deleted = await this.store.deletePage(id);
     if (!deleted) return false;
     this.hub.publishDeleted(id);
+    this.relay.forget(id); // free the page's relay doc (Collab T1); reseeds if restored
+    this.awarenessRelay.forget(id); // drop any lingering presence (Collab T4)
     await this.broadcastList();
     if (existing?.databaseId) await this.broadcastRows(existing.databaseId);
     return true;
@@ -230,6 +236,31 @@ export class LocalDataClient implements DataClient {
     const sv = stateVector.length > 0 ? Buffer.from(stateVector, 'base64') : new Uint8Array();
     const diff = await this.relay.sync(id, sv, this.loadRelayBase);
     return diff ? Buffer.from(diff).toString('base64') : null;
+  }
+
+  // ── Live collaboration: ephemeral awareness / presence (Collab T4) ───────────
+  // Mirrors the HTTP route: re-stamp identity from the in-process owner principal
+  // (the body can't spoof who-you-are), fan out over the hub, and keep the snapshot
+  // for a late joiner. Persists nothing.
+
+  postPageAwareness(id: string, update: string, clientId: number): Promise<void> {
+    const {stamped, present} = stampAwarenessIdentity(Buffer.from(update, 'base64'), awarenessUser(localPrincipal()), clientId);
+    if (stamped.length === 0) return Promise.resolve();
+    const stampedB64 = Buffer.from(stamped).toString('base64');
+    this.hub.publishPageAwareness(id, stampedB64, clientId);
+    if (present) this.awarenessRelay.ingest(id, clientId, stamped);
+    else this.awarenessRelay.remove(id, clientId);
+    return Promise.resolve();
+  }
+
+  subscribePageAwareness(id: string, onUpdate: (update: string, clientId: number) => void): () => void {
+    return this.hub.subscribeLive((event) => {
+      if (event.type === 'awareness' && event.pageId === id) onUpdate(event.update, event.clientId);
+    });
+  }
+
+  syncPageAwareness(id: string): Promise<string[]> {
+    return Promise.resolve(this.awarenessRelay.snapshot(id).map((u) => Buffer.from(u).toString('base64')));
   }
 
   // ── Databases ──────────────────────────────────────────────────────────────
