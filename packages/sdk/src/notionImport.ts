@@ -91,9 +91,12 @@ const idOf = (p: string): string | null => {
 /** A bundle id pinned from a Notion id, so a mention and its target agree. */
 const syntheticId = (notionId: string): string => `imp_n_${notionId}`;
 
-/** A human title: the basename minus its extension and trailing ` <32hex>`. */
+/** A human title: the basename minus its extension, a trailing `_all` view
+ *  marker (a database exported as its complete view; see {@link dbKeyOf}), and a
+ *  trailing ` <32hex>` Notion id. Stripping `_all` keeps the database name clean
+ *  ("Reading List", not "Reading List <id>_all") when the `_all` view is chosen. */
 const titleOf = (p: string): string => {
-  const stem = stripExt(baseName(p));
+  const stem = stripExt(baseName(p)).replace(/_all$/i, '');
   return stem.replace(/\s+[0-9a-f]{32}$/i, '').trim() || stem;
 };
 
