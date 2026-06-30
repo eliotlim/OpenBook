@@ -133,6 +133,22 @@ export function readSelection(root: HTMLElement): {start: number; end: number} |
   return start <= end ? {start, end} : {start: end, end: start};
 }
 
+/**
+ * The current selection within `root` as DIRECTIONAL offsets — `anchor` is where
+ * the selection began, `head` is the moving end where the caret visibly sits.
+ * Unlike {@link readSelection} (which normalises to start ≤ end), this preserves a
+ * right-to-left selection so a remote cursor renders on the correct end. Null when
+ * the selection isn't inside `root`.
+ */
+export function readSelectionDirected(root: HTMLElement): {anchor: number; head: number} | null {
+  const sel = document.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.anchorNode === null || sel.focusNode === null) return null;
+  const anchor = domToOffset(root, sel.anchorNode, sel.anchorOffset);
+  const head = sel.isCollapsed ? anchor : domToOffset(root, sel.focusNode, sel.focusOffset);
+  if (anchor === null || head === null) return null;
+  return {anchor, head};
+}
+
 /** Place the caret (or a range) at linear offsets inside `root`. */
 export function writeSelection(root: HTMLElement, start: number, end = start): void {
   const sel = document.getSelection();

@@ -25,7 +25,7 @@ import {
   type BlockMap,
   type BlockType,
 } from './model';
-import {rangeHasAttr, readSelection, writeSelection} from './richtext';
+import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
 import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
 import {getCustomBlock} from './registry';
 import {CodeBlockView} from './CodeBlockView';
@@ -69,6 +69,10 @@ import {useBlockEditor, type BlockEditorController} from './useBlockEditor';
 import type {InlineAttrs} from './model';
 import {getPageIdForDoc} from '@/lib/aiBridge';
 import {requestComment, requestSuggestEdit, suggestHostReady} from '@/lib/suggestBridge';
+import {createSelectionReporter, LOCAL_SELECTION_THROTTLE_MS, type LocalSelection, type SelectionReporter} from './localSelection';
+
+// Re-exported so the page host can type its onSelectionChange handler. Collab T5.
+export {LOCAL_SELECTION_THROTTLE_MS, type LocalSelection};
 
 /**
  * The block editor root: renders the block tree, owns the transient UI
@@ -130,7 +134,10 @@ export const BlockEditor: React.FC<{
   focusRef?: React.Ref<BlockEditorHandle>;
   /** Leave the editor for the title above (caret at the top of the document). */
   onLeaveToTitle?: () => void;
-}> = ({doc, readOnly = false, ariaLabel, fullWidth = false, compact = false, spellcheck = true, pageId, focusRef, onLeaveToTitle}) => {
+  /** Report the local caret/selection so peers can render it as a remote cursor
+   *  (Collab T5). Fired throttled (~10Hz) as the selection moves; null on blur. */
+  onSelectionChange?: (selection: LocalSelection | null) => void;
+}> = ({doc, readOnly = false, ariaLabel, fullWidth = false, compact = false, spellcheck = true, pageId, focusRef, onLeaveToTitle, onSelectionChange}) => {
   const editor = useBlockEditor(doc, readOnly);
   const rootRef = useRef<HTMLDivElement>(null);
   // Whole-document read-only (viewer / present): a lock context wraps the tree so
@@ -548,6 +555,63 @@ export const BlockEditor: React.FC<{
     document.addEventListener('keydown', listener);
     return () => document.removeEventListener('keydown', listener);
   }, [hasSelection]);
+
+  // ── Local caret → presence (Collab T5) ─────────────────────────────────────
+  // Broadcast where this user's caret is so peers can render it as a remote
+  // cursor (T4 deferred the editor-side caret tracking here). Throttled (~10Hz)
+  // so a fast-moving selection doesn't flood the relay; cleared on blur / unmount
+  // so we never leave a ghost cursor. A read-only surface has no editable caret.
+  //
+  // ONE reporter for the component's lifetime: both the selectionchange path and
+  // the blur backstop go through its `clear`, which cancels any pending trailing
+  // emit. Were they separate, a caret move <100ms before a blur would fire its
+  // trailing emit AFTER the null and strand a stale peer caret.
+  const focusedIdRef = useRef(editor.focusedId);
+  focusedIdRef.current = editor.focusedId;
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+  const reporterRef = useRef<SelectionReporter | null>(null);
+  if (!reporterRef.current) {
+    reporterRef.current = createSelectionReporter((sel) => onSelectionChangeRef.current?.(sel));
+  }
+  React.useEffect(() => {
+    if (readOnly || !onSelectionChange) return;
+    const reporter = reporterRef.current!;
+    const handle = (): void => {
+      const id = focusedIdRef.current;
+      if (!id) {
+        reporter.clear();
+        return;
+      }
+      const el = blockEl(id);
+      if (!el) {
+        reporter.clear();
+        return;
+      }
+      // The DOM selection can sit outside the focused block (e.g. it moved to the
+      // title) — readSelectionDirected returns null then, so clear rather than
+      // guess. Directional offsets keep the caret on the true head for an RTL drag.
+      const sel = readSelectionDirected(el);
+      if (!sel) {
+        reporter.clear();
+        return;
+      }
+      reporter.emit({blockId: id, anchor: sel.anchor, head: sel.head});
+    };
+    document.addEventListener('selectionchange', handle);
+    return () => {
+      document.removeEventListener('selectionchange', handle);
+      reporter.clear(); // drop our caret when the editor unmounts / goes read-only
+    };
+  }, [readOnly, blockEl, onSelectionChange]);
+
+  // Clear on blur even if the engine fires no selectionchange (some WKWebView blur
+  // paths): the focused block going null is an explicit "the caret left the editor".
+  // Routed through the SAME reporter so it cancels a pending trailing emit too.
+  React.useEffect(() => {
+    if (readOnly || !onSelectionChange) return;
+    if (editor.focusedId === null) reporterRef.current?.clear();
+  }, [editor.focusedId, readOnly, onSelectionChange]);
 
   // Cmd+A escalation: from full-block text selection to all blocks.
   const onRootKeyDownCapture = (e: React.KeyboardEvent): void => {

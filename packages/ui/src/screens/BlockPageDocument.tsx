@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import * as Y from 'yjs';
 import type {PageSnapshot} from '@book.dev/sdk';
-import {BlockEditor, type BlockEditorHandle} from '@/blockeditor/BlockEditor';
+import {BlockEditor, type BlockEditorHandle, type LocalSelection} from '@/blockeditor/BlockEditor';
 import {
   createSeededDoc,
   decodeSnapshot,
@@ -18,8 +18,10 @@ import {useData} from '@/data';
 import {useCanWrite} from '@/lib/useCanWrite';
 import {connectBroadcast} from '@/blockeditor/provider';
 import {connectPageRelay, isRemoteOrigin} from '@/blockeditor/relay';
-import {connectPageAwareness} from '@/blockeditor/awareness';
+import {connectPageAwareness, blockSelection} from '@/blockeditor/awareness';
 import {registerOpenAwareness} from '@/lib/openAwareness';
+import {PresenceAvatars} from '@/components/presence/PresenceAvatars';
+import {RemoteCursors} from '@/components/presence/RemoteCursors';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
@@ -93,6 +95,9 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   // ↑/Backspace at the editor's top jumps back to the end of the title.
   const titleRef = useRef<PageTitleHandle>(null);
   const editorRef = useRef<BlockEditorHandle>(null);
+  // The live awareness connection (Collab T5), so the editor's local-caret
+  // callback can publish this user's selection for peers to render.
+  const awarenessRef = useRef<ReturnType<typeof connectPageAwareness> | null>(null);
   // Stable identities — both refs never change, but a fresh arrow each render
   // would. onLeaveToTitle is a dep of BlockEditor's `ui` useMemo, so an unstable
   // one rebuilds that surface on every render (e.g. each save-status tick).
@@ -248,14 +253,28 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       const seed = you?.subject || presenceName;
       const name = (you?.name || presenceName).trim() || presenceName;
       conn = connectPageAwareness(doc, pageId, client, {name, id: seed});
+      awarenessRef.current = conn;
       unregister = registerOpenAwareness(pageId, conn.awareness);
     })();
     return () => {
       cancelled = true;
       unregister?.();
       conn?.disconnect();
+      if (awarenessRef.current === conn) awarenessRef.current = null;
     };
   }, [doc, pageId, client, presenceName]);
+
+  // The editor's local caret → presence: publish this user's selection (built as
+  // Y.RelativePositions so it survives concurrent edits) so peers render it as a
+  // remote cursor; null clears it on blur. Throttling lives in the editor.
+  const handleLocalSelection = useCallback(
+    (sel: LocalSelection | null): void => {
+      const conn = awarenessRef.current;
+      if (!conn || !doc) return;
+      conn.setSelection(sel ? blockSelection(doc, sel.blockId, sel.anchor, sel.head) : null);
+    },
+    [doc],
+  );
 
   // A page whose code blocks include one named openbook.json is an authorable
   // plugin — surface "Export as plugin" in the menu, live as the user types.
@@ -390,7 +409,18 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         {pageId && <PageCoverBanner pageId={pageId} />}
         <div className="px-6 pt-6 md:px-10">
           <div className={columnClass}>
-            {pageId && <PageHeaderControls pageId={pageId} />}
+            {/* The cover-area controls (hover-revealed) sit left; the live
+                "who's here" presence stack stays right, always visible. The
+                controls take the slack (flex-1 min-w-0) so their own internal
+                right-alignment ("Add cover" ml-auto) still works. */}
+            <div className="flex items-start gap-2">
+              {pageId && (
+                <div className="min-w-0 flex-1">
+                  <PageHeaderControls pageId={pageId} />
+                </div>
+              )}
+              {pageId && <PresenceAvatars pageId={pageId} />}
+            </div>
 
             <PageHeader
               title={title}
@@ -422,11 +452,15 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
                 pageId={pageId}
                 focusRef={editorRef}
                 onLeaveToTitle={leaveToTitle}
+                onSelectionChange={handleLocalSelection}
               />
             )}
             {/* Inline review affordances (provider-aware, portaled into the
                 editor wrapper since the editor's own root is provider-less). */}
             {pageId && doc && <BlockReviewMarkers pageId={pageId} containerRef={editorWrapRef} />}
+            {/* Remote carets + selections of live peers (Collab T5), same
+                portal-into-the-editor-wrapper pattern. Decorative + inert. */}
+            {pageId && doc && <RemoteCursors pageId={pageId} containerRef={editorWrapRef} />}
           </div>
 
           {/* Bridges the editor's inline "Suggest edit"/"Comment" menu items to

@@ -2382,6 +2382,66 @@ a.obe-mention {
 .ob-comment-body strong { font-weight: 700; }
 .ob-comment-body em { font-style: italic; }
 
+/* ── Remote cursors + selections (Collab T5) ──────────────────────────────────
+   A decorative overlay portaled into the editor's positioned wrapper. It NEVER
+   intercepts pointer events (editing must stay untouched) and is aria-hidden —
+   peer presence is announced via the avatar stack, not the carets. */
+.obe-rcursor-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 6;
+}
+/* A range highlight: the peer colour at a calm opacity so text stays readable. */
+.obe-rcursor-sel {
+  position: absolute;
+  border-radius: 2px;
+  opacity: 0.18;
+  pointer-events: none;
+}
+/* The caret: a solid 2px bar in the peer colour. */
+.obe-rcursor-caret {
+  position: absolute;
+  width: 2px;
+  border-radius: 1px;
+  pointer-events: none;
+}
+/* A small nub at the caret top so a peer stays locatable after the label fades. */
+.obe-rcursor-flag {
+  position: absolute;
+  top: -3px;
+  left: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+/* The name label, sitting above the caret; it fades out after a beat of stillness
+   (re-triggered on move by remounting), leaving just the caret + nub. */
+.obe-rcursor-label {
+  position: absolute;
+  bottom: 100%;
+  left: -2px;
+  margin-bottom: 2px;
+  padding: 1px 5px;
+  border-radius: 5px 5px 5px 0;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.35;
+  font-weight: 600;
+  /* `color` is set inline per-swatch (readableTextColor) for WCAG AA contrast. */
+  pointer-events: none;
+  box-shadow: 0 1px 3px hsl(0 0% 0% / 0.18);
+  animation: obe-rcursor-fade 2.8s ease forwards;
+}
+@keyframes obe-rcursor-fade {
+  0%, 65% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .obe-rcursor-label { animation: none; opacity: 1; }
+}
+
 /* Searchable select trigger (the popover surface is Radix Command). */
 .obe-kit-searchtrigger {
   display: inline-flex;
