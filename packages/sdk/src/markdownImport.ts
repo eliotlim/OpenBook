@@ -206,7 +206,9 @@ function emitList(list: Tokens.List, depth: number, out: ImportedBlock[]): void 
     } else {
       props.kind = kind;
     }
-    if (depth > 0) props.indent = depth;
+    // Clamp the indent: the editor's CSS only defines `.obe-indent-1..4`, so a
+    // deeper nesting would render flat — pin it to the deepest defined level.
+    if (depth > 0) props.indent = Math.min(4, depth);
     out.push({type: isTodo ? 'todo' : 'list', text: runs, ...(Object.keys(props).length > 0 ? {props} : {})});
     for (const img of images) out.push(imagePlaceholderBlock(img));
     out.push(...trailing);

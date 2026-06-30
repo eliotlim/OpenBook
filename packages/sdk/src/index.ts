@@ -290,6 +290,7 @@ export {
   type ImportWriteResult,
 } from './import';
 export {markdownToBlocks, markdownToImportedDoc, type MarkdownImportOptions} from './markdownImport';
+export {notionExportToImportedDoc, parseCsv} from './notionImport';
 export {
   BACKUP_VERSION,
   BACKUP_CADENCES,
