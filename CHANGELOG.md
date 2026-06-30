@@ -1,3 +1,19 @@
+## 1.66.0 (2026-06-30)
+
+### 🚀 Features
+
+- **e2e:** suite tiering, parallelisation & flake-hardening (OB-219) ([#44](https://github.com/eliotlim/OpenBook/pull/44))
+- **ui:** wire five DS interaction tokens into primitives (OB-273) ([#39](https://github.com/eliotlim/OpenBook/pull/39))
+
+### 🩹 Fixes
+
+- **ui:** page-title rename no longer reverts under a save-echo race (OB-278) ([#46](https://github.com/eliotlim/OpenBook/pull/46))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim @eliotlim
+
 ## 1.65.1 (2026-06-29)
 
 ### 🩹 Fixes
