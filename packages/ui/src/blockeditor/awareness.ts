@@ -54,6 +54,22 @@ export interface AwarenessSelection {
 export interface AwarenessState {
   user?: {name: string; color: string; id: string};
   selection?: AwarenessSelection | null;
+  /**
+   * Whether this client may WRITE the page — the saver-election eligibility signal
+   * (Collab T3). Published as a top-level awareness field (NOT inside `user`, which the
+   * server re-stamps), so it survives the identity stamp and reaches peers. A viewer
+   * (`false`/absent) is never elected saver; the lowest-clientID writer is. Set by the
+   * saver controller, not the presence provider — see {@link connectPageSaver}.
+   */
+  canWrite?: boolean;
+  /**
+   * The base64 Yjs state vector the elected saver has DURABLY persisted, re-published
+   * after each successful snapshot save (Collab T3). A non-saver compares it against its
+   * own client clock to confirm its relayed edits actually reached the store before
+   * skipping its own save — so a degraded relay (poll-mode) or a stalled saver can never
+   * silently strand an edit (the non-saver's backstop fires instead).
+   */
+  saved?: string;
 }
 
 export interface AwarenessConnection {

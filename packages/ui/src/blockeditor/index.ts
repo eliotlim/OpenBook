@@ -3,6 +3,13 @@ export {useBlockEditor} from './useBlockEditor';
 export {connectBroadcast, type BroadcastConnection, type PresencePeer} from './provider';
 export {connectPageRelay, isRemoteOrigin, type RelayConnection} from './relay';
 export {
+  connectPageSaver,
+  SAVER_DEBOUNCE_MS,
+  SAVER_BACKSTOP_MS,
+  type SaverConnection,
+  type ConnectSaverOptions,
+} from './saver';
+export {
   connectPageAwareness,
   blockSelection,
   type AwarenessConnection,

@@ -3,7 +3,7 @@ import type {AwarenessState} from '@/blockeditor';
 import * as Y from 'yjs';
 import {IDENTITY_COLORS} from '@book.dev/sdk';
 import {blockSelection, createDoc, decodeSnapshot, encodeSnapshot, rootBlocks} from '@/blockeditor';
-import {presencePeers, readableTextColor, resolveSelectionIndices} from '@/lib/presence';
+import {electSaver, isElectedSaver, presencePeers, readableTextColor, resolveSelectionIndices} from '@/lib/presence';
 
 /** WCAG contrast ratio between two `#rrggbb` colours, for asserting AA. */
 function contrast(a: string, b: string): number {
@@ -86,6 +86,55 @@ describe('presencePeers', () => {
     expect(peer.color).toBe('#e0635c');
     expect(peer.name).toBe('Someone'); // blank name → fallback
     expect(peer.selection?.blockId).toBe('b1');
+  });
+});
+
+describe('saver election (Collab T3)', () => {
+  const writer = (canWrite: boolean): AwarenessState => ({user: user('u', 'U'), canWrite});
+
+  it('elects the lowest-clientID present writer — every peer agrees', () => {
+    const states = new Map<number, AwarenessState>([
+      [30, writer(true)],
+      [10, writer(true)],
+      [20, writer(true)],
+    ]);
+    // Each peer derives the SAME answer from the shared map → exactly one saver.
+    expect(electSaver(states, {localClientId: 10, localCanWrite: true})).toBe(10);
+    expect(electSaver(states, {localClientId: 20, localCanWrite: true})).toBe(10);
+    expect(electSaver(states, {localClientId: 30, localCanWrite: true})).toBe(10);
+    expect(isElectedSaver(states, {localClientId: 10, localCanWrite: true})).toBe(true);
+    expect(isElectedSaver(states, {localClientId: 20, localCanWrite: true})).toBe(false);
+    expect(isElectedSaver(states, {localClientId: 30, localCanWrite: true})).toBe(false);
+  });
+
+  it('excludes viewers — a write-capable client never defers to one that cannot save', () => {
+    // The lowest clientID (5) is a viewer; the saver must be the lowest *writer* (15).
+    const states = new Map<number, AwarenessState>([
+      [5, writer(false)],
+      [15, writer(true)],
+      [25, writer(true)],
+    ]);
+    expect(electSaver(states, {localClientId: 15, localCanWrite: true})).toBe(15);
+    // A viewer itself never saves, whatever its clientID.
+    expect(isElectedSaver(states, {localClientId: 5, localCanWrite: false})).toBe(false);
+  });
+
+  it('treats a peer that does not advertise canWrite (older client / no field) as a non-writer', () => {
+    const states = new Map<number, AwarenessState>([
+      [5, {user: user('old', 'Old')}], // no canWrite field
+      [15, writer(true)],
+    ]);
+    // We don't defer persistence to id 5 (might be a viewer / can't save) — id 15 saves.
+    expect(electSaver(states, {localClientId: 15, localCanWrite: true})).toBe(15);
+  });
+
+  it('falls back to the local writer (solo / last standing) when no writer has resolved', () => {
+    // Empty map: awareness not initialised yet, or we are momentarily alone.
+    expect(isElectedSaver(new Map(), {localClientId: 7, localCanWrite: true})).toBe(true);
+    expect(electSaver(new Map(), {localClientId: 7, localCanWrite: true})).toBeNull();
+    // Only viewers present besides us → we are still the saver.
+    const onlyViewers = new Map<number, AwarenessState>([[2, writer(false)]]);
+    expect(isElectedSaver(onlyViewers, {localClientId: 7, localCanWrite: true})).toBe(true);
   });
 });
 
