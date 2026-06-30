@@ -18,6 +18,8 @@ import {useData} from '@/data';
 import {useCanWrite} from '@/lib/useCanWrite';
 import {connectBroadcast} from '@/blockeditor/provider';
 import {connectPageRelay, isRemoteOrigin} from '@/blockeditor/relay';
+import {connectPageAwareness} from '@/blockeditor/awareness';
+import {registerOpenAwareness} from '@/lib/openAwareness';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
 import {registerDatabaseBlock} from '@/components/database/InlineDatabaseBlock';
@@ -220,6 +222,40 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     const conn = connectPageRelay(doc, pageId, client);
     return () => conn.disconnect();
   }, [doc, pageId, client]);
+
+  // Live presence/awareness (Collab T4): publish this user's identity + selection
+  // and receive peers' over the read-gated awareness channel (so viewers appear
+  // present too), then register the awareness instance so the remote-cursor layer
+  // (Collab T5) can read peers + selections. Ephemeral — torn down (no ghost cursor)
+  // on unmount.
+  //
+  // The colour/key SEED is the server-resolved principal SUBJECT (`instance.you`),
+  // NOT the display name — so this client's own cursor + its same-browser tabs render
+  // the EXACT colour/id the server stamps onto us for every network peer (the server
+  // derives both from `principalId(principal)`). The display name stays the profile
+  // label; the server re-stamps identity for everyone else, so it can't be spoofed.
+  const presenceName = (preferences.profile.displayName || preferences.profile.name || 'You').trim() || 'You';
+  useEffect(() => {
+    if (!doc || !pageId) return;
+    let conn: ReturnType<typeof connectPageAwareness> | null = null;
+    let unregister: (() => void) | null = null;
+    let cancelled = false;
+    void (async () => {
+      // Resolve who the server says we are (subject + name) so the self-seed matches
+      // the server's awareness stamp exactly; fall back to the profile label offline.
+      const you = await client.getInstanceInfo().then((i) => i.you).catch(() => null);
+      if (cancelled || !doc || !pageId) return;
+      const seed = you?.subject || presenceName;
+      const name = (you?.name || presenceName).trim() || presenceName;
+      conn = connectPageAwareness(doc, pageId, client, {name, id: seed});
+      unregister = registerOpenAwareness(pageId, conn.awareness);
+    })();
+    return () => {
+      cancelled = true;
+      unregister?.();
+      conn?.disconnect();
+    };
+  }, [doc, pageId, client, presenceName]);
 
   // A page whose code blocks include one named openbook.json is an authorable
   // plugin — surface "Export as plugin" in the menu, live as the user types.

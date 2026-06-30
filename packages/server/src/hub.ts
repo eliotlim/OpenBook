@@ -21,7 +21,13 @@ export type LiveEvent =
   // Live collaboration (Collab T1): an opaque incremental Yjs update (base64)
   // relayed for a page, carrying the author's `Y.Doc` clientId so the author's own
   // connection can drop the echo. Ephemeral — never persisted (see publishPageUpdate).
-  | {type: 'yupdate'; pageId: string; update: string; clientId: number};
+  | {type: 'yupdate'; pageId: string; update: string; clientId: number}
+  // Live collaboration (Collab T4): an ephemeral awareness/presence update (base64
+  // `y-protocols/awareness` bytes) for a page. The identity it carries is re-stamped
+  // by the server from the verified principal before it reaches here, so the body
+  // can't spoof who-you-are. `clientId` lets the author drop its own echo. Never
+  // persisted, never read by the durable store (see publishPageAwareness).
+  | {type: 'awareness'; pageId: string; update: string; clientId: number};
 
 /**
  * A per-subscriber access gate (OB-190, contract §1.4 / S4). Given an outbound
@@ -157,6 +163,18 @@ export class PageHub {
    */
   publishPageUpdate(pageId: string, update: string, clientId: number): void {
     this.liveListeners.forEach((sub) => PageHub.deliver<LiveEvent>(sub, {type: 'yupdate', pageId, update, clientId}));
+  }
+
+  /**
+   * Relay one ephemeral awareness/presence update for a page to the firehose
+   * (Collab T4). Like {@link publishPageUpdate} it is pure fan-out — writes nothing
+   * to the store and rides each subscriber's `live` read-gate (so an unreadable
+   * page's presence never leaks). The `update` bytes must ALREADY be
+   * identity-stamped by the caller (the route re-stamps from the verified
+   * principal); the hub is transport, not policy.
+   */
+  publishPageAwareness(pageId: string, update: string, clientId: number): void {
+    this.liveListeners.forEach((sub) => PageHub.deliver<LiveEvent>(sub, {type: 'awareness', pageId, update, clientId}));
   }
 
   /** Whether anyone is watching a database's rows (per-db channel or firehose). */

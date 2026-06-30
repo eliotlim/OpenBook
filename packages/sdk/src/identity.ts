@@ -81,6 +81,32 @@ export function principalId(p: Principal): string {
   return p.subject;
 }
 
+/**
+ * The fixed palette presence/awareness cursors are tinted from (Collab T4). A
+ * small, high-contrast set so a handful of simultaneous collaborators stay
+ * distinguishable; both the server (when it stamps the verified identity onto an
+ * awareness state) and the client (its local self-view) index into the SAME
+ * palette so a peer's colour is stable and agreed wherever it's rendered.
+ */
+export const IDENTITY_COLORS = ['#e4a33c', '#5b8def', '#4fae6e', '#c96bd6', '#e0635c', '#3aa6a6', '#9b6dff', '#d98c40'];
+
+/**
+ * A stable presence colour for an identity seed (Collab T4). Derived from the
+ * principal's subject (or any stable seed) by a tiny FNV-1a hash into
+ * {@link IDENTITY_COLORS}, so the SAME user always tints the SAME colour — across
+ * sessions, devices, and both sides of the awareness re-stamp. Deterministic and
+ * isomorphic (no crypto), so the server and every client agree without
+ * coordinating. An empty seed falls back to the first colour.
+ */
+export function colorForIdentity(seed: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return IDENTITY_COLORS[(hash >>> 0) % IDENTITY_COLORS.length];
+}
+
 // ── The identity assertion (JWS) ──────────────────────────────────────────────
 
 /** JOSE header of an identity assertion. */

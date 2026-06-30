@@ -128,6 +128,11 @@ export function streamGates(store: PageStore, principal: Principal): {
         // An incremental update rides the same per-page read gate as a full `page`
         // snapshot (and shares the cache), so the relay can't become a read bypass.
         return (await canReadPageCached(event.pageId)) ? event : null;
+      case 'awareness':
+        // Presence rides the SAME per-page read gate (Collab T4): a peer who can
+        // READ the page sees who's present (so viewers appear), and a non-reader
+        // gets neither presence nor doc updates — the channel can't leak existence.
+        return (await canReadPageCached(event.pageId)) ? event : null;
       }
     },
   };

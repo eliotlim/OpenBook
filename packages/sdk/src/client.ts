@@ -151,6 +151,30 @@ export interface DataClient {
    */
   syncPageUpdates(id: string, stateVector: string): Promise<string | null>;
 
+  // ── Live collaboration: ephemeral awareness / presence (Collab T4) ───────────
+  /**
+   * Publish this client's presence (cursor / selection) as a base64
+   * `y-protocols/awareness` update. **Read-gated** (a viewer appears present), and
+   * the server **re-stamps the identity** (name/colour) from the verified principal
+   * — what's in the body is never trusted for who-you-are. Ephemeral: never
+   * persisted, never in the edit log.
+   */
+  postPageAwareness(id: string, update: string, clientId: number): Promise<void>;
+  /**
+   * Subscribe to a page's awareness updates (other clients' presence). `onUpdate`
+   * fires with the base64 awareness bytes + the author's `clientId` (so the author
+   * drops its own echo). Returns an unsubscribe fn. Ephemeral — not resynced on
+   * reconnect; the periodic awareness refresh + the on-connect snapshot recover it.
+   */
+  subscribePageAwareness(id: string, onUpdate: (update: string, clientId: number) => void): () => void;
+  /**
+   * Current presence snapshot for a late joiner (Collab T4): the base64 awareness
+   * updates of everyone currently present (already identity-stamped), so a client
+   * connecting mid-session sees who's here at once rather than waiting out the next
+   * awareness refresh. Read-gated. Empty when nobody else is present.
+   */
+  syncPageAwareness(id: string): Promise<string[]>;
+
   // ── Databases ──────────────────────────────────────────────────────────────
   /** Create a database for a host page. */
   createDatabase(input: DatabaseInput): Promise<StoredDatabase>;
@@ -317,6 +341,11 @@ class LiveStream {
   // the SSE body, see the poll fallback below) is recovered from the next snapshot
   // `page` event and the on-connect sync handshake — never lost.
   private readonly pageUpdateListeners = new Map<string, Set<(update: string, clientId: number) => void>>();
+  // Live collaboration — per-page awareness/presence listeners (Collab T4). Like
+  // the update listeners these carry no durable state, so they are NOT resynced on
+  // reconnect: presence is ephemeral, recovered by the periodic awareness refresh
+  // and the on-connect snapshot — a missed frame just means a cursor lags briefly.
+  private readonly pageAwarenessListeners = new Map<string, Set<(update: string, clientId: number) => void>>();
   // The source reconnects on its own after a drop (server/app restart). We track
   // a prior disconnect so that, on the *next* successful open, we re-fetch every
   // open subscription — the firehose only replays the page *list* on connect, so
@@ -362,6 +391,10 @@ class LiveStream {
       this.pageUpdateListeners
         .get(ev.pageId as string)
         ?.forEach((fn) => fn(ev.update as string, ev.clientId as number));
+    } else if (ev.type === 'awareness') {
+      this.pageAwarenessListeners
+        .get(ev.pageId as string)
+        ?.forEach((fn) => fn(ev.update as string, ev.clientId as number));
     }
   }
 
@@ -382,7 +415,7 @@ class LiveStream {
     const handle = (e: {data?: string}): void => {
       if (e.data != null) this.dispatch(e.data);
     };
-    for (const name of ['list', 'page', 'deleted', 'rows', 'yupdate']) source.addEventListener(name, handle);
+    for (const name of ['list', 'page', 'deleted', 'rows', 'yupdate', 'awareness']) source.addEventListener(name, handle);
     // A drop sets `sawError`; the source auto-reconnects and fires `open` again,
     // at which point we resync so every client transparently re-attaches after a
     // server or app restart (OB-132).
@@ -478,7 +511,8 @@ class LiveStream {
       this.listListeners.size === 0 &&
       this.pageListeners.size === 0 &&
       this.rowsListeners.size === 0 &&
-      this.pageUpdateListeners.size === 0
+      this.pageUpdateListeners.size === 0 &&
+      this.pageAwarenessListeners.size === 0
     ) {
       this.source?.close();
       this.source = null;
@@ -549,6 +583,21 @@ class LiveStream {
     set.add(fn);
     return () => {
       this.removeFromMap(this.pageUpdateListeners, id, fn);
+      this.maybeClose();
+    };
+  }
+
+  /** Subscribe to a page's awareness/presence updates (Collab T4). */
+  onPageAwareness(id: string, fn: (update: string, clientId: number) => void): () => void {
+    this.ensureOpen();
+    let set = this.pageAwarenessListeners.get(id);
+    if (!set) {
+      set = new Set();
+      this.pageAwarenessListeners.set(id, set);
+    }
+    set.add(fn);
+    return () => {
+      this.removeFromMap(this.pageAwarenessListeners, id, fn);
       this.maybeClose();
     };
   }
@@ -754,6 +803,29 @@ export class HttpDataClient implements DataClient {
   async syncPageUpdates(id: string, stateVector: string): Promise<string | null> {
     const {update} = await this.request<{update: string | null}>('POST', API.pageSync(id), {sv: stateVector});
     return update ?? null;
+  }
+
+  /** Publish ephemeral presence (Collab T4); read-gated, identity server-stamped. */
+  async postPageAwareness(id: string, update: string, clientId: number): Promise<void> {
+    const res = await this.authFetch(`${this.baseUrl}${API.pageAwareness(id)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({update, clientId}),
+      cache: 'no-store',
+    });
+    await throwIfNotOk(res);
+  }
+
+  subscribePageAwareness(id: string, onUpdate: (update: string, clientId: number) => void): () => void {
+    return this.liveStream().onPageAwareness(id, onUpdate);
+  }
+
+  /** Current presence snapshot for a late joiner (Collab T4). */
+  async syncPageAwareness(id: string): Promise<string[]> {
+    const res = await this.authFetch(`${this.baseUrl}${API.pageAwareness(id)}`, {cache: 'no-store'});
+    await throwIfNotOk(res);
+    const {updates} = (await res.json()) as {updates?: string[]};
+    return updates ?? [];
   }
 
   // ── Databases ──────────────────────────────────────────────────────────────
