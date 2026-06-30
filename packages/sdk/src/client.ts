@@ -261,6 +261,30 @@ export interface LiveSourceLike {
   close(): void;
 }
 
+/**
+ * How long to wait for the `EventSource`'s first `open` before deciding the
+ * stream is structurally dead and falling back to polling. The *.book.pub
+ * forwarding tunnel buffers the never-ending SSE body in release builds and
+ * forwards nothing, so a tunneled browser sees neither `open` nor any event;
+ * this bound caps how long it stays dark before polling takes over. Loopback
+ * (dev) and any future-fixed transport open well inside this window and so
+ * never poll. Exported for tests; not re-exported from the package index.
+ */
+export const LIVE_OPEN_GRACE_MS = 8000;
+
+/**
+ * How often poll-mode re-fetches every open subscription once the SSE stream is
+ * deemed dead — the interval within which a tunneled client sees writes.
+ */
+export const LIVE_POLL_INTERVAL_MS = 4000;
+
+/**
+ * Number of `error`s (with no intervening `open`) that trip poll-mode early,
+ * before {@link LIVE_OPEN_GRACE_MS} elapses — e.g. a connection that is refused
+ * or fails immediately rather than hanging.
+ */
+export const LIVE_POLL_AFTER_ERRORS = 3;
+
 class LiveStream {
   private source: LiveSourceLike | null = null;
   private readonly listListeners = new Set<(pages: PageMeta[]) => void>();
@@ -271,6 +295,18 @@ class LiveStream {
   // open subscription — the firehose only replays the page *list* on connect, so
   // open pages/rows would otherwise show stale data until their next edit.
   private sawError = false;
+  // SSE-first poll fallback (OB-283): some transports (the *.book.pub forwarding
+  // tunnel in release) can never stream an infinite `EventSource` body, so `open`
+  // and events never arrive. We detect that — no `open` within a grace window, or
+  // repeated pre-open errors — and resync on an interval instead, while the source
+  // keeps retrying underneath. If `open` ever lands we drop polling and resume
+  // pure SSE, so dev and any future-fixed client never poll.
+  private hasOpened = false;
+  private preOpenErrors = 0;
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
+  // Guards against overlapping resyncs (a slow poll vs. the next tick / a reconnect).
+  private resyncing = false;
 
   constructor(
     private readonly liveUrl: string,
@@ -310,39 +346,88 @@ class LiveStream {
     // server or app restart (OB-132).
     source.addEventListener('error', () => {
       this.sawError = true;
+      // The stream can't even establish (a tunnel that buffers the SSE body and
+      // never forwards `open`): after a few pre-open errors, fall back to polling
+      // without waiting out the whole grace window.
+      if (!this.hasOpened && ++this.preOpenErrors >= LIVE_POLL_AFTER_ERRORS) this.startPolling();
     });
     source.addEventListener('open', () => {
+      // SSE is alive: leave (or never enter) poll-mode and resume pure streaming.
+      this.hasOpened = true;
+      this.preOpenErrors = 0;
+      this.clearGraceTimer();
+      this.stopPolling();
       if (this.sawError) {
         this.sawError = false;
         void this.resync();
       }
     });
     this.source = source;
+    // If the first `open` never lands within the grace window, the stream is
+    // structurally dead (a transport that can't stream): fall back to polling.
+    this.graceTimer = setTimeout(() => {
+      this.graceTimer = null;
+      if (!this.hasOpened) this.startPolling();
+    }, LIVE_OPEN_GRACE_MS);
   }
 
-  /** Re-fetch and re-dispatch every open subscription after a reconnect. */
+  /**
+   * Enter poll-mode: resync every open subscription now and then on an interval,
+   * because the SSE stream can't deliver events. Idempotent and a no-op once SSE
+   * has opened; the underlying `EventSource` keeps retrying, and its eventual
+   * `open` calls {@link stopPolling} to exit.
+   */
+  private startPolling(): void {
+    if (this.pollTimer || this.hasOpened) return;
+    void this.resync();
+    this.pollTimer = setInterval(() => void this.resync(), LIVE_POLL_INTERVAL_MS);
+  }
+
+  private stopPolling(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
+  private clearGraceTimer(): void {
+    if (this.graceTimer) {
+      clearTimeout(this.graceTimer);
+      this.graceTimer = null;
+    }
+  }
+
+  /** Re-fetch and re-dispatch every open subscription after a reconnect or poll. */
   private async resync(): Promise<void> {
+    // One resync at a time: a slow refetch must not overlap the next poll tick
+    // (or a reconnect resync) and double-dispatch.
+    if (this.resyncing) return;
+    this.resyncing = true;
     try {
-      const pages = await this.fetchers.listPages();
-      this.listListeners.forEach((fn) => fn(pages));
-    } catch {
-      // Server still coming back up — the next event or resync will catch up.
-    }
-    for (const id of [...this.pageListeners.keys()]) {
       try {
-        const page = await this.fetchers.getPage(id);
-        if (page) this.pageListeners.get(id)?.forEach((s) => s.onPage?.(page));
+        const pages = await this.fetchers.listPages();
+        this.listListeners.forEach((fn) => fn(pages));
       } catch {
-        /* keep going */
+        // Server still coming back up — the next event or resync will catch up.
       }
-    }
-    for (const dbId of [...this.rowsListeners.keys()]) {
-      try {
-        const rows = await this.fetchers.listRows(dbId);
-        this.rowsListeners.get(dbId)?.forEach((fn) => fn(rows));
-      } catch {
-        /* keep going */
+      for (const id of [...this.pageListeners.keys()]) {
+        try {
+          const page = await this.fetchers.getPage(id);
+          if (page) this.pageListeners.get(id)?.forEach((s) => s.onPage?.(page));
+        } catch {
+          /* keep going */
+        }
       }
+      for (const dbId of [...this.rowsListeners.keys()]) {
+        try {
+          const rows = await this.fetchers.listRows(dbId);
+          this.rowsListeners.get(dbId)?.forEach((fn) => fn(rows));
+        } catch {
+          /* keep going */
+        }
+      }
+    } finally {
+      this.resyncing = false;
     }
   }
 
@@ -350,6 +435,13 @@ class LiveStream {
     if (this.listListeners.size === 0 && this.pageListeners.size === 0 && this.rowsListeners.size === 0) {
       this.source?.close();
       this.source = null;
+      // Tear down both fallbacks and reset, so a later re-subscribe re-evaluates
+      // the stream from scratch instead of inheriting a stale poll/grace timer.
+      this.clearGraceTimer();
+      this.stopPolling();
+      this.hasOpened = false;
+      this.sawError = false;
+      this.preOpenErrors = 0;
     }
   }
 
