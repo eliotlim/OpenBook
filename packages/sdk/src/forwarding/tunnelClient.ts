@@ -232,6 +232,12 @@ export class TunnelClient {
     }
 
     try {
+      // `fetchImpl` MUST resolve as soon as the status+headers are known and stream
+      // the body — not buffer it (OB-284). We forward the `res` frame immediately so
+      // a tunneled `EventSource` sees HTTP 200 at once, then relay each body chunk as
+      // it arrives. An infinite SSE body therefore streams live; a localFetch that
+      // buffered to EOF (the old desktop IPC bridge) would never reach this line for
+      // `/api/live` and the relay would abort the exchange at 120s.
       const res = await this.fetchImpl(url, init);
       const resHeaders: [string, string][] = [];
       res.headers.forEach((value, key) => resHeaders.push([key, value]));
@@ -249,6 +255,9 @@ export class TunnelClient {
       }
       this.sendControl({t: 'end', id});
     } catch {
+      // A relay-side `abort` (the viewer left) aborts `controller`, which cancels the
+      // localFetch stream — and via `init.signal` the underlying IPC task/socket. We
+      // suppress the redundant `abort` frame in that case; any OTHER failure reports one.
       if (!controller.signal.aborted) this.sendControl({t: 'abort', id, reason: 'local fetch failed'});
     } finally {
       this.inflight.delete(id);

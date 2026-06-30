@@ -23,7 +23,7 @@ import {
 import type {BookFolderFile, DataClient, ServerInfo} from '@book.dev/sdk';
 
 import {createDesktopClient, DEV_SERVER_URL} from './data/client';
-import {tauriFetch} from './data/ipc';
+import {tauriStreamFetch} from './data/ipc';
 import {createTauriKeyStore, createLocalStorageKeyStore, createTauriAccountStore} from './data/keychain';
 
 import '@book.dev/ui/style.css';
@@ -132,9 +132,15 @@ const platform: PlatformLibrary = {
     // Serve forwarded requests over the SAME transport the local data client uses
     // (see createDesktopClient): the Unix-socket IPC bridge in a managed release
     // build, but plain loopback HTTP in dev — the `pnpm dev` server is TCP-only and
-    // never opens the socket, so `tauriFetch` would dead-dial it. `localOrigin`
+    // never opens the socket, so the IPC fetch would dead-dial it. `localOrigin`
     // stays '' (ForwardingProvider), so the dev impl resolves the path against :4319.
-    localFetch: import.meta.env.DEV ? (input, init) => fetch(`${DEV_SERVER_URL}${input}`, init) : tauriFetch,
+    //
+    // Release uses the STREAMING IPC fetch (not the single-shot `tauriFetch`): a
+    // forwarded `/api/live` is an infinite SSE body that the buffering bridge would
+    // never return, hanging the tunnel until the relay's 120s abort (OB-284). The
+    // streaming variant answers headers immediately and forwards body chunks live.
+    // Dev's loopback `fetch` already streams the SSE body fine.
+    localFetch: import.meta.env.DEV ? (input, init) => fetch(`${DEV_SERVER_URL}${input}`, init) : tauriStreamFetch,
   },
   tabs: {inWindow: true, openWindow},
   windowControls,

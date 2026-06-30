@@ -442,6 +442,9 @@ class LiveStream {
       this.hasOpened = false;
       this.sawError = false;
       this.preOpenErrors = 0;
+      // Belt-and-suspenders: if a resync was mid-flight when the last listener left,
+      // clear the guard so a fresh subscribe isn't wedged out of resyncing (OB-283).
+      this.resyncing = false;
     }
   }
 

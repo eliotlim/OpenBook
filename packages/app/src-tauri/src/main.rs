@@ -491,7 +491,9 @@ fn main() {
             keychain_set,
             keychain_get,
             keychain_delete,
-            ipc::api_request
+            ipc::api_request,
+            ipc::api_request_stream,
+            ipc::api_request_abort
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
