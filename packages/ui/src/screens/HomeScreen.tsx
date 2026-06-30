@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useState} from 'react';
 import type {PageMeta} from '@book.dev/sdk';
-import {Clock, Database, FilePlus, Pencil, Search, SlidersHorizontal, Star} from 'lucide-react';
+import {Clock, Database, FilePlus, Pencil, Search, SlidersHorizontal, Star, Upload} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -123,6 +123,15 @@ export default function HomeScreen() {
     {icon: FilePlus, label: t('nav.newPage'), run: () => void createPage()},
     {icon: Database, label: t('nav.newDatabase'), run: () => void createDatabasePage()},
     {
+      icon: Upload,
+      label: t('home.importContent'),
+      run: () =>
+        setHud((draft) => {
+          draft.importer.open = true;
+          return draft;
+        }),
+    },
+    {
       icon: Search,
       label: t('command.search'),
       run: () =>
@@ -176,7 +185,7 @@ export default function HomeScreen() {
           {widgets.actions && (
             <section className="flex flex-col gap-2.5" data-home-widget="actions">
               <WidgetHeading icon={FilePlus}>{t('home.widgetActions')}</WidgetHeading>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {quickActions.map(({icon: Icon, label, run}) => (
                   <button
                     key={label}

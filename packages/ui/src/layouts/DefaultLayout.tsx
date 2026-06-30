@@ -3,6 +3,7 @@ import {CommandMenu} from '@/components/CommandMenu';
 import GlobalShortcuts from '@/components/GlobalShortcuts';
 import WindowTitle from '@/components/WindowTitle';
 import TemplateGallery from '@/components/TemplateGallery';
+import ImportDialog from '@/components/ImportDialog';
 import {AiSearchDialog} from '@/components/AiSearchDialog';
 import {SplitPane} from '@/components/SplitPane';
 import PluginBoot from '@/components/PluginBoot';
@@ -64,6 +65,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <Settings/>
           <PresentMode/>
           <TemplateGallery/>
+          <ImportDialog/>
           <AiSearchDialog/>
           <AiBridgeHost/>
           <PageAppearanceHost/>
