@@ -17,6 +17,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
+use base64::Engine; // brings `.encode`/`.decode` into scope for the chunk codec
 use serde::Serialize;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
@@ -266,10 +267,12 @@ pub async fn api_request(
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum StreamMessage {
     Head { status: u16, headers: Vec<(String, String)> },
-    /// A raw body slice. Bytes (not text) so any response type streams verbatim;
-    /// the webview reassembles a `Uint8Array`. SSE frames are small, so the
-    /// JSON-array encoding cost is negligible for the live path this serves.
-    Chunk { data: Vec<u8> },
+    /// A body slice, **base64-encoded** so any response type streams verbatim
+    /// (the webview decodes it back to a `Uint8Array`). Serde would otherwise
+    /// emit a `Vec<u8>` as a JSON integer array — ~4–6× expansion over the bridge,
+    /// which the tunnel now pays on EVERY forwarded request (incl. large
+    /// export/asset downloads); base64 is ~1.33× and stays byte-exact.
+    Chunk { data: String },
     End,
     Error { message: String },
 }
@@ -432,7 +435,13 @@ fn stream_request(
 
     // Send the head as soon as it's known so the tunnel answers HTTP 200 promptly
     // (the browser's EventSource sees `open` instead of waiting out the abort).
-    let _ = channel.send(StreamMessage::Head { status, headers: headers_out });
+    // A `send` error means the channel's webview-side consumer is already gone
+    // (e.g. a reload that never fired `api_request_abort`): self-reap rather than
+    // stream into the void. Returning `Ok(())` drops the socket here and lets the
+    // caller remove the registry entry, so the `spawn_blocking` thread is freed.
+    if channel.send(StreamMessage::Head { status, headers: headers_out }).is_err() {
+        return Ok(());
+    }
 
     // Stream the body. De-chunk on the fly (SSE is chunked); a fixed-length body
     // reads exactly `content-length`; anything else reads to EOF.
@@ -465,7 +474,14 @@ fn stream_request(
             }
             Err(e) => return Err(e),
         };
-        let _ = channel.send(StreamMessage::Chunk { data: buf[..n].to_vec() });
+        // Base64 keeps the payload compact (vs. serde's JSON integer array) and
+        // byte-exact. A `send` error means the consumer was torn down without an
+        // `api_request_abort` (webview reload): self-reap on this frame instead of
+        // parking the thread until the read times out / the next ping closes us.
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&buf[..n]);
+        if channel.send(StreamMessage::Chunk { data: encoded }).is_err() {
+            return Ok(());
+        }
         if let Some(r) = remaining.as_mut() {
             *r = r.saturating_sub(n);
         }
@@ -593,4 +609,36 @@ pub fn start_live_bridge(app: AppHandle, conn: ConnInfo) {
         let _ = app.emit("openbook://live-status", "error");
         std::thread::sleep(Duration::from_millis(500));
     });
+}
+
+#[cfg(test)]
+mod chunk_codec_tests {
+    use base64::Engine;
+
+    /// `StreamMessage::Chunk` carries the body as base64 (compact over the bridge);
+    /// `tauriStreamFetch`'s `base64ToBytes` decodes it back. Prove the wire form
+    /// round-trips EVERY byte value — including non-UTF-8 bytes a raw `Vec<u8>`
+    /// would have survived — so the swap stays byte-exact.
+    #[test]
+    fn base64_chunk_roundtrip_is_byte_exact() {
+        let original: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+        let encoded = base64::engine::general_purpose::STANDARD.encode(&original);
+        // The encoded payload is pure ASCII, so no raw bytes leak into the JSON
+        // string serde emits for the `Channel`.
+        assert!(encoded.is_ascii());
+        let decoded = base64::engine::general_purpose::STANDARD.decode(&encoded).unwrap();
+        assert_eq!(decoded, original);
+    }
+
+    /// Pin the exact encoding the webview's `atob` must agree with (standard
+    /// alphabet, `=`-padded) so an accidental engine swap is caught.
+    #[test]
+    fn base64_chunk_matches_known_vector() {
+        let enc = base64::engine::general_purpose::STANDARD.encode(b"OpenBook \x00\xff");
+        assert_eq!(enc, "T3BlbkJvb2sgAP8=");
+        assert_eq!(
+            base64::engine::general_purpose::STANDARD.decode(enc).unwrap(),
+            b"OpenBook \x00\xff"
+        );
+    }
 }

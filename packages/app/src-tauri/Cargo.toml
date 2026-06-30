@@ -32,6 +32,10 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 # Random access tokens for the published-server gate.
 uuid = { version = "1", features = ["v4"] }
+# The streaming IPC bridge (`api_request_stream`) base64-encodes each body chunk
+# before sending it over the Tauri `Channel`: a JSON integer array expands raw
+# bytes ~4–6×, base64 ~1.33×, and the tunnel now streams every forwarded request.
+base64 = "0.22"
 
 # On Unix we ask the server sidecar to shut down gracefully (SIGTERM) on quit so
 # it can flush pending writes before exit, rather than hard-killing it.
