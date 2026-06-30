@@ -43,7 +43,7 @@ function PageTile({page, onOpen}: {page: PageMeta; onOpen: (id: string) => void}
     <button
       type="button"
       onClick={() => onOpen(page.id)}
-      className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow] hover:border-foreground/15 hover:shadow-lift active:shadow-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      className="flex items-center gap-2.5 rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-[background-color,border-color,box-shadow] hover:border-foreground/15 hover:shadow-lift active:shadow-none focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)]"
     >
       <PageIcon value={readPageIcon(page.id)} className="text-lg leading-none" />
       <span className="min-w-0 truncate text-sm font-medium">{displayName(page.name)}</span>
@@ -182,7 +182,7 @@ export default function HomeScreen() {
                     key={label}
                     type="button"
                     onClick={run}
-                    className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-[background-color,border-color,color,box-shadow] hover:border-solid hover:border-foreground/15 hover:bg-hover hover:text-foreground hover:shadow-lift active:shadow-none focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-[background-color,border-color,color,box-shadow] hover:border-solid hover:border-foreground/15 hover:bg-hover hover:text-foreground hover:shadow-lift active:shadow-none focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)]"
                   >
                     <Icon className="h-4 w-4 shrink-0" />
                     {label}

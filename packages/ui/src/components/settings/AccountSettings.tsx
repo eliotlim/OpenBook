@@ -86,7 +86,7 @@ function ManualCodeEntry({onSubmit}: {onSubmit: (raw: string) => void}) {
         rows={2}
         spellCheck={false}
         placeholder={t('account.signin.manualPlaceholder')}
-        className="w-full resize-none rounded-md border border-input bg-background px-2.5 py-2 font-mono text-xs outline-hidden placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        className="w-full resize-none rounded-md border border-input bg-background px-2.5 py-2 font-mono text-xs outline-hidden placeholder:text-muted-foreground focus-visible:border-ring focus-visible:shadow-[var(--ring-field)]"
       />
       <div className="flex gap-2">
         <Button size="sm" onClick={submit} disabled={!code.trim()}>
