@@ -265,6 +265,31 @@ export type {
 } from './suggestions';
 export {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from './templates';
 export {
+  imagePlaceholderBlock,
+  imagePlaceholderCell,
+  importedBlocksToSnapshot,
+  chooseStrategy,
+  writeViaCreateApis,
+  buildImportBundle,
+  writeViaBundle,
+  importDoc,
+  IMAGE_PLACEHOLDER_KIND,
+  IMAGE_PLACEHOLDER_PROP,
+  type ImportInlineAttrs,
+  type ImportTextRun,
+  type ImportedBlock,
+  type ImportedAsset,
+  type ImportedRow,
+  type ImportedDatabase,
+  type ImportedPage,
+  type ImportedDoc,
+  type ImportStrategy,
+  type ImportWriteClient,
+  type ImportOptions,
+  type BundleOptions,
+  type ImportWriteResult,
+} from './import';
+export {
   BACKUP_VERSION,
   BACKUP_CADENCES,
   BACKUP_CADENCE_MS,
