@@ -1,0 +1,8 @@
+{
+  // The emit config for `pnpm build` / `build:libs`. Identical to `tsconfig.json`
+  // (used by `typecheck`, which does cover the tests) but excludes `*.test.ts` so
+  // vitest specs never land in the published `dist`.
+  "extends": "./tsconfig.json",
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+}
