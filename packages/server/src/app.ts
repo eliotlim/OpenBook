@@ -1,5 +1,6 @@
 import {Hono} from 'hono';
 import {cors} from 'hono/cors';
+import {bodyLimit} from 'hono/body-limit';
 import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
 import {
@@ -27,6 +28,7 @@ import {
 } from '@book.dev/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
+import {CollabRelay} from './collab';
 import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
 import {guestGate, recoverAudienceLockedPrincipal, resolvePrincipal, type IdentityProvider} from './principal';
@@ -102,6 +104,18 @@ export interface AppOptions {
 
 export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
+
+  // Live-collaboration catch-up memory (Collab T1): per-page ephemeral relay docs,
+  // seeded from the durable snapshot, so a late joiner can sync to the current doc.
+  // Persists nothing — the debounced snapshot save stays the sole durable checkpoint.
+  const relay = new CollabRelay();
+  // Loads a page's durable snapshot as raw Yjs update bytes — the seed base for the
+  // relay doc. The block document stores its CRDT state as base64 in `blockdoc.update`.
+  const loadRelayBase = async (pageId: string): Promise<Uint8Array | null> => {
+    const page = await store.getPage(pageId);
+    const update = (page?.data as {blockdoc?: {update?: string}} | undefined)?.blockdoc?.update;
+    return typeof update === 'string' && update.length > 0 ? Buffer.from(update, 'base64') : null;
+  };
 
   // Push the latest page list to list subscribers (nav stays live).
   const broadcastList = async (): Promise<void> => {
@@ -309,6 +323,68 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.json(page);
   });
 
+  // ── Live collaboration: incremental relay + late-joiner sync (Collab T1) ──────
+
+  // Body caps for the relay endpoints. A single incremental Yjs update — even a
+  // coalesced burst or a large paste — is at most a few hundred KB; a state vector
+  // is tiny (it scales with the number of clients, not the doc). Cap the raw body
+  // so an authed-but-hostile writer can't inflate a relay `Y.Doc` with one giant
+  // request between TTL sweeps. Generous-but-bounded; 413 past the cap.
+  const RELAY_UPDATE_MAX_BYTES = 1024 * 1024; // 1 MiB per /updates POST
+  const RELAY_SYNC_MAX_BYTES = 256 * 1024; //    256 KiB per /sync handshake
+
+  // Incremental Yjs-update ingest. Write-gated like a content save; broadcasts the
+  // opaque update to the firehose as a read-gated `yupdate` frame so open editors
+  // converge live (between the 600ms snapshot saves, not on them) and folds it into
+  // the in-memory relay doc so a late joiner can catch up. Persists NOTHING — the
+  // debounced `PUT` snapshot stays the durable checkpoint (OB-164 untouched), so
+  // this is a cheap, lossy nudge; not attributed to the edit log. 204 / 400 / 413.
+  app.post(
+    `${API.pages}/:id/updates`,
+    bodyLimit({maxSize: RELAY_UPDATE_MAX_BYTES, onError: (c) => c.json({error: 'request body too large'}, 413)}),
+    async (c) => {
+      const id = c.req.param('id');
+      await requireAccess(c, store, 'write', id);
+      const body = await c.req
+        .json<{update?: string; clientId?: number}>()
+        .catch(() => ({}) as {update?: string; clientId?: number});
+      if (typeof body.update !== 'string' || body.update.length === 0) {
+        return c.json({error: 'missing or invalid update'}, 400);
+      }
+      // Explicit per-update bound (the body cap above subsumes it, but pin the
+      // intent so a single update can never grow the relay doc unboundedly).
+      if (body.update.length > RELAY_UPDATE_MAX_BYTES) {
+        return c.json({error: 'update too large'}, 413);
+      }
+      const clientId = typeof body.clientId === 'number' ? body.clientId : 0;
+      hub.publishPageUpdate(id, body.update, clientId); // live fan-out to connected peers
+      // Fold into the relay doc for late-joiner sync (best-effort, off the hot path).
+      void relay.ingest(id, Buffer.from(body.update, 'base64'), loadRelayBase).catch((err) => {
+        console.error('OpenBook collab relay ingest failed:', err);
+      });
+      return c.body(null, 204);
+    },
+  );
+
+  // Late-joiner sync handshake. Read-gated (you may sync a doc you may read). The
+  // client sends its state vector; we answer with exactly the ops it's missing,
+  // computed from the relay doc (snapshot base + every relayed update since). This
+  // is what makes a client that joins mid-session converge to the CURRENT doc —
+  // not just future edits. `{update: null}` when there's nothing newer to send.
+  app.post(
+    `${API.pages}/:id/sync`,
+    bodyLimit({maxSize: RELAY_SYNC_MAX_BYTES, onError: (c) => c.json({error: 'request body too large'}, 413)}),
+    async (c) => {
+      const id = c.req.param('id');
+      await requireAccess(c, store, 'read', id);
+      const body = await c.req.json<{sv?: string}>().catch(() => ({}) as {sv?: string});
+      const sv =
+        typeof body.sv === 'string' && body.sv.length > 0 ? Buffer.from(body.sv, 'base64') : new Uint8Array();
+      const diff = await relay.sync(id, sv, loadRelayBase);
+      return c.json({update: diff ? Buffer.from(diff).toString('base64') : null});
+    },
+  );
+
   // The backlink graph: pages whose document links to this one. Read-gated on the
   // target page, and the returned linking pages are filtered to those the caller
   // may read (a restricted page that links here must not leak via a backlink).
@@ -346,6 +422,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const deleted = await store.deletePage(id);
     if (!deleted) return c.json({error: 'page not found'}, 404);
     hub.publishDeleted(id);
+    relay.forget(id); // free the page's relay doc (Collab T1); reseeds if restored
     await broadcastList();
     if (existing?.databaseId) await broadcastRows(existing.databaseId);
     logEdit(c, id, 'page.delete', existing?.name ?? '');

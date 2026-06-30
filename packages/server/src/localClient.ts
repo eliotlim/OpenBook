@@ -41,6 +41,7 @@ import type {
 import {BACKUP_CADENCES, BACKUP_CADENCE_MS, localPrincipal} from '@book.dev/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
+import {CollabRelay} from './collab';
 import {resolveInvitee} from './invites';
 
 /**
@@ -61,6 +62,10 @@ import {resolveInvitee} from './invites';
  * reported as unavailable rather than wired to a (nonexistent) engine.
  */
 export class LocalDataClient implements DataClient {
+  // Live-collaboration catch-up memory (Collab T1) — mirrors the HTTP app's relay
+  // so a second in-process window can sync to the current doc. Persists nothing.
+  private readonly relay = new CollabRelay();
+
   constructor(
     private readonly store: PageStore,
     private readonly hub: PageHub = new PageHub(),
@@ -197,6 +202,34 @@ export class LocalDataClient implements DataClient {
     // fresh subscriber paints immediately rather than waiting for the next write.
     void this.store.listPages().then(onList).catch(() => undefined);
     return this.hub.subscribeList((event) => onList(event.pages));
+  }
+
+  // ── Live collaboration: incremental relay + late-joiner sync (Collab T1/T2) ──
+  // Mirrors the HTTP relay over the in-process hub + relay doc, so a second window
+  // on the same store sees incremental updates and a fresh window can sync to the
+  // current doc. Persists nothing (the snapshot save stays the durable checkpoint).
+
+  private loadRelayBase = async (pageId: string): Promise<Uint8Array | null> => {
+    const page = await this.store.getPage(pageId);
+    const update = (page?.data as {blockdoc?: {update?: string}} | undefined)?.blockdoc?.update;
+    return typeof update === 'string' && update.length > 0 ? Buffer.from(update, 'base64') : null;
+  };
+
+  postPageUpdate(id: string, update: string, clientId: number): Promise<void> {
+    this.hub.publishPageUpdate(id, update, clientId);
+    return this.relay.ingest(id, Buffer.from(update, 'base64'), this.loadRelayBase);
+  }
+
+  subscribePageUpdates(id: string, onUpdate: (update: string, clientId: number) => void): () => void {
+    return this.hub.subscribeLive((event) => {
+      if (event.type === 'yupdate' && event.pageId === id) onUpdate(event.update, event.clientId);
+    });
+  }
+
+  async syncPageUpdates(id: string, stateVector: string): Promise<string | null> {
+    const sv = stateVector.length > 0 ? Buffer.from(stateVector, 'base64') : new Uint8Array();
+    const diff = await this.relay.sync(id, sv, this.loadRelayBase);
+    return diff ? Buffer.from(diff).toString('base64') : null;
   }
 
   // ── Databases ──────────────────────────────────────────────────────────────

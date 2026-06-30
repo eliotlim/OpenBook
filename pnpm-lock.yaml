@@ -193,6 +193,9 @@ importers:
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
+      yjs:
+        specifier: ^13.6.31
+        version: 13.6.31
     devDependencies:
       '@electric-sql/pglite-socket':
         specifier: ^0.1.6
