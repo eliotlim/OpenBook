@@ -29,6 +29,8 @@ import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from
 import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
 import {getCustomBlock} from './registry';
 import {CodeBlockView} from './CodeBlockView';
+import {ImageBlockView} from './ImageBlockView';
+import {imageBlockFromFile, imageFilesFromTransfer} from './imageBlock';
 import {pageLinks} from '@/lib/pageLinks';
 import {pageIconToText} from '@/lib/iconValue';
 import {
@@ -168,6 +170,7 @@ export const BlockEditor: React.FC<{
   const [drag, setDrag] = useState<DragState | null>(null);
   const [linkPicker, setLinkPicker] = useState<{kind: 'page' | 'database'; blockId: string; anchorOffset: number} | null>(null);
   const [live, setLive] = useState(''); // aria-live announcements
+  const [fileDragOver, setFileDragOver] = useState(false); // external image drag hovering the editor
 
   // Insert an inline page-link mention (chosen in the LinkPicker) at the caret.
   const insertMention = useCallback(
@@ -416,6 +419,81 @@ export const BlockEditor: React.FC<{
     [doc],
   );
 
+  // ── Image ingest (paste / drop a picture → an image block) ────────────────
+  // The third path — the "/Image" slash command — inserts an empty image block
+  // whose placeholder opens the file picker (see SlashMenu + ImageBlockView), so
+  // it needs no handler here. All three funnel through `imageBlockFromFile`
+  // (data-URL phase-1, size-capped; Assets A1/A2 bring the real store).
+  const insertImagesFromFiles = useCallback(
+    (files: File[], afterId: string | null): void => {
+      let after = afterId;
+      void (async () => {
+        for (const file of files) {
+          const res = await imageBlockFromFile(file);
+          if ('error' in res) {
+            setLive(res.error);
+            continue;
+          }
+          after = editor.insertAfter(after, res.block);
+        }
+      })();
+    },
+    [editor],
+  );
+
+  const lastTopId = (): string | null => {
+    const root = rootBlocks(doc);
+    return root.length > 0 ? blockId(root.get(root.length - 1)) : null;
+  };
+
+  const onRootPaste = (e: React.ClipboardEvent): void => {
+    if (readOnly) return;
+    const files = imageFilesFromTransfer(e.clipboardData);
+    if (files.length === 0) return; // let text paste fall through to the block
+    e.preventDefault();
+    e.stopPropagation();
+    insertImagesFromFiles(files, editor.focusedId ?? lastTopId());
+  };
+
+  // Is this drag carrying external files (vs an internal block move)?
+  const isFileDrag = (e: React.DragEvent): boolean =>
+    !!e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files');
+
+  const onRootDragOver = (e: React.DragEvent): void => {
+    // Internal block-move drags are handled per-row; only claim external files.
+    if (readOnly || drag || !isFileDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    if (!fileDragOver) setFileDragOver(true);
+  };
+
+  const onRootDragLeave = (e: React.DragEvent): void => {
+    // Only clear when the pointer actually left the editor region (dragleave
+    // also fires crossing child boundaries).
+    if (fileDragOver && !e.currentTarget.contains(e.relatedTarget as Node | null)) setFileDragOver(false);
+  };
+
+  const onRootDrop = (e: React.DragEvent): void => {
+    if (readOnly || drag) return; // a block move is finishing — not our drop
+    // We claimed this drag in `onRootDragOver` (preventDefault → the browser
+    // offered it here), so we MUST preventDefault the drop too — otherwise a
+    // dropped non-image file (a PDF, say) triggers the browser's default
+    // file-open and navigates away from the editing session.
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setFileDragOver(false);
+    const files = imageFilesFromTransfer(e.dataTransfer);
+    if (files.length === 0) {
+      setLive('That file isn’t an image.');
+      return;
+    }
+    // Drop onto a row → insert after it; otherwise after the caret / at the end.
+    const rowEl = (e.target as HTMLElement)?.closest?.('[data-block-row]') as HTMLElement | null;
+    const afterId = rowEl?.dataset.blockRow ?? editor.focusedId ?? lastTopId();
+    insertImagesFromFiles(files, afterId);
+  };
+
   // ── Block-selection keyboard ─────────────────────────────────────────────
   // Bound at the document level while a selection exists: selecting a block
   // blurs the text caret, so key events land on <body>, never on this tree.
@@ -634,10 +712,14 @@ export const BlockEditor: React.FC<{
   return (
     <div
       ref={rootRef}
-      className={['obe-root', fullWidth && 'obe-full', compact && 'obe-compact', readOnly && 'obe-readonly'].filter(Boolean).join(' ')}
+      className={['obe-root', fullWidth && 'obe-full', compact && 'obe-compact', readOnly && 'obe-readonly', fileDragOver && 'obe-file-dragover'].filter(Boolean).join(' ')}
       role="region"
       aria-label={ariaLabel ?? 'Page content'}
       onKeyDownCapture={onRootKeyDownCapture}
+      onPaste={onRootPaste}
+      onDragOver={onRootDragOver}
+      onDragLeave={onRootDragLeave}
+      onDrop={onRootDrop}
       onMouseDown={(e) => {
         if (e.target === rootRef.current) editor.clearSelection();
       }}
@@ -1539,6 +1621,12 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
 
   case 'code':
     return <CodeBlockView block={block} editor={textEditor} ui={ui} />;
+
+  case 'image':
+    // A leaf media block — it freezes like text (no interactive-widget
+    // exemption): `textEditor` is read-only in present / viewer / locked-group,
+    // so ImageBlockView hides every edit affordance for a reader.
+    return <ImageBlockView block={block} editor={textEditor} ui={ui} />;
 
   case 'notes':
     // A speaker note: quietly marked on the page (and hidden from the audience

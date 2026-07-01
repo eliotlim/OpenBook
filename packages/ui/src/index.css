@@ -1172,6 +1172,161 @@ a.obe-mention {
   user-select: none;
 }
 
+/* ── Image block (Assets A0) ─────────────────────────────────────────────────
+   A native picture: resizable framed image with an editable alt + caption, and
+   a placeholder / broken state. Edit chrome (size presets, replace, resize
+   handle, alt/caption inputs) is rendered only when writable; a viewer /
+   present-mode reader gets a clean figure. */
+.obe-image {
+  flex: 1;
+  min-width: 0;
+  margin: 0.35rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.obe-image-frame {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  border-radius: 8px;
+}
+.obe-image-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.4);
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Hover chrome: size presets + replace, top-right over the image. */
+.obe-image-tools {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem;
+  border-radius: 8px;
+  background: hsl(var(--background) / 0.86);
+  box-shadow: 0 1px 4px hsl(0 0% 0% / 0.16);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.obe-image-frame:hover .obe-image-tools,
+.obe-image-tools:focus-within { opacity: 1; }
+.obe-image-sizes { display: flex; gap: 1px; }
+.obe-image-size {
+  min-width: 1.4rem;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: hsl(var(--muted-foreground));
+  border-radius: 5px;
+}
+.obe-image-size:hover { background: var(--hover); color: hsl(var(--foreground)); }
+.obe-image-size-on { background: hsl(var(--primary) / 0.14); color: hsl(var(--primary)); }
+.obe-image-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.2rem;
+  border-radius: 5px;
+  color: hsl(var(--muted-foreground));
+}
+.obe-image-tool:hover { background: var(--hover); color: hsl(var(--foreground)); }
+/* Drag handle on the right edge. */
+.obe-image-resize {
+  position: absolute;
+  top: 50%;
+  right: -3px;
+  width: 10px;
+  height: 44px;
+  max-height: 60%;
+  transform: translateY(-50%);
+  border-radius: 6px;
+  cursor: ew-resize;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.obe-image-resize::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 4px;
+  height: 100%;
+  border-radius: 4px;
+  background: hsl(var(--foreground) / 0.35);
+  box-shadow: 0 0 0 2px hsl(var(--background) / 0.7);
+}
+.obe-image-frame:hover .obe-image-resize { opacity: 1; }
+/* Alt + caption inputs (borderless, indented under the picture). */
+.obe-image-alt,
+.obe-image-caption-input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0.1rem 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.82rem;
+}
+.obe-image-alt { font-size: 0.75rem; opacity: 0.85; }
+.obe-image-alt::placeholder,
+.obe-image-caption-input::placeholder { color: hsl(var(--muted-foreground) / 0.55); }
+.obe-image-caption {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.82rem;
+  text-align: center;
+}
+/* Placeholder / broken state. */
+.obe-image-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 1.6rem 1rem;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.35);
+  color: hsl(var(--muted-foreground));
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+.obe-image-placeholder:hover {
+  border-color: hsl(var(--primary) / 0.5);
+  background: hsl(var(--muted) / 0.55);
+}
+.obe-image-placeholder-static { cursor: default; flex-direction: row; padding: 1rem; }
+.obe-image-placeholder-icon { width: 1.4rem; height: 1.4rem; opacity: 0.7; }
+.obe-image-placeholder-title { font-size: 0.9rem; font-weight: 600; color: hsl(var(--foreground)); }
+.obe-image-placeholder-hint { font-size: 0.76rem; }
+.obe-image-error {
+  font-size: 0.78rem;
+  color: hsl(var(--destructive, 0 75% 55%));
+  padding: 0.15rem 0;
+}
+/* A soft, temporary phase-1 limit (the >1 MiB size cap) — muted/info, not a
+   destructive failure. */
+.obe-image-notice {
+  font-size: 0.78rem;
+  color: hsl(var(--muted-foreground));
+  padding: 0.15rem 0;
+}
+/* External image drag hovering the editor — subtle drop-target confirmation so
+   a drop reads as intentional (pairs with the drag/drop handlers). */
+.obe-root.obe-file-dragover { box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.4); border-radius: 8px; }
+.obe-root.obe-file-dragover .obe-image-empty .obe-image-placeholder {
+  border-color: hsl(var(--primary) / 0.7);
+  background: hsl(var(--primary) / 0.08);
+}
+
 /* ── Present mode (slide deck) ───────────────────────────────────────────────
    A page rendered as slides (split at dividers): a centred sheet that fades and
    slides up on change, read-only but with live widgets, editing chrome hidden,
@@ -1755,7 +1910,11 @@ a.obe-mention {
 .obe-table-add:focus-visible,
 .obe-table-tools button:focus-visible,
 .obe-callout-icon:focus-visible,
-.obe-todo-box:focus-visible {
+.obe-todo-box:focus-visible,
+.obe-image-size:focus-visible,
+.obe-image-tool:focus-visible,
+.obe-image-resize:focus-visible,
+.obe-image-placeholder:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 1px;
   opacity: 1;

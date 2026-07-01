@@ -38,6 +38,10 @@ export type BlockType =
   // A speaker note: editable on the page, shown only in the presenter view —
   // never to the audience deck or any export.
   | 'notes'
+  // A native image (Assets A0). Leaf block — no text, no children; the picture
+  // lives in props (`src` is a `data:` URL in phase-1, an `assetId` after A2).
+  // See blockeditor/imageBlock.ts for props + ingest.
+  | 'image'
   | 'divider'
   | 'columns'
   | 'column'
