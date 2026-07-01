@@ -73,6 +73,15 @@ export interface StartOptions {
    */
   maintenanceIntervalMs?: number;
   /**
+   * Grace period, in milliseconds, before an unreferenced asset is eligible for
+   * garbage collection (Assets A6). The maintenance job reaps only assets older
+   * than this that NO live page's document references, so a just-uploaded asset
+   * that hasn't been saved into a page yet is never reaped out from under a pending
+   * save. Defaults to 24h; overridable via `OPENBOOK_ASSET_GC_GRACE_MS`. `<= 0`
+   * reaps eligible orphans immediately (no grace). See {@link PageStore.gcUnreferencedAssets}.
+   */
+  assetGcGraceMs?: number;
+  /**
    * When set, mirror the workspace to a folder of HTML book files at this path
    * (one folder per book) in near-realtime, watch it for external edits, and
    * re-import changes (DB-wins on conflict). Off when unset. See {@link BookMirror}.
@@ -173,6 +182,7 @@ const DEFAULT_TRASH_CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const DEFAULT_EDIT_LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 const DEFAULT_IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_ASSET_GC_GRACE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /**
  * Start the OpenBook server. The single entry both modes use:
@@ -260,10 +270,25 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     (envMaintenance != null && envMaintenance.trim() !== '' && Number.isFinite(Number(envMaintenance))
       ? Number(envMaintenance)
       : DEFAULT_MAINTENANCE_INTERVAL_MS);
+  const envAssetGcGrace = process.env.OPENBOOK_ASSET_GC_GRACE_MS;
+  const assetGcGraceMs =
+    opts.assetGcGraceMs ??
+    (envAssetGcGrace != null && envAssetGcGrace.trim() !== '' && Number.isFinite(Number(envAssetGcGrace))
+      ? Number(envAssetGcGrace)
+      : DEFAULT_ASSET_GC_GRACE_MS);
   let maintenanceTimer: ReturnType<typeof setInterval> | null = null;
   const runMaintenance = async (): Promise<void> => {
     try {
       await store.maintain();
+      // Assets A6: reap assets that NO page document references (past the grace
+      // period), alongside the WAL checkpoint + vacuum. Safe against the
+      // stale-`asset_refs` hazard because eligibility is confirmed by scanning page
+      // documents (live AND trashed, so a restore within trash retention can't
+      // surface a broken image), not the ref table — see PageStore.gcUnreferencedAssets.
+      const gc = await store.gcUnreferencedAssets({graceMs: assetGcGraceMs});
+      if (gc.reaped > 0) {
+        console.log(`OpenBook asset GC: reaped ${gc.reaped} unreferenced asset(s), ${gc.bytes} byte(s) reclaimed`);
+      }
     } catch (err) {
       console.error('OpenBook PGlite maintenance failed:', err);
     }
