@@ -96,6 +96,26 @@ function safeAssetMime(raw: string): string | null {
 }
 
 /**
+ * RFC 9110 `If-None-Match` matcher for our strong, content-addressed asset ETag.
+ * Returns true when the client's cached validator still matches `etag` (⇒ 304 Not
+ * Modified). `*` matches any existing representation; otherwise any comma-separated
+ * member equals `etag` under the spec's WEAK comparison for `If-None-Match` — a
+ * `W/` prefix on either side is ignored, which is harmless here because the asset
+ * bytes are immutable (equal id ⇔ equal bytes), so there is no weak/strong drift.
+ * Callers MUST run the read-gate first: a 304 is only ever reachable once the asset
+ * has been authorized, so this validator can never become a gated-content oracle.
+ */
+function ifNoneMatchMatches(header: string | undefined, etag: string): boolean {
+  if (!header) return false;
+  const strip = (t: string): string => t.trim().replace(/^W\//, '');
+  const want = strip(etag);
+  return header.split(',').some((raw) => {
+    const t = raw.trim();
+    return t === '*' || strip(t) === want;
+  });
+}
+
+/**
  * The Hono app augmented with the optional Collab T9 server-authoritative persister
  * (`null` when `serverPersist` is off). The host ({@link server.ts}) reaches it to
  * flush every dirty canonical doc on shutdown before the store closes.
@@ -486,6 +506,14 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // `Content-Disposition: attachment` so an uploader-chosen mime can never execute
   // in the app origin (attachment doesn't break `<img src>` / `<a download>`, which
   // fetch the bytes rather than navigate to the URL).
+  //
+  // ETag / 304 (Assets A5): the id IS the SHA-256 content hash, so `"<id>"` is a
+  // perfect STRONG validator (equal id ⇔ equal bytes). It's set on BOTH the raw and
+  // base64 responses, and an `If-None-Match` hit short-circuits to a bodyless 304 —
+  // saving the full bytes on a cache-miss revalidation, which matters most through a
+  // *.book.pub tunnel (the browser caches the first fetch, then revalidates). The
+  // read-gate runs FIRST, so the ETag/304 is only ever reachable AFTER authorization
+  // — it never becomes a gated-content existence oracle.
   app.get(`${API.assets}/:id`, async (c) => {
     const id = c.req.param('id');
     // A content-hash id is 64 lowercase hex chars; anything else can't name a stored
@@ -493,8 +521,20 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (!/^[0-9a-f]{64}$/.test(id)) return c.json({error: 'asset not found'}, 404);
     const asset = await store.getAssetFor(c.get('principal'), id);
     if (!asset) return c.json({error: 'asset not found'}, 404);
+
+    // Gate passed — safe to set the content-addressed validator + immutable cache
+    // header (on the 304, the 200, and the base64 variant alike). These are set
+    // AFTER the read-gate so a non-reader gets a plain 404 with neither.
+    const etag = `"${id}"`;
+    c.header('ETag', etag);
+    c.header('Cache-Control', 'private, max-age=31536000, immutable');
+    if (ifNoneMatchMatches(c.req.header('If-None-Match'), etag)) {
+      // Revalidation hit: the client already holds these immutable bytes. Empty body,
+      // keep ETag + Cache-Control (RFC 9110 §15.4.5); no Content-Type/-Length/-body.
+      return c.body(null, 304);
+    }
+
     if (c.req.query('encoding') === 'base64') {
-      c.header('Cache-Control', 'private, max-age=31536000, immutable');
       return c.json({id, mime: asset.mime, size: asset.size, data: Buffer.from(asset.bytes).toString('base64')});
     }
     c.header('Content-Type', asset.mime);
@@ -504,7 +544,6 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // is belt-and-braces on top of the upload-time allowlist.
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('Content-Disposition', 'attachment');
-    c.header('Cache-Control', 'private, max-age=31536000, immutable');
     // Slice to an exact ArrayBuffer (a Buffer's `.buffer` may be a larger shared pool).
     const ab = asset.bytes.buffer.slice(asset.bytes.byteOffset, asset.bytes.byteOffset + asset.bytes.byteLength);
     return c.body(ab as ArrayBuffer);

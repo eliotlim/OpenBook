@@ -949,6 +949,22 @@ export class HttpDataClient implements DataClient {
    * Fetch an asset by content-hash id, decoding the base64-JSON variant
    * (`?encoding=base64`) — again to stay byte-safe over the desktop IPC bridge,
    * which corrupts raw binary responses. `null` on 404 (missing or read-gated).
+   *
+   * A5 decision — base64 single-shot over the desktop's `tauriFetch`, NOT the
+   * streaming `tauriStreamFetch` (which stays tunnel-only): assets are capped at
+   * 10 MiB, and `getAsset` must materialize the FULL bytes anyway (its consumer
+   * wraps them in a `Blob`/object-URL), so streaming buys no client-side memory
+   * win — it would only spare the server a whole-asset base64 pass. Wiring it would
+   * mean threading a second transport through this one `fetchImpl` abstraction for a
+   * bounded (~13 MiB transient) payload — cost > benefit. Buffered base64-JSON is
+   * the right call at this cap; revisit only if the cap is ever raised materially.
+   *
+   * `cache: 'no-store'` keeps this byte-exact across all three transports (IPC
+   * base64, web, tunnel) — it never relies on the browser HTTP cache, so it holds
+   * the object-URL in-app instead. The server's content-addressed `ETag`/304 (A5)
+   * still shortcuts a browser's OWN cache-revalidation for any DIRECT `<img src>`
+   * fetch of the asset URL (notably through a *.book.pub tunnel, where the browser
+   * caches the first response), which is a separate, non-`no-store` code path.
    */
   async getAsset(id: string): Promise<{bytes: Uint8Array; mime: string} | null> {
     const res = await this.authFetch(`${this.baseUrl}${API.asset(id)}?encoding=base64`, {cache: 'no-store'});

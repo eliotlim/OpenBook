@@ -187,6 +187,52 @@ describe('asset routes — open instance', () => {
     expect(got.headers.get('Cache-Control')).toBe('private, max-age=31536000, immutable');
   });
 
+  // ── ETag / 304 conditional GET (Assets A5) ──────────────────────────────────
+
+  it('sets a strong content-addressed ETag ("<id>") on the raw + base64 GET', async () => {
+    const a = app();
+    const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
+    const {id} = (await (await upload(a, page.id, new Uint8Array([9, 8, 7, 6]))).json()) as {id: string};
+
+    const raw = await a.request(`/api/assets/${id}`);
+    expect(raw.headers.get('ETag')).toBe(`"${id}"`); // strong (no W/); id IS the sha-256
+
+    const b64 = await a.request(`/api/assets/${id}?encoding=base64`);
+    expect(b64.status).toBe(200);
+    expect(b64.headers.get('ETag')).toBe(`"${id}"`); // the base64 variant carries it too
+  });
+
+  it('If-None-Match matching the ETag → 304 with an empty body, keeping ETag + cache header', async () => {
+    const a = app();
+    const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
+    const bytes = new Uint8Array([1, 2, 3, 4, 5, 6]);
+    const {id} = (await (await upload(a, page.id, bytes)).json()) as {id: string};
+
+    const res = await a.request(`/api/assets/${id}`, {headers: {'If-None-Match': `"${id}"`}});
+    expect(res.status).toBe(304);
+    expect(res.headers.get('ETag')).toBe(`"${id}"`);
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=31536000, immutable');
+    // 304 is bodyless — it must NOT ship the asset bytes.
+    expect((await res.arrayBuffer()).byteLength).toBe(0);
+
+    // `*` (any existing representation) and a weak `W/` prefix also 304; base64 too.
+    expect((await a.request(`/api/assets/${id}`, {headers: {'If-None-Match': '*'}})).status).toBe(304);
+    expect((await a.request(`/api/assets/${id}`, {headers: {'If-None-Match': `W/"${id}"`}})).status).toBe(304);
+    const b64_304 = await a.request(`/api/assets/${id}?encoding=base64`, {headers: {'If-None-Match': `"${id}"`}});
+    expect(b64_304.status).toBe(304);
+    expect((await b64_304.text()).length).toBe(0);
+  });
+
+  it('a NON-matching If-None-Match still serves the full 200 (no false 304)', async () => {
+    const a = app();
+    const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
+    const bytes = new Uint8Array([2, 4, 6, 8]);
+    const {id} = (await (await upload(a, page.id, bytes)).json()) as {id: string};
+    const res = await a.request(`/api/assets/${id}`, {headers: {'If-None-Match': `"${'f'.repeat(64)}"`}});
+    expect(res.status).toBe(200);
+    expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(Array.from(bytes));
+  });
+
   it('413s an over-cap (>10 MiB) upload body', async () => {
     const a = app();
     const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
@@ -331,6 +377,23 @@ describe('asset routes — claimed instance read-gate (no leak)', () => {
     expect((await req(a, `/api/assets/${assetId}`)).status).toBe(404);
     // The 404 for a real-but-unreadable asset is indistinguishable from a nonexistent one.
     expect((await req(a, `/api/assets/${'a'.repeat(64)}`, await idFor('viewer'))).status).toBe(404);
+  });
+
+  it('If-None-Match does NOT bypass the read-gate: a non-reader still 404s (never a 304 oracle)', async () => {
+    // A5: the ETag/304 short-circuit runs AFTER the read-gate, so a caller who
+    // cannot read any referencing page gets the same plain 404 — never a 304 that
+    // would confirm the asset (and its exact content hash) exists. The `If-None-Match`
+    // even *carries* the real content-hash ETag, and it still 404s (no confirmation).
+    const a = app();
+    const cond = {[IDENTITY_HEADER]: await idFor('viewer'), 'If-None-Match': `"${assetId}"`};
+    const asViewer = await a.request(`/api/assets/${assetId}`, {headers: cond});
+    expect(asViewer.status).toBe(404); // NOT 304
+    expect(asViewer.headers.get('ETag')).toBeNull(); // no validator leaks on the gated 404
+    // A `*` (any existing representation) from a non-reader is likewise a plain 404.
+    const star = await a.request(`/api/assets/${assetId}`, {
+      headers: {[IDENTITY_HEADER]: await idFor('stranger'), 'If-None-Match': '*'},
+    });
+    expect(star.status).toBe(404);
   });
 
   it('a second readable ref opens the SAME asset to that page’s readers (dedup is not a leak)', async () => {
