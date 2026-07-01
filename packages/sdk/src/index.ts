@@ -297,9 +297,29 @@ export {
   type ImportOptions,
   type BundleOptions,
   type ImportWriteResult,
+  blocksHaveImagePlaceholder,
 } from './import';
 export {markdownToBlocks, markdownToImportedDoc, type MarkdownImportOptions} from './markdownImport';
 export {notionExportToImportedDoc, parseCsv} from './notionImport';
+export {
+  rehydrateImageUrls,
+  rehydrateStoredImages,
+  importedImageBlock,
+  imagePlaceholderMeta,
+  mimeFromRef,
+  notionAssetResolver,
+  urlAssetResolver,
+  isHttpUrl,
+  isDataUrlRef,
+  IMAGE_BLOCK_TYPE,
+  DEFAULT_MAX_ASSET_BYTES,
+  type RehydrateUrlOptions,
+  type RehydrateStoredClient,
+  type RehydrateStoredOptions,
+  type RehydrateStoredResult,
+  type ImportAssetResolver,
+  type AssetBytes,
+} from './importAssets';
 export {
   BACKUP_VERSION,
   BACKUP_CADENCES,

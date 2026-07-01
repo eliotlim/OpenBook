@@ -280,6 +280,29 @@ export interface ImportWriteResult {
   rowIds: string[];
   /** The server's `ImportResult` (Strategy B only). */
   importResult?: ImportResult;
+  /**
+   * Landed page ids whose block body still holds an **image placeholder** after
+   * the write (URL / `data:` images are rewritten to real `image` blocks *before*
+   * landing, so these are refs that still need their bytes uploaded — e.g. Notion
+   * zip images). The post-import rehydration pass ({@link rehydrateStoredImages})
+   * targets exactly these, so a large import re-reads/re-saves only image-bearing
+   * pages rather than the whole tree.
+   */
+  placeholderPageIds: string[];
+}
+
+/**
+ * Does this block tree hold an image placeholder (a callout carrying
+ * {@link IMAGE_PLACEHOLDER_PROP})? Used by the writers to record which landed
+ * pages the post-import rehydration pass must revisit (see
+ * {@link ImportWriteResult.placeholderPageIds}). Recurses container children.
+ */
+export function blocksHaveImagePlaceholder(blocks: ImportedBlock[] | undefined): boolean {
+  for (const b of blocks ?? []) {
+    if (b.props?.[IMAGE_PLACEHOLDER_PROP]) return true;
+    if (b.children && blocksHaveImagePlaceholder(b.children)) return true;
+  }
+  return false;
 }
 
 /** How many `(imported)`-suffixed names to try before falling back to untitled. */
@@ -327,7 +350,7 @@ export async function writeViaCreateApis(
   doc: ImportedDoc,
   opts: ImportOptions = {},
 ): Promise<ImportWriteResult> {
-  const result: ImportWriteResult = {strategy: 'create', pageIds: [], databaseIds: [], rowIds: []};
+  const result: ImportWriteResult = {strategy: 'create', pageIds: [], databaseIds: [], rowIds: [], placeholderPageIds: []};
 
   const writeRows = async (databaseId: string, rows: ImportedRow[], parentRowId: string | null): Promise<void> => {
     for (const row of rows) {
@@ -336,6 +359,7 @@ export async function writeViaCreateApis(
         client.createRow(databaseId, {name, properties: row.properties, data, parentId: parentRowId}),
       );
       result.rowIds.push(stored.id);
+      if (blocksHaveImagePlaceholder(row.blocks)) result.placeholderPageIds.push(stored.id);
       if (row.children && row.children.length > 0) await writeRows(databaseId, row.children, stored.id);
     }
   };
@@ -345,6 +369,7 @@ export async function writeViaCreateApis(
       client.savePage({name, data: importedBlocksToSnapshot(page.blocks), parentId}),
     );
     result.pageIds.push(stored.id);
+    if (blocksHaveImagePlaceholder(page.blocks)) result.placeholderPageIds.push(stored.id);
     if (page.icon) await client.setPageProperties(stored.id, {[ICON_PROPERTY_ID]: page.icon});
     if (page.database) {
       const db = await client.createDatabase({
@@ -451,12 +476,22 @@ export async function writeViaBundle(
   const {pages, databases} = buildImportBundle(doc, opts);
   const req: ImportRequest = {pages, databases, mode: 'copy'};
   const importResult = await client.importSpace(req);
+  // Map the bundle pages that carry an image placeholder to their server-assigned
+  // ids (via the id-map) so the post-import rehydration pass revisits only those.
+  const placeholderPageIds: string[] = [];
+  for (const page of pages) {
+    const blocks = (page.data.blockdoc as {blocks?: ImportedBlock[]} | undefined)?.blocks;
+    if (!blocksHaveImagePlaceholder(blocks)) continue;
+    const landed = importResult.idMap[page.id];
+    if (landed) placeholderPageIds.push(landed);
+  }
   return {
     strategy: 'bundle',
     pageIds: Object.values(importResult.idMap),
     databaseIds: [],
     rowIds: [],
     importResult,
+    placeholderPageIds,
   };
 }
 

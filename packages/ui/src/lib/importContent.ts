@@ -26,7 +26,10 @@ import {
   importDoc,
   markdownToImportedDoc,
   notionExportToImportedDoc,
+  rehydrateImageUrls,
+  rehydrateStoredImages,
   IMAGE_PLACEHOLDER_PROP,
+  type ImportAssetResolver,
   type ImportedBlock,
   type ImportedDoc,
   type ImportedPage,
@@ -34,6 +37,7 @@ import {
   type ImportWriteClient,
   type ImportWriteResult,
   type PageMeta,
+  type RehydrateStoredClient,
 } from '@book.dev/sdk';
 
 /** The source formats the dialog can ingest. */
@@ -140,9 +144,62 @@ export function parseImportSource(source: ImportSource): ImportedDoc {
   });
 }
 
-/** Run the actual import via the SDK core (strategy is chosen inside `importDoc`). */
-export function runImport(client: ImportWriteClient, doc: ImportedDoc): Promise<ImportWriteResult> {
-  return importDoc(client, doc);
+/** Options controlling how imported images are rehydrated (Assets A4). */
+export interface RunImportAssetOptions {
+  /**
+   * Resolve a still-placeholder image `ref` to its bytes for upload — a Notion zip
+   * ({@link notionAssetResolver}) or, with {@link downloadUrls}, a URL fetcher
+   * ({@link urlAssetResolver}). Absent → no bytes are uploaded (URL/`data:` images
+   * still become real image blocks via the pure pre-pass).
+   */
+  resolveAssetBytes?: ImportAssetResolver;
+  /**
+   * Opt in to downloading `http(s)` linked images into the asset store (default
+   * off — a linked image is preserved as a URL image block that loads from the
+   * web). Requires {@link resolveAssetBytes}.
+   */
+  downloadUrls?: boolean;
+  /** Per-asset byte cap (default 10 MiB); an over-cap image stays a placeholder. */
+  maxAssetBytes?: number;
+  /** Progress over the upload pass (pages processed / total). */
+  onAssetProgress?: (done: number, total: number) => void;
+}
+
+/**
+ * Run the actual import via the SDK core (strategy is chosen inside `importDoc`),
+ * rehydrating imported image placeholders into real image blocks (Assets A4):
+ *
+ *  1. **Pre-pass** ({@link rehydrateImageUrls}) — pure, before landing: a URL /
+ *     `data:` image placeholder becomes a real `image` block (URLs preserved as
+ *     links unless {@link RunImportAssetOptions.downloadUrls} opts into storing a
+ *     copy). The page lands already carrying real images.
+ *  2. **Upload pass** ({@link rehydrateStoredImages}) — after landing, for the
+ *     pages that still hold a placeholder (Notion zip images / opt-in URL
+ *     downloads): resolve the bytes, `putAsset`, and rewrite to an `assetId`
+ *     image block. Skipped when no resolver is given or nothing needs bytes.
+ *
+ * Degrades safely throughout (an unresolved / over-cap image keeps its ref), so
+ * `pickImportedJumpTarget` still sees the same `result.pageIds`.
+ */
+export async function runImport(
+  client: ImportWriteClient,
+  doc: ImportedDoc,
+  opts: RunImportAssetOptions = {},
+): Promise<ImportWriteResult> {
+  const prepared = rehydrateImageUrls(doc, {
+    preserveHttpUrls: !opts.downloadUrls,
+    maxDataBytes: opts.maxAssetBytes,
+  });
+  const result = await importDoc(client, prepared);
+  if (opts.resolveAssetBytes && result.placeholderPageIds.length > 0) {
+    await rehydrateStoredImages(
+      client as unknown as RehydrateStoredClient,
+      result.placeholderPageIds,
+      opts.resolveAssetBytes,
+      {maxAssetBytes: opts.maxAssetBytes, onProgress: opts.onAssetProgress},
+    );
+  }
+  return result;
 }
 
 /**
