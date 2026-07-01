@@ -1,3 +1,41 @@
+## 1.67.0 (2026-07-01)
+
+### 🚀 Features
+
+- **collab:** live incremental-Yjs relay — server ingest/relay + client provider (Collab T1+T2) ([#54](https://github.com/eliotlim/OpenBook/pull/54))
+- **collab:** Yjs awareness presence over the relay (Collab T4) ([#56](https://github.com/eliotlim/OpenBook/pull/56))
+- **collab:** remote cursors + presence avatars (Collab T5) ([#58](https://github.com/eliotlim/OpenBook/pull/58))
+- **collab:** single-saver election to bound multi-editor write-amplification (Collab T3) ([#61](https://github.com/eliotlim/OpenBook/pull/61))
+- **collab:** re-handshake relay + awareness on reconnect for tight convergence (Collab T7) ([#63](https://github.com/eliotlim/OpenBook/pull/63))
+- **collab:** server-authoritative Yjs persistence (Collab T9) ([#64](https://github.com/eliotlim/OpenBook/pull/64))
+- **sdk:** format-agnostic import core + bundle/create writers (OB-298) ([#51](https://github.com/eliotlim/OpenBook/pull/51))
+- **sdk:** Markdown/GFM -> blocks import parser (OB-299) ([#53](https://github.com/eliotlim/OpenBook/pull/53))
+- **sdk:** Notion export (MD+CSV) import adapter (OB-300) ([#55](https://github.com/eliotlim/OpenBook/pull/55))
+- **sdk:** getAsset/putAsset contract + image block assetId + migration (Assets A2) ([#68](https://github.com/eliotlim/OpenBook/pull/68))
+- **sdk:** rehydrate imported image placeholders into stored assets (Assets A4) ([#70](https://github.com/eliotlim/OpenBook/pull/70))
+- **server:** content-addressed asset store + gated routes (Assets A1) ([#66](https://github.com/eliotlim/OpenBook/pull/66))
+- **server:** asset GC (blockdoc-usage-safe) + storage budget (Assets A6) ([#71](https://github.com/eliotlim/OpenBook/pull/71))
+- **ui:** import UI + first-run "bring your content" onboarding (OB-301) ([#57](https://github.com/eliotlim/OpenBook/pull/57))
+- **ui:** HTML import (file + paste) (Import T3) ([#65](https://github.com/eliotlim/OpenBook/pull/65))
+- **ui:** native image block (data-URL phase-1) (Assets A0) ([#67](https://github.com/eliotlim/OpenBook/pull/67))
+- **ui:** render images in HTML/Markdown/PDF export (Assets A3) ([#69](https://github.com/eliotlim/OpenBook/pull/69))
+
+### 🩹 Fixes
+
+- **desktop:** stream SSE end-to-end through the forwarding tunnel (OB-284) ([#49](https://github.com/eliotlim/OpenBook/pull/49))
+- **desktop:** harden tunnel streaming — orphan reap + compact chunk encode (OB-285) ([#50](https://github.com/eliotlim/OpenBook/pull/50), [#1](https://github.com/eliotlim/OpenBook/issues/1))
+- **sdk:** poll-fallback for tunnel live-updates when SSE can't stream (OB-283) ([#48](https://github.com/eliotlim/OpenBook/pull/48))
+
+### 🔥 Performance
+
+- **collab:** harden the tunneled relay path under multi-editor load (Collab T8) ([#62](https://github.com/eliotlim/OpenBook/pull/62))
+- **server:** ETag/304 + serving hardening for assets (Assets A5) ([#72](https://github.com/eliotlim/OpenBook/pull/72))
+- **ui:** offload import parsing to an inline Web Worker + watchdog (OB-303 / Import T7) ([#60](https://github.com/eliotlim/OpenBook/pull/60))
+
+### ❤️ Thank You
+
+- Eliot Lim @eliotlim
+
 ## 1.66.0 (2026-06-30)
 
 ### 🚀 Features
