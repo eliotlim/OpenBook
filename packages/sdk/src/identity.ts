@@ -82,6 +82,19 @@ export function principalId(p: Principal): string {
 }
 
 /**
+ * The principal's subject ONLY when it is a cryptographically-verified (`jws`)
+ * identity, else `''`. This is the subject that may be stamped as a block's
+ * *verified* author (OB-170): guest/local/unverified writers carry no verified
+ * attribution, so their edits honestly leave a block un-attributed rather than
+ * recording a spoofable or process-local identity. Used on every server write path
+ * that stamps per-block authorship (the durable snapshot save + Collab T9's
+ * server-authoritative persist).
+ */
+export function verifiedSubject(p: Principal | null | undefined): string {
+  return p?.verifiedVia === 'jws' ? p.subject : '';
+}
+
+/**
  * The fixed palette presence/awareness cursors are tinted from (Collab T4). A
  * small, high-contrast set so a handful of simultaneous collaborators stay
  * distinguishable; both the server (when it stamps the verified identity onto an

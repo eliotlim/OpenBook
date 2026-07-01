@@ -25,10 +25,12 @@ import {
   type SuggestionInput,
   type SuggestionStatus,
   type SuggestionUpdate,
+  verifiedSubject,
 } from '@book.dev/sdk';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {CollabRelay} from './collab';
+import {ServerAuthoritativePersister} from './collabPersist';
 import {AwarenessRelay, awarenessUser, stampAwarenessIdentity} from './collabAwareness';
 import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
@@ -56,6 +58,13 @@ function safeEqual(a: string, b: string): boolean {
   for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
+
+/**
+ * The Hono app augmented with the optional Collab T9 server-authoritative persister
+ * (`null` when `serverPersist` is off). The host ({@link server.ts}) reaches it to
+ * flush every dirty canonical doc on shutdown before the store closes.
+ */
+export type AppWithCollab = Hono<AppEnv> & {collabPersist?: ServerAuthoritativePersister | null};
 
 export interface AppOptions {
   /**
@@ -101,6 +110,17 @@ export interface AppOptions {
    * Omitted ⇒ the routes report "unavailable" (standalone instance).
    */
   roster?: RosterController;
+  /**
+   * Server-authoritative Yjs persistence (Collab T9) — opt-in, default off. When
+   * true, the server keeps a per-page canonical CRDT doc fed by every write-gated
+   * `/updates` and debounce-persists a snapshot FROM it (with per-block attribution
+   * derived from the ingesting principal), so a stale client's whole-snapshot save
+   * can no longer overwrite newer content — the durable end-state always converges
+   * to the CRDT merge. When off, the persister is never constructed and durability
+   * is exactly the shipped T3 client-saver model. Applies to the durable native
+   * server (desktop/tunneled/headless); the in-webview store has no shared server.
+   */
+  serverPersist?: boolean;
 }
 
 export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono<AppEnv> {
@@ -134,6 +154,28 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (!hub.hasRowsListeners(databaseId)) return;
     hub.publishRows(databaseId, await store.listRows(databaseId));
   };
+
+  // Server-authoritative Yjs persistence (Collab T9) — opt-in (default off). When
+  // enabled, the server persists the durable snapshot FROM its own canonical CRDT
+  // doc (fed by every write-gated `/updates`), removing the LWW window. A checkpoint
+  // fans out exactly like a PUT save (hub publish → live peers + the OB-241 disk
+  // mirror), so the mirror/conflict/mtimes machinery is untouched. Constructed only
+  // when enabled, so the default path allocates nothing and behaves identically.
+  let persister: ServerAuthoritativePersister | null = null;
+  if (opts.serverPersist) {
+    persister = new ServerAuthoritativePersister({
+      loadBase: loadRelayBase,
+      saveDoc: (id, blockdoc, authorsByBlock) => store.saveServerDoc(id, blockdoc, authorsByBlock),
+      onPersisted: (page) => {
+        hub.publishPage(page); // → live peers + OB-241 disk mirror (server.ts subscription)
+        void broadcastList();
+        if (page.databaseId) void broadcastRows(page.databaseId);
+      },
+    });
+  }
+  // Expose the persister so the host (server.ts) can flush every dirty canonical doc
+  // on shutdown BEFORE the store closes — the no-lost-edit-on-shutdown guarantee.
+  (app as AppWithCollab).collabPersist = persister;
 
   app.use('*', cors());
 
@@ -361,11 +403,23 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
         return c.json({error: 'update too large'}, 413);
       }
       const clientId = typeof body.clientId === 'number' ? body.clientId : 0;
+      const updateBytes = Buffer.from(body.update, 'base64');
       hub.publishPageUpdate(id, body.update, clientId); // live fan-out to connected peers
       // Fold into the relay doc for late-joiner sync (best-effort, off the hot path).
-      void relay.ingest(id, Buffer.from(body.update, 'base64'), loadRelayBase).catch((err) => {
+      void relay.ingest(id, updateBytes, loadRelayBase).catch((err) => {
         console.error('OpenBook collab relay ingest failed:', err);
       });
+      // Collab T9 (opt-in): fold into the SERVER's canonical doc too, attributing the
+      // blocks this update changes to the write-gated principal (its VERIFIED subject,
+      // or '' for a guest/unverified writer — never forged). The persister debounce-
+      // checkpoints the merged doc, so the durable state converges to the merge, not a
+      // stale client's overwrite. Best-effort, off the hot path — a failed fold never
+      // fails the /updates fan-out, and the T3 client saver remains the safety net.
+      if (persister) {
+        void persister
+          .ingest(id, updateBytes, verifiedSubject(c.get('principal')))
+          .catch((err) => console.error('OpenBook server-persist ingest failed:', err));
+      }
       return c.body(null, 204);
     },
   );
@@ -385,7 +439,15 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       const sv =
         typeof body.sv === 'string' && body.sv.length > 0 ? Buffer.from(body.sv, 'base64') : new Uint8Array();
       const diff = await relay.sync(id, sv, loadRelayBase);
-      return c.json({update: diff ? Buffer.from(diff).toString('base64') : null});
+      const update = diff ? Buffer.from(diff).toString('base64') : null;
+      // Collab T9 reconciliation seam (opt-in, additive): when the server is the
+      // persistence authority, report how far the durable store is (its last
+      // checkpoint's state vector) so a client can confirm its relayed edits landed
+      // server-side and stand its own whole-snapshot save down (the T3 handoff). The
+      // field is OMITTED entirely when server-persist is off, so the flag-off response
+      // is byte-identical to the pre-T9 shape — current clients ignore it either way.
+      if (persister) return c.json({update, savedSv: persister.savedStateVector(id)});
+      return c.json({update});
     },
   );
 
@@ -482,6 +544,8 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (!deleted) return c.json({error: 'page not found'}, 404);
     hub.publishDeleted(id);
     relay.forget(id); // free the page's relay doc (Collab T1); reseeds if restored
+    persister?.forget(id); // drop the canonical doc WITHOUT persisting (Collab T9) — a
+    // checkpoint of a just-deleted page would resurrect it; saveServerDoc also no-ops on it
     awarenessRelay.forget(id); // drop any lingering presence (Collab T4)
     await broadcastList();
     if (existing?.databaseId) await broadcastRows(existing.databaseId);

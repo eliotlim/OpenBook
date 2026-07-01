@@ -36,7 +36,7 @@ import type {
   SuggestionUpdate,
   VerifiedVia,
 } from '@book.dev/sdk';
-import {authorize, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, isEmailAuthoritative, latestSnapshotAuthor, projectExports, propertiesReferencePage, remapBundle, stampSnapshotAuthors, stampSnapshotMtimes, type Decision, type EffectiveVisibility, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {authorize, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, isEmailAuthoritative, latestSnapshotAuthor, projectExports, propertiesReferencePage, remapBundle, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import type {Db} from './dbCore';
 import {runMigrations} from './migrations';
 
@@ -72,13 +72,6 @@ interface DatabaseRowRecord {
 
 const EMPTY_SNAPSHOT: PageSnapshot = {editorjs: {blocks: []}, values: [], names: []};
 const EMPTY_SCHEMA: DatabaseSchema = {properties: [], views: []};
-
-/**
- * The subject to carry as a block's verified author (OB-170) — only a JWS-
- * verified principal. Guest/local/unverified writes carry no per-block author,
- * so the snapshot's `authors` map stays a record of *verified* identity only.
- */
-const verifiedSubject = (author?: Principal): string => (author?.verifiedVia === 'jws' ? author.subject : '');
 
 // Timestamps come back as Date (postgres) or ISO string (pglite); normalize.
 const toIso = (value: Date | string): string =>
@@ -724,9 +717,24 @@ export class PageStore {
     return this.db.begin((tx) => this.upsertPageTx(tx, id, input, author));
   }
 
-  /** The page upsert body, run on a caller-supplied transaction so the ER-7 key
-   *  claim and the page write commit atomically. */
-  private async upsertPageTx(tx: Db, id: string, input: PageInput, author?: Principal): Promise<StoredPage> {
+  /**
+   * The page upsert body, run on a caller-supplied transaction so the ER-7 key
+   * claim and the page write commit atomically.
+   *
+   * `authorsByBlock` overrides the single-principal attribution for the
+   * server-authoritative persist path (Collab T9): when the SERVER writes one
+   * converged snapshot merging edits from several writers, each changed block is
+   * attributed to the verified subject of the principal whose update actually
+   * changed it (see {@link saveServerDoc}), rather than crediting every changed
+   * block to one `author`. Absent ⇒ the normal single-`author` stamp.
+   */
+  private async upsertPageTx(
+    tx: Db,
+    id: string,
+    input: PageInput,
+    author?: Principal,
+    authorsByBlock?: ReadonlyMap<string, string>,
+  ): Promise<StoredPage> {
     // Stamp per-block mtimes relative to the page's prior content so an
     // unchanged block keeps its timestamp and a changed one is restamped — the
     // change signal the disk mirror, watcher, and conflict resolver read. The
@@ -737,7 +745,9 @@ export class PageStore {
     const prior = await tx.query<PageRow>('SELECT data FROM pages WHERE id = $1', [id]);
     const priorData = prior.length > 0 ? parseSnapshot(prior[0].data) : null;
     const stamped = stampSnapshotMtimes(priorData, input.data ?? EMPTY_SNAPSHOT, new Date().toISOString());
-    const data = stampSnapshotAuthors(priorData, stamped, verifiedSubject(author));
+    const data = authorsByBlock
+      ? stampSnapshotAuthorsPerBlock(priorData, stamped, authorsByBlock)
+      : stampSnapshotAuthors(priorData, stamped, verifiedSubject(author));
     const rows = await tx.query<PageRow>(
       // A new page is appended to the bottom of its sibling group (one past the
       // current max position). Like `parent_id`, `position` is set only on
@@ -773,6 +783,40 @@ export class PageStore {
       return pageFromRow(existing[0]);
     }
     return pageFromRow(rows[0]);
+  }
+
+  /**
+   * Durably checkpoint the block document of an EXISTING page from the server's
+   * canonical Yjs doc (Collab T9 — server-authoritative persistence). Unlike
+   * {@link upsertPage} this never creates a page and never touches its name: it
+   * replaces only the block document (`editor: 'blocks'` + `blockdoc`) on the page's
+   * prior snapshot, then runs the SAME transactional stamp + no-op-skip write as
+   * every other content save — so OB-241's per-block mtimes, the disk mirror, the
+   * conflict-copy machinery, and the idempotent-write skip all apply unchanged.
+   *
+   * Attribution is per-block (`authorsByBlock`: `blockId → verified subject`) so the
+   * merged checkpoint credits each changed block to the principal whose ingested
+   * update actually changed it (OB-170), never "the server". Returns the updated
+   * page, or `null` when the page no longer exists (deleted mid-session) — a server
+   * checkpoint must never resurrect a deleted page.
+   */
+  async saveServerDoc(
+    id: string,
+    blockdoc: unknown,
+    authorsByBlock: ReadonlyMap<string, string>,
+  ): Promise<StoredPage | null> {
+    return this.db.begin(async (tx) => {
+      const prior = await tx.query<{name: string | null; data: PageSnapshot | string | null}>(
+        'SELECT name, data FROM pages WHERE id = $1 AND deleted_at IS NULL',
+        [id],
+      );
+      if (prior.length === 0) return null; // deleted mid-session — do not resurrect
+      const priorData = parseSnapshot(prior[0].data);
+      // Replace only the block document; keep every other snapshot facet (legacy
+      // editorjs/values/names, etc.). upsertPageTx re-reads prior + stamps mtimes.
+      const data = {...priorData, editor: 'blocks', blockdoc};
+      return this.upsertPageTx(tx, id, {id, name: prior[0].name, data}, undefined, authorsByBlock);
+    });
   }
 
   /**

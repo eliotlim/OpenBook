@@ -23,24 +23,74 @@ import type {PageSnapshot} from './types';
  * known author — or `null` when none are attributed (so the field stays absent
  * on single-user / unverified documents).
  */
+/**
+ * Resolve the *verified* author subject for a **changed/new** block. Returns a
+ * non-empty subject to attribute the block, or `''`/`undefined` to leave it
+ * unattributed (an anonymous/guest edit honestly clears a block's verified
+ * author). Only consulted for changed blocks; unchanged blocks keep their prior
+ * author regardless. This is the seam that lets one snapshot carry per-block
+ * attribution from *different* principals — the server-authoritative persist path
+ * (Collab T9), where one durable checkpoint merges edits from several writers.
+ */
+export type BlockAuthorResolver = (blockId: string) => string | undefined;
+
+/**
+ * Compute the `[blockId, subject]` authorship for `next` against `prev`. Unchanged
+ * blocks (same content hash) keep their prior author; changed/new blocks are
+ * attributed to `resolve(blockId)` when it yields a verified (non-empty) subject,
+ * and are otherwise left unattributed. Returns a sparse map — only blocks with a
+ * known author — or `null` when none are attributed (so the field stays absent on
+ * single-user / unverified documents). The single-principal
+ * {@link computeBlockAuthors} and the per-block {@link stampSnapshotAuthorsPerBlock}
+ * are both thin resolvers over this one diff.
+ */
+function computeBlockAuthorsBy(
+  prev: PageSnapshot | null | undefined,
+  next: PageSnapshot,
+  resolve: BlockAuthorResolver,
+): Array<[string, string]> | null {
+  const prevHash = new Map<string, string>();
+  for (const b of snapshotBlocks(prev)) prevHash.set(b.id, b.hash);
+  const prevAuthor = new Map<string, string>(prev?.authors ?? []);
+
+  const out: Array<[string, string]> = [];
+  for (const b of snapshotBlocks(next)) {
+    const unchanged = prevHash.get(b.id) === b.hash;
+    const author = unchanged ? prevAuthor.get(b.id) ?? '' : resolve(b.id) ?? '';
+    if (author) out.push([b.id, author]);
+  }
+  return out.length > 0 ? out : null;
+}
+
+/**
+ * Compute the `[blockId, subject]` authorship for `next`. Unchanged blocks keep
+ * their prior author; changed/new blocks get `authorSubject` when it is a
+ * verified identity (a non-empty subject), and are otherwise left unattributed
+ * (an anonymous/guest edit honestly clears a block's verified author rather than
+ * falsely keeping the previous one). Returns a sparse map — only blocks with a
+ * known author — or `null` when none are attributed (so the field stays absent
+ * on single-user / unverified documents).
+ */
 export function computeBlockAuthors(
   prev: PageSnapshot | null | undefined,
   next: PageSnapshot,
   authorSubject: string,
 ): Array<[string, string]> | null {
-  const prevBlocks = snapshotBlocks(prev);
-  const prevHash = new Map<string, string>();
-  for (const b of prevBlocks) prevHash.set(b.id, b.hash);
-  const prevAuthor = new Map<string, string>(prev?.authors ?? []);
-  const verified = authorSubject.length > 0;
+  const author = authorSubject.length > 0 ? authorSubject : '';
+  return computeBlockAuthorsBy(prev, next, () => author);
+}
 
-  const out: Array<[string, string]> = [];
-  for (const b of snapshotBlocks(next)) {
-    const unchanged = prevHash.get(b.id) === b.hash;
-    const author = unchanged ? prevAuthor.get(b.id) ?? '' : verified ? authorSubject : '';
-    if (author) out.push([b.id, author]);
+/** Set `next.authors` from a computed map, or drop the key entirely when nothing
+ *  is attributed (so it never appears on single-user/unverified snapshots). */
+function withAuthors(next: PageSnapshot, authors: Array<[string, string]> | null): PageSnapshot {
+  if (!authors) {
+    // Nothing attributed: drop any stale `authors` rather than carry an empty map.
+    if (next.authors === undefined) return next;
+    const rest = {...next};
+    delete rest.authors;
+    return rest;
   }
-  return out.length > 0 ? out : null;
+  return {...next, authors};
 }
 
 /**
@@ -55,15 +105,26 @@ export function stampSnapshotAuthors(
   next: PageSnapshot,
   authorSubject: string,
 ): PageSnapshot {
-  const authors = computeBlockAuthors(prev, next, authorSubject);
-  if (!authors) {
-    // Nothing attributed: drop any stale `authors` rather than carry an empty map.
-    if (next.authors === undefined) return next;
-    const rest = {...next};
-    delete rest.authors;
-    return rest;
-  }
-  return {...next, authors};
+  return withAuthors(next, computeBlockAuthors(prev, next, authorSubject));
+}
+
+/**
+ * Per-block variant of {@link stampSnapshotAuthors} for the server-authoritative
+ * persist path (Collab T9). When the SERVER persists one converged snapshot that
+ * merges edits from several principals, a single `authorSubject` would misattribute
+ * every changed block to one writer. Instead each **changed** block is attributed
+ * to `authorByBlock.get(blockId)` — the *verified* subject of the principal whose
+ * ingested update last changed that block (`''`/absent ⇒ a guest/unverified change,
+ * left unattributed). Unchanged blocks keep their prior author. So attribution
+ * reflects who actually made each change, never "the server" and never a forged
+ * writer. Idempotent when the document is unchanged.
+ */
+export function stampSnapshotAuthorsPerBlock(
+  prev: PageSnapshot | null | undefined,
+  next: PageSnapshot,
+  authorByBlock: ReadonlyMap<string, string>,
+): PageSnapshot {
+  return withAuthors(next, computeBlockAuthorsBy(prev, next, (id) => authorByBlock.get(id)));
 }
 
 /**
