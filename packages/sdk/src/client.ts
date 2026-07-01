@@ -129,6 +129,18 @@ export interface DataClient {
   subscribePage(id: string, handlers: PageSubscription): () => void;
   /** Subscribe to live page-list updates. Returns an unsubscribe fn. */
   subscribePages(onList: (pages: PageMeta[]) => void): () => void;
+  /**
+   * Subscribe to the live stream's *reconnect* signal (Collab T7): fires after the SSE
+   * stream drops and successfully **reopens** (the OB-132/OB-283 resync signal), so a
+   * caller can run a tight catch-up — the relay re-does its state-vector `/sync`
+   * handshake, the awareness provider re-announces presence — instead of waiting out the
+   * coarser page-*snapshot* resync (≤ snapshot-rate). Trailing-debounced against a
+   * flapping connection. It does NOT fire on the FIRST connect (the one-shot handshakes
+   * cover that) nor in poll-mode (no live SSE ⇒ convergence stays at snapshot-rate, the
+   * existing graceful degrade). Returns an unsubscribe fn; a transport with no live
+   * stream (the in-webview client) never fires it.
+   */
+  subscribeReconnect(onReconnect: () => void): () => void;
 
   // ── Live collaboration: incremental relay + late-joiner sync (Collab T1/T2) ──
   /**
@@ -330,6 +342,16 @@ export const LIVE_POLL_INTERVAL_MS = 4000;
  */
 export const LIVE_POLL_AFTER_ERRORS = 3;
 
+/**
+ * Trailing-debounce window for the {@link LiveStream} reconnect signal (Collab T7). A
+ * flapping connection can `error`/`open` repeatedly; coalescing the reopens into a single
+ * notification — fired once the stream has stayed open this long — keeps a caller's
+ * re-handshake from storming the relay. Short relative to a snapshot save, so the
+ * post-reconnect catch-up is still far tighter than the snapshot-rate fallback. Exported
+ * for tests; not re-exported from the package index.
+ */
+export const LIVE_RECONNECT_DEBOUNCE_MS = 300;
+
 class LiveStream {
   private source: LiveSourceLike | null = null;
   private readonly listListeners = new Set<(pages: PageMeta[]) => void>();
@@ -363,6 +385,11 @@ class LiveStream {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   // Guards against overlapping resyncs (a slow poll vs. the next tick / a reconnect).
   private resyncing = false;
+  // Reconnect-signal fan-out (Collab T7): callers (the relay + awareness providers) run a
+  // tight catch-up when the SSE stream reopens after a drop. Trailing-debounced so a
+  // flapping connection fires it once, after the stream has re-stabilised.
+  private readonly reconnectListeners = new Set<() => void>();
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly liveUrl: string,
@@ -435,6 +462,11 @@ class LiveStream {
       if (this.sawError) {
         this.sawError = false;
         void this.resync();
+        // Collab T7: the coarse `resync()` above re-fetches page/row *snapshots*; the
+        // reconnect signal additionally lets the collab providers re-run their tight
+        // Yjs state-vector / awareness re-handshake so a client that missed `yupdate`
+        // frames during the drop converges immediately, not at the next snapshot.
+        this.notifyReconnect();
       }
     });
     this.source = source;
@@ -469,6 +501,35 @@ class LiveStream {
     if (this.graceTimer) {
       clearTimeout(this.graceTimer);
       this.graceTimer = null;
+    }
+  }
+
+  /**
+   * Signal a reconnect to listeners, trailing-debounced (Collab T7). Each reopen
+   * (re)starts the timer, so a flapping connection that reopens several times fires the
+   * listeners exactly once — after the stream has stayed open for the debounce window.
+   */
+  private notifyReconnect(): void {
+    if (this.reconnectListeners.size === 0) return;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      // Copy first: a listener that (un)subscribes during its own re-handshake must not
+      // perturb the fan-out, and one throwing must not starve the others.
+      for (const fn of [...this.reconnectListeners]) {
+        try {
+          fn();
+        } catch {
+          /* a listener's own failure is its own problem */
+        }
+      }
+    }, LIVE_RECONNECT_DEBOUNCE_MS);
+  }
+
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
   }
 
@@ -520,6 +581,7 @@ class LiveStream {
       // the stream from scratch instead of inheriting a stale poll/grace timer.
       this.clearGraceTimer();
       this.stopPolling();
+      this.clearReconnectTimer(); // drop a pending reconnect fan-out (no listeners to serve)
       this.hasOpened = false;
       this.sawError = false;
       this.preOpenErrors = 0;
@@ -598,6 +660,20 @@ class LiveStream {
     set.add(fn);
     return () => {
       this.removeFromMap(this.pageAwarenessListeners, id, fn);
+      this.maybeClose();
+    };
+  }
+
+  /**
+   * Subscribe to the reopen-after-drop reconnect signal (Collab T7). Deliberately
+   * auxiliary: it does NOT `ensureOpen()` (a content subscription opens the stream) and
+   * is excluded from {@link maybeClose}'s emptiness check (a lone reconnect listener has
+   * nothing to catch up), so it can neither open nor wedge the connection by itself.
+   */
+  onReconnect(fn: () => void): () => void {
+    this.reconnectListeners.add(fn);
+    return () => {
+      this.reconnectListeners.delete(fn);
       this.maybeClose();
     };
   }
@@ -782,6 +858,11 @@ export class HttpDataClient implements DataClient {
 
   subscribePages(onList: (pages: PageMeta[]) => void): () => void {
     return this.liveStream().onList(onList);
+  }
+
+  /** Reopen-after-drop reconnect signal (Collab T7) — tight post-reconnect catch-up. */
+  subscribeReconnect(onReconnect: () => void): () => void {
+    return this.liveStream().onReconnect(onReconnect);
   }
 
   /** Relay one incremental Yjs update (Collab T1); ephemeral, no store write. */

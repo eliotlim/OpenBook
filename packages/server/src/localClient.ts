@@ -263,6 +263,12 @@ export class LocalDataClient implements DataClient {
     return Promise.resolve(this.awarenessRelay.snapshot(id).map((u) => Buffer.from(u).toString('base64')));
   }
 
+  /** Reopen-after-drop reconnect signal (Collab T7). The in-webview client's live hub is
+   *  in-process and never drops, so there is nothing to re-handshake — no-op. */
+  subscribeReconnect(): () => void {
+    return () => {};
+  }
+
   // ── Databases ──────────────────────────────────────────────────────────────
 
   async createDatabase(input: DatabaseInput): Promise<StoredDatabase> {

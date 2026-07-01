@@ -19,10 +19,14 @@ import {blockText, findBlock} from './model';
  *
  *  - **Network (cross-user).** Local awareness changes POST to
  *    `/api/pages/:id/awareness` (read-gated, so viewers appear present); incoming
- *    presence arrives as `awareness` SSE frames, plus a one-shot snapshot on connect
- *    so a late joiner sees who's already here. The server **re-stamps the identity**
- *    from the verified principal, so a peer's name/colour are trustworthy — what we
- *    set locally below is only our own self-view + the same-browser mirror.
+ *    presence arrives as `awareness` SSE frames, plus a snapshot on connect so a late
+ *    joiner sees who's already here. On an SSE reopen-after-drop (the live stream's
+ *    reconnect signal, Collab T7) that handshake RE-runs: we re-announce our own state so
+ *    peers see us return, and re-pull the snapshot as the AUTHORITATIVE present set —
+ *    pruning peers that departed while we were disconnected (so a stale saver can't linger
+ *    to the awareness TTL) and re-driving the saver election. The server **re-stamps the
+ *    identity** from the verified principal, so a peer's name/colour are trustworthy —
+ *    what we set locally below is only our own self-view + the same-browser mirror.
  *  - **BroadcastChannel (same-browser tabs).** Awareness also rides a channel so two
  *    tabs of one user see each other instantly and offline; same user, so the
  *    self-stamped identity is trivially correct there.
@@ -109,6 +113,45 @@ const fromBase64 = (b64: string): Uint8Array => {
 };
 
 /**
+ * The client ids carried by a `y-protocols/awareness` update, read straight off the wire
+ * (`[varUint count, (varUint clientID, varUint clock, varString state)…]`) without a full
+ * decode. Collab T7 uses this so a reconnect can treat the server's presence snapshot as
+ * the AUTHORITATIVE present set: a peer that departed while we were disconnected sent a
+ * removal we never saw, and re-applying its unchanged same-clock entry is a CRDT no-op
+ * that would NOT prune it — so we prune by absence from the snapshot instead. Self-contained
+ * (no lib0 import) and pinned by a test that feeds it real {@link encodeAwarenessUpdate}
+ * bytes, so any wire-format drift fails loudly.
+ */
+export function awarenessUpdateClients(update: Uint8Array): number[] {
+  let pos = 0;
+  // Unsigned LEB128 varint; multiplication-based accumulation so a full 32-bit clientID
+  // (up to 5 bytes) stays exact where a 32-bit bit-shift would overflow.
+  const readVarUint = (): number => {
+    let num = 0;
+    let mult = 1;
+    for (;;) {
+      const byte = update[pos];
+      pos += 1;
+      num += (byte & 0x7f) * mult;
+      if (byte < 0x80) return num;
+      mult *= 128;
+    }
+  };
+  const clients: number[] = [];
+  const count = readVarUint();
+  for (let i = 0; i < count; i += 1) {
+    clients.push(readVarUint()); // clientID
+    readVarUint(); // clock — skip
+    // state: a varUint utf8 byte-length then that many bytes. Read the length into its own
+    // statement first — `pos += readVarUint()` would fold in the pre-read `pos`, dropping
+    // readVarUint's own advance past the length bytes.
+    const stateBytes = readVarUint();
+    pos += stateBytes;
+  }
+  return clients;
+}
+
+/**
  * Build an {@link AwarenessSelection} for a block + optional caret offsets, encoding
  * the offsets as `Y.RelativePosition`s into the block's text so they track edits
  * (T5 resolves them back with `Y.createAbsolutePositionFromRelativePosition`). Omit
@@ -175,22 +218,72 @@ export function connectPageAwareness(
     }
   });
 
-  // Snapshot of who's already here, so we don't wait out the next periodic refresh.
-  void (async () => {
-    try {
-      const updates = await client.syncPageAwareness(pageId);
-      if (disposed) return;
-      for (const u of updates) {
-        try {
-          applyAwarenessUpdate(awareness, fromBase64(u), 'net');
-        } catch {
-          /* skip a bad entry */
-        }
+  /** Encode our own current awareness state for a POST (self-announce). */
+  const postSelf = (): Uint8Array => encodeAwarenessUpdate(awareness, [doc.clientID]);
+
+  /**
+   * Fetch the current presence snapshot and apply it. On a `reconcile` pass (a reconnect)
+   * the snapshot is AUTHORITATIVE: any remote peer NOT in it departed while we were
+   * disconnected (we missed its removal frame), so it's pruned — otherwise a stale peer,
+   * e.g. a departed saver, would linger in the election until the awareness TTL.
+   */
+  const applyAwarenessSnapshot = async (reconcile: boolean): Promise<void> => {
+    const updates = await client.syncPageAwareness(pageId);
+    if (disposed) return;
+    const present = new Set<number>([doc.clientID]); // never prune ourselves
+    for (const u of updates) {
+      try {
+        const bytes = fromBase64(u);
+        if (reconcile) for (const id of awarenessUpdateClients(bytes)) present.add(id);
+        applyAwarenessUpdate(awareness, bytes, 'net');
+      } catch {
+        /* skip a bad entry */
       }
-    } catch {
-      // offline / poll-mode tunnel: the periodic awareness refresh is the backstop
     }
-  })();
+    if (reconcile) {
+      const stale = [...awareness.getStates().keys()].filter((id) => !present.has(id));
+      if (stale.length) removeAwarenessStates(awareness, stale, 'reconnect'); // not 'local' → onUpdate ignores it
+    }
+  };
+
+  // Snapshot of who's already here, so we don't wait out the next periodic refresh.
+  void applyAwarenessSnapshot(false).catch(() => {
+    // offline / poll-mode tunnel: the periodic awareness refresh is the backstop
+  });
+
+  // Collab T7 — re-announce + reconcile on SSE reopen. A drop means peers stopped seeing
+  // us (our server-side presence may have expired) and we may have missed their join/leave
+  // frames. On reopen we re-POST our own state so peers see us return, and re-pull the
+  // presence snapshot (authoritative) so departed peers are pruned and returning ones
+  // reappear — which fires the awareness `change` the saver election re-derives from
+  // (dirty-on-election if we become saver). One reconcile at a time; a reconnect mid-pass
+  // queues exactly ONE follow-up, so a flapping connection can't storm the channel.
+  let reconciling = false;
+  let reconcileQueued = false;
+  const onReconnect = (): void => {
+    if (disposed) return;
+    if (reconciling) {
+      reconcileQueued = true;
+      return;
+    }
+    reconciling = true;
+    // Re-announce our own presence immediately (best-effort) so peers/server re-register us.
+    if (awareness.getLocalState() != null) {
+      void client.postPageAwareness(pageId, toBase64(postSelf()), doc.clientID).catch(() => undefined);
+    }
+    void applyAwarenessSnapshot(true)
+      .catch(() => {
+        // offline / poll-mode tunnel: the periodic awareness refresh is the backstop
+      })
+      .finally(() => {
+        reconciling = false;
+        if (!disposed && reconcileQueued) {
+          reconcileQueued = false;
+          onReconnect();
+        }
+      });
+  };
+  const unsubReconnect = client.subscribeReconnect?.(onReconnect);
 
   // ── Send: coalesce local changes, one POST in flight, ≤10Hz sustained ─────────
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -198,8 +291,6 @@ export function connectPageAwareness(
   let dirty = false;
   // When the last POST *started*, for the sustained-rate ceiling (Collab T8).
   let lastPostAt = 0;
-
-  const postSelf = (): Uint8Array => encodeAwarenessUpdate(awareness, [doc.clientID]);
 
   const flush = (): void => {
     timer = null;
@@ -289,6 +380,7 @@ export function connectPageAwareness(
       }
       if (hasWindow) window.removeEventListener('beforeunload', onUnload);
       awareness.off('update', onUpdate);
+      unsubReconnect?.();
       sendDeparture(); // announce we're gone (no ghost cursor) before tearing down
       unsubscribe();
       try {

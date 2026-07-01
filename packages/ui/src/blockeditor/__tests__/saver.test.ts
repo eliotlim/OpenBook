@@ -39,7 +39,12 @@ const fromB64 = (b64: string): Uint8Array => {
  * top-level awareness fields flow through unchanged (the real server's stamp preserves
  * them too, only forcing `user`).
  */
-function fakeCollab(): {client: DataClient} {
+function fakeCollab(): {
+  client: DataClient;
+  reconnect: () => void;
+  setAwarenessDelivery: (on: boolean) => void;
+  dropAwarenessFromSnapshot: (id: string, clientId: number) => void;
+  } {
   const relSubs = new Map<string, Set<(u: string, c: number) => void>>();
   const relDocs = new Map<string, Y.Doc>();
   const relDoc = (id: string): Y.Doc => {
@@ -52,6 +57,8 @@ function fakeCollab(): {client: DataClient} {
   };
   const awSubs = new Map<string, Set<(u: string, c: number) => void>>();
   const awSnap = new Map<string, Map<number, string>>();
+  const reconnectListeners = new Set<() => void>();
+  let awDelivering = true;
   const client = {
     postPageUpdate(id: string, update: string, clientId: number): Promise<void> {
       Y.applyUpdate(relDoc(id), fromB64(update));
@@ -78,7 +85,7 @@ function fakeCollab(): {client: DataClient} {
         awSnap.set(id, p);
       }
       p.set(clientId, update);
-      awSubs.get(id)?.forEach((fn) => fn(update, clientId));
+      if (awDelivering) awSubs.get(id)?.forEach((fn) => fn(update, clientId));
       return Promise.resolve();
     },
     subscribePageAwareness(id: string, on: (u: string, c: number) => void): () => void {
@@ -93,8 +100,21 @@ function fakeCollab(): {client: DataClient} {
     syncPageAwareness(id: string): Promise<string[]> {
       return Promise.resolve([...(awSnap.get(id)?.values() ?? [])]);
     },
+    subscribeReconnect(onReconnect: () => void): () => void {
+      reconnectListeners.add(onReconnect);
+      return () => reconnectListeners.delete(onReconnect);
+    },
   } as unknown as DataClient;
-  return {client};
+  return {
+    client,
+    reconnect: () => reconnectListeners.forEach((fn) => fn()),
+    setAwarenessDelivery: (on) => {
+      awDelivering = on;
+    },
+    dropAwarenessFromSnapshot: (id, clientId) => {
+      awSnap.get(id)?.delete(clientId);
+    },
+  };
 }
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -317,6 +337,42 @@ describe('Collab T3 — single-saver election', () => {
     resolved.disconnect();
     flipAware.disconnect();
     writer.disconnect();
+  });
+
+  it('re-derives the saver on reconnect: prunes a silently-departed saver, then dirty-on-election saves (Collab T7)', async () => {
+    const collab = fakeCollab();
+    const {client} = collab;
+    const snap = blankSnap();
+    // The saver's debounce is long enough that it will NOT persist w20's relayed edit
+    // before it leaves; w20's backstop is huge so ONLY the reconnect can promote it — this
+    // isolates the reconnect-driven re-derivation from the degraded-relay backstop.
+    const w10 = connectWriter(client, 'p', 10, snap, {debounceMs: 5_000});
+    const w20 = connectWriter(client, 'p', 20, snap, {debounceMs: 80, backstopMs: 60_000});
+    await wait(220);
+    expect(w10.isSaver()).toBe(true);
+    expect(w20.isSaver()).toBe(false);
+
+    edit(w20.doc, 'x'); // w20 (non-saver) edits → dirty; relays to w10, which won't save yet
+    await wait(140);
+    expect(w20.saves()).toBe(0);
+
+    // w20's stream drops; the saver w10 leaves for good and the server GC's its presence —
+    // but the offline w20 never sees w10's departure, so it still defers to a dead saver.
+    collab.setAwarenessDelivery(false);
+    w10.disconnect();
+    collab.dropAwarenessFromSnapshot('p', w10.doc.clientID);
+    expect(w20.isSaver()).toBe(false); // stale: w20 still thinks w10 saves
+    expect(w20.saves()).toBe(0);
+
+    // w20 reopens → awareness reconcile prunes the gone w10 → w20 re-derives to saver →
+    // dirty-on-election persists its held edit at once. No lost edit, no backstop wait.
+    collab.setAwarenessDelivery(true);
+    collab.reconnect();
+    await wait(160);
+    expect(w20.isSaver()).toBe(true);
+    expect(w20.saves()).toBeGreaterThanOrEqual(1);
+
+    w20.disconnect();
   });
 
   it('falls back to saving its own edits when the saver never confirms (degraded relay / stalled saver)', async () => {
