@@ -269,6 +269,23 @@ export class LocalDataClient implements DataClient {
     return () => {};
   }
 
+  // ── Assets: content-addressed binary store (OB-ASSETS A2) ────────────────────
+  // In-process: talk straight to the store. `putAsset` refs the asset to its page
+  // in the same call (mirroring the HTTP route) so it inherits that page's
+  // read-gate and is immediately reachable. `getAsset` is ungated — the in-webview
+  // store is single-user (the implicit local owner reads their own assets).
+
+  async putAsset(bytes: Uint8Array, mime: string, pageId: string): Promise<{id: string}> {
+    const {id} = await this.store.putAsset(bytes, mime);
+    await this.store.refAsset(id, pageId);
+    return {id};
+  }
+
+  async getAsset(id: string): Promise<{bytes: Uint8Array; mime: string} | null> {
+    const got = await this.store.getAsset(id);
+    return got ? {bytes: got.bytes, mime: got.mime} : null;
+  }
+
   // ── Databases ──────────────────────────────────────────────────────────────
 
   async createDatabase(input: DatabaseInput): Promise<StoredDatabase> {

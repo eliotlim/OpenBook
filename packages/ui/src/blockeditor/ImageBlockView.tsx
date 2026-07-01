@@ -1,20 +1,32 @@
-import React, {useRef, useState} from 'react';
-import {ImageOff, ImagePlus, Upload} from 'lucide-react';
+import React, {useEffect, useRef, useState} from 'react';
+import {ImageOff, ImagePlus, Loader2, Upload} from 'lucide-react';
 import {blockId, blockProp, setBlockProp, type BlockMap} from './model';
-import {imageBlockFromFile, isImageFile, type ImageBlockProps} from './imageBlock';
+import {
+  dataUrlMime,
+  dataUrlToBytes,
+  imageBlockFromFile,
+  isDataUrl,
+  isImageFile,
+  type ImageBlockProps,
+} from './imageBlock';
+import {assetBridge} from '@/lib/assetBridge';
+import {getPageIdForDoc} from '@/lib/aiBridge';
 import type {BlockEditorController} from './useBlockEditor';
 import type {EditorUI} from './BlockEditor';
 
 /**
- * The native image block (Assets A0, data-URL phase-1).
+ * The native image block (Assets A2).
  *
- * Renders the picture with an editable **alt** (accessibility) and **caption**,
- * a **resize** handle plus preset sizes (persisted to props), and a
- * placeholder / broken-image state. All edit affordances are gated on
+ * The picture is stored as an **`assetId`** (a content-addressed asset store id);
+ * this view resolves it to an **object URL** via the asset bridge for `<img src>`,
+ * revoking the URL on unmount / change so nothing leaks. A block still holding a
+ * legacy A0 `data:` URL in `src` renders it directly (back-compat) and — in an
+ * editable context with an asset backend — is lazily migrated to an `assetId`
+ * once (its bytes uploaded, the inline data-URL dropped from the CRDT). Renders
+ * an editable **alt** + **caption**, **resize** handle + preset sizes, and
+ * loading / placeholder / broken states. All edit affordances are gated on
  * `editor.readOnly`, so a viewer / present-mode / locked-group reader sees a
- * clean figure with no chrome. The picture lives in the `src` prop as a `data:`
- * URL for now; Assets A2 swaps that for an `assetId` — this view only ever reads
- * `src`, so that migration stays local.
+ * clean figure with no chrome.
  */
 
 const SIZE_PRESETS: Array<{label: string; title: string; width: string | undefined}> = [
@@ -28,20 +40,99 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
   editor,
 }) => {
   const id = blockId(block);
-  const src = blockProp<string>(block, 'src') ?? '';
+  const assetId = blockProp<string>(block, 'assetId');
+  const rawSrc = blockProp<string>(block, 'src') ?? '';
+  // A legacy inline `data:` URL (A0) vs any other stored `src` (a plain URL).
+  const legacyDataUrl = isDataUrl(rawSrc) ? rawSrc : '';
+  const directSrc = !isDataUrl(rawSrc) && rawSrc ? rawSrc : '';
   const alt = blockProp<string>(block, 'alt') ?? '';
   const caption = blockProp<string>(block, 'caption') ?? '';
   const width = blockProp<string>(block, 'width');
   const readOnly = editor.readOnly;
   const [broken, setBroken] = useState(false);
-  // A failed/limited ingest: `soft` (the size cap) reads as a muted info note,
-  // a hard error as destructive red — both are announced (role="alert").
+  // The resolved object URL for an assetId, and whether we're still fetching it.
+  // `resolving` seeds from whether we have an assetId so a block with one paints
+  // the loading state on the FIRST frame — never a flash of the empty "add image"
+  // placeholder before the resolve effect runs.
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(Boolean(assetId));
+  // A failed/limited ingest: `soft` (a size cap) reads as a muted info note, a
+  // hard error as destructive red — both are announced (role="alert").
   const [notice, setNotice] = useState<{message: string; soft: boolean} | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const frameRef = useRef<HTMLDivElement>(null);
 
   const set = (key: string, value: unknown): void =>
     editor.doc.transact(() => setBlockProp(block, key, value), 'local');
+
+  // ── Resolve an assetId → an object URL for <img src> ───────────────────────
+  // Fetch the bytes via the asset bridge, wrap them in a Blob, create an object
+  // URL; revoke it on unmount / when the assetId changes so nothing leaks.
+  useEffect(() => {
+    if (!assetId) {
+      setObjectUrl(null);
+      return;
+    }
+    let cancelled = false;
+    let created: string | null = null;
+    setObjectUrl(null); // show the loading state while (re)resolving
+    setResolving(true);
+    setBroken(false);
+    void assetBridge
+      .getAsset(assetId)
+      .then((asset) => {
+        if (cancelled) return;
+        if (!asset) {
+          setBroken(true); // missing / unreadable → broken state
+          return;
+        }
+        created = URL.createObjectURL(new Blob([asset.bytes as BlobPart], {type: asset.mime}));
+        setObjectUrl(created);
+      })
+      .catch(() => {
+        if (!cancelled) setBroken(true);
+      })
+      .finally(() => {
+        if (!cancelled) setResolving(false);
+      });
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [assetId]);
+
+  // ── Lazy migration: legacy `data:` URL → assetId (Assets A2) ────────────────
+  // Once, in an editable context with an asset backend, upload the inline bytes
+  // then rewrite the block to an assetId and drop the data-URL from the CRDT.
+  // Guarded so it uploads at most once; a transient failure clears the guard for
+  // a later retry. A viewer never migrates (can't write) — the data-URL renders
+  // directly. Content-addressed dedup makes a re-upload idempotent regardless.
+  const migratedRef = useRef(false);
+  useEffect(() => {
+    if (readOnly || assetId || !legacyDataUrl || migratedRef.current) return;
+    if (!assetBridge.ready()) return;
+    const pageId = getPageIdForDoc(editor.doc);
+    if (!pageId) return;
+    const bytes = dataUrlToBytes(legacyDataUrl);
+    if (!bytes) return;
+    migratedRef.current = true;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const {id: newId} = await assetBridge.putAsset(bytes, dataUrlMime(legacyDataUrl), pageId);
+        if (cancelled) return;
+        editor.doc.transact(() => {
+          setBlockProp(block, 'assetId', newId);
+          setBlockProp(block, 'src', undefined); // drop the inline base64 from the CRDT
+        }, 'local');
+      } catch {
+        migratedRef.current = false; // allow a retry on the next render / remount
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [assetId, legacyDataUrl, readOnly, editor, block]);
 
   const pickFile = (): void => fileRef.current?.click();
 
@@ -50,7 +141,7 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
       setNotice({message: 'That file isn’t an image.', soft: false});
       return;
     }
-    const res = await imageBlockFromFile(file);
+    const res = await imageBlockFromFile(file, getPageIdForDoc(editor.doc) ?? undefined);
     if ('error' in res) {
       setNotice({message: res.error, soft: Boolean(res.soft)});
       return;
@@ -59,7 +150,15 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
     setBroken(false);
     const props = res.block.props as unknown as ImageBlockProps;
     editor.doc.transact(() => {
-      setBlockProp(block, 'src', props.src);
+      // Set the produced form and clear the other, so replacing an image never
+      // leaves a stale assetId + src on the same block.
+      if (props.assetId) {
+        setBlockProp(block, 'assetId', props.assetId);
+        setBlockProp(block, 'src', undefined);
+      } else if (props.src) {
+        setBlockProp(block, 'src', props.src);
+        setBlockProp(block, 'assetId', undefined);
+      }
       // Seed alt from the file name only when the author hasn't written one.
       if (props.alt && !alt) setBlockProp(block, 'alt', props.alt);
     }, 'local');
@@ -96,15 +195,34 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
     window.addEventListener('pointerup', up);
   };
 
-  const hasImage = Boolean(src) && !broken;
+  // The picture URL for <img>: the resolved object URL (assetId path) or a legacy
+  // inline data-URL / direct URL (rendered directly for back-compat).
+  const displaySrc = assetId ? objectUrl : legacyDataUrl || directSrc;
+  const hasImage = Boolean(displaySrc) && !broken;
+  // An assetId still resolving (bytes not yet fetched) — a loading state distinct
+  // from the empty/broken placeholder.
+  const loading = Boolean(assetId) && resolving && !objectUrl && !broken;
 
-  // The size cap is a soft, temporary phase-1 limit → muted info tone; a bad
-  // file is a hard error → destructive tone. Both announce via role="alert".
+  // The size cap is a soft, temporary limit → muted info tone; a bad file is a
+  // hard error → destructive tone. Both announce via role="alert".
   const noticeEl = notice && (
     <div className={notice.soft ? 'obe-image-notice' : 'obe-image-error'} role="alert">
       {notice.message}
     </div>
   );
+
+  // ── Loading state (resolving an assetId) ───────────────────────────────────
+  if (loading) {
+    return (
+      <figure className="obe-image obe-image-empty" contentEditable={false} data-block-image={id}>
+        <div className="obe-image-placeholder obe-image-placeholder-static" aria-label={alt || 'Loading image'} aria-busy>
+          <Loader2 className="obe-image-placeholder-icon animate-spin" aria-hidden />
+          <span>Loading image…</span>
+        </div>
+        {caption && <figcaption className="obe-image-caption">{caption}</figcaption>}
+      </figure>
+    );
+  }
 
   // ── Placeholder / broken state ─────────────────────────────────────────────
   if (!hasImage) {
@@ -152,7 +270,7 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
       <div ref={frameRef} className="obe-image-frame" style={width ? {width} : undefined}>
         <img
           className="obe-image-img"
-          src={src}
+          src={displaySrc ?? ''}
           alt={alt}
           draggable={false}
           onError={() => setBroken(true)}

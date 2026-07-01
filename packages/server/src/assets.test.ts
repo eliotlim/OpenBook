@@ -195,6 +195,38 @@ describe('asset routes — open instance', () => {
     expect(res.status).toBe(413);
   });
 
+  it('accepts a ~9 MiB image over the base64 body (base64 overhead fits the raised body cap)', async () => {
+    // A2 regression: the base64 body inflates ~4/3, so a 9 MiB raw image is a
+    // ~12 MiB body. The raw-body limit is sized for that overhead so the honest
+    // sub-10-MiB image uploads (a flat 10 MiB body limit would 413 it).
+    const a = app();
+    const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
+    const bytes = new Uint8Array(9 * 1024 * 1024);
+    bytes[0] = 137; // non-empty
+    const res = await a.request(`/api/assets?pageId=${page.id}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({data: Buffer.from(bytes).toString('base64'), mime: 'image/png'}),
+    });
+    expect(res.status).toBe(201);
+    const {id} = (await res.json()) as {id: string};
+    expect((await store.getAsset(id))!.size).toBe(bytes.byteLength);
+  });
+
+  it('413s a base64 body whose DECODED size exceeds the 10 MiB cap', async () => {
+    // The DECODED-size check keeps the advertised 10 MiB cap honest even though
+    // the raw-body limit is larger to accommodate base64 overhead.
+    const a = app();
+    const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
+    const over = new Uint8Array(10 * 1024 * 1024 + 4096);
+    const res = await a.request(`/api/assets?pageId=${page.id}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({data: Buffer.from(over).toString('base64'), mime: 'image/png'}),
+    });
+    expect(res.status).toBe(413);
+  });
+
   it('400s a missing pageId and an empty body', async () => {
     const a = app();
     const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});

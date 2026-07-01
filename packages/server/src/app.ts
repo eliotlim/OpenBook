@@ -407,11 +407,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   // ── Assets: content-addressed binary store (OB-ASSETS A1) ────────────────────
 
-  // 10 MiB per upload. A single embedded image / attachment is comfortably under
-  // this; the cap stops an authed-but-hostile writer inflating the store (or the
-  // request buffer) with one giant body. 413 past it, decided by the bodyLimit
-  // middleware BEFORE the handler (so an oversize body is rejected pre-gate).
+  // 10 MiB per upload, measured on the DECODED bytes. A single embedded image /
+  // attachment is comfortably under this; the cap stops an authed-but-hostile
+  // writer inflating the store with one giant asset.
   const ASSET_MAX_BYTES = 10 * 1024 * 1024;
+  // The request BODY can be base64 (the in-webview / desktop-IPC transports send
+  // `{data: base64, mime}`), which inflates the payload ~4/3 plus a small JSON
+  // envelope. Size the raw-body limit to fit a full ASSET_MAX_BYTES image once
+  // base64-encoded, so the advertised 10 MiB cap is actually reachable over that
+  // path (a ~10 MiB raw image → ~13.3 MiB body would otherwise 413). The handler
+  // still enforces ASSET_MAX_BYTES on the DECODED bytes below, so a genuinely
+  // oversize decoded payload is rejected regardless of the transport.
+  const ASSET_MAX_BODY_BYTES = Math.ceil(ASSET_MAX_BYTES * 4 / 3) + 64 * 1024;
 
   // Upload an asset. Write-gated to `?pageId=<id>` — a page the uploader can write —
   // and ref'd to that page in the same request, so the asset is immediately
@@ -422,7 +429,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // dedups to the same id. 201 / 400 / 403|404 (write gate) / 413 (too large).
   app.post(
     API.assets,
-    bodyLimit({maxSize: ASSET_MAX_BYTES, onError: (c) => c.json({error: 'request body too large'}, 413)}),
+    bodyLimit({maxSize: ASSET_MAX_BODY_BYTES, onError: (c) => c.json({error: 'request body too large'}, 413)}),
     async (c) => {
       const pageId = c.req.query('pageId');
       if (!pageId) return c.json({error: 'pageId is required'}, 400);
@@ -445,6 +452,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
         mime = contentType || 'application/octet-stream';
       }
       if (bytes.byteLength === 0) return c.json({error: 'empty asset'}, 400);
+      // Enforce the 10 MiB cap on the DECODED bytes: the raw-body limit is sized
+      // for base64 overhead, so a genuinely oversize image (or an over-cap base64
+      // payload that slipped under the body limit) is caught here, not just by the
+      // pre-handler bodyLimit. Same 413 either way.
+      if (bytes.byteLength > ASSET_MAX_BYTES) return c.json({error: 'request body too large'}, 413);
 
       // Stored-XSS defense: the uploader controls `mime` (the upload Content-Type or
       // the JSON `mime` field). Canonicalize it to a safe, allowlisted image type (or

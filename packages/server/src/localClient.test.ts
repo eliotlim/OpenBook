@@ -123,3 +123,27 @@ describe('LocalDataClient — export / import round-trip', () => {
     expect(Object.keys(result.idMap).length).toBeGreaterThan(0);
   });
 });
+
+describe('LocalDataClient — assets (Assets A2)', () => {
+  it('putAsset/getAsset round-trip bytes + mime, ref the asset to its page, and dedup by content', async () => {
+    const page = await client.savePage({name: 'Pics', data: snap('x')});
+    const bytes = new Uint8Array([137, 80, 78, 71, 0, 255, 1, 2, 254, 253]);
+
+    const {id} = await client.putAsset(bytes, 'image/png', page.id);
+    expect(id).toMatch(/^[0-9a-f]{64}$/); // SHA-256 content hash
+
+    const got = await client.getAsset(id);
+    expect(got).not.toBeNull();
+    expect(got!.mime).toBe('image/png');
+    expect(Array.from(got!.bytes)).toEqual(Array.from(bytes)); // byte-exact round-trip
+
+    // The upload ref'd the asset to its page (its read-gate; immediately reachable).
+    const store = (client as unknown as {store: {pagesReferencingAsset(id: string): Promise<string[]>}}).store;
+    expect(await store.pagesReferencingAsset(id)).toContain(page.id);
+
+    // A miss is null; a byte-identical re-upload dedups to the same content-hash id.
+    expect(await client.getAsset('deadbeef')).toBeNull();
+    const {id: again} = await client.putAsset(new Uint8Array(bytes), 'image/png', page.id);
+    expect(again).toBe(id);
+  });
+});

@@ -1,35 +1,51 @@
 import type {NewBlock} from './model';
+import {assetBridge} from '@/lib/assetBridge';
 
 /**
- * Native image block — ingest helpers (Assets A0, data-URL phase-1).
+ * Native image block — ingest helpers (Assets A2).
  *
- * Phase-1 stores the picture inline as a `data:` URL in the block's `src` prop.
- * That keeps the block self-contained and independently shippable, but a data
- * URL lives inside the CRDT, so we CAP it hard (see {@link MAX_IMAGE_DATA_URL_BYTES})
- * and refuse anything larger with a friendly message. A later phase (Assets A2)
- * swaps `src` for an `assetId` pointing at a real store; keeping all the src
- * plumbing behind `ImageBlockProps.src` is the seam that makes that swap local.
+ * The block now stores an **`assetId`** pointing at the content-addressed asset
+ * store (A1) rather than an inline `data:` URL: {@link imageBlockFromFile}
+ * uploads the file bytes via the asset bridge and keeps only the returned id, so
+ * the CRDT never carries the picture. When no asset backend is wired up (the
+ * editor rendered standalone, or a test with no data client) it falls back to the
+ * A0 inline `data:` URL in `src`, size-capped to protect the CRDT. The view reads
+ * `assetId` first (resolving it to an object URL) and still renders a legacy
+ * `src` data-URL directly (back-compat); {@link dataUrlToBytes} powers the lazy
+ * data-URL → assetId migration those legacy blocks get on load.
  */
 
 /** The block `type` for a native image. */
 export const IMAGE_BLOCK_TYPE = 'image';
 
 /**
- * Hard cap on the embedded data-URL string (~1 MiB, matching the relay's body
- * cap). Data URLs are transitional — we never want the CRDT to carry a megabyte
- * of base64 per image, so oversize files are rejected until the asset store
- * (Assets A1/A2) lands.
+ * Hard cap on an uploaded asset (10 MiB) — matches the server's asset bodyLimit.
+ * A client-side pre-check so an oversize file fails fast with a friendly message
+ * rather than reading + POSTing megabytes only for the server to 413.
+ */
+export const MAX_ASSET_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Hard cap on the FALLBACK embedded data-URL string (~1 MiB). Only used when no
+ * asset store is available — the primary path uploads (10 MiB) and stores an
+ * assetId. Data URLs live inside the CRDT, so we never want it to carry a
+ * megabyte of base64 per image; oversize files are rejected in that fallback.
  */
 export const MAX_IMAGE_DATA_URL_BYTES = 1024 * 1024;
 
-/** Props carried by an `image` block. Phase-1: `src` is a `data:` URL. */
+/** Props carried by an `image` block. */
 export interface ImageBlockProps {
   /**
-   * The picture. A `data:` URL in phase-1; Assets A2 migrates this to an
-   * `assetId` that resolves through the asset store. Everything reads `src`, so
-   * that migration only has to change how `src` is produced/resolved.
+   * The asset store id (SHA-256 content hash) of the picture — the primary form
+   * (Assets A2). The view resolves it to an object URL through the asset bridge.
    */
-  src: string;
+  assetId?: string;
+  /**
+   * Legacy inline picture: a `data:` URL (Assets A0), or the fallback form when
+   * no asset store is wired up. A block that still holds one renders it directly
+   * and is lazily migrated to `assetId` on load.
+   */
+  src?: string;
   /** Accessibility description (also the broken-image fallback text). */
   alt?: string;
   /** Visible caption shown below the image. */
@@ -40,8 +56,8 @@ export interface ImageBlockProps {
 
 /**
  * A successful ingest yields a block; a rejected one, a user-facing message.
- * `soft: true` marks a temporary phase-1 limit (the size cap) rather than a hard
- * failure — the UI gives it a muted/info tone instead of destructive red.
+ * `soft: true` marks a temporary/size limit rather than a hard failure — the UI
+ * gives it a muted/info tone instead of destructive red.
  */
 export type ImageIngest = {block: NewBlock} | {error: string; soft?: boolean};
 
@@ -92,24 +108,91 @@ export function dataUrlByteLength(s: string): number {
   return typeof TextEncoder !== 'undefined' ? new TextEncoder().encode(s).length : s.length;
 }
 
+/** Is this a `data:` URL — the legacy A0 inline form (vs an assetId / remote URL)? */
+export function isDataUrl(s: string | null | undefined): s is string {
+  return typeof s === 'string' && s.startsWith('data:');
+}
+
+/** The mime of a `data:<mime>[;base64],…` URL (defaults to octet-stream). */
+export function dataUrlMime(dataUrl: string): string {
+  const m = /^data:([^;,]+)/.exec(dataUrl);
+  return m && m[1] ? m[1] : 'application/octet-stream';
+}
+
+/**
+ * Decode a base64 `data:` URL to raw bytes, or `null` if it isn't a base64 data
+ * URL. Used by the lazy legacy-block migration to recover an image's bytes from
+ * the inline `src` so they can be uploaded to the asset store.
+ */
+export function dataUrlToBytes(dataUrl: string): Uint8Array | null {
+  const comma = dataUrl.indexOf(',');
+  if (comma < 0) return null;
+  const meta = dataUrl.slice(0, comma);
+  if (!/;base64/i.test(meta)) return null; // only base64 data URLs carry binary
+  try {
+    const binary = atob(dataUrl.slice(comma + 1));
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 /** A reasonable default alt/caption seed from a file name (`my_photo.png` → `my photo`). */
 export function altFromFileName(name: string): string {
   return name.replace(/\.[^./\\]+$/, '').replace(/[_-]+/g, ' ').trim();
 }
 
-/** The friendly "too large" message shown when a file exceeds the phase-1 cap. */
+/** The friendly "too large" message shown when a file exceeds the fallback cap. */
 export const IMAGE_TOO_LARGE_MESSAGE =
   'That image is over 1 MB — inline images are capped for now. A proper asset store is coming soon.';
 
+/** The friendly "too large" message for the uploaded-asset (10 MiB) cap. */
+export const ASSET_TOO_LARGE_MESSAGE = 'That image is over 10 MB — the maximum size for an uploaded image.';
+
 /**
- * Ingest a File into an `image` block, or return a friendly error. Rejects
- * non-images and anything whose data URL would blow the phase-1 CRDT cap. Never
- * throws — callers surface `error` to the user and move on.
+ * Ingest a File into an `image` block, or return a friendly error. The primary
+ * path uploads the bytes to the asset store (via the asset bridge) and stores the
+ * returned `assetId` — this needs the hosting `pageId` (the asset refs to it) and
+ * an installed bridge. Without either, it falls back to an inline `data:` URL in
+ * `src`, size-capped to protect the CRDT. Rejects non-images; never throws —
+ * callers surface `error` to the user and move on.
  */
-export async function imageBlockFromFile(file: File): Promise<ImageIngest> {
+export async function imageBlockFromFile(file: File, pageId?: string): Promise<ImageIngest> {
   if (!isImageFile(file)) return {error: 'That file isn’t an image.'};
+
+  // Preferred path (Assets A2): upload to the content-addressed store, keep only
+  // the assetId in the block — the CRDT never carries the picture.
+  if (pageId && assetBridge.ready()) {
+    if (file.size > MAX_ASSET_BYTES) return {error: ASSET_TOO_LARGE_MESSAGE, soft: true};
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await file.arrayBuffer());
+    } catch {
+      return {error: 'Could not read that image.'};
+    }
+    if (bytes.byteLength === 0) return {error: 'That image is empty.'};
+    try {
+      const {id} = await assetBridge.putAsset(bytes, file.type || 'application/octet-stream', pageId);
+      const props: ImageBlockProps = {assetId: id};
+      const alt = altFromFileName(file.name || '');
+      if (alt) props.alt = alt;
+      return {block: {type: IMAGE_BLOCK_TYPE, props: props as unknown as Record<string, unknown>}};
+    } catch (err) {
+      // A 413 means the server rejected it as too large (base64 overhead can push
+      // a near-cap raw image past the body limit) — surface the honest, soft
+      // too-large message rather than a misleading "try again". Anything else is a
+      // transient upload failure worth retrying.
+      if (err instanceof Error && /\b413\b/.test(err.message)) return {error: ASSET_TOO_LARGE_MESSAGE, soft: true};
+      return {error: 'Could not upload that image. Please try again.'};
+    }
+  }
+
+  // Fallback (no asset backend / no page context): inline data-URL, size-capped
+  // to keep the CRDT from carrying a large base64 blob (the A0 phase-1 behaviour).
   // Cheap pre-check: base64 inflates a file by ~4/3, so anything past 3/4 of the
-  // data-URL cap is guaranteed to bust it — reject BEFORE encoding a huge file.
+  // cap is guaranteed to bust it — reject BEFORE encoding a huge file.
   if (file.size > MAX_IMAGE_DATA_URL_BYTES * 0.75) return {error: IMAGE_TOO_LARGE_MESSAGE, soft: true};
   let src: string;
   try {

@@ -258,3 +258,83 @@ describe('LiveStream reconnect signal (Collab T7)', () => {
     unsubContent();
   });
 });
+
+/**
+ * Assets A2 — the DataClient asset contract on the HTTP path. Both `putAsset`
+ * (upload) and `getAsset` (fetch) go over base64-JSON, DELIBERATELY, so they stay
+ * byte-exact on BOTH the web-http and desktop-IPC (`tauriFetch`) transports — the
+ * IPC bridge corrupts raw binary bodies. These assert the wire shape + a byte-exact
+ * round-trip (including high bytes and a large payload that would overflow a naive
+ * `String.fromCharCode(...)` base64 encoder).
+ */
+describe('HttpDataClient assets (base64-JSON is byte-exact on the http path)', () => {
+  const jsonRes = (body: unknown, status = 200): Response =>
+    new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}});
+
+  it('putAsset POSTs base64-JSON to /api/assets?pageId and returns {id}', async () => {
+    let captured: {url: string; init?: RequestInit} | null = null;
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: (url, init) => {
+        captured = {url, init};
+        return Promise.resolve(jsonRes({id: 'deadbeef'}, 201));
+      },
+    });
+    const bytes = new Uint8Array([0, 1, 2, 3, 250, 251, 252, 253, 254, 255]);
+    const {id} = await client.putAsset(bytes, 'image/png', 'page 1');
+
+    expect(id).toBe('deadbeef');
+    expect(captured!.url).toBe('https://x/api/assets?pageId=page%201'); // pageId url-encoded
+    expect(captured!.init!.method).toBe('POST');
+    const body = JSON.parse(String(captured!.init!.body)) as {data: string; mime: string};
+    expect(body.mime).toBe('image/png');
+    // The base64 body decodes byte-exact back to the original bytes.
+    expect(Array.from(Uint8Array.from(atob(body.data), (c) => c.charCodeAt(0)))).toEqual(Array.from(bytes));
+  });
+
+  it('getAsset decodes the base64-JSON variant byte-exact', async () => {
+    const bytes = new Uint8Array([9, 8, 7, 0, 255, 128, 64]);
+    let seenUrl = '';
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: (url) => {
+        seenUrl = url;
+        return Promise.resolve(
+          jsonRes({id: 'abc', mime: 'image/webp', size: bytes.length, data: btoa(String.fromCharCode(...bytes))}),
+        );
+      },
+    });
+    const got = await client.getAsset('abc');
+    expect(seenUrl).toBe('https://x/api/assets/abc?encoding=base64'); // the byte-safe variant
+    expect(got).not.toBeNull();
+    expect(got!.mime).toBe('image/webp');
+    expect(Array.from(got!.bytes)).toEqual(Array.from(bytes));
+  });
+
+  it('getAsset returns null on a 404 (missing or read-gated — no oracle)', async () => {
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: () => Promise.resolve(jsonRes({error: 'asset not found'}, 404)),
+    });
+    expect(await client.getAsset('nope')).toBeNull();
+  });
+
+  it('round-trips a large payload through a fake in-memory store (chunked base64, no overflow)', async () => {
+    // 300 KiB exercises the 32 KiB-chunked encoder; a naive spread would overflow.
+    const bytes = new Uint8Array(300 * 1024);
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = i % 256;
+    const store = new Map<string, {mime: string; data: string}>();
+    const client = new HttpDataClient('', undefined, {
+      fetchImpl: (_url, init) => {
+        if (init?.method === 'POST') {
+          const b = JSON.parse(String(init.body)) as {data: string; mime: string};
+          store.set('id1', b);
+          return Promise.resolve(jsonRes({id: 'id1'}, 201));
+        }
+        const rec = store.get('id1')!;
+        return Promise.resolve(jsonRes({id: 'id1', mime: rec.mime, size: 0, data: rec.data}));
+      },
+    });
+    const {id} = await client.putAsset(bytes, 'image/png', 'p');
+    const got = await client.getAsset(id);
+    expect(got!.bytes.length).toBe(bytes.length);
+    expect(Array.from(got!.bytes)).toEqual(Array.from(bytes)); // byte-exact end to end
+  });
+});

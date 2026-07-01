@@ -48,12 +48,14 @@ describe('image block — model + snapshot round-trip', () => {
 
 describe('image block — ingest (paste / drop / slash all use imageBlockFromFile)', () => {
   it('produces an image block with a data-URL src and an alt seeded from the file name', async () => {
+    // No pageId / asset backend here (no bridge installed) → the fallback inline
+    // data-URL path (the assetId upload path is covered in imageBlockAssets.test).
     const res = await imageBlockFromFile(imgFile('sunset_photo.png'));
     expect('block' in res).toBe(true);
     if (!('block' in res)) return;
     expect(res.block.type).toBe(IMAGE_BLOCK_TYPE);
     const props = res.block.props as unknown as ImageBlockProps;
-    expect(props.src.startsWith('data:image/png')).toBe(true);
+    expect(props.src?.startsWith('data:image/png')).toBe(true);
     expect(props.alt).toBe('sunset photo'); // underscores → spaces, extension stripped
   });
 
