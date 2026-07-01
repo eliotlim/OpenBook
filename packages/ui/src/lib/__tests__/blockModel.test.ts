@@ -320,4 +320,14 @@ describe('htmlToBlocks (clipboard import)', () => {
     expect(blocks[0].type).toBe('paragraph');
     expect(blocks[0].text).toEqual([{t: 'loose '}, {t: 'text', a: {i: true}}]);
   });
+
+  it('folds a rich <figure>/<figcaption> to ONE rich paragraph on the paste path (no onImage)', async () => {
+    const {htmlToBlocks} = await import('../../blockeditor/model');
+    // Without an `onImage` hook (clipboard paste), a figure must NOT explode into
+    // separate paragraphs — its caption stays one rich paragraph, markup intact.
+    const blocks = htmlToBlocks('<figure><img src="/p.png"><figcaption>A <strong>bold</strong> cap</figcaption></figure>');
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0].type).toBe('paragraph');
+    expect(blocks[0].text).toEqual([{t: 'A '}, {t: 'bold', a: {b: true}}, {t: ' cap'}]);
+  });
 });

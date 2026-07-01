@@ -8,9 +8,19 @@
  * Format is detected from the filename extension (the only honest signal we have
  * before reading): a `.zip` is a Notion *Markdown & CSV* export → the Notion
  * adapter; a `.md`/`.markdown`/`.txt` is a Markdown document → the Markdown
- * parser. Both adapters honour the "never silently drop content" contract — an
- * image becomes a visible placeholder rather than vanishing — so the summary
- * counts placeholders to report honestly what degraded.
+ * parser; a `.html`/`.htm` is an HTML document → the HTML parser. Every adapter
+ * honours the "never silently drop content" contract — an image becomes a visible
+ * placeholder rather than vanishing — so the summary counts placeholders to
+ * report honestly what degraded.
+ *
+ * **HTML is main-thread only.** Notion/Markdown parse to the IR with no DOM, so
+ * they run in the import Web Worker (`importParseCore`) off the main thread. HTML
+ * is DOM-bound — it reuses the editor's `htmlToBlocks` clipboard converter, which
+ * needs a live `document`/`DOMParser` the worker lacks — so it is parsed by the
+ * dialog on the main thread (`htmlToImportedDoc` in `htmlImport.ts`) and is
+ * deliberately NOT part of {@link ImportSource} / {@link parseImportSource}, which
+ * are the worker-serialised formats. A single HTML document is light, so an
+ * inline parse (like pasted Markdown) is fine.
  */
 import {
   importDoc,
@@ -27,9 +37,10 @@ import {
 } from '@book.dev/sdk';
 
 /** The source formats the dialog can ingest. */
-export type ImportFormat = 'notion-zip' | 'markdown';
+export type ImportFormat = 'notion-zip' | 'markdown' | 'html';
 
 const MARKDOWN_EXTS = new Set(['.md', '.markdown', '.mdown', '.mkd', '.txt']);
+const HTML_EXTS = new Set(['.html', '.htm']);
 
 /** The trailing `.ext` of a filename, lower-cased (`''` when none). */
 function extOf(fileName: string): string {
@@ -39,14 +50,15 @@ function extOf(fileName: string): string {
 
 /**
  * Detect the import format from a filename's extension — a `.zip` is a Notion
- * export, a Markdown extension is a Markdown document. Returns `null` for
- * anything we can't ingest, so the caller can show a friendly "unsupported
- * file" message instead of guessing.
+ * export, a Markdown extension is a Markdown document, an `.html`/`.htm` is an
+ * HTML document. Returns `null` for anything we can't ingest, so the caller can
+ * show a friendly "unsupported file" message instead of guessing.
  */
 export function detectImportFormat(fileName: string): ImportFormat | null {
   const ext = extOf(fileName);
   if (ext === '.zip') return 'notion-zip';
   if (MARKDOWN_EXTS.has(ext)) return 'markdown';
+  if (HTML_EXTS.has(ext)) return 'html';
   return null;
 }
 
