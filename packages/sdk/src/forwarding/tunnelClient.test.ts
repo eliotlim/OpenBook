@@ -184,3 +184,51 @@ describe('TunnelClient streaming', () => {
     expect(end).toMatchObject({t: 'end', id: 3});
   });
 });
+
+/**
+ * Collab T8 — the identity + exposure contract on a TUNNELED up-POST (a remote
+ * editor's `/updates` / `/awareness` / `/sync` write, riding edge→relay→tunnel). The
+ * origin's principal gate and its unclaimed-exposure backstop only hold if
+ * `X-OpenBook-Identity` survives the tunnel and `X-OpenBook-Forwarded` is asserted by
+ * (only) this client. This pins that at the tunnel-client seam, for POST (the existing
+ * suite covers only the GET `/api/live` streaming path).
+ */
+describe('TunnelClient request forwarding — identity + forwarded marker', () => {
+  it('preserves X-OpenBook-Identity and re-asserts the forwarded marker on a POST', async () => {
+    let captured: {url: string; method?: string; headers: Headers} | null = null;
+    const fetchImpl: FetchLike = (url, init) => {
+      // Capture headers as soon as the request is dispatched (before the body streams).
+      captured = {url, method: init?.method, headers: new Headers(init?.headers)};
+      return Promise.resolve(new Response(null, {status: 204}));
+    };
+    const {client, ws} = makeClient(fetchImpl);
+    client.start();
+    await vi.waitFor(() => expect(ws()).toBeTruthy());
+    const sock = ws();
+
+    // The relay forwards a remote editor's awareness up-POST: it carries the browser's
+    // verified identity assertion — and a SPOOFED forwarded marker the client must strip
+    // and overwrite (the marker is ours to assert, never client-supplied — OB-209).
+    sock.deliver({
+      t: 'req',
+      id: 5,
+      method: 'POST',
+      path: '/api/pages/p1/awareness',
+      headers: [
+        ['content-type', 'application/json'],
+        ['X-OpenBook-Identity', 'jws.header.sig'],
+        ['X-OpenBook-Guest-Name', 'Ada'],
+        ['X-OpenBook-Forwarded', 'spoofed-by-client'],
+      ],
+    });
+
+    await vi.waitFor(() => expect(captured).toBeTruthy());
+    expect(captured!.method).toBe('POST');
+    // Identity survives the tunnel → the origin's principal gate still resolves who-you-are.
+    expect(captured!.headers.get('X-OpenBook-Identity')).toBe('jws.header.sig');
+    expect(captured!.headers.get('X-OpenBook-Guest-Name')).toBe('Ada');
+    // The forwarded marker is asserted by us (=1), overriding the inbound spoof, so the
+    // unclaimed-exposure backstop can fail closed on the tunnelled path.
+    expect(captured!.headers.get('X-OpenBook-Forwarded')).toBe('1');
+  });
+});

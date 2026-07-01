@@ -83,6 +83,18 @@ export interface AwarenessConnection {
 /** Coalesce window for outgoing local awareness (ms). Exported for tests/tuning. */
 export const AWARENESS_FLUSH_MS = 50;
 
+/**
+ * Hard floor between awareness POST *starts* (ms) — a transport-independent ~10Hz
+ * rate ceiling (Collab T8). The coalesce window above only batches the leading edge;
+ * the one-in-flight `posting` guard alone bounds the send rate by round-trip time,
+ * which collapses to ~20Hz on a fast transport (loopback dev, a low-latency tunnel).
+ * Awareness fan-out is O(editors²) — every client's cursor POST is re-broadcast to
+ * every other client's SSE — so an unthrottled stream multiplies fast under
+ * multi-editor load through the *.book.pub tunnel. This caps the SUSTAINED send rate
+ * regardless of RTT. Exported for tests/tuning.
+ */
+export const AWARENESS_MIN_INTERVAL_MS = 100;
+
 const toBase64 = (bytes: Uint8Array): string => {
   let binary = '';
   for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i]);
@@ -180,17 +192,28 @@ export function connectPageAwareness(
     }
   })();
 
-  // ── Send: coalesce our own local changes; at most one POST in flight ──────────
+  // ── Send: coalesce local changes, one POST in flight, ≤10Hz sustained ─────────
   let timer: ReturnType<typeof setTimeout> | null = null;
   let posting = false;
   let dirty = false;
+  // When the last POST *started*, for the sustained-rate ceiling (Collab T8).
+  let lastPostAt = 0;
 
   const postSelf = (): Uint8Array => encodeAwarenessUpdate(awareness, [doc.clientID]);
 
   const flush = (): void => {
     timer = null;
     if (disposed || posting || !dirty) return;
+    // Rate ceiling: never start two POSTs closer than AWARENESS_MIN_INTERVAL_MS —
+    // if we posted too recently, defer the whole (still-dirty) batch until the floor
+    // elapses. Transport-independent, so a fast tunnel can't push presence past ~10Hz.
+    const since = Date.now() - lastPostAt;
+    if (since < AWARENESS_MIN_INTERVAL_MS) {
+      timer = setTimeout(flush, AWARENESS_MIN_INTERVAL_MS - since);
+      return;
+    }
     dirty = false;
+    lastPostAt = Date.now();
     const bytes = postSelf();
     posting = true;
     void client
