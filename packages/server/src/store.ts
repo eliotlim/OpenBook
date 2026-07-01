@@ -40,6 +40,27 @@ import {authorize, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_
 import type {Db} from './dbCore';
 import {runMigrations} from './migrations';
 
+/**
+ * Thrown by {@link PageStore.putAsset} when storing a NEW asset would push the
+ * instance's total asset bytes past the configured storage budget (Assets A6).
+ * A byte-identical re-upload of already-stored content never throws — it adds no
+ * bytes (content-addressed dedup). The upload route maps this to a friendly 507
+ * (Insufficient Storage). Carries the numbers for a useful message/log.
+ */
+export class AssetBudgetError extends Error {
+  constructor(
+    readonly currentBytes: number,
+    readonly assetBytes: number,
+    readonly budgetBytes: number,
+  ) {
+    super(
+      `asset storage budget exceeded: storing ${assetBytes} more byte(s) would exceed the ` +
+        `${budgetBytes}-byte budget (currently ${currentBytes} byte(s) stored)`,
+    );
+    this.name = 'AssetBudgetError';
+  }
+}
+
 /** Raw row shape returned by the database. */
 interface PageRow {
   id: string;
@@ -2207,18 +2228,68 @@ export class PageStore {
    * `application/octet-stream`). Because only sanitized mimes are ever stored, the
    * first-seen-mime dedup above can never be poisoned into serving an executable
    * type (the stored-XSS defense; see the upload route).
+   *
+   * `opts.maxTotalBytes` (Assets A6) enforces a per-instance total-storage budget:
+   * storing a NEW asset that would push `SUM(size)` past the budget throws
+   * {@link AssetBudgetError} (→ route 507) instead of inserting. A byte-identical
+   * re-upload of already-stored content is always allowed — dedup adds no bytes, so
+   * the budget can never wedge a workspace out of re-saving content it already holds.
+   * The check + insert are ONE statement so no window exists between reading `SUM`
+   * and inserting on the embedded store (PGlite serializes every query through its
+   * mutex). On real Postgres under READ COMMITTED two concurrent uploads can each
+   * read the same pre-insert `SUM` and both pass — a BOUNDED overshoot of at most
+   * one in-flight asset per racing writer (≤10 MiB each), which is fine for a
+   * generous soft budget; the periodic GC reclaims any slack. Absent/negative budget
+   * ⇒ unbudgeted (legacy behavior).
    */
-  async putAsset(bytes: Uint8Array, mime: string): Promise<{id: string}> {
+  async putAsset(bytes: Uint8Array, mime: string, opts: {maxTotalBytes?: number} = {}): Promise<{id: string}> {
     const id = await assetHash(bytes);
+    // Bind a Buffer. PGlite accepts a bare Uint8Array or a Buffer; the remote
+    // postgres.js (porsager) driver serializes a Buffer to BYTEA. Buffer is the
+    // shape both accept — belt-and-braces, not strictly required by either today.
+    const buf = Buffer.from(bytes);
+    const budget = opts.maxTotalBytes;
+    if (budget != null && budget >= 0) {
+      // Atomic budget-guarded insert. The row lands only if the asset already
+      // exists (dedup — no new bytes) OR the running total plus this asset's size
+      // stays within budget. `RETURNING id` is non-empty ONLY on a fresh insert;
+      // an empty result means either a dedup no-op (id already present) or a budget
+      // rejection (new content that didn't fit) — distinguished by a follow-up
+      // existence check below.
+      // `$5`/`$6` are a separate bigint copy of the size + the budget so the size
+      // parameter ($4, the int4 `size` column) isn't deduced into the bigint SUM
+      // arithmetic too (PGlite rejects a parameter with two inferred types).
+      const inserted = await this.db.query<{id: string}>(
+        `INSERT INTO assets (id, bytes, mime, size)
+         SELECT $1, $2, $3, $4
+         WHERE EXISTS (SELECT 1 FROM assets WHERE id = $1)
+            OR COALESCE((SELECT SUM(size) FROM assets), 0) + $5::bigint <= $6::bigint
+         ON CONFLICT (id) DO NOTHING
+         RETURNING id`,
+        [id, buf, mime, bytes.byteLength, bytes.byteLength, budget],
+      );
+      if (inserted.length > 0) return {id}; // freshly stored within budget
+      // No fresh insert: either the content was already present (dedup — fine) or
+      // it's new and over budget. A present row ⇒ dedup; an absent one ⇒ reject.
+      const exists = await this.db.query<{one: number}>('SELECT 1 AS one FROM assets WHERE id = $1', [id]);
+      if (exists.length > 0) return {id};
+      throw new AssetBudgetError(await this.assetStorageBytes(), bytes.byteLength, budget);
+    }
     await this.db.query(
       `INSERT INTO assets (id, bytes, mime, size) VALUES ($1, $2, $3, $4)
        ON CONFLICT (id) DO NOTHING`,
-      // Bind a Buffer. PGlite accepts a bare Uint8Array or a Buffer; the remote
-      // postgres.js (porsager) driver serializes a Buffer to BYTEA. Buffer is the
-      // shape both accept — belt-and-braces, not strictly required by either today.
-      [id, Buffer.from(bytes), mime, bytes.byteLength],
+      [id, buf, mime, bytes.byteLength],
     );
     return {id};
+  }
+
+  /** Total bytes currently held in the asset store (`SUM(size)`, 0 when empty) —
+   *  the figure the A6 storage budget is measured against. */
+  async assetStorageBytes(): Promise<number> {
+    const rows = await this.db.query<{total: string | number | null}>(
+      'SELECT COALESCE(SUM(size), 0) AS total FROM assets',
+    );
+    return Number(rows[0]?.total ?? 0);
   }
 
   /** Fetch an asset's bytes + mime + size by content-hash id, or `null` if absent.
@@ -2292,6 +2363,69 @@ export class PageStore {
   ): Promise<{bytes: Uint8Array; mime: string; size: number} | null> {
     if (!(await this.canReadAsset(principal, id))) return null;
     return this.getAsset(id);
+  }
+
+  /**
+   * Garbage-collect assets no page document actually uses (Assets A6). Folded into
+   * the OB-164 maintenance job so orphaned binary blobs don't accumulate on the
+   * autovacuum-less embedded store.
+   *
+   * **Why the document scan is the source of truth (the safety property).**
+   * `asset_refs` can be STALE: A2 refs an asset to its *hosting* page at upload,
+   * but a block that MOVES to a different page keeps only the original page's ref
+   * (block-move re-ref is a deferred follow-up). So an asset can have ZERO refs
+   * while a moved block on ANOTHER page still renders it. Trusting `asset_refs`
+   * alone would reap that asset → a broken image. Instead we treat every page's
+   * stored document as the truth: an asset is reapable only when its 64-hex content
+   * id appears in NO page's `data` OR `properties` — the `image` block's plain-text
+   * `assetId` always lands in the `data` blockdoc JSON projection, and `properties`
+   * (cover config, future uploadable file-attachment fields) is scanned too so an
+   * assetId that starts landing there the day such a feature ships is not silently
+   * reaped. The `NOT EXISTS asset_refs` clause is a cheap, conservative pre-filter
+   * (an asset that still has any ref is kept regardless), and the id-in-document scan
+   * is the confirming check that makes the GC block-move-safe: 0 refs but present in a
+   * page document ⇒ KEPT.
+   *
+   * **Includes TRASHED pages (data-loss fix).** The scan does NOT filter on
+   * `deleted_at` — a soft-deleted page is restorable for the whole trash-retention
+   * window (30d by default), far longer than the 24h GC grace. If the scan skipped
+   * trashed pages, an asset kept ONLY by the document of a page that was just trashed
+   * (the 0-ref block-move/copy case this scan exists for) would be reaped 24h later,
+   * and restoring the page within retention would surface a permanently broken image.
+   * Keeping an asset while ANY page's document (live or trashed) references it aligns
+   * asset GC with trash retention: the asset becomes reapable only once its last
+   * holding page is HARD-purged (which also cascade-drops any `asset_refs`).
+   *
+   * **Grace period.** Only assets older than `graceMs` (default 24h) are eligible,
+   * so a just-uploaded asset that hasn't been saved into a page's document yet (the
+   * upload lands before the autosave) is never reaped out from under a pending save.
+   *
+   * Conservative by construction — a false reap is a lost image, so anything
+   * ambiguous is kept. The FK `asset_refs.asset_id → assets(id) ON DELETE CASCADE`
+   * cleans up any (already-absent, by the pre-filter) refs when the row goes.
+   * Returns what it reaped, for the maintenance-job log.
+   */
+  async gcUnreferencedAssets(opts: {graceMs?: number} = {}): Promise<{reaped: number; bytes: number; ids: string[]}> {
+    const graceMs = Math.max(0, Math.trunc(opts.graceMs ?? 24 * 60 * 60 * 1000));
+    const rows = await this.db.query<{id: string; size: number | string}>(
+      `DELETE FROM assets a
+       WHERE a.created_at <= now() - ($1::bigint * interval '1 millisecond')
+         AND NOT EXISTS (SELECT 1 FROM asset_refs r WHERE r.asset_id = a.id)
+         AND NOT EXISTS (
+           SELECT 1 FROM pages p
+           WHERE position(a.id IN p.data::text) > 0
+              OR position(a.id IN p.properties::text) > 0
+         )
+       RETURNING a.id, a.size`,
+      [graceMs],
+    );
+    let bytes = 0;
+    const ids: string[] = [];
+    for (const r of rows) {
+      bytes += Number(r.size) || 0;
+      ids.push(r.id);
+    }
+    return {reaped: rows.length, bytes, ids};
   }
 }
 

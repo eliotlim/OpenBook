@@ -27,7 +27,7 @@ import {
   type SuggestionUpdate,
   verifiedSubject,
 } from '@book.dev/sdk';
-import {PageStore} from './store';
+import {PageStore, AssetBudgetError} from './store';
 import {PageHub} from './hub';
 import {CollabRelay} from './collab';
 import {ServerAuthoritativePersister} from './collabPersist';
@@ -157,6 +157,33 @@ export interface AppOptions {
    * server (desktop/tunneled/headless); the in-webview store has no shared server.
    */
   serverPersist?: boolean;
+  /**
+   * Per-instance total asset-storage budget in bytes (Assets A6). When set, an
+   * upload that would push the sum of all stored asset bytes past this budget is
+   * rejected with a friendly 507 (a byte-identical re-upload of existing content is
+   * always allowed — dedup adds no bytes). Defaults to
+   * {@link DEFAULT_ASSET_STORAGE_BUDGET_BYTES} (overridable via
+   * `OPENBOOK_ASSET_STORAGE_BUDGET_BYTES`); `<= 0` disables the budget (unlimited).
+   */
+  assetStorageBudgetBytes?: number;
+}
+
+/**
+ * Default per-instance asset-storage budget (Assets A6): a generous 5 GiB backstop
+ * against runaway storage from an authed-but-hostile (or just runaway-import)
+ * writer. Each asset is separately capped at 10 MiB, so this is ~500+ max-size
+ * assets before the friendly 507. Overridable per-instance via the option or
+ * `OPENBOOK_ASSET_STORAGE_BUDGET_BYTES`; a non-positive value disables it.
+ */
+export const DEFAULT_ASSET_STORAGE_BUDGET_BYTES = 5 * 1024 * 1024 * 1024;
+
+/** Resolve the configured asset-storage budget (option → env → default). A
+ *  non-positive result means "no budget" (unlimited). */
+function resolveAssetStorageBudgetBytes(opt: number | undefined): number {
+  if (opt != null) return opt;
+  const env = process.env.OPENBOOK_ASSET_STORAGE_BUDGET_BYTES;
+  if (env != null && env.trim() !== '' && Number.isFinite(Number(env))) return Number(env);
+  return DEFAULT_ASSET_STORAGE_BUDGET_BYTES;
 }
 
 export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono<AppEnv> {
@@ -419,6 +446,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // still enforces ASSET_MAX_BYTES on the DECODED bytes below, so a genuinely
   // oversize decoded payload is rejected regardless of the transport.
   const ASSET_MAX_BODY_BYTES = Math.ceil(ASSET_MAX_BYTES * 4 / 3) + 64 * 1024;
+  // Per-instance total-storage budget (A6): a NEW upload that would push the sum of
+  // all stored asset bytes past this is rejected with a friendly 507. `<= 0` means
+  // no budget. A dedup re-upload adds no bytes and is always allowed (in the store).
+  const ASSET_STORAGE_BUDGET_BYTES = resolveAssetStorageBudgetBytes(opts.assetStorageBudgetBytes);
 
   // Upload an asset. Write-gated to `?pageId=<id>` — a page the uploader can write —
   // and ref'd to that page in the same request, so the asset is immediately
@@ -467,7 +498,18 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       const safeMime = safeAssetMime(mime);
       if (safeMime === null) return c.json({error: 'invalid content type'}, 400);
 
-      const {id} = await store.putAsset(bytes, safeMime);
+      // A6 storage budget: a NEW asset over the instance budget is rejected 507
+      // (Insufficient Storage) — never a 5xx crash. A byte-identical re-upload of
+      // content already stored is a dedup no-op and never throws.
+      let id: string;
+      try {
+        ({id} = await store.putAsset(bytes, safeMime, {
+          maxTotalBytes: ASSET_STORAGE_BUDGET_BYTES > 0 ? ASSET_STORAGE_BUDGET_BYTES : undefined,
+        }));
+      } catch (err) {
+        if (err instanceof AssetBudgetError) return c.json({error: 'asset storage is full'}, 507);
+        throw err;
+      }
       await store.refAsset(id, pageId);
       logEdit(c, pageId, 'asset.upload', id);
       return c.json({id}, 201);
