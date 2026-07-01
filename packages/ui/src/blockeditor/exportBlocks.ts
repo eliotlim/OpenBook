@@ -123,6 +123,23 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       parts.push('<hr>');
       i += 1;
       break;
+    case 'image': {
+      // Clipboard/standalone HTML: no asset store here, so render a legacy `src`
+      // (data-URL / remote URL) directly and otherwise degrade to the alt text.
+      const p = b.props ?? {};
+      const src = typeof p.src === 'string' ? p.src : '';
+      const alt = escapeHtml(String(p.alt ?? ''));
+      const width = typeof p.width === 'string' && p.width ? ` style="width:${escapeHtml(p.width)}"` : '';
+      const cap = String(p.caption ?? '').trim();
+      const figcap = cap ? `<figcaption>${escapeHtml(cap)}</figcaption>` : '';
+      parts.push(
+        src
+          ? `<figure class="obe-x-image"><img src="${escapeHtml(src)}" alt="${alt}"${width}>${figcap}</figure>`
+          : `<figure class="obe-x-image"><span class="obe-x-image-alt">${alt || 'Image'}</span>${figcap}</figure>`,
+      );
+      i += 1;
+      break;
+    }
     case 'columns': {
       const cols = b.children ?? [];
       const colHtml = cols
@@ -230,6 +247,17 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
     case 'divider':
       out.push('---');
       break;
+    case 'image': {
+      // Data-URIs aren't available in the clipboard/standalone path (no asset
+      // store); render a legacy `src` and otherwise degrade to italicised alt.
+      const p = b.props ?? {};
+      const src = typeof p.src === 'string' ? p.src : '';
+      const alt = String(p.alt ?? '').replace(/[[\]]/g, '');
+      const cap = String(p.caption ?? '').trim();
+      const body = src ? `![${alt}](${src})` : `_${alt || 'Image'}_`;
+      out.push(cap ? `${body}\n\n*${cap}*` : body);
+      break;
+    }
     case 'columns':
       for (const col of b.children ?? []) out.push(blocksToMarkdown(col.children ?? []));
       break;
@@ -434,6 +462,24 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
       case 'table': {
         const content = (b.children ?? []).map((row) => (row.children ?? []).map((cell) => textHtml(cell.text)));
         sink.push({id: b.id, type: 'table', data: {withHeadings: Boolean(b.props?.header), content}});
+        i += 1;
+        break;
+      }
+      case 'image': {
+        // Carry the picture's resolution keys through to the exporters; the bytes
+        // behind an `assetId` are resolved to a data-URI up front (exportAssets).
+        const p = b.props ?? {};
+        sink.push({
+          id: b.id,
+          type: 'image',
+          data: {
+            assetId: typeof p.assetId === 'string' ? p.assetId : undefined,
+            src: typeof p.src === 'string' ? p.src : undefined,
+            alt: String(p.alt ?? ''),
+            caption: String(p.caption ?? ''),
+            width: typeof p.width === 'string' ? p.width : undefined,
+          },
+        });
         i += 1;
         break;
       }

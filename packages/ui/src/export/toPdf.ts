@@ -100,6 +100,40 @@ function staticizeSliders(root: Element): void {
 }
 
 /**
+ * Wait for every `<img>` under `root` to finish decoding before the SVG snapshot.
+ *
+ * dom-to-svg only captures an image that's already loaded + decoded in the iframe
+ * — an undecoded `<img>` snapshots as a blank box. The exported HTML inlines each
+ * picture as a `data:` URI (resolved up front, see exportAssets), which decodes
+ * locally + fast; a legacy remote `src` may need the network. Each wait is capped
+ * (and `error` resolves too) so a slow / broken image can never hang the export.
+ */
+export async function awaitImages(root: Element): Promise<void> {
+  const imgs = Array.from(root.querySelectorAll('img')) as HTMLImageElement[];
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise<void>((resolve) => {
+          const done = (): void => resolve();
+          if (img.complete && img.naturalWidth > 0) {
+            done();
+            return;
+          }
+          const timer = setTimeout(done, 3000); // never block the export on one image
+          const settle = (): void => {
+            clearTimeout(timer);
+            done();
+          };
+          img.addEventListener('load', settle, {once: true});
+          img.addEventListener('error', settle, {once: true});
+          // decode() is the reliable "pixels ready" signal for a data-URI.
+          img.decode?.().then(settle, () => {/* fall back to load/error/timeout */});
+        }),
+    ),
+  );
+}
+
+/**
  * Lay the HTML out in a hidden iframe (real layout + the reactive runtime, so
  * computed values and charts render), and hand back its `<main>` element.
  */
@@ -125,6 +159,7 @@ async function layout(html: string): Promise<{frame: HTMLIFrameElement; el: Elem
   }
   await new Promise((r) => setTimeout(r, 300)); // let the reactive runtime recompute + draw charts
   const el = idoc.querySelector('main') ?? idoc.body;
+  await awaitImages(el); // images must be decoded or dom-to-svg snapshots blank boxes
   deEmoji(el);
   staticizeSliders(el);
   return {frame, el};

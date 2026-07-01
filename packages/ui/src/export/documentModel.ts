@@ -53,6 +53,7 @@ export type DocBlock =
   | {type: 'kvalue'; label: string; value: unknown}
   | {type: 'light'; label: string; status: string; value: unknown}
   | {type: 'progress'; label: string; pct: number; readout: string}
+  | {type: 'image'; src: string; alt: string; caption: string; width?: string}
   | {type: 'unknown'; raw: string};
 
 export interface DocModel {
@@ -152,9 +153,11 @@ export interface BuildModelOptions {
   title: string;
   icon: string;
   snapshot: PageSnapshot;
+  /** Image assets resolved up front: `assetId` → a `data:` URI (see exportAssets). */
+  assets?: Map<string, string>;
 }
 
-export function buildDocumentModel({title, icon, snapshot: rawSnapshot}: BuildModelOptions): DocModel {
+export function buildDocumentModel({title, icon, snapshot: rawSnapshot, assets = new Map()}: BuildModelOptions): DocModel {
   // Pages written by the CRDT block editor project into the EditorJS shape
   // first, so every exporter below works on one block dialect.
   const snapshot = blockSnapshotToEditorJs(rawSnapshot);
@@ -287,6 +290,16 @@ export function buildDocumentModel({title, icon, snapshot: rawSnapshot}: BuildMo
         runs: [{text: str(data.pageId), mention: {pageId: str(data.pageId), label: str(data.pageId)}}],
       });
       break;
+    case 'image': {
+      // Resolve a pre-resolved `assetId` → data-URI, else a legacy `data:`/remote
+      // `src`; an unresolved image keeps an empty `src` so the renderer degrades.
+      const assetId = str(data.assetId);
+      const rawSrc = str(data.src);
+      const direct = rawSrc && (rawSrc.startsWith('data:') || /^https?:\/\//i.test(rawSrc)) ? rawSrc : '';
+      const src = (assetId ? assets.get(assetId) : '') || direct;
+      out.push({type: 'image', src, alt: str(data.alt), caption: str(data.caption).trim(), width: str(data.width) || undefined});
+      break;
+    }
     default:
       out.push({type: 'unknown', raw: block.type ?? 'unknown'});
       break;

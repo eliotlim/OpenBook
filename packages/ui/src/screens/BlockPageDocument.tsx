@@ -13,6 +13,7 @@ import {blockSnapshotToEditorJs} from '@/blockeditor/exportBlocks';
 import {computeScope} from '@/blockeditor/kit/scope';
 import {buildDocumentModel} from '@/export/documentModel';
 import {toMarkdown} from '@/export/toMarkdown';
+import {resolveExportAssets} from '@/export/exportAssets';
 import {downloadBlob} from '@/lib/download';
 import {useData} from '@/data';
 import {useCanWrite} from '@/lib/useCanWrite';
@@ -350,28 +351,34 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     const base = safeFilename(title);
     try {
       if (kind === 'md') {
-        downloadText(`${base}.md`, toMarkdown(buildDocumentModel({title, icon, snapshot})), 'text/markdown');
+        // Resolve image assets (assetId → data-URI) up front so every renderer
+        // embeds the picture rather than a dangling reference.
+        const assets = await resolveExportAssets(client, [snapshot]);
+        downloadText(`${base}.md`, toMarkdown(buildDocumentModel({title, icon, snapshot, assets})), 'text/markdown');
       } else if (kind === 'pdf-paged' || kind === 'pdf-continuous' || kind === 'pdf-slides') {
         // PDF mirrors the HTML export (vector, selectable) rather than a separate
         // hand-drawn renderer — so it looks like the window. See export/toPdf.ts.
-        const [{toPdf, toPdfSlides}, {toHtml, toSlideDeck}] = await Promise.all([
+        const [{toPdf, toPdfSlides}, {toHtml, toSlideDeck}, assets] = await Promise.all([
           import('@/export/toPdf'),
           import('@/export/toHtml'),
+          resolveExportAssets(client, [snapshot]),
         ]);
         const blob =
           kind === 'pdf-slides'
-            ? await toPdfSlides(toSlideDeck(snapshot, title, icon))
-            : await toPdf(toHtml(snapshot, title, icon), kind === 'pdf-continuous' ? 'continuous' : 'paged');
+            ? await toPdfSlides(toSlideDeck(snapshot, title, icon, assets))
+            : await toPdf(toHtml(snapshot, title, icon, assets), kind === 'pdf-continuous' ? 'continuous' : 'paged');
         downloadBlob(`${base}${kind === 'pdf-slides' ? '-slides' : ''}.pdf`, blob);
       } else if (kind === 'html-slides') {
-        const {toSlideDeck} = await import('@/export/toHtml');
-        downloadText(`${base}-slides.html`, toSlideDeck(snapshot, title, icon), 'text/html');
+        const [{toSlideDeck}, assets] = await Promise.all([import('@/export/toHtml'), resolveExportAssets(client, [snapshot])]);
+        downloadText(`${base}-slides.html`, toSlideDeck(snapshot, title, icon, assets), 'text/html');
       } else {
         const [{toHtmlSite}, {gatherSite}] = await Promise.all([import('@/export/toHtml'), import('@/export/exportSite')]);
         const bundle = pageId
           ? await gatherSite(client, pageId, {snapshot, title, icon})
           : {rootId: '', pages: [{id: '', title, icon, snapshot}]};
-        downloadText(`${base}.html`, toHtmlSite(bundle), 'text/html');
+        // A whole-site export can embed images from every reachable page.
+        const assets = await resolveExportAssets(client, bundle.pages.map((p) => p.snapshot));
+        downloadText(`${base}.html`, toHtmlSite(bundle, assets), 'text/html');
       }
     } catch (e) {
       console.error('BlockPageDocument: export failed:', e);

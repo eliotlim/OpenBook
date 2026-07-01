@@ -93,6 +93,8 @@ interface RenderCtx {
   lights: KitLightSpec[];
   progress: ProgressSpec[];
   initialValues: Record<string, unknown>;
+  /** Image assets resolved up front: `assetId` → a `data:` URI (see exportAssets). */
+  assets: Map<string, string>;
   /** Global chart counter (chart ids must be unique across the whole document). */
   chartSeq: {n: number};
   /** Prefix making this page's heading anchors unique within the document. */
@@ -351,6 +353,25 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
       html.push(db ? renderDatabaseTable(db, ctx) : subpageLink(pid, ctx));
       break;
     }
+    case 'image': {
+      // Resolve the picture: a pre-resolved `assetId` → data-URI, else a legacy
+      // `data:`/remote `src` used directly. Unresolvable → a captioned alt-text
+      // placeholder (never a broken <img>, so the PDF snapshot stays clean too).
+      const assetId = str(d.assetId);
+      const rawSrc = str(d.src);
+      const direct = rawSrc && (rawSrc.startsWith('data:') || /^https?:\/\//i.test(rawSrc)) ? rawSrc : '';
+      const src = (assetId ? ctx.assets.get(assetId) : '') || direct;
+      const alt = escapeHtml(str(d.alt));
+      const caption = str(d.caption).trim();
+      const widthStyle = d.width ? ` style="width:${escapeHtml(str(d.width))}"` : '';
+      const figcap = caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : '';
+      html.push(
+        src
+          ? `<figure class="ob-image"><img src="${escapeHtml(src)}" alt="${alt}"${widthStyle}>${figcap}</figure>`
+          : `<figure class="ob-image is-missing"><div class="ob-image-alt"${widthStyle}>${alt || 'Image'}</div>${figcap}</figure>`,
+      );
+      break;
+    }
     case 'slider': {
       const min = num(d.min, 0);
       const max = num(d.max, 100);
@@ -554,8 +575,9 @@ ${reactive}${nav}${extra?.script ? `\n<script>${escapeScript(extra.script)}</scr
 </html>`;
 }
 
-/** Build the interactive HTML for a single page snapshot (Markdown/PDF parity). */
-export function toHtml(rawSnapshot: PageSnapshot, title: string, icon: string): string {
+/** Build the interactive HTML for a single page snapshot (Markdown/PDF parity).
+ *  `assets` maps image `assetId`s to resolved `data:` URIs (see exportAssets). */
+export function toHtml(rawSnapshot: PageSnapshot, title: string, icon: string, assets: Map<string, string> = new Map()): string {
   const snapshot = blockSnapshotToEditorJs(rawSnapshot);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
@@ -571,6 +593,7 @@ export function toHtml(rawSnapshot: PageSnapshot, title: string, icon: string): 
     lights: [],
     progress: [],
     initialValues: {},
+    assets,
     chartSeq: {n: 0},
     anchorPrefix: '',
     pageExists: () => false,
@@ -625,7 +648,7 @@ const SLIDE_NAV = `
 
 /** Build a self-contained, interactive slide deck: blocks split into slides at
  *  every divider, widgets stay live offline, arrow-key navigation. */
-export function toSlideDeck(rawSnapshot: PageSnapshot, title: string, icon: string): string {
+export function toSlideDeck(rawSnapshot: PageSnapshot, title: string, icon: string, assets: Map<string, string> = new Map()): string {
   const snapshot = blockSnapshotToEditorJs(rawSnapshot);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
@@ -641,6 +664,7 @@ export function toSlideDeck(rawSnapshot: PageSnapshot, title: string, icon: stri
     lights: [],
     progress: [],
     initialValues: {},
+    assets,
     chartSeq: {n: 0},
     anchorPrefix: '',
     pageExists: () => false,
@@ -678,7 +702,7 @@ export function toSlideDeck(rawSnapshot: PageSnapshot, title: string, icon: stri
  * navigable section, databases as tables of navigable rows, and a client-side
  * router that swaps the visible page on link clicks (with browser back/forward).
  */
-export function toHtmlSite(bundle: SiteBundle): string {
+export function toHtmlSite(bundle: SiteBundle, assets: Map<string, string> = new Map()): string {
   const byId = new Map(bundle.pages.map((p) => [p.id, p]));
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
@@ -695,6 +719,7 @@ export function toHtmlSite(bundle: SiteBundle): string {
     lights: [],
     progress: [],
     initialValues: {},
+    assets,
     chartSeq: {n: 0},
     anchorPrefix: '',
     pageExists: (id) => byId.has(id),
@@ -803,6 +828,10 @@ a.subpage:hover { background: rgba(127,127,127,.08); }
 figure.chart { margin: 1.2em 0; }
 figure.chart svg { max-width: 100%; height: auto; }
 figure.chart .chart-title { font-weight: 600; font-size: .92rem; margin-bottom: 6px; }
+figure.ob-image { margin: 1.2em 0; }
+figure.ob-image img { max-width: 100%; height: auto; border-radius: 8px; display: block; }
+figure.ob-image figcaption { margin-top: 6px; text-align: center; font-size: .88rem; opacity: .7; }
+figure.ob-image .ob-image-alt { padding: 24px; text-align: center; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; opacity: .6; font-size: .9rem; }
 table.block-table, table.db-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
 table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; vertical-align: top; }
 table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; }
