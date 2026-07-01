@@ -211,6 +211,33 @@ async function bundleKey(req: ImportRequest): Promise<string> {
 }
 
 /**
+ * SHA-256 hex of raw bytes — the content-addressed id of an asset (Assets A1).
+ * Byte-identical inputs hash identically, so the asset store dedups on it; the id
+ * is self-verifying (a content hash, never a guessable sequential handle). Uses
+ * the same `globalThis.crypto.subtle` path as {@link bundleKey}, so it runs under
+ * Node, the browser PGlite home, and the compiled sidecar alike.
+ */
+async function assetHash(bytes: Uint8Array): Promise<string> {
+  // Copy into a definitely-`ArrayBuffer`-backed view so `subtle.digest`'s
+  // `BufferSource` accepts it (a bare `Uint8Array` is `ArrayBufferLike`).
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Normalize a `BYTEA` value to a `Uint8Array`. PGlite returns a `Uint8Array` and
+ * node-postgres a `Buffer` (a `Uint8Array` subclass); a wire backend may hand back
+ * a `\x…` hex string. All three collapse here so `getAsset` always yields bytes.
+ */
+function toBytes(value: Uint8Array | string): Uint8Array {
+  if (typeof value === 'string') {
+    const hex = value.startsWith('\\x') ? value.slice(2) : value;
+    return Uint8Array.from(Buffer.from(hex, 'hex'));
+  }
+  return value instanceof Uint8Array ? value : new Uint8Array(value);
+}
+
+/**
  * The one and only OpenBook storage implementation: pages in Postgres. The
  * embedded (desktop) and remote (server) modes differ only in the {@link Db}
  * backend passed in.
@@ -2163,6 +2190,108 @@ export class PageStore {
     const {decision, exists} = await this.decidePageAccess(principal, id);
     if (!exists || !decision.canRead) return null;
     return this.getPage(id);
+  }
+
+  // ── Assets: content-addressed binary store (OB-ASSETS A1) ────────────────────
+
+  /**
+   * Store binary `bytes` under their SHA-256 content hash (dedup: byte-identical
+   * uploads collapse to ONE row). Returns the id. `ON CONFLICT DO NOTHING` keeps
+   * the first-seen `mime`/`size` for a given content — mime is metadata *about the
+   * bytes*, and the bytes (hence the id) are what a caller re-uploads, so a second
+   * upload of the same content is a pure no-op. Does NOT gate or ref — the route
+   * gates the upload and refs the asset to a page.
+   *
+   * `mime` MUST already be a sanitized, safe-to-serve type (the route runs
+   * `safeAssetMime` before calling in — an allowlisted image or
+   * `application/octet-stream`). Because only sanitized mimes are ever stored, the
+   * first-seen-mime dedup above can never be poisoned into serving an executable
+   * type (the stored-XSS defense; see the upload route).
+   */
+  async putAsset(bytes: Uint8Array, mime: string): Promise<{id: string}> {
+    const id = await assetHash(bytes);
+    await this.db.query(
+      `INSERT INTO assets (id, bytes, mime, size) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (id) DO NOTHING`,
+      // Bind a Buffer. PGlite accepts a bare Uint8Array or a Buffer; the remote
+      // postgres.js (porsager) driver serializes a Buffer to BYTEA. Buffer is the
+      // shape both accept — belt-and-braces, not strictly required by either today.
+      [id, Buffer.from(bytes), mime, bytes.byteLength],
+    );
+    return {id};
+  }
+
+  /** Fetch an asset's bytes + mime + size by content-hash id, or `null` if absent.
+   *  UNGATED — call {@link getAssetFor} on the request path.
+   *
+   *  BYTEA comes back as a `Uint8Array` from PGlite and from postgres.js alike (and
+   *  as a `\x…` hex string from some other drivers); {@link toBytes} normalizes all
+   *  three. All current tests run on PGlite — the postgres.js path shares the exact
+   *  same SQL and is covered by the driver's documented BYTEA↔Uint8Array contract. */
+  async getAsset(id: string): Promise<{bytes: Uint8Array; mime: string; size: number} | null> {
+    const rows = await this.db.query<{bytes: Uint8Array | string; mime: string; size: number | string}>(
+      'SELECT bytes, mime, size FROM assets WHERE id = $1',
+      [id],
+    );
+    if (rows.length === 0) return null;
+    return {bytes: toBytes(rows[0].bytes), mime: rows[0].mime, size: Number(rows[0].size)};
+  }
+
+  /**
+   * Record that `pageId` references `assetId` — the reachability/gating edge. An
+   * asset inherits the read-gate of every page that references it, so ref-ing it to
+   * a page the caller can write makes it reachable to that page's readers.
+   * Idempotent (composite PK ⇒ a repeat ref is a no-op).
+   */
+  async refAsset(assetId: string, pageId: string): Promise<void> {
+    await this.db.query(
+      `INSERT INTO asset_refs (asset_id, page_id) VALUES ($1, $2)
+       ON CONFLICT (asset_id, page_id) DO NOTHING`,
+      [assetId, pageId],
+    );
+  }
+
+  /** Drop a page's reference to an asset (the inverse of {@link refAsset}). */
+  async unrefAsset(assetId: string, pageId: string): Promise<void> {
+    await this.db.query('DELETE FROM asset_refs WHERE asset_id = $1 AND page_id = $2', [assetId, pageId]);
+  }
+
+  /** The page ids that reference an asset — its reachability set (the pages whose
+   *  read-gate the asset inherits). Empty ⇒ the asset is unreachable. */
+  async pagesReferencingAsset(assetId: string): Promise<string[]> {
+    const rows = await this.db.query<{page_id: string}>(
+      'SELECT page_id FROM asset_refs WHERE asset_id = $1',
+      [assetId],
+    );
+    return rows.map((r) => r.page_id);
+  }
+
+  /**
+   * May the principal read this asset? True iff they can read at least one page
+   * that references it — the asset inherits its referencing pages' read-gate. An
+   * asset with no reachable/readable referencing page is invisible (default-deny,
+   * no existence oracle: an absent asset and an unreadable one answer alike). The
+   * roster lookup is amortised across the (usually one) referencing pages via a
+   * shared {@link AccessBase}.
+   */
+  async canReadAsset(principal: Principal, assetId: string): Promise<boolean> {
+    const pageIds = await this.pagesReferencingAsset(assetId);
+    if (pageIds.length === 0) return false;
+    const base = await this.accessBase(principal);
+    for (const pageId of pageIds) {
+      if (await this.canReadPage(principal, pageId, base)) return true;
+    }
+    return false;
+  }
+
+  /** Read-gated asset fetch: the bytes+mime iff the principal can read a referencing
+   *  page, else `null` (route → 404, no existence oracle). */
+  async getAssetFor(
+    principal: Principal,
+    id: string,
+  ): Promise<{bytes: Uint8Array; mime: string; size: number} | null> {
+    if (!(await this.canReadAsset(principal, id))) return null;
+    return this.getAsset(id);
   }
 }
 
