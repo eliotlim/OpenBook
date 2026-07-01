@@ -169,6 +169,7 @@ export {
   guestPrincipal,
   localPrincipal,
   principalId,
+  verifiedSubject,
   colorForIdentity,
   IDENTITY_COLORS,
   mintIdentityKeypair,
@@ -223,7 +224,13 @@ export {
   latestBlockMtime,
   type BlockDigest,
 } from './mtime';
-export {computeBlockAuthors, stampSnapshotAuthors, latestSnapshotAuthor} from './authors';
+export {
+  computeBlockAuthors,
+  stampSnapshotAuthors,
+  stampSnapshotAuthorsPerBlock,
+  latestSnapshotAuthor,
+  type BlockAuthorResolver,
+} from './authors';
 export {
   pageToBookHtml,
   bookHtmlToPage,

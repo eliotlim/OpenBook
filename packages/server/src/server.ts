@@ -1,6 +1,6 @@
 import {serve, getRequestListener} from '@hono/node-server';
 import type {PGliteOptions} from '@electric-sql/pglite';
-import {createApp} from './app';
+import {createApp, type AppWithCollab} from './app';
 import {type Db, createPgliteDb, PostgresDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
@@ -108,6 +108,13 @@ export interface StartOptions {
    * unauthenticated. The sync is inert unless a binding is configured.
    */
   workspaceSyncToken?: string;
+  /**
+   * Server-authoritative Yjs persistence (Collab T9) — opt-in, default off. When
+   * true, the server keeps a per-page canonical CRDT doc and persists the durable
+   * snapshot from it, so a stale client can't overwrite newer content. Also enabled
+   * by a truthy `OPENBOOK_SERVER_PERSIST`. Off ⇒ the shipped T3 client-saver model.
+   */
+  serverPersist?: boolean;
 }
 
 export interface RunningServer {
@@ -305,10 +312,16 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   });
   roster.start();
 
+  // Server-authoritative Yjs persistence (Collab T9) — opt-in, default off. Enabled
+  // by the option or `OPENBOOK_SERVER_PERSIST` (truthy). When on, the server persists
+  // the durable snapshot from its own canonical CRDT doc, removing the LWW window.
+  const serverPersist =
+    opts.serverPersist ?? /^(1|true|yes|on)$/i.test((process.env.OPENBOOK_SERVER_PERSIST ?? '').trim());
+
   // One hub is shared between the HTTP/SSE app and the disk mirror, so a
   // re-imported page fans out to every connected client too.
   const hub = new PageHub();
-  const app = createApp(store, ai, hub, {accessToken: opts.accessToken, embedded: !opts.databaseUrl, identity, backups, roster});
+  const app = createApp(store, ai, hub, {accessToken: opts.accessToken, embedded: !opts.databaseUrl, identity, backups, roster, serverPersist});
 
   // The server can listen on a Unix domain socket (the desktop's portless IPC
   // default), a TCP port (headless, or the LAN bind added when publishing), or
@@ -435,6 +448,17 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
       // Stop accepting requests on every listener first, so no new writes arrive
       // mid-shutdown.
       for (const closeListener of closers) await closeListener();
+      // Collab T9: checkpoint every dirty canonical doc before the store closes, so a
+      // shutdown never strands an edit the server was the persistence authority for
+      // (no-lost-edit-on-shutdown). Runs BEFORE the mirror unsubscribe/close below so
+      // each checkpoint's publishPage still enqueues into the mirror journal. Off (and
+      // a no-op) when server-persist is disabled. Best-effort — a flush failure must
+      // not block the rest of shutdown.
+      try {
+        await (app as AppWithCollab).collabPersist?.flushAll();
+      } catch (err) {
+        console.error('OpenBook server-persist shutdown flush failed:', err);
+      }
       // Flush-on-exit (OB-132): drain the mirror journal before the store closes,
       // so no committed write is lost. The mirror still needs the store to render.
       mirrorUnsub?.();
