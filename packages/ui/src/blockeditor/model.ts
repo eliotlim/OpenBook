@@ -794,17 +794,71 @@ export function htmlToRuns(html: string): TextRun[] {
   return runs;
 }
 
+/** A reference to an `<img>` — its `src` plus alt/title, for {@link HtmlToBlocksOptions.onImage}. */
+export interface HtmlImageRef {
+  src: string;
+  alt?: string;
+  title?: string;
+}
+
+/** Options for {@link htmlToBlocks}. */
+export interface HtmlToBlocksOptions {
+  /**
+   * Map an `<img>` to a block. Supplied by the HTML *importer* (which returns a
+   * visible image-placeholder block preserving the src/alt), so an image is
+   * never silently dropped. Omitted for clipboard paste — where, as today,
+   * images fall away (the editor has no inline-image block yet). Returning `null`
+   * drops the image (e.g. an empty `<img>` with nothing worth keeping).
+   */
+  onImage?: (img: HtmlImageRef) => NewBlock | null;
+}
+
+const imageRefOf = (img: HTMLElement): HtmlImageRef => {
+  const src = img.getAttribute('src') ?? '';
+  const alt = img.getAttribute('alt')?.trim();
+  const title = img.getAttribute('title')?.trim();
+  return {src, ...(alt ? {alt} : {}), ...(title ? {title} : {})};
+};
+
 /**
  * Parse clipboard/external HTML into blocks: top-level block elements map to
  * block types, inline markup folds into rich runs (via {@link htmlToRuns}),
  * lists flatten to one block per item, tables come across whole. Anything
  * unrecognized degrades to a paragraph with its text — never dropped.
+ *
+ * With {@link HtmlToBlocksOptions.onImage} (the HTML importer's path), every
+ * `<img>` — standalone, in a `<figure>`, or tucked inside a paragraph / list
+ * item / table cell — is mapped to a block instead of being dropped by the
+ * text-only `htmlToRuns`. Without it (clipboard paste) the behaviour is
+ * unchanged.
  */
-export function htmlToBlocks(html: string): NewBlock[] {
+export function htmlToBlocks(html: string, opts: HtmlToBlocksOptions = {}): NewBlock[] {
   if (typeof document === 'undefined') return [{type: 'paragraph', text: html.replace(/<[^>]+>/g, '')}];
   const root = document.createElement('div');
   root.innerHTML = html;
   const out: NewBlock[] = [];
+
+  // Emit an image block for every <img> in `el` (importer path only) — used after
+  // a text-bearing block so an image inside a paragraph / list item / cell is
+  // preserved rather than dropped by the text-only `htmlToRuns`. A no-op for
+  // clipboard paste (no `onImage`), keeping that path byte-for-byte unchanged.
+  const emitImagesIn = (el: HTMLElement): void => {
+    if (!opts.onImage) return;
+    el.querySelectorAll('img').forEach((img) => {
+      const block = opts.onImage!(imageRefOf(img as HTMLElement));
+      if (block) out.push(block);
+    });
+  };
+
+  // An inline-ish / unrecognised element at the top level: fold its whole subtree
+  // to a single rich paragraph (via `htmlToRuns` over `outerHTML`), then emit any
+  // images (importer path only). This is the original `default` behaviour, shared
+  // so the paste path keeps folding a `<figure>`/`<figcaption>` exactly as before.
+  const foldInline = (el: HTMLElement): void => {
+    const runs = htmlToRuns(el.outerHTML);
+    if (runs.some((r) => r.t.trim())) out.push({type: 'paragraph', text: runs});
+    emitImagesIn(el);
+  };
 
   const pushListItems = (listEl: HTMLElement, kind: 'bullet' | 'number'): void => {
     listEl.querySelectorAll(':scope > li').forEach((li) => {
@@ -817,6 +871,9 @@ export function htmlToBlocks(html: string): NewBlock[] {
       } else {
         out.push({type: 'list', text: runs, props: {kind}});
       }
+      // The clone has nested lists stripped, so this catches only THIS item's own
+      // images (a nested list's images come through when it is recursed below).
+      emitImagesIn(clone);
       li.querySelectorAll(':scope > ul').forEach((ul) => pushListItems(ul as HTMLElement, 'bullet'));
       li.querySelectorAll(':scope > ol').forEach((ol) => pushListItems(ol as HTMLElement, 'number'));
     });
@@ -838,10 +895,16 @@ export function htmlToBlocks(html: string): NewBlock[] {
     case 'h5':
     case 'h6':
       out.push({type: 'heading', text: htmlToRuns(node.innerHTML), props: {level: Math.min(3, Number(tag[1]))}});
+      emitImagesIn(node);
       return;
-    case 'p':
-      out.push({type: 'paragraph', text: htmlToRuns(node.innerHTML)});
+    case 'p': {
+      const runs = htmlToRuns(node.innerHTML);
+      // Paste keeps an empty <p> (unchanged); the importer skips an image-only
+      // paragraph so no blank line precedes the placeholder emitted next.
+      if (!opts.onImage || runs.some((r) => r.t.trim())) out.push({type: 'paragraph', text: runs});
+      emitImagesIn(node);
       return;
+    }
     case 'ul':
       pushListItems(node, 'bullet');
       return;
@@ -850,12 +913,32 @@ export function htmlToBlocks(html: string): NewBlock[] {
       return;
     case 'blockquote':
       out.push({type: 'quote', text: htmlToRuns(node.innerHTML)});
+      emitImagesIn(node);
       return;
     case 'pre':
       out.push({type: 'code', text: node.textContent ?? ''});
+      emitImagesIn(node);
       return;
     case 'hr':
       out.push({type: 'divider'});
+      return;
+    case 'img':
+      if (opts.onImage) {
+        const block = opts.onImage(imageRefOf(node));
+        if (block) out.push(block);
+      }
+      return;
+    case 'figure':
+    case 'figcaption':
+      // Importer path: recurse so the <img> (+ caption) each map through their own
+      // case rather than collapsing to text — the image is thereby preserved. Paste
+      // path (no `onImage`): fold to one rich paragraph, exactly as `default` did
+      // before figures were special-cased, keeping clipboard paste byte-identical.
+      if (opts.onImage) {
+        node.childNodes.forEach(visit);
+        return;
+      }
+      foldInline(node);
       return;
     case 'table': {
       const rows = [...node.querySelectorAll('tr')].map((tr) => [...tr.querySelectorAll('td, th')].map((cell) => htmlToRuns(cell.innerHTML)));
@@ -866,6 +949,9 @@ export function htmlToBlocks(html: string): NewBlock[] {
           children: rows.map((cells) => ({type: 'row' as const, children: cells.map((runs) => ({type: 'cell' as const, text: runs}))})),
         });
       }
+      // A cell holds only inline text, so an image in one would vanish — keep it
+      // as a placeholder block after the table (importer path only).
+      emitImagesIn(node);
       return;
     }
     case 'div':
@@ -879,12 +965,10 @@ export function htmlToBlocks(html: string): NewBlock[] {
     case 'script':
     case 'meta':
       return;
-    default: {
+    default:
       // Inline-ish element at the top level: fold it (and following inline
       // siblings would each become paragraphs — acceptable for pastes).
-      const runs = htmlToRuns(node.outerHTML);
-      if (runs.some((r) => r.t.trim())) out.push({type: 'paragraph', text: runs});
-    }
+      foldInline(node);
     }
   };
   root.childNodes.forEach(visit);

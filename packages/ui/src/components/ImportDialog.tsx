@@ -19,16 +19,21 @@ import {
   pickImportedJumpTarget,
   runImport,
   summarizeImportedDoc,
+  titleFromFileName,
   type ImportSummary,
 } from '@/lib/importContent';
+import {htmlToImportedDoc} from '@/lib/htmlImport';
 import {isImportAbortError, parseImportInWorker, type ImportParseProgress} from '@/lib/importParse';
 
-/** Extensions the file picker offers — Notion export zips and Markdown files. */
-const ACCEPT = '.zip,.md,.markdown,.mdown,.mkd,.txt';
+/** Extensions the file picker offers — Notion export zips, Markdown, and HTML. */
+const ACCEPT = '.zip,.md,.markdown,.mdown,.mkd,.txt,.html,.htm';
+
+/** Which format the paste textarea is entering (Markdown or HTML). */
+type PasteFormat = 'markdown' | 'html';
 
 /**
  * The import flow, as a small state machine. `pick` offers the file picker (and
- * a paste-Markdown affordance); reading/parsing produces a `preview` of what
+ * paste-Markdown / paste-HTML affordances); reading/parsing produces a `preview` of what
  * will land; the user confirms into `importing` (the progress phase); `done`
  * shows the result summary plus a jump to the first top-level imported page.
  * Any failure becomes a friendly `error` the user can retry from — never a
@@ -43,12 +48,13 @@ type Phase =
   | {step: 'error'; message: string};
 
 /**
- * "Bring your content" — import a Notion export (.zip) or a Markdown file into
- * the workspace (OB-301). Format is auto-detected from the file; the SDK
- * importers (`notionExportToImportedDoc` / `markdownToImportedDoc`) parse to the
- * format-agnostic IR, and `importDoc` lands it through the existing data paths,
- * picking the create-vs-bundle strategy itself. Opened from the HUD (Home quick
- * action, command palette, or Settings → Admin).
+ * "Bring your content" — import a Notion export (.zip), a Markdown (.md), or an
+ * HTML (.html) file into the workspace (OB-301/303). Format is auto-detected from
+ * the file; the SDK importers (`notionExportToImportedDoc` / `markdownToImportedDoc`)
+ * and the UI's `htmlToImportedDoc` parse to the format-agnostic IR, and `importDoc`
+ * lands it through the existing data paths, picking the create-vs-bundle strategy
+ * itself. Opened from the HUD (Home quick action, command palette, or Settings →
+ * Admin).
  *
  * We use a clean progress UI rather than reusing the backup Restore dialog: the
  * SDK's `importDoc` is the single landing entry point and chooses its own
@@ -73,6 +79,7 @@ export default function ImportDialog() {
   const [phase, setPhase] = useState<Phase>({step: 'pick'});
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [pasteFormat, setPasteFormat] = useState<PasteFormat>('markdown');
 
   // Reset to a clean picker each time the dialog opens, so a previous import's
   // result or error never greets the next one; abort any parse still running
@@ -82,6 +89,7 @@ export default function ImportDialog() {
       setPhase({step: 'pick'});
       setPasteOpen(false);
       setPasteText('');
+      setPasteFormat('markdown');
       importingRef.current = false;
     } else {
       parseAbortRef.current?.abort();
@@ -134,22 +142,35 @@ export default function ImportDialog() {
 
   const onFile = useCallback(
     async (file: File) => {
+      const format = detectImportFormat(file.name);
+      if (!format) {
+        setPhase({step: 'error', message: t('importer.unsupported')});
+        return;
+      }
       setPhase({step: 'reading'});
-      // A fresh controller per parse; aborting it (on close/unmount) terminates
-      // the worker. Cancel any prior parse first.
+      // HTML reuses the editor's DOM-based `htmlToBlocks`, which needs a live
+      // `document` the import worker lacks — so it parses on the MAIN thread.
+      // A single HTML document is light, so an inline parse (like pasted
+      // Markdown) is fine; no worker, no abort controller needed.
+      if (format === 'html') {
+        try {
+          const doc = htmlToImportedDoc(await file.text(), {defaultTitle: titleFromFileName(file.name) || undefined});
+          toPreview(doc, summarizeImportedDoc(doc), file.name);
+        } catch (e) {
+          setPhase({step: 'error', message: t('importer.parseFailed', {error: (e as Error).message})});
+        }
+        return;
+      }
+      // Notion/Markdown: heavy work (unzip + parse + IR + summarize) runs in a Web
+      // Worker so a big import doesn't freeze the UI; the spinner stays live and
+      // shows the parse's progress. Falls back to a main-thread parse if a worker
+      // can't be hosted (e.g. a webview that rejects the worker). A fresh
+      // controller per parse; aborting it (on close/unmount) terminates the
+      // worker. Cancel any prior parse first.
       parseAbortRef.current?.abort();
       const controller = new AbortController();
       parseAbortRef.current = controller;
       try {
-        const format = detectImportFormat(file.name);
-        if (!format) {
-          setPhase({step: 'error', message: t('importer.unsupported')});
-          return;
-        }
-        // Heavy work (unzip + parse + IR + summarize) runs in a Web Worker so a
-        // big import doesn't freeze the UI; the spinner stays live and shows the
-        // parse's progress. Falls back to a main-thread parse if a worker can't
-        // be hosted (e.g. a webview that rejects the worker).
         const source =
           format === 'notion-zip'
             ? ({format, bytes: new Uint8Array(await file.arrayBuffer()), fileName: file.name} as const)
@@ -168,20 +189,25 @@ export default function ImportDialog() {
     [t, toPreview],
   );
 
-  // Pasted Markdown is small by nature, so it parses inline (no worker spin-up):
-  // the same pure parser the worker wraps, just on the main thread.
+  // Pasted content is small by nature, so it parses inline (no worker spin-up):
+  // Markdown via the pure parser the worker wraps, HTML via the DOM-based
+  // `htmlToImportedDoc` — both on the main thread.
   const onPaste = useCallback(() => {
     if (!pasteText.trim()) {
       setPhase({step: 'error', message: t('importer.emptyPaste')});
       return;
     }
     try {
-      const doc = parseImportSource({format: 'markdown', text: pasteText});
-      toPreview(doc, summarizeImportedDoc(doc), t('importer.pastedLabel'));
+      const doc =
+        pasteFormat === 'html'
+          ? htmlToImportedDoc(pasteText)
+          : parseImportSource({format: 'markdown', text: pasteText});
+      const label = t(pasteFormat === 'html' ? 'importer.pastedHtmlLabel' : 'importer.pastedLabel');
+      toPreview(doc, summarizeImportedDoc(doc), label);
     } catch (e) {
       setPhase({step: 'error', message: t('importer.parseFailed', {error: (e as Error).message})});
     }
-  }, [pasteText, t, toPreview]);
+  }, [pasteText, pasteFormat, t, toPreview]);
 
   const doImport = useCallback(
     async (doc: ImportedDoc, summary: ImportSummary) => {
@@ -219,7 +245,7 @@ export default function ImportDialog() {
           <DialogDescription>{t('importer.description')}</DialogDescription>
         </DialogHeader>
 
-        {/* ── Pick: choose a file, or paste Markdown ─────────────────────── */}
+        {/* ── Pick: choose a file, or paste Markdown / HTML ──────────────── */}
         {phase.step === 'pick' && (
           <div className="flex flex-col gap-4">
             <button
@@ -248,9 +274,9 @@ export default function ImportDialog() {
                 <textarea
                   value={pasteText}
                   onChange={(e) => setPasteText(e.target.value)}
-                  placeholder={t('importer.pastePlaceholder')}
+                  placeholder={t(pasteFormat === 'html' ? 'importer.pasteHtmlPlaceholder' : 'importer.pastePlaceholder')}
                   rows={6}
-                  aria-label={t('importer.pasteToggle')}
+                  aria-label={t(pasteFormat === 'html' ? 'importer.pasteHtmlToggle' : 'importer.pasteToggle')}
                   className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)]"
                 />
                 <div className="flex justify-end">
@@ -260,13 +286,31 @@ export default function ImportDialog() {
                 </div>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => setPasteOpen(true)}
-                className="self-center text-xs text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
-              >
-                {t('importer.pasteToggle')}
-              </button>
+              <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPasteFormat('markdown');
+                    setPasteOpen(true);
+                  }}
+                  className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                >
+                  {t('importer.pasteToggle')}
+                </button>
+                <span aria-hidden className="text-muted-foreground/50">
+                  ·
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPasteFormat('html');
+                    setPasteOpen(true);
+                  }}
+                  className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
+                >
+                  {t('importer.pasteHtmlToggle')}
+                </button>
+              </div>
             )}
           </div>
         )}
