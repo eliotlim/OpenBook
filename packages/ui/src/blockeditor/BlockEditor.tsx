@@ -429,7 +429,10 @@ export const BlockEditor: React.FC<{
       let after = afterId;
       void (async () => {
         for (const file of files) {
-          const res = await imageBlockFromFile(file);
+          // Thread the hosting page id (the BlockEditor `pageId` prop) so the
+          // ingest can upload the bytes to the asset store and ref them to it
+          // (Assets A2); without a pageId it falls back to an inline data-URL.
+          const res = await imageBlockFromFile(file, pageId);
           if ('error' in res) {
             setLive(res.error);
             continue;
@@ -438,7 +441,7 @@ export const BlockEditor: React.FC<{
         }
       })();
     },
-    [editor],
+    [editor, pageId],
   );
 
   const lastTopId = (): string | null => {

@@ -187,6 +187,23 @@ export interface DataClient {
    */
   syncPageAwareness(id: string): Promise<string[]>;
 
+  // ── Assets: content-addressed binary store (OB-ASSETS A2) ────────────────────
+  /**
+   * Upload binary `bytes` (e.g. an image's file bytes) to the content-addressed
+   * asset store, ref'd to `pageId` — a page the caller can write, whose read-gate
+   * the asset inherits so it's immediately reachable. Resolves `{id}`, the
+   * SHA-256 content hash; a byte-identical re-upload dedups to the same id. The
+   * image block persists only this `id`, never the bytes, so the CRDT stays small.
+   */
+  putAsset(bytes: Uint8Array, mime: string, pageId: string): Promise<{id: string}>;
+  /**
+   * Fetch an asset's bytes + mime by content-hash `id`, or `null` when it's
+   * missing or the caller can read no page that references it (read-gated — an
+   * absent and an unreadable asset answer alike, so there's no existence oracle).
+   * The image block resolves this to an object URL for `<img src>`.
+   */
+  getAsset(id: string): Promise<{bytes: Uint8Array; mime: string} | null>;
+
   // ── Databases ──────────────────────────────────────────────────────────────
   /** Create a database for a host page. */
   createDatabase(input: DatabaseInput): Promise<StoredDatabase>;
@@ -909,6 +926,38 @@ export class HttpDataClient implements DataClient {
     return updates ?? [];
   }
 
+  // ── Assets: content-addressed binary store (OB-ASSETS A2) ────────────────────
+
+  /**
+   * Upload asset bytes and ref them to `pageId`. The body is base64-JSON
+   * (`{data, mime}`) rather than raw binary DELIBERATELY: the desktop IPC bridge
+   * (`tauriFetch`) corrupts raw binary / stream request bodies, so base64 keeps
+   * the upload byte-exact on BOTH the web-http and desktop-IPC transports.
+   */
+  async putAsset(bytes: Uint8Array, mime: string, pageId: string): Promise<{id: string}> {
+    const res = await this.authFetch(`${this.baseUrl}${API.assets}?pageId=${encodeURIComponent(pageId)}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({data: bytesToBase64(bytes), mime}),
+      cache: 'no-store',
+    });
+    await throwIfNotOk(res);
+    return (await res.json()) as {id: string};
+  }
+
+  /**
+   * Fetch an asset by content-hash id, decoding the base64-JSON variant
+   * (`?encoding=base64`) — again to stay byte-safe over the desktop IPC bridge,
+   * which corrupts raw binary responses. `null` on 404 (missing or read-gated).
+   */
+  async getAsset(id: string): Promise<{bytes: Uint8Array; mime: string} | null> {
+    const res = await this.authFetch(`${this.baseUrl}${API.asset(id)}?encoding=base64`, {cache: 'no-store'});
+    if (res.status === 404) return null;
+    await throwIfNotOk(res);
+    const body = (await res.json()) as {mime: string; data: string};
+    return {bytes: base64ToBytes(body.data), mime: body.mime};
+  }
+
   // ── Databases ──────────────────────────────────────────────────────────────
 
   async createDatabase(input: DatabaseInput): Promise<StoredDatabase> {
@@ -1259,6 +1308,29 @@ export class HttpDataClient implements DataClient {
     await throwIfNotOk(res);
     return (await res.json()) as T;
   }
+}
+
+/**
+ * Isomorphic base64 for asset bytes (browser + Node + the Bun sidecar), used by
+ * {@link HttpDataClient.putAsset}/{@link HttpDataClient.getAsset}. `btoa` chokes
+ * on a huge `String.fromCharCode(...bytes)` spread (call-stack overflow at ~100k
+ * args), so encode in 32 KiB chunks — comfortable for a 10 MiB asset.
+ */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+/** Inverse of {@link bytesToBase64}: decode a base64 string to raw bytes. */
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+  return out;
 }
 
 async function throwIfNotOk(res: Response): Promise<void> {

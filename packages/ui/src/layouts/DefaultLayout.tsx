@@ -8,6 +8,7 @@ import {AiSearchDialog} from '@/components/AiSearchDialog';
 import {SplitPane} from '@/components/SplitPane';
 import PluginBoot from '@/components/PluginBoot';
 import {AiBridgeHost} from '@/components/AiBridgeHost';
+import {AssetBridgeHost} from '@/components/AssetBridgeHost';
 import {PageAppearanceHost} from '@/components/PageAppearanceHost';
 import Settings from '@/components/Settings';
 import PresentMode from '@/components/PresentMode';
@@ -68,6 +69,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <ImportDialog/>
           <AiSearchDialog/>
           <AiBridgeHost/>
+          <AssetBridgeHost/>
           <PageAppearanceHost/>
           <EmojiPickerHost/>
           <SideNav/>
