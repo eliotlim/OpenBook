@@ -60,6 +60,42 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
+ * The image mime types the asset store echoes back verbatim as a response
+ * `Content-Type` (Assets A1 is image-only for v1 — A0's block only produces image
+ * data-URLs). `image/svg+xml` is deliberately EXCLUDED: SVG can carry inline
+ * `<script>`, so serving it as `image/svg+xml` in the app origin would be stored
+ * XSS. Anything off this list is coerced to `application/octet-stream`, which —
+ * with `nosniff` + `Content-Disposition: attachment` on the served response — can
+ * never execute. Grow this list (never add `svg+xml`) if v2 serves more types.
+ */
+const ASSET_IMAGE_MIMES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/gif',
+  'image/webp',
+  'image/avif',
+  'image/apng',
+]);
+
+/**
+ * Canonicalize an uploader-controlled mime into a value SAFE to store and echo as a
+ * response `Content-Type` (stored-XSS defense — the uploader picks this string via
+ * the upload `Content-Type` header or the JSON `mime` field). Returns `null` when
+ * the raw value carries a control char / CR / LF — a header-injection or
+ * header-set-throw (500) risk — so the route rejects it (400). Otherwise the
+ * parameter-stripped, lowercased base type when it's an allowlisted image, else
+ * `application/octet-stream`. Because every path stores only a sanitized mime, the
+ * `ON CONFLICT DO NOTHING` first-seen-mime dedup can never be poisoned into serving
+ * an executable type.
+ */
+function safeAssetMime(raw: string): string | null {
+  // eslint-disable-next-line no-control-regex -- intentionally rejecting control chars (CR/LF/NUL/etc)
+  if (/[\u0000-\u001f\u007f]/.test(raw)) return null;
+  const base = raw.split(';', 1)[0].trim().toLowerCase();
+  return ASSET_IMAGE_MIMES.has(base) ? base : 'application/octet-stream';
+}
+
+/**
  * The Hono app augmented with the optional Collab T9 server-authoritative persister
  * (`null` when `serverPersist` is off). The host ({@link server.ts}) reaches it to
  * flush every dirty canonical doc on shutdown before the store closes.
@@ -367,6 +403,99 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (page.databaseId) await broadcastRows(page.databaseId);
     logEdit(c, page.id, 'page.properties');
     return c.json(page);
+  });
+
+  // ── Assets: content-addressed binary store (OB-ASSETS A1) ────────────────────
+
+  // 10 MiB per upload. A single embedded image / attachment is comfortably under
+  // this; the cap stops an authed-but-hostile writer inflating the store (or the
+  // request buffer) with one giant body. 413 past it, decided by the bodyLimit
+  // middleware BEFORE the handler (so an oversize body is rejected pre-gate).
+  const ASSET_MAX_BYTES = 10 * 1024 * 1024;
+
+  // Upload an asset. Write-gated to `?pageId=<id>` — a page the uploader can write —
+  // and ref'd to that page in the same request, so the asset is immediately
+  // reachable (readable) by that page's readers and never lands orphaned/ungated.
+  // The body is raw binary (its `Content-Type` is the stored mime) or, for the
+  // in-webview transports whose bridge corrupts raw binary, a JSON `{data: base64,
+  // mime}`. Returns `{id}` — the SHA-256 content hash; a byte-identical re-upload
+  // dedups to the same id. 201 / 400 / 403|404 (write gate) / 413 (too large).
+  app.post(
+    API.assets,
+    bodyLimit({maxSize: ASSET_MAX_BYTES, onError: (c) => c.json({error: 'request body too large'}, 413)}),
+    async (c) => {
+      const pageId = c.req.query('pageId');
+      if (!pageId) return c.json({error: 'pageId is required'}, 400);
+      // A page the uploader cannot read 404s (hide existence); readable-but-not-
+      // writable 403s — the same gate every content write uses.
+      await requireAccess(c, store, 'write', pageId);
+
+      const contentType = c.req.header('Content-Type') ?? '';
+      let bytes: Uint8Array;
+      let mime: string;
+      if (contentType.includes('application/json')) {
+        const body = await c.req.json<{data?: string; mime?: string}>().catch(() => ({}) as {data?: string; mime?: string});
+        if (typeof body.data !== 'string' || body.data.length === 0) {
+          return c.json({error: 'missing or invalid base64 data'}, 400);
+        }
+        bytes = new Uint8Array(Buffer.from(body.data, 'base64'));
+        mime = typeof body.mime === 'string' && body.mime ? body.mime : 'application/octet-stream';
+      } else {
+        bytes = new Uint8Array(await c.req.arrayBuffer());
+        mime = contentType || 'application/octet-stream';
+      }
+      if (bytes.byteLength === 0) return c.json({error: 'empty asset'}, 400);
+
+      // Stored-XSS defense: the uploader controls `mime` (the upload Content-Type or
+      // the JSON `mime` field). Canonicalize it to a safe, allowlisted image type (or
+      // `application/octet-stream`) before it's stored, and reject a malformed one
+      // (control chars / CR/LF → header-injection / 500) rather than echo it later as
+      // a response Content-Type. Only sanitized mimes ever land in the store, so the
+      // first-seen-mime dedup can't be poisoned into serving an executable type.
+      const safeMime = safeAssetMime(mime);
+      if (safeMime === null) return c.json({error: 'invalid content type'}, 400);
+
+      const {id} = await store.putAsset(bytes, safeMime);
+      await store.refAsset(id, pageId);
+      logEdit(c, pageId, 'asset.upload', id);
+      return c.json({id}, 201);
+    },
+  );
+
+  // Fetch an asset by content-hash id. READ-GATED: served only to a caller who can
+  // read at least one page that references it (the asset inherits its referencing
+  // pages' read-gate); otherwise 404 — the SAME answer as a nonexistent asset, so
+  // there is no existence oracle and no cross-page/cross-principal leak. The gate
+  // (`getAssetFor`) runs FIRST — the immutable cache header is set only on the
+  // authorized path, never on the 404. Content-addressed ⇒ the bytes are immutable,
+  // so an authorized response is `private` (browser-only, never a shared proxy) +
+  // long-lived. `?encoding=base64` returns JSON `{id, mime, size, data}` for the
+  // in-webview transports; otherwise the raw binary — served with `nosniff` +
+  // `Content-Disposition: attachment` so an uploader-chosen mime can never execute
+  // in the app origin (attachment doesn't break `<img src>` / `<a download>`, which
+  // fetch the bytes rather than navigate to the URL).
+  app.get(`${API.assets}/:id`, async (c) => {
+    const id = c.req.param('id');
+    // A content-hash id is 64 lowercase hex chars; anything else can't name a stored
+    // asset, so 404 early (hygiene — also keeps a malformed id out of the DB query).
+    if (!/^[0-9a-f]{64}$/.test(id)) return c.json({error: 'asset not found'}, 404);
+    const asset = await store.getAssetFor(c.get('principal'), id);
+    if (!asset) return c.json({error: 'asset not found'}, 404);
+    if (c.req.query('encoding') === 'base64') {
+      c.header('Cache-Control', 'private, max-age=31536000, immutable');
+      return c.json({id, mime: asset.mime, size: asset.size, data: Buffer.from(asset.bytes).toString('base64')});
+    }
+    c.header('Content-Type', asset.mime);
+    c.header('Content-Length', String(asset.size));
+    // Defense-in-depth (stored-XSS): never let the browser sniff/execute the bytes,
+    // and force a download disposition. The stored mime is already sanitized, so this
+    // is belt-and-braces on top of the upload-time allowlist.
+    c.header('X-Content-Type-Options', 'nosniff');
+    c.header('Content-Disposition', 'attachment');
+    c.header('Cache-Control', 'private, max-age=31536000, immutable');
+    // Slice to an exact ArrayBuffer (a Buffer's `.buffer` may be a larger shared pool).
+    const ab = asset.bytes.buffer.slice(asset.bytes.byteOffset, asset.bytes.byteOffset + asset.bytes.byteLength);
+    return c.body(ab as ArrayBuffer);
   });
 
   // ── Live collaboration: incremental relay + late-joiner sync (Collab T1) ──────

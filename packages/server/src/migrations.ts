@@ -318,6 +318,40 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS write_keys_created_at_idx ON write_keys (created_at)',
     ],
   },
+  {
+    // Content-addressed asset store (OB-ASSETS A1). Binary blobs (images, …) live
+    // in `assets` keyed by the **SHA-256 hex of their bytes**, so byte-identical
+    // uploads collapse to ONE row (dedup) and an id is a self-verifying content
+    // hash — never a guessable sequential handle. `bytes` is `BYTEA` (Postgres
+    // native; PGlite round-trips it as a `Uint8Array`), `size` caches the byte
+    // length, `mime` the declared content type of the first upload of those bytes.
+    //
+    // `asset_refs` is the reachability/gating edge: a `(asset_id, page_id)` pair
+    // records that a page references the asset, so the asset INHERITS that page's
+    // read-gate (a caller may fetch an asset iff they can read at least one page
+    // that references it — no page ⇒ unreachable ⇒ 404, no existence oracle). The
+    // FK to `pages(id)` cascade-deletes a ref when its page is hard-purged; the FK
+    // to `assets(id)` lets a future GC drop an asset once its last ref is gone.
+    // The composite PK makes a re-ref of the same (asset, page) an idempotent no-op.
+    name: '0014_assets',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS assets (
+        id          TEXT        PRIMARY KEY,
+        bytes       BYTEA       NOT NULL,
+        mime        TEXT        NOT NULL,
+        size        INT         NOT NULL,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      `CREATE TABLE IF NOT EXISTS asset_refs (
+        asset_id    TEXT        NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+        page_id     UUID        NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (asset_id, page_id)
+      )`,
+      'CREATE INDEX IF NOT EXISTS asset_refs_page_idx ON asset_refs (page_id)',
+      'CREATE INDEX IF NOT EXISTS asset_refs_asset_idx ON asset_refs (asset_id)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

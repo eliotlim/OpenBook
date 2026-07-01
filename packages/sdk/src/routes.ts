@@ -110,6 +110,25 @@ export const API = {
   plugins: '/api/plugins',
   plugin: (id: string) => `/api/plugins/${id}`,
 
+  // ── Assets: content-addressed binary store (OB-ASSETS) ───────────────────────
+  /**
+   * Upload an asset: `POST /api/assets?pageId=<id>`. The body is the raw binary
+   * (its `Content-Type` header is the stored mime), or — for the in-webview
+   * transports whose bridge corrupts raw binary — a JSON `{data: base64, mime}`.
+   * Write-gated to `pageId` (a page the uploader can write); the asset is ref'd to
+   * that page so it's immediately reachable. 10 MiB cap (413 past it). Returns
+   * `{id}` — the SHA-256 content hash (byte-identical uploads dedup to one id).
+   */
+  assets: '/api/assets',
+  /**
+   * Fetch an asset by its content-hash id. `GET /api/assets/:id` serves the raw
+   * binary with the stored `Content-Type`; `?encoding=base64` returns a JSON
+   * `{id, mime, size, data: base64}` for the in-webview transports. **Read-gated**:
+   * served only to a caller who can read at least one page that references the
+   * asset — otherwise 404 (no existence oracle).
+   */
+  asset: (id: string): string => `/api/assets/${encodeURIComponent(id)}`,
+
   // ── Suggestions + comments (the review layer) ────────────────────────────────
   /** A page's suggestions: `GET` (list, optionally `?status=open`) / `POST` (create). */
   suggestions: (pageId: string): string => `/api/pages/${encodeURIComponent(pageId)}/suggestions`,
