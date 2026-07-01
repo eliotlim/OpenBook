@@ -143,6 +143,13 @@ function blockToMd(block: DocBlock): string {
     const rows = chartRows(block.value, block.labels);
     return rows.length ? `${title}\n${rows.join('\n')}` : title;
   }
+  case 'image': {
+    // `![alt](src)` where `src` is the resolved data-URI (heavy but valid in MD)
+    // or a legacy URL; an unresolved image degrades to italicised alt text.
+    const alt = block.alt.replace(/[[\]]/g, '');
+    const body = block.src ? `![${alt}](${block.src})` : `_${alt || 'Image'}_`;
+    return block.caption ? `${body}\n\n*${escapeMd(block.caption)}*` : body;
+  }
   case 'unknown':
     return `_(${block.raw} block)_`;
   default:
