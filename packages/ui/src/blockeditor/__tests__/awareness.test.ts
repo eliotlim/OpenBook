@@ -1,7 +1,7 @@
 import {describe, it, expect} from 'vitest';
 import * as Y from 'yjs';
 import type {DataClient} from '@book.dev/sdk';
-import {blockSelection, connectPageAwareness} from '../awareness';
+import {AWARENESS_MIN_INTERVAL_MS, blockSelection, connectPageAwareness} from '../awareness';
 import {createDoc, decodeSnapshot, encodeSnapshot} from '../model';
 
 /**
@@ -110,5 +110,49 @@ describe('Collab T4 — connectPageAwareness', () => {
 
     a.disconnect();
     b.disconnect();
+  });
+
+  it('rate-caps sustained presence POSTs to ~10Hz on a fast (zero-latency) transport (Collab T8)', async () => {
+    // Record the wall-clock time of each network POST. The fake client resolves
+    // instantly, so WITHOUT the rate ceiling the one-in-flight guard would let the
+    // 50ms coalesce window fire at ~20Hz on this zero-latency transport — exactly the
+    // sustained cursor-motion firehose T8 hardens against (fan-out is O(editors²)).
+    const posts: number[] = [];
+    const client = {
+      postPageAwareness(): Promise<void> {
+        posts.push(Date.now());
+        return Promise.resolve();
+      },
+      subscribePageAwareness(): () => void {
+        return () => undefined;
+      },
+      syncPageAwareness(): Promise<string[]> {
+        return Promise.resolve([]);
+      },
+    } as unknown as DataClient;
+
+    const doc = decodeSnapshot(encodeSnapshot(createDoc([{id: 'b1', type: 'paragraph', text: 'hello world'}])));
+    const a = connectPageAwareness(doc, 'p1', client, {name: 'Ada', id: 'ada'}, {channelName: 'solo'});
+
+    // Drive sustained cursor motion (~400ms of a fresh selection every 10ms).
+    const end = Date.now() + 400;
+    let offset = 0;
+    while (Date.now() < end) {
+      a.setSelection(blockSelection(doc, 'b1', offset % 11));
+      offset += 1;
+      await wait(10);
+    }
+    await wait(AWARENESS_MIN_INTERVAL_MS + 40); // let the final coalesced batch flush
+
+    a.disconnect(); // sends a terminal departure POST immediately (bypasses the cap)
+
+    // Drop the departure POST before measuring the sustained cadence.
+    const sustained = posts.slice(0, -1);
+    expect(sustained.length).toBeGreaterThan(1); // it does still send presence
+    // Every consecutive pair of POST starts is spaced by the rate floor (minus a small
+    // scheduler/measurement skew). Without the ceiling these gaps would be ~50ms.
+    for (let i = 1; i < sustained.length; i += 1) {
+      expect(sustained[i] - sustained[i - 1]).toBeGreaterThanOrEqual(AWARENESS_MIN_INTERVAL_MS - 25);
+    }
   });
 });
