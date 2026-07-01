@@ -4,6 +4,7 @@ import {
   LIVE_OPEN_GRACE_MS,
   LIVE_POLL_AFTER_ERRORS,
   LIVE_POLL_INTERVAL_MS,
+  LIVE_RECONNECT_DEBOUNCE_MS,
 } from './client';
 import type {LiveSourceLike} from './client';
 
@@ -147,5 +148,113 @@ describe('LiveStream poll fallback', () => {
     expect(paths.length).toBe(atUnsub);
 
     unsub(); // idempotent
+  });
+});
+
+/**
+ * Collab T7 — the reopen-after-drop reconnect signal that lets the relay/awareness
+ * providers re-handshake tightly (rather than waiting out the coarse snapshot resync).
+ * Fires only on a genuine reopen (a drop then a fresh `open`), trailing-debounced against
+ * a flapping connection, and never in poll-mode — where convergence stays at snapshot-rate.
+ */
+describe('LiveStream reconnect signal (Collab T7)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('fires on SSE reopen-after-drop (trailing-debounced), never on the first open', async () => {
+    vi.useFakeTimers();
+    const {client, getSource} = makeClient();
+    let reconnects = 0;
+    const unsubContent = client.subscribePages(() => {}); // opens the stream
+    const unsubReconnect = client.subscribeReconnect(() => {
+      reconnects += 1;
+    });
+    const source = getSource();
+
+    // First open (no prior error) → the one-shot handshakes cover connect; no reconnect.
+    source.emit('open');
+    await vi.advanceTimersByTimeAsync(LIVE_RECONNECT_DEBOUNCE_MS + 50);
+    expect(reconnects).toBe(0);
+
+    // A drop then a reopen → the reconnect signal fires, but only after it settles.
+    source.emit('error');
+    source.emit('open');
+    expect(reconnects).toBe(0); // trailing-debounced — not synchronous with the reopen
+    await vi.advanceTimersByTimeAsync(LIVE_RECONNECT_DEBOUNCE_MS);
+    expect(reconnects).toBe(1);
+
+    unsubReconnect();
+    unsubContent();
+  });
+
+  it('coalesces a flapping reconnect into a single signal (flap-guard)', async () => {
+    vi.useFakeTimers();
+    const {client, getSource} = makeClient();
+    let reconnects = 0;
+    const unsubContent = client.subscribePages(() => {});
+    const unsubReconnect = client.subscribeReconnect(() => {
+      reconnects += 1;
+    });
+    const source = getSource();
+    source.emit('open'); // initial connect
+
+    // Flap: repeated error/open within the debounce window. Each reopen restarts the
+    // trailing timer, so nothing fires while it's still flapping.
+    for (let i = 0; i < 5; i += 1) {
+      source.emit('error');
+      source.emit('open');
+      await vi.advanceTimersByTimeAsync(LIVE_RECONNECT_DEBOUNCE_MS / 2);
+    }
+    expect(reconnects).toBe(0);
+
+    // Once it stabilises for the full window, exactly ONE signal fires — not one per flap.
+    await vi.advanceTimersByTimeAsync(LIVE_RECONNECT_DEBOUNCE_MS);
+    expect(reconnects).toBe(1);
+
+    unsubReconnect();
+    unsubContent();
+  });
+
+  it('never fires in poll-mode (no live SSE → convergence stays at snapshot-rate)', async () => {
+    vi.useFakeTimers();
+    const {client} = makeClient();
+    let reconnects = 0;
+    const unsubContent = client.subscribePages(() => {}); // opens; never emits `open`
+    const unsubReconnect = client.subscribeReconnect(() => {
+      reconnects += 1;
+    });
+
+    // The stream never opens → poll fallback. Poll resyncs must not masquerade as reconnects.
+    await vi.advanceTimersByTimeAsync(LIVE_OPEN_GRACE_MS + 5 * LIVE_POLL_INTERVAL_MS);
+    expect(reconnects).toBe(0);
+
+    unsubReconnect();
+    unsubContent();
+  });
+
+  it('stops firing once unsubscribed', async () => {
+    vi.useFakeTimers();
+    const {client, getSource} = makeClient();
+    let reconnects = 0;
+    const unsubContent = client.subscribePages(() => {});
+    const unsubReconnect = client.subscribeReconnect(() => {
+      reconnects += 1;
+    });
+    const source = getSource();
+    source.emit('open');
+
+    source.emit('error');
+    source.emit('open');
+    await vi.advanceTimersByTimeAsync(LIVE_RECONNECT_DEBOUNCE_MS);
+    expect(reconnects).toBe(1);
+
+    unsubReconnect(); // gone
+    source.emit('error');
+    source.emit('open');
+    await vi.advanceTimersByTimeAsync(LIVE_RECONNECT_DEBOUNCE_MS + 50);
+    expect(reconnects).toBe(1); // no further signals
+
+    unsubContent();
   });
 });

@@ -30,13 +30,19 @@ const fromB64 = (b64: string): Uint8Array => {
  * every post out to ALL subscribers (incl. the author — mirroring the firehose
  * echo). `delayMs` makes posts slow so backpressure is observable.
  */
-function fakeRelay(opts: {delayMs?: number} = {}): {
+function fakeRelay(opts: {delayMs?: number; syncDelayMs?: number} = {}): {
   client: DataClient;
   posts: () => number;
+  syncCalls: () => number;
   maxConcurrent: () => number;
   seed: (id: string, update: Uint8Array) => void;
+  /** Suppress live fan-out to subscribers (simulate the SSE stream being down). */
+  setDelivery: (on: boolean) => void;
+  /** Fire the (already-debounced) reconnect signal to every subscribed provider. */
+  reconnect: () => void;
 } {
   const subs = new Map<string, Set<(u: string, c: number) => void>>();
+  const reconnectListeners = new Set<() => void>();
   const docs = new Map<string, Y.Doc>();
   const docFor = (id: string): Y.Doc => {
     let d = docs.get(id);
@@ -47,16 +53,18 @@ function fakeRelay(opts: {delayMs?: number} = {}): {
     return d;
   };
   let posts = 0;
+  let syncCalls = 0;
   let inFlight = 0;
   let maxConcurrent = 0;
+  let delivering = true;
   const client = {
     async postPageUpdate(id: string, update: string, clientId: number): Promise<void> {
       posts += 1;
       inFlight += 1;
       maxConcurrent = Math.max(maxConcurrent, inFlight);
       if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
-      Y.applyUpdate(docFor(id), fromB64(update)); // server ingests
-      subs.get(id)?.forEach((fn) => fn(update, clientId)); // fan out (incl. author echo)
+      Y.applyUpdate(docFor(id), fromB64(update)); // server ingests (regardless of live delivery)
+      if (delivering) subs.get(id)?.forEach((fn) => fn(update, clientId)); // fan out (incl. author echo)
       inFlight -= 1;
     },
     subscribePageUpdates(id: string, onUpdate: (u: string, c: number) => void): () => void {
@@ -68,12 +76,28 @@ function fakeRelay(opts: {delayMs?: number} = {}): {
       set.add(onUpdate);
       return () => set?.delete(onUpdate);
     },
-    syncPageUpdates(id: string, sv: string): Promise<string | null> {
+    async syncPageUpdates(id: string, sv: string): Promise<string | null> {
+      syncCalls += 1;
+      if (opts.syncDelayMs) await new Promise((r) => setTimeout(r, opts.syncDelayMs));
       const diff = Y.encodeStateAsUpdate(docFor(id), sv.length > 0 ? fromB64(sv) : undefined);
-      return Promise.resolve(diff.length <= 2 ? null : toB64(diff));
+      return diff.length <= 2 ? null : toB64(diff);
+    },
+    subscribeReconnect(onReconnect: () => void): () => void {
+      reconnectListeners.add(onReconnect);
+      return () => reconnectListeners.delete(onReconnect);
     },
   } as unknown as DataClient;
-  return {client, posts: () => posts, maxConcurrent: () => maxConcurrent, seed: (id, u) => Y.applyUpdate(docFor(id), u)};
+  return {
+    client,
+    posts: () => posts,
+    syncCalls: () => syncCalls,
+    maxConcurrent: () => maxConcurrent,
+    seed: (id, u) => Y.applyUpdate(docFor(id), u),
+    setDelivery: (on) => {
+      delivering = on;
+    },
+    reconnect: () => reconnectListeners.forEach((fn) => fn()),
+  };
 }
 
 const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -178,6 +202,62 @@ describe('Collab T2 — late-joiner handshake', () => {
     expect(textOf(joiner)).toBe('mid-session');
     a.disconnect();
     j.disconnect();
+  });
+});
+
+describe('Collab T7 — reconnect re-handshake', () => {
+  it('re-syncs exactly the ops missed during a disconnect (tight, not snapshot-rate)', async () => {
+    const relay = fakeRelay();
+    const {docA, docB} = twoLoaded();
+    const a = connectPageRelay(docA, 'p1', relay.client);
+    const b = connectPageRelay(docB, 'p1', relay.client);
+    await wait(20); // initial handshakes settle
+
+    // B's live stream drops: frames stop reaching subscribers, but A keeps editing and
+    // its posts still accumulate in the server relay doc.
+    relay.setDelivery(false);
+    docA.transact(() => blockText(findBlock(docA, 'b1')!.block)!.insert(0, 'offline-edit'), 'local');
+    await wait(120);
+    expect(textOf(docB)).toBe(''); // B missed the live frames — it's lagging the doc
+
+    // B's SSE reopens → the reconnect signal re-runs `/sync`, pulling exactly the missed
+    // op immediately (no page snapshot needed) → B converges tight.
+    relay.reconnect();
+    await wait(60);
+    expect(textOf(docB)).toBe('offline-edit');
+
+    a.disconnect();
+    b.disconnect();
+  });
+
+  it('coalesces a flap of reconnect signals into at most one follow-up sync (no storm)', async () => {
+    const relay = fakeRelay({syncDelayMs: 40});
+    const {docA} = twoLoaded();
+    const a = connectPageRelay(docA, 'p1', relay.client);
+    await wait(10); // the initial handshake sync is in flight (syncDelayMs)
+    const baseline = relay.syncCalls();
+
+    // A flapping connection fires the (already-debounced) signal many times in a burst.
+    for (let i = 0; i < 6; i += 1) relay.reconnect();
+    await wait(200);
+
+    // The in-flight guard collapses them: one sync runs, at most one follow-up is queued —
+    // NOT one per signal.
+    expect(relay.syncCalls() - baseline).toBeLessThanOrEqual(2);
+    a.disconnect();
+  });
+
+  it('does not re-handshake after disconnect (unsubscribed from the reconnect signal)', async () => {
+    const relay = fakeRelay();
+    const {docA} = twoLoaded();
+    const a = connectPageRelay(docA, 'p1', relay.client);
+    await wait(20);
+    const before = relay.syncCalls();
+    a.disconnect();
+
+    relay.reconnect(); // a late signal after teardown must be ignored
+    await wait(40);
+    expect(relay.syncCalls()).toBe(before);
   });
 });
 

@@ -12,9 +12,13 @@ import type {DataClient} from '@book.dev/sdk';
  *
  *  1. **Subscribe first** to the page's `yupdate` firehose frames, applying each as
  *     origin `'net'`. Done before the handshake so nothing after this point is missed.
- *  2. **Late-joiner handshake**: POST the local doc's state vector and apply the
- *     catch-up diff the server computes from its relay doc — so a client joining
- *     mid-session converges to the CURRENT doc, not just future edits.
+ *  2. **Late-joiner handshake (+ reconnect re-handshake, Collab T7)**: POST the local
+ *     doc's state vector and apply the catch-up diff the server computes from its relay
+ *     doc — so a client joining mid-session converges to the CURRENT doc, not just future
+ *     edits. This same handshake RE-runs on every SSE reopen-after-drop (the live stream's
+ *     reconnect signal), so a client that missed `yupdate` frames while disconnected
+ *     catches up tight — exactly the ops it missed — instead of waiting out the coarser
+ *     page-snapshot resync (≤ snapshot-rate).
  *  3. **Relay local edits**: POST `origin === 'local'` updates, coalesced on a short
  *     timer and merged ({@link Y.mergeUpdates}), with at most ONE POST in flight
  *     (simple backpressure — heavy typing piles into the next batch, never floods).
@@ -91,17 +95,47 @@ export function connectPageRelay(doc: Y.Doc, pageId: string, client: DataClient)
     applyRemote(fromBase64(update));
   });
 
-  // Handshake: send our state vector, apply exactly the ops we're missing. Runs
-  // after subscribe so any update that lands during the round-trip still arrives
-  // live; CRDT idempotency makes the overlap harmless.
-  void (async () => {
-    try {
-      const diff = await client.syncPageUpdates(pageId, toBase64(Y.encodeStateVector(doc)));
-      if (!disposed && diff) applyRemote(fromBase64(diff));
-    } catch {
-      // Offline / poll-mode tunnel: the snapshot-merge path is the backstop.
+  // Handshake / re-handshake: send our state vector, apply exactly the ops we're
+  // missing. Runs after subscribe so any update that lands during the round-trip still
+  // arrives live; CRDT idempotency makes the overlap harmless. At most one `/sync` is in
+  // flight; a reconnect that arrives mid-sync queues exactly ONE follow-up, so a flapping
+  // connection can never storm the relay.
+  let syncing = false;
+  let syncQueued = false;
+  const runSync = (): void => {
+    if (disposed) return;
+    if (syncing) {
+      syncQueued = true;
+      return;
     }
-  })();
+    syncing = true;
+    void (async () => {
+      try {
+        const diff = await client.syncPageUpdates(pageId, toBase64(Y.encodeStateVector(doc)));
+        if (!disposed && diff) applyRemote(fromBase64(diff));
+      } catch {
+        // Offline / poll-mode tunnel: the snapshot-merge path is the backstop.
+      } finally {
+        syncing = false;
+        if (!disposed && syncQueued) {
+          syncQueued = false;
+          runSync();
+        }
+      }
+    })();
+  };
+
+  runSync(); // initial late-joiner handshake on connect
+
+  // Collab T7 — re-handshake on SSE reopen. After a drop, the `yupdate` frames missed
+  // during the disconnect would otherwise only reach us via the coarser page *snapshot*
+  // resync (≤ snapshot-rate). Re-running the state-vector `/sync` pulls exactly the ops
+  // we missed immediately, so we converge tight rather than lagging to the next snapshot
+  // (the gap Quinn's T4 review flagged). The signal is trailing-debounced in the live
+  // stream (flap-guard) and the in-flight guard above coalesces any overlap; in poll-mode
+  // (no live SSE) it never fires, so convergence stays at snapshot-rate — the intended
+  // graceful degrade, untouched.
+  const unsubReconnect = client.subscribeReconnect?.(runSync);
 
   // ── Send: coalesce local edits; at most one POST in flight (backpressure) ────
   let pending: Uint8Array[] = [];
@@ -143,6 +177,7 @@ export function connectPageRelay(doc: Y.Doc, pageId: string, client: DataClient)
         clearTimeout(timer);
         timer = null;
       }
+      unsubReconnect?.();
       unsubscribe();
     },
   };
