@@ -339,6 +339,41 @@ interface Corpus {
   knownIds: Set<string>;
   titleById: Map<string, string>;
   consumed: Set<string>;
+  /** Does the zip hold this exact entry path? (Used to resolve image refs to bytes.) */
+  hasEntry: (path: string) => boolean;
+}
+
+/** Resolve `rel` against directory `dir`, collapsing `.`/`..` (a tiny posix-join). */
+function joinPath(dir: string, rel: string): string {
+  const out: string[] = [];
+  for (const part of (dir ? dir.split('/') : []).concat(rel.split('/'))) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') out.pop();
+    else out.push(part);
+  }
+  return out.join('/');
+}
+
+/**
+ * Rewrite each image placeholder's `ref` from the Markdown importer's relative
+ * `src` (e.g. `Page%20abc/image.png`) to the **absolute in-zip path** of the
+ * bytes (`Export-x/Page abc/image.png`), resolved against the source `.md`'s
+ * directory — but only when that entry actually exists in the zip. This lets the
+ * post-import rehydration pass ({@link notionAssetResolver}) find each image's
+ * bytes by a plain `entries[ref]` lookup. An external URL, or a relative ref that
+ * matches no entry, is left untouched (it degrades to a placeholder, ref intact).
+ */
+function resolveImageRefs(blocks: ImportedBlock[], baseDir: string, hasEntry: (p: string) => boolean): void {
+  for (const b of blocks) {
+    const meta = b.props?.[IMAGE_PLACEHOLDER_PROP] as {ref?: string} | undefined;
+    if (meta?.ref && isRelative(meta.ref)) {
+      const decoded = safeDecode(meta.ref).split('#')[0].split('?')[0];
+      const candidate = joinPath(baseDir, decoded);
+      if (hasEntry(candidate)) meta.ref = candidate;
+      else if (hasEntry(decoded)) meta.ref = decoded;
+    }
+    if (b.children) resolveImageRefs(b.children, baseDir, hasEntry);
+  }
 }
 
 /** The row folder a csv's rows live in (a `_all` view shares the plain folder). */
@@ -357,7 +392,11 @@ function readPage(c: Corpus, mdPath: string): {icon?: string; title: string; blo
   const doc = markdownToImportedDoc(c.text(mdPath), {defaultTitle: titleOf(mdPath)});
   const page = doc.pages[0];
   const {icon, title} = splitIcon(page.title);
-  return {icon, title, blocks: resolveLinks(page.blocks, c.knownIds, c.titleById)};
+  const blocks = resolveLinks(page.blocks, c.knownIds, c.titleById);
+  // Point each embedded image at its absolute in-zip path (relative to this .md),
+  // so its bytes can be rehydrated into the asset store after import.
+  resolveImageRefs(blocks, dirOf(mdPath), c.hasEntry);
+  return {icon, title, blocks};
 }
 
 /** A database row's body: its own blocks plus any sub-pages/sub-dbs flattened in
@@ -518,7 +557,8 @@ export function notionExportToImportedDoc(zipBytes: Uint8Array): ImportedDoc {
   for (const csv of csvByKey.values()) addNode(csv);
 
   const consumed = new Set<string>();
-  const corpus: Corpus = {text, mdPaths, csvByKey, knownIds, titleById, consumed};
+  const hasEntry = (p: string): boolean => Object.prototype.hasOwnProperty.call(entries, p);
+  const corpus: Corpus = {text, mdPaths, csvByKey, knownIds, titleById, consumed, hasEntry};
 
   // Roots: pages/dbs whose parent dir is neither a page folder nor a database
   // folder — i.e. top-level items (a wrapper like `Export-<uuid>/` is transparent).

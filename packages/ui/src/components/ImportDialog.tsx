@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {Check, FileText, Image, Loader2, TriangleAlert, Upload} from 'lucide-react';
-import type {ImportedDoc} from '@book.dev/sdk';
+import {notionAssetResolver, urlAssetResolver, type ImportedDoc} from '@book.dev/sdk';
 import type {TKey} from '@/i18n';
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {Button} from '@/components/ui/button';
+import {Switch} from '@/components/ui/switch';
 import {useData} from '@/data';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {
@@ -20,7 +21,9 @@ import {
   runImport,
   summarizeImportedDoc,
   titleFromFileName,
+  type ImportFormat,
   type ImportSummary,
+  type RunImportAssetOptions,
 } from '@/lib/importContent';
 import {htmlToImportedDoc} from '@/lib/htmlImport';
 import {isImportAbortError, parseImportInWorker, type ImportParseProgress} from '@/lib/importParse';
@@ -42,7 +45,7 @@ type PasteFormat = 'markdown' | 'html';
 type Phase =
   | {step: 'pick'}
   | {step: 'reading'; progress?: ImportParseProgress}
-  | {step: 'preview'; doc: ImportedDoc; summary: ImportSummary; sourceLabel: string}
+  | {step: 'preview'; doc: ImportedDoc; summary: ImportSummary; sourceLabel: string; format: ImportFormat; zipBytes?: Uint8Array}
   | {step: 'importing'; summary: ImportSummary}
   | {step: 'done'; summary: ImportSummary; jumpTarget: string | null}
   | {step: 'error'; message: string};
@@ -80,6 +83,9 @@ export default function ImportDialog() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [pasteFormat, setPasteFormat] = useState<PasteFormat>('markdown');
+  // Opt-in: fetch each linked (http) image and store a copy in the workspace
+  // (default off — a linked image is kept as a URL that loads from the web).
+  const [downloadUrls, setDownloadUrls] = useState(false);
 
   // Reset to a clean picker each time the dialog opens, so a previous import's
   // result or error never greets the next one; abort any parse still running
@@ -90,6 +96,7 @@ export default function ImportDialog() {
       setPasteOpen(false);
       setPasteText('');
       setPasteFormat('markdown');
+      setDownloadUrls(false);
       importingRef.current = false;
     } else {
       parseAbortRef.current?.abort();
@@ -130,12 +137,13 @@ export default function ImportDialog() {
   // summary is computed by the parser (in the worker, off the main thread) and
   // handed in, so the dialog never re-walks the tree on the main thread.
   const toPreview = useCallback(
-    (doc: ImportedDoc, summary: ImportSummary, sourceLabel: string) => {
+    (doc: ImportedDoc, summary: ImportSummary, sourceLabel: string, format: ImportFormat, zipBytes?: Uint8Array) => {
       if (summary.pages === 0) {
         setPhase({step: 'error', message: t('importer.empty')});
         return;
       }
-      setPhase({step: 'preview', doc, summary, sourceLabel});
+      setDownloadUrls(false);
+      setPhase({step: 'preview', doc, summary, sourceLabel, format, zipBytes});
     },
     [t],
   );
@@ -155,7 +163,7 @@ export default function ImportDialog() {
       if (format === 'html') {
         try {
           const doc = htmlToImportedDoc(await file.text(), {defaultTitle: titleFromFileName(file.name) || undefined});
-          toPreview(doc, summarizeImportedDoc(doc), file.name);
+          toPreview(doc, summarizeImportedDoc(doc), file.name, format);
         } catch (e) {
           setPhase({step: 'error', message: t('importer.parseFailed', {error: (e as Error).message})});
         }
@@ -179,7 +187,9 @@ export default function ImportDialog() {
           signal: controller.signal,
           onProgress: (progress) => setPhase({step: 'reading', progress}),
         });
-        toPreview(doc, summary, file.name);
+        // Keep the zip bytes so a confirmed import can rehydrate its images from
+        // the export (the bytes never crossed into the worker's discarded unzip).
+        toPreview(doc, summary, file.name, format, format === 'notion-zip' ? source.bytes : undefined);
       } catch (e) {
         // The dialog closed mid-parse — it's unmounting/reset, so show nothing.
         if (isImportAbortError(e)) return;
@@ -203,19 +213,28 @@ export default function ImportDialog() {
           ? htmlToImportedDoc(pasteText)
           : parseImportSource({format: 'markdown', text: pasteText});
       const label = t(pasteFormat === 'html' ? 'importer.pastedHtmlLabel' : 'importer.pastedLabel');
-      toPreview(doc, summarizeImportedDoc(doc), label);
+      toPreview(doc, summarizeImportedDoc(doc), label, pasteFormat);
     } catch (e) {
       setPhase({step: 'error', message: t('importer.parseFailed', {error: (e as Error).message})});
     }
   }, [pasteText, pasteFormat, t, toPreview]);
 
   const doImport = useCallback(
-    async (doc: ImportedDoc, summary: ImportSummary) => {
+    async (doc: ImportedDoc, summary: ImportSummary, format: ImportFormat, zipBytes?: Uint8Array) => {
       if (importingRef.current) return;
       importingRef.current = true;
       setPhase({step: 'importing', summary});
       try {
-        const result = await runImport(client, doc);
+        // Wire the image-rehydration seam: a Notion export uploads its embedded
+        // bytes; a Markdown/HTML import preserves linked images as URLs unless the
+        // user opted to download a copy into the workspace.
+        const assetOpts: RunImportAssetOptions =
+          format === 'notion-zip' && zipBytes
+            ? {resolveAssetBytes: notionAssetResolver(zipBytes)}
+            : downloadUrls
+              ? {resolveAssetBytes: urlAssetResolver(), downloadUrls: true}
+              : {};
+        const result = await runImport(client, doc, assetOpts);
         // Reload first, then resolve the jump target against the fresh nav list
         // (rows excluded) so "view imported" can only ever land on a real page.
         const pages = await reload();
@@ -226,7 +245,7 @@ export default function ImportDialog() {
         importingRef.current = false;
       }
     },
-    [client, reload, t],
+    [client, downloadUrls, reload, t],
   );
 
   const viewImported = useCallback(
@@ -351,11 +370,29 @@ export default function ImportDialog() {
                 {plural(phase.summary.images, 'importer.imagesNoteOne', 'importer.imagesNote')}
               </p>
             )}
+            {/* Opt-in: store a copy of linked (http) images — Notion images are
+                always stored, so the toggle is only offered for Markdown/HTML. */}
+            {phase.summary.images > 0 && phase.format !== 'notion-zip' && (
+              <label className="flex items-start justify-between gap-3 rounded-lg border border-border bg-sheet-1 p-3">
+                <span className="flex min-w-0 flex-col gap-0.5">
+                  <span className="text-sm font-medium">{t('importer.downloadImages')}</span>
+                  <span className="text-xs text-muted-foreground">{t('importer.downloadImagesHint')}</span>
+                </span>
+                <Switch
+                  checked={downloadUrls}
+                  onCheckedChange={setDownloadUrls}
+                  aria-label={t('importer.downloadImages')}
+                  className="mt-0.5"
+                />
+              </label>
+            )}
             <DialogFooter>
               <Button variant="ghost" onClick={() => setPhase({step: 'pick'})}>
                 {t('importer.back')}
               </Button>
-              <Button onClick={() => void doImport(phase.doc, phase.summary)}>{t('importer.import')}</Button>
+              <Button onClick={() => void doImport(phase.doc, phase.summary, phase.format, phase.zipBytes)}>
+                {t('importer.import')}
+              </Button>
             </DialogFooter>
           </div>
         )}

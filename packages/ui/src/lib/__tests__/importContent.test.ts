@@ -158,7 +158,7 @@ describe('runImport wiring', () => {
 
 describe('pickImportedJumpTarget', () => {
   it('returns the first top-level imported page (create path)', () => {
-    const result = {strategy: 'create', pageIds: ['p1'], databaseIds: [], rowIds: []} as ImportWriteResult;
+    const result = {strategy: 'create', pageIds: ['p1'], databaseIds: [], rowIds: [], placeholderPageIds: []} as ImportWriteResult;
     expect(pickImportedJumpTarget(result, [meta('other'), meta('p1')])).toBe('p1');
   });
 
@@ -170,6 +170,7 @@ describe('pickImportedJumpTarget', () => {
       pageIds: ['np_root', 'np_row'],
       databaseIds: [],
       rowIds: [],
+      placeholderPageIds: [],
       importResult: {created: 1, overwritten: 0, renamed: 0, idMap: {imp_1: 'np_root', imp_2: 'np_row'}},
     } as ImportWriteResult;
     const navPages = [meta('np_root')]; // row np_row is absent (database_id IS NULL filter)
@@ -177,12 +178,12 @@ describe('pickImportedJumpTarget', () => {
   });
 
   it('skips nested children and prefers a root', () => {
-    const result = {strategy: 'bundle', pageIds: ['child', 'root'], databaseIds: [], rowIds: []} as ImportWriteResult;
+    const result = {strategy: 'bundle', pageIds: ['child', 'root'], databaseIds: [], rowIds: [], placeholderPageIds: []} as ImportWriteResult;
     expect(pickImportedJumpTarget(result, [meta('child', 'root'), meta('root')])).toBe('root');
   });
 
   it('returns null when nothing top-level landed', () => {
-    const result = {strategy: 'create', pageIds: ['gone'], databaseIds: [], rowIds: []} as ImportWriteResult;
+    const result = {strategy: 'create', pageIds: ['gone'], databaseIds: [], rowIds: [], placeholderPageIds: []} as ImportWriteResult;
     expect(pickImportedJumpTarget(result, [meta('unrelated')])).toBeNull();
   });
 });
