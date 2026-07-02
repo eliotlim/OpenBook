@@ -1,6 +1,6 @@
 import {useEffect, useMemo, useState} from 'react';
-import type {PageMeta} from '@book.dev/sdk';
-import {Clock, Database, FilePlus, Pencil, Search, SlidersHorizontal, Star, Upload} from 'lucide-react';
+import {seedSampleDocument, type PageMeta} from '@book.dev/sdk';
+import {Clock, Database, FilePlus, LayoutTemplate, Pencil, Search, SlidersHorizontal, Sparkles, Star, Upload} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
+import {useData} from '@/data';
 import {useHud, useNavigation, usePreferences, useTranslation} from '@/providers';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
@@ -69,8 +70,13 @@ function WidgetHeading({icon: Icon, children}: {icon: typeof Clock; children: st
 export default function HomeScreen() {
   const {t, locale} = useTranslation();
   const {setHud} = useHud();
-  const {pages, selectPage, createPage, createDatabasePage} = useNavigation();
+  const {pages, selectPage, createPage, createDatabasePage, reload} = useNavigation();
   const {profile} = usePreferences().preferences;
+  const client = useData();
+
+  // A brand-new workspace: no pages at all. Home is the landing screen then
+  // (NavigationProvider falls back to it), so it carries the guided start.
+  const firstRun = pages.length === 0;
 
   const [widgets, setWidgets] = useState<HomeWidgets>(DEFAULT_HOME_WIDGETS);
   useEffect(() => setWidgets(readHomeWidgets()), []);
@@ -93,7 +99,9 @@ export default function HomeScreen() {
 
   const firstName = (profile.displayName.trim() || profile.name.trim()).split(/\s+/)[0] ?? '';
   const greeting = now
-    ? t(`home.${greetingKey(now.getHours())}`) + (firstName ? `, ${firstName}` : '')
+    ? firstRun
+      ? t('home.welcome')
+      : t(`home.${greetingKey(now.getHours())}`) + (firstName ? `, ${firstName}` : '')
     : '';
   const dateLine = now
     ? new Intl.DateTimeFormat(locale, {weekday: 'long', month: 'long', day: 'numeric'}).format(now)
@@ -118,6 +126,40 @@ export default function HomeScreen() {
     () => [...pages].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, 6),
     [pages],
   );
+
+  // First-run starters: the paths that teach the product (templates, the
+  // interactive sample) get equal billing with a plain new page.
+  const starterActions = [
+    {icon: FilePlus, label: t('nav.newPage'), run: () => void createPage()},
+    {
+      icon: LayoutTemplate,
+      label: t('home.browseTemplates'),
+      run: () =>
+        setHud((draft) => {
+          draft.templates.open = true;
+          return draft;
+        }),
+    },
+    {
+      icon: Sparkles,
+      label: t('home.trySample'),
+      run: () =>
+        void (async () => {
+          const page = await seedSampleDocument(client);
+          await reload();
+          selectPage(page.id);
+        })(),
+    },
+    {
+      icon: Upload,
+      label: t('home.importContent'),
+      run: () =>
+        setHud((draft) => {
+          draft.importer.open = true;
+          return draft;
+        }),
+    },
+  ];
 
   const quickActions = [
     {icon: FilePlus, label: t('nav.newPage'), run: () => void createPage()},
@@ -182,7 +224,27 @@ export default function HomeScreen() {
         </header>
 
         <div className="flex flex-col gap-8">
-          {widgets.actions && (
+          {firstRun && (
+            <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5" data-home-widget="get-started">
+              <WidgetHeading icon={Sparkles}>{t('home.getStarted')}</WidgetHeading>
+              <p className="text-sm text-muted-foreground">{t('home.firstRunHint')}</p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {starterActions.map(({icon: Icon, label, run}) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={run}
+                    className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-3 py-2.5 text-left text-sm text-muted-foreground transition-[background-color,border-color,color,box-shadow] hover:border-solid hover:border-foreground/15 hover:bg-hover hover:text-foreground hover:shadow-lift active:shadow-none focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)]"
+                  >
+                    <Icon className="h-4 w-4 shrink-0" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {!firstRun && widgets.actions && (
             <section className="flex flex-col gap-2.5" data-home-widget="actions">
               <WidgetHeading icon={FilePlus}>{t('home.widgetActions')}</WidgetHeading>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

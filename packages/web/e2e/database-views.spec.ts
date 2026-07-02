@@ -8,7 +8,8 @@ test.use({freshWorkspace: true});
 /** Create a fresh database via the command palette and wait for its view. */
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
-  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  // A wiped (freshWorkspace) workspace lands on Home; wait for it to hydrate.
+  await expect(page.locator('[data-home-screen]')).toBeVisible();
   await page.keyboard.press('ControlOrMeta+k');
   await page.getByPlaceholder(/Search pages or run a command/).fill('New database');
   await page.keyboard.press('Enter');
@@ -66,8 +67,8 @@ test('database bar chart: drill-down and breakdown control', {tag: ['@database',
   await newDatabase(page);
 
   // A named row so it's identifiable once we drill into the chart. The name is
-  // run-tagged: page names are globally unique, so a bare 'Alpha' 409s against
-  // the row database-context-menu.spec seeds earlier in the suite.
+  // run-tagged so a bare 'Alpha' can't make locators ambiguous against the row
+  // database-context-menu.spec seeds earlier in the suite (names aren't unique).
   const alpha = `Alpha ${Date.now()}`;
   await page.getByRole('button', {name: 'New row'}).click();
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
@@ -110,7 +111,7 @@ test('database summaries: a column footer calculation renders', {tag: ['@databas
 test('database quick search: filters rows by text', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
-  // Run-tagged: a bare 'Findme' 409s against database-parity.spec's row.
+  // Run-tagged so a bare 'Findme' can't collide with database-parity.spec's row.
   const findme = `Findme ${Date.now()}`;
   const title = page.getByRole('table').getByPlaceholder('Untitled').first();
   await title.fill(findme);

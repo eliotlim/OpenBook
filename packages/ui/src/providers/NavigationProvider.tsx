@@ -13,10 +13,11 @@ import {useData} from '@/data';
 import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
 import {hydratePageIcons, readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {recordRecent} from '@/lib/recents';
-import {CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {AGENT_PANE_ID, CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
 import {registerKitPanelNav} from '@/blockeditor/kit/kitPanel';
 import {t as bareT} from '@/i18n';
 import {removeFavorite} from '@/lib/favorites';
+import {showToast} from '@/components/ui/toast';
 import {usePlatformLibrary, type NewViewTarget} from './PlatformLibraryProvider';
 import * as W from './windowModel';
 import type {Pane, PaneId, WindowState} from './windowModel';
@@ -172,13 +173,15 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const initRef = useRef<Promise<void> | null>(null);
   const prevTopLevelIds = useRef<Set<string>>(new Set());
 
-  // Mirror the window into the URL whenever it changes. The block-settings pane
-  // is ephemeral (its config lives in an in-memory bridge), so it never goes in
-  // the URL — a reload would otherwise reopen an empty pane.
+  // Mirror the window into the URL whenever it changes. The block-settings,
+  // customise, review, and agent panes are ephemeral (their state lives in
+  // in-memory bridges), so they never go in the URL — a reload would otherwise
+  // reopen an empty pane (homePage.ts documents each pane's persistence).
   useEffect(() => {
     if (!win) return;
     const split = W.activeTab(win).split;
-    const ephemeral = split === CONFIG_PANE_ID || split === CUSTOMISE_PANE_ID || split === REVIEW_PANE_ID;
+    const ephemeral =
+      split === CONFIG_PANE_ID || split === CUSTOMISE_PANE_ID || split === REVIEW_PANE_ID || split === AGENT_PANE_ID;
     writeUrl(W.primaryPage(win), ephemeral ? null : split);
   }, [win]);
 
@@ -231,7 +234,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   const setPageHint = useCallback((id: string, name: string | null) => {
     setTitleHints((prev) => {
-      const label = name && name.trim().length > 0 ? name : 'Untitled';
+      const label = name && name.trim().length > 0 ? name : bareT('common.untitled');
       if (prev[id] === label) return prev;
       return {...prev, [id]: label};
     });
@@ -241,12 +244,13 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     (id: string): string => {
       if (id === HOME_PAGE_ID) return bareT('nav.home');
       if (id === FLOW_PANE_ID) return bareT('flow.title');
-      if (id === CONFIG_PANE_ID) return 'Settings';
-      if (id === CUSTOMISE_PANE_ID) return 'Customise';
-      if (id === REVIEW_PANE_ID) return 'Review';
+      if (id === CONFIG_PANE_ID) return bareT('pane.config');
+      if (id === CUSTOMISE_PANE_ID) return bareT('pane.customise');
+      if (id === REVIEW_PANE_ID) return bareT('pane.review');
+      if (id === AGENT_PANE_ID) return bareT('pane.agent');
       const meta = pages.find((p) => p.id === id);
-      if (meta) return meta.name && meta.name.trim().length > 0 ? meta.name : 'Untitled';
-      return titleHints[id] ?? 'Untitled';
+      if (meta) return meta.name && meta.name.trim().length > 0 ? meta.name : bareT('common.untitled');
+      return titleHints[id] ?? bareT('common.untitled');
     },
     [pages, titleHints],
   );
@@ -298,9 +302,55 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       const src = await client.getPage(id);
       if (!src) return;
       const name = src.name && src.name.trim().length > 0 ? `${src.name} (copy)` : null;
-      // Copy content + nesting. A hosted database isn't cloned (1:1 with its
-      // host); the reactive cell values travel with the snapshot.
       const page = await client.savePage({name, data: src.data, parentId: src.parentId});
+      // A database is 1:1 with its host page, so duplicating the host must
+      // clone the database too (schema + rows + sub-item nesting) — a copy
+      // that silently drops its table isn't a copy.
+      if (src.hostedDatabaseId) {
+        const db = await client.getDatabase(src.hostedDatabaseId);
+        if (db) {
+          const copy = await client.createDatabase({pageId: page.id, name: db.name, schema: db.schema});
+          const rows = await client.listRows(db.id);
+          // Parents before children so sub-item nesting can point at the
+          // already-created copy of the parent row.
+          const created = new Set<string>();
+          const idMap = new Map<string, string>();
+          const pending = [...rows];
+          while (pending.length > 0) {
+            const readyIndex = pending.findIndex((r) => !r.parentId || created.has(r.parentId));
+            // An orphaned parentId (parent row deleted mid-flight): fall back
+            // to importing the remainder un-nested rather than spinning.
+            const index = readyIndex === -1 ? 0 : readyIndex;
+            const row = pending.splice(index, 1)[0];
+            const rowPage = await client.getPage(row.id);
+            const copied = await client.createRow(copy.id, {
+              name: row.name,
+              properties: row.properties,
+              data: rowPage?.data,
+              parentId: row.parentId ? (idMap.get(row.parentId) ?? null) : null,
+            });
+            created.add(row.id);
+            idMap.set(row.id, copied.id);
+          }
+          // Second pass: dependency (and same-db relation) values captured row
+          // ids of the ORIGINAL database — remap any value matching a copied
+          // row id so the copy links within itself, not back at the source.
+          const remapValue = (v: unknown): unknown =>
+            typeof v === 'string' && idMap.has(v)
+              ? idMap.get(v)
+              : Array.isArray(v)
+                ? v.map(remapValue)
+                : v;
+          for (const row of rows) {
+            const next = Object.fromEntries(
+              Object.entries(row.properties).map(([k, v]) => [k, remapValue(v)]),
+            );
+            if (JSON.stringify(next) !== JSON.stringify(row.properties)) {
+              await client.updateRow(copy.id, idMap.get(row.id)!, {properties: next});
+            }
+          }
+        }
+      }
       const icon = readStoredPageIcon(id);
       if (icon) writePageIcon(page.id, icon);
       await reload();
@@ -311,12 +361,26 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   const deletePage = useCallback(
     async (id: string): Promise<void> => {
+      const label = pageLabel(id);
       await client.deletePage(id);
       removeFavorite(id); // a trashed page shouldn't linger in favourites
       const list = await reload();
       setWin((w) => (w ? W.reconcile(w, (pid) => pid !== id, list[0]?.id ?? null) : w));
+      // Every delete path gets a moment-of-mistake recovery affordance; the
+      // Trash dialog remains the durable one.
+      showToast({
+        message: bareT('trash.movedToast', {page: label}),
+        actionLabel: bareT('common.undo'),
+        onAction: () => {
+          void client.restorePage(id).then(async (restored) => {
+            if (!restored) return;
+            await reload();
+            selectPage(id);
+          });
+        },
+      });
     },
-    [client, reload],
+    [client, reload, pageLabel, selectPage],
   );
 
   const renamePage = useCallback(
@@ -365,18 +429,16 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [client, reload],
   );
 
-  // Initial load: list pages, ensure one exists, then open the window described
-  // by the URL (`?page`/`?split`), falling back to the last/first page. Runs
-  // exactly once (the shared promise survives StrictMode's double-mount).
+  // Initial load: list pages, then open the window described by the URL
+  // (`?page`/`?split`), falling back to the last/first page. A brand-new
+  // (empty) workspace lands on Home — its guided start — rather than
+  // auto-creating a blank "Untitled" page nobody asked for. Runs exactly once
+  // (the shared promise survives StrictMode's double-mount).
   useEffect(() => {
     if (initRef.current) return;
     initRef.current = (async () => {
       try {
-        let list = await client.listPages();
-        if (list.length === 0) {
-          await client.savePage({name: null, data: emptyPageSnapshot()});
-          list = await client.listPages();
-        }
+        const list = await client.listPages();
         setPages(list);
         prevTopLevelIds.current = new Set(list.map((p) => p.id));
 
@@ -391,10 +453,10 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
         const {page, split} = readUrl();
         let primary = await resolve(page);
         if (!primary) primary = await resolve(readLastPage());
-        if (!primary) primary = list[0]?.id ?? null;
-        const secondary = primary ? await resolve(split && split !== primary ? split : null) : null;
+        if (!primary) primary = list[0]?.id ?? HOME_PAGE_ID;
+        const secondary = await resolve(split && split !== primary ? split : null);
 
-        setWin(primary ? W.initWindow(primary, secondary) : null);
+        setWin(W.initWindow(primary, secondary));
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       } finally {

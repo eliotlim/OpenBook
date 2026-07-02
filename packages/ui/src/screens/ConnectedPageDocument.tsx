@@ -3,6 +3,7 @@ import {ICON_PROPERTY_ID, type PageSnapshot, type StoredPage} from '@book.dev/sd
 import {useData} from '@/data';
 import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
 import {hydratePageIcons, usePageIcon, writePageIcon} from '@/lib/pageIcon';
+import {pageSaveStatus, setPageSaveStatus} from '@/lib/pageSaveStatus';
 import {DatabaseView} from '@/components/database/DatabaseView';
 import BlockPageDocument from './BlockPageDocument';
 
@@ -98,8 +99,16 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
         // Clear the guard only once the server matches our latest local name; a
         // keystroke that landed mid-flight keeps it pending for its own commit.
         if ((saved.name ?? null) === nameRef.current) hasPendingRenameRef.current = false;
+        // A prior rename failure has healed; don't leave a stale failure pill up.
+        if (pageSaveStatus(pageId) === 'save failed') setPageSaveStatus(pageId, 'saved');
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // A rename can only fail for transport reasons (names are not unique).
+        // Surface it in the save-status pill and retry; the pending guard stays
+        // up so the unconfirmed title is never clobbered by a stale echo.
+        setPageSaveStatus(pageId, 'save failed');
+        renameTimer.current = setTimeout(commitRename, 4000);
+      });
   }, [client, pageId]);
 
   // Seed title/icon and reset live state on every page switch.

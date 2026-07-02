@@ -8,7 +8,8 @@ test.use({freshWorkspace: true});
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
-  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  // A wiped (freshWorkspace) workspace lands on Home; wait for it to hydrate.
+  await expect(page.locator('[data-home-screen]')).toBeVisible();
   await page.keyboard.press('ControlOrMeta+k');
   await page.getByPlaceholder(/Search pages or run a command/).fill('New database');
   await page.keyboard.press('Enter');

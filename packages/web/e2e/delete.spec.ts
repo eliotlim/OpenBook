@@ -32,3 +32,29 @@ test('delete page: centered in-app confirm moves the page to the trash', {tag: [
   // which is independent of the collapsible sidebar's Trash panel).
   await expect.poll(async () => (await (await request.get(`${SERVER}/api/trash`)).json()).length).toBeGreaterThan(0);
 });
+
+// The moment-of-mistake affordance: trashing shows a toast whose Undo restores
+// the page without a trip to the Trash dialog.
+test('delete page: the toast Undo restores the page', {tag: ['@shell']}, async ({page, request}) => {
+  await page.goto('/');
+
+  const actions = page.getByRole('button', {name: 'Page actions'});
+  await expect(actions).toBeVisible();
+  const deletedId = new URL(page.url()).searchParams.get('page');
+  await actions.click();
+  await page.getByRole('menuitem', {name: 'Delete page'}).click();
+  await page.getByRole('dialog').getByRole('button', {name: 'Move to trash'}).click();
+
+  const toast = page.getByRole('status').filter({hasText: 'to trash'});
+  await expect(toast).toBeVisible();
+  await toast.getByRole('button', {name: 'Undo'}).click();
+
+  // Restored: gone from the trash, and reopened as the current page.
+  await expect
+    .poll(async () => {
+      const trash = (await (await request.get(`${SERVER}/api/trash`)).json()) as {id: string}[];
+      return trash.some((t) => t.id === deletedId);
+    })
+    .toBe(false);
+  await expect.poll(() => new URL(page.url()).searchParams.get('page')).toBe(deletedId);
+});

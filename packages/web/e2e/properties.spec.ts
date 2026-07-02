@@ -13,7 +13,8 @@ test.use({freshWorkspace: true});
 // previous run on the shared backend can't make these flaky.
 async function freshPage(page: import('@playwright/test').Page): Promise<string> {
   await page.goto('/');
-  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible(); // hydrated
+  // A wiped (freshWorkspace) workspace lands on Home; wait for it to hydrate.
+  await expect(page.locator('[data-home-screen]')).toBeVisible();
   // ⌘N creates asynchronously; the URL meanwhile already carries the
   // auto-selected existing page. Waiting for just ANY ?page= grabbed that
   // one — and when the slow create finally navigated, it unmounted the

@@ -12,15 +12,13 @@ export const SERVER = `http://127.0.0.1:${4400 + Number(process.env.TEST_WORKER_
 export const emptySnapshot = {editorjs: {blocks: []}, values: [], names: []};
 
 /**
- * Free workspace-unique names before a test claims them.
+ * Clear same-named leftovers before a test claims a fixed name.
  *
- * Page names are unique among live pages — and rows are pages, so row titles
- * share the same space. Specs that seed or type fixed names pass on a fresh
- * server (CI) but 409 on reruns against a long-lived dev server: API seeds
- * come back without an id (`/?page=undefined` → the editor never mounts) and
- * UI renames silently revert. Trashing a page frees its name, so this finds
- * any live page/row holding one of `names` (via the whole-space export, which
- * lists rows too) and trashes it.
+ * Names are not unique (server migration 0015), so duplicates no longer 409 —
+ * but a leftover page/row with a spec's fixed name still breaks name-based
+ * locators (`getByText('Alpha')` matches twice) on reruns against a long-lived
+ * dev server. This finds any live page/row holding one of `names` (via the
+ * whole-space export, which lists rows too) and trashes it.
  */
 export async function reclaimNames(request: APIRequestContext, ...names: string[]): Promise<void> {
   const bundle = (await (await request.get(`${SERVER}/api/export`)).json()) as {
