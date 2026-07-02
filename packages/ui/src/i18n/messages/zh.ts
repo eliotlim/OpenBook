@@ -647,6 +647,20 @@ export const zh: PartialMessages = {
     title: '共享与发布',
     description: '谁可以访问此工作区：发布到网络、设置访客默认访问级别，或在本地网络上共享。',
   },
+  sharing: {
+    title: '访客与访问',
+    description: '控制未登录的人可以在此共享工作区中执行的操作。你自己的访问不受影响。',
+    youUser: '你正以 {name} 的身份操作。',
+    youGuestNamed: '你正以访客"{name}"的身份编辑。',
+    youGuestAnon: '你正以匿名访客身份编辑。',
+    guestAccess: '访客访问',
+    guestAccessHint: '适用于未登录即访问此工作区的所有人——通过网络或共享的 ✦.book.pub 链接。',
+    guestWrite: '可读可写',
+    guestRead: '只读',
+    guestOff: '无权限',
+    ownerLocked: '只有工作区所有者可以更改此设置。',
+    saveError: '无法更新访问权限 — {error}',
+  },
   forwarding: {
     partialUnscoped:
       '转发已开启，但你的账户未签发限定到本站点的所有者令牌，因此严格的受众隔离仍处于关闭状态（为其他站点签发的令牌仍会被拒绝，隧道可正常使用）。',

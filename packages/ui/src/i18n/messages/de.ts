@@ -648,6 +648,20 @@ export const de: PartialMessages = {
     title: 'Teilen & Veröffentlichen',
     description: 'Wer diesen Arbeitsbereich erreichen kann: im Web veröffentlichen, den Standard-Gastzugriff festlegen oder im lokalen Netzwerk freigeben.',
   },
+  sharing: {
+    title: 'Gäste & Zugriff',
+    description: 'Lege fest, was Personen ohne Anmeldung in diesem geteilten Arbeitsbereich tun können. Dein eigener Zugriff bleibt unberührt.',
+    youUser: 'Du agierst als {name}.',
+    youGuestNamed: 'Du bearbeitest als Gast „{name}".',
+    youGuestAnon: 'Du bearbeitest als anonymer Gast.',
+    guestAccess: 'Gastzugriff',
+    guestAccessHint: 'Gilt für alle, die diesen Arbeitsbereich ohne Anmeldung erreichen — über das Netzwerk oder einen geteilten ✦.book.pub-Link.',
+    guestWrite: 'Lesen & Bearbeiten',
+    guestRead: 'Nur lesen',
+    guestOff: 'Kein Zugriff',
+    ownerLocked: 'Nur die Inhaberin bzw. der Inhaber des Arbeitsbereichs kann das ändern.',
+    saveError: 'Zugriff konnte nicht aktualisiert werden — {error}',
+  },
   forwarding: {
     title: 'Ins Web weiterleiten',
     description:
