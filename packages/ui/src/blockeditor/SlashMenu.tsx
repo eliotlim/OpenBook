@@ -275,6 +275,18 @@ export const SlashMenu: React.FC<{
     const aiVis = new Map<string, FeatureVisibility>(ai.map((it) => [it.id, readFeatureVisibility(it.id)]));
     const matches = (item: SlashItem): boolean =>
       !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q);
+    // Label matches must outrank keyword-only matches regardless of group:
+    // "/table" means the Table block, not "New database" (whose keywords
+    // mention "table") that happens to live in an earlier group — Enter picks
+    // the FIRST item, so this ordering is load-bearing, not cosmetic.
+    const score = (item: SlashItem): number => {
+      if (!q) return 0;
+      const label = item.label.toLowerCase();
+      if (label === q) return 3;
+      if (label.startsWith(q)) return 2;
+      if (label.includes(q)) return 1;
+      return 0; // keyword-only match
+    };
     // Recommended AI sits just below the basic blocks (nearer the top) rather
     // than at the bottom of the menu, without displacing core text blocks.
     const recommendedAiRank = GROUP_ORDER.indexOf('basic') + 0.5;
@@ -285,9 +297,10 @@ export const SlashMenu: React.FC<{
         if (item.group === 'ai' && !featureShown(aiVis.get(item.id) ?? 'recommended', searching)) return false;
         return matches(item);
       })
-      // Stable sort groups into display order (Array.sort is stable), so items
-      // keep their authored order within each category.
-      .sort((a, b) => groupRank(a) - groupRank(b));
+      // Match quality first, then stable-sort groups into display order
+      // (Array.sort is stable), so items keep their authored order within
+      // each category and browsing (empty query) is untouched.
+      .sort((a, b) => score(b) - score(a) || groupRank(a) - groupRank(b));
   }, [state.query, pageId, onLink]);
 
   // Fixed (viewport) positioning: anchored to the caret, measured after
