@@ -1,8 +1,8 @@
 import {useCallback, useEffect, useState} from 'react';
 import {Check, Link2, Loader2, Share2, Trash2} from 'lucide-react';
-import {PAGE_VISIBILITIES, type AclLevel, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
+import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useTranslation} from '@/providers';
+import {useHud, useTranslation} from '@/providers';
 import {
   Dialog,
   DialogContent,
@@ -79,19 +79,35 @@ export function canManageSharing(info: InstanceInfo): boolean {
  * server predates multi-user (no endpoint) so the control simply stays hidden.
  */
 export function useCanManageSharing(): boolean | null {
+  const {supported, canManage} = useSharingCapability();
+  return supported === null ? null : supported && canManage;
+}
+
+/**
+ * The sharing capability of this instance and user: `supported` is `null`
+ * while the one-shot `/api/instance` lookup is in flight and `false` when the
+ * server predates multi-user sharing (no endpoint — the Share control stays
+ * hidden entirely). When supported, everyone gets the Share entry — a
+ * non-manager sees a read-only "who can access" view instead of nothing
+ * (hidden was indistinguishable from broken).
+ */
+export function useSharingCapability(): {supported: boolean | null; canManage: boolean} {
   const client = useData();
-  const [can, setCan] = useState<boolean | null>(null);
+  const [state, setState] = useState<{supported: boolean | null; canManage: boolean}>({
+    supported: null,
+    canManage: false,
+  });
   useEffect(() => {
     let live = true;
     client
       .getInstanceInfo()
-      .then((info) => live && setCan(canManageSharing(info)))
-      .catch(() => live && setCan(false));
+      .then((info) => live && setState({supported: true, canManage: canManageSharing(info)}))
+      .catch(() => live && setState({supported: false, canManage: false}));
     return () => {
       live = false;
     };
   }, [client]);
-  return can;
+  return state;
 }
 
 /** The display name + revoke key for one ACL grant (email persona XOR subject). */
@@ -102,15 +118,19 @@ function granteeOf(grant: PageAcl): {name: string; key: {subject: string} | {ema
 }
 
 /**
- * The per-page Share dialog (OB-203). The page owner / admin sets the page's
- * audience-scope visibility and grants individual people read/edit access by
- * email or handle, all against the OB-191 per-page API (`setPageVisibility`,
- * `sharePage`/`listPageAcl`/`unsharePage`). Rendered from the page-actions
- * cluster; only mounted when {@link useCanManageSharing} clears the user.
+ * The per-page Share dialog (OB-203) — the hub for "who can access this page".
+ * A manager sets the page's audience-scope visibility and grants individual
+ * people read/edit access by email or handle, all against the OB-191 per-page
+ * API (`setPageVisibility`, `sharePage`/`listPageAcl`/`unsharePage`); it also
+ * shows the *effective* workspace default behind `inherit` and links out to
+ * the workspace-level surfaces (Sharing & publishing, Members). A non-manager
+ * (`canManage: false`) gets the same dialog read-only. Rendered from the
+ * page-actions cluster.
  */
-export default function ShareDialog({pageId}: {pageId: string}) {
+export default function ShareDialog({pageId, canManage = true}: {pageId: string; canManage?: boolean}) {
   const client = useData();
   const {t} = useTranslation();
+  const {setHud} = useHud();
 
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<PageVisibility>('inherit');
@@ -128,6 +148,9 @@ export default function ShareDialog({pageId}: {pageId: string}) {
   //   • `'claimed'`: scopes are enforced on direct access; the forwarded-link
   //     caveat below applies (Parker #1).
   const [claimStatus, setClaimStatus] = useState<'loading' | 'claimed' | 'unclaimed'>('loading');
+  // The workspace guest gate — what `inherit` actually resolves to right now.
+  // `null` until the instance lookup lands (the line simply stays hidden).
+  const [guestAccess, setGuestAccess] = useState<GuestAccess | null>(null);
 
   const [invitee, setInvitee] = useState('');
   const [level, setLevel] = useState<AclLevel>('read');
@@ -168,7 +191,11 @@ export default function ShareDialog({pageId}: {pageId: string}) {
     setClaimStatus('loading');
     client
       .getInstanceInfo()
-      .then((info) => live && setClaimStatus(info.ownerSubject ? 'claimed' : 'unclaimed'))
+      .then((info) => {
+        if (!live) return;
+        setClaimStatus(info.ownerSubject ? 'claimed' : 'unclaimed');
+        setGuestAccess(info.guestAccess);
+      })
       .catch(() => {
         /* leave both disclosures hidden (stay 'loading') — the dialog still works */
       });
@@ -237,7 +264,7 @@ export default function ShareDialog({pageId}: {pageId: string}) {
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{t('share.title')}</DialogTitle>
-          <DialogDescription>{t('share.description')}</DialogDescription>
+          <DialogDescription>{t(canManage ? 'share.description' : 'share.readOnlyDescription')}</DialogDescription>
         </DialogHeader>
 
         {loadError ? (
@@ -264,7 +291,7 @@ export default function ShareDialog({pageId}: {pageId: string}) {
                 id="share-scope"
                 aria-label={t('share.scopeLabel')}
                 value={scope}
-                disabled={loading}
+                disabled={loading || !canManage}
                 wrapperClassName="w-full"
                 onChange={(e) => void changeScope(e.target.value as PageVisibility)}
               >
@@ -275,6 +302,11 @@ export default function ShareDialog({pageId}: {pageId: string}) {
                 ))}
               </Select>
               <p className="text-xs text-muted-foreground">{t(SCOPE_LABEL[scope].hint)}</p>
+              {/* What "Workspace default" resolves to right now, so `inherit`
+                  is never a mystery box (the effective-access summary). */}
+              {scope === 'inherit' && guestAccess !== null && (
+                <p className="text-xs text-muted-foreground">{t(`share.effective.${guestAccess}`)}</p>
+              )}
               {/* The origin already enforces every scope for forwarded requests
                   too (a non-grantee 404s — fail-safe, never a leak). The real gap
                   is that a legitimate grantee can't yet *open* a restricted page
@@ -290,7 +322,8 @@ export default function ShareDialog({pageId}: {pageId: string}) {
               )}
             </div>
 
-            {/* Add a person */}
+            {/* Add a person (managers only — read-only viewers still see the roster below) */}
+            {canManage && (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="share-invitee">{t('share.addLabel')}</Label>
               <div className="flex items-center gap-2">
@@ -329,6 +362,7 @@ export default function ShareDialog({pageId}: {pageId: string}) {
                 </p>
               )}
             </div>
+            )}
 
             {/* Current grants. The heading is a plain span, not a <Label> — it
                 labels a list, not a form control, so an orphan htmlFor-less
@@ -357,20 +391,59 @@ export default function ShareDialog({pageId}: {pageId: string}) {
                         <span className="text-xs text-muted-foreground">
                           {t(grant.level === 'write' ? 'share.levelWrite' : 'share.levelRead')}
                         </span>
-                        <IconButton
-                          size="sm"
-                          aria-label={t('share.remove', {name})}
-                          title={t('share.remove', {name})}
-                          onClick={() => void removePerson(grant)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </IconButton>
+                        {canManage && (
+                          <IconButton
+                            size="sm"
+                            aria-label={t('share.remove', {name})}
+                            title={t('share.remove', {name})}
+                            onClick={() => void removePerson(grant)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </IconButton>
+                        )}
                       </li>
                     );
                   })}
                 </ul>
               )}
             </div>
+
+            {/* Workspace-level surfaces this dialog summarizes: the guest gate /
+                publishing live in Settings → Sharing & publishing, the roster in
+                Settings → Members. Managers get one-click paths so "who can see
+                this?" never requires knowing which of four surfaces applies. */}
+            {canManage && (
+              <div className="flex items-center gap-4 border-t border-border pt-3 text-xs">
+                <button
+                  type="button"
+                  className="cursor-pointer text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+                  onClick={() => {
+                    setOpen(false);
+                    setHud((draft) => {
+                      draft.settings.open = true;
+                      draft.settings.tab = 'sharing';
+                      return draft;
+                    });
+                  }}
+                >
+                  {t('share.manageWorkspace')}
+                </button>
+                <button
+                  type="button"
+                  className="cursor-pointer text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+                  onClick={() => {
+                    setOpen(false);
+                    setHud((draft) => {
+                      draft.settings.open = true;
+                      draft.settings.tab = 'members';
+                      return draft;
+                    });
+                  }}
+                >
+                  {t('share.manageMembers')}
+                </button>
+              </div>
+            )}
 
             {/* Copy link */}
             <div className="flex items-center justify-between gap-3 border-t border-border pt-4">

@@ -32,8 +32,10 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('Confirm before trashing pages')).toBeTruthy();
   });
 
-  it('shows a stub screen for a backend-less tab', () => {
-    renderPanel('signup');
-    expect(screen.getByText('Create an account')).toBeTruthy();
+  it('keeps retired stub tabs (Sign up / Support / Integrations) out of the rail', () => {
+    renderPanel('general');
+    expect(screen.queryByText('Sign up')).toBeNull();
+    expect(screen.queryByText('Support OpenBook')).toBeNull();
+    expect(screen.queryByText('Integrations')).toBeNull();
   });
 });
