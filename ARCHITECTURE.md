@@ -387,7 +387,21 @@ Two ways for a model to *act on* the workspace, sharing one tool contract
   tokens live in `index.css`.
 - **`DefaultLayout`** composes the titlebar, sidebar (`SideNav` →
   `WorkspaceNavigationTree`), and the `DocumentArea` (one or two `PageDocument`
-  panes). It also mounts the `ConfirmProvider`.
+  panes). It also mounts the `ConfirmProvider`, the toast stack, and the
+  Move-to dialog.
+- **First run**: an empty workspace lands on **Home** (`HOME_PAGE_ID`), whose
+  guided-start card offers a new page / templates / the sample document /
+  import — nothing is auto-created. Deleting the last page also falls back to
+  Home (`W.reconcile` fallback). When everything sits in the trash, the card
+  leads with "Restore from trash" instead of a newcomer welcome.
+- **Toasts** (`components/ui/toast.tsx`): a module-singleton queue
+  (`showToast`) + one `ToastHost` — a permanently-mounted polite live region;
+  hover/focus pauses auto-dismiss. First consumer: "Moved to trash — Undo".
+- **Move to…** (`components/MovePageDialog.tsx` via the `requestMovePage`
+  bridge in `lib/pageActions`): a searchable destination picker — the
+  keyboard/menu counterpart to sidebar drag-to-move. Same-named destinations
+  are disambiguated by their ancestor path (`lib/pagePath.ts`, shared with the
+  command palette and the Link-to pickers).
 
 ---
 
