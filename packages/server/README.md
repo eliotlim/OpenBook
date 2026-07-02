@@ -48,7 +48,7 @@ cannot disagree.
 | PUT    | `/api/pages/:id`   | `PageInput` | `StoredPage` (upsert)|
 | DELETE | `/api/pages/:id`   | —           | `204` / `404`        |
 
-JSON is camelCase; errors are `{ "error": "..." }` (`404`, `409` name conflict,
+JSON is camelCase; errors are `{ "error": "..." }` (`404`, `409` conflict,
 `500`).
 
 ## Schema
@@ -56,12 +56,12 @@ JSON is camelCase; errors are `{ "error": "..." }` (`404`, `409` name conflict,
 ```sql
 CREATE TABLE pages (
   id          UUID PRIMARY KEY,
-  name        TEXT,                          -- optional, unique when present
+  name        TEXT,                          -- optional display label (not unique)
   data        JSONB NOT NULL DEFAULT '{}'::jsonb,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-CREATE UNIQUE INDEX pages_name_key ON pages (name) WHERE name IS NOT NULL;
+CREATE INDEX pages_name_idx ON pages (name) WHERE name IS NOT NULL AND deleted_at IS NULL;
 ```
 
 Migrations live in [`src/migrations.ts`](src/migrations.ts), are tracked in a

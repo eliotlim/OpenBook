@@ -83,12 +83,13 @@ async function exerciseCrud(client: HttpDataClient, mode: string): Promise<void>
   check('update replaces values', JSON.stringify(updated.data.values) === JSON.stringify([['c1', 99]]));
   check('update bumps updatedAt', updated.updatedAt >= created.updatedAt);
 
-  await assert.rejects(
-    () => client.savePage({name: `page-${mode}`, data: sampleSnapshot(1)}),
-    /already exists/,
-    'duplicate name should be rejected',
-  );
-  check('duplicate name rejected (409)', true);
+  // Names are not unique (migration 0015): a second page may share one.
+  const twin = await client.savePage({name: `page-${mode}`, data: sampleSnapshot(1)});
+  check('duplicate name allowed (distinct page)', twin.id !== created.id && twin.name === `page-${mode}`);
+  const twins = (await client.listPages()).filter((p) => p.name === `page-${mode}`);
+  check('both same-named pages are listed', twins.length === 2);
+  await client.deletePage(twin.id);
+  await client.purgePage(twin.id);
 
   const renamed = await client.renamePage(created.id, `renamed-${mode}`);
   check('rename changes the name', renamed.name === `renamed-${mode}`);
@@ -220,7 +221,7 @@ async function exerciseTrash(client: HttpDataClient, mode: string): Promise<void
   check('a trashed name is freed for reuse', (await client.savePage({name: `trash-${mode}`, data: sampleSnapshot(2)})).id !== page.id);
   const restored = await client.restorePage(page.id);
   check('restore brings the page back', restored?.id === page.id);
-  check('restore renames around a name collision', restored?.name === `trash-${mode} (restored)`);
+  check('restore keeps the original name despite a live twin', restored?.name === `trash-${mode}`);
   check('restored page is visible again', (await client.getPage(page.id)) !== null);
 
   // Purge a single page for good.

@@ -106,8 +106,11 @@ async function main(): Promise<void> {
   const guarded = await client.callTool({name: 'append_to_page', arguments: {pageId: blocksPage.id, content: 'nope'}});
   check('append refuses collaborative-editor pages', guarded.isError === true && resultText(guarded).includes('collaborative editor'));
 
+  // Names are not unique (server migration 0015): a duplicate title lands as a
+  // distinct page rather than erroring.
   const dupe = await client.callTool({name: 'create_page', arguments: {title: 'Quarterly planning'}});
-  check('create_page surfaces the duplicate-name conflict', dupe.isError === true);
+  const dupeId = /id ([0-9a-f-]{36})/.exec(resultText(dupe))?.[1];
+  check('create_page allows a duplicate title (new page)', dupe.isError !== true && Boolean(dupeId) && dupeId !== createdId);
 
   console.log('\nArtifact tool');
   const artifact = await client.callTool({

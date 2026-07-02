@@ -115,7 +115,7 @@ One table, `pages`, models everything (`packages/server/src/store.ts`):
 ```ts
 StoredPage = {
   id: UUID;
-  name: string | null;          // unique among *live* pages
+  name: string | null;          // display label (not unique — identity is the id)
   data: PageSnapshot;           // the document (see below)
   parentId: UUID | null;        // nesting → sidebar tree
   databaseId: UUID | null;      // set ⇒ this page is a row of that database
@@ -201,8 +201,8 @@ The database is full-featured. The pure model + evaluation lives in
 
 `deletePage` stamps `deleted_at` on the page **and its whole subtree** (same
 timestamp) instead of removing rows. The trash lists the *roots* of deleted
-subtrees. `restorePage` brings back exactly the subtree deleted together (and
-frees a colliding name with a `" (restored)"` suffix). A cleanup job
+subtrees. `restorePage` brings back exactly the subtree deleted together,
+keeping every page's original name (names are not unique). A cleanup job
 (`purgeExpired`, default 30-day retention, hourly sweep) permanently removes
 expired trash; `purgePage` / `emptyTrash` do it on demand. See `README.md`.
 
@@ -379,9 +379,9 @@ Two ways for a model to *act on* the workspace, sharing one tool contract
   unit-tested.
 - **Template gallery** (`components/TemplateGallery.tsx` over `sdk/templates.ts`):
   ready-made pages — documents and databases with sample rows — instantiated
-  client-side through the normal data APIs; page *and* sample-row names are
-  suffixed past the workspace-unique name constraint so a template can be
-  instantiated repeatedly.
+  client-side through the normal data APIs; repeated instantiations get
+  courtesy-numbered names (`Reading list 2`) so the copies stay tellable-apart
+  (names are not unique; the numbering is purely cosmetic).
 - **Design primitives** (`packages/ui/src/components/ui/`): Radix-based `dialog`,
   `dropdown-menu`, `context-menu`, `tree`, `skeleton`, `button`, etc. Tailwind v4
   tokens live in `index.css`.
