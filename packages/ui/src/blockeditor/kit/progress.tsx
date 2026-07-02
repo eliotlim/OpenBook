@@ -3,7 +3,7 @@ import {Select} from '@/components/ui/select';
 import {blockId, blockProp} from '../model';
 import type {CustomBlockProps} from '../registry';
 import {computeScope, evalExpr} from './scope';
-import {ConfigField, ConfigInput, kitSet, KitInlineText} from './KitFrame';
+import {appendVar, ConfigField, ConfigInput, kitSet, KitInlineText, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
 
 /**
@@ -63,6 +63,7 @@ const ProgressBarBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               placeholder="setup.ratio  ·  done / total  ·  score"
               onChange={(e) => set(editor, block, 'source', e.target.value)}
             />
+            <ScopeHints editor={editor} onPick={(name) => set(editor, block, 'source', appendVar(source, name))} />
           </ConfigField>
           <div className="flex gap-2">
             <ConfigField label="Max">

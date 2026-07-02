@@ -273,8 +273,10 @@ export function PageCustomiseBody() {
 
   return (
     <div className="flex h-full flex-col">
+      {/* "Customise page" (not "Page theme"): the presets section right below
+          is titled "Page theme", and the pane covers fonts/cover/width too. */}
       <div className="shrink-0 px-4 py-2.5">
-        <p className="truncate text-sm font-semibold">{t('appearance.pageTheme')}</p>
+        <p className="truncate text-sm font-semibold">{t('command.customisePage')}</p>
         <p className="text-xs text-muted-foreground">{t('appearance.pageCustomiseSubtitle')}</p>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">

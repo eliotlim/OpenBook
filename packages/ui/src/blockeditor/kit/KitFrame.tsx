@@ -4,6 +4,7 @@ import type {BlockEditorController} from '../useBlockEditor';
 import {KitSettings} from './KitSettings';
 import {useKitPageLock} from './lock';
 import {varNameFromLabel} from './options';
+import {inputScope} from './scope';
 
 /**
  * The shared chrome for every artifact-kit input: a quiet header (display name
@@ -43,6 +44,46 @@ export const ConfigInput: React.FC<React.InputHTMLAttributes<HTMLInputElement> &
 export const ConfigTextarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = ({className, ...props}) => (
   <textarea {...props} rows={props.rows ?? 2} className={[INPUT_CLS, 'resize-y', className].filter(Boolean).join(' ')} />
 );
+
+/**
+ * The page's published variable names as clickable chips, rendered under an
+ * expression field. This is where the reactive model teaches itself: an author
+ * writing a chart/status/progress expression sees exactly which symbols exist
+ * (and one click inserts one) instead of having to discover names through the
+ * per-input "Variable" override or the Dataflow pane.
+ */
+export const ScopeHints: React.FC<{editor: BlockEditorController; onPick: (name: string) => void}> = ({
+  editor,
+  onPick,
+}) => {
+  const names = Object.keys(inputScope(editor.doc)).sort();
+  if (names.length === 0) {
+    return <span className="text-[0.7rem] text-muted-foreground">No named inputs on this page yet — add a slider, number, or other input block.</span>;
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1 pt-0.5">
+      <span className="text-[0.7rem] text-muted-foreground">Variables:</span>
+      {names.map((name) => (
+        <button
+          key={name}
+          type="button"
+          disabled={editor.readOnly}
+          className="cursor-pointer rounded border border-border bg-muted/40 px-1 py-0.5 font-mono text-[0.7rem] text-foreground/80 transition-colors hover:bg-hover"
+          // preventDefault on mousedown keeps focus in the expression input.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onPick(name)}
+          title={`Insert ${name}`}
+        >
+          {name}
+        </button>
+      ))}
+    </div>
+  );
+};
+
+/** Append a picked variable to an expression prop (space-separated). */
+export const appendVar = (current: string, name: string): string =>
+  current.trim().length > 0 ? `${current.trimEnd()} ${name}` : name;
 
 /**
  * A labelled on/off row for the settings panel — the same layout the built-in

@@ -39,45 +39,64 @@ export function PageHeaderControls({pageId}: {pageId: string}) {
   };
 
   return (
-    <div
-      className={cn(
-        'flex h-8 flex-wrap items-center gap-1 text-sm text-muted-foreground print:hidden',
-        // Revealed on cover/header hover (Notion-style), while focused, or while
-        // any of its menus is open — and inert (not just invisible) otherwise.
-        'opacity-0 pointer-events-none transition-opacity duration-150',
-        'group-hover/pagehead:opacity-100 group-hover/pagehead:pointer-events-auto',
-        'focus-within:opacity-100 focus-within:pointer-events-auto',
-        '[&:has([data-state=open])]:opacity-100 [&:has([data-state=open])]:pointer-events-auto',
-      )}
-    >
-      <IconButton
-        size="sm"
-        aria-label={t('appearance.pageTheme')}
-        title={t('appearance.pageTheme')}
-        onClick={openCustomise}
-        className={customised ? 'text-primary hover:text-primary' : undefined}
+    <div className="flex h-8 flex-wrap items-center gap-1 text-sm text-muted-foreground print:hidden">
+      {/* The two pane entry points stay quietly visible at rest — an invisible
+          cluster was the only way into Customise/Review for a long time, and
+          hover-gating shuts out touch and keyboard users entirely. */}
+      <span
+        className={cn(
+          'flex items-center gap-1 opacity-50 transition-opacity duration-150',
+          'group-hover/pagehead:opacity-100 focus-within:opacity-100',
+          '[&:has([data-state=open])]:opacity-100',
+        )}
       >
-        <Palette className="h-4 w-4" />
-      </IconButton>
-      <IconButton size="sm" aria-label="Review suggestions" title="Review suggestions" onClick={openReview}>
-        <ClipboardCheck className="h-4 w-4" />
-      </IconButton>
-      <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
-      <OwnerEditor owner={owner} onChange={(v) => setProperty(OWNER_PROPERTY_ID, v)} />
-      <VerificationEditor value={verification} onChange={(v) => setProperty(VERIFICATION_PROPERTY_ID, v)} />
-      <BacklinksControl pageId={pageId} />
-      <LastEditedBy pageId={pageId} />
-      {!cover && (
-        <CoverPicker pageId={pageId}>
-          <button
-            type="button"
-            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
-          >
-            <ImageIcon className="h-3.5 w-3.5" />
-            {t('page.addCover')}
-          </button>
-        </CoverPicker>
-      )}
+        <IconButton
+          size="sm"
+          aria-label={t('command.customisePage')}
+          title={t('command.customisePage')}
+          onClick={openCustomise}
+          className={customised ? 'text-primary hover:text-primary' : undefined}
+        >
+          <Palette className="h-4 w-4" />
+        </IconButton>
+        <IconButton
+          size="sm"
+          aria-label={t('command.reviewSuggestions')}
+          title={t('command.reviewSuggestions')}
+          onClick={openReview}
+        >
+          <ClipboardCheck className="h-4 w-4" />
+        </IconButton>
+      </span>
+      {/* Page metadata (owner / verification / backlinks / provenance / cover)
+          reveals on header hover, focus, or an open menu (Notion-style) — at
+          rest it read as clutter above every note's title. */}
+      <span
+        className={cn(
+          'flex min-w-0 flex-1 flex-wrap items-center gap-1',
+          'opacity-0 pointer-events-none transition-opacity duration-150',
+          'group-hover/pagehead:opacity-100 group-hover/pagehead:pointer-events-auto',
+          'focus-within:opacity-100 focus-within:pointer-events-auto',
+          '[&:has([data-state=open])]:opacity-100 [&:has([data-state=open])]:pointer-events-auto',
+        )}
+      >
+        <span className="mx-0.5 h-4 w-px shrink-0 bg-border" aria-hidden />
+        <OwnerEditor owner={owner} onChange={(v) => setProperty(OWNER_PROPERTY_ID, v)} />
+        <VerificationEditor value={verification} onChange={(v) => setProperty(VERIFICATION_PROPERTY_ID, v)} />
+        <BacklinksControl pageId={pageId} />
+        <LastEditedBy pageId={pageId} />
+        {!cover && (
+          <CoverPicker pageId={pageId}>
+            <button
+              type="button"
+              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+            >
+              <ImageIcon className="h-3.5 w-3.5" />
+              {t('page.addCover')}
+            </button>
+          </CoverPicker>
+        )}
+      </span>
     </div>
   );
 }

@@ -4,7 +4,7 @@ import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
 import {computeScope, evalExpr} from './scope';
-import {ConfigField, ConfigInput, KitInlineText, NameDescriptionFields} from './KitFrame';
+import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionFields, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
 import {extent, funnelRows, linePoints, PALETTE, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
 
@@ -285,6 +285,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               placeholder="[x, x*2, x*3]  ·  {a: [1,2,3], b: [2,4,6]}"
               onChange={(e) => setProp(editor, block, 'source', e.target.value)}
             />
+            <ScopeHints editor={editor} onPick={(name) => setProp(editor, block, 'source', appendVar(source, name))} />
           </ConfigField>
           <ConfigField label="Labels" hint="Comma-separated, one per point.">
             <ConfigInput value={blockProp<string>(block, 'labels') ?? ''} readOnly={editor.readOnly} aria-label="Labels (comma-separated)" placeholder="A, B, C" onChange={(e) => setProp(editor, block, 'labels', e.target.value)} />

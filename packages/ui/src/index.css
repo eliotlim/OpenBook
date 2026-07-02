@@ -518,6 +518,12 @@
   color: hsl(var(--muted-foreground) / 0.7);
   font-style: normal;
 }
+/* A database host page (compact editor) shows its table right below the tiny
+   editor area — an unfocused "Type / for commands…" floating above the table
+   reads as clutter. Keep the hint for the focused block only. */
+.obe-compact [data-placeholder]:empty:not(:focus)::before {
+  content: none;
+}
 .ce-header {
   font-weight: 650;
   line-height: 1.3;

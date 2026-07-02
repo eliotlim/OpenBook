@@ -36,6 +36,7 @@ import {
   Sigma,
   SlidersHorizontal,
   Sparkles,
+  Mic,
   Table,
   Table2,
   Tag,
@@ -99,7 +100,7 @@ interface SlashItem {
 const ID_ICONS: Record<string, IconComp> = {
   text: Type, h1: Heading1, h2: Heading2, h3: Heading3,
   bullet: List, number: ListOrdered, todo: ListTodo, quote: Quote,
-  callout: Info, code: Code2, livecode: Sigma, divider: Minus, image: ImageIcon,
+  callout: Info, code: Code2, livecode: Sigma, divider: Minus, image: ImageIcon, notes: Mic,
   table: Table, cols2: Columns2, cols3: Columns3, cols4: Columns3, group: Boxes,
   tabs: PanelTop, accordion: LayoutList,
   newpage: FilePlus2, newdatabase: Table2, linkpage: Link2, linkdatabase: Database,

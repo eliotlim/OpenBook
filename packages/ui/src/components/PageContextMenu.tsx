@@ -3,6 +3,7 @@ import {
   AppWindow,
   Columns2,
   CopyPlus,
+  CornerUpRight,
   ExternalLink,
   FilePlus2,
   Link2,
@@ -20,7 +21,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
-import {copyPageLink, requestRenamePage} from '@/lib/pageActions';
+import {copyPageLink, requestMovePage, requestRenamePage} from '@/lib/pageActions';
 import {isFavorite, toggleFavorite} from '@/lib/favorites';
 
 /**
@@ -88,6 +89,10 @@ export function PageMenuItems({pageId}: {pageId: string}) {
       <ContextMenuItem onSelect={() => void duplicatePage(pageId)}>
         <CopyPlus className="mr-2 h-4 w-4" />
         {t('menu.duplicate')}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => requestMovePage(pageId)}>
+        <CornerUpRight className="mr-2 h-4 w-4" />
+        {t('menu.moveTo')}
       </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => void createSubpage(pageId, 'page').then(selectPage)}>

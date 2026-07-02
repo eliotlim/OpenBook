@@ -299,10 +299,10 @@ test('dropdown publishes its pick; full-width radio renders stacked rows', {tag:
   const radio = page.locator('.obe-kit-radio');
   await expect(radio).toHaveClass(/obe-kit-wide/);
   await expect(radio.locator('.obe-kit-pill-dot')).toHaveCount(3);
-  await radio.getByRole('button', {name: 'Configure block'}).click();
+  await radio.getByRole('button', {name: 'Block settings'}).click();
   await page.getByLabel('Compact').check();
   await expect(radio).not.toHaveClass(/obe-kit-wide/);
-  await radio.getByRole('button', {name: 'Configure block'}).click(); // close the popover
+  await radio.getByRole('button', {name: 'Block settings'}).click(); // close the popover
   await radio.getByRole('radio', {name: 'Three'}).click();
   await expect(radio.getByRole('radio', {name: 'Three'})).toHaveAttribute('aria-checked', 'true');
 });

@@ -16,7 +16,7 @@ import {
  * The one settings affordance every interactive block shares: a gear at the
  * block's top-right (hidden until hover/focus), opening a settings **popover**
  * that can **expand into the side pane** for roomier editing. The gutter
- * context menu's "Configure" item opens the same popover (via the `kitConfig`
+ * context menu's "Block settings" item opens the same popover (via the `kitConfig`
  * bridge). One component so inputs, charts and cards all behave alike — no more
  * per-block show/hide panels.
  */
@@ -32,7 +32,7 @@ export const KitSettings: React.FC<{
   const [host, setHost] = useState<HTMLElement | null>(getKitPanelHost());
   const [expanded, setExpanded] = useState(() => getKitPanel()?.blockId === blockId);
 
-  // Gutter "Configure" opens this popover (deferred a tick so the closing
+  // Gutter "Block settings" opens this popover (deferred a tick so the closing
   // context menu doesn't immediately steal focus back).
   useEffect(() => registerKitConfig(blockId, () => setTimeout(() => setOpen(true), 0)), [blockId]);
 
@@ -53,7 +53,7 @@ export const KitSettings: React.FC<{
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button type="button" className="obe-kit-gear" aria-label="Configure block" title="Configure">
+          <button type="button" className="obe-kit-gear" aria-label="Block settings" title="Block settings">
             <Settings2 className="h-4 w-4" />
           </button>
         </PopoverTrigger>

@@ -38,6 +38,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -48,11 +49,13 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuShortcut,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {formatShortcut} from '@/lib/shortcuts';
 import {TextBlockView} from './TextBlockView';
 import {COLOR_TOKENS, isColorToken} from './colors';
 import {SlashMenu, type SlashState} from './SlashMenu';
@@ -1116,12 +1119,22 @@ const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = (
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuSeparator />
-      <DropdownMenuItem onClick={ops.duplicate}>Duplicate</DropdownMenuItem>
-      <DropdownMenuItem onClick={() => ops.move(-1)}>Move up</DropdownMenuItem>
-      <DropdownMenuItem onClick={() => ops.move(1)}>Move down</DropdownMenuItem>
+      <DropdownMenuItem onClick={ops.duplicate}>
+        Duplicate
+        <DropdownMenuShortcut>{formatShortcut({key: 'd', mod: true})}</DropdownMenuShortcut>
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => ops.move(-1)}>
+        Move up
+        <DropdownMenuShortcut>{formatShortcut({key: 'arrowup', mod: true, shift: true})}</DropdownMenuShortcut>
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => ops.move(1)}>
+        Move down
+        <DropdownMenuShortcut>{formatShortcut({key: 'arrowdown', mod: true, shift: true})}</DropdownMenuShortcut>
+      </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={ops.remove}>
         Delete
+        <DropdownMenuShortcut>{formatShortcut({key: 'backspace'})}</DropdownMenuShortcut>
       </DropdownMenuItem>
     </DropdownMenuContent>
   );
@@ -1149,7 +1162,7 @@ const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> =
       {/* Interactive blocks expose their settings popover right from the menu. */}
       {hasKitConfig(id) && (
         <>
-          <ContextMenuItem onSelect={() => openKitConfig(id)}>Configure…</ContextMenuItem>
+          <ContextMenuItem onSelect={() => openKitConfig(id)}>Block settings…</ContextMenuItem>
           <ContextMenuSeparator />
         </>
       )}
@@ -1199,12 +1212,22 @@ const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> =
       </ContextMenuSub>
       <ContextMenuSeparator />
       <ContextMenuItem onSelect={() => editor.setSelection([id])}>Select block</ContextMenuItem>
-      <ContextMenuItem onSelect={ops.duplicate}>Duplicate</ContextMenuItem>
-      <ContextMenuItem onSelect={() => ops.move(-1)}>Move up</ContextMenuItem>
-      <ContextMenuItem onSelect={() => ops.move(1)}>Move down</ContextMenuItem>
+      <ContextMenuItem onSelect={ops.duplicate}>
+        Duplicate
+        <ContextMenuShortcut>{formatShortcut({key: 'd', mod: true})}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => ops.move(-1)}>
+        Move up
+        <ContextMenuShortcut>{formatShortcut({key: 'arrowup', mod: true, shift: true})}</ContextMenuShortcut>
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => ops.move(1)}>
+        Move down
+        <ContextMenuShortcut>{formatShortcut({key: 'arrowdown', mod: true, shift: true})}</ContextMenuShortcut>
+      </ContextMenuItem>
       <ContextMenuSeparator />
       <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={ops.remove}>
         Delete
+        <ContextMenuShortcut>{formatShortcut({key: 'backspace'})}</ContextMenuShortcut>
       </ContextMenuItem>
     </ContextMenuContent>
   );

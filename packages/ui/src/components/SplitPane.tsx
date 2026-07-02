@@ -9,7 +9,7 @@ import {closeKitPanel, getKitPanel, setKitPanelHost, subscribeKitPanel} from '@/
 import {PageCustomiseBody} from '@/components/appearance/PageCustomiseBody';
 import {ReviewPaneBody} from '@/components/review/ReviewPaneBody';
 import {AgentPanel} from '@/components/AgentPanel';
-import {useNavigation} from '@/providers';
+import {useNavigation, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
 
 /**
@@ -29,14 +29,15 @@ function KitConfigPaneBody() {
     },
     [],
   );
+  const {t} = useTranslation();
   return (
     <div className="flex h-full flex-col">
       <div className="shrink-0 border-b border-border px-4 py-2.5">
-        <p className="truncate text-sm font-semibold">{panel?.title || 'Settings'}</p>
-        <p className="text-xs text-muted-foreground">Block settings</p>
+        <p className="truncate text-sm font-semibold">{panel?.title || t('pane.config')}</p>
+        <p className="text-xs text-muted-foreground">{t('pane.config')}</p>
       </div>
       <div ref={hostRef} className="min-h-0 flex-1 overflow-y-auto p-4">
-        {!panel && <p className="text-xs text-muted-foreground">Open a block’s settings to edit it here.</p>}
+        {!panel && <p className="text-xs text-muted-foreground">{t('pane.configEmpty')}</p>}
       </div>
     </div>
   );
@@ -50,6 +51,7 @@ function KitConfigPaneBody() {
  * the full editing surface.
  */
 export function SplitPane() {
+  const {t} = useTranslation();
   const {panes, focusedPaneId, splitOpen, focusPane, closeSplit, closePane} = useNavigation();
   // Pane width in px; the drag clamps it between a readable minimum and most
   // of the window, so the primary document never collapses entirely.
@@ -97,7 +99,7 @@ export function SplitPane() {
   return (
     <aside
       data-split-pane
-      aria-label="Split view"
+      aria-label={t('pane.splitView')}
       style={{width}}
       onMouseDownCapture={() => focusPane(pane.id)}
       className={cn(
@@ -123,15 +125,15 @@ export function SplitPane() {
           framed toolbar. */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-1 px-2">
         <div className="flex items-center gap-0.5">
-          <IconButton size="sm" onClick={() => closeSplit()} aria-label="Hide split pane" title="Hide split pane">
+          <IconButton size="sm" onClick={() => closeSplit()} aria-label={t('pane.hide')} title={t('pane.hide')}>
             <PanelRightClose className="h-3.5 w-3.5" />
           </IconButton>
           {isPage && (
             <IconButton
               size="sm"
               onClick={() => closePane('primary')}
-              aria-label="Make this the main pane"
-              title="Make this the main pane"
+              aria-label={t('pane.makeMain')}
+              title={t('pane.makeMain')}
             >
               <Maximize2 className="h-3.5 w-3.5" />
             </IconButton>

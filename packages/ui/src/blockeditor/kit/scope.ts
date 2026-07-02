@@ -28,7 +28,10 @@ export function publishedName(block: BlockMap): string {
   return derived && NAME_RE.test(derived) ? derived : '';
 }
 
-/** Block types that publish a named value into the scope. */
+/** Block types that publish a named value into the scope. Deliberately NOT
+ *  here despite looking input-ish in the slash menu: `progressbar` (displays a
+ *  computed expression — a consumer, like charts/status lights) and
+ *  `actionbutton` (mutates OTHER inputs; publishes nothing itself). */
 export const INPUT_TYPES = new Set([
   'slider', 'number', 'textfield', 'radio', 'checklist', 'dropdown', 'location', 'toggle',
   // June-2026 additions (kit/inputs2.tsx). Choice cards publish single|multi like

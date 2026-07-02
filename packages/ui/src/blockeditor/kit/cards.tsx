@@ -3,7 +3,7 @@ import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
 import {computeScope, evalExpr, formatValue, statusOf} from './scope';
-import {ConfigField, ConfigInput, KitInlineText, NameDescriptionFields} from './KitFrame';
+import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionFields, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
 
 /**
@@ -57,6 +57,7 @@ const StatusLightBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               placeholder="x > 10  ·  errors  ·  'warn'"
               onChange={(e) => set(editor, block, 'source', e.target.value)}
             />
+            <ScopeHints editor={editor} onPick={(name) => set(editor, block, 'source', appendVar(source, name))} />
           </ConfigField>
           <div className="flex gap-2">
             <ConfigField label="ok ≥">
