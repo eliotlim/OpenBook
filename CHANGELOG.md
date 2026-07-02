@@ -1,3 +1,14 @@
+## 1.68.0 (2026-07-02)
+
+### 🚀 Features
+
+- ia ux review fixes ([#73](https://github.com/eliotlim/OpenBook/pull/73))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 1.67.0 (2026-07-01)
 
 ### 🚀 Features
