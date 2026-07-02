@@ -45,7 +45,9 @@ test('delete page: the toast Undo restores the page', {tag: ['@shell']}, async (
   await page.getByRole('menuitem', {name: 'Move to trash'}).click();
   await page.getByRole('dialog').getByRole('button', {name: 'Move to trash'}).click();
 
-  const toast = page.getByRole('status').filter({hasText: 'to trash'});
+  // The toast stack is a permanent polite live region (no per-item role) —
+  // target it via the host hook.
+  const toast = page.locator('[data-toast-host] > div').filter({hasText: 'to trash'});
   await expect(toast).toBeVisible();
   await toast.getByRole('button', {name: 'Undo'}).click();
 

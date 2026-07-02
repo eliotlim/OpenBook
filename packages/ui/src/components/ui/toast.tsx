@@ -97,6 +97,7 @@ export function ToastHost() {
   useSyncExternalStore(subscribe, getVersion, getVersion);
   return (
     <div
+      data-toast-host
       className="pointer-events-none fixed inset-x-0 bottom-6 z-[100] flex flex-col items-center gap-2 print:hidden"
       aria-live="polite"
       onMouseEnter={pauseAll}
