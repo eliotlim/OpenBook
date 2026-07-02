@@ -341,7 +341,7 @@ export const en = {
     justNow: 'just now',
     welcome: 'Welcome to OpenBook',
     getStarted: 'Get started',
-    firstRunHint: "Create a page and type '/' to add blocks — text, to-dos, charts, live inputs. Press ⌘K (Ctrl+K) anywhere for search and commands.",
+    firstRunHint: 'Create a page and type \'/\' to add blocks — text, to-dos, charts, live inputs. Press ⌘K (Ctrl+K) anywhere for search and commands.',
     browseTemplates: 'Start from a template',
     trySample: 'Explore the sample document',
   },

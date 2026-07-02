@@ -324,44 +324,44 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
 
             {/* Add a person (managers only — read-only viewers still see the roster below) */}
             {canManage && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="share-invitee">{t('share.addLabel')}</Label>
-              <div className="flex items-center gap-2">
-                <Input
-                  id="share-invitee"
-                  inputSize="sm"
-                  className="flex-1"
-                  placeholder={t('share.addPlaceholder')}
-                  value={invitee}
-                  disabled={adding}
-                  onChange={(e) => setInvitee(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      void addPerson();
-                    }
-                  }}
-                />
-                <Select
-                  aria-label={t('share.levelLabel')}
-                  value={level}
-                  inputSize="sm"
-                  wrapperClassName="w-[116px]"
-                  onChange={(e) => setLevel(e.target.value as AclLevel)}
-                >
-                  <option value="read">{t('share.levelRead')}</option>
-                  <option value="write">{t('share.levelWrite')}</option>
-                </Select>
-                <Button size="sm" onClick={() => void addPerson()} disabled={adding || !invitee.trim()}>
-                  {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : t('common.add')}
-                </Button>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="share-invitee">{t('share.addLabel')}</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="share-invitee"
+                    inputSize="sm"
+                    className="flex-1"
+                    placeholder={t('share.addPlaceholder')}
+                    value={invitee}
+                    disabled={adding}
+                    onChange={(e) => setInvitee(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void addPerson();
+                      }
+                    }}
+                  />
+                  <Select
+                    aria-label={t('share.levelLabel')}
+                    value={level}
+                    inputSize="sm"
+                    wrapperClassName="w-[116px]"
+                    onChange={(e) => setLevel(e.target.value as AclLevel)}
+                  >
+                    <option value="read">{t('share.levelRead')}</option>
+                    <option value="write">{t('share.levelWrite')}</option>
+                  </Select>
+                  <Button size="sm" onClick={() => void addPerson()} disabled={adding || !invitee.trim()}>
+                    {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : t('common.add')}
+                  </Button>
+                </div>
+                {addError && (
+                  <p role="alert" aria-live="assertive" className="text-xs text-destructive">
+                    {t(addError)}
+                  </p>
+                )}
               </div>
-              {addError && (
-                <p role="alert" aria-live="assertive" className="text-xs text-destructive">
-                  {t(addError)}
-                </p>
-              )}
-            </div>
             )}
 
             {/* Current grants. The heading is a plain span, not a <Label> — it
