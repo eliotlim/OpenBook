@@ -16,6 +16,15 @@ async function newDatabase(page: import('@playwright/test').Page): Promise<void>
   await expect(page.getByRole('button', {name: 'Add column'})).toBeVisible();
 }
 
+/** Add a Timeline view and wait for the picker menu to fully close — its exit
+ *  animation intercepted the first canvas click under load (the click-to-place
+ *  "flake" was the closing menu eating the click). */
+async function openTimeline(page: import('@playwright/test').Page): Promise<void> {
+  await page.getByRole('button', {name: 'Add view'}).click();
+  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+  await expect(page.getByRole('menu')).toHaveCount(0);
+}
+
 async function addColumn(page: import('@playwright/test').Page, name: string, type: string): Promise<void> {
   await page.getByRole('button', {name: 'Add column'}).click();
   await page.getByPlaceholder('Property name').fill(name);
@@ -32,8 +41,7 @@ test('timeline view: a dated row renders as a bar', {tag: ['@database', '@visual
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByLabel('Due').first().fill('2026-03-15');
 
-  await page.getByRole('button', {name: 'Add view'}).click();
-  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+  await openTimeline(page);
 
   // The month axis labels the spanned month.
   await expect(page.getByText('Mar 2026')).toBeVisible();
@@ -67,8 +75,7 @@ test('timeline drag: dragging a bar reschedules the row', {tag: ['@database', '@
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByLabel('When').first().fill('2026-03-15');
 
-  await page.getByRole('button', {name: 'Add view'}).click();
-  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+  await openTimeline(page);
 
   // Drag the bar to the right (later in time). The timeline centres on today, so
   // a bar dated months earlier starts scrolled off-screen — reveal it first.
@@ -99,8 +106,7 @@ test('timeline drag-to-link: drag one bar onto another to add a dependency', {ta
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByLabel('When').nth(1).fill('2026-03-20');
 
-  await page.getByRole('button', {name: 'Add view'}).click();
-  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+  await openTimeline(page);
 
   const bars = page.getByTitle(/drag to reschedule/);
   await expect(bars).toHaveCount(2);
@@ -128,8 +134,7 @@ test('timeline click-to-place: clicking the empty canvas adds a dated item', {ta
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
 
-  await page.getByRole('button', {name: 'Add view'}).click();
-  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+  await openTimeline(page);
 
   // Nothing is placed yet; the empty state invites a click.
   await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(0);
@@ -155,8 +160,7 @@ test('timeline unscheduled row: a dateless row gets a click-to-place lane', {tag
   await title.blur();
   await expect(title).toHaveValue('Floating');
 
-  await page.getByRole('button', {name: 'Add view'}).click();
-  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+  await openTimeline(page);
 
   // It has a lane (clickable to schedule), but no bar yet.
   const lane = page.getByRole('button', {name: 'Schedule Floating on the timeline'});
@@ -180,8 +184,7 @@ test('timeline scale: switching zoom updates the axis', {tag: ['@database']}, as
   await page.getByRole('button', {name: 'New row'}).click();
   await page.getByLabel('Due').first().fill('2026-03-15');
 
-  await page.getByRole('button', {name: 'Add view'}).click();
-  await page.getByRole('menuitem', {name: 'Timeline'}).click();
+  await openTimeline(page);
 
   // A fine default zoom shows a month context tier.
   await expect(page.getByText('Mar 2026')).toBeVisible();
