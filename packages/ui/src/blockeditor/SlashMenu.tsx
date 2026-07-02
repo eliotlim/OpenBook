@@ -45,7 +45,7 @@ import {
   ToggleLeft,
   Type,
 } from 'lucide-react';
-import {blockText, blockType, findBlock, makeTable, type BlockType, type NewBlock} from './model';
+import {blockChildren, blockId as modelBlockId, blockText, blockType, findBlock, makeTable, type BlockMap, type BlockType, type NewBlock} from './model';
 import {customSlashItems} from './registry';
 import {aiSlashItems} from './aiBlocks';
 import {featureShown, readFeatureVisibility, type FeatureVisibility} from '@/lib/aiFeatures';
@@ -125,6 +125,18 @@ const turn =
       editor.requestCaret({blockId, offset: 'end'});
     };
 
+/** Depth-first: the first text-bearing block inside `block` (itself included). */
+const firstTextDescendant = (block: BlockMap): string | null => {
+  if (blockText(block)) return modelBlockId(block);
+  const children = blockChildren(block);
+  if (!children) return null;
+  for (const child of children) {
+    const hit = firstTextDescendant(child);
+    if (hit) return hit;
+  }
+  return null;
+};
+
 const insertAfterOrReplace =
   (make: () => NewBlock) =>
     (editor: BlockEditorController, blockId: string): void => {
@@ -134,7 +146,20 @@ const insertAfterOrReplace =
       if (empty && found) {
         editor.doc.transact(() => found.parent.delete(found.index, 1), 'local');
       }
-      void id;
+      // Land the caret where typing continues. Deleting the (focused) empty
+      // source paragraph orphaned the selection, so the next keystrokes went
+      // nowhere — the #1 action after inserting a block is typing into it.
+      // Text-bearing inserts (table → first cell, columns → first paragraph)
+      // take the caret directly; text-less ones (divider, image, kit widgets)
+      // get a fresh paragraph below so writing flows on.
+      const inserted = id ? findBlock(editor.doc, id) : null;
+      const target = inserted ? firstTextDescendant(inserted.block) : null;
+      if (target) {
+        editor.requestCaret({blockId: target, offset: 0});
+      } else if (id) {
+        const next = editor.insertAfter(id, {type: 'paragraph'});
+        if (next) editor.requestCaret({blockId: next, offset: 0});
+      }
     };
 
 const columns = (n: number): NewBlock => ({

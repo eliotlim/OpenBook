@@ -108,6 +108,12 @@ test('slash ranking: label matches beat keyword-only matches across groups', {ta
   await expect(page.locator('.obe-slash-label').first()).toHaveText('Table');
   await page.keyboard.press('Enter');
   await expect(page.locator('.obe-table')).toBeVisible();
+
+  // The caret lands in the table's first cell, so typing continues without a
+  // click — inserting used to orphan the selection (the focused empty source
+  // paragraph was deleted) and the next keystrokes vanished.
+  await page.keyboard.type('Quarter');
+  await expect(page.locator('.obe-table td').first()).toHaveText('Quarter');
 });
 
 // Regression: the editor folds fixed popups on document scroll via a CAPTURE
