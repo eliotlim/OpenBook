@@ -58,9 +58,12 @@ export function LastEditedBy({pageId}: {pageId: string}) {
 
   if (unavailable || !edit) return null;
 
-  const name =
-    edit.authorName?.trim() || (edit.verifiedVia === 'guest' ? t('provenance.aGuest') : t('provenance.someone'));
-  const label = t('provenance.editedBy', {name});
+  // A nameless guest edit on a local-first instance is almost always *you* —
+  // "Edited by a guest" reads like someone else touched your note. Show a
+  // neutral "Edited · 2h" instead of asserting an identity either way.
+  const anonymous = !edit.authorName?.trim() && edit.verifiedVia === 'guest';
+  const name = edit.authorName?.trim() || t('provenance.someone');
+  const label = anonymous ? t('provenance.edited') : t('provenance.editedBy', {name});
   const verified = edit.verifiedVia === 'jws';
   const full = `${label} · ${new Date(edit.createdAt).toLocaleString()}${verified ? '' : ` · ${t('provenance.unverified')}`}`;
 

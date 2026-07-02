@@ -27,6 +27,9 @@ function describeLocation(raw: string): string {
 
 export default function WorkspaceInfo( props: WorkspaceInfoProps) {
   const location = describeLocation(props.url);
+  // A workspace named after its own server URL (the auto-name for a plain
+  // remote connection) would render the same string twice — drop the subtitle.
+  const subtitle = location === props.name.trim() ? null : location;
   return (
     <div className="flex min-w-0 flex-1 flex-row items-center">
       {props.icon ? (
@@ -38,9 +41,11 @@ export default function WorkspaceInfo( props: WorkspaceInfoProps) {
       )}
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-start font-semibold leading-tight">{props.name}</span>
-        <span className="truncate text-start text-xs font-normal text-muted-foreground">
-          {location}
-        </span>
+        {subtitle && (
+          <span className="truncate text-start text-xs font-normal text-muted-foreground">
+            {subtitle}
+          </span>
+        )}
       </div>
     </div>
   );

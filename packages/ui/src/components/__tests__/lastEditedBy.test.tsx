@@ -41,13 +41,13 @@ describe('LastEditedBy', () => {
     expect(await screen.findByText(/Edited by Caryl/)).toBeTruthy();
   });
 
-  it('labels an anonymous guest edit', async () => {
+  it('labels an anonymous guest edit neutrally (no "by a guest" — it is usually you)', async () => {
     const client: Partial<DataClient> = {
       listPageEdits: async () => [edit({authorName: '', verifiedVia: 'guest'})],
       subscribePage: () => () => {},
     };
     wrap(client);
-    expect(await screen.findByText(/Edited by a guest/)).toBeTruthy();
+    expect(await screen.findByText(/^Edited ·/)).toBeTruthy();
   });
 
   it('renders nothing when the server has no edit log', async () => {

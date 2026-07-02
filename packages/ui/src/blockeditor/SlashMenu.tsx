@@ -36,6 +36,7 @@ import {
   Sigma,
   SlidersHorizontal,
   Sparkles,
+  Mic,
   Table,
   Table2,
   Tag,
@@ -44,7 +45,7 @@ import {
   ToggleLeft,
   Type,
 } from 'lucide-react';
-import {blockText, blockType, findBlock, makeTable, type BlockType, type NewBlock} from './model';
+import {blockChildren, blockId as modelBlockId, blockText, blockType, findBlock, makeTable, type BlockMap, type BlockType, type NewBlock} from './model';
 import {customSlashItems} from './registry';
 import {aiSlashItems} from './aiBlocks';
 import {featureShown, readFeatureVisibility, type FeatureVisibility} from '@/lib/aiFeatures';
@@ -99,7 +100,7 @@ interface SlashItem {
 const ID_ICONS: Record<string, IconComp> = {
   text: Type, h1: Heading1, h2: Heading2, h3: Heading3,
   bullet: List, number: ListOrdered, todo: ListTodo, quote: Quote,
-  callout: Info, code: Code2, livecode: Sigma, divider: Minus, image: ImageIcon,
+  callout: Info, code: Code2, livecode: Sigma, divider: Minus, image: ImageIcon, notes: Mic,
   table: Table, cols2: Columns2, cols3: Columns3, cols4: Columns3, group: Boxes,
   tabs: PanelTop, accordion: LayoutList,
   newpage: FilePlus2, newdatabase: Table2, linkpage: Link2, linkdatabase: Database,
@@ -124,6 +125,18 @@ const turn =
       editor.requestCaret({blockId, offset: 'end'});
     };
 
+/** Depth-first: the first text-bearing block inside `block` (itself included). */
+const firstTextDescendant = (block: BlockMap): string | null => {
+  if (blockText(block)) return modelBlockId(block);
+  const children = blockChildren(block);
+  if (!children) return null;
+  for (const child of children) {
+    const hit = firstTextDescendant(child);
+    if (hit) return hit;
+  }
+  return null;
+};
+
 const insertAfterOrReplace =
   (make: () => NewBlock) =>
     (editor: BlockEditorController, blockId: string): void => {
@@ -133,7 +146,20 @@ const insertAfterOrReplace =
       if (empty && found) {
         editor.doc.transact(() => found.parent.delete(found.index, 1), 'local');
       }
-      void id;
+      // Land the caret where typing continues. Deleting the (focused) empty
+      // source paragraph orphaned the selection, so the next keystrokes went
+      // nowhere — the #1 action after inserting a block is typing into it.
+      // Text-bearing inserts (table → first cell, columns → first paragraph)
+      // take the caret directly; text-less ones (divider, image, kit widgets)
+      // get a fresh paragraph below so writing flows on.
+      const inserted = id ? findBlock(editor.doc, id) : null;
+      const target = inserted ? firstTextDescendant(inserted.block) : null;
+      if (target) {
+        editor.requestCaret({blockId: target, offset: 0});
+      } else if (id) {
+        const next = editor.insertAfter(id, {type: 'paragraph'});
+        if (next) editor.requestCaret({blockId: next, offset: 0});
+      }
     };
 
 const columns = (n: number): NewBlock => ({
@@ -274,6 +300,18 @@ export const SlashMenu: React.FC<{
     const aiVis = new Map<string, FeatureVisibility>(ai.map((it) => [it.id, readFeatureVisibility(it.id)]));
     const matches = (item: SlashItem): boolean =>
       !q || item.keywords.includes(q) || item.label.toLowerCase().includes(q);
+    // Label matches must outrank keyword-only matches regardless of group:
+    // "/table" means the Table block, not "New database" (whose keywords
+    // mention "table") that happens to live in an earlier group — Enter picks
+    // the FIRST item, so this ordering is load-bearing, not cosmetic.
+    const score = (item: SlashItem): number => {
+      if (!q) return 0;
+      const label = item.label.toLowerCase();
+      if (label === q) return 3;
+      if (label.startsWith(q)) return 2;
+      if (label.includes(q)) return 1;
+      return 0; // keyword-only match
+    };
     // Recommended AI sits just below the basic blocks (nearer the top) rather
     // than at the bottom of the menu, without displacing core text blocks.
     const recommendedAiRank = GROUP_ORDER.indexOf('basic') + 0.5;
@@ -284,9 +322,10 @@ export const SlashMenu: React.FC<{
         if (item.group === 'ai' && !featureShown(aiVis.get(item.id) ?? 'recommended', searching)) return false;
         return matches(item);
       })
-      // Stable sort groups into display order (Array.sort is stable), so items
-      // keep their authored order within each category.
-      .sort((a, b) => groupRank(a) - groupRank(b));
+      // Match quality first, then stable-sort groups into display order
+      // (Array.sort is stable), so items keep their authored order within
+      // each category and browsing (empty query) is untouched.
+      .sort((a, b) => score(b) - score(a) || groupRank(a) - groupRank(b));
   }, [state.query, pageId, onLink]);
 
   // Fixed (viewport) positioning: anchored to the caret, measured after

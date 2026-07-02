@@ -93,9 +93,12 @@ describe('migration 0011 — existing database with data', () => {
     // already recorded so the runner applies ONLY 0011 against existing data.
     const db = await PgliteDb.create('memory://');
     await db.query('CREATE TABLE _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');
+    // deleted_at is part of the simulated baseline (0004 would have added it);
+    // later migrations (0015's partial name index) reference the column.
     await db.query(`CREATE TABLE pages (
       id UUID PRIMARY KEY, name TEXT, data JSONB NOT NULL DEFAULT '{}'::jsonb,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      deleted_at TIMESTAMPTZ)`);
     for (const n of [
       '0001_init', '0002_databases', '0003_page_nesting', '0004_soft_delete', '0005_page_order',
       '0006_settings', '0007_plugins', '0008_suggestions', '0009_provenance', '0010_review_authors',

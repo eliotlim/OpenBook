@@ -161,14 +161,17 @@ const rowFromPage = (row: PageRow): DatabaseRow => {
  * Resolve a page name that is free among *live* pages (and not already claimed
  * by `taken` in the current batch), appending `" (<label>)"` — then
  * `" (<label> 2)"`, etc. — until it no longer collides. `excludeId` ignores one
- * page's own row (so an overwrite of the same page keeps its name). Used by
- * restore (`label='restored'`) and backup import (`label='imported'`).
+ * page's own row (so an overwrite of the same page keeps its name). Names are
+ * not unique (migration 0015); this is a courtesy disambiguator for backup
+ * import (`label='imported'`) and the mirror's conflict copies
+ * (`label='conflicted copy'`), where two identically-named pages would be
+ * indistinguishable to the user.
  */
 const freeName = async (
   tx: Db,
   base: string,
   taken: Set<string>,
-  label = 'restored',
+  label: string,
   excludeId?: string,
 ): Promise<string> => {
   const collides = async (candidate: string): Promise<boolean> => {
@@ -697,10 +700,15 @@ export class PageStore {
     return rows.length > 0 ? pageFromRow(rows[0]) : null;
   }
 
-  /** Fetch a (live, non-trashed) page by its (optional, unique) name. */
+  /**
+   * Fetch a (live, non-trashed) page by name. Names are not unique (migration
+   * 0015); when several live pages share one, the most recently updated wins,
+   * so the lookup stays deterministic.
+   */
   async getPageByName(name: string): Promise<StoredPage | null> {
     const rows = await this.db.query<PageRow>(
-      `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.name = $1 AND p.deleted_at IS NULL`,
+      `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.name = $1 AND p.deleted_at IS NULL
+       ORDER BY p.updated_at DESC, p.id LIMIT 1`,
       [name],
     );
     return rows.length > 0 ? pageFromRow(rows[0]) : null;
@@ -1022,9 +1030,8 @@ export class PageStore {
    * separate, earlier operation stays in the trash). Returns the restored page,
    * or `null` if it was not in the trash.
    *
-   * A page's name can be reused while it sits in the trash, so a restore can
-   * collide with the unique-name index. Rather than fail, the restored page is
-   * given a `" (restored)"` suffix to make its name free again.
+   * Names are not unique (migration 0015), so a restore always keeps the page's
+   * original name — even when a live page created meanwhile carries the same one.
    */
   async restorePage(id: string): Promise<StoredPage | null> {
     const ok = await this.db.begin(async (tx) => {
@@ -1034,29 +1041,18 @@ export class PageStore {
       );
       if (root.length === 0 || root[0].deleted_at == null) return false;
 
-      // The subtree trashed together with the root (same `deleted_at`). All of
-      // these rows are still trashed at this point, so the collision check below
-      // (against live pages) naturally ignores them.
-      const subtree = await tx.query<{id: string; name: string | null}>(
+      // The subtree trashed together with the root (same `deleted_at`).
+      await tx.query(
         `WITH RECURSIVE subtree AS (
-           SELECT id, name FROM pages WHERE id = $1
+           SELECT id FROM pages WHERE id = $1
            UNION ALL
-           SELECT p.id, p.name FROM pages p JOIN subtree s ON p.parent_id = s.id
+           SELECT p.id FROM pages p JOIN subtree s ON p.parent_id = s.id
            WHERE p.deleted_at = (SELECT deleted_at FROM pages WHERE id = $1)
          )
-         SELECT id, name FROM subtree`,
+         UPDATE pages SET deleted_at = NULL, updated_at = now()
+         WHERE id IN (SELECT id FROM subtree)`,
         [id],
       );
-
-      const assigned = new Set<string>();
-      for (const row of subtree) {
-        const name = row.name ? await freeName(tx, row.name, assigned) : null;
-        if (name) assigned.add(name);
-        await tx.query('UPDATE pages SET name = $2, deleted_at = NULL, updated_at = now() WHERE id = $1', [
-          row.id,
-          name,
-        ]);
-      }
       return true;
     });
     if (ok) this.bumpAccess(); // restored pages re-enter readers' views (Collab T1)

@@ -199,10 +199,27 @@ export default function DataflowView() {
 
   // Re-fit when the graph's SHAPE changes (outlets arrive async, blocks come
   // and go) — but never on value ticks, and never fight the user's pan/zoom.
+  // fitView is a no-op until React Flow has MEASURED the nodes (xyflow v12
+  // stamps `measured` after layout), so poll briefly for measurement instead
+  // of fitting blind — an unmeasured fit left the graph tiny and crammed at
+  // the pane's edge on open.
   const [instance, setInstance] = useState<ReactFlowInstance<FlowNodeType, Edge> | null>(null);
   const shape = graph.nodes.map((n) => n.id).join('|');
   useEffect(() => {
-    if (instance && shape) void instance.fitView({padding: 0.15, maxZoom: 1.1, duration: 250});
+    if (!instance || !shape) return;
+    let timer: ReturnType<typeof setTimeout>;
+    let tries = 0;
+    const tick = (): void => {
+      const measured = instance.getNodes().every((node) => (node.measured?.width ?? 0) > 0);
+      if (measured || tries >= 20) {
+        void instance.fitView({padding: 0.15, maxZoom: 1.1, duration: 250});
+        return;
+      }
+      tries += 1;
+      timer = setTimeout(tick, 100);
+    };
+    timer = setTimeout(tick, 50);
+    return () => clearTimeout(timer);
   }, [instance, shape]);
 
   // Hovering a node spotlights its neighborhood — everything else recedes.

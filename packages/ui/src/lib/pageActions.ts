@@ -78,3 +78,26 @@ export function onRenamePageRequest(cb: (pageId: string) => void): () => void {
   window.addEventListener(RENAME_EVENT, handler);
   return () => window.removeEventListener(RENAME_EVENT, handler);
 }
+
+// ── Move bridge ─────────────────────────────────────────────────────────────
+// "Move to…" from a context menu opens the destination picker, which lives at
+// the layout level (a menu unmounts on select, so it can't host the dialog).
+
+const MOVE_EVENT = 'ob:move-page';
+
+/** Open the "Move to…" destination picker for `pageId`. */
+export function requestMovePage(pageId: string): void {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(MOVE_EVENT, {detail: {pageId}}));
+}
+
+/** Subscribe to move requests. Returns an unsubscribe fn. */
+export function onMovePageRequest(cb: (pageId: string) => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
+  const handler = (e: Event) => {
+    const id = (e as CustomEvent<{pageId: string}>).detail?.pageId;
+    if (id) cb(id);
+  };
+  window.addEventListener(MOVE_EVENT, handler);
+  return () => window.removeEventListener(MOVE_EVENT, handler);
+}

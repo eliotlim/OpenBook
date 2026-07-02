@@ -3,9 +3,10 @@
  * desktop app, and the web shell. Because every layer imports these same
  * definitions, page data cannot drift between client and server.
  *
- * A **page** is the unit of storage: a stable UUID, an optional unique name, and
- * an opaque document payload ({@link PageSnapshot}). The storage layer treats
- * `data` as opaque JSON; its internal shape is owned by the document editor.
+ * A **page** is the unit of storage: a stable UUID, an optional display name
+ * (not unique — identity is always the id), and an opaque document payload
+ * ({@link PageSnapshot}). The storage layer treats `data` as opaque JSON; its
+ * internal shape is owned by the document editor.
  */
 
 /**
@@ -98,7 +99,7 @@ export interface StoredPage {
 /**
  * Payload for creating/updating a page.
  *  - `id` present → upsert that page; absent → create with a fresh server id.
- *  - `name` optional; unique across the store when set.
+ *  - `name` optional; a display label, not unique (pages are identified by id).
  *
  * Note: a page's database membership (`databaseId`) and manual `properties` are
  * not set through this payload — they are managed by the database row APIs so a

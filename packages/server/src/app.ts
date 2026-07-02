@@ -1360,8 +1360,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (err instanceof InviteResolutionError) {
       return c.json({error: err.message}, err.status);
     }
+    // Page names are not unique (migration 0015), so a unique violation here is
+    // another constraint (e.g. a member email index) — surface it as a conflict.
     if (isUniqueViolation(err)) {
-      return c.json({error: 'a page with that name already exists'}, 409);
+      return c.json({error: 'a conflicting record already exists'}, 409);
     }
     console.error('OpenBook server error:', err);
     return c.json({error: 'internal server error'}, 500);
@@ -1376,5 +1378,5 @@ function isUniqueViolation(err: unknown): boolean {
   const e = err as {code?: string; message?: string};
   if (e.code === '23505') return true;
   // PGlite surfaces the violation in the message rather than a code field.
-  return typeof e.message === 'string' && /duplicate key|unique constraint|pages_name_key/i.test(e.message);
+  return typeof e.message === 'string' && /duplicate key|unique constraint/i.test(e.message);
 }

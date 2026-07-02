@@ -8,6 +8,7 @@ import {
   cellPosition,
   findBlock,
   htmlToBlocks,
+  rootBlocks,
   setBlockProp,
   tableInsertRow,
   type BlockMap,
@@ -579,6 +580,16 @@ export const TextBlockView: React.FC<{
   const placeholder =
     type === 'heading' ? `Heading ${blockProp<number>(block, 'level') ?? 2}` : (PLACEHOLDERS[type] ?? '');
 
+  // A brand-new page is a single empty paragraph: show the "/" hint without
+  // waiting for focus, so an empty document teaches its own entry point (the
+  // CSS placeholder only renders while the block is :empty).
+  const soleRootParagraph =
+    type === 'paragraph' &&
+    (() => {
+      const root = rootBlocks(editor.doc);
+      return root.length === 1 && blockId(root.get(0)) === id;
+    })();
+
   return (
     <div
       ref={ref}
@@ -590,7 +601,7 @@ export const TextBlockView: React.FC<{
       data-block-text={id}
       // No placeholder on a read-only surface: an empty block must not advertise
       // "Type / for commands…" / "Heading" to a viewer who can't type.
-      data-placeholder={editor.readOnly ? undefined : editor.focusedId === id && type === 'paragraph' ? 'Type “/” for commands…' : placeholder}
+      data-placeholder={editor.readOnly ? undefined : type === 'paragraph' && (editor.focusedId === id || soleRootParagraph) ? 'Type “/” for commands…' : placeholder}
       className={`obe-text obe-text-${type}`}
       spellCheck={ui.spellcheck && !isCode}
       onKeyDown={onKeyDown}

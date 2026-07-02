@@ -33,16 +33,19 @@ export default function BreadcrumbCluster() {
   }
 
   return (
+    // Phone widths show only the current-page crumb: the workspace name (often
+    // a server URL) and ancestors don't fit, and an unshrinkable crumb row
+    // collided with the save-status cluster on the right.
     <nav className="flex min-w-0 items-center text-sm" aria-label="Breadcrumb">
-      <span className="flex shrink-0 items-center gap-1.5 rounded px-1.5 py-0.5 text-foreground/75">
-        <span className="text-[0.95em] leading-none">{workspace?.icon ?? '🗂️'}</span>
+      <span className="hidden min-w-0 max-w-[180px] items-center gap-1.5 rounded px-1.5 py-0.5 text-foreground/75 sm:flex">
+        <span className="shrink-0 text-[0.95em] leading-none">{workspace?.icon ?? '🗂️'}</span>
         <span className="truncate">{workspace?.name ?? 'Workspace'}</span>
       </span>
       {chain.map((id, index) => {
         const last = index === chain.length - 1;
         return (
           <React.Fragment key={id}>
-            <span className="mx-0.5 shrink-0 text-muted-foreground/40">/</span>
+            <span className="mx-0.5 hidden shrink-0 text-muted-foreground/40 sm:inline">/</span>
             <button
               type="button"
               onClick={() => goToCrumb(id)}
@@ -60,6 +63,6 @@ export default function BreadcrumbCluster() {
 }
 
 const cnCrumb = (last: boolean): string =>
-  `flex min-w-0 max-w-[200px] items-center gap-1.5 rounded px-1.5 py-0.5 transition-colors hover:bg-hover ${
-    last ? 'text-foreground' : 'text-foreground/60'
+  `min-w-0 max-w-[200px] items-center gap-1.5 rounded px-1.5 py-0.5 transition-colors hover:bg-hover ${
+    last ? 'flex text-foreground' : 'hidden text-foreground/60 sm:flex'
   }`;

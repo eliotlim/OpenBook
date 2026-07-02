@@ -309,15 +309,14 @@ export function blocksHaveImagePlaceholder(blocks: ImportedBlock[] | undefined):
 const NAME_SUFFIX_ATTEMPTS = 5;
 
 /**
- * Run a name-bearing create (page or row), suffixing the title on a uniqueness
- * clash so an import **never hard-fails on a name collision** — page names are
- * globally unique, so a raw `savePage`/`createRow` *throws* when the title is
- * already taken (and Strategy A is chosen for exactly the lone-page case, the
- * most collision-prone). Mirrors `templates.ts` (`availableName` + retry): try
- * the title, then `"<title> (imported)"`, then numbered variants — consistent
- * with the server's copy-mode ` (imported)` suffix so A and B converge — and
- * finally an untitled record as a last resort. A genuine non-name failure
- * surfaces once the untitled fallback also throws.
+ * Run a name-bearing create (page or row) with a retry ladder so an import
+ * **never hard-fails on a single record**. Names are not unique (server
+ * migration 0015), so the plain title normally lands on the first attempt; the
+ * `"<title> (imported)"` / numbered candidates remain as a retry path for
+ * transient failures — consistent with the server's copy-mode ` (imported)`
+ * suffix so Strategy A and B stay convergent — with an untitled record as the
+ * last resort. A genuine persistent failure surfaces once the untitled
+ * fallback also throws.
  */
 async function createDeduped<T>(title: string, create: (name: string | null) => Promise<T>): Promise<T> {
   const candidates: string[] = [];
@@ -340,10 +339,10 @@ async function createDeduped<T>(title: string, create: (name: string | null) => 
  * **Strategy A.** Write the tree by driving the create APIs directly, the way
  * the template gallery does: each page is `savePage`d (parent resolved from the
  * already-created ancestor), a hosted database is `createDatabase`d on it, and
- * every row — including nested sub-items — is `createRow`d. Page/row names are
- * deduped on the fly ({@link createDeduped}) since names are globally unique, so
- * a title clash suffixes-and-lands instead of aborting the import. Returns the
- * ids it minted, in creation order.
+ * every row — including nested sub-items — is `createRow`d. Each create runs
+ * through the {@link createDeduped} retry ladder so one failing record degrades
+ * (suffixed, then untitled) instead of aborting the import. Returns the ids it
+ * minted, in creation order.
  */
 export async function writeViaCreateApis(
   client: ImportWriteClient,

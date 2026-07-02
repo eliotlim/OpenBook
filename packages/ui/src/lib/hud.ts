@@ -3,8 +3,8 @@
  *  (identity first); Workspace = this workspace's server and capabilities. */
 export const SETTINGS_SECTIONS = [
   {id: 'preferences', tabs: ['general', 'appearance', 'customisation']},
-  {id: 'account', tabs: ['profile', 'signup', 'signin', 'support']},
-  {id: 'workspace', tabs: ['connection', 'members', 'integrations', 'extensions', 'ai', 'admin']},
+  {id: 'account', tabs: ['profile', 'signin']},
+  {id: 'workspace', tabs: ['connection', 'sharing', 'members', 'extensions', 'ai', 'admin']},
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];
@@ -26,16 +26,22 @@ export type PresentMode = 'fullscreen' | 'presenter';
 export const isSettingsTab = (value: unknown): value is SettingsTab =>
   typeof value === 'string' && (SETTINGS_TABS as readonly string[]).includes(value);
 
-/** Sub-screens that were renamed when the flat tabs became grouped sections. */
+/** Sub-screens that were renamed when the flat tabs became grouped sections,
+ *  plus the retired "coming soon" stubs (signup/support/integrations) mapped
+ *  to their nearest real screen. */
 const LEGACY_TAB_MAP: Record<string, SettingsTab> = {
   server: 'connection',
   backup: 'admin',
+  signup: 'signin',
+  support: 'profile',
+  integrations: 'extensions',
 };
 
 /**
  * Resolve a persisted tab id to a current one: map renamed legacy ids
- * (`server`→`connection`, `backup`→`admin`) and fall back to the default for
- * anything no longer a valid tab, so an old `settings.tab` never dead-ends.
+ * (`server`→`connection`, `backup`→`admin`, retired stubs → their nearest real
+ * screen) and fall back to the default for anything no longer a valid tab, so
+ * an old `settings.tab` never dead-ends.
  */
 export const normalizeTab = (value: unknown): SettingsTab => {
   if (isSettingsTab(value)) return value;

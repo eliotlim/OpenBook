@@ -15,7 +15,7 @@ import type {PageInput, PageSnapshot, StoredPage} from './types';
  * native `kitchart` block renders the curves directly.)
  */
 
-/** Name of the seeded page. Unique (page names are), so re-seeding is idempotent. */
+/** Name of the seeded page (a display label — names are not unique). */
 export const SAMPLE_DOCUMENT_NAME = 'Compound Growth (sample)';
 
 const INITIAL_MONTHS = 120;
@@ -64,12 +64,17 @@ export function buildSampleDocument(): PageInput {
 }
 
 /**
- * Upsert the sample document through a data client and return the stored page.
- * Idempotent: reuses the existing sample page's id (names are unique) so
- * re-seeding refreshes it in place instead of 409-ing on the name conflict.
+ * Open-or-create the sample document and return the stored page. When a page
+ * with the sample's name already exists it is returned UNTOUCHED — "Explore
+ * the sample document" must never overwrite edits the user made to it (the
+ * old refresh-in-place upsert did exactly that). Only a missing sample is
+ * created fresh.
  */
 export async function seedSampleDocument(client: DataClient): Promise<StoredPage> {
   const existing = (await client.listPages()).find((p) => p.name === SAMPLE_DOCUMENT_NAME);
-  const input = buildSampleDocument();
-  return client.savePage(existing ? {...input, id: existing.id} : input);
+  if (existing) {
+    const page = await client.getPage(existing.id);
+    if (page) return page;
+  }
+  return client.savePage(buildSampleDocument());
 }

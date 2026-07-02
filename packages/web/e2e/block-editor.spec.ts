@@ -87,6 +87,35 @@ test('slash menu inserts blocks; query filters; Escape closes', {tag: ['@editor'
   await expect(page.locator('.obe-slash')).toBeHidden();
 });
 
+// Regression: on a REAL page (unlike the lab) the pages group is present, and
+// "New database" matches the keyword "table" — a keyword-only hit in an
+// earlier group must not outrank the Table block's exact label, or "/table"
+// + Enter creates a database subpage instead of inserting a table.
+test('slash ranking: label matches beat keyword-only matches across groups', {tag: ['@editor', '@p1']}, async ({page}) => {
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  const before = new URL(page.url()).searchParams.get('page');
+  await page.keyboard.press('ControlOrMeta+n');
+  await expect
+    .poll(() => {
+      const id = new URL(page.url()).searchParams.get('page');
+      return id && id !== before ? id : null;
+    })
+    .toBeTruthy();
+
+  await page.locator('.obe-text').first().click();
+  await page.keyboard.type('/table');
+  await expect(page.locator('.obe-slash-label').first()).toHaveText('Table');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.obe-table')).toBeVisible();
+
+  // The caret lands in the table's first cell, so typing continues without a
+  // click — inserting used to orphan the selection (the focused empty source
+  // paragraph was deleted) and the next keystrokes vanished.
+  await page.keyboard.type('Quarter');
+  await expect(page.locator('.obe-table td').first()).toHaveText('Quarter');
+});
+
 // Regression: the editor folds fixed popups on document scroll via a CAPTURE
 // listener — which also saw the slash menu's own internal scroll and closed
 // it the moment you tried to browse a long item list.

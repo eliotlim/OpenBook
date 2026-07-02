@@ -68,7 +68,7 @@ type TestFixtures = {
    * Opt a spec into structural per-test workspace isolation (OB-223). Set once
    * per file with `test.use({freshWorkspace: true})`: before EACH test the
    * worker's data server is wiped, so pages and rows can use plain fixed names
-   * without 409-ing against names a sibling test (sharing this worker) left
+   * without colliding with names a sibling test (sharing this worker) left
    * behind. Replaces the old per-spec discipline of `reclaimNames()` +
    * `Date.now()`-suffixed names. Default off, so accumulating specs are
    * unaffected.
@@ -96,15 +96,37 @@ async function resetWorkspace(serverUrl: string): Promise<void> {
   );
 }
 
+/**
+ * Guarantee the workspace has at least one page. A truly empty workspace lands
+ * on Home (the first-run guided start) instead of a document, but the legacy
+ * (non-`freshWorkspace`) specs were written against the old behaviour — boot,
+ * land on a page, see "Page actions" — so this restores that invariant for
+ * them: on an empty worker server (fresh CI boot, or right after a
+ * `freshWorkspace` file wiped it), seed one untitled page before the test.
+ */
+async function ensureAnyPage(serverUrl: string): Promise<void> {
+  const res = await fetch(`${serverUrl}/api/pages`).catch(() => null);
+  if (!res || !res.ok) return;
+  const pages = (await res.json()) as unknown[];
+  if (pages.length > 0) return;
+  await fetch(`${serverUrl}/api/pages`, {
+    method: 'POST',
+    headers: {'content-type': 'application/json'},
+    body: JSON.stringify({name: null, data: {editorjs: {blocks: []}, values: [], names: []}}),
+  }).catch(() => undefined);
+}
+
 export const test = base.extend<TestFixtures, WorkerFixtures>({
   freshWorkspace: [false, {option: true}],
 
-  // Auto: when the spec opted in, start every test from an empty workspace.
+  // Auto: when the spec opted in, start every test from an empty workspace;
+  // otherwise make sure at least one page exists (see {@link ensureAnyPage}).
   // Runs before the test body (and its first navigation), so the app loads the
-  // cleaned workspace; a no-op (and no network call) when not enabled.
+  // prepared workspace.
   _workspaceReset: [
     async ({freshWorkspace, dataServer}, use) => {
       if (freshWorkspace) await resetWorkspace(dataServer);
+      else await ensureAnyPage(dataServer);
       await use();
     },
     {auto: true},

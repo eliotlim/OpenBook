@@ -37,7 +37,7 @@ describe('choice cards', () => {
 
   it('exposes the settings affordance', () => {
     renderBlock(INPUT2_BLOCKS, 'choicecards', {name: 'plan', opts: [{label: 'Free'}]});
-    expect(screen.getByLabelText('Configure block')).toBeTruthy();
+    expect(screen.getByLabelText('Block settings')).toBeTruthy();
     expect(hasKitConfig('x')).toBe(true);
   });
 });

@@ -36,6 +36,27 @@ export default function CustomisationSettings() {
     {key: 'customisation.shortcut.closeOverlay', label: 'Esc'},
   ];
 
+  // Block-editor keys (they act on the selected block, so they live in the
+  // editor's key handler, not SHORTCUTS — listed here so the reference is
+  // complete rather than global-shortcuts-only).
+  const blockShortcuts: Array<{key: TKey; label: string}> = [
+    {key: 'customisation.shortcut.duplicateBlock', label: fmt({key: 'd', mod: true})},
+    {
+      key: 'customisation.shortcut.moveBlock',
+      label: `${fmt({key: 'arrowup', mod: true, shift: true})} / ${fmt({key: 'arrowdown', mod: true, shift: true})}`,
+    },
+    {key: 'customisation.shortcut.deleteBlock', label: fmt({key: 'backspace'})},
+    {
+      key: 'customisation.shortcut.extendSelection',
+      label: `${fmt({key: 'arrowup', shift: true})} / ${fmt({key: 'arrowdown', shift: true})}`,
+    },
+    {
+      key: 'customisation.shortcut.inlineFormat',
+      label: `${fmt({key: 'b', mod: true})} · ${fmt({key: 'i', mod: true})} · ${fmt({key: 'u', mod: true})}`,
+    },
+    {key: 'customisation.shortcut.inlineCode', label: fmt({key: 'e', mod: true})},
+  ];
+
   return (
     <SettingsScreen title={t('customisation.title')} description={t('customisation.description')}>
       <SettingsSection title={t('customisation.layout')}>
@@ -59,6 +80,17 @@ export default function CustomisationSettings() {
       <SettingsSection title={t('customisation.shortcuts')} description={t('customisation.shortcutsHint')}>
         <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
           {shortcuts.map((s) => (
+            <li key={s.key} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
+              <span>{t(s.key)}</span>
+              <Keys label={s.label} />
+            </li>
+          ))}
+        </ul>
+      </SettingsSection>
+
+      <SettingsSection title={t('customisation.blockShortcuts')} description={t('customisation.blockShortcutsHint')}>
+        <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
+          {blockShortcuts.map((s) => (
             <li key={s.key} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
               <span>{t(s.key)}</span>
               <Keys label={s.label} />

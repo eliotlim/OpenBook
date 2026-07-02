@@ -1,6 +1,6 @@
 import {test, expect, takeSnapshot} from './fixtures';
 
-test('settings: grouped sections, stubs, and admin danger zone', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
+test('settings: grouped sections and admin danger zone', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
 
@@ -11,12 +11,12 @@ test('settings: grouped sections, stubs, and admin danger zone', {tag: ['@shell'
   await expect(page.getByText('Workspace', {exact: true})).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: grouped settings nav
 
-  // A backend-less screen shows its placeholder, not a broken form.
-  await page.getByRole('button', {name: 'Sign up'}).click();
-  await expect(page.getByText('Create an account')).toBeVisible();
+  // Retired "coming soon" stubs stay out of the rail — no dead-end tabs.
+  await expect(page.getByRole('button', {name: 'Sign up'})).toHaveCount(0);
+  await expect(page.getByRole('button', {name: 'Integrations'})).toHaveCount(0);
 
   // Admin carries backup + a guarded danger zone.
-  await page.getByRole('button', {name: 'Admin'}).click();
+  await page.getByRole('button', {name: 'Backups & data'}).click();
   await expect(page.getByText('Backup & restore')).toBeVisible();
   await expect(page.getByText('Danger zone')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Reset', exact: true})).toBeVisible();

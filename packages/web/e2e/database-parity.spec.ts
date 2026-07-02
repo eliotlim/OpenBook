@@ -13,7 +13,8 @@ test.use({freshWorkspace: true});
 
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
-  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  // A wiped (freshWorkspace) workspace lands on Home; wait for it to hydrate.
+  await expect(page.locator('[data-home-screen]')).toBeVisible();
   await page.keyboard.press('ControlOrMeta+k');
   await page.getByPlaceholder(/Search pages or run a command/).fill('New database');
   await page.keyboard.press('Enter');
@@ -590,24 +591,22 @@ test('list view grouping: group a list by Status', {tag: ['@database']}, async (
   await expect(page.getByText('ListGroupRow')).toBeVisible();
 });
 
-// Renaming a row to a name that already exists (workspace names are unique) is
-// handled gracefully — the title reverts instead of crashing the app.
-test('duplicate rename: reverts instead of crashing', {tag: ['@database']}, async ({page}) => {
+// Names are not unique (server migration 0015): two rows can share a title, and
+// the second rename sticks instead of reverting.
+test('duplicate rename: both rows keep the shared name', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addRows(page, 2);
   const titles = page.getByRole('table').getByPlaceholder('Untitled');
 
-  // First row claims a unique name.
   await titles.nth(0).fill('UniqueTitleX');
   await titles.nth(0).blur();
   await expect(titles.nth(0)).toHaveValue('UniqueTitleX');
 
-  // Second row tries to take the same name → server 409s.
+  // Second row takes the same name — allowed, no error, nothing reverts.
   await titles.nth(1).fill('UniqueTitleX');
   await titles.nth(1).blur();
 
-  // No runtime-error overlay, and the second row's title reverts to empty.
-  await expect(titles.nth(1)).toHaveValue('');
+  await expect(titles.nth(1)).toHaveValue('UniqueTitleX');
   await expect(page.getByRole('dialog', {name: 'Runtime Error'})).toHaveCount(0);
 });
 

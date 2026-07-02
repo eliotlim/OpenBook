@@ -23,7 +23,7 @@ describe('kit input rendering', () => {
     const {container} = renderInput('radio', {name: 'mode', opts: [{label: 'One'}, {label: 'Two'}]});
     const root = container.querySelector('.obe-kit-radio')!;
     expect(root.classList.contains('obe-kit-wide')).toBe(true); // full-width is the default
-    expect(screen.getByLabelText('Configure block')).toBeTruthy();
+    expect(screen.getByLabelText('Block settings')).toBeTruthy();
     const group = screen.getByRole('radiogroup');
     expect(within(group).getByText('One')).toBeTruthy();
     expect(within(group).getByText('Two')).toBeTruthy();

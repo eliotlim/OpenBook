@@ -3,6 +3,7 @@ import {ICON_PROPERTY_ID, type PageSnapshot, type StoredPage} from '@book.dev/sd
 import {useData} from '@/data';
 import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
 import {hydratePageIcons, usePageIcon, writePageIcon} from '@/lib/pageIcon';
+import {pageSaveStatus, setPageSaveStatus} from '@/lib/pageSaveStatus';
 import {DatabaseView} from '@/components/database/DatabaseView';
 import BlockPageDocument from './BlockPageDocument';
 
@@ -41,6 +42,9 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
 
   const nameRef = useRef<string | null>(null);
   const renameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True once this document unmounted or switched pages — gates the rename
+  // retry so a late rejection can't re-arm a timer nothing will ever clear.
+  const disposedRef = useRef(false);
   // True while the user has typed a title the server hasn't confirmed yet. The
   // `updatedAt` ordering guard below can't protect the title on its own: a
   // concurrent page write (a content save, this page's database-creation echo,
@@ -98,12 +102,25 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
         // Clear the guard only once the server matches our latest local name; a
         // keystroke that landed mid-flight keeps it pending for its own commit.
         if ((saved.name ?? null) === nameRef.current) hasPendingRenameRef.current = false;
+        // A prior rename failure has healed; don't leave a stale failure pill up.
+        if (pageSaveStatus(pageId) === 'save failed') setPageSaveStatus(pageId, 'saved');
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // A rename can only fail for transport reasons (names are not unique).
+        // Surface it in the save-status pill and retry; the pending guard stays
+        // up so the unconfirmed title is never clobbered by a stale echo.
+        // Never re-arm after the document unmounted / switched pages — a
+        // rejection landing post-cleanup would otherwise start a detached
+        // 4s retry loop nothing can cancel (adversarial review, 2026-07-03).
+        if (disposedRef.current) return;
+        setPageSaveStatus(pageId, 'save failed');
+        renameTimer.current = setTimeout(commitRename, 4000);
+      });
   }, [client, pageId]);
 
   // Seed title/icon and reset live state on every page switch.
   useEffect(() => {
+    disposedRef.current = false;
     const meta = pagesRef.current.find((p) => p.id === pageId);
     setTitle(meta?.name ?? '');
     nameRef.current = meta?.name ?? null;
@@ -114,6 +131,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     setResolvedHostedDbId(meta ? meta.hostedDatabaseId : undefined);
     lastUpdatedRef.current = meta?.updatedAt ?? '';
     return () => {
+      disposedRef.current = true;
       if (renameTimer.current) clearTimeout(renameTimer.current);
     };
   }, [pageId]);

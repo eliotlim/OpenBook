@@ -5,11 +5,15 @@ import {GitFork,
   ArrowLeft,
   ArrowRight,
   Bot,
+  ClipboardCheck,
   Columns2,
   FilePlus2,
   FlaskConical,
+  Monitor,
   Moon,
+  Palette,
   PanelLeft,
+  Presentation,
   Puzzle,
   Settings as SettingsIcon,
   Star,
@@ -25,7 +29,9 @@ import {seedSampleDocument} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
-import {AGENT_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
+import {AGENT_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {setPageCustomiseTarget} from '@/lib/pageCustomise';
+import {setReviewTarget} from '@/lib/reviewPane';
 import {togglePageFullWidth} from '@/lib/pageFullWidth';
 import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
 import {pluginCommands, subscribePluginCommands} from '@/plugins';
@@ -81,10 +87,19 @@ export function useAppCommands(): AppCommand[] {
   const [pluginVersion, setPluginVersion] = React.useState(0);
   React.useEffect(() => subscribePluginCommands(() => setPluginVersion((v) => v + 1)), []);
 
+  const seedingRef = React.useRef(false);
   const insertSampleDocument = React.useCallback(async () => {
-    const page = await seedSampleDocument(client);
-    await reload();
-    selectPage(page.id);
+    // In-flight guard: without unique names, re-firing mid-seed would race the
+    // open-or-create check and mint a duplicate sample.
+    if (seedingRef.current) return;
+    seedingRef.current = true;
+    try {
+      const page = await seedSampleDocument(client);
+      await reload();
+      selectPage(page.id);
+    } finally {
+      seedingRef.current = false;
+    }
   }, [client, reload, selectPage]);
 
   return React.useMemo<AppCommand[]>(() => {
@@ -145,7 +160,7 @@ export function useAppCommands(): AppCommand[] {
         id: 'insert-sample',
         group: 'create',
         title: t('command.insertSample'),
-        keywords: 'insert sample document test seed reactive slider chart demo',
+        keywords: 'sample document explore example learn tour reactive slider chart demo insert',
         icon: FlaskConical,
         run: () => void insertSampleDocument(),
       },
@@ -193,6 +208,62 @@ export function useAppCommands(): AppCommand[] {
         icon: GitFork,
         disabled: !currentPageId || currentPageId === HOME_PAGE_ID,
         run: () => openInSplit(FLOW_PANE_ID),
+      },
+      {
+        id: 'customise-page',
+        group: 'view',
+        title: t('command.customisePage'),
+        keywords: 'customise customize page theme accent font typeface appearance style',
+        icon: Palette,
+        disabled: !currentPageId || currentPageId === HOME_PAGE_ID,
+        run: () => {
+          if (!currentPageId) return;
+          setPageCustomiseTarget(currentPageId);
+          openInSplit(CUSTOMISE_PANE_ID);
+        },
+      },
+      {
+        id: 'review-suggestions',
+        group: 'view',
+        title: t('command.reviewSuggestions'),
+        keywords: 'review suggestions comments edits accept reject feedback ai',
+        icon: ClipboardCheck,
+        disabled: !currentPageId || currentPageId === HOME_PAGE_ID,
+        run: () => {
+          if (!currentPageId) return;
+          setReviewTarget(currentPageId);
+          openInSplit(REVIEW_PANE_ID);
+        },
+      },
+      {
+        id: 'present-fullscreen',
+        group: 'view',
+        title: t('command.presentFull'),
+        keywords: 'present presentation slides deck slideshow full screen',
+        icon: Presentation,
+        disabled: !currentPageId || currentPageId === HOME_PAGE_ID,
+        run: () => {
+          if (!currentPageId) return;
+          setHud((draft) => {
+            draft.present = {open: true, mode: 'fullscreen', pageId: currentPageId};
+            return draft;
+          });
+        },
+      },
+      {
+        id: 'present-presenter',
+        group: 'view',
+        title: t('command.presentPresenter'),
+        keywords: 'present presenter view speaker notes console slides timer',
+        icon: Monitor,
+        disabled: !currentPageId || currentPageId === HOME_PAGE_ID,
+        run: () => {
+          if (!currentPageId) return;
+          setHud((draft) => {
+            draft.present = {open: true, mode: 'presenter', pageId: currentPageId};
+            return draft;
+          });
+        },
       },
       {
         id: 'split-view',

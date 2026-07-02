@@ -23,9 +23,15 @@ test('web runs on in-webview PGlite: a page created with no server survives a re
   await expect(newPage).toBeVisible();
 
   await newPage.click();
-  await expect(page).toHaveURL(/page=/);
+  // An empty workspace lands on Home, which itself writes `?page=home` — wait
+  // for the param to become the REAL page id the click created.
+  await expect
+    .poll(() => {
+      const param = new URL(page.url()).searchParams.get('page');
+      return param && param !== 'home' ? param : null;
+    })
+    .toBeTruthy();
   const id = new URL(page.url()).searchParams.get('page');
-  expect(id).toBeTruthy();
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
 
   // Reload straight to the page: it must come back from IndexedDB, not 404.

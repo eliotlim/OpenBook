@@ -15,31 +15,24 @@ import {Kbd, ShortcutTooltip} from '@/components/ui/kbd';
 import {ScrollArea} from '@/components/ui/scroll-area';
 import {useData} from '@/data';
 import {useConfirm, useHud, useNavigation, useTranslation} from '@/providers';
+import {t as bareT} from '@/i18n';
 import {SHORTCUTS} from '@/lib/shortcuts';
 import {SIDEBAR_HOVER} from '@/lib/sidebarStyles';
 import {cn} from '@/lib/utils';
 
 const displayName = (name: string | null): string =>
-  name && name.trim().length > 0 ? name : 'Untitled';
+  name && name.trim().length > 0 ? name : bareT('common.untitled');
 
-/** "just now" / "5 mins ago" / "3 days ago" from an ISO timestamp. */
-function timeAgo(iso: string | null): string {
+/** "just now" / "5 min ago" / "3 d ago" from an ISO timestamp, localized via
+ *  Intl (no hand-pluralized English). */
+function timeAgo(iso: string | null, locale: string): string {
   if (!iso) return '';
   const secs = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
-  if (secs < 60) return 'just now';
-  const units: [number, string][] = [
-    [60, 'min'],
-    [60, 'hour'],
-    [24, 'day'],
-  ];
-  let value = secs;
-  let label = 'sec';
-  for (const [factor, name] of units) {
-    if (value < factor) break;
-    value = Math.round(value / factor);
-    label = name;
-  }
-  return `${value} ${label}${value === 1 ? '' : 's'} ago`;
+  if (secs < 60) return bareT('home.justNow');
+  const rtf = new Intl.RelativeTimeFormat(locale, {numeric: 'always', style: 'narrow'});
+  if (secs < 3600) return rtf.format(-Math.round(secs / 60), 'minute');
+  if (secs < 86400) return rtf.format(-Math.round(secs / 3600), 'hour');
+  return rtf.format(-Math.round(secs / 86400), 'day');
 }
 
 /**
@@ -51,7 +44,7 @@ function timeAgo(iso: string | null): string {
 export default function TrashDialog() {
   const client = useData();
   const confirm = useConfirm();
-  const {t} = useTranslation();
+  const {t, locale} = useTranslation();
   const {selectPage} = useNavigation();
   // Open state lives in the HUD so the command palette, the ⋮ menu, and the
   // keyboard shortcut can all open the trash, not just the sidebar trigger.
@@ -103,9 +96,9 @@ export default function TrashDialog() {
   const purge = useCallback(
     async (item: PageMeta) => {
       const ok = await confirm({
-        title: `Permanently delete "${displayName(item.name)}"?`,
-        description: 'This cannot be undone.',
-        confirmText: 'Delete forever',
+        title: t('trash.purgeTitle', {page: displayName(item.name)}),
+        description: t('trash.cannotUndo'),
+        confirmText: t('trash.deleteForever'),
         destructive: true,
       });
       if (!ok) return;
@@ -122,9 +115,9 @@ export default function TrashDialog() {
 
   const emptyTrash = useCallback(async () => {
     const ok = await confirm({
-      title: 'Empty the trash?',
-      description: 'Permanently delete everything in the trash. This cannot be undone.',
-      confirmText: 'Empty trash',
+      title: t('trash.emptyTitle'),
+      description: t('trash.emptyBody'),
+      confirmText: t('trash.emptyTrash'),
       destructive: true,
     });
     if (!ok) return;
@@ -145,7 +138,7 @@ export default function TrashDialog() {
           <Button
             variant="ghost"
             className={cn('flex h-7 grow justify-start gap-2 px-2 text-muted-foreground', SIDEBAR_HOVER)}
-            aria-label="Trash"
+            aria-label={t('nav.trash')}
           >
             <Trash2 className="h-4 w-4 shrink-0" />
             <span className="grow text-left">{t('nav.trash')}</span>
@@ -155,17 +148,15 @@ export default function TrashDialog() {
       </ShortcutTooltip>
       <DialogContent className="sm:max-w-[480px]">
         <DialogHeader>
-          <DialogTitle>Trash</DialogTitle>
-          <DialogDescription>
-            Deleted pages stay here until you restore them or they are cleaned up automatically.
-          </DialogDescription>
+          <DialogTitle>{t('nav.trash')}</DialogTitle>
+          <DialogDescription>{t('trash.description')}</DialogDescription>
         </DialogHeader>
 
         <ScrollArea className="max-h-[50vh]">
           {loading && items.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">{t('trash.loading')}</p>
           ) : items.length === 0 ? (
-            <p className="py-8 text-center text-sm text-muted-foreground">The trash is empty.</p>
+            <p className="py-8 text-center text-sm text-muted-foreground">{t('trash.empty')}</p>
           ) : (
             <ul className="flex flex-col gap-1 pr-2">
               {items.map((item) => {
@@ -180,15 +171,15 @@ export default function TrashDialog() {
                     <span className="min-w-0 flex-1 truncate text-sm font-medium">
                       {displayName(item.name)}
                     </span>
-                    <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(item.deletedAt)}</span>
+                    <span className="shrink-0 text-xs text-muted-foreground">{timeAgo(item.deletedAt, locale)}</span>
                     <Button
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7 shrink-0"
                       disabled={disabled}
                       onClick={() => void restore(item.id)}
-                      aria-label={`Restore ${displayName(item.name)}`}
-                      title="Restore"
+                      aria-label={t('trash.restoreItem', {page: displayName(item.name)})}
+                      title={t('trash.restore')}
                     >
                       <RotateCcw className="h-4 w-4" />
                     </Button>
@@ -198,8 +189,8 @@ export default function TrashDialog() {
                       className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
                       disabled={disabled}
                       onClick={() => void purge(item)}
-                      aria-label={`Delete ${displayName(item.name)} forever`}
-                      title="Delete forever"
+                      aria-label={t('trash.purgeItem', {page: displayName(item.name)})}
+                      title={t('trash.deleteForever')}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -215,7 +206,7 @@ export default function TrashDialog() {
         {items.length > 0 && (
           <DialogFooter>
             <Button variant="destructive" disabled={busy !== null} onClick={() => void emptyTrash()}>
-              Empty trash
+              {t('trash.emptyTrash')}
             </Button>
           </DialogFooter>
         )}

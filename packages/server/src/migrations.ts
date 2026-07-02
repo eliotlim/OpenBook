@@ -352,6 +352,17 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS asset_refs_asset_idx ON asset_refs (asset_id)',
     ],
   },
+  {
+    // Page names are no longer unique. Identity is the UUID everywhere (routes,
+    // links, mirror filenames all carry the id), so the unique index bought
+    // nothing but rename/import/restore collisions. A plain index keeps
+    // name lookups (`getPageByName`, import collision checks) fast.
+    name: '0015_nonunique_names',
+    statements: [
+      'DROP INDEX IF EXISTS pages_name_key',
+      'CREATE INDEX IF NOT EXISTS pages_name_idx ON pages (name) WHERE name IS NOT NULL AND deleted_at IS NULL',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

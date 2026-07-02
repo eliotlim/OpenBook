@@ -449,9 +449,9 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
       try {
         await client.updateRow(database.id, rowId, {name: next});
       } catch {
-        // The server rejected the rename (workspace names are unique, so a
-        // duplicate title 409s). Revert the optimistic title instead of letting
-        // the rejection bubble up as an unhandled crash.
+        // The rename failed in transit (names are not unique, so this is a
+        // transport error, not a title conflict). Revert the optimistic title
+        // instead of letting the rejection bubble up as an unhandled crash.
         setRows((prev) => prev.map((r) => (r.id === rowId ? {...r, name: prevName} : r)));
         setPageHint(rowId, prevName ?? '');
       }

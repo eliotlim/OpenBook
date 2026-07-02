@@ -16,6 +16,7 @@ import {Button} from '@/components/ui/button';
 import {DotsVerticalIcon} from '@radix-ui/react-icons';
 import {
   AppWindow,
+  ClipboardCheck,
   Columns2,
   Download,
   GitFork,
@@ -26,6 +27,7 @@ import {
   Link2,
   Maximize2,
   Monitor,
+  Palette,
   Presentation,
   Puzzle,
   Settings as SettingsIcon,
@@ -44,7 +46,9 @@ import {
   subscribePageDocActions,
   type ExportKind,
 } from '@/lib/pageDocActions';
-import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
+import {CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {setPageCustomiseTarget} from '@/lib/pageCustomise';
+import {setReviewTarget} from '@/lib/reviewPane';
 
 /** Menu copy + icon per export format, in display order. */
 const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: string; icon: typeof FileText}> = [
@@ -144,6 +148,28 @@ export default function NavContextMenu({pageId}: {pageId?: string | null} = {}) 
         >
           <GitFork className="mr-2 h-4 w-4" />
           {t('flow.open')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!currentPageId || isHome}
+          onClick={() => {
+            if (!currentPageId) return;
+            setPageCustomiseTarget(currentPageId);
+            openInSplit(CUSTOMISE_PANE_ID);
+          }}
+        >
+          <Palette className="mr-2 h-4 w-4" />
+          {t('command.customisePage')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!currentPageId || isHome}
+          onClick={() => {
+            if (!currentPageId) return;
+            setReviewTarget(currentPageId);
+            openInSplit(REVIEW_PANE_ID);
+          }}
+        >
+          <ClipboardCheck className="mr-2 h-4 w-4" />
+          {t('command.reviewSuggestions')}
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={!currentPageId}

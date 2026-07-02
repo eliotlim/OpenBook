@@ -551,9 +551,9 @@ const createBlockDocPage =
     (client: DataClient, name: string): Promise<StoredPage> =>
       client.savePage({name, data: {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: {blocks}}});
 
-/** Create a database template: host page + database + sample rows. Row pages
- *  share the workspace-unique name space, so re-instantiating a template would
- *  409 on its sample rows — suffix each on collision (untitled as a last resort). */
+/** Create a database template: host page + database + sample rows. Names are
+ *  not unique, so a plain create always lands; the retry ladder below survives
+ *  transient failures (untitled as a last resort). */
 const createDatabasePage =
   (schema: DatabaseSchema, rows: {name: string; properties: Record<string, unknown>}[]) =>
     async (client: DataClient, name: string): Promise<StoredPage> => {
@@ -587,7 +587,8 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'field-map', icon: '📍', pageName: 'Field map', create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS)},
 ];
 
-/** Page names are unique among live pages — pick `name`, `name 2`, `name 3`… */
+/** Courtesy numbering (names are not unique): a second instance becomes
+ *  `name 2`, `name 3`… so repeated instantiations stay tellable-apart. */
 async function availableName(client: DataClient, base: string): Promise<string> {
   const taken = new Set((await client.listPages()).map((p) => p.name).filter(Boolean) as string[]);
   if (!taken.has(base)) return base;
@@ -598,8 +599,9 @@ async function availableName(client: DataClient, base: string): Promise<string> 
 }
 
 /**
- * Instantiate a template: resolve a free page name (retrying past races on the
- * unique-name constraint) and build the page through the client.
+ * Instantiate a template: pick a distinct display name (courtesy numbering —
+ * duplicates are allowed but unhelpful for ready-made pages) and build the page
+ * through the client, retrying transient failures.
  */
 export async function instantiateTemplate(client: DataClient, template: PageTemplate): Promise<StoredPage> {
   let name = await availableName(client, template.pageName);

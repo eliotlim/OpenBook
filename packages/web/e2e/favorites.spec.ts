@@ -34,7 +34,7 @@ test('recents: a previously visited page appears in the palette Recent group', {
 
   // Create a second page (so there's a non-current recent), via the palette.
   await page.keyboard.press('ControlOrMeta+k');
-  await page.getByPlaceholder(/Search pages or run a command/).fill('Create new page');
+  await page.getByPlaceholder(/Search pages or run a command/).fill('New page');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
 
