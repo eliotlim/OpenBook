@@ -3,6 +3,7 @@ import {createPortal} from 'react-dom';
 import {Settings2, PanelRight} from 'lucide-react';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {registerKitConfig} from './kitConfig';
+import {t} from '../../i18n';
 import {
   closeKitPanel,
   getKitPanel,
@@ -53,7 +54,7 @@ export const KitSettings: React.FC<{
     <>
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button type="button" className="obe-kit-gear" aria-label="Block settings" title="Block settings">
+          <button type="button" className="obe-kit-gear" aria-label={t('pane.config')} title={t('pane.config')}>
             <Settings2 className="h-4 w-4" />
           </button>
         </PopoverTrigger>

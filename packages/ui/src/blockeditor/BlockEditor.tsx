@@ -56,6 +56,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {formatShortcut} from '@/lib/shortcuts';
+import {t} from '../i18n';
 import {TextBlockView} from './TextBlockView';
 import {COLOR_TOKENS, isColorToken} from './colors';
 import {SlashMenu, type SlashState} from './SlashMenu';
@@ -1162,7 +1163,7 @@ const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> =
       {/* Interactive blocks expose their settings popover right from the menu. */}
       {hasKitConfig(id) && (
         <>
-          <ContextMenuItem onSelect={() => openKitConfig(id)}>Block settings…</ContextMenuItem>
+          <ContextMenuItem onSelect={() => openKitConfig(id)}>{t('pane.config')}…</ContextMenuItem>
           <ContextMenuSeparator />
         </>
       )}

@@ -18,6 +18,7 @@ import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {readFavorites, subscribeFavorites} from '@/lib/favorites';
 import {readRecents, subscribeRecents} from '@/lib/recents';
+import {pagePathLabel} from '@/lib/pagePath';
 import {featureShown, isAiFeature, readFeatureVisibility} from '@/lib/aiFeatures';
 import {t} from '@/i18n';
 
@@ -95,22 +96,28 @@ export function CommandMenu() {
     app: t('command.groupApp'),
   };
 
-  const pageItem = (page: PageMeta, scope: string) => (
-    <CommandItem
-      key={`${scope}:${page.id}`}
-      value={`${displayName(page.name)} ${page.id} ${scope}`}
-      onSelect={() => run(() => selectPage(page.id))}
-    >
-      <PageIcon
-        value={readPageIcon(page.id)}
-        className="mr-2 inline-flex h-4 w-4 shrink-0 items-center justify-center text-center text-sm leading-none"
-      />
-      <span className="truncate">{displayName(page.name)}</span>
-      {page.id === currentPageId && (
-        <span className="ml-auto text-xs text-muted-foreground">{t('command.current')}</span>
-      )}
-    </CommandItem>
-  );
+  // Names aren't unique: the ancestor path disambiguates same-named rows (and
+  // joins the cmdk value so typing a parent's name finds the right child).
+  const pageItem = (page: PageMeta, scope: string) => {
+    const path = pagePathLabel(page, byId);
+    return (
+      <CommandItem
+        key={`${scope}:${page.id}`}
+        value={`${displayName(page.name)} ${path} ${page.id} ${scope}`}
+        onSelect={() => run(() => selectPage(page.id))}
+      >
+        <PageIcon
+          value={readPageIcon(page.id)}
+          className="mr-2 inline-flex h-4 w-4 shrink-0 items-center justify-center text-center text-sm leading-none"
+        />
+        <span className="truncate">{displayName(page.name)}</span>
+        {path && <span className="ml-2 min-w-0 truncate text-xs text-muted-foreground">{path}</span>}
+        {page.id === currentPageId && (
+          <span className="ml-auto shrink-0 text-xs text-muted-foreground">{t('command.current')}</span>
+        )}
+      </CommandItem>
+    );
+  };
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen} title={t('command.title')} description={t('command.placeholder')}>

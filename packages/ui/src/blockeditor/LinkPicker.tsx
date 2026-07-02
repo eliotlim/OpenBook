@@ -100,7 +100,8 @@ export const LinkPicker: React.FC<{
             }}
           >
             <PageIcon value={r.icon} className="shrink-0 text-base leading-none" />
-            <span className="truncate">{r.label}</span>
+            <span className="min-w-0 truncate">{r.label}</span>
+            {r.path && <span className="ml-auto min-w-0 truncate pl-2 text-xs text-muted-foreground">{r.path}</span>}
           </button>
         ))}
         {results.length === 0 && (

@@ -102,9 +102,9 @@ export default function MovePageDialog() {
           {candidates.map((p) => (
             <CommandItem
               key={p.id}
-              // The page name isn't unique — include the id so cmdk values stay
-              // distinct (search still matches on the visible name).
-              value={`${displayName(p.name)} ${p.id}`}
+              // The page name isn't unique — the ancestor path + id keep cmdk
+              // values distinct (and let a typed parent name match).
+              value={`${displayName(p.name)} ${pathLabel(p, byId)} ${p.id}`}
               disabled={p.id === moving?.parentId}
               onSelect={() => moveTo(p.id)}
             >
@@ -112,6 +112,9 @@ export default function MovePageDialog() {
               <span className="min-w-0 truncate">{displayName(p.name)}</span>
               {pathLabel(p, byId) && (
                 <span className="ml-2 min-w-0 truncate text-xs text-muted-foreground">{pathLabel(p, byId)}</span>
+              )}
+              {p.id === moving?.parentId && (
+                <span className="ml-auto shrink-0 text-xs text-muted-foreground">{t('move.currentLocation')}</span>
               )}
             </CommandItem>
           ))}

@@ -42,6 +42,9 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
 
   const nameRef = useRef<string | null>(null);
   const renameTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True once this document unmounted or switched pages — gates the rename
+  // retry so a late rejection can't re-arm a timer nothing will ever clear.
+  const disposedRef = useRef(false);
   // True while the user has typed a title the server hasn't confirmed yet. The
   // `updatedAt` ordering guard below can't protect the title on its own: a
   // concurrent page write (a content save, this page's database-creation echo,
@@ -106,6 +109,10 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
         // A rename can only fail for transport reasons (names are not unique).
         // Surface it in the save-status pill and retry; the pending guard stays
         // up so the unconfirmed title is never clobbered by a stale echo.
+        // Never re-arm after the document unmounted / switched pages — a
+        // rejection landing post-cleanup would otherwise start a detached
+        // 4s retry loop nothing can cancel (adversarial review, 2026-07-03).
+        if (disposedRef.current) return;
         setPageSaveStatus(pageId, 'save failed');
         renameTimer.current = setTimeout(commitRename, 4000);
       });
@@ -113,6 +120,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
 
   // Seed title/icon and reset live state on every page switch.
   useEffect(() => {
+    disposedRef.current = false;
     const meta = pagesRef.current.find((p) => p.id === pageId);
     setTitle(meta?.name ?? '');
     nameRef.current = meta?.name ?? null;
@@ -123,6 +131,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
     setResolvedHostedDbId(meta ? meta.hostedDatabaseId : undefined);
     lastUpdatedRef.current = meta?.updatedAt ?? '';
     return () => {
+      disposedRef.current = true;
       if (renameTimer.current) clearTimeout(renameTimer.current);
     };
   }, [pageId]);

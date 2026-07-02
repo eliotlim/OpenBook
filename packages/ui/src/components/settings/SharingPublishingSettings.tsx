@@ -154,7 +154,18 @@ function LanPublishSection() {
     setTimeout(() => setCopied((c) => (c === label ? null : c)), 1500);
   }, []);
 
-  if (!serverControls?.publish || !(info?.managed ?? false)) return null;
+  if (!serverControls?.publish) return null;
+  // The info() probe failed: show the error instead of silently dropping the
+  // whole section (an unmanaged server legitimately hides it, a failed probe
+  // must not look the same).
+  if (!info) {
+    return error ? (
+      <SettingsSection title={t('connection.publish')}>
+        <p className="text-sm text-destructive">{error}</p>
+      </SettingsSection>
+    ) : null;
+  }
+  if (!info.managed) return null;
 
   return (
     <SettingsSection title={t('connection.publish')}>

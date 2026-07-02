@@ -1,6 +1,6 @@
-import {useEffect, useMemo, useState} from 'react';
+import {useEffect, useMemo, useRef, useState} from 'react';
 import {seedSampleDocument, type PageMeta} from '@book.dev/sdk';
-import {Clock, Database, FilePlus, LayoutTemplate, Pencil, Search, SlidersHorizontal, Sparkles, Star, Upload} from 'lucide-react';
+import {Clock, Database, FilePlus, LayoutTemplate, Pencil, Search, SlidersHorizontal, Sparkles, Star, Trash2, Upload} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -73,10 +73,26 @@ export default function HomeScreen() {
   const {pages, selectPage, createPage, createDatabasePage, reload} = useNavigation();
   const {profile} = usePreferences().preferences;
   const client = useData();
+  const seedingRef = useRef(false);
 
   // A brand-new workspace: no pages at all. Home is the landing screen then
   // (NavigationProvider falls back to it), so it carries the guided start.
+  // An emptied-out workspace (everything in the trash) is NOT a newcomer:
+  // greet normally and lead with the recovery path instead of "Welcome".
   const firstRun = pages.length === 0;
+  const [trashCount, setTrashCount] = useState(0);
+  useEffect(() => {
+    if (!firstRun) return;
+    let live = true;
+    client
+      .listTrash()
+      .then((items) => live && setTrashCount(items.length))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [client, firstRun]);
+  const emptiedOut = firstRun && trashCount > 0;
 
   const [widgets, setWidgets] = useState<HomeWidgets>(DEFAULT_HOME_WIDGETS);
   useEffect(() => setWidgets(readHomeWidgets()), []);
@@ -99,7 +115,7 @@ export default function HomeScreen() {
 
   const firstName = (profile.displayName.trim() || profile.name.trim()).split(/\s+/)[0] ?? '';
   const greeting = now
-    ? firstRun
+    ? firstRun && !emptiedOut
       ? t('home.welcome')
       : t(`home.${greetingKey(now.getHours())}`) + (firstName ? `, ${firstName}` : '')
     : '';
@@ -128,8 +144,22 @@ export default function HomeScreen() {
   );
 
   // First-run starters: the paths that teach the product (templates, the
-  // interactive sample) get equal billing with a plain new page.
+  // interactive sample) get equal billing with a plain new page. When the
+  // workspace was emptied out rather than never used, recovery leads.
   const starterActions = [
+    ...(emptiedOut
+      ? [
+        {
+          icon: Trash2,
+          label: t('home.restoreFromTrash'),
+          run: () =>
+            setHud((draft) => {
+              draft.trash.open = true;
+              return draft;
+            }),
+        },
+      ]
+      : []),
     {icon: FilePlus, label: t('nav.newPage'), run: () => void createPage()},
     {
       icon: LayoutTemplate,
@@ -143,11 +173,19 @@ export default function HomeScreen() {
     {
       icon: Sparkles,
       label: t('home.trySample'),
+      // In-flight guard: names aren't unique anymore, so a double-click would
+      // otherwise race the open-or-create check and mint two samples.
       run: () =>
         void (async () => {
-          const page = await seedSampleDocument(client);
-          await reload();
-          selectPage(page.id);
+          if (seedingRef.current) return;
+          seedingRef.current = true;
+          try {
+            const page = await seedSampleDocument(client);
+            await reload();
+            selectPage(page.id);
+          } finally {
+            seedingRef.current = false;
+          }
         })(),
     },
     {

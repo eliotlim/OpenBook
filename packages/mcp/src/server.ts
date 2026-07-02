@@ -217,7 +217,7 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
       title: 'Create a page',
       description: 'Create a new page with a title and optional text content (one paragraph per line).',
       inputSchema: {
-        title: z.string().describe('The page title (must be unique in the workspace).'),
+        title: z.string().describe('The page title — a display label; it need not be unique (pages are identified by id).'),
         content: z.string().optional().describe('Plain-text body; each line becomes a paragraph.'),
       },
     },
@@ -260,7 +260,7 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
       description:
         'Create an interactive page from blocks: named inputs (number stepper, slider, radio, checklist, toggle, text field) publish values onto a shared scope, and live blocks compute over it (kitchart, statuslight, formula — JavaScript expressions over the input names). Use this to BUILD calculators, dashboards, and pickers instead of writing HTML.',
       inputSchema: {
-        title: z.string().describe('The page title (must be unique in the workspace).'),
+        title: z.string().describe('The page title — a display label; it need not be unique (pages are identified by id).'),
         blocks: z.array(artifactBlock).min(1).describe('The page content, top to bottom.'),
       },
     },

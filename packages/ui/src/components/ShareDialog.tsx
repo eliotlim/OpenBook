@@ -77,6 +77,8 @@ export function canManageSharing(info: InstanceInfo): boolean {
  * Whether the current user may manage page sharing (gates the Share control).
  * `null` while the one-shot `/api/instance` lookup is in flight; `false` if the
  * server predates multi-user (no endpoint) so the control simply stays hidden.
+ * @deprecated Use {@link useSharingCapability} — it distinguishes "unsupported
+ * server" from "not a manager" so non-managers can get the read-only view.
  */
 export function useCanManageSharing(): boolean | null {
   const {supported, canManage} = useSharingCapability();
@@ -159,16 +161,30 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   const [scopeError, setScopeError] = useState<TKey | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Whether the roster loaded (the ACL GET is write-gated server-side, so a
+  // read-only viewer gets a 403 — degrade to scope-only rather than erroring
+  // the whole dialog they were just granted access to).
+  const [aclReadable, setAclReadable] = useState(true);
+
   // Load the page's current scope + grants whenever the dialog opens.
   const refresh = useCallback(async () => {
     setLoading(true);
     setLoadError(false);
     try {
-      const [visibility, acl] = await Promise.all([client.getPageVisibility(pageId), client.listPageAcl(pageId)]);
+      const visibility = await client.getPageVisibility(pageId);
       setScope(visibility ?? 'inherit');
-      setGrants(acl);
     } catch {
       setLoadError(true);
+      setLoading(false);
+      return;
+    }
+    try {
+      setGrants(await client.listPageAcl(pageId));
+      setAclReadable(true);
+    } catch {
+      // Scope loaded fine — only the roster is off-limits to this principal.
+      setGrants([]);
+      setAclReadable(false);
     } finally {
       setLoading(false);
     }
@@ -366,47 +382,51 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
 
             {/* Current grants. The heading is a plain span, not a <Label> — it
                 labels a list, not a form control, so an orphan htmlFor-less
-                <Label> would be a mislabel (F6). */}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-sm font-medium leading-none">{t('share.peopleLabel')}</span>
-              {loading ? (
-                <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  {t('share.loadingPeople')}
-                </p>
-              ) : grants.length === 0 ? (
-                <p className="text-xs text-muted-foreground">{t('share.noPeople')}</p>
-              ) : (
-                <ul className="flex flex-col gap-1">
-                  {grants.map((grant) => {
-                    const {name, key} = granteeOf(grant);
-                    return (
-                      <li
-                        key={'subject' in key ? `s:${key.subject}` : `e:${key.email}`}
-                        className="flex items-center justify-between gap-2 rounded-md border border-border px-2.5 py-1.5"
-                      >
-                        <span className="min-w-0 flex-1 truncate text-sm" title={name}>
-                          {name}
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                          {t(grant.level === 'write' ? 'share.levelWrite' : 'share.levelRead')}
-                        </span>
-                        {canManage && (
-                          <IconButton
-                            size="sm"
-                            aria-label={t('share.remove', {name})}
-                            title={t('share.remove', {name})}
-                            onClick={() => void removePerson(grant)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </IconButton>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+                <Label> would be a mislabel (F6). Hidden entirely when this
+                principal may not read the ACL (a read-only viewer): scope +
+                the effective default still render above. */}
+            {aclReadable && (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium leading-none">{t('share.peopleLabel')}</span>
+                {loading ? (
+                  <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    {t('share.loadingPeople')}
+                  </p>
+                ) : grants.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">{t('share.noPeople')}</p>
+                ) : (
+                  <ul className="flex flex-col gap-1">
+                    {grants.map((grant) => {
+                      const {name, key} = granteeOf(grant);
+                      return (
+                        <li
+                          key={'subject' in key ? `s:${key.subject}` : `e:${key.email}`}
+                          className="flex items-center justify-between gap-2 rounded-md border border-border px-2.5 py-1.5"
+                        >
+                          <span className="min-w-0 flex-1 truncate text-sm" title={name}>
+                            {name}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {t(grant.level === 'write' ? 'share.levelWrite' : 'share.levelRead')}
+                          </span>
+                          {canManage && (
+                            <IconButton
+                              size="sm"
+                              aria-label={t('share.remove', {name})}
+                              title={t('share.remove', {name})}
+                              onClick={() => void removePerson(grant)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </IconButton>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {/* Workspace-level surfaces this dialog summarizes: the guest gate /
                 publishing live in Settings → Sharing & publishing, the roster in

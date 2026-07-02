@@ -708,7 +708,7 @@ export class PageStore {
   async getPageByName(name: string): Promise<StoredPage | null> {
     const rows = await this.db.query<PageRow>(
       `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.name = $1 AND p.deleted_at IS NULL
-       ORDER BY p.updated_at DESC LIMIT 1`,
+       ORDER BY p.updated_at DESC, p.id LIMIT 1`,
       [name],
     );
     return rows.length > 0 ? pageFromRow(rows[0]) : null;

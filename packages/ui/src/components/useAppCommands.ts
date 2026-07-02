@@ -87,10 +87,19 @@ export function useAppCommands(): AppCommand[] {
   const [pluginVersion, setPluginVersion] = React.useState(0);
   React.useEffect(() => subscribePluginCommands(() => setPluginVersion((v) => v + 1)), []);
 
+  const seedingRef = React.useRef(false);
   const insertSampleDocument = React.useCallback(async () => {
-    const page = await seedSampleDocument(client);
-    await reload();
-    selectPage(page.id);
+    // In-flight guard: without unique names, re-firing mid-seed would race the
+    // open-or-create check and mint a duplicate sample.
+    if (seedingRef.current) return;
+    seedingRef.current = true;
+    try {
+      const page = await seedSampleDocument(client);
+      await reload();
+      selectPage(page.id);
+    } finally {
+      seedingRef.current = false;
+    }
   }, [client, reload, selectPage]);
 
   return React.useMemo<AppCommand[]>(() => {

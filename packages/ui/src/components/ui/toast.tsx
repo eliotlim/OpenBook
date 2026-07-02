@@ -11,6 +11,12 @@ import {t} from '@/i18n';
  *
  * First consumer: the "Moved to trash — Undo" affordance. Deliberately small —
  * no variants, no promise tracking — grow it only when a real need appears.
+ *
+ * A11y notes (adversarial review, 2026-07-03): the live region is mounted
+ * permanently (content arriving *with* a fresh `aria-live` node is not
+ * announced by most screen readers), items carry no extra `role` (the
+ * container already announces), and hovering or focusing the stack pauses
+ * auto-dismiss so an Undo is reachable at leisure (WCAG 2.2.1).
  */
 
 export interface ToastInput {
@@ -18,17 +24,19 @@ export interface ToastInput {
   /** Optional action rendered as a button (e.g. "Undo"). Dismisses the toast. */
   actionLabel?: string;
   onAction?: () => void;
-  /** Auto-dismiss delay; defaults to 6s. */
+  /** Auto-dismiss delay; defaults to 7s (toasts with an action deserve slack). */
   durationMs?: number;
 }
 
 interface ToastItem extends ToastInput {
   id: number;
+  durationMs: number;
 }
 
 let items: ToastItem[] = [];
 let seq = 0;
 let version = 0;
+let paused = false;
 const listeners = new Set<() => void>();
 const timers = new Map<number, ReturnType<typeof setTimeout>>();
 
@@ -45,14 +53,34 @@ export function dismissToast(id: number): void {
   notify();
 }
 
+const arm = (item: ToastItem): void => {
+  timers.set(
+    item.id,
+    setTimeout(() => dismissToast(item.id), item.durationMs),
+  );
+};
+
+/** Pause auto-dismiss while the pointer or focus is on the stack. */
+const pauseAll = (): void => {
+  if (paused) return;
+  paused = true;
+  for (const timer of timers.values()) clearTimeout(timer);
+  timers.clear();
+};
+
+/** Resume auto-dismiss (each surviving toast gets its full duration again). */
+const resumeAll = (): void => {
+  if (!paused) return;
+  paused = false;
+  for (const item of items) arm(item);
+};
+
 /** Show a toast. Returns its id (usable with {@link dismissToast}). */
 export function showToast(input: ToastInput): number {
   const id = ++seq;
-  items = [...items, {...input, id}];
-  timers.set(
-    id,
-    setTimeout(() => dismissToast(id), input.durationMs ?? 6000),
-  );
+  const item: ToastItem = {...input, id, durationMs: input.durationMs ?? 7000};
+  items = [...items, item];
+  if (!paused) arm(item);
   notify();
   return id;
 }
@@ -63,20 +91,23 @@ const subscribe = (cb: () => void): (() => void) => {
 };
 const getVersion = (): number => version;
 
-/** The toast stack — bottom-centred, above everything. Mount exactly once. */
+/** The toast stack — bottom-centred, above everything. Mount exactly once.
+ *  The live region stays mounted even while empty (see the a11y note above). */
 export function ToastHost() {
   useSyncExternalStore(subscribe, getVersion, getVersion);
-  if (items.length === 0) return null;
   return (
     <div
       className="pointer-events-none fixed inset-x-0 bottom-6 z-[100] flex flex-col items-center gap-2 print:hidden"
       aria-live="polite"
+      onMouseEnter={pauseAll}
+      onMouseLeave={resumeAll}
+      onFocus={pauseAll}
+      onBlur={resumeAll}
     >
       {items.map((item) => (
         <div
           key={item.id}
           className="pointer-events-auto flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm shadow-lift"
-          role="status"
         >
           <span className="min-w-0">{item.message}</span>
           {item.actionLabel && (

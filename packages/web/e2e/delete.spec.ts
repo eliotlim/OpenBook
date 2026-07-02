@@ -11,7 +11,7 @@ test('delete page: centered in-app confirm moves the page to the trash', {tag: [
   const actions = page.getByRole('button', {name: 'Page actions'});
   await expect(actions).toBeVisible();
   await actions.click();
-  await page.getByRole('menuitem', {name: 'Delete page'}).click();
+  await page.getByRole('menuitem', {name: 'Move to trash'}).click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
@@ -42,7 +42,7 @@ test('delete page: the toast Undo restores the page', {tag: ['@shell']}, async (
   await expect(actions).toBeVisible();
   const deletedId = new URL(page.url()).searchParams.get('page');
   await actions.click();
-  await page.getByRole('menuitem', {name: 'Delete page'}).click();
+  await page.getByRole('menuitem', {name: 'Move to trash'}).click();
   await page.getByRole('dialog').getByRole('button', {name: 'Move to trash'}).click();
 
   const toast = page.getByRole('status').filter({hasText: 'to trash'});

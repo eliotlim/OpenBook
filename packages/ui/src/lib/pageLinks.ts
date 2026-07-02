@@ -13,6 +13,8 @@ export interface PageLinkResult {
   id: string;
   label: string;
   icon: string;
+  /** Ancestor chain ("Parent / Child") — disambiguates same-named pages. */
+  path?: string;
 }
 
 export interface PageLinkBridge {

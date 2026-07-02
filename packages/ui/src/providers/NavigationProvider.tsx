@@ -16,6 +16,7 @@ import {recordRecent} from '@/lib/recents';
 import {AGENT_PANE_ID, CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
 import {registerKitPanelNav} from '@/blockeditor/kit/kitPanel';
 import {t as bareT} from '@/i18n';
+import {pagePathLabel} from '@/lib/pagePath';
 import {removeFavorite} from '@/lib/favorites';
 import {showToast} from '@/components/ui/toast';
 import {usePlatformLibrary, type NewViewTarget} from './PlatformLibraryProvider';
@@ -211,7 +212,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const closeTab = useCallback((tabId: string) => update((w) => W.closeTab(w, tabId)), [update]);
 
   const closePage = useCallback(
-    (id: string) => setWin((w) => (w ? W.reconcile(w, (pid) => pid !== id, pages[0]?.id ?? null) : w)),
+    (id: string) => setWin((w) => (w ? W.reconcile(w, (pid) => pid !== id, pages[0]?.id ?? HOME_PAGE_ID) : w)),
     [pages],
   );
 
@@ -365,7 +366,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       await client.deletePage(id);
       removeFavorite(id); // a trashed page shouldn't linger in favourites
       const list = await reload();
-      setWin((w) => (w ? W.reconcile(w, (pid) => pid !== id, list[0]?.id ?? null) : w));
+      setWin((w) => (w ? W.reconcile(w, (pid) => pid !== id, list[0]?.id ?? HOME_PAGE_ID) : w));
       // Every delete path gets a moment-of-mistake recovery affordance; the
       // Trash dialog remains the durable one.
       showToast({
@@ -404,9 +405,10 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const searchPages = useCallback(
     (query: string, opts?: {databasesOnly?: boolean}): PageLinkResult[] => {
       const q = query.trim().toLowerCase();
+      const byId = new Map(pages.map((p) => [p.id, p] as const));
       const matches = pages
         .filter((p) => !opts?.databasesOnly || p.hostedDatabaseId)
-        .map((p) => ({id: p.id, label: pageLabel(p.id), icon: readPageIcon(p.id)}))
+        .map((p) => ({id: p.id, label: pageLabel(p.id), icon: readPageIcon(p.id), path: pagePathLabel(p, byId)}))
         .filter((r) => q === '' || r.label.toLowerCase().includes(q));
       // Exact title match first, then prefix matches, then by position; cap
       // the list for the popover. Exact-first matters in big workspaces where
@@ -484,7 +486,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       if (removed.length === 0) return;
       removed.forEach(removeFavorite); // drop deleted pages from favourites
       const removedSet = new Set(removed);
-      setWin((w) => (w ? W.reconcile(w, (id) => !removedSet.has(id), list[0]?.id ?? null) : w));
+      setWin((w) => (w ? W.reconcile(w, (id) => !removedSet.has(id), list[0]?.id ?? HOME_PAGE_ID) : w));
     });
   }, [client]);
 
