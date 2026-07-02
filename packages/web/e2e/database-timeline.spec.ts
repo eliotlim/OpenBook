@@ -130,7 +130,7 @@ test('timeline drag-to-link: drag one bar onto another to add a dependency', {ta
 });
 
 // With no dated rows, clicking the empty canvas places a new item at that date.
-test('timeline click-to-place: clicking the empty canvas adds a dated item', {tag: ['@database', '@flaky']}, async ({page}) => {
+test('timeline click-to-place: clicking the empty canvas adds a dated item', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
 
