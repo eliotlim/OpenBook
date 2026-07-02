@@ -983,6 +983,19 @@ h3.ce-header {
    floats in the column gap. */
 .obe-gutter-nested { left: -1.45rem; }
 .obe-gutter-icon { width: 14px; height: 14px; }
+/* Touch devices: the gutter is a hover affordance that a tap only reveals
+   AFTER the fact, and at phone margins it overlaps the first characters of
+   the line — hide it (Enter adds blocks; long-press opens block actions). */
+@media (pointer: coarse) {
+  .obe-gutter { display: none; }
+}
+/* Narrow fine-pointer windows: not enough left margin for both buttons —
+   keep just the drag handle, tucked into the slim margin. The "+" is the
+   first button in the gutter (Enter covers adding blocks). */
+@media (max-width: 640px) and (pointer: fine) {
+  .obe-gutter { left: -1.6rem; }
+  .obe-gutter > button:first-child { display: none; }
+}
 /* Align the hover gutter (drag handle + add button) with each block type's
    FIRST text line. The default `top` is tuned for a paragraph; headings push
    their first line down (margin-top + a taller line), and callouts/code blocks
