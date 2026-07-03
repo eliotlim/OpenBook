@@ -164,7 +164,7 @@ export const zh: PartialMessages = {
       restrictedHint: '将访问权限限制为你和下面邀请的人。',
     },
     addLabel: '邀请他人',
-    addPlaceholder: '电子邮件或用户名',
+    addPlaceholder: 'name@example.com 或 iss#sub',
     levelLabel: '访问权限',
     levelRead: '可查看',
     levelWrite: '可编辑',

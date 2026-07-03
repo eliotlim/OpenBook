@@ -165,7 +165,7 @@ export const ja: PartialMessages = {
       restrictedHint: 'アクセスをあなたと下で招待した人に制限します。',
     },
     addLabel: '人を招待',
-    addPlaceholder: 'メールまたはハンドル',
+    addPlaceholder: 'name@example.com または iss#sub',
     levelLabel: 'アクセス権限',
     levelRead: '閲覧可能',
     levelWrite: '編集可能',

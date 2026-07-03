@@ -165,7 +165,7 @@ export const de: PartialMessages = {
       restrictedHint: 'Beschränkt den Zugriff auf dich und die unten eingeladenen Personen.',
     },
     addLabel: 'Personen einladen',
-    addPlaceholder: 'E-Mail oder Handle',
+    addPlaceholder: 'name@example.com oder iss#sub',
     levelLabel: 'Zugriffsebene',
     levelRead: 'Kann ansehen',
     levelWrite: 'Kann bearbeiten',

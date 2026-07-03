@@ -226,7 +226,7 @@ export const en = {
       restrictedHint: 'Limits access to you and the people you invite below.',
     },
     addLabel: 'Invite people',
-    addPlaceholder: 'Email or handle',
+    addPlaceholder: 'name@example.com or iss#sub',
     levelLabel: 'Access level',
     levelRead: 'Can view',
     levelWrite: 'Can edit',
