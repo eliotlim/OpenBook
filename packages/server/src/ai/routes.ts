@@ -15,7 +15,16 @@ import type {AiService} from './service';
  * human-readable `error` so the UI can guide the user to Settings → AI.
  */
 export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore, onPagesChanged?: () => Promise<void>): void {
-  app.get(API.aiStatus, async (c) => c.json(await ai.status()));
+  app.get(API.aiStatus, async (c) => {
+    // The status stays readable to every principal that passes the request gate
+    // (clients render provider/ready state), but the embedded config carries the
+    // instance's PAID PROVIDER API KEYS — writer-only readback. Non-writers get
+    // the same status with the secrets stripped; writers (AiSettings seeds its
+    // draft from `status.config`) keep the full config.
+    const status = await ai.status();
+    const decision = await store.decideCreateAccess(c.get('principal'));
+    return c.json(decision.canWrite ? status : {...status, config: redactAiConfig(status.config)});
+  });
 
   app.put(API.aiConfig, async (c) => {
     // Instance-wide engine config (provider, API keys, model choice) — an
@@ -204,6 +213,28 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     const removed = await ai.skills.remove(c.req.param('name') ?? '');
     return c.json({removed});
   });
+}
+
+/**
+ * Strip the secrets from an {@link AiConfig} before returning it to a
+ * non-writer: every `providers[*].apiKey` plus the legacy flat `apiKey`
+ * (pre-`providers` configs stored the then-active provider's key there).
+ * Everything else (provider choice, models, baseUrls, effort…) stays, so a
+ * non-writer client can still render the AI surface.
+ */
+function redactAiConfig(config: AiConfig): AiConfig {
+  const redacted: AiConfig = {...config};
+  delete redacted.apiKey;
+  if (config.providers) {
+    redacted.providers = Object.fromEntries(
+      Object.entries(config.providers).map(([p, settings]) => {
+        const safe = {...settings};
+        delete safe.apiKey;
+        return [p, safe];
+      }),
+    ) as AiConfig['providers'];
+  }
+  return redacted;
 }
 
 /**

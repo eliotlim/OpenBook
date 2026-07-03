@@ -348,7 +348,74 @@ describe('AI mutation routes are instance-writer-gated (P0-5)', () => {
     expect((await del(app, '/api/ai/skills/test-skill', await idFor('viewer'))).status).toBe(403);
     expect((await del(app, '/api/ai/skills/test-skill')).status).toBe(403); // guest
     expect((await get(app, '/api/ai/skills', await idFor('viewer'))).status).toBe(200);
-    expect((await del(app, '/api/ai/skills/test-skill', await idFor('owner'))).status).toBe(200);
+    // The owner's delete actually removes the skill — a bare 200 would also pass
+    // on a `{removed:false}` miss, the exact failure mode of the old dead route.
+    const removed = await del(app, '/api/ai/skills/test-skill', await idFor('owner'));
+    expect(removed.status).toBe(200);
+    expect(await removed.json()).toEqual({removed: true});
+  });
+
+  it('skill delete matches a URL-encoded name (the old %3Aname route never did)', async () => {
+    const app = appWith({ai: aiService()});
+    // "My Skill" slugifies to "my-skill" on upsert; the client deletes by the raw
+    // name, percent-encoded in the path — exactly the shape the old literal
+    // `/api/ai/skills/%3Aname` registration could never match.
+    const skill = {skill: {name: 'My Skill', description: '', instructions: 'x'}};
+    expect((await put(app, '/api/ai/skills', skill, await idFor('owner'))).status).toBe(200);
+    const res = await del(app, `/api/ai/skills/${encodeURIComponent('My Skill')}`, await idFor('owner'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({removed: true});
+  });
+});
+
+describe('GET /api/ai/status redacts provider API keys for non-writers (P0-5)', () => {
+  const CLAUDE_KEY = 'sk-ant-verysecret';
+  const LEGACY_KEY = 'legacy-flat-secret';
+
+  /** An AiService configured with a paid key in `providers` AND the legacy flat field. */
+  const keyedAi = async (): Promise<AiService> => {
+    const ai = aiService();
+    await ai.setConfig({
+      provider: 'mock',
+      providers: {claude: {apiKey: CLAUDE_KEY, model: 'm'}, openai: {baseUrl: 'http://127.0.0.1:9'}},
+      apiKey: LEGACY_KEY,
+    });
+    return ai;
+  };
+
+  it('a viewer / jws non-member / guest gets status with NO apiKey anywhere', async () => {
+    await claim();
+    await store.addMember({subject: `${ISS}#viewer`, role: 'viewer', status: 'active'});
+    const app = appWith({ai: await keyedAi()});
+    for (const jws of [await idFor('viewer'), await idFor('stranger'), undefined]) {
+      const res = await get(app, '/api/ai/status', jws);
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).not.toContain(CLAUDE_KEY);
+      expect(text).not.toContain(LEGACY_KEY);
+      expect(text).not.toContain('apiKey');
+      // The rest of the surface still renders: provider + per-provider settings survive.
+      const body = JSON.parse(text) as {config: {provider: string; providers?: Record<string, {model?: string}>}};
+      expect(body.config.provider).toBe('mock');
+      expect(body.config.providers?.claude?.model).toBe('m');
+    }
+  });
+
+  it('a writer (owner) still reads the full config back (AiSettings seeds its draft from it)', async () => {
+    await claim();
+    const app = appWith({ai: await keyedAi()});
+    const res = await get(app, '/api/ai/status', await idFor('owner'));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {config: {apiKey?: string; providers?: Record<string, {apiKey?: string}>}};
+    expect(body.config.providers?.claude?.apiKey).toBe(CLAUDE_KEY);
+    expect(body.config.apiKey).toBe(LEGACY_KEY);
+  });
+
+  it('legacy single-user (unclaimed) status keeps full readback for the local app', async () => {
+    // No claim() → the guest IS the single-user app; it must still see its own keys.
+    const app = appWith({ai: await keyedAi()});
+    const body = (await (await get(app, '/api/ai/status')).json()) as {config: {providers?: Record<string, {apiKey?: string}>}};
+    expect(body.config.providers?.claude?.apiKey).toBe(CLAUDE_KEY);
   });
 });
 
