@@ -688,6 +688,7 @@ export const zh: PartialMessages = {
     toggle: '转发本设备',
     signInHint: '请先登录你的账户以获取地址。',
     signInPending: '请完成账户登录 —— 登录后转发将自动开启。',
+    resumedToast: '转发已开启 —— 你的地址是 {host}。',
     signIn: '登录',
     registering: '连接中…',
     address: '你的地址',

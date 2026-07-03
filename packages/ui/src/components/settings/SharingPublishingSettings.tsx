@@ -61,15 +61,16 @@ function ForwardingSection() {
         </span>
         <Switch checked={enabled} disabled={busy} onCheckedChange={(v) => void (v ? enable() : disable())} />
       </label>
-      {/* A signed-out flip isn't a silent snap-back: the sign-in handoff is in
-          flight and the enable auto-resumes once the account connects — say so
-          (aria-live so SR users hear the state change the flip caused). */}
-      {!connected && signInPending && (
-        <p aria-live="polite" className="text-xs text-muted-foreground">
-          {t('forwarding.signInPending')}
+      {/* A signed-out flip isn't a silent snap-back: the sign-in handoff is in flight
+          and the enable auto-resumes once the account connects — say so. The live
+          region is mounted PERSISTENTLY (only its text swaps) because content arriving
+          together with a fresh `role="status"` node isn't announced by most screen
+          readers (same a11y rule as the toast layer). */}
+      {!connected && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {signInPending ? t('forwarding.signInPending') : t('forwarding.signInHint')}
         </p>
       )}
-      {!connected && !signInPending && <p className="text-xs text-muted-foreground">{t('forwarding.signInHint')}</p>}
       {/* Forewarn before the flip: the first forward permanently claims this device's
           books to the account and makes them private by default. Mirrors the prior-art
           LAN `connection.publishWarning` box. Hidden once on, or while a refusal shows.

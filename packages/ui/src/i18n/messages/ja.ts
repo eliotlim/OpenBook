@@ -690,6 +690,7 @@ export const ja: PartialMessages = {
     toggle: 'このデバイスを転送',
     signInHint: 'アドレスを取得するには、まずアカウントにサインインしてください。',
     signInPending: 'アカウントへのサインインを完了してください — サインインが済むと転送は自動的にオンになります。',
+    resumedToast: '転送がオンになりました — あなたのアドレスは {host} です。',
     signIn: 'サインイン',
     registering: '接続中…',
     address: 'あなたのアドレス',

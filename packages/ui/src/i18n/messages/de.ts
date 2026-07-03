@@ -684,6 +684,7 @@ export const de: PartialMessages = {
     toggle: 'Dieses Gerät weiterleiten',
     signInHint: 'Melde dich zuerst bei deinem Konto an, um eine Adresse zu sichern.',
     signInPending: 'Schließe die Anmeldung bei deinem Konto ab — die Weiterleitung wird danach automatisch eingeschaltet.',
+    resumedToast: 'Weiterleitung ist aktiv — deine Adresse ist {host}.',
     signIn: 'Anmelden',
     registering: 'Verbinden…',
     address: 'Deine Adresse',
