@@ -173,6 +173,9 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   const [addError, setAddError] = useState<TKey | null>(null);
   const [scopeError, setScopeError] = useState<TKey | null>(null);
   const [copied, setCopied] = useState(false);
+  // Separate copied flag for the delivery-help copy button so it doesn't light
+  // up the bottom copy-link button (same URL, different affordance).
+  const [deliverCopied, setDeliverCopied] = useState(false);
 
   // Whether the roster loaded (the ACL GET is write-gated server-side, so a
   // read-only viewer gets a 403 — degrade to scope-only rather than erroring
@@ -280,6 +283,13 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
     if (await copyPageLink(pageId)) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
+    }
+  }, [pageId]);
+
+  const copyDeliverLink = useCallback(async () => {
+    if (await copyPageLink(pageId)) {
+      setDeliverCopied(true);
+      window.setTimeout(() => setDeliverCopied(false), 1500);
     }
   }, [pageId]);
 
@@ -448,6 +458,38 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                     })}
                   </ul>
                 )}
+              </div>
+            )}
+
+            {/* Delivery help (P0-2): the instance invite path has NO mailer —
+                adding a person writes an ACL row but notifies no one. Once the
+                workspace is published we can hand the owner a real link to send
+                and spell out that each invitee must sign in with the email they
+                were invited as (claimMemberships binds the persona on first
+                request). The unpublished-desktop case is already covered by the
+                local-only copy-link hint below, and browser-local by the notice
+                above — so this only appears when there's a reachable address
+                AND someone still awaiting first sign-in. A subject-only grant is
+                already claimed (claimMemberships re-keys email→subject on first
+                sign-in) or was added by handle, so only a pending EMAIL grant
+                needs the "sign in as the email you invited" hand-off — and it
+                gives that sentence a concrete email referent. */}
+            {canManage && !browserLocal && publishedHost && aclReadable && grants.some((g) => g.email != null) && (
+              <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5">
+                <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t('share.deliver.hint')}</p>
+                <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copyDeliverLink()}>
+                  {deliverCopied ? (
+                    <>
+                      <Check className="mr-1.5 h-4 w-4" />
+                      {t('share.copied')}
+                    </>
+                  ) : (
+                    <>
+                      <Link2 className="mr-1.5 h-4 w-4" />
+                      {t('share.deliver.copy')}
+                    </>
+                  )}
+                </Button>
               </div>
             )}
 

@@ -1,13 +1,14 @@
 import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
-import {Loader2, Trash2, UserPlus} from 'lucide-react';
+import {Check, Link2, Loader2, Trash2, UserPlus} from 'lucide-react';
 import type {InstanceInfo, Member, MemberRole, MemberStatus, Principal} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useConfirm, usePlatformLibrary, useTranslation} from '@/providers';
+import {useConfirm, useForwarding, usePlatformLibrary, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {IconButton} from '@/components/ui/icon-button';
 import {Select} from '@/components/ui/select';
 import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
+import {copyText} from '@/lib/pageActions';
 import {cn} from '@/lib/utils';
 import type {TKey} from '@/i18n';
 
@@ -123,6 +124,10 @@ export default function MembersSettings() {
   // fully editable (it persists with the data), but no one else can reach this
   // workspace, so an invitation here can't let anyone in yet — say so.
   const browserLocal = usePlatformLibrary().browserLocalWorkspace === true;
+  // The forwarded root address, known only while the workspace is published
+  // (P0-2). Inviting a member sends no email, so when there's a reachable
+  // address we hand the owner that link to deliver by hand.
+  const {publishedHost} = useForwarding();
 
   const [info, setInfo] = useState<InstanceInfo | null>(null);
   const [members, setMembers] = useState<Member[] | null>(null);
@@ -138,6 +143,14 @@ export default function MembersSettings() {
   // Which row is mid-mutation (role change / remove), to disable just that row.
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const [deliverCopied, setDeliverCopied] = useState(false);
+  const copyWorkspaceLink = useCallback(async () => {
+    if (publishedHost && (await copyText(`https://${publishedHost}`))) {
+      setDeliverCopied(true);
+      window.setTimeout(() => setDeliverCopied(false), 1500);
+    }
+  }, [publishedHost]);
 
   const refresh = useCallback(async () => {
     setLoadError(null);
@@ -305,6 +318,28 @@ export default function MembersSettings() {
                   <p role="alert" aria-live="assertive" className="text-xs text-destructive">
                     {t('members.inviteError', {error: inviteError})}
                   </p>
+                )}
+                {/* Delivery help (P0-2): an invite writes a roster row but sends
+                    no email. Once the workspace is published AND someone is
+                    actually awaiting first sign-in, hand the owner the forwarded
+                    root to send and explain the sign-in they must relay. */}
+                {!browserLocal && publishedHost && members?.some((m) => m.status === 'invited') && (
+                  <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5">
+                    <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t('members.deliver.hint')}</p>
+                    <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copyWorkspaceLink()}>
+                      {deliverCopied ? (
+                        <>
+                          <Check className="mr-1.5 h-4 w-4" />
+                          {t('members.deliver.copied')}
+                        </>
+                      ) : (
+                        <>
+                          <Link2 className="mr-1.5 h-4 w-4" />
+                          {t('members.deliver.copy')}
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 )}
               </SettingsSection>
 

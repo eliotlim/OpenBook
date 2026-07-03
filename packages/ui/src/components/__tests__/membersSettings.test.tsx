@@ -1,10 +1,23 @@
-import {describe, it, expect, afterEach} from 'vitest';
+import {describe, it, expect, afterEach, vi} from 'vitest';
 import {render, screen, cleanup} from '@testing-library/react';
 import type {DataClient, Member} from '@book.dev/sdk';
 import {guestPrincipal} from '@book.dev/sdk';
 import MembersSettings from '../settings/MembersSettings';
 import {DataProvider} from '@/data/DataProvider';
 import {ConfirmProvider, I18nProvider} from '@/providers';
+
+// The forwarded root is only known while the workspace is published — drive it
+// per-test so we can assert the delivery-help affordance (P0-2) appears only
+// then. Everything else in the barrel stays real.
+let mockPublishedHost: string | null = null;
+vi.mock('@/providers', async (orig) => {
+  const actual = await orig<typeof import('@/providers')>();
+  return {
+    ...actual,
+    useForwarding: () =>
+      ({...actual.useForwarding(), publishedHost: mockPublishedHost}) as ReturnType<typeof actual.useForwarding>,
+  };
+});
 
 const wrap = (client: Partial<DataClient>) =>
   render(
@@ -29,7 +42,10 @@ const member = (over: Partial<Member> = {}): Member => ({
   ...over,
 });
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  mockPublishedHost = null;
+});
 
 describe('MembersSettings (roster)', () => {
   it('lists members and shows the invite controls to a manager', async () => {
@@ -66,6 +82,49 @@ describe('MembersSettings (roster)', () => {
     wrap(client);
     expect(await screen.findByText('Members are managed by admins')).toBeTruthy();
     expect(screen.queryByText('Invite a member')).toBeNull();
+  });
+
+  it('offers the copy-workspace-link delivery help only when published with someone invited', async () => {
+    const client: Partial<DataClient> = {
+      getInstanceInfo: async () => ({
+        guestAccess: 'write',
+        ownerSubject: null,
+        trustedIssuers: [],
+        audience: null,
+        you: guestPrincipal('Rae'),
+      }),
+      listMembers: async () => [member({status: 'invited'})],
+    };
+
+    // Not published: the invite writes a roster row but there's no reachable
+    // link to hand over, so no delivery affordance (defers to nothing).
+    mockPublishedHost = null;
+    wrap(client);
+    expect(await screen.findByText('rae@example.com')).toBeTruthy();
+    expect(screen.queryByText('Copy workspace link')).toBeNull();
+    cleanup();
+
+    // Published + an invited member awaiting first sign-in: surface it.
+    mockPublishedHost = 'rae.book.cloud';
+    wrap(client);
+    expect(await screen.findByText('Copy workspace link')).toBeTruthy();
+  });
+
+  it('hides the delivery help when published but no one is awaiting sign-in', async () => {
+    mockPublishedHost = 'rae.book.cloud';
+    const client: Partial<DataClient> = {
+      getInstanceInfo: async () => ({
+        guestAccess: 'write',
+        ownerSubject: null,
+        trustedIssuers: [],
+        audience: null,
+        you: guestPrincipal('Rae'),
+      }),
+      listMembers: async () => [member({status: 'active'})],
+    };
+    wrap(client);
+    expect(await screen.findByText('rae@example.com')).toBeTruthy();
+    expect(screen.queryByText('Copy workspace link')).toBeNull();
   });
 
   it('degrades to an unavailable note when the server has no instance endpoint', async () => {

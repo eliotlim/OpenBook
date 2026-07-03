@@ -174,6 +174,10 @@ export const zh: PartialMessages = {
     loadingPeople: '正在加载…',
     noPeople: '尚未邀请任何人。',
     remove: '移除 {name}',
+    deliver: {
+      hint: '受邀者不会自动收到通知。请将此页面的链接发送给他们——每个人都需用受邀时的邮箱登录后才能打开。',
+      copy: '复制要发送的链接',
+    },
     linkHints: {
       inherit: '拥有工作区访问权限的人可以打开此链接。',
       public: '任何获得链接的人都可以打开此页面。',
@@ -841,6 +845,11 @@ export const zh: PartialMessages = {
     removeBody: '此人将失去在此工作区的角色。邮箱邀请稍后可重新发送。',
     removeConfirm: '移除',
     actionError: '无法更新成员 — {error}',
+    deliver: {
+      hint: '邀请不会通过邮件发送。请将此工作区的链接发送给他们——每个人都需用受邀时的邮箱登录后才能打开。',
+      copy: '复制工作区链接',
+      copied: '已复制',
+    },
   },
   properties: {
     owner: '负责人',
