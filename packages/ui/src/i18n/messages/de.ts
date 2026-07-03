@@ -178,6 +178,9 @@ export const de: PartialMessages = {
       authenticated: 'Jede angemeldete Person, die diesen Link öffnet, kann diese Seite ansehen.',
       members: 'Nur Arbeitsbereich-Mitglieder, die diesen Link öffnen, können diese Seite ansehen.',
       restricted: 'Nur die von dir eingeladenen Personen können diesen Link öffnen.',
+      localOnly:
+        'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche diesen Arbeitsbereich unter Einstellungen → Teilen & Veröffentlichen, um einen Link zu erhalten, den du versenden kannst.',
+      publishedAt: 'Links verwenden deine veröffentlichte Adresse, {host}.',
     },
     copyLink: 'Link kopieren',
     copied: 'Kopiert',

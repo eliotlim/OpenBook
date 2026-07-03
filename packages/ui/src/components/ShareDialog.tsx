@@ -2,7 +2,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {Check, Link2, Loader2, Share2, Trash2} from 'lucide-react';
 import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useHud, useTranslation} from '@/providers';
+import {useForwarding, useHud, useTranslation} from '@/providers';
 import {
   Dialog,
   DialogContent,
@@ -133,6 +133,15 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   const client = useData();
   const {t} = useTranslation();
   const {setHud} = useHud();
+
+  // Where a copied link actually reaches (P0-1). On a desktop build
+  // (`supported`), the link is `tauri://localhost` — dead off this device —
+  // UNLESS the workspace is published, in which case `pageLinkUrl` emits the
+  // forwarded host (same condition as the ForwardingProvider registration).
+  const forwarding = useForwarding();
+  const publishedHost =
+    forwarding.enabled && forwarding.status === 'online' && forwarding.host ? forwarding.host : null;
+  const linkIsLocalOnly = forwarding.supported && !publishedHost;
 
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<PageVisibility>('inherit');
@@ -465,9 +474,21 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
               </div>
             )}
 
-            {/* Copy link */}
+            {/* Copy link. The hint tells the truth about where the copied URL
+                reaches: on an unpublished desktop it's local-only (say so instead
+                of the per-scope promise); once published it carries the forwarded
+                address, so the per-scope hint applies — plus the address itself. */}
             <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-              <span className="text-xs text-muted-foreground">{t(LINK_HINT[scope])}</span>
+              <span className="text-xs text-muted-foreground">
+                {linkIsLocalOnly ? (
+                  t('share.linkHints.localOnly')
+                ) : (
+                  <>
+                    {t(LINK_HINT[scope])}
+                    {publishedHost && <> {t('share.linkHints.publishedAt', {host: publishedHost})}</>}
+                  </>
+                )}
+              </span>
               <Button variant="outline" size="sm" onClick={() => void copyLink()}>
                 {copied ? (
                   <>

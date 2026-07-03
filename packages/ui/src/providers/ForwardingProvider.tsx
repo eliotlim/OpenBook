@@ -10,6 +10,7 @@ import {
   type AudienceNoticeCode,
 } from './forwardingAudience';
 import {useData} from '@/data/DataProvider';
+import {setShareLinkOrigin} from '@/lib/pageActions';
 
 /**
  * Owns the *.book.pub forwarding tunnel for the whole app, so it keeps running
@@ -188,6 +189,16 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
 
   // Drop the tunnel if the platform goes away (shouldn't happen mid-session).
   useEffect(() => () => clientRef.current?.stop(), []);
+
+  // Publish-aware copy links (P0-1): while the tunnel is live, "Copy link"
+  // everywhere must emit the forwarded https host — `window.location` here is
+  // `tauri://localhost`, dead for any recipient. Registered module-level (see
+  // pageActions) so plain-module callers resolve it too; cleared the moment the
+  // tunnel isn't actually serving, so we never hand out a link that 502s.
+  useEffect(() => {
+    setShareLinkOrigin(enabled && status === 'online' && host ? host : null);
+    return () => setShareLinkOrigin(null);
+  }, [enabled, status, host]);
 
   const enable = useCallback(async () => {
     if (!connected || !token) {

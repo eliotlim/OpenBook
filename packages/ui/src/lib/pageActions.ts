@@ -4,8 +4,39 @@
  * tree — so they go through the window/clipboard rather than React props.
  */
 
-/** Build a shareable deep link to a page (`?page=<id>`), no split. */
+// ── Share-link origin ───────────────────────────────────────────────────────
+// On the desktop, `window.location` is `tauri://localhost` — a copied link built
+// from it is dead for anyone else. While the workspace is published through the
+// forwarding tunnel, the forwarded `https://<prefix>.book.cloud` host is the only
+// externally reachable address, so `ForwardingProvider` registers it here while
+// the tunnel is live (and clears it when it isn't). A module-level registry, not
+// React context, because copy-link is also triggered from plain-module callers
+// (context menus, the command palette) outside the provider tree.
+
+let shareLinkOrigin: string | null = null;
+
+/**
+ * Register (or clear, with `null`) the externally reachable origin that copied
+ * page links should use. Accepts a bare host (`prefix.book.cloud`) or a full
+ * origin (`https://prefix.book.cloud`); bare hosts get `https://`.
+ */
+export function setShareLinkOrigin(origin: string | null): void {
+  shareLinkOrigin = origin ? (origin.includes('://') ? origin : `https://${origin}`) : null;
+}
+
+/** The currently registered share-link origin, if any (see {@link setShareLinkOrigin}). */
+export function getShareLinkOrigin(): string | null {
+  return shareLinkOrigin;
+}
+
+/** Build a shareable deep link to a page (`?page=<id>`), no split. Prefers the
+ *  registered share-link origin (the published address) over `window.location`. */
 export function pageLinkUrl(pageId: string): string {
+  if (shareLinkOrigin) {
+    const url = new URL('/', shareLinkOrigin);
+    url.searchParams.set('page', pageId);
+    return url.toString();
+  }
   if (typeof window === 'undefined') return '';
   const url = new URL(window.location.href);
   url.searchParams.set('page', pageId);
