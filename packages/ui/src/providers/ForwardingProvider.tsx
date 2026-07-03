@@ -11,6 +11,8 @@ import {
 } from './forwardingAudience';
 import {useData} from '@/data/DataProvider';
 import {setShareLinkOrigin} from '@/lib/pageActions';
+import {showToast} from '@/components/ui/toast';
+import {t} from '@/i18n';
 
 /**
  * Owns the *.book.pub forwarding tunnel for the whole app, so it keeps running
@@ -24,6 +26,14 @@ import {setShareLinkOrigin} from '@/lib/pageActions';
  * once the account reconnects.
  */
 const ENABLED_KEY = 'openbook.forwarding.enabled';
+
+/**
+ * How long a signed-out flip's auto-resume intent stays armed (P1-6). Bounds the
+ * popup-abandon case where the account status can stick at `connecting` with no
+ * callback ever arriving — after this the intent is dropped, so a much-later
+ * unrelated sign-in can never silently complete the (irreversible) claim.
+ */
+const SIGN_IN_RESUME_TTL_MS = 3 * 60 * 1000;
 
 /** Combined provisioning/tunnel status. `idle` = never started this session. */
 export type ForwardingStatus = TunnelStatus | 'idle';
@@ -63,6 +73,14 @@ interface ForwardingContextValue {
    * it as an error). `null` when there's nothing to show.
    */
   claimRefusal: 'unverified' | 'issuance-disabled' | 'claim-failed' | null;
+  /**
+   * A signed-out flip started the sign-in handoff and the enable will auto-resume
+   * the moment the account connects (this session only — the intent is NOT
+   * persisted, so an abandoned sign-in can never publish on a later launch). The
+   * view renders an explicit "finish signing in" notice instead of letting the
+   * toggle silently snap back.
+   */
+  signInPending: boolean;
   /** Turn forwarding on: claim the address (sign-in first if needed) + dial out. */
   enable: () => Promise<void>;
   /** Turn forwarding off: drop the tunnel but keep the site key (stable address). */
@@ -79,6 +97,7 @@ const DEFAULT: ForwardingContextValue = {
   error: null,
   audienceNotice: null,
   claimRefusal: null,
+  signInPending: false,
   enable: async () => undefined,
   disable: () => undefined,
 };
@@ -93,11 +112,18 @@ const writeEnabled = (on: boolean): void => {
 
 export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const {forwarding} = usePlatformLibrary();
-  const {connected, token, accountUrl, signIn, remintIdentity, identityIssuance} = useAccount();
+  const {connected, token, accountUrl, status: accountStatus, signIn, remintIdentity, identityIssuance} =
+    useAccount();
   const data = useData();
   const supported = !!forwarding;
 
   const clientRef = useRef<ForwardingClient | null>(null);
+  // Synchronous re-entrancy latch: `clientRef` isn't set until AFTER the claim
+  // `await` inside `startTunnel`, so two entry points firing in the same tick (an
+  // explicit flip + the resume effect, or a StrictMode double-invoke) could both
+  // pass the `!clientRef.current` gate and each perform the IRREVERSIBLE claim.
+  // This closes the window before the first await; cleared in `startTunnel`'s finally.
+  const startingRef = useRef(false);
   const [enabled, setEnabled] = useState<boolean>(() => readEnabled());
   const [status, setStatus] = useState<ForwardingStatus>('idle');
   const [host, setHost] = useState<string | null>(null);
@@ -105,6 +131,10 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const [error, setError] = useState<string | null>(null);
   const [audienceNotice, setAudienceNotice] = useState<{code: AudienceNoticeCode; detail?: string} | null>(null);
   const [claimRefusal, setClaimRefusal] = useState<'unverified' | 'issuance-disabled' | 'claim-failed' | null>(null);
+  const [signInPending, setSignInPending] = useState(false);
+  // The auto-resume (P1-6) can complete with Settings closed / off-screen, so flag
+  // the resume so we can announce it with a toast once the address is live.
+  const resumedRef = useRef(false);
 
   // The latest issuance verdict, read at claim time through a ref so the memoized
   // `audienceDeps` below stays stable across issuance state changes.
@@ -156,7 +186,8 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   );
 
   const startTunnel = useCallback(async () => {
-    if (!forwarding || !token || clientRef.current) return;
+    if (!forwarding || !token || clientRef.current || startingRef.current) return;
+    startingRef.current = true; // latch BEFORE the first await (see startingRef)
     setBusy(true);
     setError(null);
     setAudienceNotice(null);
@@ -195,12 +226,17 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+      startingRef.current = false;
     }
   }, [forwarding, token, accountUrl, bindAudience, audienceDeps]);
 
-  // Resume on launch / once the account connects, when forwarding is enabled.
+  // Resume on launch / once the account connects, when forwarding is enabled. This
+  // is the SINGLE dial point for the intent-driven paths (relaunch, and the P1-6
+  // signed-out auto-resume below): both just set `enabled`, and this effect opens
+  // exactly one ForwardingClient into `clientRef` — so `disable()` can always stop
+  // it (an orphaned client started off-book would stay published after an off flip).
   useEffect(() => {
-    if (supported && enabled && connected && token && !clientRef.current) void startTunnel();
+    if (supported && enabled && connected && token && !clientRef.current && !startingRef.current) void startTunnel();
   }, [supported, enabled, connected, token, startTunnel]);
 
   // Drop the tunnel if the platform goes away (shouldn't happen mid-session).
@@ -223,13 +259,64 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
 
   const enable = useCallback(async () => {
     if (!connected || !token) {
-      signIn(); // can't claim an address without an account — start sign-in
+      // Can't claim an address without an account — start the sign-in handoff and
+      // arm a resume intent for THIS attempt so the flip isn't a silent no-op: the
+      // auto-resume effect below completes the enable once THIS sign-in connects.
+      // The intent is deliberately not persisted (unlike ENABLED_KEY) and is bounded
+      // (cleared on a cancelled/failed attempt, and after a TTL) so a later, unrelated
+      // sign-in in the same session can't silently perform the irreversible claim.
+      setSignInPending(true);
+      signIn();
       return;
     }
+    setSignInPending(false);
     setEnabled(true);
     writeEnabled(true);
     await startTunnel();
   }, [connected, token, signIn, startTunnel]);
+
+  // Auto-resume the interrupted first flip (P1-6): the user flipped "Forward this
+  // device" while signed out and we sent them off to sign in — complete the enable
+  // for them once THIS sign-in attempt connects, instead of making them find the
+  // toggle and flip it a second time. Crucially this does NOT dial directly: it only
+  // sets `enabled`, and the single resume-on-launch effect above opens the one
+  // ForwardingClient (so `disable()` can always stop it — a client started here
+  // would be orphaned and stay published after an off flip). The claim warning is
+  // shown before the flip even when signed out (see SharingPublishingSettings), so
+  // the irreversible claim this may perform was consented to by that flip.
+  useEffect(() => {
+    if (!signInPending || !connected || !token) return;
+    setSignInPending(false);
+    resumedRef.current = true; // announce it once the address is live (may be off-screen)
+    setEnabled(true);
+    writeEnabled(true);
+  }, [signInPending, connected, token]);
+
+  // Bound the resume intent so it can only complete THE attempt that armed it — never
+  // a later, unrelated sign-in (add/switch account, a settings sync) whose connect
+  // would otherwise trip the auto-resume into an unconsented, irreversible claim.
+  // Clear it the instant the attempt ends without connecting (explicit cancel →
+  // `disconnected`, failure → `error`), and time it out as a backstop for the
+  // popup-abandon case where the account status can stick at `connecting` forever.
+  useEffect(() => {
+    if (!signInPending) return;
+    if (accountStatus === 'error' || accountStatus === 'disconnected') {
+      setSignInPending(false);
+      return;
+    }
+    const timer = setTimeout(() => setSignInPending(false), SIGN_IN_RESUME_TTL_MS);
+    return () => clearTimeout(timer);
+  }, [signInPending, accountStatus]);
+
+  // Announce an auto-resume once the address is actually live — it can complete with
+  // Settings closed / off-screen, so a passing toast is the only feedback the user gets.
+  useEffect(() => {
+    if (!resumedRef.current) return;
+    if (status === 'online' && host) {
+      resumedRef.current = false;
+      showToast({message: t('forwarding.resumedToast', {host})});
+    }
+  }, [status, host]);
 
   const disable = useCallback(() => {
     clientRef.current?.stop();
@@ -239,6 +326,8 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     writeEnabled(false);
     setAudienceNotice(null);
     setClaimRefusal(null);
+    setSignInPending(false); // an explicit "off" also cancels a pending auto-resume
+    resumedRef.current = false; // …and suppresses its (now-stale) "forwarding is on" toast
     // Unwind the audience binding SAFELY: relax `requireAudience` FIRST (while our
     // token is still scoped, so the PUT verifies) and only THEN drop the scoping +
     // re-mint unscoped. If the relax is NOT confirmed, the scoping is left intact
@@ -251,8 +340,8 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   }, [audienceDeps]);
 
   const value = useMemo<ForwardingContextValue>(
-    () => ({supported, enabled, status, host, publishedHost, busy, error, audienceNotice, claimRefusal, enable, disable}),
-    [supported, enabled, status, host, publishedHost, busy, error, audienceNotice, claimRefusal, enable, disable],
+    () => ({supported, enabled, status, host, publishedHost, busy, error, audienceNotice, claimRefusal, signInPending, enable, disable}),
+    [supported, enabled, status, host, publishedHost, busy, error, audienceNotice, claimRefusal, signInPending, enable, disable],
   );
 
   return <ForwardingContext.Provider value={value}>{children}</ForwardingContext.Provider>;

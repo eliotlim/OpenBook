@@ -150,7 +150,7 @@ export const de: PartialMessages = {
     unclaimedNotice:
       'Die Freigabe wird erst wirksam, wenn du diese Instanz beanspruchst. Bis dahin kann jede Person mit Zugriff ansehen und bearbeiten — diese Einstellungen werden gespeichert, aber noch nicht durchgesetzt.',
     enforcementCaveat:
-      'Von dir eingeladene Personen können diese Seite über ihren veröffentlichten book.pub-Link möglicherweise noch nicht öffnen — das wird gerade ausgerollt. Der direkte Zugriff ist bereits wie hier festgelegt eingeschränkt.',
+      'Von dir eingeladene Personen können diese Seite über ihren veröffentlichten book.cloud-Link möglicherweise noch nicht öffnen — das wird gerade ausgerollt. Der direkte Zugriff ist bereits wie hier festgelegt eingeschränkt.',
     scopeLabel: 'Wer hat Zugriff',
     scope: {
       inherit: 'Arbeitsbereich-Standard',
@@ -165,7 +165,7 @@ export const de: PartialMessages = {
       restrictedHint: 'Beschränkt den Zugriff auf dich und die unten eingeladenen Personen.',
     },
     addLabel: 'Personen einladen',
-    addPlaceholder: 'E-Mail oder Handle',
+    addPlaceholder: 'name@example.com oder iss#sub',
     levelLabel: 'Zugriffsebene',
     levelRead: 'Kann ansehen',
     levelWrite: 'Kann bearbeiten',
@@ -671,7 +671,7 @@ export const de: PartialMessages = {
     youGuestNamed: 'Du bearbeitest als Gast „{name}".',
     youGuestAnon: 'Du bearbeitest als anonymer Gast.',
     guestAccess: 'Gastzugriff',
-    guestAccessHint: 'Gilt für alle, die diesen Arbeitsbereich ohne Anmeldung erreichen — über das Netzwerk oder einen geteilten ✦.book.pub-Link.',
+    guestAccessHint: 'Gilt für alle, die diesen Arbeitsbereich ohne Anmeldung erreichen — über das Netzwerk oder einen geteilten ✦.book.cloud-Link.',
     guestWrite: 'Lesen & Bearbeiten',
     guestRead: 'Nur lesen',
     guestOff: 'Kein Zugriff',
@@ -681,9 +681,11 @@ export const de: PartialMessages = {
   forwarding: {
     title: 'Ins Web weiterleiten',
     description:
-      'Sichere dir eine private ✦.book.pub-Adresse, die die Bücher dieses Geräts in jedem Browser öffnet — nichts zu hosten, nichts im Netzwerk freizugeben.',
+      'Sichere dir eine private ✦.book.cloud-Adresse, die die Bücher dieses Geräts in jedem Browser öffnet — nichts zu hosten, nichts im Netzwerk freizugeben.',
     toggle: 'Dieses Gerät weiterleiten',
     signInHint: 'Melde dich zuerst bei deinem Konto an, um eine Adresse zu sichern.',
+    signInPending: 'Schließe die Anmeldung bei deinem Konto ab — die Weiterleitung wird danach automatisch eingeschaltet.',
+    resumedToast: 'Weiterleitung ist aktiv — deine Adresse ist {host}.',
     signIn: 'Anmelden',
     registering: 'Verbinden…',
     address: 'Deine Adresse',

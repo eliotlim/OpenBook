@@ -36,7 +36,8 @@ function ForwardingStatusBadge({status}: {status: ForwardingStatus}) {
  * running when this panel closes; here we just drive it and show status.
  */
 function ForwardingSection() {
-  const {supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, enable, disable} = useForwarding();
+  const {supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, signInPending, enable, disable} =
+    useForwarding();
   const {connected, remintIdentity} = useAccount();
   const {t} = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -60,11 +61,22 @@ function ForwardingSection() {
         </span>
         <Switch checked={enabled} disabled={busy} onCheckedChange={(v) => void (v ? enable() : disable())} />
       </label>
-      {!connected && <p className="text-xs text-muted-foreground">{t('forwarding.signInHint')}</p>}
+      {/* A signed-out flip isn't a silent snap-back: the sign-in handoff is in flight
+          and the enable auto-resumes once the account connects — say so. The live
+          region is mounted PERSISTENTLY (only its text swaps) because content arriving
+          together with a fresh `role="status"` node isn't announced by most screen
+          readers (same a11y rule as the toast layer). */}
+      {!connected && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {signInPending ? t('forwarding.signInPending') : t('forwarding.signInHint')}
+        </p>
+      )}
       {/* Forewarn before the flip: the first forward permanently claims this device's
           books to the account and makes them private by default. Mirrors the prior-art
-          LAN `connection.publishWarning` box. Hidden once on, or while a refusal shows. */}
-      {connected && !enabled && !claimRefusal && (
+          LAN `connection.publishWarning` box. Hidden once on, or while a refusal shows.
+          Shown signed-out too — a signed-out flip now auto-completes after sign-in, so
+          the warning must be seen BEFORE that flip, not only after connecting. */}
+      {!enabled && !claimRefusal && (
         <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
           {t('forwarding.claimWarning')}
         </p>
@@ -107,8 +119,18 @@ function ForwardingSection() {
         </SettingsField>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {/* Severity-aware, like `claimRefusal` above: `partialUnscoped`/`ensureRescope`
+          are benign partial outcomes (the tunnel is up, nothing is broken — only the
+          strict audience hardening is incomplete), so render them muted; reserve the
+          destructive red for a bind/unbind step that genuinely failed. */}
       {audienceNotice && (
-        <p className="text-sm text-destructive">
+        <p
+          className={
+            audienceNotice.code === 'partialUnscoped' || audienceNotice.code === 'ensureRescope'
+              ? 'text-xs text-muted-foreground'
+              : 'text-sm text-destructive'
+          }
+        >
           {t(`forwarding.${audienceNotice.code}`, {error: audienceNotice.detail ?? ''})}
         </p>
       )}
