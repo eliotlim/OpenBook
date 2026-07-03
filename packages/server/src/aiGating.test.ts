@@ -95,6 +95,23 @@ const post = (app: ReturnType<typeof appWith>, path: string, body: unknown, jws?
 const get = (app: ReturnType<typeof appWith>, path: string, jws?: string) =>
   app.request(path, {headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
 
+const put = (app: ReturnType<typeof appWith>, path: string, body: unknown, jws?: string) =>
+  app.request(path, {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    body: JSON.stringify(body),
+  });
+
+const patch = (app: ReturnType<typeof appWith>, path: string, body: unknown, jws?: string) =>
+  app.request(path, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    body: JSON.stringify(body),
+  });
+
+const del = (app: ReturnType<typeof appWith>, path: string, jws?: string) =>
+  app.request(path, {method: 'DELETE', headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+
 beforeEach(async () => {
   seq += 1;
   dir = join(tmpdir(), `ob-aigate-${process.pid}-${seq}`);
@@ -280,6 +297,113 @@ describe('POST /api/pages closes the existence oracle (N6)', () => {
     const app = appWith();
     expect((await post(app, '/api/pages', {id: restr, name: 'renamed', data: snapshot()}, await idFor('owner'))).status).toBe(201);
     expect((await post(app, '/api/pages', {name: `fresh-${seq}`, data: snapshot()}, await idFor('owner'))).status).toBe(201);
+  });
+});
+
+// ── AI + plugin mutation routes are instance-writer-gated (audit P0-5) ────────
+//
+// `PUT /api/ai/config` (provider + API keys), `POST /api/ai/models/download`
+// (caller-supplied URL fetched onto the server's disk), and the workspace-shared
+// skills mutations are instance-wide configuration — write-class operations, so
+// they ride the same `requireCreate` gate as page creation (owner/admin yes;
+// viewer / jws non-member / guest 403). Same for the plugin surface: an
+// installed plugin is executable code run by EVERY client, so install / enable
+// / disable / remove are writer-only, while the LIST stays open (every client —
+// viewers included — syncs it on boot to run the enabled set).
+
+describe('AI mutation routes are instance-writer-gated (P0-5)', () => {
+  beforeEach(async () => {
+    await claim();
+    await store.addMember({subject: `${ISS}#admin`, role: 'admin', status: 'active'});
+    await store.addMember({subject: `${ISS}#viewer`, role: 'viewer', status: 'active'});
+  });
+
+  it('PUT /api/ai/config: owner + admin may write; viewer/non-member/guest 403', async () => {
+    const app = appWith({ai: aiService()});
+    const body = {provider: 'mock'};
+    expect((await put(app, '/api/ai/config', body, await idFor('owner'))).status).toBe(200);
+    expect((await put(app, '/api/ai/config', body, await idFor('admin'))).status).toBe(200);
+    expect((await put(app, '/api/ai/config', body, await idFor('viewer'))).status).toBe(403);
+    expect((await put(app, '/api/ai/config', body, await idFor('stranger'))).status).toBe(403);
+    expect((await put(app, '/api/ai/config', body)).status).toBe(403); // guest
+  });
+
+  it('POST /api/ai/models/download is writer-only (no guest-driven server-side fetch)', async () => {
+    const app = appWith({ai: aiService()});
+    // A dead-port URL: the route answers immediately with the download state and
+    // the background fetch fails harmlessly — no real network in the allowed case.
+    const body = {url: 'http://127.0.0.1:9/model.gguf'};
+    expect((await post(app, '/api/ai/models/download', body, await idFor('viewer'))).status).toBe(403);
+    expect((await post(app, '/api/ai/models/download', body, await idFor('stranger'))).status).toBe(403);
+    expect((await post(app, '/api/ai/models/download', body)).status).toBe(403); // guest
+    expect((await post(app, '/api/ai/models/download', body, await idFor('owner'))).status).toBe(200);
+  });
+
+  it('skills: PUT + DELETE are writer-only; GET stays open to a viewer', async () => {
+    const app = appWith({ai: aiService()});
+    const skill = {skill: {name: 'test-skill', description: 'd', instructions: 'do the thing'}};
+    expect((await put(app, '/api/ai/skills', skill, await idFor('viewer'))).status).toBe(403);
+    expect((await put(app, '/api/ai/skills', skill)).status).toBe(403); // guest
+    expect((await put(app, '/api/ai/skills', skill, await idFor('owner'))).status).toBe(200);
+    expect((await del(app, '/api/ai/skills/test-skill', await idFor('viewer'))).status).toBe(403);
+    expect((await del(app, '/api/ai/skills/test-skill')).status).toBe(403); // guest
+    expect((await get(app, '/api/ai/skills', await idFor('viewer'))).status).toBe(200);
+    expect((await del(app, '/api/ai/skills/test-skill', await idFor('owner'))).status).toBe(200);
+  });
+});
+
+describe('plugin mutation routes are instance-writer-gated (P0-5)', () => {
+  const pkg = () => ({
+    manifest: {id: 'test.gate-check', name: 'Gate Check', version: '1.0.0', main: 'index.ts'},
+    files: {'index.ts': 'export {};'},
+  });
+
+  beforeEach(async () => {
+    await claim();
+    await store.addMember({subject: `${ISS}#admin`, role: 'admin', status: 'active'});
+    await store.addMember({subject: `${ISS}#viewer`, role: 'viewer', status: 'active'});
+  });
+
+  it('POST /api/plugins: a viewer/non-member/guest cannot plant code (403); owner/admin can', async () => {
+    const app = appWith();
+    expect((await post(app, '/api/plugins', pkg(), await idFor('viewer'))).status).toBe(403);
+    expect((await post(app, '/api/plugins', pkg(), await idFor('stranger'))).status).toBe(403);
+    expect((await post(app, '/api/plugins', pkg())).status).toBe(403); // guest
+    expect(await store.listPlugins()).toEqual([]); // nothing was stored
+    expect((await post(app, '/api/plugins', pkg(), await idFor('owner'))).status).toBe(201);
+    expect((await post(app, '/api/plugins', pkg(), await idFor('admin'))).status).toBe(201);
+  });
+
+  it('PATCH + DELETE /api/plugins/:id are writer-only; GET stays open (clients sync on boot)', async () => {
+    const app = appWith();
+    expect((await post(app, '/api/plugins', pkg(), await idFor('owner'))).status).toBe(201);
+    const id = 'test.gate-check';
+    expect((await patch(app, `/api/plugins/${id}`, {enabled: false}, await idFor('viewer'))).status).toBe(403);
+    expect((await patch(app, `/api/plugins/${id}`, {enabled: false})).status).toBe(403); // guest
+    expect((await del(app, `/api/plugins/${id}`, await idFor('viewer'))).status).toBe(403);
+    expect((await del(app, `/api/plugins/${id}`)).status).toBe(403); // guest
+    // Every client (viewers + guests included) lists plugins to run the enabled set.
+    expect((await get(app, '/api/plugins', await idFor('viewer'))).status).toBe(200);
+    expect((await get(app, '/api/plugins')).status).toBe(200); // guest
+    // The writer path still works end-to-end.
+    expect((await patch(app, `/api/plugins/${id}`, {enabled: false}, await idFor('admin'))).status).toBe(200);
+    expect((await del(app, `/api/plugins/${id}`, await idFor('owner'))).status).toBe(204);
+  });
+
+});
+
+describe('legacy single-user (unclaimed) plugin + AI config management is unaffected', () => {
+  it('a guest still installs/toggles/removes plugins and writes the AI config', async () => {
+    // No claim() → the guest keeps blanket write, exactly as the single-user app relies on.
+    const app = appWith({ai: aiService()});
+    const pkg = {
+      manifest: {id: 'test.gate-check', name: 'Gate Check', version: '1.0.0', main: 'index.ts'},
+      files: {'index.ts': 'export {};'},
+    };
+    expect((await post(app, '/api/plugins', pkg)).status).toBe(201);
+    expect((await patch(app, '/api/plugins/test.gate-check', {enabled: false})).status).toBe(200);
+    expect((await del(app, '/api/plugins/test.gate-check')).status).toBe(204);
+    expect((await put(app, '/api/ai/config', {provider: 'mock'})).status).toBe(200);
   });
 });
 

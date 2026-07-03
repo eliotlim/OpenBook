@@ -18,6 +18,9 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   app.get(API.aiStatus, async (c) => c.json(await ai.status()));
 
   app.put(API.aiConfig, async (c) => {
+    // Instance-wide engine config (provider, API keys, model choice) — an
+    // instance-writer action, not something a viewer/guest may flip.
+    await requireCreate(c, store);
     const body = (await c.req.json()) as AiConfig;
     if (!['off', 'mock', 'llama', 'mlx', 'openai', 'claude'].includes(body.provider)) {
       return c.json({error: `Unknown provider: ${String(body.provider)}`}, 400);
@@ -106,6 +109,9 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   });
 
   app.post(API.aiModelDownload, async (c) => {
+    // Fetches a caller-supplied URL onto the server's disk (SSRF + disk-fill
+    // surface) — instance-writer only.
+    await requireCreate(c, store);
     const {url} = (await c.req.json().catch(() => ({}))) as {url?: string};
     return c.json(await ai.startDownload(url));
   });
@@ -178,6 +184,9 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   app.get(API.aiSkills, async (c) => c.json(await ai.skills.list()));
 
   app.put(API.aiSkills, async (c) => {
+    // Skills are workspace-shared prompt/recipe definitions injected into every
+    // user's agent runs — mutations are instance-writer only.
+    await requireCreate(c, store);
     const {skill} = (await c.req.json().catch(() => ({}))) as {skill?: AiSkill};
     if (!skill?.name?.trim()) return c.json({error: 'skill.name is required'}, 400);
     try {
@@ -187,7 +196,11 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     }
   });
 
-  app.delete(API.aiSkill(':name'), async (c) => {
+  // NOTE: registered as a template (`:name` param), NOT via `API.aiSkill(':name')`
+  // — that helper percent-encodes the colon, which registers the literal path
+  // `/api/ai/skills/%3Aname` and never matches a real skill name.
+  app.delete(`${API.aiSkills}/:name`, async (c) => {
+    await requireCreate(c, store);
     const removed = await ai.skills.remove(c.req.param('name') ?? '');
     return c.json({removed});
   });
