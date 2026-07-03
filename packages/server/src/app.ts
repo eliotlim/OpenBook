@@ -25,6 +25,7 @@ import {
   type SuggestionInput,
   type SuggestionStatus,
   type SuggestionUpdate,
+  localPrincipal,
   verifiedSubject,
 } from '@book.dev/sdk';
 import {PageStore, AssetBudgetError} from './store';
@@ -34,8 +35,8 @@ import {ServerAuthoritativePersister} from './collabPersist';
 import {AwarenessRelay, awarenessUser, stampAwarenessIdentity} from './collabAwareness';
 import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
-import {guestGate, recoverAudienceLockedPrincipal, resolvePrincipal, type IdentityProvider} from './principal';
-import {requireAccess, requireCreate, requireDbAccess, streamGates} from './access';
+import {guestGate, isLocalOwnerRequest, recoverAudienceLockedPrincipal, resolvePrincipal, type IdentityProvider} from './principal';
+import {requireAccess, requireCreate, requireDbAccess, requireInstanceAdmin, streamGates} from './access';
 import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
 import type {RosterController} from './rosterSync';
@@ -186,6 +187,17 @@ export interface AppOptions {
    * `OPENBOOK_ASSET_STORAGE_BUDGET_BYTES`); `<= 0` disables the budget (unlimited).
    */
   assetStorageBudgetBytes?: number;
+  /**
+   * The per-run local-owner secret (the loopback-owner hatch — see
+   * {@link isLocalOwnerRequest}). Minted by the host that spawned this server (the
+   * desktop app) and stamped by its IPC bridge on exactly the requests that
+   * originate in the app's own webview. A non-forwarded request presenting it is
+   * granted machine-owner authority: it resolves as the `local` principal when it
+   * carries no verified identity, keeps owner-gated routes reachable when it does,
+   * and may repair a drifted `ownerSubject`. Unset (headless/server mode, tests,
+   * the in-browser client) ⇒ the hatch is inert.
+   */
+  localOwnerSecret?: string;
 }
 
 /**
@@ -317,8 +329,24 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // With no identity provider configured the instance stays legacy: everyone is
   // an anonymous guest with full access.
   app.use('/api/*', async (c, next) => {
+    // Loopback-owner hatch: a non-forwarded request presenting the host's per-run
+    // secret is the machine owner's own app. Resolved once here; owner-gated routes
+    // (instance policy, ownership repair, whole-workspace export/import) also read
+    // the flag, so a signed-in-but-drifted identity keeps machine-owner authority.
+    const localOwner = isLocalOwnerRequest(c, opts.localOwnerSecret);
+    if (localOwner) c.set('localOwner', true);
+
     const resolved = await resolvePrincipal(c, opts.identity);
     if ('reject' in resolved) {
+      // The machine owner is never locked out of their own instance by a bad
+      // credential: an expired / re-issued / audience-locked token over the trusted
+      // local transport degrades to the local-owner principal instead of a 401. The
+      // strict no-silent-downgrade rule stays in force for every other caller —
+      // over the hatch the *transport* is the credential.
+      if (localOwner) {
+        c.set('principal', localPrincipal());
+        return next();
+      }
       // Loopback-owner audience-lockout recovery (OB-202): a token rejected solely
       // for its audience may still relax this instance's own audience requirement,
       // so the owner is never permanently stranded behind it. Everything else stays
@@ -330,19 +358,25 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       }
       return c.json({error: resolved.reject.error}, resolved.reject.status);
     }
-    const principal = resolved.principal;
+    // A signed-out machine owner is the local owner, not an anonymous guest; a
+    // verified identity (when presented) still wins, so edits stay attributed to
+    // the signed-in user and persona/email-ACL matching keeps working.
+    const principal = localOwner && resolved.principal.kind === 'guest' ? localPrincipal() : resolved.principal;
     c.set('principal', principal);
     if (opts.identity) {
       // Guest-floor guarantee (OB-190, OB-189 security review #1). On an
       // identity-enabled instance the only request-time principals `authorize()`
-      // may ever judge are `guest | jws` (`local` is in-process only and never
-      // arrives over a request). `synced` is never request-emitted and
+      // may ever judge are `guest | jws` — plus `local`, which arrives over a
+      // request ONLY via the loopback-owner hatch above (the host-minted secret;
+      // never mintable from a header alone). `synced` is never request-emitted and
       // `unverified` only arises with NO identity trust configured — make that a
       // hard invariant rather than an accident, so the `guestAccess='off'`
       // public-read floor (keyed on the guest class) can never be stepped around
       // by a non-jws, non-guest `user` principal. A bad credential is a 401.
       if (principal.verifiedVia !== 'jws' && principal.verifiedVia !== 'guest') {
-        return c.json({error: 'identity could not be verified'}, 401);
+        if (!(localOwner && principal.verifiedVia === 'local')) {
+          return c.json({error: 'identity could not be verified'}, 401);
+        }
       }
       const {guestAccess} = await opts.identity.policy();
       const gate = guestGate(principal, guestAccess, c.req.method);
@@ -792,18 +826,20 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   });
 
   // Whole-instance dump: every non-deleted page + all databases, unfiltered. Gate
-  // to an instance writer (owner/admin/loopback) — a non-member/guest must not be
-  // able to exfiltrate every restricted/members page in one request (OB-190
-  // follow-up, [CRITICAL]).
+  // to instance ADMINISTRATION (local-owner / owner / admin) — not the blanket
+  // write gate: an acl-write member could otherwise exfiltrate every
+  // restricted/members page in one request, and conversely the read-shaped export
+  // must never 403 the machine owner just because their account identity lapsed
+  // (the post-upgrade "Export failed: you do not have write access" lockout).
   app.get(API.exportSpace, async (c) => {
-    await requireCreate(c, store);
+    await requireInstanceAdmin(c, store);
     return c.json(await store.exportAll());
   });
 
   app.post(API.importSpace, async (c) => {
-    // Wholesale overwrite/inject of pages + databases — instance-writer only
-    // (OB-190 follow-up, [HIGH]).
-    await requireCreate(c, store);
+    // Wholesale overwrite/inject of pages + databases — instance administration
+    // only, same gate (and rationale) as the export above.
+    await requireInstanceAdmin(c, store);
     const req = await c.req.json<ImportRequest>();
     const result = await store.importBundle(req);
     // ER-6: a deduped re-apply wrote nothing — skip the list re-broadcast and the
@@ -832,6 +868,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       requireAudience: config.requireAudience ?? false,
       you: principal,
       youRole: await store.resolveMemberRole(principal, config),
+      // The loopback-owner hatch fired: this caller holds machine-owner authority,
+      // so a client can offer (or auto-run) an ownership repair when `you` doesn't
+      // match `ownerSubject`.
+      localOwner: Boolean(c.get('localOwner')),
     };
     return c.json(info);
   });
@@ -865,8 +905,34 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       return c.json(next);
     }
 
-    // Post-claim (or non-claim) policy update: once claimed, only the owner.
-    if (current.ownerSubject && principal.subject !== current.ownerSubject) {
+    // Ownership repair (the claim-once escape hatch). A claimed `ownerSubject` is
+    // pinned as `iss#sub` at claim time and normally immutable — but issuer/subject
+    // drift (an account migration, a re-issued identity) leaves the REAL owner
+    // permanently mismatched, with no recovery short of SQL surgery. The machine
+    // owner may re-point it, under the narrowest possible rules: only over the
+    // trusted local transport (the hatch), only to the caller's OWN verified (jws)
+    // subject — never a client-chosen value — and never cleared. A remote caller,
+    // however credentialed, cannot re-point ownership.
+    // Engages only over the trusted local transport: every other caller falls
+    // through to the normal owner gate + the store's un-claim guard (409), so the
+    // remote contract is unchanged.
+    if (current.ownerSubject && patch.ownerSubject !== undefined && patch.ownerSubject !== current.ownerSubject && c.get('localOwner')) {
+      if (principal.verifiedVia !== 'jws' || patch.ownerSubject !== principal.subject) {
+        return c.json({error: 'ownership can only be repaired to your own verified identity'}, 403);
+      }
+      const repaired = await store.repairOwnership(principal.subject);
+      const rest: Partial<InstanceConfig> = {...patch};
+      delete rest.ownerSubject;
+      const next = Object.keys(rest).length > 0 ? await store.updateInstanceConfig(rest) : repaired;
+      logEdit(c, null, 'instance.repair', `${current.ownerSubject} -> ${principal.subject}`);
+      return c.json(next);
+    }
+
+    // Post-claim (or non-claim) policy update: once claimed, only the owner — or
+    // the machine owner over the trusted local transport (the loopback hatch), so
+    // a missing/stale account identity can't lock the desktop out of its own
+    // policy (the "only the instance owner can change multi-user" lockout).
+    if (current.ownerSubject && principal.subject !== current.ownerSubject && !c.get('localOwner')) {
       return c.json({error: 'only the instance owner can change multi-user policy'}, 403);
     }
     const next = await store.updateInstanceConfig(patch);

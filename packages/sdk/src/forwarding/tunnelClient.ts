@@ -9,6 +9,7 @@
 // local server without opening a TCP port.
 
 import {globalFetch, type FetchLike} from '../client';
+import {LOCAL_OWNER_HEADER} from '../identity';
 import {buildRelayAttachMessage} from './challenge';
 import {signWithSiteKey} from './siteKey';
 import {decodeBody, decodeControl, encodeBody, encodeControl, FORWARDED_HEADER, type ControlFrame} from './tunnelProtocol';
@@ -211,6 +212,7 @@ export class TunnelClient {
     const url = `${this.opts.localOrigin.replace(/\/$/, '')}${frame.path}`;
     const headers = new Headers();
     const forwardedLk = FORWARDED_HEADER.toLowerCase();
+    const localOwnerLk = LOCAL_OWNER_HEADER.toLowerCase();
     for (const [k, v] of frame.headers) {
       const lk = k.toLowerCase();
       if (lk === 'host' || lk === 'connection' || lk === 'content-length') continue;
@@ -218,6 +220,11 @@ export class TunnelClient {
       // client-supplied. The origin's exposure backstop trusts it precisely because
       // only this client sets it (OB-209).
       if (lk === forwardedLk) continue;
+      // Likewise drop any inbound local-owner secret: it authenticates the app's own
+      // webview to the local server, and a remote viewer must never be able to replay
+      // one through the tunnel (belt-and-braces — the origin also ignores it on any
+      // request carrying the forwarded marker).
+      if (lk === localOwnerLk) continue;
       headers.append(k, v);
     }
     // Mark every forwarded request as exposed. Set unconditionally (after the strip

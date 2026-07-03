@@ -180,6 +180,7 @@ export {
   signRevocations,
   principalFromClaims,
   unverifiedPrincipalFromClaims,
+  LOCAL_OWNER_HEADER,
   type Principal,
   type PrincipalKind,
   type VerifiedVia,

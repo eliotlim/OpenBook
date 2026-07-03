@@ -76,6 +76,18 @@ export function localPrincipal(name = 'Local'): Principal {
   return {kind: 'user', subject: 'local:owner', issuer: 'local', name, verifiedVia: 'local'};
 }
 
+/**
+ * Header carrying the per-run local-owner secret (OB-202 follow-up). The desktop
+ * host mints a secret at launch, hands it to the sidecar via env, and its IPC
+ * bridge stamps this header on every request that originates in the app's own
+ * webview — and ONLY those: tunnel-forwarded requests (marked `FORWARDED_HEADER`)
+ * never get it, and any inbound copy is stripped before forwarding. A matching
+ * value lets the server treat the request as the machine owner ({@link
+ * localPrincipal}), which is what restores the desktop's authority over its own
+ * claimed instance when no (or a stale) account identity is present.
+ */
+export const LOCAL_OWNER_HEADER = 'X-OpenBook-Local';
+
 /** Stable short id for a principal — the value embedded in CRDT edit origins. */
 export function principalId(p: Principal): string {
   return p.subject;

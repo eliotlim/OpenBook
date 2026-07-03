@@ -11,9 +11,12 @@
  * missing assertion is a guest. See `docs/multi-user-and-backups-2026-06.md`.
  */
 
+import {timingSafeEqual} from 'node:crypto';
 import type {Context} from 'hono';
 import {
   API,
+  FORWARDED_HEADER,
+  LOCAL_OWNER_HEADER,
   decodeIdentity,
   guestPrincipal,
   principalFromClaims,
@@ -74,6 +77,41 @@ export type Resolved = {principal: Principal} | {reject: PrincipalRejection};
 
 function isWriteMethod(method: string): boolean {
   return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS';
+}
+
+/**
+ * The loopback-owner hatch: is this request from the machine owner's own app?
+ *
+ * The desktop reaches this server over IPC/loopback, where {@link resolvePrincipal}
+ * can only ever yield `guest | jws` — the privileged `local` principal is minted
+ * in-process only. So on a CLAIMED instance the desktop user holds owner authority
+ * only while their account JWS verifies AND its subject matches the pinned
+ * `ownerSubject`; a missing, stale, or re-issued token silently demotes them to a
+ * guest on their own data (the post-upgrade "you do not have write access" class
+ * of lockout). This hatch restores the intended local-owner rung: the HOST (which
+ * spawned this server) mints a per-run secret, shares it via env, and its IPC
+ * bridge stamps {@link LOCAL_OWNER_HEADER} on exactly the requests that originate
+ * in the app's own webview. A match ⇒ machine-owner authority.
+ *
+ * Two hard rules keep the trust boundary tight:
+ *  - a request carrying {@link FORWARDED_HEADER} NEVER matches, whatever it
+ *    presents — tunnel-relayed traffic shares the same IPC transport, and the
+ *    tunnel both marks every request it forwards and strips inbound copies of the
+ *    secret, so this is defence in depth on top of that strip;
+ *  - the comparison is constant-time, so the secret can't be probed byte-by-byte
+ *    by anything that can reach the socket.
+ *
+ * With no secret configured (headless/server mode, tests, the in-browser client)
+ * the hatch is inert and resolution behaves exactly as before.
+ */
+export function isLocalOwnerRequest(c: Context, secret: string | undefined): boolean {
+  if (!secret) return false;
+  if (c.req.header(FORWARDED_HEADER)) return false;
+  const presented = c.req.header(LOCAL_OWNER_HEADER);
+  if (!presented) return false;
+  const a = Buffer.from(presented);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 /**

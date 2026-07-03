@@ -1639,6 +1639,43 @@ export class PageStore {
     });
   }
 
+  /**
+   * Re-point a CLAIMED `ownerSubject` (the claim-once escape hatch). Issuer or
+   * subject drift — an account migration, a re-issued identity — leaves the real
+   * owner permanently mismatched against the pinned `iss#sub`, and
+   * {@link updateInstanceConfig} correctly refuses to touch it (409). This is the
+   * one sanctioned mutation: swap the pin to another verified subject, WITHOUT
+   * re-running the §2.6 claim bootstrap (visibility/guest-gate/authority were set
+   * at the original claim and must not be re-tightened by a repair). WHO may call
+   * this is the route's job (machine owner over the trusted local transport, to
+   * their own verified subject only — never clearable, so the rule-0
+   * anonymous-world-write short-circuit can never be re-opened by a repair).
+   * Repairing an UNCLAIMED instance is refused — that's a claim, and claims go
+   * through the {@link claimOwnership} CAS.
+   */
+  async repairOwnership(subject: string): Promise<InstanceConfig> {
+    return this.db.begin(async (tx) => {
+      const rows = await tx.query<{value: InstanceConfig | string}>(
+        'SELECT value FROM settings WHERE key = \'instance\' FOR UPDATE',
+      );
+      const current: InstanceConfig = {
+        ...DEFAULT_INSTANCE_CONFIG,
+        ...parseJson<Partial<InstanceConfig>>(rows[0]?.value, {}),
+      };
+      if (!current.ownerSubject) {
+        throw new HTTPException(409, {message: 'this instance is unclaimed — ownership must be claimed, not repaired'});
+      }
+      if (current.ownerSubject === subject) return current; // idempotent no-op
+      const next: InstanceConfig = {...current, ownerSubject: subject};
+      await tx.query(
+        'UPDATE settings SET value = $1::jsonb WHERE key = \'instance\'',
+        [JSON.stringify(next)],
+      );
+      this.bumpAccess(); // the owner rung of every decision just moved (Collab T1)
+      return next;
+    });
+  }
+
   // ── Scheduled-backup policy (OB-166) ──────────────────────────────────────────
 
   /** The scheduled-backup policy, with defaults filled in. */
