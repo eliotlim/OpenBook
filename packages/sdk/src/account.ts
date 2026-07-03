@@ -52,6 +52,28 @@ export class AccountError extends Error {
 }
 
 /**
+ * The outcome of an identity mint, discriminated so callers can react to each
+ * terminal state instead of collapsing them all into null-or-throw. The split
+ * matters because the states demand OPPOSITE reactions:
+ *  - `unconfigured` (501) is terminal — the account never issues identities, so
+ *    the app acts as a named guest (and no retry will change that);
+ *  - `audRejected` (400 with an `aud` supplied) means the issuer refused the
+ *    *audience*, not the user — the caller should retry WITHOUT the audience
+ *    rather than drop the identity (an unscoped token still verifies the user
+ *    on their own instance);
+ *  - transient/auth failures still throw {@link AccountError}, so a network
+ *    blip never masquerades as either terminal state.
+ */
+export type IdentityTokenResult =
+  /** A fresh identity assertion was minted. */
+  | {status: 'ok'; identity: string; expiresAt: string}
+  /** Identity issuance is not configured on this account service (501). */
+  | {status: 'unconfigured'}
+  /** The issuer refused the requested `aud` (no allowlist configured, or an
+   *  allowlist miss). `error` is the server's own explanation, for logs/UI. */
+  | {status: 'audRejected'; error: string};
+
+/**
  * Talks to the account service's `/api/connect` (deep-link sign-in) and
  * `/api/settings` (bearer-authed settings sync). Stateless: the caller holds the
  * device token and passes it per request.
@@ -109,25 +131,43 @@ export class AccountClient {
   /**
    * Mint a verifiable identity assertion (JWS) for the OpenBook data server
    * (OB-165). The data server verifies it against the account's JWKS and
-   * attributes the user's changes to `iss#sub`. Returns `{identity, expiresAt}`,
-   * or `null` when the account doesn't issue identities (501) — the app then
-   * acts as a named guest. Throws `AccountError(401)` on an invalid/revoked token.
+   * attributes the user's changes to `iss#sub`. Returns a discriminated
+   * {@link IdentityTokenResult} — `ok` with `{identity, expiresAt}`,
+   * `unconfigured` when the account doesn't issue identities (501, terminal),
+   * or `audRejected` when the issuer refused the requested audience (400 with
+   * `aud` supplied — retry unscoped, don't drop the identity). Throws
+   * `AccountError` on anything else (401 invalid/revoked token, 5xx, …).
    */
-  async getIdentityToken(token: string, aud?: string): Promise<{identity: string; expiresAt: string} | null> {
+  async getIdentityToken(token: string, aud?: string): Promise<IdentityTokenResult> {
     // `aud` scopes the assertion to one data server (OB-177), so it can't be
     // replayed to another. Required by the issuer only when it runs an audience
-    // allowlist; harmless (and unscoped) otherwise.
+    // allowlist; when it doesn't, the issuer 400s the *request* — which must not
+    // be confused with the *user* being rejected (see `audRejected` above).
     const url = new URL('/api/identity/token', this.baseUrl + '/');
     if (aud) url.searchParams.set('aud', aud);
     const res = await fetch(url, {
       headers: {authorization: `Bearer ${token}`},
       cache: 'no-store',
     });
-    if (res.status === 501) return null; // issuance not configured on this account
+    if (res.status === 501) return {status: 'unconfigured'}; // issuance not configured on this account
+    if (res.status === 400 && aud) {
+      // The issuer refused the audience we asked for ("audience binding is not
+      // configured on this server", or an allowlist miss). Carry its own words.
+      let error = `audience "${aud}" was rejected by the issuer`;
+      try {
+        const body = (await res.json()) as {error?: unknown};
+        if (typeof body.error === 'string' && body.error) error = body.error;
+      } catch {
+        /* non-JSON body — keep the generic explanation */
+      }
+      return {status: 'audRejected', error};
+    }
     if (!res.ok) throw new AccountError(res.status, `account identity token failed (${res.status})`);
     const body = (await res.json()) as {identity?: string; expiresAt?: string};
-    if (!body.identity || !body.expiresAt) return null;
-    return {identity: body.identity, expiresAt: body.expiresAt};
+    // A 200 with a malformed body: treat like an issuer that mints nothing, the
+    // same guest fallback the pre-discrimination client applied.
+    if (!body.identity || !body.expiresAt) return {status: 'unconfigured'};
+    return {status: 'ok', identity: body.identity, expiresAt: body.expiresAt};
   }
 
   /** Cheap token check (a settings GET): true if accepted, false on 401. */

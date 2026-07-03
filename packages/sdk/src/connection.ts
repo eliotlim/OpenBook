@@ -127,11 +127,33 @@ export function setGuestName(name: string | null): void {
  */
 const FORWARDING_AUDIENCE_KEY = 'openbook.forwarding.audience';
 
-/** The canonical forwarded host to scope identity tokens to, or `null` if off. */
+/** The site-forwarding root moved `*.book.pub` → `*.book.cloud`; an audience
+ *  recorded before the move can never mint again (the issuer only allowlists the
+ *  new root), so it must be healed on read — see {@link getForwardingAudience}. */
+const STALE_AUDIENCE_SUFFIX = '.book.pub';
+const CANONICAL_AUDIENCE_SUFFIX = '.book.cloud';
+
+/**
+ * The canonical forwarded host to scope identity tokens to, or `null` if off.
+ *
+ * Heals a stale pre-migration value in passing: an audience persisted as
+ * `<prefix>.book.pub` (before the `*.book.cloud` root move) is rewritten to
+ * `<prefix>.book.cloud` and stored back — mirroring the host heal in
+ * `ForwardingClient.start()`, which adopts the account's fresh canonical host on
+ * attach. Without this, every identity mint keeps asking for an audience the
+ * issuer can no longer grant.
+ */
 export function getForwardingAudience(): string | null {
   if (typeof localStorage === 'undefined') return null;
   const value = localStorage.getItem(FORWARDING_AUDIENCE_KEY);
-  return value && value.trim().length > 0 ? value.trim() : null;
+  const host = value && value.trim().length > 0 ? value.trim() : null;
+  if (!host) return null;
+  if (host.endsWith(STALE_AUDIENCE_SUFFIX)) {
+    const healed = host.slice(0, -STALE_AUDIENCE_SUFFIX.length) + CANONICAL_AUDIENCE_SUFFIX;
+    localStorage.setItem(FORWARDING_AUDIENCE_KEY, healed);
+    return healed;
+  }
+  return host;
 }
 
 /** Set (or clear, with `null`) the forwarded host the owner's token is scoped to. */

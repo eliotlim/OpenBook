@@ -7,7 +7,7 @@
 // runs in the Tauri webview; the desktop supplies a keychain-backed KeyStore and
 // the IPC fetch.
 
-export {ForwardingClient, MemoryKeyStore, type KeyStore, type SiteIdentity, type ForwardingClientOptions} from './forwardingClient';
+export {ForwardingApiError, ForwardingClient, MemoryKeyStore, type KeyStore, type SiteIdentity, type ForwardingClientOptions} from './forwardingClient';
 export {TunnelClient, type TunnelStatus, type TunnelClientOptions} from './tunnelClient';
 export {mintSiteKeypair, signWithSiteKey, verifyWithSiteKey, type SiteKeypair} from './siteKey';
 export {

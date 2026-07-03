@@ -38,6 +38,15 @@ import {t} from '@/i18n';
 
 export type AccountStatus = 'disconnected' | 'connecting' | 'syncing' | 'connected' | 'error';
 
+/**
+ * Whether the active account's service can mint identity JWSes at all.
+ * `unconfigured` is TERMINAL for the session (the service answered 501 —
+ * issuance is disabled there, and no "refresh" will change that), which the UI
+ * uses to explain a refused publish instead of offering a retry loop. Transient
+ * mint failures never touch this — it only moves on a definitive answer.
+ */
+export type IdentityIssuance = 'unknown' | 'ok' | 'unconfigured';
+
 /** One connected account in the multi-account list. Carries only non-secret
  *  metadata — the device token lives in the per-account secret store. */
 export interface ConnectedAccount {
@@ -100,6 +109,9 @@ interface AccountContextValue {
    *  required audience, OB-202). Resolves to the audience the issuer scoped the new
    *  token to, or null when unscoped / nothing minted / disconnected. */
   remintIdentity: () => Promise<string | null>;
+  /** Whether the active account's service issues identities at all — see
+   *  {@link IdentityIssuance}. `unconfigured` means a refresh can never succeed. */
+  identityIssuance: IdentityIssuance;
 }
 
 const AccountContext = createContext<AccountContextValue | null>(null);
@@ -505,16 +517,37 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
   // the new active account; sign-out clears it. If the account doesn't issue
   // identities (501) we stay a named guest.
   const identityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [identityIssuance, setIdentityIssuance] = useState<IdentityIssuance>('unknown');
   const refreshIdentity = useCallback(
     async (tok: string): Promise<Persona | null> => {
       try {
         // Forwarding (OB-202) scopes the owner's own token to the forwarded host;
         // otherwise fall back to the connected data-server's host (OB-177).
         const aud = getForwardingAudience() ?? dataServerAudience();
-        const res = await client.getIdentityToken(tok, aud);
-        setIdentityToken(res?.identity ?? null);
+        let res = await client.getIdentityToken(tok, aud);
+        if (res.status === 'audRejected') {
+          // The issuer refused the AUDIENCE, not the user (no allowlist configured
+          // — the account default — or an allowlist miss). An unscoped token keeps
+          // the user verified on their own instance, and audience scoping is a
+          // separate, softer concern (the forwarding bind reports an unscoped
+          // token via its `partial` notice). So retry ONCE without `aud` rather
+          // than let a rejected audience demote the owner to guest — the failure
+          // mode that cascaded into "no write access" 403s on the user's own
+          // claimed instance.
+          res = await client.getIdentityToken(tok);
+        }
         if (identityTimer.current) clearTimeout(identityTimer.current);
-        if (!res) return null;
+        if (res.status !== 'ok') {
+          // Terminal for this session: the account definitively answered that it
+          // mints no identity for us (501, or a still-rejected unscoped mint).
+          // Only such a definitive refusal clears the stored identity — transient
+          // network errors take the catch below and keep the previous token.
+          setIdentityIssuance(res.status === 'unconfigured' ? 'unconfigured' : 'unknown');
+          setIdentityToken(null);
+          return null;
+        }
+        setIdentityIssuance('ok');
+        setIdentityToken(res.identity);
         // Refresh a minute before expiry (but at least 30s out).
         const ms = Math.max(30_000, new Date(res.expiresAt).getTime() - Date.now() - 60_000);
         identityTimer.current = setTimeout(() => void refreshRef.current(tok), ms);
@@ -543,6 +576,9 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     if (identityTimer.current) clearTimeout(identityTimer.current);
     identityTimer.current = null;
     setIdentityToken(null);
+    // Issuance is a fact about the ACTIVE account's service; a sign-out/switch
+    // makes it unknown again until the next account's first mint answers.
+    setIdentityIssuance('unknown');
   }, []);
 
   // Mutually-recursive async actions (activate ⇄ forget) bound through refs so
@@ -979,6 +1015,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       addAccount: signIn,
       removeAccount,
       remintIdentity,
+      identityIssuance,
     }),
     [
       status,
@@ -997,6 +1034,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       setActiveAccount,
       removeAccount,
       remintIdentity,
+      identityIssuance,
     ],
   );
 

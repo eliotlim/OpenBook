@@ -45,6 +45,24 @@ export class MemoryKeyStore implements KeyStore {
   }
 }
 
+/**
+ * Thrown on a non-OK account-API response. Carries the `path` + `status` so
+ * callers can branch structurally (e.g. the attach-ticket 400 retry below)
+ * instead of string-matching, and folds the server's own JSON `{error}` detail
+ * into the message — "nonce expired" vs a bare 400 is the difference between a
+ * diagnosable failure and a dead end.
+ */
+export class ForwardingApiError extends Error {
+  constructor(
+    public readonly path: string,
+    public readonly status: number,
+    detail?: string,
+  ) {
+    super(detail ? `${path} → ${status} (${detail})` : `${path} → ${status}`);
+    this.name = 'ForwardingApiError';
+  }
+}
+
 export interface ForwardingClientOptions {
   /** https://account.book.pub */
   accountUrl: string;
@@ -92,7 +110,16 @@ export class ForwardingClient {
       headers: {authorization: `Bearer ${this.opts.authToken}`, 'content-type': 'application/json'},
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`${path} → ${res.status}`);
+    if (!res.ok) {
+      let detail: string | undefined;
+      try {
+        const body = (await res.json()) as {error?: unknown};
+        if (typeof body.error === 'string' && body.error) detail = body.error;
+      } catch {
+        /* non-JSON error body — the path + status alone will have to do */
+      }
+      throw new ForwardingApiError(path, res.status, detail);
+    }
     return (await res.json()) as T;
   }
 
@@ -148,6 +175,22 @@ export class ForwardingClient {
    * after connecting); omitting it makes the upgrade fail with 400 "missing site".
    */
   private async mintAttach(id: SiteIdentity): Promise<{relayWsUrl: string; ticket: string; host: string}> {
+    try {
+      return await this.mintAttachOnce(id);
+    } catch (e) {
+      // The challenge nonce is single-use with a ~120s TTL, so a slow keychain
+      // sign or clock skew can burn it before the attach POST lands — the account
+      // then 400s a perfectly healthy client. The sequence is cheap and safe to
+      // re-run (each attempt mints its own nonce), so retry ONCE with a fresh
+      // challenge before surfacing the failure.
+      const staleChallenge = e instanceof ForwardingApiError && e.status === 400 && e.path === '/api/sites/attach-ticket';
+      if (!staleChallenge) throw e;
+      return this.mintAttachOnce(id);
+    }
+  }
+
+  /** One challenge → sign → attach-ticket pass (see {@link mintAttach} for the retry). */
+  private async mintAttachOnce(id: SiteIdentity): Promise<{relayWsUrl: string; ticket: string; host: string}> {
     const {nonce, ts} = await this.challenge(id.publicKey);
     const signature = await signWithSiteKey(
       id.privateKey,
