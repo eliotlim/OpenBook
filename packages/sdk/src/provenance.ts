@@ -8,7 +8,7 @@
 
 import {DEFAULT_ACCOUNT_URL} from './account';
 import type {Jwks, Principal, RevocationSet, VerifiedVia} from './identity';
-import type {MemberRole, PageVisibility} from './types';
+import type {EffectiveRole, MemberRole, PageVisibility} from './types';
 
 /** What an unauthenticated (guest) caller may do on this instance. */
 export type GuestAccess =
@@ -173,13 +173,18 @@ export interface InstanceInfo {
   /** Who the server resolved you to be on this request. */
   you: Principal;
   /**
-   * Your active-persona roster role on this request (OB-182 §1.1), or `null` if
-   * you aren't an active member. Lets a client gate manager-only UI (the per-page
-   * Share dialog) without a per-page probe: `admin` (and the owner / loopback,
-   * derivable from {@link you} + {@link ownerSubject}) manage sharing.
-   * Optional: absent (a pre-OB-203 server / a test fixture) is treated as `null`.
+   * Your *effective* instance role on this request (P1-8), or `null` if you hold
+   * no special role (a guest / signed-in stranger). Layers the two rungs the
+   * roster can't express — `owner` = the loopback owner (`verifiedVia==='local'`)
+   * or the claimed owner (`jws` && `subject===ownerSubject`) — on top of the
+   * active-persona roster role (`admin` / `viewer`, OB-182 §1.1). Lets a client
+   * render read-only viewer chrome (OB-205: `viewer` locks the editor) and gate
+   * manager-only UI (the Share dialog: `owner`/`admin` manage) without a second
+   * probe. UI-only: the server's `authorize()` stays the sole write enforcement,
+   * so a wrong/absent value never grants a write the server would 403.
+   * Optional: absent (a pre-P1-8 server / a test fixture) is treated as `null`.
    */
-  youRole?: MemberRole | null;
+  youRole?: EffectiveRole | null;
   /**
    * Whether this request arrived over the trusted local transport (the desktop
    * host's per-run `LOCAL_OWNER_HEADER` secret matched). When true the caller

@@ -134,6 +134,33 @@ describe('resolveMemberRole (S3 + B1)', () => {
   });
 });
 
+describe('resolveEffectiveRole (P1-8 — youRole)', () => {
+  const local: Principal = {kind: 'user', subject: 'local:owner', issuer: 'local', name: 'Local', verifiedVia: 'local'};
+  const guest: Principal = {kind: 'guest', subject: 'guest:x', issuer: '', name: 'x', verifiedVia: 'guest'};
+
+  it('reads the loopback caller as owner (even on an unclaimed instance — never lock out local)', async () => {
+    // Fresh instance: no ownerSubject yet. The single-user local case must keep write.
+    expect(await store.resolveEffectiveRole(local)).toBe('owner');
+  });
+
+  it('reads the claimed owner as owner; a signed-in stranger and a guest as null', async () => {
+    const {claimed} = await store.claimOwnership(jws('owner').subject);
+    expect(claimed).toBe(true);
+    expect(await store.resolveEffectiveRole(jws('owner'))).toBe('owner');
+    expect(await store.resolveEffectiveRole(local)).toBe('owner'); // loopback still owner post-claim
+    expect(await store.resolveEffectiveRole(jws('stranger'))).toBeNull();
+    expect(await store.resolveEffectiveRole(guest)).toBeNull();
+  });
+
+  it('reads a roster admin as admin and a roster viewer as viewer', async () => {
+    await store.claimOwnership(jws('owner').subject);
+    await store.addMember({subject: jws('adm').subject, role: 'admin', status: 'active'});
+    await store.addMember({subject: jws('vwr').subject, role: 'viewer', status: 'active'});
+    expect(await store.resolveEffectiveRole(jws('adm'))).toBe('admin');
+    expect(await store.resolveEffectiveRole(jws('vwr'))).toBe('viewer');
+  });
+});
+
 describe('per-page visibility', () => {
   it('defaults to inherit and round-trips a set', async () => {
     const p = await newPage('vis');

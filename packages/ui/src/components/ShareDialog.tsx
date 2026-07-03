@@ -68,7 +68,7 @@ export function canManageSharing(info: InstanceInfo): boolean {
   // per-page routes still authorize them). Per-page Share visibility is a follow-up.
   const {you, ownerSubject, guestAccess, youRole} = info;
   if (you.verifiedVia === 'local') return true;
-  if (youRole === 'admin') return true;
+  if (youRole === 'owner' || youRole === 'admin') return true;
   if (!ownerSubject) return guestAccess === 'write' || you.verifiedVia === 'jws';
   return you.verifiedVia === 'jws' && you.subject === ownerSubject;
 }

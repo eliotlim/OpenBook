@@ -13,6 +13,7 @@ import type {
   DatabaseUpdate,
   ImportRequest,
   ImportResult,
+  EffectiveRole,
   InstanceConfig,
   Member,
   MemberRole,
@@ -1911,6 +1912,33 @@ export class PageStore {
       if (matches) best = higherRole(best, row.role);
     }
     return best;
+  }
+
+  /**
+   * The caller's *effective* instance role (P1-8) — what {@link InstanceInfo.youRole}
+   * returns. Mirrors the `authorize()` ownership ladder so the UI reads from the
+   * SAME source of truth as write enforcement:
+   *
+   *  - `owner` — the loopback owner (`verifiedVia==='local'`, incl. the unclaimed
+   *    single-user local case) or the claimed owner (`jws` && `subject===ownerSubject`).
+   *  - `admin` / `viewer` — the active-persona roster role (via {@link resolveMemberRole}).
+   *  - `null` — no special role (a guest / signed-in stranger).
+   *
+   * UI-only: a viewer renders read-only chrome, everyone else keeps whatever the
+   * server's per-page `authorize()` actually grants. The local owner ALWAYS reads
+   * as `owner` here, so the single-user local case can never be locked out.
+   */
+  async resolveEffectiveRole(principal: Principal, cfg?: InstanceConfig): Promise<EffectiveRole | null> {
+    if (principal.verifiedVia === 'local') return 'owner'; // rule 1 (loopback owner)
+    const config = cfg ?? (await this.getInstanceConfig());
+    if (
+      config.ownerSubject != null &&
+      principal.verifiedVia === 'jws' &&
+      principal.subject === config.ownerSubject
+    ) {
+      return 'owner'; // rule 2 (claimed owner)
+    }
+    return this.resolveMemberRole(principal, config); // rule 4 (roster) → admin | viewer | null
   }
 
   /** A page's stored visibility scope (raw — `inherit` not yet resolved), or

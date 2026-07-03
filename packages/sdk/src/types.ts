@@ -160,6 +160,16 @@ export const PAGE_VISIBILITIES: readonly PageVisibility[] = [
 export type MemberRole = 'admin' | 'viewer';
 
 /**
+ * The caller's *effective* instance role (P1-8) — the roster roles plus `owner`,
+ * the rung the roster can't express: the loopback owner (`verifiedVia==='local'`)
+ * and the claimed owner (`jws` && `subject===ownerSubject`). Returned as
+ * {@link InstanceInfo.youRole} so a client can render read-only viewer chrome
+ * (OB-205) or the manage-sharing entry without a second probe. UI-only — the
+ * server's `authorize()` remains the sole write enforcement.
+ */
+export type EffectiveRole = 'owner' | MemberRole;
+
+/**
  * Lifecycle of a roster row (OB-182 §2.1). `invited` = an email persona not yet
  * claimed by a signed-in subject; `active` = bound + live; `suspended` = retained
  * but grants nothing. Only `active` rows resolve to a role at request time (S3).

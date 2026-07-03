@@ -31,12 +31,17 @@ describe('canWriteFromInstance (coarse viewer/writer signal)', () => {
     expect(canWriteFromInstance(info({guestAccess: 'write', you: principal('guest')}))).toBe(true);
   });
 
-  it('honours a future server-stamped youRole when present (no UI change needed)', () => {
-    // jws would be writable coarsely, but an explicit viewer role locks it.
-    const viewer = {...info({ownerSubject: 'iss#o', you: principal('jws', 'iss#v')}), youRole: 'viewer'};
-    expect(canWriteFromInstance(viewer as InstanceInfo)).toBe(false);
-    // a guest would be locked coarsely, but an explicit admin role unlocks it.
-    const admin = {...info({guestAccess: 'off', you: principal('guest')}), youRole: 'admin'};
-    expect(canWriteFromInstance(admin as InstanceInfo)).toBe(true);
+  it('honours the server-stamped effective youRole when present (P1-8)', () => {
+    // A signed-in roster VIEWER would be writable coarsely (jws), but the explicit
+    // viewer role locks the editor read-only (OB-205) — no "no-op then 403" chrome.
+    expect(
+      canWriteFromInstance(info({ownerSubject: 'iss#o', you: principal('jws', 'iss#v'), youRole: 'viewer'})),
+    ).toBe(false);
+    // A guest would be locked coarsely, but an explicit admin role unlocks writing.
+    expect(canWriteFromInstance(info({guestAccess: 'off', you: principal('guest'), youRole: 'admin'}))).toBe(true);
+    // The owner role always writes, even where the coarse gate would otherwise deny.
+    expect(canWriteFromInstance(info({guestAccess: 'off', you: principal('guest'), youRole: 'owner'}))).toBe(true);
+    // The local owner resolves to `owner` server-side and keeps write.
+    expect(canWriteFromInstance(info({you: principal('local'), youRole: 'owner'}))).toBe(true);
   });
 });
