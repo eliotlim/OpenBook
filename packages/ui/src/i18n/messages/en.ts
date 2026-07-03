@@ -1014,6 +1014,7 @@ export const en = {
     description: 'Claim a private ✦.book.cloud address that opens this device’s books in any browser — nothing to host, nothing to expose on your network.',
     toggle: 'Forward this device',
     signInHint: 'Sign in to your account first to claim an address.',
+    signInPending: 'Finish signing in to your account — forwarding will turn on automatically once you’re signed in.',
     signIn: 'Sign in',
     registering: 'Connecting…',
     address: 'Your address',

@@ -36,7 +36,8 @@ function ForwardingStatusBadge({status}: {status: ForwardingStatus}) {
  * running when this panel closes; here we just drive it and show status.
  */
 function ForwardingSection() {
-  const {supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, enable, disable} = useForwarding();
+  const {supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, signInPending, enable, disable} =
+    useForwarding();
   const {connected, remintIdentity} = useAccount();
   const {t} = useTranslation();
   const [copied, setCopied] = useState(false);
@@ -60,11 +61,21 @@ function ForwardingSection() {
         </span>
         <Switch checked={enabled} disabled={busy} onCheckedChange={(v) => void (v ? enable() : disable())} />
       </label>
-      {!connected && <p className="text-xs text-muted-foreground">{t('forwarding.signInHint')}</p>}
+      {/* A signed-out flip isn't a silent snap-back: the sign-in handoff is in
+          flight and the enable auto-resumes once the account connects — say so
+          (aria-live so SR users hear the state change the flip caused). */}
+      {!connected && signInPending && (
+        <p aria-live="polite" className="text-xs text-muted-foreground">
+          {t('forwarding.signInPending')}
+        </p>
+      )}
+      {!connected && !signInPending && <p className="text-xs text-muted-foreground">{t('forwarding.signInHint')}</p>}
       {/* Forewarn before the flip: the first forward permanently claims this device's
           books to the account and makes them private by default. Mirrors the prior-art
-          LAN `connection.publishWarning` box. Hidden once on, or while a refusal shows. */}
-      {connected && !enabled && !claimRefusal && (
+          LAN `connection.publishWarning` box. Hidden once on, or while a refusal shows.
+          Shown signed-out too — a signed-out flip now auto-completes after sign-in, so
+          the warning must be seen BEFORE that flip, not only after connecting. */}
+      {!enabled && !claimRefusal && (
         <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
           {t('forwarding.claimWarning')}
         </p>
