@@ -236,10 +236,33 @@ function LanPublishSection() {
   );
 }
 
-export default function SharingPublishingSettings() {
+/**
+ * The standalone web app's stand-in for the (desktop-only) publish sections
+ * (P0-4): the workspace lives only in this browser, so instead of silently
+ * hiding every publish control — leaving an intro that promises "publish it to
+ * the web" with nothing below — say plainly that nothing outside this browser
+ * can reach it and that publishing happens from the desktop app.
+ */
+function BrowserLocalPointerSection() {
   const {t} = useTranslation();
   return (
-    <SettingsScreen title={t('sharingScreen.title')} description={t('sharingScreen.description')}>
+    <SettingsSection title={t('sharingScreen.webPublishTitle')}>
+      <p className="text-sm text-muted-foreground">{t('sharingScreen.webPublishBody')}</p>
+    </SettingsSection>
+  );
+}
+
+export default function SharingPublishingSettings() {
+  const {t} = useTranslation();
+  // The in-browser (PGlite) workspace: no publish affordance exists here and
+  // no one else can reach the data, so the intro must not promise publishing.
+  const browserLocal = usePlatformLibrary().browserLocalWorkspace === true;
+  return (
+    <SettingsScreen
+      title={t('sharingScreen.title')}
+      description={t(browserLocal ? 'sharingScreen.webDescription' : 'sharingScreen.description')}
+    >
+      {browserLocal && <BrowserLocalPointerSection />}
       <ForwardingSection />
       <SharingSection />
       <LanPublishSection />

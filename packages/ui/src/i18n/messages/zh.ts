@@ -148,6 +148,8 @@ export const zh: PartialMessages = {
     description: '选择谁可以访问此页面，并邀请他人查看或编辑。',
     loadError: '无法加载此页面的共享设置。',
     unclaimedNotice: '共享将在你认领此实例后生效。在此之前，任何能够访问它的人都可以查看和编辑——这些设置已保存，但尚未强制执行。',
+    browserLocalNotice:
+      '此工作区仅存在于此浏览器中——其他人无法访问它，因此这些设置暂时不会对任何人生效。要与他人共享，请通过 OpenBook 桌面应用发布工作区。',
     enforcementCaveat:
       '你邀请的人可能还无法通过已发布的 book.cloud 链接打开此页面——此功能正在逐步推出。直接访问已按此处的设置受到限制。',
     scopeLabel: '谁可以访问',
@@ -179,6 +181,7 @@ export const zh: PartialMessages = {
       members: '只有打开此链接的工作区成员才能查看此页面。',
       restricted: '只有你邀请的人才能打开此链接。',
       localOnly: '此链接仅在本设备上有效。请在“设置 → 共享与发布”中发布此工作区，以获得可发送的链接。',
+      browserLocal: '此链接仅在此浏览器中有效——其他人打开时看到的是他们自己的工作区，而不是此页面。发布需通过桌面应用进行。',
       publishedAt: '链接使用你的发布地址 {host}。',
     },
     copyLink: '复制链接',
@@ -661,6 +664,11 @@ export const zh: PartialMessages = {
   sharingScreen: {
     title: '共享与发布',
     description: '谁可以访问此工作区：发布到网络、设置访客默认访问级别，或在本地网络上共享。',
+    webDescription:
+      '谁可以访问此工作区。它仅存在于此浏览器中——发布到网络或本地网络需通过 OpenBook 桌面应用进行。',
+    webPublishTitle: '发布到网络',
+    webPublishBody:
+      '此工作区完全在你的浏览器中运行，没有托管在任何地方，因此其他人无法打开它——指向它的链接会让其他人看到他们自己的工作区。要以私有的 ✦.book.cloud 地址发布你的图书，或在网络上共享，请使用 OpenBook 桌面应用。',
   },
   sharing: {
     title: '访客与访问',
@@ -798,6 +806,8 @@ export const zh: PartialMessages = {
   members: {
     title: '成员',
     description: '在此工作区拥有角色的人员。可通过邮箱或句柄邀请、更改管理权限并移除访问权限。',
+    browserLocalNotice:
+      '此工作区仅存在于此浏览器中——其他人无法访问它，因此你在此添加的人暂时无法打开它。要与他人共享，请通过 OpenBook 桌面应用发布工作区。',
     youUser: '你已登录为 {name}。',
     youGuest: '你正在以访客身份浏览。',
     loading: '正在加载成员…',

@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
 import {Loader2, Trash2, UserPlus} from 'lucide-react';
 import type {InstanceInfo, Member, MemberRole, MemberStatus, Principal} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useConfirm, useTranslation} from '@/providers';
+import {useConfirm, usePlatformLibrary, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {IconButton} from '@/components/ui/icon-button';
@@ -119,6 +119,10 @@ export default function MembersSettings() {
   const client = useData();
   const {t} = useTranslation();
   const confirm = useConfirm();
+  // The standalone web app's in-browser workspace (P0-4): the roster stays
+  // fully editable (it persists with the data), but no one else can reach this
+  // workspace, so an invitation here can't let anyone in yet — say so.
+  const browserLocal = usePlatformLibrary().browserLocalWorkspace === true;
 
   const [info, setInfo] = useState<InstanceInfo | null>(null);
   const [members, setMembers] = useState<Member[] | null>(null);
@@ -245,6 +249,14 @@ export default function MembersSettings() {
       ) : (
         <>
           {youLine && <p className="text-sm text-muted-foreground">{youLine}</p>}
+
+          {/* In-browser workspace disclosure (P0-4): invitations can't take
+              effect while nothing outside this browser can reach the data. */}
+          {browserLocal && (
+            <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              {t('members.browserLocalNotice')}
+            </p>
+          )}
 
           {canManage === false ? (
             <div className="rounded-md border border-border bg-muted/40 px-3.5 py-3">
