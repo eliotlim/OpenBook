@@ -696,6 +696,8 @@ export const de: PartialMessages = {
     claimWarning:
       'Beim ersten Einschalten werden die Bücher dieses Geräts deinem Konto zugeordnet und privat geschaltet — nur du und von dir eingeladene Mitglieder können sie öffnen. Das lässt sich nicht rückgängig machen.',
     claimRefusedUnverified: 'Zum Veröffentlichen muss die Identität deines Kontos zuerst verifiziert werden.',
+    claimRefusedIssuanceDisabled:
+      'Zum Veröffentlichen ist eine verifizierte Identität erforderlich — aber der Account-Server hat die Identitätsausstellung deaktiviert, daher ist eine Verifizierung hier nicht möglich.',
     refreshIdentity: 'Identität aktualisieren',
     claimFailed:
       'Dieses Gerät konnte deinem Konto nicht zugeordnet werden und wurde daher nicht veröffentlicht. Versuche es erneut.',

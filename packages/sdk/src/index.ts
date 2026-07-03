@@ -19,6 +19,7 @@ export {API, type ApiError, type CompactResult} from './routes';
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential} from './client';
 export {HttpDataClient} from './client';
 export {
+  ForwardingApiError,
   ForwardingClient,
   TunnelClient,
   MemoryKeyStore,
@@ -164,6 +165,7 @@ export {
   setAccountUrlOverride,
   resolveAccountUrl,
   type AccountSettings,
+  type IdentityTokenResult,
 } from './account';
 export {
   guestPrincipal,

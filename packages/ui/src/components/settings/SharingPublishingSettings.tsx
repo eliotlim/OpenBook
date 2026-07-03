@@ -84,6 +84,12 @@ function ForwardingSection() {
           </button>
         </p>
       )}
+      {/* The terminal cousin of `unverified`: the account server has identity issuance
+          disabled (501), so a "Refresh identity" here could only loop — explain the
+          real blocker instead of offering the affordance. */}
+      {claimRefusal === 'issuance-disabled' && (
+        <p className="text-xs text-muted-foreground">{t('forwarding.claimRefusedIssuanceDisabled')}</p>
+      )}
       {claimRefusal === 'claim-failed' && (
         <p className="text-sm text-destructive">{t('forwarding.claimFailed')}</p>
       )}

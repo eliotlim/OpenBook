@@ -49,10 +49,12 @@ interface ForwardingContextValue {
   /**
    * Why a publish was refused before the tunnel opened, for localized + severity-aware
    * display: `unverified` is a precondition (the signed-in owner just needs a verified
-   * identity — render it muted, like {@link signInHint}); `claim-failed` is a genuine
-   * failure (render it as an error). `null` when there's nothing to show.
+   * identity — render it muted, like {@link signInHint}); `issuance-disabled` is that
+   * precondition made terminal (the account server can't mint identities — 501 — so
+   * don't offer the refresh affordance); `claim-failed` is a genuine failure (render
+   * it as an error). `null` when there's nothing to show.
    */
-  claimRefusal: 'unverified' | 'claim-failed' | null;
+  claimRefusal: 'unverified' | 'issuance-disabled' | 'claim-failed' | null;
   /** Turn forwarding on: claim the address (sign-in first if needed) + dial out. */
   enable: () => Promise<void>;
   /** Turn forwarding off: drop the tunnel but keep the site key (stable address). */
@@ -82,7 +84,7 @@ const writeEnabled = (on: boolean): void => {
 
 export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const {forwarding} = usePlatformLibrary();
-  const {connected, token, accountUrl, signIn, remintIdentity} = useAccount();
+  const {connected, token, accountUrl, signIn, remintIdentity, identityIssuance} = useAccount();
   const data = useData();
   const supported = !!forwarding;
 
@@ -93,7 +95,12 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audienceNotice, setAudienceNotice] = useState<{code: AudienceNoticeCode; detail?: string} | null>(null);
-  const [claimRefusal, setClaimRefusal] = useState<'unverified' | 'claim-failed' | null>(null);
+  const [claimRefusal, setClaimRefusal] = useState<'unverified' | 'issuance-disabled' | 'claim-failed' | null>(null);
+
+  // The latest issuance verdict, read at claim time through a ref so the memoized
+  // `audienceDeps` below stays stable across issuance state changes.
+  const identityIssuanceRef = useRef(identityIssuance);
+  identityIssuanceRef.current = identityIssuance;
 
   // Show the reserved address even before the tunnel connects.
   useEffect(() => {
@@ -114,6 +121,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
       getInstanceInfo: () => data.getInstanceInfo(),
       remintIdentity: () => remintIdentity(),
       setLocalAudience: setForwardingAudience,
+      identityIssuance: () => identityIssuanceRef.current,
     }),
     [data, remintIdentity],
   );
