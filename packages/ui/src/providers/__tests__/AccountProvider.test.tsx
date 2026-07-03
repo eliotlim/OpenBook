@@ -1,7 +1,7 @@
 import React from 'react';
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import {renderHook, act, waitFor, cleanup} from '@testing-library/react';
-import {decodeIdentity, getIdentityCredential, setIdentityToken} from '@book.dev/sdk';
+import {decodeIdentity, getIdentityCredential, setForwardingAudience, setIdentityToken} from '@book.dev/sdk';
 import {AccountProvider, useAccount} from '../AccountProvider';
 import {PlatformLibraryProvider, type AccountSecretStore, type PlatformLibrary} from '../PlatformLibraryProvider';
 import {PreferencesProvider} from '../PreferencesProvider';
@@ -26,8 +26,16 @@ const settingsValid = (tok: string): boolean => !!PERSONAS[tok] || tok === NO_ID
 //    can assert account A's blob is never pushed under account B's token).
 //  • failSettingsGet — tokens whose next GET /api/settings returns 500, to force a
 //    transient reconcile failure on an already-connected account.
+//  • rejectAudMints — the account 400s any mint carrying an `aud` query (its
+//    DEFAULT posture when no audience allowlist is configured — the bug class the
+//    unscoped-fallback fix targets).
+//  • failIdentityMint — tokens whose identity mint 503s (a transient failure).
+//  • identityMintUrls — every /api/identity/token URL requested, in order.
 let settingsPuts: Array<{token: string; settings: Record<string, unknown>}> = [];
 const failSettingsGet = new Set<string>();
+let rejectAudMints = false;
+const failIdentityMint = new Set<string>();
+let identityMintUrls: string[] = [];
 const putsFor = (tok: string): Array<{token: string; settings: Record<string, unknown>}> =>
   settingsPuts.filter((p) => p.token === tok);
 
@@ -54,7 +62,12 @@ function installFetchStub(): void {
       const auth = (init?.headers as Record<string, string> | undefined)?.authorization;
       const tok = auth?.replace(/^Bearer\s+/, '') ?? '';
       if (url.includes('/api/identity/token')) {
+        identityMintUrls.push(url);
+        if (failIdentityMint.has(tok)) return jsonResponse(503, {}); // transient outage
         if (!PERSONAS[tok]) return jsonResponse(501, {}); // issuance not configured
+        if (rejectAudMints && url.includes('aud=')) {
+          return jsonResponse(400, {error: 'audience binding is not configured on this server'});
+        }
         return jsonResponse(200, {identity: fakeJws(tok), expiresAt: new Date(Date.now() + 3600_000).toISOString()});
       }
       if (url.includes('/api/settings')) {
@@ -108,24 +121,28 @@ async function addAccount(result: Hook, tok: string): Promise<void> {
   await waitFor(() => expect(result.current.token).toBe(tok));
 }
 
-describe('AccountProvider — multi-account (OB-194)', () => {
-  beforeEach(() => {
-    localStorage.clear();
-    sessionStorage.clear();
-    setIdentityToken(null);
-    settingsPuts = [];
-    failSettingsGet.clear();
-    installFetchStub();
-  });
-  afterEach(() => {
-    cleanup();
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-    setIdentityToken(null);
-    localStorage.clear();
-    sessionStorage.clear();
-  });
+// Shared across both suites below (multi-account + identity resilience).
+beforeEach(() => {
+  localStorage.clear();
+  sessionStorage.clear();
+  setIdentityToken(null);
+  settingsPuts = [];
+  failSettingsGet.clear();
+  rejectAudMints = false;
+  failIdentityMint.clear();
+  identityMintUrls = [];
+  installFetchStub();
+});
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  setIdentityToken(null);
+  localStorage.clear();
+  sessionStorage.clear();
+});
 
+describe('AccountProvider — multi-account (OB-194)', () => {
   it('adds an account, makes it active, and stores its token in a namespaced slot', async () => {
     const {result} = renderAccount();
     await waitFor(() => expect(result.current.status).toBe('disconnected'));
@@ -311,5 +328,54 @@ describe('AccountProvider — multi-account (OB-194)', () => {
 
     await waitFor(() => expect(result.current.activeAccountId).toBe(personalId));
     await waitFor(() => expect(getIdentityCredential().jws).toBeUndefined());
+  });
+});
+
+describe('AccountProvider — identity mint resilience', () => {
+  it('an aud-rejected mint retries ONCE unscoped instead of demoting the owner to guest', async () => {
+    // A forwarding audience is persisted (the tunnel was enabled at some point)…
+    setForwardingAudience('demo-xyz.book.cloud');
+    // …but the account runs NO audience allowlist, so it 400s every scoped mint —
+    // the production default that silently nulled the identity and cascaded into
+    // "no write access" 403s on the owner's own instance.
+    rejectAudMints = true;
+
+    const {result} = renderAccount();
+    await addAccount(result, 'tok-work');
+
+    // The identity SURVIVED: the fallback minted an unscoped token.
+    const jws = getIdentityCredential().jws!;
+    expect(decodeIdentity(jws)?.claims.email).toBe('work@corp.example');
+    expect(decodeIdentity(jws)?.claims.aud).toBeUndefined();
+    expect(result.current.identityIssuance).toBe('ok');
+
+    // Exactly one retry, in the right order: scoped first, then unscoped.
+    expect(identityMintUrls).toHaveLength(2);
+    expect(identityMintUrls[0]).toContain('aud=');
+    expect(identityMintUrls[1]).not.toContain('aud=');
+  });
+
+  it('a 501 issuer clears the identity and marks issuance unconfigured (terminal)', async () => {
+    const {result} = renderAccount();
+    await addAccount(result, NO_IDENTITY_TOKEN);
+
+    expect(getIdentityCredential().jws).toBeUndefined();
+    await waitFor(() => expect(result.current.identityIssuance).toBe('unconfigured'));
+  });
+
+  it('a transient mint failure keeps the previous identity token (no demotion)', async () => {
+    const {result} = renderAccount();
+    await addAccount(result, 'tok-work');
+    const before = getIdentityCredential().jws!;
+
+    failIdentityMint.add('tok-work');
+    await act(async () => {
+      await result.current.remintIdentity();
+    });
+
+    // The 503 took the transient path: the stored JWS is untouched, and the
+    // issuance verdict didn't flip on a blip.
+    expect(getIdentityCredential().jws).toBe(before);
+    expect(result.current.identityIssuance).toBe('ok');
   });
 });

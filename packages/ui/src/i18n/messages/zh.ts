@@ -695,6 +695,8 @@ export const zh: PartialMessages = {
     claimWarning:
       '首次开启时，本设备的图书将归属到你的账户并默认设为私有 —— 只有你和你邀请的成员可以打开。此操作无法撤销。',
     claimRefusedUnverified: '要发布，需先验证你的账户身份。',
+    claimRefusedIssuanceDisabled:
+      '发布需要经过验证的身份，但账户服务器已禁用身份签发，因此无法在此完成验证。',
     refreshIdentity: '刷新身份',
     claimFailed: '无法将本设备归属到你的账户，因此未发布。请重试。',
     status: {

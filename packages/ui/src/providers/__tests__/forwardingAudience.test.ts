@@ -230,9 +230,31 @@ describe('ensureClaimedForForwarding — publish implies claim (OB-209)', () => 
     const outcome = await ensureClaimedForForwarding(deps);
 
     expect(outcome.status).toBe('refused');
+    expect(outcome.status === 'refused' && outcome.code).toBe('unverified');
     expect(state.ownerSubject).toBeNull();
     // No policy write attempted — we never expose an unclaimed instance.
     expect(state.ops.some((o) => o.startsWith('policy:'))).toBe(false);
+  });
+
+  it('unverified because the account server disables issuance (501): refuses TERMINALLY', async () => {
+    // The account answered 501 — no refresh will ever verify this identity, so the
+    // refusal must NOT be the generic `unverified` (whose UI offers a refresh loop).
+    const {deps, state} = makeFake({ownerSubject: null, you: guestPrincipal('Anon')});
+    const withIssuance: AudienceBindDeps = {...deps, identityIssuance: () => 'unconfigured'};
+    const outcome = await ensureClaimedForForwarding(withIssuance);
+
+    expect(outcome.status).toBe('refused');
+    expect(outcome.status === 'refused' && outcome.code).toBe('issuance-disabled');
+    expect(state.ownerSubject).toBeNull();
+    expect(state.ops.some((o) => o.startsWith('policy:'))).toBe(false);
+  });
+
+  it('issuance merely unknown/ok keeps the retryable `unverified` refusal', async () => {
+    const {deps} = makeFake({ownerSubject: null, you: guestPrincipal('Anon')});
+    for (const issuance of ['unknown', 'ok'] as const) {
+      const outcome = await ensureClaimedForForwarding({...deps, identityIssuance: () => issuance});
+      expect(outcome.status === 'refused' && outcome.code).toBe('unverified');
+    }
   });
 
   it('already claimed: a no-op (idempotent re-enable), never re-writes the owner', async () => {

@@ -35,6 +35,14 @@ export interface AudienceBindDeps {
   remintIdentity(): Promise<string | null>;
   /** Record (or clear, with `null`) the host the owner's token is scoped to. */
   setLocalAudience(host: string | null): void;
+  /**
+   * Whether the account service issues identity JWSes at all (AccountProvider's
+   * `identityIssuance`). `unconfigured` means the service answered 501 — terminal,
+   * so an unverified claim refusal should say "issuance is disabled" instead of
+   * offering the refresh-identity affordance (which would loop forever). Optional
+   * so non-UI callers need not wire it; absent, refusals stay `unverified`.
+   */
+  identityIssuance?(): 'unknown' | 'ok' | 'unconfigured';
 }
 
 /**
@@ -156,11 +164,14 @@ export type ForwardingClaimOutcome =
   /**
    * Couldn't claim, so we won't expose. `code` is the stable discriminant the surface
    * localizes + styles by severity: `unverified` is a precondition the signed-in owner
-   * clears by verifying their identity (NOT a crash); `claim-failed` is a genuine
-   * failure. `reason` is the English fallback for logs / non-UI callers — the UI routes
-   * `code` through `t()` (`forwarding.claimRefusedUnverified` / `forwarding.claimFailed`).
+   * clears by verifying their identity (NOT a crash); `issuance-disabled` is that same
+   * precondition made TERMINAL — the account server can't mint identities at all (501),
+   * so no refresh will ever clear it; `claim-failed` is a genuine failure. `reason` is
+   * the English fallback for logs / non-UI callers — the UI routes `code` through `t()`
+   * (`forwarding.claimRefusedUnverified` / `forwarding.claimRefusedIssuanceDisabled` /
+   * `forwarding.claimFailed`).
    */
-  | {status: 'refused'; code: 'unverified' | 'claim-failed'; reason: string};
+  | {status: 'refused'; code: 'unverified' | 'issuance-disabled' | 'claim-failed'; reason: string};
 
 /**
  * English fallback when forwarding is refused because the account identity is not
@@ -170,6 +181,14 @@ export type ForwardingClaimOutcome =
  */
 export const UNVERIFIED_CLAIM_REASON =
   'To publish, your account identity needs to be verified first.';
+
+/**
+ * English fallback when the identity can never be verified on this account service:
+ * it answered 501 — identity issuance is disabled there — so, unlike `unverified`,
+ * no "refresh identity" retry can succeed. UI: `forwarding.claimRefusedIssuanceDisabled`.
+ */
+export const ISSUANCE_DISABLED_CLAIM_REASON =
+  'To publish, a verified identity is required — but the account server has identity issuance disabled.';
 
 /** English fallback when the claim write did not land. UI: `forwarding.claimFailed`. */
 export const CLAIM_FAILED_REASON =
@@ -191,7 +210,15 @@ export async function ensureClaimedForForwarding(deps: AudienceBindDeps): Promis
   const info = await deps.getInstanceInfo();
   if (info.ownerSubject) return {status: 'already'}; // claim is one-way; already safe to expose
   // Unclaimed: only a verified (jws) identity may claim — and publish requires one.
-  if (info.you.verifiedVia !== 'jws') return {status: 'refused', code: 'unverified', reason: UNVERIFIED_CLAIM_REASON};
+  if (info.you.verifiedVia !== 'jws') {
+    // Distinguish "verify and retry" from "can never verify here": when the account
+    // service has identity issuance disabled (a terminal 501), the refusal must say
+    // so — the generic `unverified` notice offers a refresh that would loop forever.
+    if (deps.identityIssuance?.() === 'unconfigured') {
+      return {status: 'refused', code: 'issuance-disabled', reason: ISSUANCE_DISABLED_CLAIM_REASON};
+    }
+    return {status: 'refused', code: 'unverified', reason: UNVERIFIED_CLAIM_REASON};
+  }
   try {
     // The patch value only TRIGGERS the claim; the server binds `you.subject` from the
     // request's verified principal, so a client can never claim to someone else.

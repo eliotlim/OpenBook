@@ -1027,6 +1027,8 @@ export const en = {
     claimWarning:
       'The first time you turn this on, this device’s books are claimed to your account and made private — only you and members you invite can open them. This can’t be undone.',
     claimRefusedUnverified: 'To publish, your account identity needs to be verified first.',
+    claimRefusedIssuanceDisabled:
+      'To publish, a verified identity is required — but the account server has identity issuance disabled, so it can’t be verified from here.',
     refreshIdentity: 'Refresh identity',
     claimFailed: 'Couldn’t claim this device for your account, so it wasn’t published. Try again.',
     status: {
