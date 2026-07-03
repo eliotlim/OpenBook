@@ -175,6 +175,10 @@ export const de: PartialMessages = {
     loadingPeople: 'Personen werden geladen …',
     noPeople: 'Es wurde noch niemand eingeladen.',
     remove: '{name} entfernen',
+    deliver: {
+      hint: 'Eingeladene Personen werden nicht automatisch benachrichtigt. Senden Sie ihnen den Link zu dieser Seite – jede Person öffnet sie, indem sie sich mit der eingeladenen E-Mail-Adresse anmeldet.',
+      copy: 'Link zum Senden kopieren',
+    },
     linkHints: {
       inherit: 'Personen mit Arbeitsbereich-Zugriff können diesen Link öffnen.',
       public: 'Jede Person mit dem Link kann diese Seite öffnen.',
@@ -847,6 +851,11 @@ export const de: PartialMessages = {
     removeBody: 'Die Person verliert ihre Rolle in diesem Arbeitsbereich. Eine E-Mail-Einladung kann später erneut gesendet werden.',
     removeConfirm: 'Entfernen',
     actionError: 'Mitglied konnte nicht aktualisiert werden — {error}',
+    deliver: {
+      hint: 'Einladungen werden nicht per E-Mail versendet. Senden Sie den Link zu diesem Arbeitsbereich – jede Person öffnet ihn, indem sie sich mit der eingeladenen E-Mail-Adresse anmeldet.',
+      copy: 'Arbeitsbereich-Link kopieren',
+      copied: 'Kopiert',
+    },
   },
   properties: {
     owner: 'Verantwortlich',

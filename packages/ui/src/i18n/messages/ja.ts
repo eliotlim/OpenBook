@@ -175,6 +175,10 @@ export const ja: PartialMessages = {
     loadingPeople: '読み込み中…',
     noPeople: 'まだ誰も招待されていません。',
     remove: '{name} を削除',
+    deliver: {
+      hint: '招待した相手に自動で通知は届きません。このページのリンクを送ってください。各自が招待したメールアドレスでサインインして開きます。',
+      copy: '送信用リンクをコピー',
+    },
     linkHints: {
       inherit: 'ワークスペースにアクセスできる人はこのリンクを開けます。',
       public: 'リンクを知っている人なら誰でもこのページを開けます。',
@@ -846,6 +850,11 @@ export const ja: PartialMessages = {
     removeBody: 'この人はこのワークスペースでの役割を失います。メール招待は後で再送できます。',
     removeConfirm: '削除',
     actionError: 'メンバーを更新できませんでした — {error}',
+    deliver: {
+      hint: '招待はメールで送信されません。このワークスペースのリンクを送ってください。各自が招待したメールアドレスでサインインして開きます。',
+      copy: 'ワークスペースのリンクをコピー',
+      copied: 'コピーしました',
+    },
   },
   properties: {
     owner: '担当者',

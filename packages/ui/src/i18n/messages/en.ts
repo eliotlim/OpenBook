@@ -236,6 +236,12 @@ export const en = {
     loadingPeople: 'Loading people…',
     noPeople: 'No one’s been invited yet.',
     remove: 'Remove {name}',
+    // Delivery help (P0-2): the instance invite writes an access row but sends
+    // no email, so the owner has to hand over the link and explain the sign-in.
+    deliver: {
+      hint: 'Invitees aren’t notified automatically. Send them this page’s link — each one opens it by signing in with the email you invited them as.',
+      copy: 'Copy link to send',
+    },
     linkHints: {
       inherit: 'People with workspace access can open this link.',
       public: 'Anyone with the link can open this page.',
@@ -1200,6 +1206,14 @@ export const en = {
     removeBody: 'They’ll lose their role on this workspace. An email invite can be re-sent later.',
     removeConfirm: 'Remove',
     actionError: 'Couldn’t update member — {error}',
+    // Delivery help (P0-2): inviting a member notifies no one. When the
+    // workspace is published, give the owner the link to hand over and the
+    // sign-in they must explain.
+    deliver: {
+      hint: 'Invites aren’t emailed. Send people this workspace link — each one opens it by signing in with the email you invited them as.',
+      copy: 'Copy workspace link',
+      copied: 'Copied',
+    },
   },
   provenance: {
     edited: 'Edited',
