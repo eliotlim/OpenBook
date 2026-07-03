@@ -688,6 +688,7 @@ export const zh: PartialMessages = {
       '获取一个私有的 ✦.book.cloud 地址，即可在任意浏览器中打开本设备的图书 —— 无需托管，也无需在网络中暴露。',
     toggle: '转发本设备',
     signInHint: '请先登录你的账户以获取地址。',
+    signInPending: '请完成账户登录 —— 登录后转发将自动开启。',
     signIn: '登录',
     registering: '连接中…',
     address: '你的地址',

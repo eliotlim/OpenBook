@@ -684,6 +684,7 @@ export const de: PartialMessages = {
       'Sichere dir eine private ✦.book.cloud-Adresse, die die Bücher dieses Geräts in jedem Browser öffnet — nichts zu hosten, nichts im Netzwerk freizugeben.',
     toggle: 'Dieses Gerät weiterleiten',
     signInHint: 'Melde dich zuerst bei deinem Konto an, um eine Adresse zu sichern.',
+    signInPending: 'Schließe die Anmeldung bei deinem Konto ab — die Weiterleitung wird danach automatisch eingeschaltet.',
     signIn: 'Anmelden',
     registering: 'Verbinden…',
     address: 'Deine Adresse',
