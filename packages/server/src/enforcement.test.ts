@@ -216,13 +216,14 @@ describe('per-page visibility route + youRole (OB-203)', () => {
     expect(res.status).toBe(400);
   });
 
-  it('GET /api/instance carries youRole for the manage-gate', async () => {
+  it('GET /api/instance carries the effective youRole for the manage/viewer gate (P1-8)', async () => {
     const a = app();
     const roleOf = async (jws?: string) =>
       ((await (await get(a, '/api/instance', jws)).json()) as {youRole: string | null}).youRole;
-    expect(await roleOf(await idFor('owner'))).toBeNull(); // owner isn't a roster row
+    expect(await roleOf(await idFor('owner'))).toBe('owner'); // claimed owner (not a roster row) → owner
     expect(await roleOf(await idFor('admin'))).toBe('admin');
     expect(await roleOf(await idFor('viewer'))).toBe('viewer');
+    expect(await roleOf(await idFor('stranger'))).toBeNull(); // signed-in non-member
     expect(await roleOf()).toBeNull(); // anonymous guest
   });
 });

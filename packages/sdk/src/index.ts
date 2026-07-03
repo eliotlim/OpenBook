@@ -8,6 +8,7 @@ export type {
   PageVisibility,
   Visibility,
   MemberRole,
+  EffectiveRole,
   MemberStatus,
   MemberSource,
   AclLevel,

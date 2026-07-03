@@ -860,6 +860,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.get(API.instance, async (c) => {
     const config = await store.getInstanceConfig();
     const principal = c.get('principal');
+    // The loopback-owner hatch fired: this caller holds machine-owner authority
+    // (mirrors authorize()), so a client can offer (or auto-run) an ownership
+    // repair when `you` doesn't match `ownerSubject`.
+    const localOwner = Boolean(c.get('localOwner'));
     const info: InstanceInfo = {
       guestAccess: config.guestAccess,
       ownerSubject: config.ownerSubject ?? null,
@@ -867,11 +871,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       audience: config.audience ?? null,
       requireAudience: config.requireAudience ?? false,
       you: principal,
-      youRole: await store.resolveMemberRole(principal, config),
-      // The loopback-owner hatch fired: this caller holds machine-owner authority,
-      // so a client can offer (or auto-run) an ownership repair when `you` doesn't
-      // match `ownerSubject`.
-      localOwner: Boolean(c.get('localOwner')),
+      // The hatch grants owner authority regardless of `you`, so it must read as
+      // `owner` here too — otherwise a drifted `ownerSubject` sinks the local owner
+      // to `viewer` and locks them into read-only chrome the server wouldn't enforce.
+      youRole: localOwner ? 'owner' : await store.resolveEffectiveRole(principal, config),
+      localOwner,
     };
     return c.json(info);
   });

@@ -13,6 +13,7 @@ import type {
   DatabaseUpdate,
   ImportRequest,
   ImportResult,
+  EffectiveRole,
   InstanceConfig,
   Member,
   MemberRole,
@@ -1911,6 +1912,42 @@ export class PageStore {
       if (matches) best = higherRole(best, row.role);
     }
     return best;
+  }
+
+  /**
+   * The caller's *effective* instance role (P1-8) — what {@link InstanceInfo.youRole}
+   * returns. Mirrors the `authorize()` ownership ladder so the UI reads from the
+   * SAME source of truth as write enforcement:
+   *
+   *  - `owner` — the claimed owner (`jws` && `subject===ownerSubject`), or the
+   *    loopback owner (`verifiedVia==='local'`).
+   *  - `admin` / `viewer` — the active-persona roster role (via {@link resolveMemberRole}).
+   *  - `null` — no special role (a guest / signed-in stranger).
+   *
+   * The `local` rung is here for defensive parity with `authorize()` (rule 1), NOT
+   * the desktop request path: `resolvePrincipal` only ever yields `guest | jws |
+   * unverified` — a `local` principal never arrives over a request (app.ts), and the
+   * in-webview {@link LocalDataClient} hardcodes `owner` without calling this. Over
+   * the desktop-owner IPC path this therefore returns `owner` when signed-in +
+   * claimed, or `null` when the instance is still unclaimed (the caller is a guest
+   * here); write in that unclaimed case is preserved by the CLIENT's coarse
+   * guest-gate fallback (default `guestAccess:'write'`) — which must not be deleted
+   * on the mistaken belief that the `local` rung covers the desktop owner.
+   *
+   * UI-only: a viewer renders read-only chrome, everyone else keeps whatever the
+   * server's per-page `authorize()` actually grants.
+   */
+  async resolveEffectiveRole(principal: Principal, cfg?: InstanceConfig): Promise<EffectiveRole | null> {
+    if (principal.verifiedVia === 'local') return 'owner'; // rule 1 (loopback owner)
+    const config = cfg ?? (await this.getInstanceConfig());
+    if (
+      config.ownerSubject != null &&
+      principal.verifiedVia === 'jws' &&
+      principal.subject === config.ownerSubject
+    ) {
+      return 'owner'; // rule 2 (claimed owner)
+    }
+    return this.resolveMemberRole(principal, config); // rule 4 (roster) → admin | viewer | null
   }
 
   /** A page's stored visibility scope (raw — `inherit` not yet resolved), or

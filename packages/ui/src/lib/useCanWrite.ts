@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import type {DataClient, InstanceInfo, MemberRole} from '@book.dev/sdk';
+import type {DataClient, InstanceInfo} from '@book.dev/sdk';
 import {useData} from '@/data';
 
 /**
@@ -7,41 +7,35 @@ import {useData} from '@/data';
  * if a page renders editable or whole-document read-only (OB-205; contract roles
  * admin=full, viewer=locked).
  *
- * ## Sourcing (coarse, UI-only, documented)
- * The brief's preferred shape is a per-page `authorize()` over the page's
- * visibility + `listPageAcl` + `getInstanceInfo().youRole` + the principal. On
- * this branch that can't be assembled UI-side and stay isolated from the server:
+ * ## Sourcing (UI-only, {@link DataClient.getInstanceInfo})
+ * Read from the server-stamped {@link InstanceInfo.youRole} (P1-8) — the caller's
+ * *effective* instance role, computed server-side from the SAME `authorize()`
+ * ownership ladder that enforces writes:
  *
- *  - `getInstanceInfo().youRole` does **not exist** yet (the brief assumed it);
- *    adding it is a server change, out of scope for this UI-isolated slice.
- *  - the roster role (`listMembers`) and per-page ACL (`listPageAcl`) are **not on
- *    the `DataClient` interface** `useData()` returns (only `getInstanceInfo` is),
- *    and `GET /api/members` is admin-gated anyway (a viewer 403s).
- *  - `StoredPage` carries no `visibility`, and the post-`inherit` effective
- *    visibility isn't resolvable client-side.
+ *  - `owner` / `admin` → writer (full editing, unchanged);
+ *  - `viewer` → locked, whole-document read-only (OB-205) — no more "show chrome
+ *    that no-ops then 403s"; a signed-in roster viewer now renders read-only;
+ *  - `null` (a guest / signed-in stranger, or a pre-P1-8 server that omits the
+ *    field) → fall through to the coarse gate below.
  *
- * So this falls back to the coarse signal the brief sanctions ("v1 hide-not-break,
- * the server is the real enforcement — writes 403 regardless"), read from the one
- * sharing method on the interface, {@link DataClient.getInstanceInfo}:
+ * The coarse fallback (for `youRole == null`) keeps the pre-P1-8 behaviour so a
+ * transient/old server never newly strands a writer:
  *
  *  - the loopback owner (`verifiedVia==='local'`) and any signed-in (`jws`) user
- *    are treated as writers — keeping owner / admin / writer editing unchanged;
- *  - a guest (or other non-`jws`) is a writer only when the guest gate is open
- *    (`guestAccess==='write'`) — so an anonymous reader on a `read`/`off` instance
- *    renders read-only;
- *  - everything else renders read-only.
+ *    are treated as writers;
+ *  - a guest (or other non-`jws`) writes only when the guest gate is open
+ *    (`guestAccess==='write'`); everything else renders read-only.
  *
- * ### Known v1 gap (errs toward writable = hide-not-break)
- * A signed-in **roster viewer** (a `jws` user with role `viewer`) is rendered
- * editable here, not locked — we can't tell them from an admin without the role.
- * Their writes are still rejected by the server (403), so it's "show chrome that
- * no-ops", never data corruption. The seam below already reads `youRole` if a
- * future server build adds it to `InstanceInfo` — at which point jws viewers lock
- * correctly with **no UI change**. ACL-write grantees and per-page visibility are
- * likewise out of this coarse v1 (they'd need the per-page `authorize()` inputs).
+ * UI-only: the server's per-page `authorize()` stays the sole write enforcement,
+ * so a wrong/absent `youRole` can never grant a write the server would 403, nor
+ * lock out the legitimate owner (who resolves to `owner`).
  *
- * Defaults to writable while loading / on error, so the common owner case never
- * flashes locked and a transient failure never strands a writer.
+ * ### Known coarse residual (errs toward writable = hide-not-break)
+ * Per-page ACL-write grantees and per-page visibility aren't reflected here (they
+ * need the per-page `authorize()` inputs, not on the client `DataClient`); such a
+ * user still leans on the server's decision. Only the clear instance-viewer case
+ * locks. Defaults to writable while loading / on error, so the common owner case
+ * never flashes locked.
  */
 export function useCanWrite(): boolean {
   const client = useData();
@@ -75,13 +69,12 @@ function resolveCanWrite(client: DataClient): Promise<boolean> {
   return pending;
 }
 
-/** The coarse decision (see {@link useCanWrite}). Pure, so it's unit-testable. */
+/** The write decision (see {@link useCanWrite}). Pure, so it's unit-testable. */
 export function canWriteFromInstance(info: InstanceInfo): boolean {
-  // Forward-compatible seam: the moment the server stamps the active-persona role
-  // onto `InstanceInfo`, this becomes the exact viewer/admin decision — no UI
-  // change. Until then `youRole` is `undefined` and we fall through to coarse.
-  const youRole = (info as InstanceInfo & {youRole?: MemberRole | null}).youRole;
-  if (youRole === 'admin') return true;
+  // Server-stamped effective role (P1-8) is the exact viewer/admin/owner decision.
+  // `null`/absent (guest, stranger, or a pre-P1-8 server) falls through to coarse.
+  const {youRole} = info;
+  if (youRole === 'owner' || youRole === 'admin') return true;
   if (youRole === 'viewer') return false;
 
   const {you, guestAccess, ownerSubject} = info;
