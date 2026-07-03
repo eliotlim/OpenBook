@@ -40,6 +40,8 @@ interface FakeOpts {
   ownerSubject?: string | null;
   /** Who the server resolves you to be (default an anonymous guest). */
   you?: Principal;
+  /** Whether the server reports machine-owner authority (the loopback hatch). */
+  localOwner?: boolean;
 }
 
 function makeFake(opts: FakeOpts = {}) {
@@ -61,6 +63,17 @@ function makeFake(opts: FakeOpts = {}) {
       // the request's VERIFIED principal subject, and only a jws identity may claim.
       if (patch.ownerSubject !== undefined && !state.ownerSubject && you.verifiedVia === 'jws') {
         state.ownerSubject = you.subject;
+      } else if (
+        // Ownership repair (the claim-once escape hatch): the server re-points a
+        // CLAIMED ownerSubject only over the trusted local transport, only to the
+        // caller's OWN verified subject.
+        patch.ownerSubject !== undefined &&
+        state.ownerSubject &&
+        opts.localOwner &&
+        you.verifiedVia === 'jws' &&
+        patch.ownerSubject === you.subject
+      ) {
+        state.ownerSubject = you.subject;
       }
       if (patch.audience !== undefined) state.audience = patch.audience ?? null;
       if (patch.requireAudience !== undefined) state.requireAudience = !!patch.requireAudience;
@@ -81,6 +94,7 @@ function makeFake(opts: FakeOpts = {}) {
         audience: state.audience,
         requireAudience: state.requireAudience,
         you,
+        localOwner: opts.localOwner ?? false,
       };
     },
     async remintIdentity() {
@@ -267,6 +281,57 @@ describe('ensureClaimedForForwarding — publish implies claim (OB-209)', () => 
     expect(outcome).toEqual({status: 'already'});
     expect(state.ownerSubject).toBe('https://account.book.pub#someone'); // untouched
     expect(state.ops.some((o) => o.startsWith('policy:'))).toBe(false);
+  });
+
+  it('claimed to a DIFFERENT subject + machine-owner authority: repairs to the enabling identity', async () => {
+    const {deps, state} = makeFake({
+      ownerSubject: 'https://account.book.pub#old-owner',
+      you: verifiedYou('https://account.book.pub#new-owner'),
+      localOwner: true,
+    });
+    const outcome = await ensureClaimedForForwarding(deps);
+
+    expect(outcome).toEqual({status: 'repaired'});
+    expect(state.ownerSubject).toBe('https://account.book.pub#new-owner');
+    expect(state.ops).toContain(`policy:${JSON.stringify({ownerSubject: 'https://account.book.pub#new-owner'})}`);
+  });
+
+  it('drifted WITHOUT machine-owner authority: no repair attempted (remote semantics unchanged)', async () => {
+    const {deps, state} = makeFake({
+      ownerSubject: 'https://account.book.pub#old-owner',
+      you: verifiedYou('https://account.book.pub#new-owner'),
+      localOwner: false,
+    });
+    const outcome = await ensureClaimedForForwarding(deps);
+
+    expect(outcome).toEqual({status: 'already'});
+    expect(state.ownerSubject).toBe('https://account.book.pub#old-owner');
+    expect(state.ops.some((o) => o.startsWith('policy:'))).toBe(false);
+  });
+
+  it('matching owner + machine-owner authority: nothing to repair, no policy write', async () => {
+    const {deps, state} = makeFake({
+      ownerSubject: 'https://account.book.pub#me',
+      you: verifiedYou('https://account.book.pub#me'),
+      localOwner: true,
+    });
+    const outcome = await ensureClaimedForForwarding(deps);
+
+    expect(outcome).toEqual({status: 'already'});
+    expect(state.ops.some((o) => o.startsWith('policy:'))).toBe(false);
+  });
+
+  it('repair write rejected: degrades to `already` (the claim itself keeps exposure safe)', async () => {
+    const {deps, state} = makeFake({
+      ownerSubject: 'https://account.book.pub#old-owner',
+      you: verifiedYou('https://account.book.pub#new-owner'),
+      localOwner: true,
+      failPolicyWhen: (patch) => patch.ownerSubject !== undefined,
+    });
+    const outcome = await ensureClaimedForForwarding(deps);
+
+    expect(outcome).toEqual({status: 'already'});
+    expect(state.ownerSubject).toBe('https://account.book.pub#old-owner');
   });
 
   it('claim write rejected but a concurrent claim landed: re-reads and proceeds (claimed)', async () => {

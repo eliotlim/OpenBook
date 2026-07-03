@@ -162,6 +162,14 @@ export type ForwardingClaimOutcome =
   /** Already claimed (by this owner or anyone) — nothing to do; safe to expose. */
   | {status: 'already'}
   /**
+   * Already claimed, but to a DIFFERENT subject than the verified identity now
+   * enabling forwarding — and the server confirmed machine-owner authority
+   * (`localOwner`), so we re-pointed `ownerSubject` to the enabling identity.
+   * Without this, a drifted claim (an account migration, a re-issued identity)
+   * left every owner-gated step of the flow failing 403 forever.
+   */
+  | {status: 'repaired'}
+  /**
    * Couldn't claim, so we won't expose. `code` is the stable discriminant the surface
    * localizes + styles by severity: `unverified` is a precondition the signed-in owner
    * clears by verifying their identity (NOT a crash); `issuance-disabled` is that same
@@ -208,7 +216,27 @@ export const CLAIM_FAILED_REASON =
  */
 export async function ensureClaimedForForwarding(deps: AudienceBindDeps): Promise<ForwardingClaimOutcome> {
   const info = await deps.getInstanceInfo();
-  if (info.ownerSubject) return {status: 'already'}; // claim is one-way; already safe to expose
+  if (info.ownerSubject) {
+    // Ownership drift repair. The instance is claimed — safe to expose — but when
+    // it is claimed to a different subject than the verified identity enabling
+    // forwarding, every owner-gated step downstream (the audience bind, policy
+    // writes) would 403. Over the trusted local transport the server grants
+    // machine-owner authority (`info.localOwner`) and accepts a re-point of
+    // `ownerSubject` to the caller's OWN verified subject — so publish-implies-
+    // claim extends to publish-implies-repair on the owner's device. Best-effort:
+    // a refused/failed repair still returns `already` (the claim itself keeps the
+    // exposure safe), and the downstream owner-gated steps surface their own
+    // notices as before.
+    if (info.localOwner && info.you.verifiedVia === 'jws' && info.you.subject !== info.ownerSubject) {
+      try {
+        const next = await deps.setInstancePolicy({ownerSubject: info.you.subject});
+        if (next.ownerSubject === info.you.subject) return {status: 'repaired'};
+      } catch {
+        /* fall through to `already` */
+      }
+    }
+    return {status: 'already'}; // claim is one-way; already safe to expose
+  }
   // Unclaimed: only a verified (jws) identity may claim — and publish requires one.
   if (info.you.verifiedVia !== 'jws') {
     // Distinguish "verify and retry" from "can never verify here": when the account
