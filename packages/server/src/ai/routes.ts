@@ -15,9 +15,21 @@ import type {AiService} from './service';
  * human-readable `error` so the UI can guide the user to Settings → AI.
  */
 export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore, onPagesChanged?: () => Promise<void>): void {
-  app.get(API.aiStatus, async (c) => c.json(await ai.status()));
+  app.get(API.aiStatus, async (c) => {
+    // The status stays readable to every principal that passes the request gate
+    // (clients render provider/ready state), but the embedded config carries the
+    // instance's PAID PROVIDER API KEYS — writer-only readback. Non-writers get
+    // the same status with the secrets stripped; writers (AiSettings seeds its
+    // draft from `status.config`) keep the full config.
+    const status = await ai.status();
+    const decision = await store.decideCreateAccess(c.get('principal'));
+    return c.json(decision.canWrite ? status : {...status, config: redactAiConfig(status.config)});
+  });
 
   app.put(API.aiConfig, async (c) => {
+    // Instance-wide engine config (provider, API keys, model choice) — an
+    // instance-writer action, not something a viewer/guest may flip.
+    await requireCreate(c, store);
     const body = (await c.req.json()) as AiConfig;
     if (!['off', 'mock', 'llama', 'mlx', 'openai', 'claude'].includes(body.provider)) {
       return c.json({error: `Unknown provider: ${String(body.provider)}`}, 400);
@@ -106,6 +118,9 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   });
 
   app.post(API.aiModelDownload, async (c) => {
+    // Fetches a caller-supplied URL onto the server's disk (SSRF + disk-fill
+    // surface) — instance-writer only.
+    await requireCreate(c, store);
     const {url} = (await c.req.json().catch(() => ({}))) as {url?: string};
     return c.json(await ai.startDownload(url));
   });
@@ -178,6 +193,9 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   app.get(API.aiSkills, async (c) => c.json(await ai.skills.list()));
 
   app.put(API.aiSkills, async (c) => {
+    // Skills are workspace-shared prompt/recipe definitions injected into every
+    // user's agent runs — mutations are instance-writer only.
+    await requireCreate(c, store);
     const {skill} = (await c.req.json().catch(() => ({}))) as {skill?: AiSkill};
     if (!skill?.name?.trim()) return c.json({error: 'skill.name is required'}, 400);
     try {
@@ -187,10 +205,36 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     }
   });
 
-  app.delete(API.aiSkill(':name'), async (c) => {
+  // NOTE: registered as a template (`:name` param), NOT via `API.aiSkill(':name')`
+  // — that helper percent-encodes the colon, which registers the literal path
+  // `/api/ai/skills/%3Aname` and never matches a real skill name.
+  app.delete(`${API.aiSkills}/:name`, async (c) => {
+    await requireCreate(c, store);
     const removed = await ai.skills.remove(c.req.param('name') ?? '');
     return c.json({removed});
   });
+}
+
+/**
+ * Strip the secrets from an {@link AiConfig} before returning it to a
+ * non-writer: every `providers[*].apiKey` plus the legacy flat `apiKey`
+ * (pre-`providers` configs stored the then-active provider's key there).
+ * Everything else (provider choice, models, baseUrls, effort…) stays, so a
+ * non-writer client can still render the AI surface.
+ */
+function redactAiConfig(config: AiConfig): AiConfig {
+  const redacted: AiConfig = {...config};
+  delete redacted.apiKey;
+  if (config.providers) {
+    redacted.providers = Object.fromEntries(
+      Object.entries(config.providers).map(([p, settings]) => {
+        const safe = {...settings};
+        delete safe.apiKey;
+        return [p, safe];
+      }),
+    ) as AiConfig['providers'];
+  }
+  return redacted;
 }
 
 /**
