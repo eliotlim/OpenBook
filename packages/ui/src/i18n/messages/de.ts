@@ -149,6 +149,8 @@ export const de: PartialMessages = {
     loadError: 'Die Freigabeeinstellungen für diese Seite konnten nicht geladen werden.',
     unclaimedNotice:
       'Die Freigabe wird erst wirksam, wenn du diese Instanz beanspruchst. Bis dahin kann jede Person mit Zugriff ansehen und bearbeiten — diese Einstellungen werden gespeichert, aber noch nicht durchgesetzt.',
+    browserLocalNotice:
+      'Dieser Arbeitsbereich existiert nur in diesem Browser — niemand sonst kann ihn erreichen, daher wirken sich diese Einstellungen noch auf niemanden aus. Um mit anderen zu teilen, veröffentliche einen Arbeitsbereich über die OpenBook-Desktop-App.',
     enforcementCaveat:
       'Von dir eingeladene Personen können diese Seite über ihren veröffentlichten book.cloud-Link möglicherweise noch nicht öffnen — das wird gerade ausgerollt. Der direkte Zugriff ist bereits wie hier festgelegt eingeschränkt.',
     scopeLabel: 'Wer hat Zugriff',
@@ -181,6 +183,8 @@ export const de: PartialMessages = {
       restricted: 'Nur die von dir eingeladenen Personen können diesen Link öffnen.',
       localOnly:
         'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche diesen Arbeitsbereich unter Einstellungen → Teilen & Veröffentlichen, um einen Link zu erhalten, den du versenden kannst.',
+      browserLocal:
+        'Dieser Link funktioniert nur in diesem Browser — bei allen anderen öffnet er deren eigenen Arbeitsbereich, nicht diese Seite. Veröffentlichen geht über die Desktop-App.',
       publishedAt: 'Links verwenden deine veröffentlichte Adresse, {host}.',
     },
     copyLink: 'Link kopieren',
@@ -663,6 +667,11 @@ export const de: PartialMessages = {
   sharingScreen: {
     title: 'Teilen & Veröffentlichen',
     description: 'Wer diesen Arbeitsbereich erreichen kann: im Web veröffentlichen, den Standard-Gastzugriff festlegen oder im lokalen Netzwerk freigeben.',
+    webDescription:
+      'Wer diesen Arbeitsbereich erreichen kann. Er existiert nur in diesem Browser — das Veröffentlichen im Web oder im lokalen Netzwerk geschieht über die OpenBook-Desktop-App.',
+    webPublishTitle: 'Im Web veröffentlichen',
+    webPublishBody:
+      'Dieser Arbeitsbereich läuft vollständig in deinem Browser und wird nirgendwo gehostet — niemand sonst kann ihn öffnen; Links darauf zeigen anderen stattdessen deren eigenen Arbeitsbereich. Um deine Bücher unter einer privaten ✦.book.cloud-Adresse zu veröffentlichen oder im Netzwerk freizugeben, nutze die OpenBook-Desktop-App.',
   },
   sharing: {
     title: 'Gäste & Zugriff',
@@ -803,6 +812,8 @@ export const de: PartialMessages = {
   members: {
     title: 'Mitglieder',
     description: 'Personen mit einer Rolle in diesem Arbeitsbereich. Lade per E-Mail oder Handle ein, ändere die Verwaltung und entferne Zugriff.',
+    browserLocalNotice:
+      'Dieser Arbeitsbereich existiert nur in diesem Browser — niemand sonst kann ihn erreichen, daher können hier hinzugefügte Personen ihn noch nicht öffnen. Um mit anderen zu teilen, veröffentliche einen Arbeitsbereich über die OpenBook-Desktop-App.',
     youUser: 'Du bist angemeldet als {name}.',
     youGuest: 'Du bist als Gast unterwegs.',
     loading: 'Mitglieder werden geladen…',

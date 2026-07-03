@@ -210,6 +210,8 @@ export const en = {
     loadError: 'Couldn’t load sharing settings for this page.',
     unclaimedNotice:
       'Sharing takes effect once you claim this instance. Until then, anyone who can reach it can view and edit — these settings are saved but not yet enforced.',
+    browserLocalNotice:
+      'This workspace lives only in this browser — no one else can reach it, so these settings can’t take effect for anyone else yet. To share with others, publish a workspace from the OpenBook desktop app.',
     enforcementCaveat:
       'People you invite may not be able to open this page through its published book.cloud link yet — that’s rolling out. Direct access is already limited as set here.',
     scopeLabel: 'Who can access',
@@ -242,6 +244,8 @@ export const en = {
       restricted: 'Only the people you invite can open this link.',
       localOnly:
         'This link only works on this device. Publish this workspace in Settings → Sharing & publishing to get a link you can send.',
+      browserLocal:
+        'This link only works in this browser — for anyone else it opens their own workspace, not this page. Publishing happens from the desktop app.',
       publishedAt: 'Links use your published address, {host}.',
     },
     copyLink: 'Copy link',
@@ -1009,6 +1013,13 @@ export const en = {
   sharingScreen: {
     title: 'Sharing & publishing',
     description: 'Who can reach this workspace: publish it to the web, set the default access level for guests, or share it on your local network.',
+    // The standalone web app (in-browser workspace): no publish control exists
+    // here, so the intro must not promise one (P0-4).
+    webDescription:
+      'Who can reach this workspace. It lives only in this browser — publishing to the web or your local network happens from the OpenBook desktop app.',
+    webPublishTitle: 'Publish to the web',
+    webPublishBody:
+      'This workspace runs entirely in your browser and isn’t hosted anywhere, so no one else can open it — links to it show other people their own workspace instead. To publish your books at a private ✦.book.cloud address or share them on your network, use the OpenBook desktop app.',
   },
   forwarding: {
     title: 'Forward to the web',
@@ -1154,6 +1165,8 @@ export const en = {
   members: {
     title: 'Members',
     description: 'People with a role on this workspace. Invite by email or handle, change who can manage, and remove access.',
+    browserLocalNotice:
+      'This workspace lives only in this browser — no one else can reach it, so people you add here can’t open it yet. To share with others, publish a workspace from the OpenBook desktop app.',
     youUser: 'You’re signed in as {name}.',
     youGuest: 'You’re browsing as a guest.',
     loading: 'Loading members…',
