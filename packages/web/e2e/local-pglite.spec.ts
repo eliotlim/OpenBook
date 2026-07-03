@@ -40,3 +40,46 @@ test('web runs on in-webview PGlite: a page created with no server survives a re
 
   expect(errors).toEqual([]);
 });
+
+// P0-4 (sharing audit 2026-07-03): on the in-browser store nothing outside this
+// browser can reach the workspace, so the sharing surfaces must say so instead
+// of presenting a fully-wired-looking UI that is 100% inert. Only this spec
+// exercises that path — every fixtures-based spec points the app at a real
+// (reachable) server, where these disclosures must NOT appear (pinned by the
+// browserLocalSharing unit tests).
+test('web sharing surfaces disclose the in-browser workspace honestly', {tag: ['@sharing', '@p1']}, async ({page}) => {
+  await page.goto('/');
+  await page.getByRole('button', {name: 'New page'}).first().click();
+  await expect
+    .poll(() => {
+      const param = new URL(page.url()).searchParams.get('page');
+      return param && param !== 'home' ? param : null;
+    })
+    .toBeTruthy();
+
+  // Share dialog: the browser-local disclosure replaces the unclaimed-instance
+  // one, and the copy-link hint admits the link opens the recipient's OWN
+  // workspace. The controls stay functional (scope picker + invite field).
+  await page.getByRole('button', {name: 'Share', exact: true}).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText(/This workspace lives only in this browser/)).toBeVisible();
+  await expect(dialog.getByText(/opens their own workspace, not this page/)).toBeVisible();
+  await expect(dialog.getByText(/Sharing takes effect once you claim/)).toHaveCount(0);
+  await expect(dialog.locator('#share-scope')).toBeVisible();
+  await page.keyboard.press('Escape');
+
+  // Sharing & publishing settings: no "publish it to the web" promise — a
+  // desktop-app pointer instead, with the (real) guest gate still present.
+  // Opened through the UI: a `?settings=…` goto races the first-run `?page=`
+  // rewrite on a fresh local store, which drops the param and closes the panel.
+  await page.getByRole('button', {name: 'Settings'}).first().click();
+  await page.getByRole('button', {name: 'Sharing & publishing'}).click();
+  await expect(page.getByText('Publish to the web')).toBeVisible();
+  await expect(page.getByText(/isn’t hosted anywhere/)).toBeVisible();
+  await expect(page.getByText('Guests & access')).toBeVisible();
+
+  // Members: the roster stays usable but says invitees can't reach it yet.
+  await page.getByRole('button', {name: 'Members'}).click();
+  await expect(page.getByText(/people you add here can’t open it yet/)).toBeVisible();
+  await expect(page.getByLabel('Invite a member')).toBeVisible();
+});

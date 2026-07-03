@@ -32,8 +32,14 @@ function openLocalClient(): Promise<DataClient> {
   return localClientPromise;
 }
 
-function useWebClient(forwardedPrefix: string | null): DataClient | null {
-  const [client, setClient] = useState<DataClient | null>(null);
+function useWebClient(forwardedPrefix: string | null): {client: DataClient | null; browserLocal: boolean} {
+  // `browserLocal` marks the third branch below — the embedded PGlite store that
+  // lives only in this browser profile. The sharing surfaces use it to say
+  // honestly that nothing outside this browser can reach the workspace (P0-4).
+  const [state, setState] = useState<{client: DataClient | null; browserLocal: boolean}>({
+    client: null,
+    browserLocal: false,
+  });
   useEffect(() => {
     // Served as a forwarded `<prefix>.book.pub` site (the edge tagged the app-shell
     // request with the site prefix): the workspace lives on the owner's instance,
@@ -41,27 +47,30 @@ function useWebClient(forwardedPrefix: string | null): DataClient | null {
     // Same-origin (empty base), no token: the edge injects the signed viewer
     // principal. Takes precedence over a local override and the in-browser store.
     if (forwardedPrefix) {
-      setClient(new HttpDataClient('', undefined, {getIdentity: getIdentityCredential}));
+      setState({client: new HttpDataClient('', undefined, {getIdentity: getIdentityCredential}), browserLocal: false});
       return;
     }
     const override = getServerUrlOverride() ?? REMOTE_SERVER_URL;
     if (override) {
       // A published server requires its access token on every request; pass the
       // configured one (Connection settings) so a token-gated remote works.
-      setClient(new HttpDataClient(override, getServerTokenOverride() ?? undefined, {getIdentity: getIdentityCredential}));
+      setState({
+        client: new HttpDataClient(override, getServerTokenOverride() ?? undefined, {getIdentity: getIdentityCredential}),
+        browserLocal: false,
+      });
       return;
     }
     let cancelled = false;
     openLocalClient()
       .then((c) => {
-        if (!cancelled) setClient(c);
+        if (!cancelled) setState({client: c, browserLocal: true});
       })
       .catch((e) => console.error('OpenBook: failed to open the local store', e));
     return () => {
       cancelled = true;
     };
   }, [forwardedPrefix]);
-  return client;
+  return state;
 }
 
 /**
@@ -107,8 +116,16 @@ export const getServerSideProps: GetServerSideProps<{forwardedPrefix: string | n
 };
 
 export default function Home({forwardedPrefix}: InferGetServerSidePropsType<typeof getServerSideProps>) {
-  const client = useWebClient(forwardedPrefix);
-  const platform = useDesktopShellPreview();
+  const {client, browserLocal} = useWebClient(forwardedPrefix);
+  const shellPreview = useDesktopShellPreview();
+  // Tell the UI when the workspace is the in-browser store (nothing outside this
+  // browser can reach it) so the sharing surfaces annotate themselves honestly.
+  // Merged over the desktop-shell preview: even under `?shell=desktop` the data
+  // is still browser-local, so the truth flag stays.
+  const platform = useMemo<PlatformLibrary | undefined>(
+    () => (browserLocal ? {...shellPreview, browserLocalWorkspace: true} : shellPreview),
+    [browserLocal, shellPreview],
+  );
 
   return (
     <>

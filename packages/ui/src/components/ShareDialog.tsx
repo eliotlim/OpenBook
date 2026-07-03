@@ -2,7 +2,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {Check, Link2, Loader2, Share2, Trash2} from 'lucide-react';
 import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useForwarding, useHud, useTranslation} from '@/providers';
+import {useForwarding, useHud, usePlatformLibrary, useTranslation} from '@/providers';
 import {
   Dialog,
   DialogContent,
@@ -141,6 +141,11 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   // share-link origin registration in ForwardingProvider).
   const {supported: canPublish, publishedHost} = useForwarding();
   const linkIsLocalOnly = canPublish && !publishedHost;
+  // The standalone web app's in-browser store (P0-4): the workspace lives only in
+  // this browser profile, so nothing set here can reach another person and a
+  // copied link opens the *recipient's own* workspace, not this page. The dialog
+  // stays functional (settings persist) but must say so.
+  const browserLocal = usePlatformLibrary().browserLocalWorkspace === true;
 
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<PageVisibility>('inherit');
@@ -295,11 +300,21 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
           <p className="text-sm text-destructive">{t('share.loadError')}</p>
         ) : (
           <div className="flex flex-col gap-5">
+            {/* In-browser workspace disclosure (P0-4): nothing outside this
+                browser can reach the workspace, so these settings can't take
+                effect for anyone else — supersedes the claim disclosures below
+                (which presuppose a reachable instance). */}
+            {browserLocal && (
+              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                {t('share.browserLocalNotice')}
+              </p>
+            )}
+
             {/* Pre-claim disclosure: on a *confirmed* unclaimed instance these
                 settings are saved but inert (rule-0 short-circuit), so we say so
                 plainly. Hidden until the claim lookup resolves (F1); announced
                 politely so SR users hear it appear after the async resolve (F2). */}
-            {claimStatus === 'unclaimed' && (
+            {!browserLocal && claimStatus === 'unclaimed' && (
               <p
                 aria-live="polite"
                 className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
@@ -336,7 +351,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                   is that a legitimate grantee can't yet *open* a restricted page
                   through its published *.book.pub link until the identity bridge
                   (D2 + OB-202) lands — caveat that, only once confirmed claimed. */}
-              {claimStatus === 'claimed' && scope !== 'public' && (
+              {!browserLocal && claimStatus === 'claimed' && scope !== 'public' && (
                 <p className="text-xs text-muted-foreground">{t('share.enforcementCaveat')}</p>
               )}
               {scopeError && (
@@ -474,12 +489,17 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
             )}
 
             {/* Copy link. The hint tells the truth about where the copied URL
-                reaches: on an unpublished desktop it's local-only (say so instead
-                of the per-scope promise); once published it carries the forwarded
-                address, so the per-scope hint applies — plus the address itself. */}
+                reaches: in the standalone web app the link opens the recipient's
+                OWN in-browser workspace, not this page (say so — the worst lie of
+                the batch); on an unpublished desktop it's local-only (say so
+                instead of the per-scope promise); once published it carries the
+                forwarded address, so the per-scope hint applies — plus the
+                address itself. */}
             <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
               <span className="text-xs text-muted-foreground">
-                {linkIsLocalOnly ? (
+                {browserLocal ? (
+                  t('share.linkHints.browserLocal')
+                ) : linkIsLocalOnly ? (
                   t('share.linkHints.localOnly')
                 ) : (
                   <>
