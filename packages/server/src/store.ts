@@ -1919,14 +1919,23 @@ export class PageStore {
    * returns. Mirrors the `authorize()` ownership ladder so the UI reads from the
    * SAME source of truth as write enforcement:
    *
-   *  - `owner` — the loopback owner (`verifiedVia==='local'`, incl. the unclaimed
-   *    single-user local case) or the claimed owner (`jws` && `subject===ownerSubject`).
+   *  - `owner` — the claimed owner (`jws` && `subject===ownerSubject`), or the
+   *    loopback owner (`verifiedVia==='local'`).
    *  - `admin` / `viewer` — the active-persona roster role (via {@link resolveMemberRole}).
    *  - `null` — no special role (a guest / signed-in stranger).
    *
+   * The `local` rung is here for defensive parity with `authorize()` (rule 1), NOT
+   * the desktop request path: `resolvePrincipal` only ever yields `guest | jws |
+   * unverified` — a `local` principal never arrives over a request (app.ts), and the
+   * in-webview {@link LocalDataClient} hardcodes `owner` without calling this. Over
+   * the desktop-owner IPC path this therefore returns `owner` when signed-in +
+   * claimed, or `null` when the instance is still unclaimed (the caller is a guest
+   * here); write in that unclaimed case is preserved by the CLIENT's coarse
+   * guest-gate fallback (default `guestAccess:'write'`) — which must not be deleted
+   * on the mistaken belief that the `local` rung covers the desktop owner.
+   *
    * UI-only: a viewer renders read-only chrome, everyone else keeps whatever the
-   * server's per-page `authorize()` actually grants. The local owner ALWAYS reads
-   * as `owner` here, so the single-user local case can never be locked out.
+   * server's per-page `authorize()` actually grants.
    */
   async resolveEffectiveRole(principal: Principal, cfg?: InstanceConfig): Promise<EffectiveRole | null> {
     if (principal.verifiedVia === 'local') return 'owner'; // rule 1 (loopback owner)

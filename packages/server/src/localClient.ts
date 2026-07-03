@@ -398,9 +398,11 @@ export class LocalDataClient implements DataClient {
       audience: config.audience ?? null,
       requireAudience: config.requireAudience ?? false,
       you: localPrincipal(),
-      // The in-webview / desktop caller is the implicit loopback owner
-      // (`verifiedVia==='local'`), so its effective role is `owner` — it keeps full
-      // write chrome and the manage-sharing entry, and is never locked out (P1-8).
+      // The in-webview caller is the implicit loopback owner (`verifiedVia==='local'`),
+      // so its effective role is `owner` — it keeps full write chrome and the
+      // manage-sharing entry, and is never locked out (P1-8). (This is the ONLY path
+      // where a `local` principal surfaces; the durable desktop server sees its owner
+      // as a `jws`/guest principal over IPC, never `local`.)
       youRole: 'owner',
     };
   }

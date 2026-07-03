@@ -174,14 +174,16 @@ export interface InstanceInfo {
   you: Principal;
   /**
    * Your *effective* instance role on this request (P1-8), or `null` if you hold
-   * no special role (a guest / signed-in stranger). Layers the two rungs the
-   * roster can't express — `owner` = the loopback owner (`verifiedVia==='local'`)
-   * or the claimed owner (`jws` && `subject===ownerSubject`) — on top of the
-   * active-persona roster role (`admin` / `viewer`, OB-182 §1.1). Lets a client
-   * render read-only viewer chrome (OB-205: `viewer` locks the editor) and gate
-   * manager-only UI (the Share dialog: `owner`/`admin` manage) without a second
-   * probe. UI-only: the server's `authorize()` stays the sole write enforcement,
-   * so a wrong/absent value never grants a write the server would 403.
+   * no special role (a guest / signed-in stranger). Layers the `owner` rung the
+   * roster can't express — the claimed owner (`jws` && `subject===ownerSubject`),
+   * or the loopback owner (`verifiedVia==='local'`, the in-webview path only — a
+   * request-borne principal is never `local`) — on top of the active-persona roster
+   * role (`admin` / `viewer`, OB-182 §1.1). Lets a client render read-only viewer
+   * chrome (OB-205: `viewer` locks the editor) and gate manager-only UI (the Share
+   * dialog: `owner`/`admin` manage) without a second probe. UI-only: the server's
+   * `authorize()` stays the sole write enforcement, so a wrong/absent value never
+   * grants a write the server would 403; a signed-in owner reads as `owner`, and an
+   * unclaimed instance keeps write via the client's coarse guest-gate fallback.
    * Optional: absent (a pre-P1-8 server / a test fixture) is treated as `null`.
    */
   youRole?: EffectiveRole | null;
