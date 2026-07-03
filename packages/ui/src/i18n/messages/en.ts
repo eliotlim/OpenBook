@@ -240,6 +240,9 @@ export const en = {
       authenticated: 'Anyone signed in who opens this link can view this page.',
       members: 'Only workspace members who open this link can view this page.',
       restricted: 'Only the people you invite can open this link.',
+      localOnly:
+        'This link only works on this device. Publish this workspace in Settings → Sharing & publishing to get a link you can send.',
+      publishedAt: 'Links use your published address, {host}.',
     },
     copyLink: 'Copy link',
     copied: 'Copied',

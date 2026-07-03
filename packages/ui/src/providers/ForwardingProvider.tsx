@@ -10,6 +10,7 @@ import {
   type AudienceNoticeCode,
 } from './forwardingAudience';
 import {useData} from '@/data/DataProvider';
+import {setShareLinkOrigin} from '@/lib/pageActions';
 
 /**
  * Owns the *.book.pub forwarding tunnel for the whole app, so it keeps running
@@ -36,6 +37,13 @@ interface ForwardingContextValue {
   status: ForwardingStatus;
   /** The assigned `<prefix>.book.pub` host, once known. */
   host: string | null;
+  /**
+   * The host at which the workspace is *currently reachable* by others — the
+   * assigned host, but only while publishing is enabled and the tunnel is
+   * actually online; `null` otherwise. The single publish predicate behind
+   * both the share-link origin registry and the Share dialog's link hint.
+   */
+  publishedHost: string | null;
   busy: boolean;
   error: string | null;
   /**
@@ -66,6 +74,7 @@ const DEFAULT: ForwardingContextValue = {
   enabled: false,
   status: 'idle',
   host: null,
+  publishedHost: null,
   busy: false,
   error: null,
   audienceNotice: null,
@@ -197,6 +206,21 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   // Drop the tunnel if the platform goes away (shouldn't happen mid-session).
   useEffect(() => () => clientRef.current?.stop(), []);
 
+  // Where the workspace is currently reachable by others, or `null` (see the
+  // context doc). Computed once so the registry effect below and every context
+  // consumer (e.g. the Share dialog's link hint) share one publish predicate.
+  const publishedHost = enabled && status === 'online' && host ? host : null;
+
+  // Publish-aware copy links (P0-1): while the tunnel is live, "Copy link"
+  // everywhere must emit the forwarded https host — `window.location` here is
+  // `tauri://localhost`, dead for any recipient. Registered module-level (see
+  // pageActions) so plain-module callers resolve it too; cleared the moment the
+  // tunnel isn't actually serving, so we never hand out a link that 502s.
+  useEffect(() => {
+    setShareLinkOrigin(publishedHost);
+    return () => setShareLinkOrigin(null);
+  }, [publishedHost]);
+
   const enable = useCallback(async () => {
     if (!connected || !token) {
       signIn(); // can't claim an address without an account — start sign-in
@@ -227,8 +251,8 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   }, [audienceDeps]);
 
   const value = useMemo<ForwardingContextValue>(
-    () => ({supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, enable, disable}),
-    [supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, enable, disable],
+    () => ({supported, enabled, status, host, publishedHost, busy, error, audienceNotice, claimRefusal, enable, disable}),
+    [supported, enabled, status, host, publishedHost, busy, error, audienceNotice, claimRefusal, enable, disable],
   );
 
   return <ForwardingContext.Provider value={value}>{children}</ForwardingContext.Provider>;

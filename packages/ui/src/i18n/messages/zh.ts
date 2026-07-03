@@ -178,6 +178,8 @@ export const zh: PartialMessages = {
       authenticated: '任何已登录的人打开此链接即可查看此页面。',
       members: '只有打开此链接的工作区成员才能查看此页面。',
       restricted: '只有你邀请的人才能打开此链接。',
+      localOnly: '此链接仅在本设备上有效。请在“设置 → 共享与发布”中发布此工作区，以获得可发送的链接。',
+      publishedAt: '链接使用你的发布地址 {host}。',
     },
     copyLink: '复制链接',
     copied: '已复制',
