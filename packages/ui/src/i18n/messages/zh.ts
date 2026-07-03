@@ -149,7 +149,7 @@ export const zh: PartialMessages = {
     loadError: '无法加载此页面的共享设置。',
     unclaimedNotice: '共享将在你认领此实例后生效。在此之前，任何能够访问它的人都可以查看和编辑——这些设置已保存，但尚未强制执行。',
     enforcementCaveat:
-      '你邀请的人可能还无法通过已发布的 book.pub 链接打开此页面——此功能正在逐步推出。直接访问已按此处的设置受到限制。',
+      '你邀请的人可能还无法通过已发布的 book.cloud 链接打开此页面——此功能正在逐步推出。直接访问已按此处的设置受到限制。',
     scopeLabel: '谁可以访问',
     scope: {
       inherit: '工作区默认',
@@ -669,7 +669,7 @@ export const zh: PartialMessages = {
     youGuestNamed: '你正以访客"{name}"的身份编辑。',
     youGuestAnon: '你正以匿名访客身份编辑。',
     guestAccess: '访客访问',
-    guestAccessHint: '适用于未登录即访问此工作区的所有人——通过网络或共享的 ✦.book.pub 链接。',
+    guestAccessHint: '适用于未登录即访问此工作区的所有人——通过网络或共享的 ✦.book.cloud 链接。',
     guestWrite: '可读可写',
     guestRead: '只读',
     guestOff: '无权限',
@@ -685,7 +685,7 @@ export const zh: PartialMessages = {
     unbindHeld: '关闭转发时未能完全解除受众绑定：{error}',
     title: '转发到网络',
     description:
-      '获取一个私有的 ✦.book.pub 地址，即可在任意浏览器中打开本设备的图书 —— 无需托管，也无需在网络中暴露。',
+      '获取一个私有的 ✦.book.cloud 地址，即可在任意浏览器中打开本设备的图书 —— 无需托管，也无需在网络中暴露。',
     toggle: '转发本设备',
     signInHint: '请先登录你的账户以获取地址。',
     signIn: '登录',

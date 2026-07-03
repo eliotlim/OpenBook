@@ -211,7 +211,7 @@ export const en = {
     unclaimedNotice:
       'Sharing takes effect once you claim this instance. Until then, anyone who can reach it can view and edit — these settings are saved but not yet enforced.',
     enforcementCaveat:
-      'People you invite may not be able to open this page through its published book.pub link yet — that’s rolling out. Direct access is already limited as set here.',
+      'People you invite may not be able to open this page through its published book.cloud link yet — that’s rolling out. Direct access is already limited as set here.',
     scopeLabel: 'Who can access',
     scope: {
       inherit: 'Workspace default',
@@ -1012,7 +1012,7 @@ export const en = {
   },
   forwarding: {
     title: 'Forward to the web',
-    description: 'Claim a private ✦.book.pub address that opens this device’s books in any browser — nothing to host, nothing to expose on your network.',
+    description: 'Claim a private ✦.book.cloud address that opens this device’s books in any browser — nothing to host, nothing to expose on your network.',
     toggle: 'Forward this device',
     signInHint: 'Sign in to your account first to claim an address.',
     signIn: 'Sign in',
@@ -1105,7 +1105,7 @@ export const en = {
     remoteUrl: 'Remote server URL',
     remoteUrlPlaceholder: 'https://my-server.example:4319',
     mixedContentWarning:
-      'This is a secure (https) site, so it can’t reach a plain http:// address on your local network — the browser blocks it. Use the device’s https ✦.book.pub forwarding address instead (turn on Forwarding in the OpenBook app on that device), or open OpenBook directly on the same machine.',
+      'This is a secure (https) site, so it can’t reach a plain http:// address on your local network — the browser blocks it. Use the device’s https ✦.book.cloud forwarding address instead (turn on Forwarding in the OpenBook app on that device), or open OpenBook directly on the same machine.',
     remoteTokenPlaceholder: 'Only if the server requires one',
     remoteTokenHint: 'A published or shared server requires its access token; leave blank for an open server.',
     connect: 'Connect',
@@ -1142,7 +1142,7 @@ export const en = {
     youGuestNamed: 'You’re editing as guest “{name}”.',
     youGuestAnon: 'You’re editing as an anonymous guest.',
     guestAccess: 'Guest access',
-    guestAccessHint: 'Applies to anyone reaching this workspace without signing in — over the network or a shared ✦.book.pub link.',
+    guestAccessHint: 'Applies to anyone reaching this workspace without signing in — over the network or a shared ✦.book.cloud link.',
     guestWrite: 'Read & edit',
     guestRead: 'Read only',
     guestOff: 'No access',
