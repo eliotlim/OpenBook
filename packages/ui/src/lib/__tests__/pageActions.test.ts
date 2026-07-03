@@ -33,11 +33,28 @@ describe('pageLinkUrl (share origin registered — published workspace)', () => 
     expect(pageLinkUrl('new')).toBe('https://prefix.book.cloud/?page=new');
   });
 
-  it('accepts a full origin as-is and defaults bare hosts to https', () => {
+  it('normalizes everything to a bare https origin', () => {
     setShareLinkOrigin('https://prefix.book.cloud');
     expect(getShareLinkOrigin()).toBe('https://prefix.book.cloud');
     setShareLinkOrigin('bare.book.cloud');
     expect(getShareLinkOrigin()).toBe('https://bare.book.cloud');
+    // Other schemes are upgraded — published sites are https-only.
+    setShareLinkOrigin('http://prefix.book.cloud');
+    expect(getShareLinkOrigin()).toBe('https://prefix.book.cloud');
+    // Accidental path/query cruft is stripped; a port survives.
+    setShareLinkOrigin('https://prefix.book.cloud/some/path?x=1');
+    expect(getShareLinkOrigin()).toBe('https://prefix.book.cloud');
+    setShareLinkOrigin('prefix.book.cloud:8443');
+    expect(getShareLinkOrigin()).toBe('https://prefix.book.cloud:8443');
+  });
+
+  it('clears (rather than stores) an unusable value, so pageLinkUrl never throws', () => {
+    setShareLinkOrigin('prefix.book.cloud');
+    setShareLinkOrigin('http://'); // unparseable → registry cleared
+    expect(getShareLinkOrigin()).toBeNull();
+    setShareLinkOrigin('file:///etc/hosts'); // parseable but hostless → cleared
+    expect(getShareLinkOrigin()).toBeNull();
+    expect(new URL(pageLinkUrl('p9')).origin).toBe(window.location.origin); // falls back, no throw
   });
 
   it('clears with null and falls back to window.location', () => {

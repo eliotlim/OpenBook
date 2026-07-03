@@ -137,11 +137,10 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   // Where a copied link actually reaches (P0-1). On a desktop build
   // (`supported`), the link is `tauri://localhost` — dead off this device —
   // UNLESS the workspace is published, in which case `pageLinkUrl` emits the
-  // forwarded host (same condition as the ForwardingProvider registration).
-  const forwarding = useForwarding();
-  const publishedHost =
-    forwarding.enabled && forwarding.status === 'online' && forwarding.host ? forwarding.host : null;
-  const linkIsLocalOnly = forwarding.supported && !publishedHost;
+  // forwarded host (`publishedHost` is the same predicate that drives the
+  // share-link origin registration in ForwardingProvider).
+  const {supported: canPublish, publishedHost} = useForwarding();
+  const linkIsLocalOnly = canPublish && !publishedHost;
 
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<PageVisibility>('inherit');

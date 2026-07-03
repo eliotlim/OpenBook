@@ -11,17 +11,29 @@
 // externally reachable address, so `ForwardingProvider` registers it here while
 // the tunnel is live (and clears it when it isn't). A module-level registry, not
 // React context, because copy-link is also triggered from plain-module callers
-// (context menus, the command palette) outside the provider tree.
+// (the page/nav context menus) outside the provider tree.
 
 let shareLinkOrigin: string | null = null;
 
 /**
  * Register (or clear, with `null`) the externally reachable origin that copied
  * page links should use. Accepts a bare host (`prefix.book.cloud`) or a full
- * origin (`https://prefix.book.cloud`); bare hosts get `https://`.
+ * origin/URL; the stored value is normalized to a bare `https://<host>` origin —
+ * any path/query is stripped and any other scheme is upgraded (published sites
+ * are https-only). An unparseable value clears the registry rather than storing
+ * something `pageLinkUrl` would later throw on.
  */
 export function setShareLinkOrigin(origin: string | null): void {
-  shareLinkOrigin = origin ? (origin.includes('://') ? origin : `https://${origin}`) : null;
+  if (!origin) {
+    shareLinkOrigin = null;
+    return;
+  }
+  try {
+    const url = new URL(origin.includes('://') ? origin : `https://${origin}`);
+    shareLinkOrigin = url.host ? `https://${url.host}` : null;
+  } catch {
+    shareLinkOrigin = null;
+  }
 }
 
 /** The currently registered share-link origin, if any (see {@link setShareLinkOrigin}). */
