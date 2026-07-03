@@ -7,7 +7,7 @@ import {
   MixerHorizontalIcon,
   EnvelopeClosedIcon,
 } from '@radix-ui/react-icons';
-import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, UserGroupIcon, WrenchIcon} from '@heroicons/react/24/outline';
+import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, LifebuoyIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, UserGroupIcon, WrenchIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
 import AppearanceSettings from '@/components/AppearanceSettings';
 import GeneralSettings from '@/components/GeneralSettings';
@@ -21,6 +21,7 @@ import SharingPublishingSettings from '@/components/settings/SharingPublishingSe
 import MembersSettings from '@/components/settings/MembersSettings';
 import AdminSettings from '@/components/settings/AdminSettings';
 import AccountSettings from '@/components/settings/AccountSettings';
+import DiagnosticsSettings from '@/components/settings/DiagnosticsSettings';
 import {cn} from '@/lib/utils';
 import {usePreferences, useTranslation} from '@/providers';
 import {focusAiProvider} from '@/lib/aiSettingsNav';
@@ -43,6 +44,7 @@ const TAB_META: Record<SettingsTab, {labelKey: TKey; icon: ComponentType<{classN
   extensions: {labelKey: 'settings.tab.extensions', icon: PuzzlePieceIcon},
   ai: {labelKey: 'settings.tab.ai', icon: CpuChipIcon},
   admin: {labelKey: 'settings.tab.admin', icon: ArchiveBoxIcon},
+  diagnostics: {labelKey: 'settings.tab.diagnostics', icon: LifebuoyIcon},
 };
 
 const SECTION_LABEL: Record<(typeof SETTINGS_SECTIONS)[number]['id'], TKey> = {
@@ -63,6 +65,7 @@ const PANELS: Record<SettingsTab, ComponentType> = {
   members: MembersSettings,
   extensions: ExtensionsSettings,
   admin: AdminSettings,
+  diagnostics: DiagnosticsSettings,
 };
 
 export interface SettingsPanelProps {

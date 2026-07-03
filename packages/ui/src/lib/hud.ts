@@ -4,7 +4,7 @@
 export const SETTINGS_SECTIONS = [
   {id: 'preferences', tabs: ['general', 'appearance', 'customisation']},
   {id: 'account', tabs: ['profile', 'signin']},
-  {id: 'workspace', tabs: ['connection', 'sharing', 'members', 'extensions', 'ai', 'admin']},
+  {id: 'workspace', tabs: ['connection', 'sharing', 'members', 'extensions', 'ai', 'admin', 'diagnostics']},
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];
