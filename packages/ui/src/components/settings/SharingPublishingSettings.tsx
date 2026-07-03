@@ -118,8 +118,18 @@ function ForwardingSection() {
         </SettingsField>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
+      {/* Severity-aware, like `claimRefusal` above: `partialUnscoped`/`ensureRescope`
+          are benign partial outcomes (the tunnel is up, nothing is broken — only the
+          strict audience hardening is incomplete), so render them muted; reserve the
+          destructive red for a bind/unbind step that genuinely failed. */}
       {audienceNotice && (
-        <p className="text-sm text-destructive">
+        <p
+          className={
+            audienceNotice.code === 'partialUnscoped' || audienceNotice.code === 'ensureRescope'
+              ? 'text-xs text-muted-foreground'
+              : 'text-sm text-destructive'
+          }
+        >
           {t(`forwarding.${audienceNotice.code}`, {error: audienceNotice.detail ?? ''})}
         </p>
       )}
