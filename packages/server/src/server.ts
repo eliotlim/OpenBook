@@ -124,6 +124,15 @@ export interface StartOptions {
    * by a truthy `OPENBOOK_SERVER_PERSIST`. Off ⇒ the shipped T3 client-saver model.
    */
   serverPersist?: boolean;
+  /**
+   * The per-run local-owner secret (the loopback-owner hatch). The desktop host
+   * mints one at launch and passes it here via `OPENBOOK_LOCAL_OWNER_SECRET`; its
+   * IPC bridge then stamps the matching `X-OpenBook-Local` header on exactly the
+   * requests that originate in the app's own webview (never on tunnel-forwarded
+   * traffic). A matching non-forwarded request holds machine-owner authority.
+   * Unset ⇒ the hatch is inert (headless/server mode, tests).
+   */
+  localOwnerSecret?: string;
 }
 
 export interface RunningServer {
@@ -346,7 +355,17 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   // One hub is shared between the HTTP/SSE app and the disk mirror, so a
   // re-imported page fans out to every connected client too.
   const hub = new PageHub();
-  const app = createApp(store, ai, hub, {accessToken: opts.accessToken, embedded: !opts.databaseUrl, identity, backups, roster, serverPersist});
+  const app = createApp(store, ai, hub, {
+    accessToken: opts.accessToken,
+    embedded: !opts.databaseUrl,
+    identity,
+    backups,
+    roster,
+    serverPersist,
+    // Loopback-owner hatch: the spawning host (the desktop app) shares its per-run
+    // secret via env; a dev setup can export the same value to both processes.
+    localOwnerSecret: opts.localOwnerSecret ?? process.env.OPENBOOK_LOCAL_OWNER_SECRET,
+  });
 
   // The server can listen on a Unix domain socket (the desktop's portless IPC
   // default), a TCP port (headless, or the LAN bind added when publishing), or

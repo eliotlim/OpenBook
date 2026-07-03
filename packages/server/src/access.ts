@@ -58,6 +58,33 @@ export async function requireCreate(c: Ctx, store: PageStore): Promise<void> {
 }
 
 /**
+ * Gate instance ADMINISTRATION (whole-workspace export/import). Stricter than
+ * {@link requireCreate} on a claimed instance — an acl-write member can create
+ * pages but must not bulk-exfiltrate (or wholesale-overwrite) pages they can't
+ * read — and simultaneously more forgiving to the machine owner: the loopback
+ * hatch (`localOwner`) and the in-process `local` principal always pass, so a
+ * lapsed account identity never locks the desktop out of its own data.
+ *
+ * On an UNCLAIMED instance there is no owner/roster to gate by (loopback-only by
+ * the §2.6 exposure invariant), so the legacy create-gate floor applies — the
+ * single-user local experience is unchanged.
+ */
+export async function requireInstanceAdmin(c: Ctx, store: PageStore): Promise<void> {
+  if (c.get('localOwner')) return; // trusted local transport = machine owner
+  const principal = c.get('principal');
+  if (principal.verifiedVia === 'local') return; // in-process loopback owner
+  const config = await store.getInstanceConfig();
+  if (!config.ownerSubject) {
+    await requireCreate(c, store);
+    return;
+  }
+  const isOwner = principal.verifiedVia === 'jws' && principal.subject === config.ownerSubject;
+  const role = isOwner ? null : await store.resolveMemberRole(principal, config);
+  if (isOwner || role === 'admin') return;
+  throw new HTTPException(403, {message: 'only the instance owner or an admin can export or import the whole workspace'});
+}
+
+/**
  * Gate a database route on its HOST PAGE's decision (a database inherits the
  * access of the page that hosts it). 404s a missing or unreadable database.
  */

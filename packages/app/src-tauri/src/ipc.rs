@@ -32,14 +32,56 @@ pub struct ConnInfo {
     /// Used only on the non-Unix (loopback TCP) fallback.
     #[cfg_attr(unix, allow(dead_code))]
     pub local_port: u16,
+    /// Per-run local-owner secret (the loopback-owner hatch). Stamped as
+    /// `X-OpenBook-Local` on webview-originated requests — and ONLY those: a
+    /// request already carrying the tunnel's `X-OpenBook-Forwarded` marker came
+    /// from a remote viewer and must never gain machine-owner authority, so the
+    /// bridge both withholds the stamp there and drops any inbound imitation.
+    pub local_secret: String,
 }
+
+/// The tunnel client's forwarded-request marker (`FORWARDED_HEADER` in the SDK).
+const FORWARDED_HEADER: &str = "x-openbook-forwarded";
+/// The local-owner secret header (`LOCAL_OWNER_HEADER` in the SDK).
+const LOCAL_OWNER_HEADER: &str = "x-openbook-local";
 
 impl ConnInfo {
     pub fn from_state(state: &AppState) -> Self {
         ConnInfo {
             socket_path: state.socket_path.clone(),
             local_port: state.local_port,
+            local_secret: state.local_secret.clone(),
         }
+    }
+}
+
+/// Append the caller's headers to a hand-built HTTP/1.1 request, applying the
+/// bridge's header policy: the host owns the framing headers, the content type
+/// defaults to JSON, the caller can never supply the local-owner secret itself,
+/// and the secret is stamped only when the request is NOT tunnel-forwarded.
+fn push_headers(request: &mut String, headers: &[(String, String)], local_secret: &str) {
+    let forwarded = headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case(FORWARDED_HEADER));
+    let mut has_content_type = false;
+    for (name, value) in headers {
+        match name.to_ascii_lowercase().as_str() {
+            "host" | "connection" | "content-length" | "transfer-encoding" => continue,
+            // Never forward a caller-supplied copy of the secret header: the value
+            // below is the only source of truth (a forwarded request that smuggled
+            // one in is dropped here; the server also ignores it on the forwarded
+            // path — defence in depth).
+            LOCAL_OWNER_HEADER => continue,
+            "content-type" => has_content_type = true,
+            _ => {}
+        }
+        request.push_str(&format!("{name}: {value}\r\n"));
+    }
+    if !has_content_type {
+        request.push_str("Content-Type: application/json\r\n");
+    }
+    if !forwarded && !local_secret.is_empty() {
+        request.push_str(&format!("X-OpenBook-Local: {local_secret}\r\n"));
     }
 }
 
@@ -203,20 +245,10 @@ fn blocking_request(
     let mut stream = connect_retry(conn, 60).map_err(|e| format!("ipc connect failed: {e}"))?;
     let body = body.unwrap_or("");
     // The host owns the framing headers (Host/Connection/Content-Length); forward
-    // everything else from the caller and default the content type when absent.
+    // everything else from the caller (per the bridge's header policy) and default
+    // the content type when absent.
     let mut request = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n");
-    let mut has_content_type = false;
-    for (name, value) in headers {
-        match name.to_ascii_lowercase().as_str() {
-            "host" | "connection" | "content-length" | "transfer-encoding" => continue,
-            "content-type" => has_content_type = true,
-            _ => {}
-        }
-        request.push_str(&format!("{name}: {value}\r\n"));
-    }
-    if !has_content_type {
-        request.push_str("Content-Type: application/json\r\n");
-    }
+    push_headers(&mut request, headers, &conn.local_secret);
     request.push_str(&format!("Content-Length: {}\r\n\r\n{body}", body.len()));
     stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
     stream.flush().ok();
@@ -384,18 +416,7 @@ fn stream_request(
     // `blocking_request`.
     let body = body.unwrap_or("");
     let mut request = format!("{method} {path} HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n");
-    let mut has_content_type = false;
-    for (name, value) in headers {
-        match name.to_ascii_lowercase().as_str() {
-            "host" | "connection" | "content-length" | "transfer-encoding" => continue,
-            "content-type" => has_content_type = true,
-            _ => {}
-        }
-        request.push_str(&format!("{name}: {value}\r\n"));
-    }
-    if !has_content_type {
-        request.push_str("Content-Type: application/json\r\n");
-    }
+    push_headers(&mut request, headers, &conn.local_secret);
     request.push_str(&format!("Content-Length: {}\r\n\r\n{body}", body.len()));
     reader.get_mut().write_all(request.as_bytes())?;
     reader.get_mut().flush().ok();
@@ -540,9 +561,19 @@ fn run_live_once(app: &AppHandle, conn: &ConnInfo) -> std::io::Result<()> {
     let stream = connect_retry(conn, 60)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::NotConnected, e))?;
     let mut reader = BufReader::new(stream);
-    reader.get_mut().write_all(
-        b"GET /api/live HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n\r\n",
-    )?;
+    // The live bridge is the app's own subscription, so it carries the local-owner
+    // stamp: without it the feed resolves as an anonymous guest and, on a claimed
+    // instance, is silently filtered down to guest-readable pages (or rejected
+    // outright under `guestAccess: 'off'`) — the desktop's own sidebar would stop
+    // updating for restricted pages.
+    let mut request = String::from(
+        "GET /api/live HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nConnection: keep-alive\r\n",
+    );
+    if !conn.local_secret.is_empty() {
+        request.push_str(&format!("X-OpenBook-Local: {}\r\n", conn.local_secret));
+    }
+    request.push_str("\r\n");
+    reader.get_mut().write_all(request.as_bytes())?;
     reader.get_mut().flush().ok();
 
     // Consume the response headers; note whether the body is chunked (it is).

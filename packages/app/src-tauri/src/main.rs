@@ -56,6 +56,13 @@ struct AppState {
     /// Loopback TCP port used to reach the server on platforms without Unix
     /// sockets (Windows). Unused on Unix.
     local_port: u16,
+    /// Per-run local-owner secret (the loopback-owner hatch). Minted at launch,
+    /// shared with the sidecar via `OPENBOOK_LOCAL_OWNER_SECRET`, and stamped by
+    /// the IPC bridge as `X-OpenBook-Local` on exactly the requests that originate
+    /// in this app's own webview — never on tunnel-forwarded traffic — so the
+    /// server can grant the machine owner authority over their own instance even
+    /// when no (or a stale) account identity is present. Never persisted.
+    local_secret: String,
     /// Persisted preferences + where they live on disk.
     config: Mutex<HostConfig>,
     config_path: PathBuf,
@@ -151,7 +158,13 @@ fn build_info(state: &AppState) -> ServerInfo {
 /// Spawn the server sidecar from the current config. It always listens on the
 /// Unix socket (the portless IPC transport); when published it *also* binds
 /// `0.0.0.0` with the access token for LAN access.
-fn spawn_sidecar(app: &AppHandle, data_dir: &str, socket_path: &str, cfg: &HostConfig) -> Result<CommandChild, String> {
+fn spawn_sidecar(
+    app: &AppHandle,
+    data_dir: &str,
+    socket_path: &str,
+    local_secret: &str,
+    cfg: &HostConfig,
+) -> Result<CommandChild, String> {
     #[cfg(not(unix))]
     let _ = socket_path;
 
@@ -199,6 +212,9 @@ fn spawn_sidecar(app: &AppHandle, data_dir: &str, socket_path: &str, cfg: &HostC
         // headless/e2e/docker run with `--data-dir` over a /dev/null stdin is
         // otherwise indistinguishable from a sidecar and would self-terminate.
         .env("OPENBOOK_SIDECAR", "1")
+        // The loopback-owner hatch: the sidecar trusts requests stamped with this
+        // per-run secret (see `AppState::local_secret`) as the machine owner.
+        .env("OPENBOOK_LOCAL_OWNER_SECRET", local_secret)
         .spawn()
         .map_err(|e| format!("failed to spawn server sidecar: {e}"))?;
 
@@ -229,7 +245,7 @@ fn respawn(app: &AppHandle, state: &AppState) -> Result<(), String> {
     if let Some(child) = guard.take() {
         stop_server_child(child);
     }
-    *guard = Some(spawn_sidecar(app, &state.data_dir, &state.socket_path, &cfg)?);
+    *guard = Some(spawn_sidecar(app, &state.data_dir, &state.socket_path, &state.local_secret, &cfg)?);
     Ok(())
 }
 
@@ -445,6 +461,9 @@ fn main() {
             let local_port: u16 = 4319;
             config.published = false;
             let managed = !cfg!(debug_assertions);
+            // Per-run local-owner secret (the loopback-owner hatch): shared with the
+            // sidecar via env and stamped on webview-originated IPC requests only.
+            let local_secret = generate_token();
 
             // Release: run the durable server over the socket and start the live
             // bridge. Dev: the webview talks to the external `pnpm dev` server.
@@ -456,10 +475,14 @@ fn main() {
                 // the single-owner PGlite/mirror lock, which our fresh spawn would
                 // otherwise collide with. Pid-reuse-guarded (see reap_orphan_sidecar).
                 reap_orphan_sidecar(&data_dir);
-                child = Some(spawn_sidecar(&handle, &data_dir, &socket_path, &config)?);
+                child = Some(spawn_sidecar(&handle, &data_dir, &socket_path, &local_secret, &config)?);
                 ipc::start_live_bridge(
                     handle.clone(),
-                    ipc::ConnInfo { socket_path: socket_path.clone(), local_port },
+                    ipc::ConnInfo {
+                        socket_path: socket_path.clone(),
+                        local_port,
+                        local_secret: local_secret.clone(),
+                    },
                 );
             }
 
@@ -468,6 +491,7 @@ fn main() {
                 data_dir,
                 socket_path,
                 local_port,
+                local_secret,
                 config: Mutex::new(config),
                 config_path,
                 managed,

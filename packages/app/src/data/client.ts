@@ -1,10 +1,12 @@
 import {invoke} from '@tauri-apps/api/core';
 import {
   HttpDataClient,
+  LOCAL_OWNER_HEADER,
   getServerUrlOverride,
   getServerTokenOverride,
   getIdentityCredential,
   type DataClient,
+  type FetchLike,
   type ServerInfo,
 } from '@book.dev/sdk';
 import {tauriFetch, createTauriLiveSource} from './ipc';
@@ -35,6 +37,8 @@ export const createDesktopClient = async (): Promise<DataClient> => {
 
   if (info?.managed) {
     // Portless local server over host IPC (requests + live feed are tunnelled).
+    // The host's IPC bridge stamps the local-owner secret on these requests, so
+    // the webview never holds it in release.
     return new HttpDataClient('', undefined, {
       fetchImpl: tauriFetch,
       createLiveSource: createTauriLiveSource,
@@ -42,5 +46,17 @@ export const createDesktopClient = async (): Promise<DataClient> => {
     });
   }
 
-  return new HttpDataClient(DEV_SERVER_URL, undefined, {getIdentity: getIdentityCredential});
+  // Dev (unmanaged): no host bridge to stamp the local-owner secret, so attach it
+  // here when the dev setup shares one (export OPENBOOK_LOCAL_OWNER_SECRET to the
+  // `pnpm dev` server and the same value as VITE_OPENBOOK_LOCAL_OWNER_SECRET to
+  // this app). Absent, dev behaves as before (guest until signed in).
+  const devSecret = import.meta.env.VITE_OPENBOOK_LOCAL_OWNER_SECRET as string | undefined;
+  const devFetch: FetchLike | undefined = devSecret
+    ? (input, init = {}) => {
+      const headers = new Headers(init.headers as HeadersInit | undefined);
+      headers.set(LOCAL_OWNER_HEADER, devSecret);
+      return fetch(input, {...init, headers});
+    }
+    : undefined;
+  return new HttpDataClient(DEV_SERVER_URL, undefined, {getIdentity: getIdentityCredential, fetchImpl: devFetch});
 };

@@ -180,6 +180,15 @@ export interface InstanceInfo {
    * Optional: absent (a pre-OB-203 server / a test fixture) is treated as `null`.
    */
   youRole?: MemberRole | null;
+  /**
+   * Whether this request arrived over the trusted local transport (the desktop
+   * host's per-run `LOCAL_OWNER_HEADER` secret matched). When true the caller
+   * holds machine-owner authority regardless of {@link you}: policy writes pass
+   * the owner gate, and a drifted `ownerSubject` may be repaired (re-pointed to
+   * the caller's own verified subject) via `PUT /api/instance`. Optional: absent
+   * (a pre-hatch server / a test fixture) is treated as `false`.
+   */
+  localOwner?: boolean;
 }
 
 /** One recorded change — a row of the append-only edit log. */
