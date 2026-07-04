@@ -34,9 +34,9 @@
       }
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU1NkE3QzBGNjdGNDgwRjgKUldUNGdQUm5EM3hxVmUxUHVlOEdnVUZQaTlscE5WVUg5d0ZDd0FEeFlZMk1vWWJ2b0VJQTZxV2UK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJERDA1QzRBQjRFMUQ2RkIKUldUNzF1RzBTbHpRdlNJYndRbzJwcmVzZExzcFJiUEFoRDNKMXlDT1VmbXp1K09GbWZyL2xuNUQK",
       "endpoints": [
-        "https://account.book.cloud/api/updater/{{target}}/{{arch}}/{{current_version}}"
+        "https://account.book.pub/api/updates/manifest?target={{target}}&arch={{arch}}&current_version={{current_version}}"
       ]
     }
   },
