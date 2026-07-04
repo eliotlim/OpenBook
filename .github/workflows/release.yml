@@ -68,6 +68,41 @@ jobs:
             echo "No release-worthy commits — nothing to approve."
           fi
 
+  # Pre-tag preflight (review HIGH, Quinn 2026-07-04 — residual): assert the
+  # updater signing secret exists BEFORE anything irreversible happens. Updater
+  # signing is a hard prerequisite (with createUpdaterArtifacts + a configured
+  # pubkey the tauri build errors out when the key is unset), and the tag + npm
+  # publish are irreversible — so a secrets-less run must die HERE, not in
+  # publish-tauri after `release` has tagged vX.Y.Z and `publish-npm` has
+  # shipped the libraries (which would leave a GitHub release with ZERO desktop
+  # artifacts). The secret lives in the `publish` environment (alongside the
+  # APPLE_* secrets), which the `release` job's own `release` environment cannot
+  # read — hence a separate job that opts into `publish`, mirroring how
+  # publish-tauri/publish-npm read it. Friction check (2026-07-04): `publish`
+  # has NO required reviewers and NO wait timer — only a deployment branch
+  # policy (`main` + `v*` tags) that this main-triggered run already satisfies
+  # for the two publish jobs — so this adds no approval step and no delay; the
+  # single human approval stays exactly where it was, on the `release`
+  # environment. Presence check only: nothing about the secret is echoed.
+  preflight:
+    name: Preflight — updater signing secret
+    needs: plan
+    if: needs.plan.outputs.new_release == 'true'
+    environment: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assert TAURI_SIGNING_PRIVATE_KEY is configured
+        env:
+          # `secrets` isn't readable in a step-level `if:`; branch on emptiness
+          # inside bash instead (same pattern as the publish-tauri guards).
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty/unset in the 'publish' environment. Updater signing is a HARD prerequisite for every release (the tauri build refuses to bundle without it — no unsigned degrade), so refusing BEFORE the release is tagged or npm is published. Set the secret (see docs/release-updates.md) and re-run." >&2
+            exit 1
+          fi
+          echo "TAURI_SIGNING_PRIVATE_KEY is configured — release may proceed."
+
   # The actual release. The `release` environment holds the approval gate:
   # configure it once under Settings → Environments → release → "Required
   # reviewers". Until approved there, this job (and everything after it)
@@ -86,7 +121,9 @@ jobs:
   # public libraries (@book.dev/sdk + @book.dev/ui); the rest stay private.
   release:
     name: Release v${{ needs.plan.outputs.version }} (on approval)
-    needs: plan
+    # `preflight` gates the tag: nothing irreversible happens on a run whose
+    # desktop legs are doomed by a missing signing secret.
+    needs: [plan, preflight]
     if: needs.plan.outputs.new_release == 'true'
     runs-on: ubuntu-latest
     environment: release
@@ -246,21 +283,21 @@ jobs:
           cp packages/app/src-tauri/linux/linuxdeploy-plugin-gtk.sh "$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
           chmod +x "$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
 
-      # Fail-fast preflight (BEFORE the ~long per-leg build) — updater signing is
-      # a HARD prerequisite, not a graceful degrade (review HIGH, Quinn
+      # Per-leg fail-fast preflight (BEFORE the ~long build) — updater signing
+      # is a HARD prerequisite, not a graceful degrade (review HIGH, Quinn
       # 2026-07-04, verified vs tauri-cli 2.11 bundle.rs). With
       # bundle.createUpdaterArtifacts=true AND a configured plugins.updater
       # pubkey, the bundler HARD-ERRORS when TAURI_SIGNING_PRIVATE_KEY is unset —
-      # it does NOT emit unsigned archives. Left to the build step, that surfaces
-      # as a cryptic late failure on all four matrix legs, AFTER the `release`
-      # job already tagged vX.Y.Z and `publish-npm` shipped the libraries: a
-      # GitHub release with ZERO desktop artifacts, unrecoverable. So refuse up
-      # front, loudly, if either supply-chain precondition is unmet:
+      # it does NOT emit unsigned archives. The PRIMARY gate for that is the
+      # top-level `preflight` job, which fails the run before the tag / npm
+      # publish; this step is the BACKSTOP so a *standalone re-run of this job*
+      # (which skips upstream jobs and could meet a since-changed environment)
+      # still refuses cleanly, up front, if either supply-chain precondition is
+      # unmet:
       #  (a) TAURI_SIGNING_PRIVATE_KEY is empty/unset, or
       #  (b) tauri.conf.json still carries the throwaway PLACEHOLDER updater
       #      pubkey (a build no future signature could ever satisfy — also
-      #      guarded pre-tag in the `release` job, but re-checked here so a
-      #      standalone re-run of this job can't slip it through).
+      #      guarded pre-tag in the `release` job).
       # The post-build .sig-count guard below stays as the backstop for the
       # key-present-but-signing-silently-produced-nothing case.
       # Bash 3.2-safe (GitHub's macOS runners), no globstar.
@@ -467,7 +504,10 @@ jobs:
   # blocked the 1.61–1.63 publishes.
   publish-npm:
     name: Publish libraries to npm
-    needs: [plan, release]
+    # `preflight` is already transitive via `release`, but stays explicit so a
+    # future refactor of `release`'s needs can't silently un-gate the npm
+    # publish (it's the other irreversible step).
+    needs: [plan, preflight, release]
     if: needs.plan.outputs.new_release == 'true'
     # Kept in `publish` for parity with publish-tauri, but no npm token is read
     # from it anymore — auth is OIDC (below).

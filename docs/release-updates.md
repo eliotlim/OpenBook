@@ -40,21 +40,25 @@ These are a **hard prerequisite** for every release once a pubkey is configured 
 not an optional enhancement. With `bundle.createUpdaterArtifacts: true` **and** a
 configured `plugins.updater` pubkey, `tauri build` **refuses to bundle** when
 `TAURI_SIGNING_PRIVATE_KEY` is unset: it errors out, it does *not* fall back to
-emitting unsigned archives. So `publish-tauri` runs a **preflight** (before the
-per-leg build) that fails the run fast, with a clear message, if the signing key
-is missing **or** the config still carries the placeholder pubkey — catching it
-before the expensive build (and before the four legs would otherwise all
-hard-error late). If the key **is** present but signing produces no `.sig` files
-(bad key/wrong password), the post-build "Guard — updater signatures must exist"
-step is the backstop that fails the job rather than publishing an un-updatable
-release.
+emitting unsigned archives. The workflow enforces this in layers:
 
-> Because the tag + npm publish happen in parallel jobs, a secrets-less release
-> would still tag `vX.Y.Z` and publish the libraries before `publish-tauri`
-> fails — leaving a release with no desktop artifacts. The preflight makes that
-> failure fast and legible, but the real fix is operational: **the signing
-> secrets must be set before any release runs.** They are, in the `publish`
-> environment.
+1. A top-level **`preflight` job** (in the `publish` environment — where the
+   secret lives, and which the `release` job's own environment cannot read)
+   asserts `TAURI_SIGNING_PRIVATE_KEY` is non-empty **before anything
+   irreversible happens**: both `release` (the tag + GitHub release) and
+   `publish-npm` `need` it, so a secrets-less run dies before a tag exists or a
+   library ships. Presence check only — nothing about the secret is echoed. The
+   `publish` environment has no required reviewers or wait timer (verified
+   2026-07-04; only a `main`/`v*` deployment branch policy this run already
+   satisfies), so the job adds **no approval friction** — the single human
+   approval stays on the `release` environment.
+2. A **per-leg preflight step** inside `publish-tauri` (before the expensive
+   build) re-asserts the key **and** greps `tauri.conf.json` for the placeholder
+   pubkey — the backstop for a *standalone re-run* of that job, which skips
+   upstream jobs.
+3. If the key **is** present but signing produces no `.sig` files (bad key/wrong
+   password), the post-build "Guard — updater signatures must exist" step fails
+   the job rather than publishing an un-updatable release.
 
 ### Generating the keypair (one-time, owner)
 
