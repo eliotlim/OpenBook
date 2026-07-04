@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- Bare-file harness for the space-bundle shape (openbook.space.json from
+     packages/sdk/src/bookFolder.ts): two pages + hash-based navigation. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viewer fixture — space bundle</title>
+</head>
+<body>
+<div id="viewer"></div>
+<script type="application/openbook+json" data-openbook-bundle>
+{"pages":[
+  {"id":"pg-one","name":"First page","parentId":null,"position":0,"properties":{"sys_icon":"📗"},"updatedAt":"2026-07-04T00:00:00.000Z","data":{"editor":"blocks","editorjs":{"blocks":[]},"blockdoc":{"v":1,"blocks":[
+    {"id":"o-h","type":"heading","props":{"level":2},"text":[{"t":"Hello from page one"}]},
+    {"id":"o-p","type":"paragraph","text":[{"t":"Jump to "},{"t":"Second page","a":{"m":"pg-two"}},{"t":" via this mention."}]}
+  ]}}},
+  {"id":"pg-two","name":"Second page","parentId":null,"position":1,"properties":{},"updatedAt":"2026-07-04T00:00:00.000Z","data":{"editor":"blocks","editorjs":{"blocks":[]},"blockdoc":{"v":1,"blocks":[
+    {"id":"t-p","type":"paragraph","text":[{"t":"Content of the second page."}]}
+  ]}}}
+],"databases":[]}
+</script>
+<script src="../../../ui/src/export/vendor/openbook-viewer.js"></script>
+<script>
+  // See island.html: reading our own script tag is a harness-only shortcut;
+  // real hosts extract islands string-wise (sdk readIsland) or pass JSON in.
+  var bundle = JSON.parse(document.querySelector('script[data-openbook-bundle]').textContent);
+  window.__viewer = OpenBookViewer.mount(document.getElementById('viewer'), bundle);
+</script>
+</body>
+</html>
