@@ -236,18 +236,30 @@ export {
   type BlockAuthorResolver,
 } from './authors';
 export {
+  OPENBOOK_ISLAND_MARKER,
+  encodeIsland,
+  islandScript,
+  readIsland,
+  readIslandRaw,
+} from './island';
+export {
   pageToBookHtml,
   bookHtmlToPage,
   readBookHtmlMeta,
+  pageIslandScript,
   slugify,
   type BookPageRecord,
+  type PageIsland,
 } from './bookfile';
 export {
   spaceToBookFiles,
   parseBookFolder,
+  spaceIslandScript,
+  readSpaceIsland,
   SPACE_BUNDLE_FILE,
   type BookFolderFile,
   type SpaceSnapshot,
+  type SpaceIsland,
 } from './bookFolder';
 export {
   canonicalDigest,

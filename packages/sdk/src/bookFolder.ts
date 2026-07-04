@@ -1,6 +1,7 @@
 import type {StoredPage, PageSnapshot} from './types';
 import type {StoredDatabase} from './database';
 import {pageToBookHtml, bookHtmlToPage, slugify} from './bookfile';
+import {islandScript, readIsland} from './island';
 
 /**
  * Whole-space → folder-of-files serialisation, shared by every "dump my books
@@ -31,6 +32,41 @@ export interface SpaceSnapshot {
 
 /** Lossless structured sidecar, parsed back by {@link parseBookFolder}. */
 export const SPACE_BUNDLE_FILE = 'openbook.space.json';
+
+/**
+ * The whole-space **source-island** payload embedded in a standalone *site* HTML
+ * export: the full {@link SpaceSnapshot} (pages + databases + nesting via each
+ * page's `parentId`/`databaseId`) plus the root id shown first. Same structure as
+ * {@link SPACE_BUNDLE_FILE}, so a site export re-imports with structure intact.
+ */
+export interface SpaceIsland {
+  version: 1;
+  rootId: string;
+  space: SpaceSnapshot;
+}
+
+/** Wrap a whole-space bundle as its source-island `<script>` (versioned, escaped). */
+export function spaceIslandScript(
+  rootId: string,
+  space: SpaceSnapshot,
+  opts: {attrs?: string; indent?: string} = {},
+): string {
+  return islandScript({version: 1, rootId, space}, opts);
+}
+
+/** Read a site export's space island back, or `null` when absent/corrupt. */
+export function readSpaceIsland(html: string): SpaceIsland | null {
+  const parsed = readIsland<Partial<SpaceIsland>>(html);
+  if (!parsed || !parsed.space || !Array.isArray(parsed.space.pages)) return null;
+  return {
+    version: 1,
+    rootId: parsed.rootId ?? '',
+    space: {
+      pages: parsed.space.pages,
+      databases: Array.isArray(parsed.space.databases) ? parsed.space.databases : [],
+    },
+  };
+}
 
 const MAX_DEPTH = 64;
 
