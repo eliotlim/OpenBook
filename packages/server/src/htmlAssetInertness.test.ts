@@ -206,6 +206,60 @@ describe('HTML asset inertness — open instance', () => {
     expect(((await other.json()) as {id: string}).id).not.toBe(first.id);
   });
 
+  it('coerces every named-dangerous markup mime (svg+xml, xhtml+xml, text/xml) to octet-stream', async () => {
+    // The design note (app.ts ASSET_IMAGE_MIMES) names SVG as deliberately excluded
+    // because it can carry inline <script>; XHTML and XML documents are script-capable
+    // the same way (XHTML is HTML-in-XML; XML can carry an xml-stylesheet / embedded
+    // XHTML island). Pin ALL of them to octet-stream, stored AND served, so a future
+    // "grow the allowlist" change that slips a markup type in fails loudly here.
+    const a = app();
+    const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
+    const cases: Array<{mime: string; body: string}> = [
+      {mime: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'},
+      {
+        mime: 'application/xhtml+xml',
+        body: '<html xmlns="http://www.w3.org/1999/xhtml"><body><script>alert(1)</script></body></html>',
+      },
+      {mime: 'text/xml', body: '<?xml version="1.0"?><doc><script>alert(1)</script></doc>'},
+    ];
+    for (const {mime, body} of cases) {
+      const res = await a.request(`/api/assets?pageId=${page.id}`, {
+        method: 'POST',
+        headers: {'Content-Type': mime},
+        body: new Uint8Array(new TextEncoder().encode(body)),
+      });
+      expect(res.status).toBe(201);
+      const {id} = (await res.json()) as {id: string};
+      expect((await store.getAsset(id))!.mime).toBe('application/octet-stream'); // stored inert
+      const got = await a.request(`/api/assets/${id}`);
+      expect(got.status).toBe(200);
+      expect(got.headers.get('Content-Type')).toBe('application/octet-stream'); // served inert
+      expect(got.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(got.headers.get('Content-Disposition')).toBe('attachment');
+    }
+  });
+
+  it('coerces MIME spoof-variants (TEXT/HTML, text/html;charset=utf-8) to octet-stream', async () => {
+    // safeAssetMime (app.ts) lowercases + strips `;parameter` suffixes BEFORE the
+    // allowlist check, so case games and parameter smuggling can't sneak an
+    // executable type past the (lowercase, parameter-free) allowlist entries.
+    // Distinct bodies per case so each is a distinct asset row (dedup can't mask one).
+    const a = app();
+    const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
+    for (const mime of ['TEXT/HTML', 'text/html;charset=utf-8']) {
+      const res = await a.request(`/api/assets?pageId=${page.id}`, {
+        method: 'POST',
+        headers: {'Content-Type': mime},
+        body: new Uint8Array(new TextEncoder().encode(`<script>alert(1)</script><!-- ${mime} -->`)),
+      });
+      expect(res.status).toBe(201);
+      const {id} = (await res.json()) as {id: string};
+      expect((await store.getAsset(id))!.mime).toBe('application/octet-stream'); // stored inert
+      const got = await a.request(`/api/assets/${id}`);
+      expect(got.headers.get('Content-Type')).toBe('application/octet-stream'); // served inert
+    }
+  });
+
   it('413s an over-cap (>10 MiB decoded) HTML upload', async () => {
     // The client caps an HTML artifact at the SAME 10 MiB ceiling as an image
     // (ASSET_MAX_BYTES) — there is one asset store, one budget, one body limit; the
