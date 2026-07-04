@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- Bare-file harness for the standalone viewer bundle: a single-page island
+     (the .book.html shape from packages/sdk/src/bookfile.ts) plus the bundle
+     via a relative <script src>. Opens directly from file:// with zero
+     network. Build the bundle first: pnpm --filter @book.dev/ui build:viewer -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Viewer fixture — island</title>
+</head>
+<body>
+<div id="viewer"></div>
+<script type="application/openbook+json" data-openbook-snapshot>
+{"version":1,"id":"fx-island","name":"Viewer fixture","icon":"🧪","updatedAt":"2026-07-04T00:00:00.000Z","data":{"editor":"blocks","editorjs":{"blocks":[]},"values":[],"names":[],"blockdoc":{"v":1,"blocks":[
+  {"id":"h1","type":"heading","props":{"level":1},"text":[{"t":"Viewer fixture"}]},
+  {"id":"p1","type":"paragraph","text":[{"t":"Interactive export. Drag "},{"t":"months","a":{"b":true}},{"t":" to redraw the chart."}]},
+  {"id":"sl","type":"slider","props":{"name":"months","label":"Months","value":120,"min":1,"max":360,"step":1}},
+  {"id":"growth","type":"code","props":{"live":true,"name":"growth","language":"js","collapsed":true},"text":[{"t":"return {low: Array.from({length: months}, (_, i) => Math.pow(1.03, i / 12)), high: Array.from({length: months}, (_, i) => Math.pow(1.10, i / 12))};"}]},
+  {"id":"f1","type":"formula","props":{"source":"months * 2","name":"doubled"}},
+  {"id":"ch","type":"kitchart","props":{"kind":"line","title":"Growth of £1","source":"growth"}},
+  {"id":"st","type":"statuslight","props":{"label":"Health","source":"months <= 120","okAt":1,"warnAt":0}},
+  {"id":"im","type":"image","props":{"src":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAD0lEQVR4nGM4gwMwDC0JAMg9mQEkEhIxAAAAAElFTkSuQmCC","alt":"grey square"}},
+  {"id":"acc","type":"accordion","children":[
+    {"id":"as1","type":"accordionsection","props":{"label":"Details A"},"children":[{"id":"ap1","type":"paragraph","text":[{"t":"Accordion body A"}]}]},
+    {"id":"as2","type":"accordionsection","props":{"label":"Details B"},"children":[{"id":"ap2","type":"paragraph","text":[{"t":"Accordion body B"}]}]}
+  ]},
+  {"id":"grp","type":"group","props":{"name":"Config"},"children":[
+    {"id":"tg","type":"toggle","props":{"name":"enabled","label":"Enabled","value":true}},
+    {"id":"gp","type":"paragraph","text":[{"t":"Group body text"}]}
+  ]},
+  {"id":"tabs","type":"tabs","props":{"active":0},"children":[
+    {"id":"t1","type":"tab","props":{"label":"First"},"children":[{"id":"tp1","type":"paragraph","text":[{"t":"first tab body"}]}]},
+    {"id":"t2","type":"tab","props":{"label":"Second"},"children":[{"id":"tp2","type":"paragraph","text":[{"t":"second tab body"}]}]}
+  ]}
+]}}}
+</script>
+<script src="../../../ui/src/export/vendor/openbook-viewer.js"></script>
+<script>
+  // NOTE (harness-only shortcut): this fixture renders no raw user text, so
+  // reading its own script tag is safe here. Real export hosts must NOT
+  // extract the island via querySelector/DOMParser — raw body text containing
+  // an unterminated <!-- swallows a trailing island for DOM parsers. Extract
+  // string/regex-wise (readIsland/readIslandRaw in @book.dev/sdk) or, better,
+  // hand OpenBookViewer.mount the island JSON directly like the generated
+  // export will.
+  var island = JSON.parse(document.querySelector('script[data-openbook-snapshot]').textContent);
+  window.__viewer = OpenBookViewer.mount(document.getElementById('viewer'), island);
+</script>
+</body>
+</html>
