@@ -1,6 +1,6 @@
 {
   "name": "@book.dev/web",
-  "version": "1.68.0",
+  "version": "1.69.0",
   "private": true,
   "scripts": {
     "dev": "next dev",

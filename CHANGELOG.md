@@ -1,3 +1,25 @@
+## 1.69.0 (2026-07-04)
+
+### 🚀 Features
+
+- **server,app,sdk:** loopback-owner hatch — restore the machine owner's authority over their own instance ([#81](https://github.com/eliotlim/OpenBook/pull/81))
+- **server,ui:** populate youRole so viewer chrome activates (read-only for roster viewers) ([#79](https://github.com/eliotlim/OpenBook/pull/79))
+- **ui:** publish-implies-repair — re-point a drifted ownerSubject when enabling forwarding ([#82](https://github.com/eliotlim/OpenBook/pull/82))
+- **ui:** Diagnostics settings tab — see how the workspace resolves you, and repair the lockouts ([#83](https://github.com/eliotlim/OpenBook/pull/83))
+- **ui:** help owners deliver invites — copy link + sign-in-as guidance ([#78](https://github.com/eliotlim/OpenBook/pull/78), [#76](https://github.com/eliotlim/OpenBook/issues/76), [#77](https://github.com/eliotlim/OpenBook/issues/77))
+
+### 🩹 Fixes
+
+- **sdk,ui:** forwarding identity resilience — unscoped fallback on aud rejection, stale-audience heal, attach-ticket retry ([#80](https://github.com/eliotlim/OpenBook/pull/80))
+- **server:** require write access for plugin + AI mutation routes ([#75](https://github.com/eliotlim/OpenBook/pull/75))
+- **ui:** copy-link uses the forwarded host when published ([#74](https://github.com/eliotlim/OpenBook/pull/74))
+- **ui,web:** honest sharing surfaces on the web build (no dead publish controls) ([#77](https://github.com/eliotlim/OpenBook/pull/77))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 1.68.0 (2026-07-02)
 
 ### 🚀 Features
