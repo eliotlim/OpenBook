@@ -29,6 +29,10 @@ export const useData = (): DataClient => {
   return client;
 };
 
+/** Access the active data client, or `null` outside a {@link DataProvider} — for
+ *  display-only chrome that should degrade rather than crash without one. */
+export const useOptionalData = (): DataClient | null => useContext(DataContext);
+
 /**
  * Wire a page's persistence to the active client, producing the `onLoad`/
  * `onSave` callbacks the document editor expects. Saving stores the snapshot as

@@ -3,7 +3,7 @@ import {Input, inputVariants} from '@/components/ui/input';
 import {Button} from '@/components/ui/button';
 import {IconPicker} from '@/components/IconPicker';
 import {ProfileAvatar} from '@/components/ProfileAvatar';
-import {usePreferences, useTranslation} from '@/providers';
+import {usePreferences, useSelfIdentity, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
 import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
 
@@ -28,7 +28,9 @@ export default function ProfileSettings() {
   const {name, displayName, avatar, avatarImage, bio} = preferences.profile;
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const shownName = displayName.trim() || name.trim() || t('profile.anonymous');
+  // Falls back to the signed-in account when the local profile is unset, so the
+  // preview reflects who you currently appear as (not a bare "Anonymous").
+  const {name: shownName, profile: shownProfile} = useSelfIdentity();
 
   return (
     <SettingsScreen title={t('profile.title')} description={t('profile.description')}>
@@ -109,7 +111,7 @@ export default function ProfileSettings() {
 
       <SettingsSection title={t('profile.preview')}>
         <div className="flex items-center gap-3 rounded-md border border-border px-3.5 py-3">
-          <ProfileAvatar profile={preferences.profile} className="h-10 w-10 text-sm [&[data-avatar-kind=emoji]]:text-xl" />
+          <ProfileAvatar profile={shownProfile} className="h-10 w-10 text-sm [&[data-avatar-kind=emoji]]:text-xl" />
           <span className="flex min-w-0 flex-col">
             <span className="truncate text-sm font-medium">{shownName}</span>
             {bio.trim() && <span className="truncate text-xs text-muted-foreground">{bio}</span>}

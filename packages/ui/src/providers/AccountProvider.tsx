@@ -1046,3 +1046,7 @@ export const useAccount = (): AccountContextValue => {
   if (!ctx) throw new Error('useAccount must be used within an <AccountProvider>');
   return ctx;
 };
+
+/** The account context, or `null` outside an {@link AccountProvider} — for
+ *  display-only chrome that should degrade rather than crash without one. */
+export const useOptionalAccount = (): AccountContextValue | null => useContext(AccountContext);

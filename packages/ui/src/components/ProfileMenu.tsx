@@ -15,7 +15,7 @@ import {
 import {Button} from '@/components/ui/button';
 import AboutDialog from '@/components/AboutDialog';
 import {ProfileAvatar} from '@/components/ProfileAvatar';
-import {useHud, usePreferences, useTheme, useTranslation, type ColorMode} from '@/providers';
+import {useHud, useSelfIdentity, useTheme, useTranslation, type ColorMode} from '@/providers';
 
 /**
  * The sidebar footer is the user: avatar + name opening a small profile
@@ -26,9 +26,8 @@ export default function ProfileMenu() {
   const {t} = useTranslation();
   const {setHud} = useHud();
   const {mode, setMode} = useTheme();
-  const {profile} = usePreferences().preferences;
+  const {name, profile} = useSelfIdentity();
   const [aboutOpen, setAboutOpen] = useState(false);
-  const name = profile.displayName.trim() || profile.name.trim() || t('profile.anonymous');
   const ModeIcon = mode === 'light' ? Sun : mode === 'dark' ? Moon : SunMoon;
 
   return (

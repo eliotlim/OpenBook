@@ -23,7 +23,7 @@ import AdminSettings from '@/components/settings/AdminSettings';
 import AccountSettings from '@/components/settings/AccountSettings';
 import DiagnosticsSettings from '@/components/settings/DiagnosticsSettings';
 import {cn} from '@/lib/utils';
-import {usePreferences, useTranslation} from '@/providers';
+import {useSelfIdentity, useTranslation} from '@/providers';
 import {focusAiProvider} from '@/lib/aiSettingsNav';
 import type {TKey} from '@/i18n';
 import {SETTINGS_SECTIONS, type SettingsMode, type SettingsTab} from '@/lib/hud';
@@ -78,9 +78,7 @@ export interface SettingsPanelProps {
 
 /** A small user chip at the foot of the nav; clicking it opens the Profile tab. */
 function ProfileChip({onClick}: {onClick: () => void}) {
-  const {t} = useTranslation();
-  const {profile} = usePreferences().preferences;
-  const name = profile.displayName.trim() || profile.name.trim() || t('profile.anonymous');
+  const {name, profile} = useSelfIdentity();
   return (
     <button
       type="button"

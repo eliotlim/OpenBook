@@ -109,23 +109,32 @@ function useDesktopShellPreview(): PlatformLibrary | undefined {
 // in-browser store. Absent on the canonical app.book.pub, so that stays local-first.
 const PREFIX_HEADER = 'x-openbook-prefix';
 
-export const getServerSideProps: GetServerSideProps<{forwardedPrefix: string | null}> = async ({req}) => {
+export const getServerSideProps: GetServerSideProps<{
+  forwardedPrefix: string | null;
+  forwardedHost: string | null;
+}> = async ({req}) => {
   const raw = req.headers[PREFIX_HEADER];
   const forwardedPrefix = (Array.isArray(raw) ? raw[0] : raw) || null;
-  return {props: {forwardedPrefix}};
+  // On a forwarded site the request host is the `<prefix>.book.cloud` origin the
+  // viewer is on — the label the workspace switcher shows for the connection.
+  const forwardedHost = forwardedPrefix ? req.headers.host || null : null;
+  return {props: {forwardedPrefix, forwardedHost}};
 };
 
-export default function Home({forwardedPrefix}: InferGetServerSidePropsType<typeof getServerSideProps>) {
+export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSidePropsType<typeof getServerSideProps>) {
   const {client, browserLocal} = useWebClient(forwardedPrefix);
   const shellPreview = useDesktopShellPreview();
   // Tell the UI when the workspace is the in-browser store (nothing outside this
   // browser can reach it) so the sharing surfaces annotate themselves honestly.
   // Merged over the desktop-shell preview: even under `?shell=desktop` the data
-  // is still browser-local, so the truth flag stays.
-  const platform = useMemo<PlatformLibrary | undefined>(
-    () => (browserLocal ? {...shellPreview, browserLocalWorkspace: true} : shellPreview),
-    [browserLocal, shellPreview],
-  );
+  // is still browser-local, so the truth flag stays. On a forwarded site pass the
+  // host so the workspace switcher names the connection after it (P-fwd), rather
+  // than the generic local default.
+  const platform = useMemo<PlatformLibrary | undefined>(() => {
+    const base = browserLocal ? {...shellPreview, browserLocalWorkspace: true} : shellPreview;
+    if (!forwardedHost) return base;
+    return {...(base ?? {}), forwardedHost};
+  }, [browserLocal, shellPreview, forwardedHost]);
 
   return (
     <>

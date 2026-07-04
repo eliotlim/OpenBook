@@ -133,6 +133,18 @@ export interface PlatformLibrary {
    * remote-server connections — those all reach a real shared instance.
    */
   browserLocalWorkspace?: boolean;
+  /**
+   * The host of a forwarded `<prefix>.book.cloud` site, when the app is being
+   * served *through* the tunnel (the edge tagged the app-shell request with the
+   * site prefix). Such a viewer talks to the owner's instance same-origin, so
+   * there is no server-URL override to name the connection after — the workspace
+   * switcher would otherwise fall back to the generic local default ("My
+   * Workspace"). The switcher shows this host instead, so a viewer sees which
+   * site they're on. Unset on the canonical app, on desktop, and on
+   * override-configured remote connections (those already name themselves after
+   * the configured host).
+   */
+  forwardedHost?: string;
 }
 
 const PlatformLibraryContext = createContext<PlatformLibrary>({});

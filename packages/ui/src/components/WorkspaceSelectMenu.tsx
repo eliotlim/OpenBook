@@ -23,7 +23,7 @@ import {IconPicker} from '@/components/IconPicker';
 import {ChevronUpDownIcon, PlusIcon} from '@heroicons/react/24/outline';
 import {CheckIcon, GlobeIcon} from '@radix-ui/react-icons';
 import {Trash2} from 'lucide-react';
-import {useTranslation, useWorkspace, workspaceHostLabel} from '@/providers';
+import {usePlatformLibrary, useTranslation, useWorkspace, workspaceHostLabel} from '@/providers';
 
 /**
  * The workspace switcher. `variant` controls the trigger only:
@@ -35,6 +35,15 @@ import {useTranslation, useWorkspace, workspaceHostLabel} from '@/providers';
 export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 'sidebar' | 'titlebar'}) {
   const {workspaces, workspace, selectWorkspace, addWorkspace, removeWorkspace} = useWorkspace();
   const {t} = useTranslation();
+  // On a forwarded `<prefix>.book.cloud` site the app talks to the owner's
+  // instance same-origin, so the local/default workspace (no server override)
+  // has no host to name itself after — label it with the site host instead of
+  // the generic "My Workspace".
+  const {forwardedHost} = usePlatformLibrary();
+  const isForwardedLocal = (ws: {serverUrl: string | null}): boolean =>
+    Boolean(forwardedHost) && ws.serverUrl === null;
+  const nameFor = (ws: {serverUrl: string | null; name: string}): string =>
+    isForwardedLocal(ws) ? forwardedHost! : ws.name;
 
   const [addOpen, setAddOpen] = useState(false);
   const [name, setName] = useState('');
@@ -82,12 +91,16 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
               ) : (
                 <GlobeIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
               )}
-              <span className="truncate text-sm font-medium">{workspace.name}</span>
+              <span className="truncate text-sm font-medium">{nameFor(workspace)}</span>
               <ChevronUpDownIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             </Button>
           ) : (
             <Button variant="ghost" className="flex h-12 w-full justify-start gap-1 px-2">
-              <WorkspaceInfo icon={workspace.icon} name={workspace.name} url={workspace.serverUrl ?? ''} />
+              <WorkspaceInfo
+                icon={workspace.icon}
+                name={nameFor(workspace)}
+                url={isForwardedLocal(workspace) ? forwardedHost! : workspace.serverUrl ?? ''}
+              />
               <ChevronUpDownIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
             </Button>
           )}
@@ -108,10 +121,12 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
                   {ws.icon}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-sm">{ws.name}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {workspaceHostLabel(ws.serverUrl)}
-                  </span>
+                  <span className="truncate text-sm">{nameFor(ws)}</span>
+                  {!isForwardedLocal(ws) && (
+                    <span className="truncate text-xs text-muted-foreground">
+                      {workspaceHostLabel(ws.serverUrl)}
+                    </span>
+                  )}
                 </span>
                 {active && <CheckIcon className="h-4 w-4 shrink-0 text-brand" />}
                 {canRemove && (
