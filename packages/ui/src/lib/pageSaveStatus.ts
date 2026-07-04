@@ -30,3 +30,12 @@ export const subscribePageSaveStatus = (cb: () => void): (() => void) => {
 
 /** Monotonic change counter — pair with useSyncExternalStore. */
 export const pageSaveStatusVersion = (): number => version;
+
+/** True while any open page has a save in flight or a failed last save — the
+ *  update scheduler's "is a restart risky right now?" probe. */
+export function anyPageSavePending(): boolean {
+  for (const status of statuses.values()) {
+    if (status === 'saving' || status === 'save failed') return true;
+  }
+  return false;
+}
