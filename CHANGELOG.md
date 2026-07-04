@@ -1,3 +1,14 @@
+## 1.69.1 (2026-07-04)
+
+### 🩹 Fixes
+
+- **ui,web:** surface real identity + site name on forwarded instances ([406d174](https://github.com/eliotlim/OpenBook/commit/406d174))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim
+
 ## 1.69.0 (2026-07-04)
 
 ### 🚀 Features
