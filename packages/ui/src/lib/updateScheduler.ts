@@ -183,3 +183,41 @@ export function setAnnouncedMajor(major: number): void {
     // ignore (private mode / quota) — worst case the major is announced again.
   }
 }
+
+// ── Last-seen newer major (the durable Settings surface) ─────────────────────
+//
+// The once-per-major toast is a ~7s signal; miss it and nothing in the app
+// says a new major exists (the Updates section reads "Up to date" when the
+// *current line* is current). So the shared runner records the `latestMajor`
+// every successful check reports — manual or background — and the Updates
+// section renders it as a persistent informational line between checks.
+
+/** localStorage key holding the `latestMajor` version string from the most
+ *  recent successful check (e.g. "2.3.0"); absent when none was reported. */
+export const LATEST_MAJOR_SEEN_KEY = 'updates.latestMajorSeen';
+
+/** The `latestMajor` the last successful check reported, or `null`. */
+export function getLatestMajorSeen(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(LATEST_MAJOR_SEEN_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record the `latestMajor` of a successful check — pass `null` to clear when
+ * the check reported none (e.g. after upgrading onto that major), so a stale
+ * "2.x is available" can't outlive its truth. Errors never call this: a
+ * failed check says nothing about majors.
+ */
+export function setLatestMajorSeen(latestMajor: string | null): void {
+  if (typeof window === 'undefined') return;
+  try {
+    if (latestMajor) localStorage.setItem(LATEST_MAJOR_SEEN_KEY, latestMajor);
+    else localStorage.removeItem(LATEST_MAJOR_SEEN_KEY);
+  } catch {
+    // ignore (private mode / quota) — the line just won't persist.
+  }
+}

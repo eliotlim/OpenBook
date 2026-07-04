@@ -3,12 +3,15 @@ import type {UpdateCheckResult} from '../../providers/PlatformLibraryProvider';
 import type {UpdateCadence} from '../updatePreferences';
 import {
   CADENCE_BASE_MS,
+  LATEST_MAJOR_SEEN_KEY,
   MAJOR_ANNOUNCED_KEY,
   cadenceThresholdMs,
   decideUpdateAction,
   getAnnouncedMajor,
+  getLatestMajorSeen,
   isBackgroundCheckDue,
   setAnnouncedMajor,
+  setLatestMajorSeen,
   type UpdateAction,
 } from '../updateScheduler';
 
@@ -230,5 +233,23 @@ describe('announced-major persistence', () => {
     expect(getAnnouncedMajor()).toBeNull();
     localStorage.setItem(MAJOR_ANNOUNCED_KEY, '-1');
     expect(getAnnouncedMajor()).toBeNull();
+  });
+});
+
+describe('latest-major-seen persistence (durable Settings surface)', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('round-trips the version string and defaults to null', () => {
+    expect(getLatestMajorSeen()).toBeNull();
+    setLatestMajorSeen('2.3.0');
+    expect(localStorage.getItem(LATEST_MAJOR_SEEN_KEY)).toBe('2.3.0');
+    expect(getLatestMajorSeen()).toBe('2.3.0');
+  });
+
+  it('clears on null (a successful check that reports no newer major)', () => {
+    setLatestMajorSeen('2.3.0');
+    setLatestMajorSeen(null);
+    expect(localStorage.getItem(LATEST_MAJOR_SEEN_KEY)).toBeNull();
+    expect(getLatestMajorSeen()).toBeNull();
   });
 });

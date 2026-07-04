@@ -54,6 +54,32 @@ test('security update: persistent toast that outlives auto-dismiss; action relau
   await expect(toasts(page)).toHaveCount(0);
 });
 
+test('new major: announced once by toast, surfaced durably in Settings, never installed', async ({page}) => {
+  await page.goto('/?updates=major');
+  // The once-per-major toast fires on the launch check…
+  const majorToast = toasts(page).filter({hasText: 'OpenBook 2.x is available'});
+  await expect(majorToast).toHaveCount(1);
+  // …but a major is never auto-installed.
+  expect(await counter(page, '__updateInstallCalls')).toBe(0);
+
+  // The durable surface: the Updates section shows the major line (persisted
+  // updates.latestMajorSeen, recorded by the shared runner) — the toast being
+  // missable is exactly why this exists.
+  await page.getByRole('button', {name: 'Settings'}).first().click();
+  await page.getByRole('button', {name: 'General', exact: true}).click();
+  await expect(page.getByTestId('major-available')).toHaveText('OpenBook 2.x is available');
+
+  // Reload: the scheduler is throttled (fresh lastCheckAt) so no new check —
+  // no second toast (once per major) — yet the Settings line survives.
+  await page.reload();
+  await appReady(page);
+  await page.waitForTimeout(500);
+  await expect(toasts(page)).toHaveCount(0);
+  await page.getByRole('button', {name: 'Settings'}).first().click();
+  await page.getByRole('button', {name: 'General', exact: true}).click();
+  await expect(page.getByTestId('major-available')).toHaveText('OpenBook 2.x is available');
+});
+
 test('cadence never: zero checkForUpdate calls even with an update on offer', async ({page}) => {
   await page.addInitScript(() => {
     localStorage.setItem('updates.cadence', 'never');

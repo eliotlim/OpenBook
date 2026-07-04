@@ -14,6 +14,8 @@ import {
   type UpdateCadence,
 } from '@/lib/updatePreferences';
 import {runUpdateCheck} from '@/lib/updateRunner';
+import {getLatestMajorSeen} from '@/lib/updateScheduler';
+import {semverMajor} from '@/lib/updateCheck';
 import {cn} from '@/lib/utils';
 
 /** Compact relative time ("just now", "5m ago", "2h ago", "3d ago"). */
@@ -51,6 +53,11 @@ export function UpdatesSection() {
   const [version, setVersion] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<UpdateCheckResult | null>(null);
+  // The `latestMajor` the most recent successful check reported (recorded by
+  // the shared runner) — the durable "a new major exists" surface. The
+  // once-per-major toast is a ~7s signal; this line is what a user who missed
+  // it finds, and it survives between checks and sessions.
+  const [majorSeen, setMajorSeen] = useState<string | null>(null);
 
   // Adopt persisted preferences once on the client (SSR-safe: the accessor reads
   // localStorage, which the server render must not touch).
@@ -58,6 +65,7 @@ export function UpdatesSection() {
     setCadence(getUpdateCadence());
     setSecurityOnly(getUpdateSecurityOnly());
     setLastSuccessAt(getUpdateLastCheckSuccessAt());
+    setMajorSeen(getLatestMajorSeen());
   }, []);
 
   // Show the running app version when the platform can report it.
@@ -97,6 +105,7 @@ export function UpdatesSection() {
     // the run rather than duplicating that policy here.
     const r: UpdateCheckResult = await runUpdateCheck(updates);
     setLastSuccessAt(getUpdateLastCheckSuccessAt());
+    setMajorSeen(getLatestMajorSeen());
     setResult(r);
     setChecking(false);
   }, [updates, checking]);
@@ -125,6 +134,12 @@ export function UpdatesSection() {
   const outcome = describe();
   const lastChecked =
     lastSuccessAt == null ? t('updates.neverChecked') : t('updates.lastChecked', {when: relativeWhen(t, lastSuccessAt)});
+  // Show the newer-major line only when it IS newer than the running build —
+  // both majors must parse; a stale record from before an upgrade clears on
+  // the next successful check (the runner rewrites it every time).
+  const seenMajorNum = majorSeen ? semverMajor(majorSeen) : null;
+  const currentMajorNum = version ? semverMajor(version) : null;
+  const newerMajor = seenMajorNum !== null && currentMajorNum !== null && seenMajorNum > currentMajorNum ? seenMajorNum : null;
 
   return (
     <SettingsSection title={t('updates.section')} description={t('updates.sectionHint')}>
@@ -181,6 +196,15 @@ export function UpdatesSection() {
           {outcome?.text}
         </span>
       </div>
+
+      {/* Durable major-availability surface (advisory M1): informational, same
+          styling as the "available" check outcome. Never an install control —
+          majors are an explicit, user-driven move. */}
+      {newerMajor !== null && (
+        <p data-testid="major-available" className="text-sm font-medium text-foreground">
+          {t('updates.majorAvailable', {major: newerMajor})}
+        </p>
+      )}
 
       <p className="text-xs text-muted-foreground">
         {version ? t('updates.version', {version}) : ''}

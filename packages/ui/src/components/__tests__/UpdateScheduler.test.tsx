@@ -4,7 +4,7 @@ import type {UpdateCheckResult, UpdatesPlatform, PlatformLibrary} from '../../pr
 import {PlatformLibraryProvider} from '../../providers/PlatformLibraryProvider';
 import {ConfirmProvider} from '../../providers/ConfirmProvider';
 import {UPDATE_PREFERENCE_KEYS} from '../../lib/updatePreferences';
-import {MAJOR_ANNOUNCED_KEY} from '../../lib/updateScheduler';
+import {LATEST_MAJOR_SEEN_KEY, MAJOR_ANNOUNCED_KEY} from '../../lib/updateScheduler';
 import {resetUpdateRunnerForTests} from '../../lib/updateRunner';
 import UpdateScheduler from '../UpdateScheduler';
 import {showToast} from '../ui/toast';
@@ -162,6 +162,9 @@ describe('UpdateScheduler host', () => {
     expect(showToastMock).toHaveBeenCalledTimes(1);
     expect(showToastMock.mock.calls[0][0].message).toBe('OpenBook 2.x is available');
     expect(localStorage.getItem(MAJOR_ANNOUNCED_KEY)).toBe('2');
+    // The shared runner also recorded the major durably — the Updates section
+    // reads this to show "2.x is available" for anyone who missed the toast.
+    expect(localStorage.getItem(LATEST_MAJOR_SEEN_KEY)).toBe('2.3.0');
 
     // A later stale-again check sees the same major: no second announcement.
     cleanup();

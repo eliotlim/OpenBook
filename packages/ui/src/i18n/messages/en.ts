@@ -935,9 +935,12 @@ export const en = {
     readyToast: 'Update ready',
     securityReadyToast: 'Security update ready',
     restartAction: 'Restart to update',
-    majorAvailableToast: 'OpenBook {major}.x is available',
+    // Shared by the once-per-major toast and the durable Settings line.
+    majorAvailable: 'OpenBook {major}.x is available',
     restartConfirmTitle: 'Restart now?',
-    restartConfirmBody: 'Some changes are still saving. Restarting before they finish may lose them.',
+    // Covers both anyPageSavePending states: a save mid-flight AND a failed
+    // save — "haven't been saved yet" is true of either (L2).
+    restartConfirmBody: 'Some changes haven’t been saved yet. Restarting now may lose them.',
     restartConfirmAction: 'Restart',
   },
   profile: {

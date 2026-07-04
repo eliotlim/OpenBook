@@ -63,6 +63,8 @@ export default function UpdateScheduler() {
           title: t('updates.restartConfirmTitle'),
           description: t('updates.restartConfirmBody'),
           confirmText: t('updates.restartConfirmAction'),
+          // Data-loss class → red confirm, matching the trash idiom (L1).
+          destructive: true,
         });
         if (!ok) return;
       }
@@ -105,10 +107,12 @@ export default function UpdateScheduler() {
 
         // A newer major is informational only — announced at most once per
         // major, never downloaded. Recorded before showing so a toast hiccup
-        // can't cause a re-announcement loop.
+        // can't cause a re-announcement loop. The durable counterpart lives in
+        // the Updates section ("N.x is available", from updates.latestMajorSeen
+        // which the runner records) — this toast is just the nudge.
         if (action.announceMajor !== null) {
           setAnnouncedMajor(action.announceMajor);
-          showToast({message: t('updates.majorAvailableToast', {major: action.announceMajor})});
+          showToast({message: t('updates.majorAvailable', {major: action.announceMajor})});
         }
 
         if (action.install !== null) {

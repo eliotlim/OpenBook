@@ -108,7 +108,8 @@ function useDesktopShellPreview(): PlatformLibrary | undefined {
  * the section is normally absent here. `?updates=<outcome>` injects a *mock*
  * `updates` capability so the section can be exercised in the browser (Chromatic
  * / e2e): `available` → an update is offered, `security` → a security update,
- * `error` → the check fails, anything else → up to date. Read after mount so the
+ * `major` → the current line is current but a newer major exists, `error` → the
+ * check fails, anything else → up to date. Read after mount so the
  * initial render still matches the server-rendered HTML. Never active without
  * the query flag, so production stays update-free on the web.
  */
@@ -138,6 +139,15 @@ function useUpdatesPreview(): PlatformLibrary['updates'] | undefined {
             latestVersion: '1.72.0',
             latestForCurrentMajor: '1.72.0',
             security: {updateAvailable: true, fixedIn: '1.72.0'},
+          };
+        if (mode === 'major')
+          // How the check API shapes a major-only bump: the current line is
+          // current (→ up-to-date) with the newer major riding along.
+          return {
+            status: 'up-to-date',
+            latestVersion: '1.69.1',
+            latestForCurrentMajor: '1.69.1',
+            latestMajor: '2.3.0',
           };
         if (mode === 'error') return {status: 'error', error: 'mock'};
         return {status: 'up-to-date'};

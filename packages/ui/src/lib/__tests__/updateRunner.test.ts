@@ -1,6 +1,7 @@
 import {describe, it, expect, beforeEach, vi} from 'vitest';
 import type {UpdateCheckResult, UpdatesPlatform} from '../../providers/PlatformLibraryProvider';
 import {UPDATE_PREFERENCE_KEYS} from '../updatePreferences';
+import {LATEST_MAJOR_SEEN_KEY} from '../updateScheduler';
 import {resetUpdateRunnerForTests, runDownloadAndInstall, runUpdateCheck} from '../updateRunner';
 
 const OK: UpdateCheckResult = {status: 'up-to-date', latestVersion: '1.69.1'};
@@ -57,6 +58,25 @@ describe('runUpdateCheck', () => {
     expect(result).toBe(ERR);
     expect(localStorage.getItem(UPDATE_PREFERENCE_KEYS.lastCheckAt)).not.toBeNull();
     expect(localStorage.getItem(UPDATE_PREFERENCE_KEYS.lastCheckSuccessAt)).toBeNull();
+  });
+
+  it('records latestMajor from a successful check (the durable Settings surface)', async () => {
+    const withMajor: UpdateCheckResult = {...OK, latestMajor: '2.3.0'};
+    await runUpdateCheck(makePlatform({checkForUpdate: async () => withMajor}));
+    expect(localStorage.getItem(LATEST_MAJOR_SEEN_KEY)).toBe('2.3.0');
+  });
+
+  it('clears the recorded major when a successful check reports none', async () => {
+    localStorage.setItem(LATEST_MAJOR_SEEN_KEY, '2.3.0');
+    await runUpdateCheck(makePlatform()); // OK carries no latestMajor
+    expect(localStorage.getItem(LATEST_MAJOR_SEEN_KEY)).toBeNull();
+  });
+
+  it('leaves the recorded major untouched on a failed check', async () => {
+    localStorage.setItem(LATEST_MAJOR_SEEN_KEY, '2.3.0');
+    await runUpdateCheck(makePlatform({checkForUpdate: async () => ERR}));
+    // A failed check says nothing about majors — the stale-but-true record stays.
+    expect(localStorage.getItem(LATEST_MAJOR_SEEN_KEY)).toBe('2.3.0');
   });
 
   it('never rejects, even against a contract-breaking platform', async () => {

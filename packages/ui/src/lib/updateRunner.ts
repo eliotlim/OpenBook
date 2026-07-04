@@ -15,6 +15,7 @@
 
 import type {UpdateCheckResult, UpdatesPlatform} from '../providers/PlatformLibraryProvider';
 import {setUpdateLastCheckAt, setUpdateLastCheckSuccessAt} from './updatePreferences';
+import {setLatestMajorSeen} from './updateScheduler';
 
 let checkInFlight: Promise<UpdateCheckResult> | null = null;
 let installInFlight: Promise<void> | null = null;
@@ -36,7 +37,13 @@ export function runUpdateCheck(updates: UpdatesPlatform): Promise<UpdateCheckRes
     }
     const now = Date.now();
     setUpdateLastCheckAt(now);
-    if (result.status !== 'error') setUpdateLastCheckSuccessAt(now);
+    if (result.status !== 'error') {
+      setUpdateLastCheckSuccessAt(now);
+      // Record (or clear) the newest major the server reported, so the
+      // Updates section can surface "N.x is available" durably between
+      // checks — the once-per-major toast alone is missable.
+      setLatestMajorSeen(result.latestMajor ?? null);
+    }
     return result;
   })().finally(() => {
     checkInFlight = null;
