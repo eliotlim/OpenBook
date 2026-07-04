@@ -10,11 +10,10 @@ import {
   getUpdateLastCheckSuccessAt,
   getUpdateSecurityOnly,
   setUpdateCadence,
-  setUpdateLastCheckAt,
-  setUpdateLastCheckSuccessAt,
   setUpdateSecurityOnly,
   type UpdateCadence,
 } from '@/lib/updatePreferences';
+import {runUpdateCheck} from '@/lib/updateRunner';
 import {cn} from '@/lib/utils';
 
 /** Compact relative time ("just now", "5m ago", "2h ago", "3d ago"). */
@@ -89,25 +88,15 @@ export function UpdatesSection() {
   }, []);
 
   const check = useCallback(async () => {
-    if (!updates || checking) return; // single in-flight check
+    if (!updates || checking) return; // no double-click; the runner also single-flights
     setChecking(true);
-    let r: UpdateCheckResult;
-    try {
-      r = await updates.checkForUpdate();
-    } catch {
-      // The contract says checkForUpdate never rejects; belt-and-braces anyway.
-      r = {status: 'error'};
-    }
-    const now = Date.now();
-    // Attempt timestamp on every check — the scheduler throttles on this, so a
-    // failing update server can't cause a retry storm.
-    setUpdateLastCheckAt(now);
-    if (r.status !== 'error') {
-      // Success timestamp only when the check completed — "Last checked" must
-      // not read as fresh after a failure.
-      setUpdateLastCheckSuccessAt(now);
-      setLastSuccessAt(now);
-    }
+    // The shared single-flight runner (same pipeline the background scheduler
+    // uses, so manual + background can never double-run) stamps the timestamps:
+    // the attempt on every check, the success one only when it completed —
+    // "Last checked" must not read as fresh after a failure. Re-read it after
+    // the run rather than duplicating that policy here.
+    const r: UpdateCheckResult = await runUpdateCheck(updates);
+    setLastSuccessAt(getUpdateLastCheckSuccessAt());
     setResult(r);
     setChecking(false);
   }, [updates, checking]);
