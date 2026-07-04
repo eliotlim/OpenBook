@@ -264,6 +264,20 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          # Tauri updater artifact signing (all platforms). With
+          # bundle.createUpdaterArtifacts=true, the bundler emits per-target
+          # updater archives (macOS .app.tar.gz, Linux .AppImage, Windows
+          # .msi/.exe) and, when these two are present, a detached `.sig`
+          # minisign signature next to each. TAURI_SIGNING_PRIVATE_KEY holds the
+          # key material itself (not a path) so no key file is written to disk on
+          # the runner; the password unlocks it. Generate the keypair once with
+          # `tauri signer generate` (see docs/release-updates.md) and store both
+          # halves as the secrets below. Absent these, the build still produces
+          # the updater archives but leaves them UNSIGNED (no `.sig`), which the
+          # guard step downstream turns into a hard failure so we never ship an
+          # unsigned/un-updatable release by accident.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         # `tauri build --target <triple>` puts bundles under
         # target/<triple>/release/bundle. pnpm forwards the trailing args to the
         # app's `tauri` script.
@@ -277,6 +291,45 @@ jobs:
         # byte-for-byte unchanged.
         run: pnpm --filter @book.dev/app run tauri build --target ${{ matrix.target }}${{ matrix.platform == 'ubuntu-22.04' && ' --verbose' || '' }}
 
+      # Fail loudly if signing was configured but produced no signatures. With
+      # TAURI_SIGNING_PRIVATE_KEY set, `createUpdaterArtifacts` writes a detached
+      # `.sig` next to every updater archive; zero `.sig` files means the key was
+      # rejected (bad key/password) or the bundler silently skipped signing — in
+      # either case the release would ship un-updatable, so stop here rather than
+      # publish it. Skipped entirely when no key is configured (a local/no-secret
+      # run still cuts unsigned bundles for manual testing).
+      - name: Guard — updater signatures must exist when signing is configured
+        shell: bash
+        env:
+          # Read the secret into an env var: the `secrets` context is NOT
+          # available in a step-level `if:`, but it IS available in `env`, so we
+          # branch on emptiness inside bash instead of gating the step.
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "No TAURI_SIGNING_PRIVATE_KEY configured — updater artifacts are unsigned by design; skipping guard."
+            exit 0
+          fi
+          base="packages/app/src-tauri/target/${{ matrix.target }}/release/bundle"
+          # Explicit per-dir globs (no `globstar`/`**`): GitHub's macOS runners
+          # can resolve `shell: bash` to bash 3.2, which lacks globstar. Each
+          # updater archive drops its `.sig` beside it in the same bundle subdir.
+          shopt -s nullglob
+          sigs=(
+            "$base"/macos/*.sig
+            "$base"/appimage/*.sig
+            "$base"/msi/*.sig
+            "$base"/nsis/*.sig
+          )
+          if [ ${#sigs[@]} -eq 0 ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is set but NO .sig files were produced under $base." >&2
+            echo "The updater artifacts are unsigned — refusing to publish an un-updatable release." >&2
+            echo "Check the build log for a 'signing' error (bad key or wrong TAURI_SIGNING_PRIVATE_KEY_PASSWORD)." >&2
+            find "$base" -maxdepth 2 -type f 2>/dev/null >&2 || true
+            exit 1
+          fi
+          echo "Found ${#sigs[@]} updater signature(s):"; printf '  %s\n' "${sigs[@]}"
+
       - name: Upload bundles to the v${{ needs.release.outputs.version }} release
         shell: bash
         env:
@@ -286,6 +339,14 @@ jobs:
           # --target builds land under target/<triple>/release/bundle. The two
           # macOS legs produce arch-suffixed DMGs (…_aarch64.dmg / …_x64.dmg), so
           # they attach to the same release without clobbering each other.
+          #
+          # Installer bundles (.dmg/.deb/.rpm/.msi/.exe) are the human downloads;
+          # the *updater* artifacts are the archives the Tauri updater fetches —
+          # macOS `.app.tar.gz`, Linux `.AppImage`, Windows `.msi`/nsis `.exe` —
+          # each paired with a detached `.sig` minisign signature that the updater
+          # verifies against the pubkey baked into the app. Upload every `.sig`
+          # (one per updater archive per arch) so the account-server manifest can
+          # point at them; without the `.sig` the client rejects the update.
           base="packages/app/src-tauri/target/${{ matrix.target }}/release/bundle"
           shopt -s nullglob
           files=(
@@ -296,6 +357,19 @@ jobs:
             "$base"/appimage/*.AppImage
             "$base"/msi/*.msi
             "$base"/nsis/*.exe
+            # Updater signatures — one `.sig` per updater archive, per target.
+            # Explicit per-dir globs (no `globstar`, unavailable on the bash 3.2
+            # that GitHub's macOS runners may use): macos/*.app.tar.gz.sig,
+            # appimage/*.AppImage.sig, msi/*.msi.sig, nsis/*.sig.
+            "$base"/macos/*.sig
+            "$base"/appimage/*.sig
+            "$base"/msi/*.sig
+            "$base"/nsis/*.sig
+            # Any Tauri-emitted latest.json (harmless fallback; the account
+            # server builds the real manifest dynamically). Wildcard so nullglob
+            # drops it when absent — a literal path would slip past nullglob and
+            # break the upload. Absent on most legs.
+            "$base"/latest*.json
           )
           if [ ${#files[@]} -eq 0 ]; then
             echo "No bundles found under $base" >&2
