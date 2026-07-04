@@ -62,6 +62,12 @@ export function compareSemver(a: string, b: string): number {
   return 0;
 }
 
+/** The major component of an `x.y.z` version, or `null` when unparseable. */
+export function semverMajor(v: string): number | null {
+  const p = parseSemver(v);
+  return p ? p[0] : null;
+}
+
 const asVersionString = (v: unknown): string | undefined =>
   typeof v === 'string' && v.trim() ? v.trim() : undefined;
 
