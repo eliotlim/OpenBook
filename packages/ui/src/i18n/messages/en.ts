@@ -790,6 +790,7 @@ export const en = {
     summaryRow: '{count} rows',
     summaryRowOne: '{count} row',
     preview: 'Ready to import {summary}.',
+    losslessNote: 'This is an OpenBook export — it restores exactly as it was, structure, databases and images included, as a new copy.',
     databasesNote: 'Relations, rollups and formulas come in as text — their values are kept. Toggle lists become headings.',
     imagesNote: '{count} images come in as real images — embedded ones are stored in your workspace, linked ones keep their link.',
     imagesNoteOne: '{count} image comes in as a real image — an embedded one is stored in your workspace, a linked one keeps its link.',
