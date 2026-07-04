@@ -25,7 +25,8 @@
   },
   "module": "dist/index.js",
   "scripts": {
-    "build": "vite build && tsc",
+    "build": "pnpm run build:viewer && vite build && tsc",
+    "build:viewer": "vite build --config vite.viewer.config.js",
     "dev": "vite build --watch",
     "dev-css": "pnpm exec tailwindcss --input ./src/index.css --output ./dist/index.css --watch",
     "dev-types": "tsc --watch",

@@ -1,0 +1,68 @@
+/* Viewer-bundle-only shell styles. The block styles themselves come from the
+   app stylesheet (src/index.css, inlined into the bundle); edit-chrome hiding
+   is shared with Present mode there via the `.ob-viewer` scope. This file only
+   lays out the standalone document: a centred readable column plus the minimal
+   page nav a space bundle gets. */
+
+.ob-viewer {
+  min-height: 100%;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.ob-viewer-page {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 5rem;
+}
+
+.ob-viewer-title {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 1.4rem;
+  font-size: 2.1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.ob-viewer-title-icon { font-size: 2.1rem; line-height: 1; }
+
+.ob-viewer-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 0.9rem 1.25rem 0;
+}
+.ob-viewer-nav-link {
+  padding: 0.25rem 0.6rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: hsl(var(--muted-foreground));
+  text-decoration: none;
+}
+.ob-viewer-nav-link:hover { color: hsl(var(--foreground)); background: hsl(var(--muted) / 0.5); }
+.ob-viewer-nav-on {
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--foreground) / 0.35);
+  font-weight: 600;
+}
+
+.ob-viewer-empty {
+  padding: 3rem 1.25rem;
+  text-align: center;
+  font-style: italic;
+  color: hsl(var(--muted-foreground));
+}
+
+/* Mentions of pages outside the export stay visible but read as inert. */
+.ob-viewer a.obe-mention { cursor: pointer; }
