@@ -36,10 +36,25 @@ live):
 | `TAURI_SIGNING_PRIVATE_KEY` | The updater private key **contents** (the whole minisign-format key string, not a file path). |
 | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | The password chosen when generating the key. Set to an empty string if the key was generated without one. |
 
-If these are **absent**, the build still produces the updater archives but leaves
-them **unsigned** (no `.sig`). If the key **is** present but signing produces no
-`.sig` files (bad key/password), the "Guard — updater signatures must exist"
-step fails the job loudly rather than publishing an un-updatable release.
+These are a **hard prerequisite** for every release once a pubkey is configured —
+not an optional enhancement. With `bundle.createUpdaterArtifacts: true` **and** a
+configured `plugins.updater` pubkey, `tauri build` **refuses to bundle** when
+`TAURI_SIGNING_PRIVATE_KEY` is unset: it errors out, it does *not* fall back to
+emitting unsigned archives. So `publish-tauri` runs a **preflight** (before the
+per-leg build) that fails the run fast, with a clear message, if the signing key
+is missing **or** the config still carries the placeholder pubkey — catching it
+before the expensive build (and before the four legs would otherwise all
+hard-error late). If the key **is** present but signing produces no `.sig` files
+(bad key/wrong password), the post-build "Guard — updater signatures must exist"
+step is the backstop that fails the job rather than publishing an un-updatable
+release.
+
+> Because the tag + npm publish happen in parallel jobs, a secrets-less release
+> would still tag `vX.Y.Z` and publish the libraries before `publish-tauri`
+> fails — leaving a release with no desktop artifacts. The preflight makes that
+> failure fast and legible, but the real fix is operational: **the signing
+> secrets must be set before any release runs.** They are, in the `publish`
+> environment.
 
 ### Generating the keypair (one-time, owner)
 
@@ -67,29 +82,28 @@ key is lost, already-installed apps can no longer be updated (they only trust
 the pubkey they shipped with) — you would have to ship a new pubkey in a fresh
 build and have users reinstall. Treat it like the Apple signing cert.
 
-### Pubkey (IMPORTANT — currently a placeholder)
+### Pubkey (production key now wired)
 
 Tauri v2 refuses to build updater artifacts unless
 `packages/app/src-tauri/tauri.conf.json` has a `plugins.updater` block with a
 valid-format `pubkey` (the build hard-errors: *"failed to get updater
-configuration: plugins > updater doesn't exist"*). So this pipeline change ships
-a **placeholder pubkey** to keep the release build green.
+configuration: plugins > updater doesn't exist"*). The original pipeline change
+shipped a **placeholder pubkey** (throwaway key id `556A7C0F67F480F8`, whose
+private half was destroyed) purely to keep the release build green while the
+production key was minted.
 
-**The placeholder's matching private key was generated as a throwaway and
-destroyed — it can never sign anything.** Before shipping any real auto-update:
+The **desktop-integration change** replaced that placeholder with the
+**production** pubkey and pointed `plugins.updater.endpoints` at the real
+account-server manifest URL
+(`https://account.book.pub/api/updates/manifest?target={{target}}&arch={{arch}}&current_version={{current_version}}`),
+alongside adding the `tauri-plugin-updater` Cargo dependency and the in-app
+update-check surface. The production pubkey must correspond to the exact private
+key in `TAURI_SIGNING_PRIVATE_KEY`, or every update is rejected at verify time.
 
-1. Generate the production keypair (above) and set the two secrets.
-2. Replace `plugins.updater.pubkey` in `tauri.conf.json` with the **production**
-   `~/openbook-updater.key.pub` contents. It must correspond to the exact private
-   key in `TAURI_SIGNING_PRIVATE_KEY`, or every update is rejected at verify time.
-3. Point `plugins.updater.endpoints` at the real account-server manifest URL.
-
-That production wiring (plus the `tauri-plugin-updater` Cargo dependency and the
-in-app update-check UI) is owned by the **desktop-integration task** — this
-change only makes CI *emit* signed artifacts. Until the placeholder is replaced,
-CI still produces valid `.sig` files (signed with whatever `TAURI_SIGNING_PRIVATE_KEY`
-holds), but an installed app would reject them because the embedded pubkey won't
-match — which is fine, because no updater runtime ships until that task lands.
+The `publish-tauri` **preflight** greps `tauri.conf.json` for the old
+placeholder base64 and fails the run if it is ever reintroduced — so a
+regression to the throwaway key can't ship. If you rotate the production
+keypair, update both the secret and `plugins.updater.pubkey` together.
 
 ## The `[security]` marker convention
 

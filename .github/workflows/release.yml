@@ -107,6 +107,30 @@ jobs:
           persist-credentials: true
           fetch-depth: 0
           ref: main # commit/tag land on the branch, not a detached HEAD
+      # Refuse to cut a release whose desktop build would ship a non-production
+      # updater pubkey (security review MED, 2026-07-04). The pubkey compiled
+      # into the app is the updater's trust anchor: installed apps only ever
+      # trust the key they shipped with, so releasing the placeholder would
+      # burn the update channel for every client that installs that build.
+      # Runs BEFORE nx release, so a bad config fails the run before any
+      # tag / GitHub release exists. The literal below is the throwaway
+      # placeholder key (id 556A7C0F67F480F8) that kept CI green while the
+      # production key was minted; its private half was destroyed, so nothing
+      # can ever sign for it.
+      - name: Guard — refuse to release with a placeholder or missing updater pubkey
+        run: |
+          conf="packages/app/src-tauri/tauri.conf.json"
+          placeholder="dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU1NkE3QzBGNjdGNDgwRjgKUldUNGdQUm5EM3hxVmUxUHVlOEdnVUZQaTlscE5WVUg5d0ZDd0FEeFlZMk1vWWJ2b0VJQTZxV2UK"
+          pubkey=$(node -p "(require('./$conf').plugins?.updater?.pubkey) ?? ''")
+          if [ -z "$pubkey" ]; then
+            echo "::error::$conf has no plugins.updater.pubkey — desktop builds would ship without an update trust anchor. Refusing to release." >&2
+            exit 1
+          fi
+          if [ "$pubkey" = "$placeholder" ]; then
+            echo "::error::$conf still carries the PLACEHOLDER updater pubkey (throwaway key 556A7C0F67F480F8). Swap in the production pubkey (see docs/release-updates.md) before releasing." >&2
+            exit 1
+          fi
+          echo "Updater pubkey present and not the placeholder — OK."
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
       - name: Setup Node.js
@@ -222,6 +246,49 @@ jobs:
           cp packages/app/src-tauri/linux/linuxdeploy-plugin-gtk.sh "$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
           chmod +x "$HOME/.cache/tauri/linuxdeploy-plugin-gtk.sh"
 
+      # Fail-fast preflight (BEFORE the ~long per-leg build) — updater signing is
+      # a HARD prerequisite, not a graceful degrade (review HIGH, Quinn
+      # 2026-07-04, verified vs tauri-cli 2.11 bundle.rs). With
+      # bundle.createUpdaterArtifacts=true AND a configured plugins.updater
+      # pubkey, the bundler HARD-ERRORS when TAURI_SIGNING_PRIVATE_KEY is unset —
+      # it does NOT emit unsigned archives. Left to the build step, that surfaces
+      # as a cryptic late failure on all four matrix legs, AFTER the `release`
+      # job already tagged vX.Y.Z and `publish-npm` shipped the libraries: a
+      # GitHub release with ZERO desktop artifacts, unrecoverable. So refuse up
+      # front, loudly, if either supply-chain precondition is unmet:
+      #  (a) TAURI_SIGNING_PRIVATE_KEY is empty/unset, or
+      #  (b) tauri.conf.json still carries the throwaway PLACEHOLDER updater
+      #      pubkey (a build no future signature could ever satisfy — also
+      #      guarded pre-tag in the `release` job, but re-checked here so a
+      #      standalone re-run of this job can't slip it through).
+      # The post-build .sig-count guard below stays as the backstop for the
+      # key-present-but-signing-silently-produced-nothing case.
+      # Bash 3.2-safe (GitHub's macOS runners), no globstar.
+      - name: Preflight — updater signing key + production pubkey (fail fast)
+        shell: bash
+        env:
+          # The `secrets` context is NOT readable in a step-level `if:`, but IS
+          # in `env:`, so we branch on emptiness inside bash.
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          conf="packages/app/src-tauri/tauri.conf.json"
+          # The throwaway placeholder key (id 556A7C0F67F480F8) whose private half
+          # was destroyed; must never ship. Task A swapped in the production key,
+          # so a correctly-configured branch passes this grep.
+          placeholder="dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDU1NkE3QzBGNjdGNDgwRjgKUldUNGdQUm5EM3hxVmUxUHVlOEdnVUZQaTlscE5WVUg5d0ZDd0FEeFlZMk1vWWJ2b0VJQTZxV2UK"
+          fail=0
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY is empty/unset. Updater signing is a HARD prerequisite: with createUpdaterArtifacts + a configured pubkey the tauri build errors out (it does not degrade to unsigned). Set it in the 'publish' environment — see docs/release-updates.md." >&2
+            fail=1
+          fi
+          # Plain fixed-string grep (Bash 3.2-safe; no globstar / no `**`).
+          if grep -qF "$placeholder" "$conf"; then
+            echo "::error::$conf still carries the PLACEHOLDER updater pubkey (throwaway key 556A7C0F67F480F8). Swap in the production pubkey before releasing — see docs/release-updates.md." >&2
+            fail=1
+          fi
+          if [ "$fail" -ne 0 ]; then exit 1; fi
+          echo "Updater signing key present and production pubkey configured — OK."
+
       # `tauri build` runs its beforeBuildCommand first, which builds the sdk,
       # ui, server sidecar (for SIDECAR_TARGET, set below), and frontend before
       # bundling. (Same as the local `build:desktop` script, plus an explicit
@@ -272,10 +339,12 @@ jobs:
           # key material itself (not a path) so no key file is written to disk on
           # the runner; the password unlocks it. Generate the keypair once with
           # `tauri signer generate` (see docs/release-updates.md) and store both
-          # halves as the secrets below. Absent these, the build still produces
-          # the updater archives but leaves them UNSIGNED (no `.sig`), which the
-          # guard step downstream turns into a hard failure so we never ship an
-          # unsigned/un-updatable release by accident.
+          # halves as the secrets below. These are a HARD prerequisite once a
+          # pubkey is configured: with createUpdaterArtifacts=true the bundler
+          # REFUSES to build (errors out) when the key is absent — it does NOT
+          # degrade to emitting unsigned archives. The preflight step above fails
+          # the run fast (before this build) when the key is missing; the
+          # post-build .sig guard below is the backstop for a bad key/password.
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         # `tauri build --target <triple>` puts bundles under
@@ -296,8 +365,10 @@ jobs:
       # `.sig` next to every updater archive; zero `.sig` files means the key was
       # rejected (bad key/password) or the bundler silently skipped signing — in
       # either case the release would ship un-updatable, so stop here rather than
-      # publish it. Skipped entirely when no key is configured (a local/no-secret
-      # run still cuts unsigned bundles for manual testing).
+      # publish it. The preflight above already fails the run when the key is
+      # unset, so in CI the empty-key branch below never fires — it stays only as
+      # a defensive no-op; this guard's real job is the key-present-but-no-`.sig`
+      # (bad key / wrong password) case.
       - name: Guard — updater signatures must exist when signing is configured
         shell: bash
         env:
@@ -307,7 +378,7 @@ jobs:
           SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
           if [ -z "$SIGNING_KEY" ]; then
-            echo "No TAURI_SIGNING_PRIVATE_KEY configured — updater artifacts are unsigned by design; skipping guard."
+            echo "No TAURI_SIGNING_PRIVATE_KEY configured (unexpected — the preflight should already have failed the run); skipping backstop."
             exit 0
           fi
           base="packages/app/src-tauri/target/${{ matrix.target }}/release/bundle"
