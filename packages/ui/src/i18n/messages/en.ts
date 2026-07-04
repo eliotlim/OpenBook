@@ -916,7 +916,8 @@ export const en = {
     cadenceNeverHint:
       'With automatic checks off, OpenBook won’t contact the update server at all. You can still check any time with the button below.',
     securityOnly: 'Security updates only',
-    securityOnlyHint: 'Only install updates that fix a security issue automatically.',
+    securityOnlyHint:
+      'Automatic checks download only updates that fix a security issue. Checking manually still shows every update.',
     checkNow: 'Check for updates',
     checking: 'Checking…',
     upToDate: 'Up to date',

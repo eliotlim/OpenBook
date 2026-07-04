@@ -4,10 +4,12 @@ import {
   UPDATE_PREFERENCE_KEYS,
   getUpdateCadence,
   getUpdateLastCheckAt,
+  getUpdateLastCheckSuccessAt,
   getUpdateSecurityOnly,
   readUpdatePreferences,
   setUpdateCadence,
   setUpdateLastCheckAt,
+  setUpdateLastCheckSuccessAt,
   setUpdateSecurityOnly,
 } from '../updatePreferences';
 
@@ -51,10 +53,29 @@ describe('update preferences accessor', () => {
     expect(getUpdateLastCheckAt()).toBeNull();
   });
 
-  it('reads all three fields at once', () => {
+  it('keeps the attempt and success timestamps independent (failed check must not refresh "Last checked")', () => {
+    expect(getUpdateLastCheckSuccessAt()).toBeNull();
+    const succeeded = Date.now() - 60_000;
+    setUpdateLastCheckAt(succeeded);
+    setUpdateLastCheckSuccessAt(succeeded);
+    // A later FAILED attempt stamps only the attempt key…
+    const failed = Date.now();
+    setUpdateLastCheckAt(failed);
+    // …so the scheduler sees the fresh attempt, but the UI's success time is unmoved.
+    expect(getUpdateLastCheckAt()).toBe(failed);
+    expect(getUpdateLastCheckSuccessAt()).toBe(succeeded);
+  });
+
+  it('reads all fields at once', () => {
     setUpdateCadence('weekly');
     setUpdateSecurityOnly(true);
     setUpdateLastCheckAt(1234);
-    expect(readUpdatePreferences()).toEqual({cadence: 'weekly', securityOnly: true, lastCheckAt: 1234});
+    setUpdateLastCheckSuccessAt(1200);
+    expect(readUpdatePreferences()).toEqual({
+      cadence: 'weekly',
+      securityOnly: true,
+      lastCheckAt: 1234,
+      lastCheckSuccessAt: 1200,
+    });
   });
 });
