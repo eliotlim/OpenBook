@@ -35,6 +35,15 @@ test('updates section renders and persists cadence + security-only when supporte
   await securityToggle.click();
   await expect(securityToggle).toHaveAttribute('aria-checked', 'true');
 
+  // On Never the toggle is inert (no automatic checks to filter) but keeps its
+  // stored value: disabled while Never, re-enabled — still on — back on Weekly.
+  await chooseValue(page, '#ob-update-cadence', 'never');
+  await expect(securityToggle).toBeDisabled();
+  await expect(securityToggle).toHaveAttribute('aria-checked', 'true');
+  await chooseValue(page, '#ob-update-cadence', 'weekly');
+  await expect(securityToggle).toBeEnabled();
+  await expect(securityToggle).toHaveAttribute('aria-checked', 'true');
+
   // Reload (the ?updates flag persists in the URL) — both choices survive.
   await page.reload();
   await openGeneralSettings(page);
@@ -61,4 +70,18 @@ test('check for updates surfaces up-to-date and update-available outcomes', asyn
   await openGeneralSettings(page);
   await page.getByTestId('check-for-updates').click();
   await expect(page.getByTestId('update-check-result')).toContainText('Update available: v1.72.0');
+});
+
+test('a failed check shows the error but does not refresh "Last checked"', async ({page}) => {
+  // Fresh profile: no check has ever succeeded here.
+  await page.goto('/?updates=error');
+  await openGeneralSettings(page);
+  await expect(page.getByText('Not checked yet')).toBeVisible();
+
+  await page.getByTestId('check-for-updates').click();
+  const result = page.getByTestId('update-check-result');
+  await expect(result).toContainText('Couldn’t check for updates');
+  // The failed attempt is stamped for the (future) scheduler, but the displayed
+  // success timestamp is untouched — still never checked.
+  await expect(page.getByText('Not checked yet')).toBeVisible();
 });

@@ -7,10 +7,11 @@ import type {UpdateCheckResult} from '@/providers';
 import {SettingsSection, SettingsField, SettingsToggle} from '@/components/settings/primitives';
 import {
   getUpdateCadence,
-  getUpdateLastCheckAt,
+  getUpdateLastCheckSuccessAt,
   getUpdateSecurityOnly,
   setUpdateCadence,
   setUpdateLastCheckAt,
+  setUpdateLastCheckSuccessAt,
   setUpdateSecurityOnly,
   type UpdateCadence,
 } from '@/lib/updatePreferences';
@@ -43,7 +44,11 @@ export function UpdatesSection() {
 
   const [cadence, setCadence] = useState<UpdateCadence>('daily');
   const [securityOnly, setSecurityOnly] = useState(false);
-  const [lastCheckAt, setLastCheckAt] = useState<number | null>(null);
+  // The last *successful* check — what "Last checked" shows. The attempt
+  // timestamp (updates.lastCheckAt) is stamped too but not displayed: it exists
+  // for the scheduler's throttle, and showing it would make a failed check read
+  // as a fresh successful one.
+  const [lastSuccessAt, setLastSuccessAt] = useState<number | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<UpdateCheckResult | null>(null);
@@ -53,7 +58,7 @@ export function UpdatesSection() {
   useEffect(() => {
     setCadence(getUpdateCadence());
     setSecurityOnly(getUpdateSecurityOnly());
-    setLastCheckAt(getUpdateLastCheckAt());
+    setLastSuccessAt(getUpdateLastCheckSuccessAt());
   }, []);
 
   // Show the running app version when the platform can report it.
@@ -86,17 +91,25 @@ export function UpdatesSection() {
   const check = useCallback(async () => {
     if (!updates || checking) return; // single in-flight check
     setChecking(true);
+    let r: UpdateCheckResult;
     try {
-      const r = await updates.checkForUpdate();
-      setResult(r);
+      r = await updates.checkForUpdate();
     } catch {
-      setResult({status: 'error'});
-    } finally {
-      const now = Date.now();
-      setUpdateLastCheckAt(now);
-      setLastCheckAt(now);
-      setChecking(false);
+      // The contract says checkForUpdate never rejects; belt-and-braces anyway.
+      r = {status: 'error'};
     }
+    const now = Date.now();
+    // Attempt timestamp on every check — the scheduler throttles on this, so a
+    // failing update server can't cause a retry storm.
+    setUpdateLastCheckAt(now);
+    if (r.status !== 'error') {
+      // Success timestamp only when the check completed — "Last checked" must
+      // not read as fresh after a failure.
+      setUpdateLastCheckSuccessAt(now);
+      setLastSuccessAt(now);
+    }
+    setResult(r);
+    setChecking(false);
   }, [updates, checking]);
 
   if (!updates) return null;
@@ -116,13 +129,13 @@ export function UpdatesSection() {
         tone: 'available',
       };
     }
-    const when = relativeWhen(t, lastCheckAt ?? Date.now());
+    const when = relativeWhen(t, lastSuccessAt ?? Date.now());
     return {text: `${t('updates.upToDate')} · ${t('updates.checkedWhen', {when})}`, tone: 'ok'};
   };
 
   const outcome = describe();
   const lastChecked =
-    lastCheckAt == null ? t('updates.neverChecked') : t('updates.lastChecked', {when: relativeWhen(t, lastCheckAt)});
+    lastSuccessAt == null ? t('updates.neverChecked') : t('updates.lastChecked', {when: relativeWhen(t, lastSuccessAt)});
 
   return (
     <SettingsSection title={t('updates.section')} description={t('updates.sectionHint')}>
@@ -141,31 +154,43 @@ export function UpdatesSection() {
 
       {cadence === 'never' && <p className="text-xs text-muted-foreground">{t('updates.cadenceNeverHint')}</p>}
 
+      {/* No automatic checks → nothing for the filter to act on; keep the
+          stored value intact so re-enabling a cadence restores the choice. */}
       <SettingsToggle
         label={t('updates.securityOnly')}
         hint={t('updates.securityOnlyHint')}
         checked={securityOnly}
         onCheckedChange={onSecurityOnly}
+        disabled={cadence === 'never'}
       />
 
       <div className="flex flex-wrap items-center gap-3 pt-1">
-        <Button variant="secondary" size="sm" onClick={check} disabled={checking} data-testid="check-for-updates">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={check}
+          disabled={checking}
+          aria-busy={checking}
+          data-testid="check-for-updates"
+        >
           <RefreshCw className={cn('h-3.5 w-3.5', checking && 'animate-spin')} aria-hidden />
           {checking ? t('updates.checking') : t('updates.checkNow')}
         </Button>
-        {outcome && (
-          <span
-            data-testid="update-check-result"
-            className={cn(
-              'text-sm',
-              outcome.tone === 'error' && 'text-destructive',
-              outcome.tone === 'available' && 'font-medium text-foreground',
-              outcome.tone === 'ok' && 'text-muted-foreground',
-            )}
-          >
-            {outcome.text}
-          </span>
-        )}
+        {/* Always mounted so the live region exists before its first
+            announcement — a region inserted with its content is often skipped. */}
+        <span
+          role="status"
+          aria-live="polite"
+          data-testid="update-check-result"
+          className={cn(
+            'text-sm',
+            outcome?.tone === 'error' && 'text-destructive',
+            outcome?.tone === 'available' && 'font-medium text-foreground',
+            outcome?.tone === 'ok' && 'text-muted-foreground',
+          )}
+        >
+          {outcome?.text}
+        </span>
       </div>
 
       <p className="text-xs text-muted-foreground">
