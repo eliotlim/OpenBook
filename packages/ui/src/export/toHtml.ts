@@ -11,6 +11,7 @@
  *   client-side router, and databases drawn as tables of navigable rows.
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
+import {pageIslandScript, spaceIslandScript} from '@book.dev/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
 // then Plot's UMD (which expects a global d3) sets `window.Plot`. Inlined only
@@ -522,13 +523,20 @@ function loadSnapshot(snapshot: PageSnapshot, values: Map<string, unknown>, name
 }
 
 /** Assemble the final HTML document from rendered body markup + collected specs.
- *  `extra` injects deck-specific CSS + a nav script (used by the slide deck). */
+ *  `extra` injects deck-specific CSS + a nav script (used by the slide deck).
+ *  `island` is the lossless `application/openbook+json` source blob — ALWAYS
+ *  embedded (no toggle) so the standalone file round-trips back into OpenBook; it
+ *  is inert data (a non-JS `<script type>`), sits last in `<body>`, and its
+ *  `</`-escaping means hostile page content can't break out of it or the document.
+ *  Its block-doc keeps image `assetId`s (the visible body carries the data-URIs);
+ *  see the SDK `island.ts` asset contract. */
 function document_(
   bodyHtml: string,
   headTitle: string,
   ctx: RenderCtx,
   rootId?: string,
   extra?: {styles?: string; script?: string},
+  island?: string,
 ): string {
   const live =
     ctx.sliders.length > 0 ||
@@ -570,14 +578,29 @@ function document_(
 </head>
 <body${rootId ? ` data-root="${escapeHtml(rootId)}"` : ''}>
 ${rootId ? '<header class="ob-nav"><button id="ob-back" hidden>← Back</button></header>\n' : ''}${bodyHtml}
-${reactive}${nav}${extra?.script ? `\n<script>${escapeScript(extra.script)}</script>` : ''}
+${reactive}${nav}${extra?.script ? `\n<script>${escapeScript(extra.script)}</script>` : ''}${island ? `\n${island}` : ''}
 </body>
 </html>`;
 }
 
+/** Identity carried into a single-page export's source island (all optional —
+ *  an unsaved page has no id/updatedAt; the island still round-trips its data). */
+export interface PageExportMeta {
+  id?: string | null;
+  updatedAt?: string | null;
+}
+
 /** Build the interactive HTML for a single page snapshot (Markdown/PDF parity).
- *  `assets` maps image `assetId`s to resolved `data:` URIs (see exportAssets). */
-export function toHtml(rawSnapshot: PageSnapshot, title: string, icon: string, assets: Map<string, string> = new Map()): string {
+ *  `assets` maps image `assetId`s to resolved `data:` URIs (see exportAssets).
+ *  Always embeds the lossless `rawSnapshot` as an `openbook+json` source island
+ *  (same shape as `.book.html`), so the file re-imports without loss. */
+export function toHtml(
+  rawSnapshot: PageSnapshot,
+  title: string,
+  icon: string,
+  assets: Map<string, string> = new Map(),
+  meta: PageExportMeta = {},
+): string {
   const snapshot = blockSnapshotToEditorJs(rawSnapshot);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
@@ -603,7 +626,20 @@ export function toHtml(rawSnapshot: PageSnapshot, title: string, icon: string, a
   };
   const blocks = (snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? [];
   const body = `<main>\n<h1 class="doc-title">${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1>\n${renderBlocks(blocks, ctx)}\n</main>`;
-  return document_(body, title, ctx);
+  return document_(body, title, ctx, undefined, undefined, pageIsland(rawSnapshot, title, icon, meta));
+}
+
+/** The source island for a single page export: a versioned page record carrying
+ *  the LOSSLESS `rawSnapshot` (block-doc + assetIds intact), not the flattened
+ *  render. Same shape read back by the SDK `bookHtmlToPage` / `readIsland`. */
+function pageIsland(rawSnapshot: PageSnapshot, title: string, icon: string, meta: PageExportMeta): string {
+  return pageIslandScript({
+    id: meta.id ?? '',
+    name: title,
+    icon: icon || null,
+    updatedAt: meta.updatedAt ?? '',
+    data: rawSnapshot,
+  });
 }
 
 /** Slide-deck CSS: one slide visible at a time, fading + sliding up, with a
@@ -648,7 +684,13 @@ const SLIDE_NAV = `
 
 /** Build a self-contained, interactive slide deck: blocks split into slides at
  *  every divider, widgets stay live offline, arrow-key navigation. */
-export function toSlideDeck(rawSnapshot: PageSnapshot, title: string, icon: string, assets: Map<string, string> = new Map()): string {
+export function toSlideDeck(
+  rawSnapshot: PageSnapshot,
+  title: string,
+  icon: string,
+  assets: Map<string, string> = new Map(),
+  meta: PageExportMeta = {},
+): string {
   const snapshot = blockSnapshotToEditorJs(rawSnapshot);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
@@ -694,7 +736,9 @@ export function toSlideDeck(rawSnapshot: PageSnapshot, title: string, icon: stri
     })
     .join('\n');
   const body = `<main class="ob-deck">\n${sections}\n<nav class="deck-nav"><button id="deck-prev" aria-label="Previous slide">‹</button><span id="deck-counter"></span><button id="deck-next" aria-label="Next slide">›</button></nav>\n</main>`;
-  return document_(body, title, ctx, undefined, {styles: SLIDE_STYLES, script: SLIDE_NAV});
+  // The deck's island carries the WHOLE page snapshot (every slide) losslessly —
+  // the divider-split into slides is a render, the island re-imports the source.
+  return document_(body, title, ctx, undefined, {styles: SLIDE_STYLES, script: SLIDE_NAV}, pageIsland(rawSnapshot, title, icon, meta));
 }
 
 /**
@@ -745,7 +789,11 @@ export function toHtmlSite(bundle: SiteBundle, assets: Map<string, string> = new
     .join('\n');
 
   const rootTitle = byId.get(bundle.rootId)?.title ?? 'Export';
-  return document_(`<main>\n${sections}\n</main>`, rootTitle, ctx, bundle.rootId);
+  // One island carries the WHOLE space bundle (pages + databases + nesting), the
+  // `openbook.space.json` structure, so a site export re-imports with structure
+  // intact. The visible sections are a render; this is the authoritative source.
+  const island = spaceIslandScript(bundle.rootId, bundle.space);
+  return document_(`<main>\n${sections}\n</main>`, rootTitle, ctx, bundle.rootId, undefined, island);
 }
 
 const STYLES = `

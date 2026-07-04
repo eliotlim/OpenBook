@@ -5,7 +5,16 @@
  * to. A breadth-first crawl from the root, deduped by id and capped, so a single
  * exported file carries a whole navigable mini-site.
  */
-import {ICON_PROPERTY_ID, type DataClient, type DatabaseRow, type DatabaseSchema, type PageSnapshot} from '@book.dev/sdk';
+import {
+  ICON_PROPERTY_ID,
+  type DataClient,
+  type DatabaseRow,
+  type DatabaseSchema,
+  type PageSnapshot,
+  type SpaceSnapshot,
+  type StoredDatabase,
+  type StoredPage,
+} from '@book.dev/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 import {DEFAULT_PAGE_ICON, readPageIcon} from '@/lib/pageIcon';
 
@@ -29,6 +38,14 @@ export interface SitePage {
 export interface SiteBundle {
   rootId: string;
   pages: SitePage[];
+  /**
+   * The LOSSLESS source bundle — the raw {@link StoredPage}/{@link StoredDatabase}
+   * records gathered during the crawl, in the `openbook.space.json` shape. This
+   * is what the site export embeds as its source island (nesting + properties +
+   * databases survive, which the flattened {@link SitePage}s don't carry). The
+   * root uses the live in-memory snapshot so unsaved edits export faithfully.
+   */
+  space: SpaceSnapshot;
 }
 
 /** A safety cap so a densely linked workspace can't produce a runaway file. */
@@ -68,6 +85,10 @@ export async function gatherSite(
   root: {snapshot: PageSnapshot; title: string; icon: string},
 ): Promise<SiteBundle> {
   const pages = new Map<string, SitePage>();
+  // Raw stored records, in crawl order, for the lossless source island. Keyed so
+  // a page/database is carried once even when reached by several links.
+  const spacePages = new Map<string, StoredPage>();
+  const spaceDatabases = new Map<string, StoredDatabase>();
   const queue: string[] = [rootId];
 
   while (queue.length > 0 && pages.size < MAX_PAGES) {
@@ -87,6 +108,15 @@ export async function gatherSite(
     const page: SitePage = {id, title, icon: isRoot ? root.icon : storedIcon || readPageIcon(id) || DEFAULT_PAGE_ICON, snapshot};
     pages.set(id, page);
 
+    // The island carries the raw record. For the root, override `data` with the
+    // LIVE in-memory snapshot so unsaved edits export losslessly (the persisted
+    // copy may be stale); synthesize a record if the root was never saved.
+    if (isRoot) {
+      spacePages.set(id, storedRoot(id, stored, root));
+    } else {
+      spacePages.set(id, stored!);
+    }
+
     for (const ref of referencedPageIds(snapshot)) if (!pages.has(ref)) queue.push(ref);
 
     const databaseId = stored?.hostedDatabaseId ?? null;
@@ -97,6 +127,7 @@ export async function gatherSite(
       ]);
       if (db) {
         page.database = {schema: db.schema, rows};
+        spaceDatabases.set(db.id, db);
         for (const r of rows) if (!pages.has(r.id)) queue.push(r.id);
       }
     }
@@ -104,5 +135,29 @@ export async function gatherSite(
 
   // Root first, so it is the page shown when the file opens.
   const ordered = [pages.get(rootId)!, ...[...pages.values()].filter((p) => p.id !== rootId)].filter(Boolean);
-  return {rootId, pages: ordered};
+  const space: SpaceSnapshot = {pages: [...spacePages.values()], databases: [...spaceDatabases.values()]};
+  return {rootId, pages: ordered, space};
+}
+
+/** The root's raw record for the island: the persisted page with its `data`
+ *  replaced by the live snapshot, or a minimal synthesized record when the root
+ *  was never saved. Keeps the island faithful to what was actually exported. */
+function storedRoot(
+  id: string,
+  stored: StoredPage | null,
+  root: {snapshot: PageSnapshot; title: string; icon: string},
+): StoredPage {
+  if (stored) return {...stored, data: root.snapshot};
+  return {
+    id,
+    name: root.title,
+    data: root.snapshot,
+    hostedDatabaseId: null,
+    databaseId: null,
+    parentId: null,
+    properties: root.icon ? {[ICON_PROPERTY_ID]: root.icon} : {},
+    deletedAt: null,
+    createdAt: '',
+    updatedAt: '',
+  };
 }
