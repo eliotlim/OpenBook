@@ -932,6 +932,13 @@ export const en = {
     minutesAgo: '{n}m ago',
     hoursAgo: '{n}h ago',
     daysAgo: '{n}d ago',
+    readyToast: 'Update ready',
+    securityReadyToast: 'Security update ready',
+    restartAction: 'Restart to update',
+    majorAvailableToast: 'OpenBook {major}.x is available',
+    restartConfirmTitle: 'Restart now?',
+    restartConfirmBody: 'Some changes are still saving. Restarting before they finish may lose them.',
+    restartConfirmAction: 'Restart',
   },
   profile: {
     title: 'Profile',

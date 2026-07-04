@@ -9,6 +9,7 @@ import {ToastHost} from '@/components/ui/toast';
 import {AiSearchDialog} from '@/components/AiSearchDialog';
 import {SplitPane} from '@/components/SplitPane';
 import PluginBoot from '@/components/PluginBoot';
+import UpdateScheduler from '@/components/UpdateScheduler';
 import {AiBridgeHost} from '@/components/AiBridgeHost';
 import {AssetBridgeHost} from '@/components/AssetBridgeHost';
 import {PageAppearanceHost} from '@/components/PageAppearanceHost';
@@ -63,6 +64,10 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
         <div className="flex min-h-0 flex-1 flex-row items-stretch overflow-hidden">
           <GlobalShortcuts/>
           <PluginBoot/>
+          {/* Background self-update checks (desktop only — inert without the
+              `updates` capability). Inside ConfirmProvider for the restart
+              guard; toasts land in the ToastHost below. */}
+          <UpdateScheduler/>
           <WindowTitle/>
           <CommandMenu/>
           <Settings/>
