@@ -1,3 +1,14 @@
+## 1.69.2 (2026-07-04)
+
+### 🩹 Fixes
+
+- **ui:** render claimed-instance guests read-only so public shares don't 403-spam ([2fc9f41](https://github.com/eliotlim/OpenBook/commit/2fc9f41))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim
+
 ## 1.69.1 (2026-07-04)
 
 ### 🩹 Fixes
