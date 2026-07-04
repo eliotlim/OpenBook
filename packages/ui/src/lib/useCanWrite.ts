@@ -60,13 +60,17 @@ const cache = new WeakMap<DataClient, Promise<boolean>>();
 function resolveCanWrite(client: DataClient): Promise<boolean> {
   let pending = cache.get(client);
   if (!pending) {
-    pending = client
-      .getInstanceInfo()
-      .then(canWriteFromInstance)
-      .catch(() => true); // unavailable (older server / offline) → fail open (writable)
+    pending = client.getInstanceInfo().then(canWriteFromInstance);
+    // Don't pin a transient failure (e.g. a forwarding 502): drop it from the
+    // cache so the next mount re-probes once the tunnel recovers, rather than
+    // holding the fail-open default forever.
+    void pending.catch(() => cache.delete(client));
     cache.set(client, pending);
   }
-  return pending;
+  // Unavailable (older server / offline / tunnel 502) → fail open (writable) so
+  // an offline owner can still edit their local book. On a claimed instance the
+  // server's authorize() is still the sole enforcement and 403s a real guest.
+  return pending.catch(() => true);
 }
 
 /** The write decision (see {@link useCanWrite}). Pure, so it's unit-testable. */
@@ -84,6 +88,12 @@ export function canWriteFromInstance(info: InstanceInfo): boolean {
   // Any signed-in user is treated as a writer (owner / admin / ACL) — viewers
   // lean on the server's 403 until `youRole` lands (documented v1 gap).
   if (you.verifiedVia === 'jws') return true;
-  // A guest / anonymous reader writes only when the guest gate is open.
+  // A guest / anonymous reader writes only on an *unclaimed* instance whose
+  // guest gate is open. Once the instance is claimed (`ownerSubject` set) the
+  // server's authorize() grants a guest no write regardless of `guestAccess`
+  // (claiming downgrades write→read, but the value can be stale), so mirror
+  // that here — never render a claimed-instance guest editor editable, or it
+  // saves into a 403. See packages/sdk/src/authorize.ts (rule 0 vs rules 1-4).
+  if (ownerSubject != null) return false;
   return guestAccess === 'write';
 }

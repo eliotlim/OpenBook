@@ -25,10 +25,20 @@ describe('canWriteFromInstance (coarse viewer/writer signal)', () => {
     expect(canWriteFromInstance(info({ownerSubject: 'iss#o', you: principal('jws', 'iss#someone')}))).toBe(true);
   });
 
-  it('locks a guest unless the guest gate is open', () => {
+  it('locks a guest unless the guest gate is open on an *unclaimed* instance', () => {
     expect(canWriteFromInstance(info({guestAccess: 'read', you: principal('guest')}))).toBe(false);
     expect(canWriteFromInstance(info({guestAccess: 'off', you: principal('guest')}))).toBe(false);
+    // Unclaimed (`ownerSubject` unset) honours the guest gate.
     expect(canWriteFromInstance(info({guestAccess: 'write', you: principal('guest')}))).toBe(true);
+  });
+
+  it('locks a public guest on a CLAIMED instance even if guestAccess is (stale) write', () => {
+    // A forwarded/published instance is claimed (ownerSubject set); the server's
+    // authorize() grants a guest no write regardless of guestAccess, so the guest
+    // editor must render read-only instead of saving into a 403.
+    expect(
+      canWriteFromInstance(info({ownerSubject: 'iss#o', guestAccess: 'write', you: principal('guest')})),
+    ).toBe(false);
   });
 
   it('honours the server-stamped effective youRole when present (P1-8)', () => {
