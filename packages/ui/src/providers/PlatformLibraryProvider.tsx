@@ -138,15 +138,17 @@ export interface UpdateCheckResult {
 }
 
 /**
- * How the host checks for and reports app updates. Only the desktop (Tauri)
- * shell can self-update, so it supplies this; the web shell leaves it undefined
- * (the browser app is always the latest served build — nothing to update) and
- * the UI hides the whole updates section. The desktop implementation is a thin
- * wrapper over `@tauri-apps/plugin-updater` added by a later slice — this
- * interface is the contract it builds to. It intentionally carries no cadence /
- * security-only preference: those are user settings persisted by the UI (see
- * `lib/updatePreferences`), read by a scheduler, and used to decide *when* and
- * *what* to act on — the platform layer only performs a single check on demand.
+ * How the host checks for, downloads and applies app updates. Only the desktop
+ * (Tauri) shell can self-update, so it supplies this; the web shell leaves it
+ * undefined (the browser app is always the latest served build — nothing to
+ * update) and the UI hides the whole updates section — the capability flag is
+ * the *presence* of `platform.updates`, not any per-method probing. The desktop
+ * implementation (`packages/app/src/data/updates.ts`) wraps
+ * `@tauri-apps/plugin-updater` / `@tauri-apps/plugin-process`. It intentionally
+ * carries no cadence / security-only preference: those are user settings
+ * persisted by the UI (see `lib/updatePreferences`), read by a scheduler, and
+ * used to decide *when* and *what* to act on — the platform layer only performs
+ * a single check / install step on demand.
  */
 export interface UpdatesPlatform {
   /** The running app's version string (e.g. "1.69.1"). */
@@ -154,6 +156,18 @@ export interface UpdatesPlatform {
   /** Ask the update server whether a newer build exists. Never rejects — see
    *  {@link UpdateCheckResult}. */
   checkForUpdate(): Promise<UpdateCheckResult>;
+  /**
+   * Download and stage the newest same-major update through the host's signed
+   * update channel (the Tauri updater: pinned manifest endpoint + pinned
+   * pubkey — NOT the `checkForUpdate` endpoint, which is informational).
+   * Resolves once the update is staged and a {@link relaunch} will apply it;
+   * resolves as a no-op when the manifest says this build is already current.
+   * Rejects on download / signature-verification failure — callers (the
+   * scheduler, the Settings action) surface that as their own error state.
+   */
+  downloadAndInstall(): Promise<void>;
+  /** Relaunch the app, applying any update staged by {@link downloadAndInstall}. */
+  relaunch(): Promise<void>;
 }
 
 /**

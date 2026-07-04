@@ -128,6 +128,11 @@ function useUpdatesPreview(): PlatformLibrary['updates'] | undefined {
         if (mode === 'error') return {status: 'error', error: 'mock'};
         return {status: 'up-to-date'};
       },
+      // Install/relaunch are inert in the browser preview — there's no Tauri
+      // updater to drive. The seam exists to exercise the *check* states; the
+      // real download/relaunch only runs in the desktop shell.
+      downloadAndInstall: async () => {},
+      relaunch: async () => {},
     };
   }, [mode]);
 }
