@@ -1,6 +1,7 @@
 import {Select} from '@/components/ui/select';
 import {usePreferences, useTranslation} from '@/providers';
 import {SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
+import {UpdatesSection} from '@/components/settings/UpdatesSection';
 import type {Locale} from '@/i18n';
 
 /** General app settings — display language + basic editor/behavior toggles. */
@@ -42,6 +43,9 @@ export default function GeneralSettings() {
           onCheckedChange={(spellcheck) => update({general: {spellcheck}})}
         />
       </SettingsSection>
+
+      {/* Desktop only — renders nothing when the platform can't self-update. */}
+      <UpdatesSection />
     </SettingsScreen>
   );
 }
