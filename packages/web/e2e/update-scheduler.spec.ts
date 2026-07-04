@@ -1,0 +1,68 @@
+import {test, expect} from './fixtures';
+import type {Page} from '@playwright/test';
+
+// The background update scheduler (ui/components/UpdateScheduler) mounts in
+// DefaultLayout and is inert without the `updates` capability; `?updates=<mode>`
+// injects the mock capability (web/src/pages/index.tsx), which counts its calls
+// on `window` (__updateCheckCalls / __updateInstallCalls / __updateRelaunchCalls)
+// precisely so these specs can observe background activity that has no DOM.
+//
+// Timers need no mocking: the scheduler runs a launch tick, and a fresh
+// browser context has no `updates.lastCheckAt`, so the default daily cadence
+// is immediately due (never-checked → stale). The `never` spec seeds the
+// cadence *before* load and asserts the launch tick does nothing.
+
+const counter = (page: Page, key: string): Promise<number> =>
+  page.evaluate((k) => (window as unknown as Record<string, number | undefined>)[k] ?? 0, key);
+
+/** The app is hydrated once the nav chrome is interactive — from then on the
+ *  scheduler's mount effect (and its launch tick) has certainly run or not. */
+const appReady = async (page: Page): Promise<void> => {
+  await expect(page.getByRole('button', {name: 'Settings'}).first()).toBeVisible();
+};
+
+const toasts = (page: Page) => page.locator('[data-toast-host] > div');
+
+test('security-only ON: a non-security update produces no toast and no install', async ({page}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('updates.securityOnly', 'true');
+  });
+  await page.goto('/?updates=available');
+  await appReady(page);
+  // The background check itself runs (security-only filters what is *acted*
+  // on, not whether we look)…
+  await expect.poll(() => counter(page, '__updateCheckCalls')).toBeGreaterThan(0);
+  // …but nothing is downloaded and no toast ever appears.
+  await page.waitForTimeout(500);
+  await expect(toasts(page)).toHaveCount(0);
+  expect(await counter(page, '__updateInstallCalls')).toBe(0);
+});
+
+test('security update: persistent toast that outlives auto-dismiss; action relaunches', async ({page}) => {
+  await page.goto('/?updates=security');
+  const toast = toasts(page).filter({hasText: 'Security update ready'});
+  await expect(toast).toHaveCount(1);
+  // The update was downloaded+staged before the toast.
+  expect(await counter(page, '__updateInstallCalls')).toBe(1);
+  // Persistent: still there past the 7s default auto-dismiss window.
+  await page.waitForTimeout(8000);
+  await expect(toast).toHaveCount(1);
+  // The action applies the update by relaunching.
+  await toast.getByRole('button', {name: 'Restart to update'}).click();
+  await expect.poll(() => counter(page, '__updateRelaunchCalls')).toBe(1);
+  // Acting on the toast dismisses it.
+  await expect(toasts(page)).toHaveCount(0);
+});
+
+test('cadence never: zero checkForUpdate calls even with an update on offer', async ({page}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('updates.cadence', 'never');
+  });
+  await page.goto('/?updates=security');
+  await appReady(page);
+  // Give the launch tick every chance to have (wrongly) fired.
+  await page.waitForTimeout(1000);
+  expect(await counter(page, '__updateCheckCalls')).toBe(0);
+  expect(await counter(page, '__updateInstallCalls')).toBe(0);
+  await expect(toasts(page)).toHaveCount(0);
+});

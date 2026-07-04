@@ -119,20 +119,34 @@ function useUpdatesPreview(): PlatformLibrary['updates'] | undefined {
   }, []);
   return useMemo<PlatformLibrary['updates']>(() => {
     if (!mode) return undefined;
+    // e2e observability: the scheduler's background activity has no DOM of its
+    // own, so the mock counts its calls on `window` for the specs to assert on
+    // (e.g. "cadence never → zero checks"). Harmless outside tests — the seam
+    // only exists behind the explicit `?updates=` flag.
+    const count = (key: string): void => {
+      const w = window as unknown as Record<string, unknown>;
+      w[key] = ((w[key] as number | undefined) ?? 0) + 1;
+    };
     return {
       getAppVersion: async () => '1.69.1',
       checkForUpdate: async () => {
+        count('__updateCheckCalls');
         if (mode === 'available') return {status: 'update-available', latestVersion: '1.72.0', latestForCurrentMajor: '1.72.0'};
         if (mode === 'security')
-          return {status: 'update-available', latestVersion: '1.72.0', security: {updateAvailable: true, fixedIn: '1.72.0'}};
+          return {
+            status: 'update-available',
+            latestVersion: '1.72.0',
+            latestForCurrentMajor: '1.72.0',
+            security: {updateAvailable: true, fixedIn: '1.72.0'},
+          };
         if (mode === 'error') return {status: 'error', error: 'mock'};
         return {status: 'up-to-date'};
       },
       // Install/relaunch are inert in the browser preview — there's no Tauri
-      // updater to drive. The seam exists to exercise the *check* states; the
-      // real download/relaunch only runs in the desktop shell.
-      downloadAndInstall: async () => {},
-      relaunch: async () => {},
+      // updater to drive (the real ones only run in the desktop shell) — but
+      // they count their calls so the scheduler e2e can observe them.
+      downloadAndInstall: async () => count('__updateInstallCalls'),
+      relaunch: async () => count('__updateRelaunchCalls'),
     };
   }, [mode]);
 }
