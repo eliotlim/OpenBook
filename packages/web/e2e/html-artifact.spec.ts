@@ -100,6 +100,63 @@ test('drag-dropping a .html file inserts an artifact block at the drop position'
   await expect(page.frameLocator('.obe-artifact iframe').locator('#btn')).toHaveText('Count: 0');
 });
 
+test('resize drag survives crossing the cross-origin frame (pointer capture)', {tag: ['@editor']}, async ({page, request}) => {
+  const pageId = await newPage(request, 'Artifact Resize E2E');
+  await openEditor(page, pageId);
+  await insertArtifact(page, COUNTER_HTML);
+  const iframe = page.locator('.obe-artifact iframe');
+  await expect(iframe).toBeVisible();
+  const heightOf = async (): Promise<number> => (await iframe.boundingBox())!.height;
+  const startHeight = await heightOf(); // default 320
+
+  // Reveal the bottom handle (hover chrome) and grab its centre.
+  await page.locator('.obe-artifact-frame').hover();
+  const handleBox = (await page.locator('.obe-artifact-resize').boundingBox())!;
+  const hx = handleBox.x + handleBox.width / 2;
+  const hy = handleBox.y + handleBox.height / 2;
+
+  // GROW: drag the handle 120px down (over the page body — the easy direction).
+  await page.mouse.move(hx, hy);
+  await page.mouse.down();
+  await page.mouse.move(hx, hy + 120, {steps: 8});
+  await page.mouse.up();
+  await expect.poll(heightOf).toBe(startHeight + 120);
+
+  // SHRINK past the frame edge: the cursor travels UP, INTO the cross-origin
+  // iframe, and RELEASES over it. Without the drag defences (frame inert
+  // during the drag + pointer capture on the handle) the frame swallows both
+  // the moves (resize freezes at the edge) and the pointerup (the drag
+  // listeners leak); with them the handle keeps receiving everything.
+  const grown = await heightOf();
+  // The grown frame pushed the handle below Playwright's 720px viewport —
+  // mouse coordinates are viewport-bound, so bring it back on screen first.
+  await page.locator('.obe-artifact-resize').scrollIntoViewIfNeeded();
+  const box2 = (await page.locator('.obe-artifact-resize').boundingBox())!;
+  const hx2 = box2.x + box2.width / 2;
+  const hy2 = box2.y + box2.height / 2;
+  await page.mouse.move(hx2, hy2);
+  await page.mouse.down();
+  await page.mouse.move(hx2, hy2 - 160, {steps: 8}); // deep inside the iframe
+  await page.mouse.up(); // released OVER the frame
+  await expect.poll(heightOf).toBe(grown - 160);
+
+  // No stuck drag: with the button up, wandering the cursor (including back
+  // across the frame) must not change the height any further.
+  const settled = await heightOf();
+  await page.mouse.move(hx2, hy2 - 60, {steps: 4});
+  await page.mouse.move(hx2 + 80, hy2 + 40, {steps: 4});
+  await expect.poll(heightOf).toBe(settled);
+
+  // The height persisted to the block's props (survives reload).
+  await expect
+    .poll(async () => {
+      const res = await page.request.get(`${SERVER}/api/pages/${pageId}`);
+      const snap = JSON.stringify(((await res.json()) as {data: unknown}).data);
+      return snap.includes(`"height":${Math.round(settled)}`);
+    })
+    .toBe(true);
+});
+
 test('present mode: the artifact stays interactive with no edit chrome', {tag: ['@editor']}, async ({page, request}) => {
   const pageId = await newPage(request, 'Artifact Present E2E');
   await openEditor(page, pageId);

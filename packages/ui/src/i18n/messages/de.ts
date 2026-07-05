@@ -566,6 +566,7 @@ export const de: PartialMessages = {
     tocTitle: 'Auf dieser Seite',
     tocEmpty: 'Noch keine Überschriften — füge eine hinzu, um die Gliederung zu erstellen.',
     artifact: {
+      notHtml: 'Diese Datei ist kein HTML-Dokument.',
       fallbackTitle: 'HTML-Artefakt',
       add: 'HTML-Artefakt hinzufügen',
       addHint: 'Klicke, um eine .html-Datei hochzuladen — läuft in einer Sandbox',

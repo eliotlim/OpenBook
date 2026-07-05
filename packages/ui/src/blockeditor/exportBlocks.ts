@@ -502,9 +502,14 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
       }
       case 'htmlArtifact': {
         // Carry the artifact's keys through the projection so the export asset
-        // pre-pass (exportAssets.collectAssetIds) sees its assetId; the
-        // renderers currently emit a captioned placeholder (full sandboxed
-        // embedding is a downstream export task).
+        // pre-pass (exportAssets.collectAssetIds) sees its assetId. Honest
+        // status of the renderers over this projection: only the CLIPBOARD
+        // arms in this file (blocksToHtml / blocksToMarkdown) emit a captioned
+        // placeholder — the real export pipeline (export/documentModel.ts →
+        // toHtml/toPdf/toMarkdown) maps 'htmlArtifact' to its `unknown` block —
+        // Markdown emits a bare "(htmlArtifact block)" note; HTML/PDF render
+        // nothing. Accepted scope: full sandboxed embedding (and a proper
+        // placeholder there) is the downstream export task.
         const p = b.props ?? {};
         sink.push({
           id: b.id,

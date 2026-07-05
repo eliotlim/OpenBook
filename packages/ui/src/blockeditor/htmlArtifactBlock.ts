@@ -61,9 +61,9 @@ export function titleFromFileName(name: string): string {
 
 /**
  * Pull the block-ingestible files (images + HTML documents) out of a drop /
- * paste DataTransfer, in transfer order, de-duplicated. Extends the image-only
- * `imageFilesFromTransfer` for the mixed-drop funnel: the caller routes each
- * file by kind (image → image block, HTML → artifact block).
+ * paste DataTransfer, in transfer order, de-duplicated. Replaces the removed
+ * image-only `imageFilesFromTransfer` as the one mixed-funnel extractor: the
+ * caller routes each file by kind (image → image block, HTML → artifact block).
  */
 export function editorFilesFromTransfer(dt: DataTransfer | null | undefined): File[] {
   if (!dt) return [];

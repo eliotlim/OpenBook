@@ -2023,6 +2023,8 @@ a.obe-mention {
 .obe-image-size:focus-visible,
 .obe-image-tool:focus-visible,
 .obe-image-resize:focus-visible,
+.obe-artifact-tool:focus-visible,
+.obe-artifact-resize:focus-visible,
 .obe-image-placeholder:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 1px;

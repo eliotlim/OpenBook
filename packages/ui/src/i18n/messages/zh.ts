@@ -563,6 +563,7 @@ export const zh: PartialMessages = {
     tocTitle: '本页内容',
     tocEmpty: '还没有标题 — 添加标题即可生成大纲。',
     artifact: {
+      notHtml: '该文件不是 HTML 文档。',
       fallbackTitle: 'HTML 组件',
       add: '添加 HTML 组件',
       addHint: '点击上传 .html 文件 — 在沙箱中运行',

@@ -98,7 +98,7 @@ export const HtmlArtifactBlockView: React.FC<{block: BlockMap; editor: BlockEdit
 
   const ingestFile = async (file: File | null | undefined): Promise<void> => {
     if (!isHtmlFile(file)) {
-      setNotice({message: 'That file isn’t an HTML document.', soft: false});
+      setNotice({message: t('blocks.artifact.notHtml'), soft: false});
       return;
     }
     const res = await htmlArtifactBlockFromFile(file, getPageIdForDoc(editor.doc) ?? undefined);
@@ -122,10 +122,25 @@ export const HtmlArtifactBlockView: React.FC<{block: BlockMap; editor: BlockEdit
   };
 
   // Drag the bottom handle to set the frame height (persisted to props).
+  //
+  // The drag crosses a CROSS-ORIGIN iframe, which breaks the plain
+  // window-listener pattern the image block uses: pointer events entering the
+  // nested browsing context are routed INTO the frame's document, so shrinking
+  // freezes at the frame edge and a release over the frame leaks the listeners
+  // (height then tracks the cursor with the button up — a stuck drag). Two
+  // defences, both required:
+  //  1. the iframe goes `pointer-events: none` for the drag's duration, so
+  //     every move/up stays in the parent document (restored in `end`);
+  //  2. `setPointerCapture` pins the remaining events to the HANDLE, with
+  //     `lostpointercapture` as the guaranteed cleanup signal (fires after
+  //     pointerup's implicit release AND on any capture loss, e.g. a cancelled
+  //     touch) — nothing can leave a stuck drag behind.
   const onResizeDown = (e: React.PointerEvent): void => {
     if (!chrome) return;
     e.preventDefault();
     e.stopPropagation();
+    const handle = e.currentTarget as HTMLElement;
+    const frame = handle.closest('.obe-artifact-frame')?.querySelector('iframe');
     const startY = e.clientY;
     const startHeight = height;
     const move = (ev: PointerEvent): void => {
@@ -135,12 +150,22 @@ export const HtmlArtifactBlockView: React.FC<{block: BlockMap; editor: BlockEdit
       );
       set('height', next === DEFAULT_ARTIFACT_HEIGHT ? undefined : next);
     };
-    const up = (): void => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
+    const end = (): void => {
+      if (frame) frame.style.pointerEvents = '';
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      handle.removeEventListener('lostpointercapture', end);
     };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    if (frame) frame.style.pointerEvents = 'none';
+    try {
+      handle.setPointerCapture(e.pointerId);
+    } catch {
+      // A synthetic event without a live pointer (tests) — the listeners below
+      // still cover the plain in-parent drag path.
+    }
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('lostpointercapture', end);
   };
 
   const noticeEl = notice && (

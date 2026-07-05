@@ -566,6 +566,7 @@ export const ja: PartialMessages = {
     tocTitle: 'このページの内容',
     tocEmpty: '見出しがありません — 見出しを追加すると目次が作成されます。',
     artifact: {
+      notHtml: 'このファイルはHTMLドキュメントではありません。',
       fallbackTitle: 'HTMLアーティファクト',
       add: 'HTMLアーティファクトを追加',
       addHint: 'クリックして .html ファイルをアップロード — サンドボックスで実行されます',

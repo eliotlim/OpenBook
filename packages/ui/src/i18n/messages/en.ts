@@ -894,6 +894,7 @@ export const en = {
     tocTitle: 'On this page',
     tocEmpty: 'No headings yet — add a heading to build the outline.',
     artifact: {
+      notHtml: 'That file isn’t an HTML document.',
       fallbackTitle: 'HTML artifact',
       add: 'Add an HTML artifact',
       addHint: 'Click to upload a .html file — it runs sandboxed',
