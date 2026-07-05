@@ -13,7 +13,7 @@
  */
 import type {PageSnapshot, SpaceSnapshot} from '@book.dev/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
-import {blockSnapshotToEditorJs} from '../../blockeditor/exportBlocks';
+import {projectSnapshotForExport} from '../../blockeditor/exportBlocks';
 import {emptyExportAssets, type ExportAssets} from '../exportAssets';
 import type {SiteBundle} from '../exportSite';
 
@@ -134,7 +134,7 @@ export function parityRawSnapshot(blocks: NewBlock[] = PARITY_BLOCKS): PageSnaps
 /** The projected snapshot the app's export action passes to toHtml (the
  *  projection KEEPS the blockdoc, so the island stays lossless). */
 export function parityExportSnapshot(blocks: NewBlock[] = PARITY_BLOCKS): PageSnapshot {
-  return blockSnapshotToEditorJs(parityRawSnapshot(blocks));
+  return projectSnapshotForExport(parityRawSnapshot(blocks));
 }
 
 const SECOND_PAGE: NewBlock[] = [
@@ -157,8 +157,8 @@ export function paritySiteBundle(): SiteBundle {
   return {
     rootId: 'fx-root',
     pages: [
-      {id: 'fx-root', title: 'Parity fixture', icon: '🧪', snapshot: blockSnapshotToEditorJs(rootRaw)},
-      {id: 'fx-two', title: 'Second page', icon: '', snapshot: blockSnapshotToEditorJs(secondRaw)},
+      {id: 'fx-root', title: 'Parity fixture', icon: '🧪', snapshot: projectSnapshotForExport(rootRaw)},
+      {id: 'fx-two', title: 'Second page', icon: '', snapshot: projectSnapshotForExport(secondRaw)},
     ],
     space,
   };

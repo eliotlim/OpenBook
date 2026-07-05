@@ -82,10 +82,10 @@ describe('blocksToHtml', () => {
   });
 });
 
-describe('blocksToEditorJs (export pipeline adapter)', () => {
+describe('projectBlocksForExport (export pipeline adapter)', () => {
   it('projects core blocks, merging lists and nesting columns', async () => {
-    const {blocksToEditorJs} = await import('../../blockeditor/exportBlocks');
-    const out = blocksToEditorJs(
+    const {projectBlocksForExport} = await import('../../blockeditor/exportBlocks');
+    const out = projectBlocksForExport(
       docToJSON(
         createDoc([
           {type: 'heading', text: 'T', props: {level: 1}},
@@ -113,12 +113,12 @@ describe('blocksToEditorJs (export pipeline adapter)', () => {
   });
 
   it('re-tokenizes formula sources and exports slider state', async () => {
-    const {blocksToEditorJs} = await import('../../blockeditor/exportBlocks');
+    const {projectBlocksForExport} = await import('../../blockeditor/exportBlocks');
     const doc = createDoc([
       {type: 'slider', props: {name: 'speed', value: 8, min: 0, max: 10}, id: 'sl1'},
       {type: 'formula', props: {source: 'speed * speed'}, id: 'f1'},
     ]);
-    const out = blocksToEditorJs(docToJSON(doc));
+    const out = projectBlocksForExport(docToJSON(doc));
     expect(out.blocks[0]).toMatchObject({type: 'slider', data: {name: 'speed', initial: 8}});
     expect(out.values).toEqual([[out.blocks[0].id, 8]]);
     expect(out.names).toEqual([['speed', out.blocks[0].id]]);
@@ -133,15 +133,15 @@ describe('blocksToEditorJs (export pipeline adapter)', () => {
     expect(blocksToMarkdown(json)).toContain('Tasks');
   });
 
-  it('blockSnapshotToEditorJs projects stamped snapshots and passes others through', async () => {
-    const {blockSnapshotToEditorJs} = await import('../../blockeditor/exportBlocks');
+  it('projectSnapshotForExport projects stamped snapshots and passes others through', async () => {
+    const {projectSnapshotForExport} = await import('../../blockeditor/exportBlocks');
     const {encodeSnapshot} = await import('../../blockeditor/model');
     const doc = createDoc([{type: 'paragraph', text: 'hello'}]);
     const stamped = {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(doc)};
-    const projected = blockSnapshotToEditorJs(stamped) as {editorjs: {blocks: {type: string}[]}};
+    const projected = projectSnapshotForExport(stamped) as {editorjs: {blocks: {type: string}[]}};
     expect(projected.editorjs.blocks[0].type).toBe('paragraph');
 
     const legacy = {editorjs: {blocks: [{type: 'header', data: {text: 'x'}}]}, values: [], names: [], editor: undefined};
-    expect(blockSnapshotToEditorJs(legacy)).toBe(legacy);
+    expect(projectSnapshotForExport(legacy)).toBe(legacy);
   });
 });

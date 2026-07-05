@@ -1,14 +1,14 @@
 import {describe, it, expect} from 'vitest';
 import type {PageSnapshot} from '@book.dev/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
-import {blockSnapshotToEditorJs} from '../../blockeditor/exportBlocks';
+import {projectSnapshotForExport} from '../../blockeditor/exportBlocks';
 import {buildDocumentModel} from '../documentModel';
 import {toHtml, toSlideDeck} from '../toHtml';
 import {toMarkdown} from '../toMarkdown';
 
 /**
  * Exports start from a CRDT block document (`editor: 'blocks'` + `blockdoc`), not
- * the EditorJS shape the other tests feed directly. This exercises that real path:
+ * the export-projection shape the other tests feed directly. This exercises that real path:
  * the reactive graph must be resolved the way the live editor resolves it, so a
  * static export shows the SAME computed numbers, chart series, status-light state,
  * and progress as the window — instead of empty `—` cells.
@@ -222,7 +222,7 @@ describe('export block fidelity', () => {
 describe('export runtime reference resolution', () => {
   type Out = {editorjs: {blocks: Array<{type?: string; data?: Record<string, unknown>}>}; names: Array<[string, string]>};
   const project = (blocks: NewBlock[]): Out =>
-    blockSnapshotToEditorJs({editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(createDoc(blocks))} as never) as unknown as Out;
+    projectSnapshotForExport({editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(createDoc(blocks))} as never) as unknown as Out;
 
   it('tokenizes formula→formula references so dependents stay live (not undefined)', () => {
     const out = project([

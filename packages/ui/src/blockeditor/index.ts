@@ -23,7 +23,7 @@ export {
   decodeSnapshot,
   docToJSON,
   encodeSnapshot,
-  migrateEditorJs,
+  migrateLegacyBlocks,
   rootBlocks,
   type BlockDocSnapshot,
   type BlockJSON,

@@ -9,7 +9,7 @@ import {
   insertBlock,
   makeTable,
   mergeWithPrevious,
-  migrateEditorJs,
+  migrateLegacyBlocks,
   moveBlock,
   removeBlock,
   rootBlocks,
@@ -216,9 +216,9 @@ describe('snapshots and CRDT merge', () => {
   });
 });
 
-describe('editorjs migration', () => {
+describe('legacy migration', () => {
   it('converts the common block types', () => {
-    const blocks = migrateEditorJs([
+    const blocks = migrateLegacyBlocks([
       {type: 'header', data: {text: 'Hi', level: 2}},
       {type: 'paragraph', data: {text: 'a <b>b</b> <a href="https://x.y">c</a>'}},
       {type: 'list', data: {style: 'ordered', items: ['one', 'two']}},
@@ -245,13 +245,26 @@ describe('editorjs migration', () => {
   });
 
   it('never returns an empty document', () => {
-    expect(migrateEditorJs([])).toEqual([{type: 'paragraph'}]);
+    expect(migrateLegacyBlocks([])).toEqual([{type: 'paragraph'}]);
   });
 });
 
-describe('editorjs migration — full app coverage', () => {
+describe('block-native creators (sdk textSnapshot) open without the migrator', () => {
+  it('decodes the created blockdoc straight through decodeSnapshot — never migrateLegacyBlocks', async () => {
+    const {textSnapshot} = await import('@book.dev/sdk');
+    const snap = textSnapshot('Alpha\nBeta', 'agent');
+    // BlockPageDocument's load path takes `decodeSnapshot(snap.blockdoc)` whenever a
+    // blockdoc is present; the migrator only runs for legacy snapshots lacking one.
+    expect(snap.blockdoc).toBeTruthy();
+    const json = docToJSON(decodeSnapshot(snap.blockdoc as never));
+    expect(json.map((b) => b.type)).toEqual(['paragraph', 'paragraph']);
+    expect(json.map((b) => b.text?.[0]?.t)).toEqual(['Alpha', 'Beta']);
+  });
+});
+
+describe('legacy migration — full app coverage', () => {
   it('migrates reactive, navigation, and layout-adjacent blocks', () => {
-    const blocks = migrateEditorJs(
+    const blocks = migrateLegacyBlocks(
       [
         {type: 'toc', data: {}},
         {type: 'accordion', data: {title: 'More', content: 'Hidden <b>body</b>'}},

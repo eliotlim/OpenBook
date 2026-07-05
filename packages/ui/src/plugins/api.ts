@@ -1,5 +1,6 @@
 import React from 'react';
 import type {DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
+import {textSnapshot} from '@book.dev/sdk';
 import {registerCustomBlock, type CustomBlockDef} from '../blockeditor/registry';
 import {registerPluginCommand, type PluginCommand} from './commandRegistry';
 
@@ -91,20 +92,9 @@ export function buildPluginApi(
       list: () => client.listPages(),
       get: (id) => client.getPage(id),
       create: (name, text) =>
-        client.savePage({
-          name,
-          data: {
-            editorjs: {
-              blocks: (text ?? '')
-                .split('\n')
-                .map((l) => l.trim())
-                .filter(Boolean)
-                .map((t, i) => ({id: `pl-${i}`, type: 'paragraph', data: {text: t}})),
-            },
-            values: [],
-            names: [],
-          },
-        }),
+        // Emit a block-native `blockdoc` from birth (never a legacy no-blockdoc
+        // page); the block editor loads it without the migrate-on-open path.
+        client.savePage({name, data: textSnapshot(text ?? '', 'pl')}),
     },
     storage: {
       get<T>(key: string): T | undefined {

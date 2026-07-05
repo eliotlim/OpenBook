@@ -1,7 +1,7 @@
 /**
- * A small bridge between the EditorJS subpage/database blocks and the app's
- * navigation. EditorJS instantiates block tools outside React's context (each
- * block mounts its own React root), so the blocks can't use `useNavigation`.
+ * A small bridge between the subpage/database blocks and the app's navigation.
+ * Block tools can run outside React's context (a block may mount its own React
+ * root), so they can't use `useNavigation` directly.
  * Instead {@link NavigationProvider} registers its actions here — the same
  * singleton pattern the reactive store uses — and the blocks call them.
  */

@@ -7,10 +7,10 @@ import {
   createSeededDoc,
   decodeSnapshot,
   encodeSnapshot,
-  migrateEditorJs,
+  migrateLegacyBlocks,
   type BlockDocSnapshot,
 } from '@/blockeditor/model';
-import {blockSnapshotToEditorJs} from '@/blockeditor/exportBlocks';
+import {projectSnapshotForExport} from '@/blockeditor/exportBlocks';
 import {computeScope} from '@/blockeditor/kit/scope';
 import {buildDocumentModel} from '@/export/documentModel';
 import {toMarkdown} from '@/export/toMarkdown';
@@ -131,7 +131,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       if (cancelled) return;
       // The reactive context (cell values + the name index) rides along so
       // sliders keep their live values and expr sources resolve to names.
-      setDoc(createSeededDoc(migrateEditorJs(legacy, {values: snap?.values, names: snap?.names, pageLabels}), `mig-${pageId ?? 'page'}`));
+      setDoc(createSeededDoc(migrateLegacyBlocks(legacy, {values: snap?.values, names: snap?.names, pageLabels}), `mig-${pageId ?? 'page'}`));
     })();
     return () => {
       cancelled = true;
@@ -152,7 +152,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     // EXPORTS (a parent database's expr columns read them via projectExports), so they
     // must track the live document, and a named live-code output must publish its
     // computed value too — the projection only carries its runtime expression.
-    const projected = blockSnapshotToEditorJs({...base, editor: 'blocks', blockdoc: encodeSnapshot(doc)});
+    const projected = projectSnapshotForExport({...base, editor: 'blocks', blockdoc: encodeSnapshot(doc)});
     const values = new Map(projected.values);
     const {results} = computeScope(doc);
     for (const [, cellId] of projected.names) {
@@ -342,7 +342,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       }
       return;
     }
-    const snapshot = blockSnapshotToEditorJs({
+    const snapshot = projectSnapshotForExport({
       editorjs: {blocks: []},
       values: [],
       names: [],

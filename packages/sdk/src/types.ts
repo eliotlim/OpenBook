@@ -11,12 +11,17 @@
 
 /**
  * The serialized form of a reactive document. Three sibling keys:
- *  - `editorjs` — EditorJS `OutputData` (kept opaque here so the SDK has no
- *    dependency on the editor; cast at the edit site).
+ *  - `editorjs` — the block-native export projection (`{blocks}`), and for
+ *    legacy pages the stored block list. **The JSON key name `editorjs` is a
+ *    RETAINED storage / back-compat alias** — do not rename it on disk; every
+ *    persisted snapshot uses it and renaming would strand stored data. In
+ *    memory this shape is `ExportDoc` (see ui `exportBlocks.ts`). Kept opaque
+ *    here so the SDK has no dependency on the editor; cast at the edit site.
  *  - `values`   — `[cellId, value]` pairs from the reactive store.
  *  - `names`    — `[name, cellId]` pairs (the name index).
  */
 export interface PageSnapshot {
+  /** Retained storage/back-compat alias for the export projection; see doc above. */
   editorjs: unknown;
   values: Array<[string, unknown]>;
   names: Array<[string, string]>;
