@@ -247,6 +247,7 @@ export {
   bookHtmlToPage,
   readBookHtmlMeta,
   pageIslandScript,
+  sanitizeLegacyInline,
   slugify,
   bookRuntimeScripts,
   BOOK_RUNTIME_DIR,
