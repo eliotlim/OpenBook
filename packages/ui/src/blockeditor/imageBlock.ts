@@ -66,32 +66,9 @@ export function isImageFile(file: File | null | undefined): file is File {
   return !!file && typeof file.type === 'string' && file.type.startsWith('image/');
 }
 
-/**
- * Pull image files out of a paste/drop DataTransfer. Prefers `.files` (drops and
- * most pastes), falling back to `.items[].getAsFile()` (some clipboard pastes
- * only expose the image through items). De-duplicates so a transfer that lists
- * the same file in both places yields one block.
- */
-export function imageFilesFromTransfer(dt: DataTransfer | null | undefined): File[] {
-  if (!dt) return [];
-  const out: File[] = [];
-  const seen = new Set<string>();
-  const add = (f: File | null | undefined): void => {
-    if (!isImageFile(f)) return;
-    const key = `${f.name}:${f.size}:${f.type}:${f.lastModified}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(f);
-  };
-  if (dt.files) for (let i = 0; i < dt.files.length; i += 1) add(dt.files[i]);
-  if (out.length === 0 && dt.items) {
-    for (let i = 0; i < dt.items.length; i += 1) {
-      const item = dt.items[i];
-      if (item.kind === 'file') add(item.getAsFile());
-    }
-  }
-  return out;
-}
+// NB: the old image-only `imageFilesFromTransfer` was superseded by
+// `editorFilesFromTransfer` (htmlArtifactBlock.ts), which extracts every
+// block-ingestible file (images + HTML documents) for the one mixed funnel.
 
 /** Read a File to a `data:` URL (works without canvas/createImageBitmap). */
 export function fileToDataUrl(file: File): Promise<string> {

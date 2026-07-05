@@ -30,7 +30,9 @@ import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
 import {getCustomBlock} from './registry';
 import {CodeBlockView} from './CodeBlockView';
 import {ImageBlockView} from './ImageBlockView';
-import {imageBlockFromFile, imageFilesFromTransfer} from './imageBlock';
+import {imageBlockFromFile} from './imageBlock';
+import {HtmlArtifactBlockView} from './HtmlArtifactBlockView';
+import {editorFilesFromTransfer, htmlArtifactBlockFromFile, isHtmlFile} from './htmlArtifactBlock';
 import {pageLinks} from '@/lib/pageLinks';
 import {pageIconToText} from '@/lib/iconValue';
 import {
@@ -423,20 +425,24 @@ export const BlockEditor: React.FC<{
     [doc],
   );
 
-  // ── Image ingest (paste / drop a picture → an image block) ────────────────
-  // The third path — the "/Image" slash command — inserts an empty image block
-  // whose placeholder opens the file picker (see SlashMenu + ImageBlockView), so
-  // it needs no handler here. All three funnel through `imageBlockFromFile`
-  // (data-URL phase-1, size-capped; Assets A1/A2 bring the real store).
-  const insertImagesFromFiles = useCallback(
+  // ── File ingest (paste / drop → image or HTML-artifact blocks) ─────────────
+  // The third path — the "/Image" and "/HTML artifact" slash commands — inserts
+  // an empty block whose placeholder opens the file picker (see SlashMenu +
+  // ImageBlockView / HtmlArtifactBlockView), so it needs no handler here. Mixed
+  // transfers route per file: images → `imageBlockFromFile`, HTML documents →
+  // `htmlArtifactBlockFromFile`; blocks land in transfer order.
+  const insertFilesAsBlocks = useCallback(
     (files: File[], afterId: string | null): void => {
       let after = afterId;
       void (async () => {
         for (const file of files) {
           // Thread the hosting page id (the BlockEditor `pageId` prop) so the
           // ingest can upload the bytes to the asset store and ref them to it
-          // (Assets A2); without a pageId it falls back to an inline data-URL.
-          const res = await imageBlockFromFile(file, pageId);
+          // (Assets A2); without a pageId images fall back to an inline
+          // data-URL and artifacts fail with a friendly message.
+          const res = isHtmlFile(file)
+            ? await htmlArtifactBlockFromFile(file, pageId)
+            : await imageBlockFromFile(file, pageId);
           if ('error' in res) {
             setLive(res.error);
             continue;
@@ -455,11 +461,11 @@ export const BlockEditor: React.FC<{
 
   const onRootPaste = (e: React.ClipboardEvent): void => {
     if (readOnly) return;
-    const files = imageFilesFromTransfer(e.clipboardData);
+    const files = editorFilesFromTransfer(e.clipboardData);
     if (files.length === 0) return; // let text paste fall through to the block
     e.preventDefault();
     e.stopPropagation();
-    insertImagesFromFiles(files, editor.focusedId ?? lastTopId());
+    insertFilesAsBlocks(files, editor.focusedId ?? lastTopId());
   };
 
   // Is this drag carrying external files (vs an internal block move)?
@@ -484,21 +490,21 @@ export const BlockEditor: React.FC<{
     if (readOnly || drag) return; // a block move is finishing — not our drop
     // We claimed this drag in `onRootDragOver` (preventDefault → the browser
     // offered it here), so we MUST preventDefault the drop too — otherwise a
-    // dropped non-image file (a PDF, say) triggers the browser's default
+    // dropped non-ingestible file (a PDF, say) triggers the browser's default
     // file-open and navigates away from the editing session.
     if (!isFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     setFileDragOver(false);
-    const files = imageFilesFromTransfer(e.dataTransfer);
+    const files = editorFilesFromTransfer(e.dataTransfer);
     if (files.length === 0) {
-      setLive('That file isn’t an image.');
+      setLive('That file isn’t an image or an HTML file.');
       return;
     }
     // Drop onto a row → insert after it; otherwise after the caret / at the end.
     const rowEl = (e.target as HTMLElement)?.closest?.('[data-block-row]') as HTMLElement | null;
     const afterId = rowEl?.dataset.blockRow ?? editor.focusedId ?? lastTopId();
-    insertImagesFromFiles(files, afterId);
+    insertFilesAsBlocks(files, afterId);
   };
 
   // ── Block-selection keyboard ─────────────────────────────────────────────
@@ -1660,6 +1666,13 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
     // exemption): `textEditor` is read-only in present / viewer / locked-group,
     // so ImageBlockView hides every edit affordance for a reader.
     return <ImageBlockView block={block} editor={textEditor} ui={ui} />;
+
+  case 'htmlArtifact':
+    // An interactive leaf: dispatched with the kit-widget semantics so the
+    // sandboxed document stays LIVE for a reader in present / viewer /
+    // locked-group contexts; the view separately freezes its authoring chrome
+    // (title, replace, resize) via the kit-lock context + editor.readOnly.
+    return <HtmlArtifactBlockView block={block} editor={kitEditor} ui={ui} />;
 
   case 'notes':
     // A speaker note: quietly marked on the page (and hidden from the audience

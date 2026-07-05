@@ -140,6 +140,17 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       i += 1;
       break;
     }
+    case 'htmlArtifact': {
+      // Captioned placeholder for now — embedding the live sandboxed document
+      // (resolved bytes + the srcdoc/sandbox contract from lib/srcdoc.ts) is a
+      // separate downstream export task.
+      const artifactTitle = String(b.props?.title ?? '').trim();
+      parts.push(
+        `<figure class="obe-x-artifact"><span class="obe-x-artifact-label">${escapeHtml(artifactTitle) || 'HTML artifact'}</span><figcaption>Interactive HTML artifact — open in OpenBook to use it.</figcaption></figure>`,
+      );
+      i += 1;
+      break;
+    }
     case 'columns': {
       const cols = b.children ?? [];
       const colHtml = cols
@@ -256,6 +267,12 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
       const cap = String(p.caption ?? '').trim();
       const body = src ? `![${alt}](${src})` : `_${alt || 'Image'}_`;
       out.push(cap ? `${body}\n\n*${cap}*` : body);
+      break;
+    }
+    case 'htmlArtifact': {
+      // A callout line — Markdown has no sandboxed-iframe equivalent.
+      const artifactTitle = String(b.props?.title ?? '').trim();
+      out.push(`> **HTML artifact:** ${artifactTitle || 'Untitled'} *(interactive — open in OpenBook)*`);
       break;
     }
     case 'columns':
@@ -478,6 +495,29 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
             alt: String(p.alt ?? ''),
             caption: String(p.caption ?? ''),
             width: typeof p.width === 'string' ? p.width : undefined,
+          },
+        });
+        i += 1;
+        break;
+      }
+      case 'htmlArtifact': {
+        // Carry the artifact's keys through the projection so the export asset
+        // pre-pass (exportAssets.collectAssetIds) sees its assetId. Honest
+        // status of the renderers over this projection: only the CLIPBOARD
+        // arms in this file (blocksToHtml / blocksToMarkdown) emit a captioned
+        // placeholder — the real export pipeline (export/documentModel.ts →
+        // toHtml/toPdf/toMarkdown) maps 'htmlArtifact' to its `unknown` block —
+        // Markdown emits a bare "(htmlArtifact block)" note; HTML/PDF render
+        // nothing. Accepted scope: full sandboxed embedding (and a proper
+        // placeholder there) is the downstream export task.
+        const p = b.props ?? {};
+        sink.push({
+          id: b.id,
+          type: 'htmlArtifact',
+          data: {
+            assetId: typeof p.assetId === 'string' ? p.assetId : undefined,
+            title: String(p.title ?? ''),
+            height: typeof p.height === 'number' ? p.height : undefined,
           },
         });
         i += 1;
