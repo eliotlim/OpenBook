@@ -11,6 +11,7 @@ import {
   isDataColorToken,
   seriesColor,
   statusColor,
+  type DataColor,
   type DataColorScheme,
   type DataColorToken,
 } from './dataColors';
@@ -20,7 +21,7 @@ const HEX = /^#[0-9a-f]{6}$/;
 const SCHEMES: DataColorScheme[] = ['pastel', 'vivid', 'muted'];
 
 describe('dataColors canonical palette', () => {
-  it('has 12 tokens: the 9 select colours plus 3 chart-only hues', () => {
+  it('has 12 tokens: the 9 select colours plus 3 extension hues', () => {
     expect(DATA_COLOR_TOKENS).toHaveLength(12);
     // The stored select enum stays a strict 9-token subset (no stored-format change).
     for (const c of SELECT_COLORS) expect(DATA_COLOR_TOKENS).toContain(c);
@@ -31,19 +32,21 @@ describe('dataColors canonical palette', () => {
     }
   });
 
-  it('cycles a blue-first, 12-long series order of valid tokens', () => {
+  it('cycles a blue-first, 9-long series order of select tokens', () => {
     expect(SERIES_ORDER).toEqual([
-      'blue', 'orange', 'green', 'red', 'purple', 'cyan',
-      'yellow', 'teal', 'pink', 'indigo', 'brown', 'gray',
+      'blue', 'orange', 'green', 'purple', 'pink', 'yellow', 'red', 'brown', 'gray',
     ]);
     for (const t of SERIES_ORDER) expect(isDataColorToken(t)).toBe(true);
+    // The extension tokens sit outside the rendered cycle.
+    for (const t of ['teal', 'cyan', 'indigo']) expect(SERIES_ORDER as readonly string[]).not.toContain(t);
   });
 
-  it('resolves every token × scheme to a hex fill and four chip hexes', () => {
+  it('resolves every token × scheme to hex fills and four chip hexes', () => {
     for (const scheme of SCHEMES) {
       for (const t of DATA_COLOR_TOKENS) {
         const c = DATA_PALETTE[scheme][t];
         expect(c.fill).toMatch(HEX);
+        expect(c.fillDark).toMatch(HEX);
         expect(c.chip.light.bg).toMatch(HEX);
         expect(c.chip.light.fg).toMatch(HEX);
         expect(c.chip.dark.bg).toMatch(HEX);
@@ -59,11 +62,11 @@ describe('dataColors canonical palette', () => {
     expect(seriesColor(1, 'vivid')).toBe(DATA_PALETTE.vivid.orange.fill);
   });
 
-  it('maps status lamps onto the semantic tokens (ok/warn/bad)', () => {
-    expect(STATUS_TOKENS).toEqual({ok: 'green', warn: 'orange', bad: 'red'});
+  it('maps status lamps to green / yellow / red (glanceable traffic light)', () => {
+    expect(STATUS_TOKENS).toEqual({ok: 'green', warn: 'yellow', bad: 'red'});
     for (const scheme of SCHEMES) {
       expect(statusColor('ok', scheme)).toBe(DATA_PALETTE[scheme].green.fill);
-      expect(statusColor('warn', scheme)).toBe(DATA_PALETTE[scheme].orange.fill);
+      expect(statusColor('warn', scheme)).toBe(DATA_PALETTE[scheme].yellow.fill);
       expect(statusColor('bad', scheme)).toBe(DATA_PALETTE[scheme].red.fill);
     }
   });
@@ -76,7 +79,7 @@ describe('dataColors canonical palette', () => {
   });
 
   it('inlines a hex as rgba at an alpha (for export self-containment)', () => {
-    expect(hexAlpha('#86efac', 0.25)).toBe('rgba(134,239,172,0.25)');
+    expect(hexAlpha('#9fdf9f', 0.25)).toBe('rgba(159,223,159,0.25)');
     expect(hexAlpha('not-a-hex', 0.5)).toBe('not-a-hex'); // passthrough
   });
 
@@ -87,15 +90,7 @@ describe('dataColors canonical palette', () => {
   });
 });
 
-// ── Full-palette regression guard vs the signed-off derivation ───────────────
-// Every value in dataColors.ts was emitted by `docs/design/ob-375-palette-
-// audit.mjs` (WCAG-contrast-solved). That script is a browser-unsafe CLI (it
-// console.logs markdown), so rather than shell out we PORT its pure colour math
-// here verbatim and re-derive all 180 values (36 fills + 144 chip hexes),
-// diffing against the module. Either the module or this port changing without
-// the other fails — a real drift guard, not a spot-check. Keep this in lockstep
-// with the .mjs (both are frozen: the palette is owner-signed, OB-375).
-
+// ── Colour math (pure, no deps) — shared by both derivations below ────────────
 type RGB = [number, number, number];
 type HSL = [number, number, number];
 const dclamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
@@ -155,7 +150,11 @@ const blend = (fgHex: string, alpha: number, bgHex: string): string => {
   const g = hexToRgb(bgHex);
   return rgbToHex(f.map((v, i) => v * alpha + g[i] * (1 - alpha)));
 };
-// fg auto-solver: move fg lightness away from bg until ratio >= 4.5
+
+// ── Guard A: vivid + muted (+ pastel extension tokens) vs the ob-375 derivation ─
+// Vivid/Muted are the contrast-solved audit sets (docs/design/ob-375-palette-
+// audit.mjs); the pastel extension tokens (teal/cyan/indigo) also carry their
+// audit-derived pastel values. Ported verbatim so the module can't drift.
 function solveFg(bgHex: string, h: number, s: number, startL: number, dir: number): string {
   let l = startL;
   let hex = hslToHex(h, s, l);
@@ -170,9 +169,7 @@ function solveFg(bgHex: string, h: number, s: number, startL: number, dir: numbe
   }
   return hex;
 }
-
-// Vivid anchors (SWATCH_HEX + kit extensions, orange shifted to orange-500).
-const VIVID: Record<string, string> = {
+const VIVID_ANCHOR: Record<string, string> = {
   gray: '#9ca3af', brown: '#b08968', orange: '#f97316', yellow: '#eab308',
   green: '#22c55e', blue: '#3b82f6', purple: '#a855f7', pink: '#ec4899',
   red: '#ef4444', teal: '#14b8a6', cyan: '#06b6d4', indigo: '#6366f1',
@@ -195,70 +192,118 @@ const TW: Record<string, Tw> = {
 const DARK_CARD = tripleToHex('0 0% 16%');
 const LIGHT_PAGE = '#ffffff';
 
-interface Chip {light: {bg: string; fg: string}; dark: {bg: string; fg: string}}
-interface Derived {fill: {pastel: string; vivid: string; muted: string}; chip: {pastel: Chip; vivid: Chip; muted: Chip}}
-
-/** Re-derive one token's fills + chips exactly as ob-375-palette-audit.mjs does. */
-function derive(t: string): Derived {
-  const [h, s] = rgbToHsl(...hexToRgb(VIVID[t]));
-  const tw = TW[t];
+/** ob-375 vivid + muted DataColor for a token (fillDark == fill, mode-invariant). */
+function auditColor(t: string, scheme: 'vivid' | 'muted'): DataColor {
+  const [h, s] = rgbToHsl(...hexToRgb(VIVID_ANCHOR[t]));
   const isNeutral = t === 'gray';
   const sat = (mul: number, min = 0): number => (isNeutral ? Math.min(s, 10) : dclamp(s * mul, min, 100));
-
-  const pastelFill = tw.f300 ?? hslToHex(h, sat(0.62), 68);
-  const mutedFill = hslToHex(h, isNeutral ? 6 : dclamp(s * 0.3, 10, 32), 58);
-
+  if (scheme === 'vivid') {
+    const lightBg = TW[t].f300 ?? hslToHex(h, sat(0.62), 68);
+    const darkBg = t === 'gray' ? hslToHex(h, 6, 30) : hslToHex(h, dclamp(s * 0.55, 20, 60), 27);
+    const fill = VIVID_ANCHOR[t];
+    return {fill, fillDark: fill, chip: {
+      light: {bg: lightBg, fg: solveFg(lightBg, h, sat(0.75), 22, -1)},
+      dark: {bg: darkBg, fg: solveFg(darkBg, h, sat(0.5), 82, +1)},
+    }};
+  }
+  const fill = hslToHex(h, isNeutral ? 6 : dclamp(s * 0.3, 10, 32), 58);
+  const lightBg = hslToHex(h, isNeutral ? 5 : dclamp(s * 0.22, 8, 26), 90);
+  const darkBg = hslToHex(h, isNeutral ? 4 : dclamp(s * 0.15, 6, 18), 24);
+  return {fill, fillDark: fill, chip: {
+    light: {bg: lightBg, fg: solveFg(lightBg, h, isNeutral ? 6 : dclamp(s * 0.3, 8, 30), 32, -1)},
+    dark: {bg: darkBg, fg: solveFg(darkBg, h, isNeutral ? 5 : dclamp(s * 0.2, 6, 22), 78, +1)},
+  }};
+}
+/** ob-375 PASTEL for the extension tokens only (teal/cyan/indigo). */
+function auditPastelExt(t: string): DataColor {
+  const tw = TW[t];
   const c800 = rgbToHsl(...hexToRgb(tw.c800));
   const cfgD = rgbToHsl(...hexToRgb(tw.cfgD));
-  const pastelChip: Chip = {
-    light: {
-      bg: t === 'brown' ? blend(tw.c200, 0.7, LIGHT_PAGE) : tw.c200,
-      fg: '',
-    },
-    dark: {
-      bg: t === 'gray' ? blend('#3f3f46', 0.6, DARK_CARD) : blend(tw.c900, 0.4, DARK_CARD),
-      fg: '',
-    },
-  };
-  pastelChip.light.fg = solveFg(pastelChip.light.bg, c800[0], c800[1], c800[2], -1);
-  pastelChip.dark.fg = solveFg(pastelChip.dark.bg, cfgD[0], cfgD[1], cfgD[2], +1);
-
-  const vividLightBg = tw.f300 ?? hslToHex(h, sat(0.62), 68);
-  const vividDarkBg = t === 'gray' ? hslToHex(h, 6, 30) : hslToHex(h, dclamp(s * 0.55, 20, 60), 27);
-  const vividChip: Chip = {
-    light: {bg: vividLightBg, fg: solveFg(vividLightBg, h, sat(0.75), 22, -1)},
-    dark: {bg: vividDarkBg, fg: solveFg(vividDarkBg, h, sat(0.5), 82, +1)},
-  };
-
-  const mutedLightBg = hslToHex(h, isNeutral ? 5 : dclamp(s * 0.22, 8, 26), 90);
-  const mutedDarkBg = hslToHex(h, isNeutral ? 4 : dclamp(s * 0.15, 6, 18), 24);
-  const mutedChip: Chip = {
-    light: {bg: mutedLightBg, fg: solveFg(mutedLightBg, h, isNeutral ? 6 : dclamp(s * 0.3, 8, 30), 32, -1)},
-    dark: {bg: mutedDarkBg, fg: solveFg(mutedDarkBg, h, isNeutral ? 5 : dclamp(s * 0.2, 6, 22), 78, +1)},
-  };
-
-  return {
-    fill: {pastel: pastelFill, vivid: VIVID[t], muted: mutedFill},
-    chip: {pastel: pastelChip, vivid: vividChip, muted: mutedChip},
-  };
+  const [h, s] = rgbToHsl(...hexToRgb(VIVID_ANCHOR[t]));
+  const fill = tw.f300 ?? hslToHex(h, dclamp(s * 0.62, 0, 100), 68);
+  const lightBg = t === 'brown' ? blend(tw.c200, 0.7, LIGHT_PAGE) : tw.c200;
+  const darkBg = t === 'gray' ? blend('#3f3f46', 0.6, DARK_CARD) : blend(tw.c900, 0.4, DARK_CARD);
+  return {fill, fillDark: fill, chip: {
+    light: {bg: lightBg, fg: solveFg(lightBg, c800[0], c800[1], c800[2], -1)},
+    dark: {bg: darkBg, fg: solveFg(darkBg, cfgD[0], cfgD[1], cfgD[2], +1)},
+  }};
 }
 
-describe('dataColors matches the ob-375 audit derivation (all 180 values)', () => {
-  it('every fill + chip value equals the ported generator (36 fills + 144 chips)', () => {
-    let compared = 0;
-    for (const t of DATA_COLOR_TOKENS as readonly DataColorToken[]) {
-      const d = derive(t);
-      for (const scheme of SCHEMES) {
-        const mod = DATA_PALETTE[scheme][t];
-        // Tag each assertion with {scheme, t} so a drift names the exact cell.
-        expect({scheme, t, v: mod.fill}).toEqual({scheme, t, v: d.fill[scheme]});
-        expect({scheme, t, v: mod.chip.light.bg}).toEqual({scheme, t, v: d.chip[scheme].light.bg});
-        expect({scheme, t, v: mod.chip.light.fg}).toEqual({scheme, t, v: d.chip[scheme].light.fg});
-        expect({scheme, t, v: mod.chip.dark.bg}).toEqual({scheme, t, v: d.chip[scheme].dark.bg});
-        expect({scheme, t, v: mod.chip.dark.fg}).toEqual({scheme, t, v: d.chip[scheme].dark.fg});
-        compared += 5;
+// ── Guard B: the soft-pastel select tokens — owner light + derived dark ───────
+// Owner-picked (rendered candidate, 2026-07-05): fill / chipBg / chipFg / fillDark.
+// The per-hue dark chip is DERIVED here identically to the module: a deep muted
+// bg + a light on-hue fg, both taken from the light chipFg's hue.
+const PASTEL_OWNER: Record<string, {fill: string; chipBg: string; chipFg: string; fillDark: string}> = {
+  gray:   {fill: '#c3c6cb', chipBg: '#e3e2e0', chipFg: '#5c6475', fillDark: '#b0b5bf'},
+  brown:  {fill: '#d7af9d', chipBg: '#eee0da', chipFg: '#9d4c2a', fillDark: '#ddac98'},
+  orange: {fill: '#debea6', chipBg: '#fadec9', chipFg: '#935425', fillDark: '#e3bda1'},
+  yellow: {fill: '#dac495', chipBg: '#fdecc8', chipFg: '#876622', fillDark: '#e0c690'},
+  green:  {fill: '#9fdf9f', chipBg: '#dbeddb', chipFg: '#1e761e', fillDark: '#9ae49a'},
+  blue:   {fill: '#a9ccdf', chipBg: '#d3e5ef', chipFg: '#24698f', fillDark: '#a5cde4'},
+  purple: {fill: '#cdade1', chipBg: '#e8deee', chipFg: '#9032c8', fillDark: '#cfa8e6'},
+  pink:   {fill: '#dea6be', chipBg: '#f5e0e9', chipFg: '#b82e69', fillDark: '#e3a1bd'},
+  red:    {fill: '#deaea6', chipBg: '#ffe2dd', chipFg: '#b4412d', fillDark: '#e3aaa1'},
+};
+/** Derive the dark chip for a soft-pastel token from its light chip fg (on-hue). */
+function pastelDarkChip(chipFgHex: string): {bg: string; fg: string} {
+  const [h, s] = rgbToHsl(...hexToRgb(chipFgHex));
+  const bg = hslToHex(h, dclamp(s, 6, 40), 22);
+  let l = 82;
+  let fg = hslToHex(h, dclamp(s, 6, 50), l);
+  let guard = 0;
+  while (contrastHex(fg, bg) < 4.5 && guard++ < 50) {
+    l += 1;
+    fg = hslToHex(h, dclamp(s, 6, 50), l);
+  }
+  return {bg, fg};
+}
+function pastelOwnerColor(t: string): DataColor {
+  const o = PASTEL_OWNER[t];
+  return {fill: o.fill, fillDark: o.fillDark, chip: {light: {bg: o.chipBg, fg: o.chipFg}, dark: pastelDarkChip(o.chipFg)}};
+}
+
+describe('dataColors matches its derivation (drift guard)', () => {
+  it('vivid + muted equal the ob-375 audit derivation (all 12 tokens each)', () => {
+    let n = 0;
+    for (const scheme of ['vivid', 'muted'] as const) {
+      for (const t of DATA_COLOR_TOKENS) {
+        expect({scheme, t, v: DATA_PALETTE[scheme][t]}).toEqual({scheme, t, v: auditColor(t, scheme)});
+        n += 1;
       }
     }
-    expect(compared).toBe(180);
+    expect(n).toBe(24);
+  });
+
+  it('pastel extension tokens (teal/cyan/indigo) equal the ob-375 pastel derivation', () => {
+    for (const t of ['teal', 'cyan', 'indigo']) {
+      expect({t, v: DATA_PALETTE.pastel[t as DataColorToken]}).toEqual({t, v: auditPastelExt(t)});
+    }
+  });
+
+  it('the 9 soft-pastel select tokens equal owner light + derived dark chip', () => {
+    for (const t of SELECT_COLORS) {
+      expect({t, v: DATA_PALETTE.pastel[t]}).toEqual({t, v: pastelOwnerColor(t)});
+    }
+  });
+
+  it('every soft-pastel chip fg passes ≥ 4.5:1 on its bg (light AND dark)', () => {
+    for (const t of SELECT_COLORS) {
+      const c = DATA_PALETTE.pastel[t];
+      expect({t, mode: 'light', r: contrastHex(c.chip.light.fg, c.chip.light.bg) >= 4.5}).toEqual({t, mode: 'light', r: true});
+      expect({t, mode: 'dark', r: contrastHex(c.chip.dark.fg, c.chip.dark.bg) >= 4.5}).toEqual({t, mode: 'dark', r: true});
+    }
+  });
+
+  it('the status trio reads as three distinct signal hues (green / yellow / red)', () => {
+    const hueOf = (hex: string): number => rgbToHsl(...hexToRgb(hex))[0];
+    const ok = hueOf(statusColor('ok'));
+    const warn = hueOf(statusColor('warn'));
+    const bad = hueOf(statusColor('bad'));
+    // green ≈120°, yellow ≈40–60°, red ≈0–20° — each pair well separated in hue.
+    expect(ok).toBeGreaterThan(90);
+    expect(warn).toBeGreaterThan(30);
+    expect(warn).toBeLessThan(70);
+    expect(bad).toBeLessThan(25);
+    expect(Math.min(Math.abs(ok - warn), Math.abs(warn - bad), Math.abs(ok - bad))).toBeGreaterThan(20);
   });
 });

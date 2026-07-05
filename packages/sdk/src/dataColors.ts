@@ -1,9 +1,13 @@
 /**
  * Canonical data-colour palette — the single source for every colour OpenBook
  * paints *data* with: select-option chips, tag dots/swatches, chart series
- * (kit + database), and status lights. Spec: `docs/design/colour-consistency-
- * manifest-2026-07.md` §1/§4 (owner-signed 2026-07-05); every value was
- * computed and contrast-audited by `docs/design/ob-375-palette-audit.mjs`.
+ * (kit + database), and status lights.
+ *
+ * The default **Pastel** scheme is the owner-selected soft-pastel set (rendered
+ * candidates reviewed 2026-07-05): light fills/chips + a per-hue dark chip and a
+ * dark dot/series fill. The **Vivid** and **Muted** schemes are the
+ * contrast-solved sets from `docs/design/ob-375-palette-audit.mjs` and are not
+ * rendered yet (they land with the "Data colours" control, OB-379).
  *
  * Plain data, no DOM. The UI consumes it as CSS variables at runtime
  * (`applyDataColors` in `@book.dev/ui`) and inlines the resolved values at
@@ -11,8 +15,9 @@
  * CSS variables).
  *
  * The 9 {@link SELECT_COLORS} names (database.ts) are a strict subset of
- * {@link DATA_COLOR_TOKENS}; `teal`/`cyan`/`indigo` are chart-only tokens and
- * are NOT storable on select options (stored enum stays 9 — rendering-only).
+ * {@link DATA_COLOR_TOKENS}; `teal`/`cyan`/`indigo` are extension tokens that
+ * are NOT storable on select options and are not part of the rendered pastel
+ * cycle (stored enum stays 9 — rendering-only).
  */
 
 export type DataColorToken =
@@ -27,8 +32,11 @@ export interface ChipColors {
 }
 
 export interface DataColor {
-  /** Dot/swatch, chart-series and status-lamp fill (mode-invariant). */
+  /** Dot/swatch, chart-series and status-lamp fill in **light** mode. */
   fill: string;
+  /** The same, in **dark** mode (dots/swatches flip; equals `fill` when the
+   *  scheme is mode-invariant — i.e. every token bar the pastel select set). */
+  fillDark: string;
   chip: {light: ChipColors; dark: ChipColors};
 }
 
@@ -45,17 +53,17 @@ export const isDataColorToken = (v: unknown): v is DataColorToken =>
   typeof v === 'string' && (DATA_COLOR_TOKENS as readonly string[]).includes(v);
 
 /**
- * Canonical series cycling order for charts (kit + database) — 12
- * distinguishable series before repeating. Blue-first (manifest §1.1, Q1).
+ * Canonical series cycling order for charts (kit + database) — the 9 select
+ * tokens, blue-first, giving 9 distinguishable series before repeating. The
+ * extension tokens (`teal`/`cyan`/`indigo`) sit outside the cycle.
  */
 export const SERIES_ORDER = [
-  'blue', 'orange', 'green', 'red', 'purple', 'cyan',
-  'yellow', 'teal', 'pink', 'indigo', 'brown', 'gray',
+  'blue', 'orange', 'green', 'purple', 'pink', 'yellow', 'red', 'brown', 'gray',
 ] as const satisfies readonly DataColorToken[];
 
 /**
  * Hairline stroke carried by chart shapes, swatch dots and status lamps in the
- * pastel/muted schemes, **light mode only** (pastel fills sit at 1.3–2.2:1 on a
+ * pastel/muted schemes, **light mode only** (soft-pastel fills sit low against a
  * white page; the hairline keeps them legible). Vivid and dark mode get none.
  */
 export const DATA_STROKE = 'rgba(0,0,0,0.12)';
@@ -64,26 +72,37 @@ export const DATA_STROKE = 'rgba(0,0,0,0.12)';
 export const dataStroke = (scheme: DataColorScheme): string =>
   scheme === 'vivid' ? 'none' : DATA_STROKE;
 
-// ── Palette values (manifest §1.4 fills + §1.5 chips, verbatim) ──────────────
+// ── Palette values ───────────────────────────────────────────────────────────
 
 type Palette = Record<DataColorToken, DataColor>;
 
-const entry = (fill: string, lightBg: string, lightFg: string, darkBg: string, darkFg: string): DataColor => ({
+/** `fillDark` defaults to `fill` — the mode-invariant case (vivid/muted, and the
+ *  pastel extension tokens). The pastel select tokens pass a distinct dark dot. */
+const entry = (
+  fill: string, lightBg: string, lightFg: string, darkBg: string, darkFg: string, fillDark: string = fill,
+): DataColor => ({
   fill,
+  fillDark,
   chip: {light: {bg: lightBg, fg: lightFg}, dark: {bg: darkBg, fg: darkFg}},
 });
 
-/** Pastel (default): today's chip look, Tailwind `-300` fills, dark chips flattened. */
+/**
+ * Pastel (default) — the owner-selected soft-pastel set. Light fill / chip bg /
+ * chip fg / dark dot-fill are owner values (rendered-candidate pick, 2026-07-05);
+ * the per-hue dark chip (deep muted bg + light on-hue fg, all ≥ 4.5:1) is derived
+ * — see the derivation guard in `dataColors.test.ts`. `teal`/`cyan`/`indigo` are
+ * unrendered extension tokens (kept from the audit set, mode-invariant).
+ */
 const PASTEL: Palette = {
-  gray: entry('#d4d4d8', '#e4e4e7', '#3f3f46', '#36363a', '#e4e4e7'),
-  brown: entry('#bdac9e', '#feeead', '#78350f', '#492e1f', '#fde68a'),
-  orange: entry('#fdba74', '#fed7aa', '#9a3412', '#4a2b20', '#fed7aa'),
-  yellow: entry('#fde047', '#fef08a', '#854d0e', '#463220', '#fef08a'),
-  green: entry('#86efac', '#bbf7d0', '#166534', '#213a2b', '#bbf7d0'),
-  blue: entry('#93c5fd', '#bfdbfe', '#1e40af', '#253050', '#bfdbfe'),
-  purple: entry('#d8b4fe', '#e9d5ff', '#6b21a8', '#3c244f', '#e9d5ff'),
-  pink: entry('#f9a8d4', '#fbcfe8', '#9d174d', '#4d2233', '#fbcfe8'),
-  red: entry('#fca5a5', '#fecaca', '#991b1b', '#4b2424', '#fecaca'),
+  gray: entry('#c3c6cb', '#e3e2e0', '#5c6475', '#31363f', '#cccfd7', '#b0b5bf'),
+  brown: entry('#d7af9d', '#eee0da', '#9d4c2a', '#4f2f22', '#e8c8ba', '#ddac98'),
+  orange: entry('#debea6', '#fadec9', '#935425', '#4f3522', '#e8ceba', '#e3bda1'),
+  yellow: entry('#dac495', '#fdecc8', '#876622', '#4f4022', '#e8d9ba', '#e0c690'),
+  green: entry('#9fdf9f', '#dbeddb', '#1e761e', '#224f22', '#bae8ba', '#9ae49a'),
+  blue: entry('#a9ccdf', '#d3e5ef', '#24698f', '#223f4f', '#bad8e8', '#a5cde4'),
+  purple: entry('#cdade1', '#e8deee', '#9032c8', '#3e224f', '#d7bae8', '#cfa8e6'),
+  pink: entry('#dea6be', '#f5e0e9', '#b82e69', '#4f2235', '#e8bace', '#e3a1bd'),
+  red: entry('#deaea6', '#ffe2dd', '#b4412d', '#4f2822', '#e8c1ba', '#e3aaa1'),
   teal: entry('#5eead4', '#99f6e4', '#115e59', '#203836', '#99f6e4'),
   cyan: entry('#67e8f9', '#a5f3fc', '#155e75', '#213840', '#a5f3fc'),
   indigo: entry('#a5b4fc', '#c7d2fe', '#3730a3', '#2c2b4c', '#c7d2fe'),
@@ -129,14 +148,18 @@ export const DATA_PALETTE: Record<DataColorScheme, Palette> = {
 
 // ── Derivations ──────────────────────────────────────────────────────────────
 
-/** The fill for chart series `i` (cycles over {@link SERIES_ORDER}). */
+/** The light-mode fill for chart series `i` (cycles over {@link SERIES_ORDER}). */
 export const seriesColor = (i: number, scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME): string =>
   DATA_PALETTE[scheme][SERIES_ORDER[i % SERIES_ORDER.length]].fill;
 
-/** Semantic token behind each status-light state. */
-export const STATUS_TOKENS = {ok: 'green', warn: 'orange', bad: 'red'} as const;
+/**
+ * Semantic token behind each status-light state. Warn is **yellow** (not orange):
+ * at the soft-pastel saturations orange and red are near-identical, so the trio
+ * uses green / yellow / red for a glanceable traffic light.
+ */
+export const STATUS_TOKENS = {ok: 'green', warn: 'yellow', bad: 'red'} as const;
 
-/** The status-lamp fill for a state (`ok → green`, `warn → orange`, `bad → red`). */
+/** The status-lamp light-mode fill for a state (`ok → green`, `warn → yellow`, `bad → red`). */
 export const statusColor = (s: 'ok' | 'warn' | 'bad', scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME): string =>
   DATA_PALETTE[scheme][STATUS_TOKENS[s]].fill;
 

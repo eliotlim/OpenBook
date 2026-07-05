@@ -39,11 +39,13 @@ export function dataColorCss(scheme: DataColorScheme): string {
   for (const t of DATA_COLOR_TOKENS) {
     const c = palette[t];
     root.push(`--data-${t}:${c.fill};`, `--data-${t}-chip-bg:${c.chip.light.bg};`, `--data-${t}-chip-fg:${c.chip.light.fg};`);
-    dark.push(`--data-${t}-chip-bg:${c.chip.dark.bg};`, `--data-${t}-chip-fg:${c.chip.dark.fg};`);
+    // Dot/swatch fill flips to the dark-mode fill; chip bg/fg flip too. (`--data-series-*`
+    // and `--data-status-*` alias `--data-<token>`, so they inherit the flip.)
+    dark.push(`--data-${t}:${c.fillDark};`, `--data-${t}-chip-bg:${c.chip.dark.bg};`, `--data-${t}-chip-fg:${c.chip.dark.fg};`);
   }
   SERIES_ORDER.forEach((t, i) => root.push(`--data-series-${i + 1}:var(--data-${t});`));
   for (const [state, token] of Object.entries(STATUS_TOKENS)) root.push(`--data-status-${state}:var(--data-${token});`);
-  // Hairline: pastel/muted, light mode only (manifest §1.2).
+  // Hairline: pastel/muted, light mode only.
   root.push(`--data-stroke:${scheme === 'vivid' ? 'transparent' : DATA_STROKE};`);
   dark.push('--data-stroke:transparent;');
   return `:root{${root.join('')}}\n.dark{${dark.join('')}}`;
