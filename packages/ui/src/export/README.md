@@ -29,10 +29,14 @@ documents). Those ride a fourth layer:
 
 HTML artifacts render through `SandboxedHtml` (opaque-origin `<iframe srcdoc>`,
 canonical `SANDBOX_FLAGS`, never `allow-same-origin`). In a standalone export
-the viewer additionally provides `EXPORT_ARTIFACT_CSP` (via `SandboxCspContext`)
-— a network-off CSP meta so an adversarial artifact can't phone home from a
-shared file. Static first paint is a captioned placeholder figure (never a live
-iframe without JS).
+the viewer additionally provides `EXPORT_ARTIFACT_CSP` (via `SandboxCspContext`),
+which closes every passive/scripted **sub-resource load** (fetch/XHR/beacon,
+images, media, fonts, CSS `url()`) plus form posts. Honest residual (see the
+constant's doc): CSP fetch directives don't govern navigation, so with
+`allow-scripts` an artifact can still navigate its *own* frame to a remote URL
+— a visible act, not a silent beacon; best-effort `navigate-to 'none'` is
+included for engines that support it. Static first paint is a captioned
+placeholder figure (never a live iframe without JS).
 
 Runtime selection (`document_` in `toHtml.ts`):
 

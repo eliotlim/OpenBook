@@ -117,10 +117,15 @@ describe('the srcdoc/sandbox contract the viewer renders through', () => {
     expect(attr).toContain('default-src &amp;#39;none&amp;#39;'); // CSP quote-escaped inside the doc, then attribute-escaped
   });
 
-  it('the export CSP is network-off but keeps inline script/style + data: media', () => {
+  it('the export CSP closes sub-resource loads but keeps inline script/style + data: media', () => {
     expect(EXPORT_ARTIFACT_CSP).toContain('default-src \'none\'');
     expect(EXPORT_ARTIFACT_CSP).toContain('script-src \'unsafe-inline\'');
     expect(EXPORT_ARTIFACT_CSP).toContain('img-src data: blob:');
+    expect(EXPORT_ARTIFACT_CSP).toContain('form-action \'none\'');
+    // Best-effort navigation directive (frame self-navigation is the documented
+    // residual — CSP fetch directives don't govern navigation; this directive
+    // helps only on engines that implement it and is ignored elsewhere).
+    expect(EXPORT_ARTIFACT_CSP).toContain('navigate-to \'none\'');
     expect(EXPORT_ARTIFACT_CSP).not.toMatch(/https?:/); // no remote origin allowed
   });
 });

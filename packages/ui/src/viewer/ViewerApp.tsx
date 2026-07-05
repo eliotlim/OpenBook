@@ -115,8 +115,10 @@ export const ViewerApp: React.FC<{source: ViewerSource; initialPage?: string}> =
 
   return (
     <KitPageLockContext.Provider value={true}>
-      {/* Standalone exports promise zero network: sandboxed artifacts get the
-          network-off CSP on top of the opaque-origin sandbox. */}
+      {/* Standalone exports stay quiet on open: artifacts get the sub-resource-
+          off CSP on top of the opaque-origin sandbox (closes fetch/img/media/
+          font/form loads; frame self-navigation is the documented residual —
+          see EXPORT_ARTIFACT_CSP). */}
       <SandboxCspContext.Provider value={EXPORT_ARTIFACT_CSP}>
         <div className="ob-viewer" onClick={onClick}>
           {pages.length > 1 && (

@@ -65,13 +65,26 @@ export function escapeSrcdocAttribute(html: string): string {
  *
  * Rationale: in the app, an artifact loading its own remote images/data is an
  * accepted trade-off (see the SandboxedHtml doc — the opaque origin already
- * strips ambient authority). An exported file, however, promises "opens from
- * file:// with ZERO network" — an adversarial artifact must not be able to
- * phone home (or fingerprint the reader) the moment someone opens a shared
- * document. So the export context adds a network-off CSP: inline script/style
- * and `data:`/`blob:` media keep real artifacts working; every remote fetch
- * (`img`, `fetch`, CSS `url()`, forms) is denied. `frame-src data:` is NOT
- * granted — nested frames are denied entirely by `default-src 'none'`.
+ * strips ambient authority). An exported file should stay quiet when opened,
+ * so the export context tightens what it can. The HONEST contract:
+ *
+ *  - CLOSED by this CSP: every passive/scripted sub-resource load — fetch/XHR/
+ *    WebSocket/beacon (`connect-src` via `default-src 'none'`), `<img>`,
+ *    media, fonts, CSS `url()` — plus form posts (`form-action 'none'`) and
+ *    nested frames (no `frame-src`). Inline script/style and `data:`/`blob:`
+ *    media stay allowed so real artifacts keep working.
+ *
+ *  - NOT closed (the irreducible residual of sandbox + meta-CSP, mirroring the
+ *    SandboxedHtml "not a network firewall" caveat): CSP fetch directives do
+ *    not govern NAVIGATION. With `allow-scripts` an artifact may navigate its
+ *    OWN frame (`location.href = 'https://…'`) — only *top*-navigation is
+ *    sandbox-gated (correctly not granted) — and `allow-popups` (an owner
+ *    posture decision) permits gesture-gated `window.open`. Best-effort
+ *    `navigate-to 'none'` is included for engines that implement it; where
+ *    unsupported it is ignored. Net: an adversarial artifact cannot *silently*
+ *    exfiltrate via sub-resource loads, but frame self-navigation on open
+ *    remains possible — a visible act (the artifact replaces itself with the
+ *    destination) rather than a quiet beacon.
  *
  * Delivered as a `<meta http-equiv>` inside the srcdoc document (the only CSP
  * channel available to a file:// export). Meta-CSP caveats accepted: it cannot
@@ -81,7 +94,7 @@ export function escapeSrcdocAttribute(html: string): string {
  */
 export const EXPORT_ARTIFACT_CSP =
   'default-src \'none\'; script-src \'unsafe-inline\' \'unsafe-eval\'; style-src \'unsafe-inline\'; ' +
-  'img-src data: blob:; media-src data: blob:; font-src data:; form-action \'none\'';
+  'img-src data: blob:; media-src data: blob:; font-src data:; form-action \'none\'; navigate-to \'none\'';
 
 /**
  * Wrap untrusted HTML in a minimal standards-mode document shell: a UTF-8

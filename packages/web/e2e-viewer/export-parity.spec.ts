@@ -28,7 +28,12 @@ function watch(page: Page): {network: string[]; errors: string[]} {
     if (/^https?:/i.test(r.url())) network.push(r.url());
   });
   page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text());
+    // Known-benign: EXPORT_ARTIFACT_CSP carries a best-effort `navigate-to`
+    // directive (security finding #1) that engines without support log-and-
+    // ignore — Chromium reports it as a console error. Everything else fails.
+    if (m.type() === 'error' && !/Unrecognized Content-Security-Policy directive 'navigate-to'/.test(m.text())) {
+      errors.push(m.text());
+    }
   });
   page.on('pageerror', (e) => errors.push(String(e)));
   return {network, errors};
