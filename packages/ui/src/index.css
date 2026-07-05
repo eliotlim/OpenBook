@@ -189,14 +189,14 @@
     --ring: 207 75% 49%;
     /* Refined-minimal: softer 8px corners cascade to every rounded-{sm,md,lg}. */
     --radius: 0.5rem;
-    /* Sidebar sheets: the *composed* default appearance (full-accent, OB-377)
-       so the first paint matches what applyAppearance writes — kept in
-       lockstep with composeAppearance at DEFAULT_APPEARANCE (level 2), not
-       with the ThemeTokens base fields. Audited values: manifest §2.2. */
-    --sheet-1: 207 75% 44%;
-    --sheet-1-foreground: 0 0% 100%;
-    --sheet-2: 207 79% 38%;
-    --sheet-2-foreground: 0 0% 100%;
+    /* Sidebar sheets — the ThemeTokens base (tinted default). applyAppearance
+       recomposes these on mount: the tinted default derives a soft accent panel
+       from these, and the opt-in `sidebar: 'accent'` overrides to a full accent
+       surface (manifest §2). First paint uses the neutral base to avoid a flash. */
+    --sheet-1: 40 14% 97.5%;
+    --sheet-1-foreground: 34 9% 19%;
+    --sheet-2: 40 11% 93.5%;
+    --sheet-2-foreground: 34 9% 19%;
     /* Sidebar hover/active/press overlay pole (manifest §2.3). */
     --sheet-veil: 0 0% 0%;
     /* The neutral desk (book cover) behind the page sheets (manifest §2.5). */
@@ -258,11 +258,11 @@
     --border: 0 0% 22%;
     --input: 0 0% 26%;
     --ring: 207 68% 55%;
-    /* Composed default sheets (full-accent, OB-377) — see the :root note. */
-    --sheet-1: 207 47.6% 24%;
-    --sheet-1-foreground: 0 0% 93%;
-    --sheet-2: 207 47.6% 28.5%;
-    --sheet-2-foreground: 0 0% 93%;
+    /* Sidebar sheets — the ThemeTokens dark base (tinted default); see :root. */
+    --sheet-1: 0 0% 15.5%;
+    --sheet-1-foreground: 0 0% 82%;
+    --sheet-2: 0 0% 18.5%;
+    --sheet-2-foreground: 0 0% 82%;
     --sheet-veil: 0 0% 100%;
     --desk: 0 0% 11%;
     --brand: 207 70% 57%;
@@ -515,26 +515,35 @@
 }
 
 /* ── Accent-chrome surfaces (sidebar, settings rail, titlebar) ───────────────
-   These surfaces paint the full-accent sheet (`--sheet-1`/`--sheet-2`, OB-377).
-   The neutral text/icon and hover tokens can't read on a saturated surface, so
-   inside them we remap those tokens to the sheet's own contrast-audited poles:
-   de-emphasised text collapses to the FULL sheet foreground (hierarchy is then
-   size/weight only, per manifest §2.2), and hover/active washes use the
-   `--sheet-veil` (matching lib/sidebarStyles.ts). `--foreground` itself is left
-   intact so a neutral chip that opts back onto a light surface (e.g. the active
-   titlebar tab, `bg-background text-foreground`) keeps its dark ink. Portaled
-   menus/dialogs render outside these subtrees, so they stay neutral popovers. */
-.ob-accent-chrome {
-  --muted-foreground: var(--sheet-1-foreground);
-  --accent-foreground: var(--sheet-1-foreground);
-  --hover: hsl(var(--sheet-veil) / 0.1);
-  --hover-strong: hsl(var(--sheet-veil) / 0.16);
+   `.ob-accent-chrome` marks the sidebar/titlebar chrome. It only *does* anything
+   when the sidebar is the opt-in full-accent surface (`[data-sidebar='accent']`,
+   set on <html> by applyAppearance) — the tinted default is left untouched, so
+   it renders exactly as before.
+
+   On the saturated accent sheet the neutral text/icon and hover tokens can't
+   read, so we remap them to the sheet's own contrast-audited poles. Crucially we
+   override the Tailwind `--color-*` tokens (what `text-muted-foreground` /
+   `bg-hover` actually resolve), NOT the underlying `--muted-foreground` etc: the
+   `--color-*` intermediates are declared at :root (@theme) and substitute their
+   nested `var()` there, so overriding the base tokens in this subtree would never
+   reach them. De-emphasised text collapses to the FULL sheet foreground
+   (hierarchy is then size/weight only, per manifest §2.2); hover/active washes
+   use the `--sheet-veil`. `--color-foreground` is left intact so a neutral chip
+   that opts back onto a light surface (e.g. the active titlebar tab,
+   `bg-background text-foreground`) keeps its dark ink; sidebar body/rows read a
+   light foreground via `text-sheet-1-foreground` instead. Portaled menus/dialogs
+   render outside these subtrees, so they stay neutral popovers. */
+[data-sidebar='accent'] .ob-accent-chrome {
+  --color-muted-foreground: hsl(var(--sheet-1-foreground));
+  --color-accent-foreground: hsl(var(--sheet-1-foreground));
+  --color-hover: hsl(var(--sheet-veil) / 0.1);
+  --color-hover-strong: hsl(var(--sheet-veil) / 0.16);
 }
 /* Dark scheme uses the audited 8/13 % veil alphas (manifest §2.3) so shared
    `bg-hover` consumers (the page tree) match the SIDEBAR_* item washes. */
-.dark .ob-accent-chrome {
-  --hover: hsl(var(--sheet-veil) / 0.08);
-  --hover-strong: hsl(var(--sheet-veil) / 0.13);
+[data-sidebar='accent'].dark .ob-accent-chrome {
+  --color-hover: hsl(var(--sheet-veil) / 0.08);
+  --color-hover-strong: hsl(var(--sheet-veil) / 0.13);
 }
 
 /* Per-page typefaces (lib/pageFont): the wrapper sets the body family, headings

@@ -16,12 +16,14 @@
  * per-page override).
  *
  * The content surfaces of {@link DEFAULT_APPEARANCE} match the legacy palette
- * (verbatim from index.css) in both schemes; the one intended departure is the
- * sidebar, which is a **full-intensity accent surface** by default (OB-377):
- * at interface intensity ≥ 2 the sheets take the accent's primary colour with a
- * flipped, contrast-audited foreground; level 1 falls back to the earlier soft
- * accent tint and level 0 to a flat neutral panel. Exact values + WCAG audit:
- * docs/design/colour-consistency-manifest-2026-07.md §2.
+ * (verbatim from index.css) in both schemes, and so does the **default sidebar**
+ * — a soft accent *tint* whose strength rides
+ * {@link AppearanceOptions.interfaceIntensity} (the pre-OB-377 look). A dedicated
+ * {@link AppearanceOptions.sidebar} control opts the sidebar into a
+ * **full-intensity accent surface** (`'accent'`, OB-377): the sheets take the
+ * accent's primary colour with a flipped, contrast-audited *light* foreground and
+ * per-theme escape hatches (a charcoal panel for gray accents). Exact values +
+ * WCAG audit: docs/design/colour-consistency-manifest-2026-07.md §2.
  *
  * `--radius` is intentionally not themed (it's part of the brand geometry).
  */
@@ -313,6 +315,10 @@ export type NeutralFamily = 'warm' | 'cool' | 'neutral';
 /** 0 = off … 3 = strong. Shared scale for the interface- and control-intensity knobs. */
 export type Level = 0 | 1 | 2 | 3;
 
+/** How the sidebar/titlebar chrome reads: a soft accent `'tinted'` panel (the
+ *  default, pre-OB-377 look) or a `'accent'` full-intensity accent surface. */
+export type SidebarMode = 'tinted' | 'accent';
+
 /**
  * The user's full appearance choice. `DEFAULT_APPEARANCE` reproduces the legacy
  * palette exactly, so any field left at its default is a visual no-op.
@@ -322,14 +328,18 @@ export interface AppearanceOptions {
    *  gray temperature — the gray accents (warm / neutral / cool) make the whole
    *  app that temperature; coloured accents stay warm. */
   themeId: string;
-  /** How saturated the neutral surfaces are — and what the sidebar sheets
-   *  render as: 0 = flat neutral panel, 1 = soft accent tint (the pre-OB-377
-   *  default look), 2 (default) and 3 = full-intensity accent surface with a
-   *  flipped foreground. Level 3 differs from 2 only in how strongly the other
-   *  neutral surfaces take the tint (the sidebar is already at maximum). */
+  /** How saturated the neutral surfaces are — and, when the sidebar is `'tinted'`
+   *  (the default), how strongly the sidebar sheets take the accent tint: level 0
+   *  = flat neutral panel, up through the strong tint at level 3. Does not drive
+   *  the full-accent sidebar (that's the {@link sidebar} control). */
   interfaceIntensity: Level;
   /** How colored the faded control surface (`--accent`) is. */
   controlIntensity: Level;
+  /** Sidebar chrome mode: `'tinted'` (default — a soft accent panel) or
+   *  `'accent'` (a full-intensity accent surface with a flipped light foreground;
+   *  OB-377). Missing/invalid persists as `'tinted'`, so existing users don't
+   *  flip. */
+  sidebar: SidebarMode;
   /** Blur the canvas behind modal/search overlays. Off by default — it's a
    *  global preference, not a per-page one. */
   blurOverlays?: boolean;
@@ -354,8 +364,10 @@ export const DEFAULT_APPEARANCE: AppearanceOptions = {
   themeId: DEFAULT_THEME_ID,
   interfaceIntensity: 2,
   controlIntensity: 2,
-  // The sidebar reads as a soft accent panel (tint is always on; see
-  // composeAppearance). Overlay blur is opt-in, so it's left off here.
+  // The sidebar defaults to the soft accent *tint* (the pre-OB-377 look); the
+  // full-accent surface is an opt-in (see the `sidebar` control). Overlay blur
+  // is opt-in, so it's left off here.
+  sidebar: 'tinted',
   blurOverlays: false,
 };
 
@@ -366,23 +378,25 @@ export type AppearanceOverride = Partial<AppearanceOptions>;
  * Migrate a persisted (possibly older-shape) appearance to the current model:
  * `tint`→`interfaceIntensity`, `accentIntensity`→`controlIntensity`, and the
  * renamed gray theme ids. The old `neutral` temperature knob and the retired
- * `tintedSidebar` toggle are dropped (the sidebar is always tinted now). Unknown
- * keys are dropped by the `{...DEFAULT_APPEARANCE, ...}` merge at the call site.
+ * `tintedSidebar` toggle are dropped (superseded by the {@link SidebarMode}
+ * control). Unknown keys are dropped by the `{...DEFAULT_APPEARANCE, ...}` merge
+ * at the call site.
  *
- * OB-377 deliberately adds **no** migration: existing users keep their stored
- * `interfaceIntensity` (2 by default), whose *meaning* changed — level ≥ 2 now
- * renders the full-accent sidebar. That is the intended rollout (manifest
- * §2.6); the old soft look lives on at level 1.
+ * The OB-377 full-accent sidebar is opt-in via `sidebar`: a persisted appearance
+ * with no (or an invalid) `sidebar` key merges to the `'tinted'` default, so
+ * existing users keep the soft-tint look — no surprise flip. An out-of-range
+ * value is dropped here (falls back to the default at the merge).
  */
 export function normalizeAppearance(raw: Record<string, unknown>): AppearanceOverride {
   const out: Record<string, unknown> = {...raw};
   if (out.tint !== undefined && out.interfaceIntensity === undefined) out.interfaceIntensity = out.tint;
   if (out.accentIntensity !== undefined && out.controlIntensity === undefined) out.controlIntensity = out.accentIntensity;
   if (typeof out.themeId === 'string' && THEME_RENAME[out.themeId]) out.themeId = THEME_RENAME[out.themeId];
+  if (out.sidebar !== undefined && out.sidebar !== 'tinted' && out.sidebar !== 'accent') delete out.sidebar;
   delete out.tint;
   delete out.accentIntensity;
   delete out.neutral; // neutral is now derived from the accent theme
-  delete out.tintedSidebar; // sidebar is always tinted now (#3)
+  delete out.tintedSidebar; // superseded by the `sidebar` control
   return out as AppearanceOverride;
 }
 
@@ -518,20 +532,21 @@ export function composeAppearance(opts: AppearanceOptions, scheme: 'light' | 'da
     tokens.background = PAGE_BACKGROUNDS[opts.background][scheme];
   }
 
-  // Sidebar sheets (OB-377): level 0 = flat neutral panel, level 1 = the soft
-  // accent tint (the pre-OB-377 default look), levels 2–3 = a full-intensity
-  // accent surface with a flipped, contrast-audited foreground (level 3 differs
-  // from 2 only in the neutral-surface tint above — the sidebar is already at
-  // maximum). The veil is the hover/active/press overlay pole: chosen so a
-  // translucent wash always *increases* the foreground contrast (white in the
-  // dark scheme for visibility on the deep sheets). Exact values + audit:
-  // docs/design/colour-consistency-manifest-2026-07.md §2.
-  if (opts.interfaceIntensity <= 1) {
+  // Sidebar sheets. Default `'tinted'` reproduces the pre-OB-377 pale tint: the
+  // sheet takes the accent hue at a fixed high lightness with saturation scaled
+  // by interfaceIntensity (level 0 → flat neutral panel). `'accent'` (opt-in via
+  // the sidebar control) makes the sheet a full-intensity accent surface with a
+  // flipped, contrast-audited *light* foreground and per-theme escape hatches
+  // (charcoal panel for gray accents). The veil is the hover/active/press
+  // overlay pole, chosen so a translucent wash always *increases* the foreground
+  // contrast. The desk (computed in the loop above) stays neutral in both modes.
+  // Exact values + audit: docs/design/colour-consistency-manifest-2026-07.md §2.
+  if (opts.sidebar !== 'accent') {
     const sheet =
       scheme === 'dark'
         ? {s1: 34, l1: 16, s2: 40, l2: 19.5}
         : {s1: 42, l1: 96, s2: 50, l2: 90.5};
-    const mul = opts.interfaceIntensity === 0 ? 0 : 1;
+    const mul = TINT_MUL[opts.interfaceIntensity];
     tokens.sheet1 = toTriple({h: accentHue, s: gray ? 0 : sheet.s1 * mul, l: sheet.l1});
     tokens.sheet2 = toTriple({h: accentHue, s: gray ? 0 : sheet.s2 * mul, l: sheet.l2});
     tokens.sheet1Foreground = base.foreground;
@@ -583,6 +598,9 @@ export function applyAppearance(
   if (!el) return;
   const tokens = composeAppearance(opts, scheme);
   for (const [key, value] of Object.entries(tokens)) el.style.setProperty(cssVar(key), value);
+  // Gate the accent-chrome CSS (index.css): the sidebar's foreground/hover token
+  // remaps only apply under `[data-sidebar='accent']`.
+  el.setAttribute('data-sidebar', opts.sidebar);
 }
 
 /** Write a theme's palette (for the given scheme) onto the document root.

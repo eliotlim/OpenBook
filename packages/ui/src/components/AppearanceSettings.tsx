@@ -38,6 +38,17 @@ export default function AppearanceSettings() {
         />
       </Field>
 
+      <Field label={t('appearance.sidebar')} hint={t('appearance.sidebarHint')}>
+        <Segmented
+          options={[
+            {value: 'tinted', label: t('appearance.sidebarTinted')},
+            {value: 'accent', label: t('appearance.sidebarAccent')},
+          ]}
+          value={appearance.sidebar}
+          onChange={(sidebar) => setAppearance({sidebar})}
+        />
+      </Field>
+
       <Field label={t('appearance.interfaceIntensity')} hint={t('appearance.interfaceIntensityHint')}>
         <LevelPicker
           value={appearance.interfaceIntensity}

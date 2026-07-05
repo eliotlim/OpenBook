@@ -106,63 +106,75 @@ describe('composeAppearance', () => {
     expect(satOf(t.sheet1)).toBeGreaterThan(0);
   });
 
-  // ── OB-377 full-accent sidebar (values audited in
-  //    docs/design/colour-consistency-manifest-2026-07.md §2.2) ──────────────
+  // ── Sidebar mode: tinted default vs the OB-377 full-accent option ──────────
+  //    (accent values audited in docs/design/colour-consistency-manifest-2026-07.md §2.2)
 
-  it('renders the full-accent sidebar at the default intensity', () => {
+  const ACCENT: typeof DEFAULT_APPEARANCE = {...DEFAULT_APPEARANCE, sidebar: 'accent'};
+
+  it('defaults to the tinted sidebar (pale accent panel, app foreground)', () => {
+    expect(DEFAULT_APPEARANCE.sidebar).toBe('tinted');
     const light = composeAppearance(DEFAULT_APPEARANCE, 'light');
+    expect(light.sheet1).toBe('207 42% 96%'); // the pre-OB-377 pale tint
+    expect(light.sheet2).toBe('207 50% 90.5%');
+    expect(light.sheet1Foreground).toBe('34 9% 19%'); // the app foreground, not flipped
+    const dark = composeAppearance(DEFAULT_APPEARANCE, 'dark');
+    expect(dark.sheet1).toBe('207 34% 16%');
+    expect(dark.sheet1Foreground).toBe('0 0% 82%');
+  });
+
+  it('renders the full-accent sidebar when sidebar = accent', () => {
+    const light = composeAppearance(ACCENT, 'light');
     expect(light.sheet1).toBe('207 75% 44%'); // audited: darkened 49 → 44 for white text
     expect(light.sheet2).toBe('207 79% 38%');
     expect(light.sheet1Foreground).toBe('0 0% 100%');
     expect(light.sheet2Foreground).toBe('0 0% 100%');
     expect(light.sheetVeil).toBe('0 0% 0%'); // black veil under a light foreground
-    const dark = composeAppearance(DEFAULT_APPEARANCE, 'dark');
+    const dark = composeAppearance(ACCENT, 'dark');
     expect(dark.sheet1).toBe('207 47.6% 24%'); // deep shade, not the dark primary
     expect(dark.sheet2).toBe('207 47.6% 28.5%');
     expect(dark.sheet1Foreground).toBe('0 0% 93%');
     expect(dark.sheetVeil).toBe('0 0% 100%');
   });
 
-  it('flips warm/pastel hues to an ink foreground (audited override)', () => {
-    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'sunset'}, 'light');
+  it('accent flips warm/pastel hues to an ink foreground (audited override)', () => {
+    const t = composeAppearance({...ACCENT, themeId: 'sunset'}, 'light');
     expect(t.sheet1).toBe('25 95% 53%'); // primary verbatim — no darkening needed
     expect(t.sheet1Foreground).toBe('25 55% 15%');
     expect(t.sheetVeil).toBe('0 0% 100%'); // white veil under an ink foreground
   });
 
-  it('gray accents render a charcoal panel at full intensity', () => {
-    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'graphite'}, 'light');
+  it('accent gray accents render a charcoal panel', () => {
+    const t = composeAppearance({...ACCENT, themeId: 'graphite'}, 'light');
     expect(t.sheet1).toBe('0 0% 34%'); // the gray primary, verbatim
     expect(t.sheet1Foreground).toBe('0 0% 100%');
   });
 
-  it('interface intensity: 0 = flat panel, 1 = soft tint, 3 = same sheets as 2', () => {
-    const off = composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 0}, 'light');
-    expect(satOf(off.sheet1)).toBe(0); // no tint at level 0
-    expect(off.sheet1Foreground).toBe('34 9% 19%');
-    const soft = composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 1}, 'light');
-    expect(soft.sheet1).toBe('207 42% 96%'); // the pre-OB-377 default look
-    expect(soft.sheet1Foreground).toBe('34 9% 19%');
-    // The sidebar is already at maximum at level 2; level 3 only strengthens
-    // the other neutral surfaces.
-    const l2 = composeAppearance(DEFAULT_APPEARANCE, 'light');
-    const l3 = composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 3}, 'light');
-    expect(l3.sheet1).toBe(l2.sheet1);
-    expect(l3.sheet1Foreground).toBe(l2.sheet1Foreground);
+  it('interfaceIntensity drives the TINTED sidebar saturation, not the accent one', () => {
+    // Tinted: 0 = flat neutral panel, then TINT_MUL 0.55 / 1 / 1.5.
+    expect(satOf(composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 0}, 'light').sheet1)).toBe(0);
+    expect(composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 1}, 'light').sheet1).toBe('207 23.1% 96%');
+    expect(composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 2}, 'light').sheet1).toBe('207 42% 96%');
+    expect(composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 3}, 'light').sheet1).toBe('207 63% 96%');
+    // Accent: the sheet is the full accent surface regardless of intensity.
+    const a0 = composeAppearance({...ACCENT, interfaceIntensity: 0}, 'light');
+    const a3 = composeAppearance({...ACCENT, interfaceIntensity: 3}, 'light');
+    expect(a0.sheet1).toBe('207 75% 44%');
+    expect(a3.sheet1).toBe('207 75% 44%');
   });
 
-  it('the desk stays a neutral canvas while the sheets go full-accent', () => {
-    const light = composeAppearance(DEFAULT_APPEARANCE, 'light');
-    expect(light.desk).toBe('40 11% 93.5%'); // warm neutral, no accent
-    const dark = composeAppearance(DEFAULT_APPEARANCE, 'dark');
-    expect(satOf(dark.desk)).toBe(0);
-    expect(dark.desk.endsWith('11%')).toBe(true);
+  it('the desk stays a neutral canvas in both sidebar modes', () => {
+    for (const opts of [DEFAULT_APPEARANCE, ACCENT]) {
+      expect(composeAppearance(opts, 'light').desk).toBe('40 11% 93.5%'); // warm neutral, no accent
+      const dark = composeAppearance(opts, 'dark');
+      expect(satOf(dark.desk)).toBe(0);
+      expect(dark.desk.endsWith('11%')).toBe(true);
+    }
   });
 
   // The §2.2 audited table, encoded verbatim for the archetypes the manifest
   // calls out (per-theme sheet-darken and ink-flip overrides among them). This
   // pins composeAppearance to the signed-off values — it must not re-derive them
-  // at runtime and drift.
+  // at runtime and drift. All under sidebar = accent.
   const SHEET_TABLE: Array<{
     id: string;
     light: [string, string, string];
@@ -179,16 +191,19 @@ describe('composeAppearance', () => {
     {id: 'pastel-lavender', light: ['258 60% 76%', '258 64% 70%', '258 55% 15%'], dark: ['258 33.6% 24%', '258 33.6% 28.5%', '0 0% 93%']},
   ];
 
-  it.each(SHEET_TABLE)('matches the §2.2 audited sheet tokens for $id', ({id, light, dark}) => {
-    const l = composeAppearance({...DEFAULT_APPEARANCE, themeId: id}, 'light');
+  it.each(SHEET_TABLE)('matches the §2.2 audited accent sheet tokens for $id', ({id, light, dark}) => {
+    const l = composeAppearance({...ACCENT, themeId: id}, 'light');
     expect([l.sheet1, l.sheet2, l.sheet1Foreground]).toEqual(light);
     expect(l.sheet2Foreground).toBe(light[2]); // both sheets share the foreground
-    const d = composeAppearance({...DEFAULT_APPEARANCE, themeId: id}, 'dark');
+    const d = composeAppearance({...ACCENT, themeId: id}, 'dark');
     expect([d.sheet1, d.sheet2, d.sheet1Foreground]).toEqual(dark);
   });
 
-  // Acceptance guard: the foreground must clear WCAG 4.5:1 on *both* sheets, for
-  // *every* theme, in *both* schemes, at the default full-accent intensity.
+  // Acceptance guard: on the accent sheet the sheet-foreground must clear WCAG
+  // 4.5:1 on *both* sheets, for *every* theme, in *both* schemes. (Note: this
+  // checks the composed SHEET fg/bg; the real sidebar DOM — nav/headers/rows/
+  // icons that read other tokens — is verified end-to-end by the Playwright
+  // guard packages/web/e2e/sidebar-accent-contrast.spec.ts.)
   const hslToRgb = (triple: string): [number, number, number] => {
     const [h, s, l] = triple.replace(/%/g, '').split(/\s+/).map(Number).map((n, i) => (i === 0 ? n : n / 100));
     const k = (n: number): number => (n + h / 30) % 12;
@@ -207,10 +222,10 @@ describe('composeAppearance', () => {
     return (la + 0.05) / (lb + 0.05);
   };
 
-  it('keeps foreground-on-sheet ≥ 4.5:1 for all 17 themes in both schemes (level 2)', () => {
+  it('keeps accent foreground-on-sheet ≥ 4.5:1 for all 17 themes in both schemes', () => {
     for (const theme of themes) {
       for (const scheme of ['light', 'dark'] as const) {
-        const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: theme.id}, scheme);
+        const t = composeAppearance({...ACCENT, themeId: theme.id}, scheme);
         for (const [sheet, fg] of [[t.sheet1, t.sheet1Foreground], [t.sheet2, t.sheet2Foreground]] as const) {
           const ratio = contrast(fg, sheet);
           expect(ratio, `${theme.id}/${scheme}: fg ${fg} on sheet ${sheet}`).toBeGreaterThanOrEqual(4.5);
@@ -248,5 +263,15 @@ describe('normalizeAppearance (migration)', () => {
   it('leaves an already-current override untouched', () => {
     const cur = {themeId: 'slate', interfaceIntensity: 1, controlIntensity: 2};
     expect(normalizeAppearance(cur)).toEqual(cur);
+  });
+
+  it('keeps a valid sidebar value and drops an invalid one (→ tinted default)', () => {
+    expect(normalizeAppearance({sidebar: 'accent'}).sidebar).toBe('accent');
+    expect(normalizeAppearance({sidebar: 'tinted'}).sidebar).toBe('tinted');
+    // Unknown value dropped → merges to DEFAULT_APPEARANCE.sidebar ('tinted').
+    expect('sidebar' in normalizeAppearance({sidebar: 'full'})).toBe(false);
+    // A persisted appearance with no sidebar key stays tinted (no surprise flip).
+    expect('sidebar' in normalizeAppearance({themeId: 'ocean'})).toBe(false);
+    expect(mergeAppearance(DEFAULT_APPEARANCE, normalizeAppearance({themeId: 'ocean'})).sidebar).toBe('tinted');
   });
 });

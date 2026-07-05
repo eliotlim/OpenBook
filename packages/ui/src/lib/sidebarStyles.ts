@@ -1,28 +1,29 @@
 /**
- * Shared sidebar item styling (OB-377). The sidebar sheets are a full-intensity
- * accent surface by default, so the old `bg-primary/10..25` washes (which *are*
- * the surface colour now) can't read. Highlights are instead a translucent wash
- * of `--sheet-veil` — the black/white pole composeAppearance picks per theme so
- * the wash always *increases* the `--sheet-1-foreground` contrast (black under
- * a light foreground, white under an ink one; white in the dark scheme for
- * visibility on the deep sheets). Alphas are the audited 10/16/24 % (light) and
- * 8/13/15 % (dark): every washed state keeps the foreground ≥ 4.5:1 on all 17
- * themes — see docs/design/colour-consistency-manifest-2026-07.md §2.3.
- * Applied via `cn`, so they override a Button variant's own `hover:bg-*`
- * through tailwind-merge.
+ * Shared sidebar item styling. Highlights route through the app's `bg-hover` /
+ * `bg-hover-strong` tokens and the sidebar foreground, so ONE set of classes
+ * reads correctly in both sidebar modes:
+ *
+ * - Tinted (default): `--color-hover`/`--color-hover-strong` are the usual
+ *   primary-tint washes (`primary/10..25`) — i.e. exactly the pre-OB-377 look —
+ *   and `--sheet-1-foreground` is the app foreground.
+ * - Accent (opt-in): the `.ob-accent-chrome` remap (index.css) repoints
+ *   `--color-hover`/`--color-hover-strong` to translucent `--sheet-veil` washes
+ *   (the black/white pole composeAppearance picks per theme so the wash always
+ *   *increases* contrast — audited 10/16 % light, 8/13 % dark, manifest §2.3),
+ *   and `--sheet-1-foreground` is the flipped light foreground.
+ *
+ * Applied via `cn`, so they override a Button variant's own `hover:bg-*` through
+ * tailwind-merge.
  */
-export const SIDEBAR_HOVER =
-  'hover:bg-[hsl(var(--sheet-veil)/0.10)] hover:text-[hsl(var(--sheet-1-foreground))] dark:hover:bg-[hsl(var(--sheet-veil)/0.08)]';
+export const SIDEBAR_HOVER = 'hover:bg-hover hover:text-[hsl(var(--sheet-1-foreground))]';
 
-/** The selected / active sidebar item — a stronger wash of the veil. */
-export const SIDEBAR_ACTIVE =
-  'bg-[hsl(var(--sheet-veil)/0.16)] text-[hsl(var(--sheet-1-foreground))] dark:bg-[hsl(var(--sheet-veil)/0.13)]';
+/** The selected / active sidebar item — the stronger wash. */
+export const SIDEBAR_ACTIVE = 'bg-hover-strong text-[hsl(var(--sheet-1-foreground))]';
 
 /**
  * Press feedback for sidebar control buttons (settings, menu toggle). Cancels
  * the shared Button's shrink-on-press (`active:scale-[0.97]`) and deepens the
- * veil wash instead. Applied via `cn` so it overrides the Button base through
+ * wash instead. Applied via `cn` so it overrides the Button base through
  * tailwind-merge.
  */
-export const SIDEBAR_PRESS =
-  'active:scale-100 active:bg-[hsl(var(--sheet-veil)/0.24)] dark:active:bg-[hsl(var(--sheet-veil)/0.15)]';
+export const SIDEBAR_PRESS = 'active:scale-100 active:bg-hover-strong';
