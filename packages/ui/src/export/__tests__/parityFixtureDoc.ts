@@ -38,6 +38,9 @@ export const PARITY_BLOCKS: NewBlock[] = [
   {id: 'fx-growth', type: 'code', props: {live: true, name: 'growth', language: 'js', collapsed: true}, text: [{t: GROWTH_SOURCE}]},
   {id: 'fx-formula', type: 'formula', props: {source: 'months * 2', name: 'doubled'}},
   {id: 'fx-chart', type: 'kitchart', props: {kind: 'line', title: 'Growth of £1', source: 'growth'}},
+  // Untitled + description-less: the hydrated viewer must NOT render ghost
+  // "Chart title" / "Add a description…" placeholders on the locked page.
+  {id: 'fx-chart2', type: 'kitchart', props: {kind: 'bar', source: '[months, doubled]'}},
   {id: 'fx-light', type: 'statuslight', props: {label: 'Health', source: 'months <= 120', okAt: 1, warnAt: 0}},
   {id: 'fx-progress', type: 'progressbar', props: {label: 'Used', source: 'months / 360', max: 1, format: 'percent'}},
   {id: 'fx-image', type: 'image', props: {src: PARITY_IMAGE_DATA_URI, alt: 'grey square'}},

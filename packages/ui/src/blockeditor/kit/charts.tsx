@@ -4,6 +4,7 @@ import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockProps} from '../registry';
 import {computeScope, evalExpr} from './scope';
+import {useKitPageLock} from './lock';
 import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionFields, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
 import {extent, funnelRows, linePoints, PALETTE, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
@@ -203,6 +204,14 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const labels = splitLabels(blockProp<string>(block, 'labels') ?? '');
   const title = blockProp<string>(block, 'title') ?? '';
   const description = blockProp<string>(block, 'description') ?? '';
+  // Whether the inline title/description are edit affordances here. Under a
+  // page lock (read-only viewer, the export viewer) KitInlineText renders its
+  // locked branch — a plain span of `value || placeholder` — so an EMPTY field
+  // must not render at all or the placeholder shows as ghost text ("Chart
+  // title" / "Add a description…") on a locked page. Empty + editable keeps
+  // rendering: present mode hides it via the :placeholder-shown CSS instead.
+  const pageLocked = useKitPageLock();
+  const chromeEditable = !editor.readOnly && !pageLocked;
   const {value, error} = evalExpr(source, computeScope(editor.doc).scope);
 
   const body = (() => {
@@ -235,15 +244,17 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   return (
     <figure className="obe-kit obe-kit-chart" contentEditable={false} data-chart-kind={kind}>
       <figcaption className="obe-kit-chart-head">
-        <KitInlineText
-          className="obe-kit-chart-title"
-          value={title}
-          placeholder="Chart title"
-          readOnly={editor.readOnly}
-          ariaLabel="Chart title"
-          onCommit={(v) => setProp(editor, block, 'title', v)}
-        />
-        {(!editor.readOnly || description) && (
+        {(chromeEditable || title) && (
+          <KitInlineText
+            className="obe-kit-chart-title"
+            value={title}
+            placeholder="Chart title"
+            readOnly={editor.readOnly}
+            ariaLabel="Chart title"
+            onCommit={(v) => setProp(editor, block, 'title', v)}
+          />
+        )}
+        {(chromeEditable || description) && (
           <KitInlineText
             className="obe-kit-desc obe-kit-desc-edit"
             value={description}
