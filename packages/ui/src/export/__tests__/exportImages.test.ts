@@ -72,7 +72,9 @@ describe('toHtml — image block', () => {
       '',
       new Map([['a1', PNG_DATA_URI]]),
     );
-    expect(html).toContain(`<img src="${PNG_DATA_URI}" alt="A cat" style="width:50%">`);
+    // The store-resolved image also carries its content-addressed id, so an
+    // island-first import can recover the bytes from the exported file itself.
+    expect(html).toContain(`<img src="${PNG_DATA_URI}" alt="A cat" style="width:50%" data-asset-id="a1">`);
     expect(html).toContain('<figcaption>Fluffy</figcaption>');
   });
 
@@ -93,7 +95,7 @@ describe('toHtml — image block', () => {
 
   it('resolves through the block-CRDT projection (assetId carried end-to-end)', () => {
     const html = toHtml(blockSnapshot([{type: 'image', props: {assetId: 'a1', alt: 'Cat', width: '30%'}}]), 'T', '', new Map([['a1', PNG_DATA_URI]]));
-    expect(html).toContain(`<img src="${PNG_DATA_URI}" alt="Cat" style="width:30%">`);
+    expect(html).toContain(`<img src="${PNG_DATA_URI}" alt="Cat" style="width:30%" data-asset-id="a1">`);
   });
 });
 

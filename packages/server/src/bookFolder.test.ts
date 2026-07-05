@@ -1,9 +1,15 @@
 import {rmSync} from 'node:fs';
-import {mkdir, writeFile} from 'node:fs/promises';
+import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import {spaceToBookFiles, parseBookFolder, SPACE_BUNDLE_FILE, type PageSnapshot} from '@book.dev/sdk';
+import {
+  spaceToBookFiles,
+  parseBookFolder,
+  SPACE_BUNDLE_FILE,
+  BOOK_RUNTIME_FILE,
+  type PageSnapshot,
+} from '@book.dev/sdk';
 import {createLocalDataClient} from './browser';
 import {LocalDataClient} from './localClient';
 import {PgliteDb} from './db';
@@ -83,6 +89,55 @@ describe('spaceToBookFiles — folder serialisation', () => {
   });
 });
 
+describe('spaceToBookFiles — folder-level viewer runtime (_openbook/viewer.js)', () => {
+  const RUNTIME = 'var OpenBookViewer = {mount: function () {}}; /* stub bundle */';
+
+  it('emits ONE runtime copy per folder and a relative reference in every page file', async () => {
+    const root = await client.savePage({name: 'Trip Plans', data: snap('pack sunscreen')});
+    await client.savePage({name: 'Day One', data: snap('hike'), parentId: root.id});
+
+    const files = spaceToBookFiles(await client.exportSpace(), {runtime: RUNTIME});
+
+    // Exactly one bundle, at the folder root — never vendored per-file.
+    const bundles = files.filter((f) => f.path === BOOK_RUNTIME_FILE);
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0].contents).toBe(RUNTIME);
+
+    // Every page references it relatively (portable when moved/zipped) + boots.
+    const htmlFiles = files.filter((f) => f.path.endsWith('.html'));
+    expect(htmlFiles).toHaveLength(2);
+    for (const f of htmlFiles) {
+      expect(f.contents).toContain('<script src="../_openbook/viewer.js" defer data-openbook-runtime></script>');
+      expect(f.contents).toContain('data-openbook-runtime-boot');
+    }
+  });
+
+  it('emits NO reference when the runtime is unavailable (graceful static, current bytes)', async () => {
+    await client.savePage({name: 'Solo', data: snap('just me')});
+    const space = await client.exportSpace();
+    const without = spaceToBookFiles(space);
+    const empty = spaceToBookFiles(space, {runtime: ''});
+    expect(without.some((f) => f.path === BOOK_RUNTIME_FILE)).toBe(false);
+    for (const f of without) expect(f.contents).not.toContain('_openbook');
+    // An empty runtime string is "unavailable" too — byte-identical output.
+    expect(JSON.stringify(empty)).toBe(JSON.stringify(without));
+  });
+
+  it('parseBookFolder ignores the runtime cleanly — the round-trip is unaffected', async () => {
+    const root = await client.savePage({name: 'Alpha', data: snap('alpha')});
+    await client.setPageProperties(root.id, {sys_icon: '📘'});
+
+    const original = await client.exportSpace();
+    const files = spaceToBookFiles(original, {runtime: RUNTIME});
+    // Both through the lossless bundle and the HTML-only fallback.
+    const parsed = parseBookFolder(files);
+    expect(parsed!.pages.map((p) => p.id).sort()).toEqual(original.pages.map((p) => p.id).sort());
+    const htmlOnly = parseBookFolder(files.filter((f) => f.path !== SPACE_BUNDLE_FILE));
+    expect(htmlOnly!.pages.map((p) => p.id).sort()).toEqual(original.pages.map((p) => p.id).sort());
+    expect(htmlOnly!.pages.find((p) => p.id === root.id)?.properties.sys_icon).toBe('📘');
+  });
+});
+
 describe('spaceToBookFiles — byte-compatible with the server BookMirror (OB-134)', () => {
   it('a web/desktop export imports cleanly through the server mirror', async () => {
     await client.savePage({name: 'Field Notes', data: snap('observed a heron')});
@@ -108,6 +163,64 @@ describe('spaceToBookFiles — byte-compatible with the server BookMirror (OB-13
       }
       const imported = await store.listPages();
       expect(imported.some((p) => p.name === 'Field Notes')).toBe(true);
+    } finally {
+      await mirror.close();
+      await store.close();
+    }
+  });
+
+  it('a runtime-carrying export imports cleanly too (the runtime is never a page)', async () => {
+    const RUNTIME = 'var OpenBookViewer = {}; /* stub */';
+    await client.savePage({name: 'Field Notes', data: snap('observed a heron')});
+    const files = spaceToBookFiles(await client.exportSpace(), {runtime: RUNTIME});
+
+    for (const f of files) {
+      if (!f.path.endsWith('.html') && f.path !== BOOK_RUNTIME_FILE) continue;
+      const abs = join(outDir, f.path);
+      await mkdir(dirname(abs), {recursive: true});
+      await writeFile(abs, f.contents, 'utf8');
+    }
+
+    const store = new PageStore(await PgliteDb.create(dbDir));
+    await store.migrate();
+    const mirror = await BookMirror.create({store, dir: outDir, watch: false, runtimeBundle: RUNTIME});
+    try {
+      for (const f of files) {
+        if (!f.path.endsWith('.html')) continue;
+        const outcome = await mirror.importFile(join(outDir, f.path));
+        expect(['created', 'unchanged']).toContain(outcome);
+      }
+      // The runtime file itself is inert to the importer.
+      expect(await mirror.importFile(join(outDir, BOOK_RUNTIME_FILE))).toBe('skipped');
+      expect((await store.listPages()).some((p) => p.name === 'Field Notes')).toBe(true);
+    } finally {
+      await mirror.close();
+      await store.close();
+    }
+  });
+
+  it('the SDK writer and the mirror emit BYTE-IDENTICAL files when both carry the runtime', async () => {
+    // The byte-compatibility contract, extended to the runtime era: for the same
+    // page content, spaceToBookFiles({runtime}) and a BookMirror({runtimeBundle})
+    // must produce the exact same page bytes (so either side re-imports the
+    // other's folder as its own writes) AND the exact same bundle bytes.
+    const RUNTIME = 'var OpenBookViewer = {mount: function () {}}; /* stub bundle */';
+    const store = new PageStore(await PgliteDb.create(dbDir));
+    await store.migrate();
+    const mirror = await BookMirror.create({store, dir: outDir, watch: false, runtimeBundle: RUNTIME});
+    try {
+      await store.upsertPage({name: 'Field Notes', data: snap('observed a heron')});
+      await mirror.reconcileAll();
+      await mirror.flush();
+
+      const {pages, databases} = await store.exportAll();
+      const sdkFiles = spaceToBookFiles({pages, databases}, {runtime: RUNTIME});
+      const sdkHtml = sdkFiles.filter((f) => f.path.endsWith('.html'));
+      expect(sdkHtml).toHaveLength(1);
+      const onDisk = await readFile(join(outDir, sdkHtml[0].path), 'utf8');
+      expect(onDisk).toBe(sdkHtml[0].contents); // byte-identical page file
+      const bundleOnDisk = await readFile(join(outDir, BOOK_RUNTIME_FILE), 'utf8');
+      expect(bundleOnDisk).toBe(RUNTIME); // byte-identical runtime
     } finally {
       await mirror.close();
       await store.close();

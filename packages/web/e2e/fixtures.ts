@@ -201,7 +201,15 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   // Point every context's app at this worker's server before any page loads.
   context: async ({context, dataServer}, use) => {
     await context.addInitScript((serverUrl: string) => {
-      localStorage.setItem('openbook.serverUrl', serverUrl);
+      // Init scripts run in EVERY frame, including sandboxed srcdoc iframes
+      // (htmlArtifact blocks / SandboxedHtml), where touching localStorage
+      // throws a SecurityError under the opaque origin. Swallow it — those
+      // frames aren't the app and never read the override.
+      try {
+        localStorage.setItem('openbook.serverUrl', serverUrl);
+      } catch {
+        /* sandboxed frame — no storage, nothing to configure */
+      }
     }, dataServer);
     await use(context);
   },

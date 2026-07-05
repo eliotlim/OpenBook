@@ -42,6 +42,10 @@ export type BlockType =
   // lives in props (`src` is a `data:` URL in phase-1, an `assetId` after A2).
   // See blockeditor/imageBlock.ts for props + ingest.
   | 'image'
+  // An untrusted-HTML artifact rendered in a sandboxed iframe (SandboxedHtml).
+  // Leaf block — no text, no children; the document lives in the asset store
+  // (`assetId`). See blockeditor/htmlArtifactBlock.ts for props + ingest.
+  | 'htmlArtifact'
   | 'divider'
   | 'columns'
   | 'column'

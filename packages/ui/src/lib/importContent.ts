@@ -212,7 +212,7 @@ export async function runImport(
  * rows too) is used only as the membership filter, so a row id in it can never
  * be picked. Returns `null` when nothing top-level landed.
  */
-export function pickImportedJumpTarget(result: ImportWriteResult, pages: PageMeta[]): string | null {
+export function pickImportedJumpTarget(result: Pick<ImportWriteResult, 'pageIds'>, pages: PageMeta[]): string | null {
   const imported = new Set(result.pageIds);
   return pages.find((p) => p.parentId === null && imported.has(p.id))?.id ?? null;
 }

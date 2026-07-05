@@ -378,14 +378,20 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
       const assetId = str(d.assetId);
       const rawSrc = str(d.src);
       const direct = rawSrc && (rawSrc.startsWith('data:') || /^https?:\/\//i.test(rawSrc)) ? rawSrc : '';
-      const src = (assetId ? ctx.assets.get(assetId) : '') || direct;
+      const resolved = (assetId ? ctx.assets.get(assetId) : '') ?? '';
+      const src = resolved || direct;
       const alt = escapeHtml(str(d.alt));
       const caption = str(d.caption).trim();
       const widthStyle = d.width ? ` style="width:${escapeHtml(str(d.width))}"` : '';
       const figcap = caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : '';
+      // A store-resolved image is tagged with its content-addressed `assetId` so
+      // an island-first import can recover the bytes from this very file: the
+      // island's block-doc keeps the assetId, this <img> carries the data-URI,
+      // and re-uploading those bytes restores the SAME id (content addressing).
+      const assetAttr = resolved ? ` data-asset-id="${escapeHtml(assetId)}"` : '';
       html.push(
         src
-          ? `<figure class="ob-image"><img src="${escapeHtml(src)}" alt="${alt}"${widthStyle}>${figcap}</figure>`
+          ? `<figure class="ob-image"><img src="${escapeHtml(src)}" alt="${alt}"${widthStyle}${assetAttr}>${figcap}</figure>`
           : `<figure class="ob-image is-missing"><div class="ob-image-alt"${widthStyle}>${alt || 'Image'}</div>${figcap}</figure>`,
       );
       break;
