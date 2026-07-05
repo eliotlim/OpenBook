@@ -536,8 +536,9 @@
 
 /* ── New block types ──────────────────────────────────────────────────────── */
 
-/* Placeholder for our custom contenteditable regions (EditorJS only supplies
-   the `content` for its own .ce-paragraph). */
+/* Our custom contenteditable regions need an explicit placeholder — a bare
+   contenteditable doesn't render data-placeholder text natively, so we supply
+   the content here. */
 .block-callout__body[data-placeholder]:empty::before,
 .block-accordion__title[data-placeholder]:empty::before,
 .block-accordion__content[data-placeholder]:empty::before,
@@ -678,8 +679,8 @@
 .block-button__input:focus {
   border-color: hsl(var(--ring));
 }
-/* Doubled class: EditorJS's `.ce-block a { text-decoration: underline }` is
-   more specific than a single class, and a CTA button must not read as a link. */
+/* Doubled class bumps specificity so a CTA button never inherits
+   link-underline styling and reads as a link. */
 .block-button__cta.block-button__cta {
   display: inline-block;
   background: hsl(var(--primary));

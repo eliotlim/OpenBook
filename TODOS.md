@@ -90,7 +90,7 @@ Post-v0 follow-ups surfaced during `/office-hours` (2026-05-27) and `/plan-eng-r
 
 **Pros:** the CRDT (Yjs) model already provides an `UndoManager`, so block-level history can build on the existing update pipeline.
 
-**Cons / landmines:** The plugin restores snapshots via a full `editor.render()` — exactly the remount-everything path `liveSync`'s diff renderer was built to avoid (reactive blocks re-run side effects → save-loop risk, ARCHITECTURE §4). It also restores state programmatically, so `userEditedRef` (which gates autosave on genuine `input`/`beforeinput` events) would treat the undone state as not-an-edit and never persist it. A correct integration likely means a custom history stack that replays through `planBlockSync` instead of `render`, and an explicit "undo counts as a user edit" hook into the autosave gate.
+**Cons / landmines:** A snapshot-restore undo does a full re-render — exactly the remount-everything path a diff renderer is built to avoid (reactive blocks re-run side effects → save-loop risk, ARCHITECTURE §4). It also restores state programmatically, so `userEditedRef` (which gates autosave on genuine `input`/`beforeinput` events) would treat the undone state as not-an-edit and never persist it. A correct integration likely means a custom history stack that replays through `planBlockSync` instead of `render`, and an explicit "undo counts as a user edit" hook into the autosave gate.
 
 **Depends on / blocked by:** Nothing external; needs a focused session with the reactive save-loop e2e (`reactive.spec.ts`) as the regression gate.
 
