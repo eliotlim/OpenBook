@@ -79,7 +79,7 @@ test('expand runs the artifact full-window; overlay is a fresh instance, inline 
 
   // The always-visible close button restores the page view — and the INLINE
   // instance kept its own state untouched (still Count: 1).
-  await overlay.getByRole('button', {name: 'Close full screen'}).click();
+  await overlay.getByRole('button', {name: 'Close full window'}).click();
   await expect(page.getByTestId('artifact-overlay')).toHaveCount(0);
   await expect(inlineBtn).toHaveText('Count: 1');
 });
@@ -101,7 +101,7 @@ test('focus recovery: after clicking inside the sandbox, overlay chrome brings E
   await expect(page.getByTestId('artifact-overlay')).toHaveCount(0);
 });
 
-test('present mode: the artifact expands full-screen within the deck and back', {tag: ['@editor']}, async ({page, request}) => {
+test('present mode: the artifact expands full-window within the deck and back', {tag: ['@editor']}, async ({page, request}) => {
   const pageId = await newPage(request, 'Artifact Present Expand E2E');
   await openEditor(page, pageId);
   await insertArtifact(page, COUNTER_HTML);
@@ -119,14 +119,14 @@ test('present mode: the artifact expands full-screen within the deck and back', 
   await expand(page, '.ob-present-stage');
   const overlay = page.getByTestId('artifact-overlay');
 
-  // Interactive full-screen inside the deck.
+  // Interactive full-window inside the deck.
   const overlayBtn = overlay.frameLocator('iframe').locator('#btn');
   await overlayBtn.click();
   await expect(overlayBtn).toHaveText('Count: 1');
 
   // Close the overlay: the deck is still presenting underneath (the overlay is
   // the topmost layer — Esc/close never tears down the presentation itself).
-  await overlay.getByRole('button', {name: 'Close full screen'}).click();
+  await overlay.getByRole('button', {name: 'Close full window'}).click();
   await expect(page.getByTestId('artifact-overlay')).toHaveCount(0);
   await expect(present).toBeVisible();
 

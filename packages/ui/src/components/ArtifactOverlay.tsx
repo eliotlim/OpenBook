@@ -46,7 +46,6 @@ export function ArtifactOverlay({html, title, onClose}: ArtifactOverlayProps): R
     <DialogPrimitive.Root open onOpenChange={(open) => !open && onClose()}>
       <DialogPortal>
         <DialogPrimitive.Content
-          aria-label={title}
           data-testid="artifact-overlay"
           className="fixed inset-0 z-50 flex flex-col bg-background outline-hidden data-[state=open]:animate-in data-[state=open]:fade-in-0"
         >

@@ -77,7 +77,7 @@ describe('artifact expand affordance', () => {
     await waitFor(() => expect(document.querySelector('[data-testid="artifact-overlay"]')).toBeTruthy());
 
     // The always-visible close button (focus-recovery affordance) closes it.
-    fireEvent.click(document.querySelector('[data-testid="artifact-overlay"] button[aria-label="Close full screen"]')!);
+    fireEvent.click(document.querySelector('[data-testid="artifact-overlay"] button[aria-label="Close full window"]')!);
     await waitFor(() => expect(document.querySelector('[data-testid="artifact-overlay"]')).toBeNull());
     // Same inline iframe ELEMENT before and after — never reparented/reloaded.
     expect(container.querySelector('.obe-artifact iframe')).toBe(inlineBefore);
