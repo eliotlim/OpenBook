@@ -12,8 +12,9 @@ import { cn } from "@/lib/utils"
  */
 const iconButtonVariants = cva(
   // Matches Button's focus + press feel so every clickable control reads alike:
-  // a crisp 2px-offset keyboard ring (--ring-control), plus a subtle press-down.
-  "inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color,transform] active:scale-[0.94] hover:bg-hover hover:text-foreground focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
+  // a crisp 2px-offset keyboard ring (--ring-control), plus a colour-only press
+  // (background deepens to bg-hover-strong on :active — no geometry shift).
+  "inline-flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-[color,background-color] hover:bg-hover hover:text-foreground active:bg-hover-strong active:text-foreground focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       size: {

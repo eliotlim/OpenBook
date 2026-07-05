@@ -5,11 +5,12 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  // Motion: transition colour + shadow + a subtle press-down (active:scale), all
-  // on the global ease-out tempo. Filled variants also press-darken on :active
-  // (the fill mixed toward --press-ink). Focus: a crisp 2px-offset keyboard ring
-  // (--ring-control) that only shows for keyboard nav — the native-app focus look.
-  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform] active:scale-[0.97] focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100",
+  // Motion: transition colour + shadow only — the press treatment is colour-only
+  // (no geometry shift), on the global ease-out tempo. Filled variants press-darken
+  // on :active (the fill mixed toward --press-ink). Focus: a crisp 2px-offset
+  // keyboard ring (--ring-control) that only shows for keyboard nav — the native-app
+  // focus look.
+  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-[color,background-color,border-color,box-shadow] focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)] disabled:pointer-events-none disabled:opacity-50",
   {
     variants: {
       variant: {
