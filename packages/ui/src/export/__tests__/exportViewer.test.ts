@@ -67,6 +67,13 @@ describe('viewer-hydrated page export', () => {
     expect(outsideIsland).not.toContain(HOSTILE_TEXT);
   });
 
+  it('forces the static first paint LIGHT (the viewer bundle is light-only v1)', () => {
+    // Honouring prefers-color-scheme here produced a dark->light snap at
+    // viewer mount for dark-OS readers; end-to-end dark support is backlog.
+    expect(html).toContain('color-scheme: light;');
+    expect(html).not.toContain('prefers-color-scheme');
+  });
+
   it('is deterministic: the same snapshot renders byte-identical HTML', () => {
     expect(toHtml(snap, 'Parity fixture', '🧪', new Map(), {id: 'fx-root', updatedAt: '2026-07-04T00:00:00.000Z'})).toBe(html);
   });
@@ -77,6 +84,12 @@ describe('legacy-snapshot page export (no block-doc)', () => {
     const html = toHtml(legacySnapshot(), 'Legacy', '');
     expect(html).toContain('id="ob-data"');
     expect(html).not.toContain('OpenBookViewer');
+  });
+
+  it('keeps the dark-capable static styles (its static body IS the render)', () => {
+    const html = toHtml(legacySnapshot(), 'Legacy', '');
+    expect(html).toContain('prefers-color-scheme');
+    expect(html).toContain('color-scheme: light dark;');
   });
 });
 

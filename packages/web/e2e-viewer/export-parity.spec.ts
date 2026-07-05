@@ -75,7 +75,7 @@ test.describe('page export, hydrated', () => {
     await expect(formulaOut).toHaveText('240');
     const status = viewer.locator('.obe-kit-status');
     await expect(status).toHaveAttribute('data-status', 'ok');
-    const chartSvg = viewer.locator('.obe-chart-svg');
+    const chartSvg = viewer.locator('figure[data-chart-kind="line"] .obe-chart-svg');
     await expect(chartSvg).toBeVisible();
     const chartBefore = await chartSvg.innerHTML();
 
@@ -98,6 +98,11 @@ test.describe('page export, hydrated', () => {
     await expect(bodyA).toBeVisible();
 
     // Locked semantics: no editing affordances, nothing persisted anywhere.
+    // Including ghost placeholder text on locked chart chrome: the fixture has
+    // a titled chart with an empty description AND an untitled chart — neither
+    // may surface its edit placeholder on the locked page (design review).
+    await expect(page.getByText('Add a description…')).toHaveCount(0);
+    await expect(page.getByText('Chart title')).toHaveCount(0);
     await expect(page.locator('[contenteditable="true"]')).toHaveCount(0);
     await expect(page.locator('input.obe-kit-inline')).toHaveCount(0);
     for (const chrome of ['.obe-gutter', '.obe-kit-gear', '.obe-cnt-add', '.obe-group-btn']) {
@@ -122,7 +127,7 @@ test.describe('page export, hydrated', () => {
     // The projection is fully computed at export time — what toPdf snapshots.
     await expect(page.locator('main .expr', {hasText: 'doubled'}).locator('[data-val]')).toHaveText('240');
     await expect(page.locator('main .kitlight')).toHaveAttribute('data-status', 'ok');
-    await expect(page.locator('main figure.chart svg')).toBeVisible();
+    await expect(page.locator('main figure.chart svg').first()).toBeVisible();
     await expect(page.locator('main img[alt="grey square"]')).toBeVisible();
 
     expect(network).toEqual([]);
@@ -137,7 +142,7 @@ test.describe('page export, JS disabled', () => {
     await page.goto(fileUrl('export-page.html'));
     await expect(page.locator('main h1.doc-title')).toContainText('Parity fixture');
     await expect(page.getByText('Interactive export. Drag')).toBeVisible();
-    await expect(page.locator('main figure.chart svg')).toBeVisible(); // chart baked at export
+    await expect(page.locator('main figure.chart svg').first()).toBeVisible(); // charts baked at export
     await expect(page.locator('main img[alt="grey square"]')).toBeVisible();
     await expect(page.locator('main .expr', {hasText: 'doubled'}).locator('[data-val]')).toHaveText('240');
   });

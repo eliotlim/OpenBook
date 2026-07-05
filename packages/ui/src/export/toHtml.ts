@@ -640,7 +640,7 @@ function document_(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(headTitle)}</title>
-<style>${STYLES}</style>${extra?.styles ? `\n<style>${extra.styles}</style>` : ''}
+<style>${STYLES}${hydrate ? SCHEME_LIGHT : SCHEME_DUAL}</style>${extra?.styles ? `\n<style>${extra.styles}</style>` : ''}
 </head>
 <body${!hydrate && rootId ? ` data-root="${escapeHtml(rootId)}"` : ''}>
 ${legacyHeader}${bodyHtml}
@@ -881,10 +881,18 @@ export function toHtmlSite(bundle: SiteBundle, assets: Map<string, string> = new
   return document_(`<main>\n${sections}\n</main>`, rootTitle, ctx, {rootId: bundle.rootId, island, hydrate});
 }
 
-const STYLES = `
+/** Colour-scheme tail appended after {@link STYLES}, picked per runtime.
+ *
+ *  Hydrate path: the viewer bundle is LIGHT-ONLY (v1 — end-to-end dark support
+ *  is backlog), so the static first paint is forced light too; honouring the
+ *  OS dark preference there produced a dark->light snap the moment the viewer
+ *  mounted. Legacy/no-hydrate exports (and decks) keep the dual scheme — their
+ *  static body IS the final render, and it supports dark fine. */
+const SCHEME_LIGHT = `
+:root { color-scheme: light; }
+`;
+const SCHEME_DUAL = `
 :root { color-scheme: light dark; }
-* { box-sizing: border-box; }
-body { margin: 0; background: #fff; color: #1a1a1a; font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 @media (prefers-color-scheme: dark) {
   body { background: #18181b; color: #e7e7ea; }
   /* Brighter text-colour tokens so palette colours stay legible on the dark page
@@ -896,6 +904,11 @@ body { margin: 0; background: #fff; color: #1a1a1a; font: 16px/1.6 -apple-system
     --obtc-purple: #c084fc; --obtc-pink: #f472b6; --obtc-red: #f87171;
   }
 }
+`;
+
+const STYLES = `
+* { box-sizing: border-box; }
+body { margin: 0; background: #fff; color: #1a1a1a; font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 main { max-width: 720px; margin: 0 auto; padding: 48px 24px 120px; }
 section.page[hidden] { display: none; }
 .ob-nav { position: sticky; top: 0; z-index: 10; padding: 8px 24px; backdrop-filter: blur(8px); background: rgba(127,127,127,.06); border-bottom: 1px solid rgba(127,127,127,.18); }
@@ -958,6 +971,9 @@ a.subpage:hover { background: rgba(127,127,127,.08); }
 .kit-prog-fill { height: 100%; border-radius: 999px; background: #6366f1; transition: width .25s ease; }
 .slider input[type=range] { vertical-align: middle; width: 60%; }
 .expr code { color: #4f46e5; }
+/* Long stringified readouts (arrays from live code) must wrap, not blow the
+   page to tens of thousands of px wide (which also degrades the PDF slice). */
+.reactive code { overflow-wrap: anywhere; }
 figure.chart { margin: 1.2em 0; }
 figure.chart svg { max-width: 100%; height: auto; }
 figure.chart .chart-title { font-weight: 600; font-size: .92rem; margin-bottom: 6px; }
