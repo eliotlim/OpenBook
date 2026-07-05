@@ -2,6 +2,7 @@ import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'reac
 import {
   Activity,
   AlignLeft,
+  AppWindow,
   BarChart3,
   Boxes,
   ChevronDown,
@@ -101,6 +102,7 @@ const ID_ICONS: Record<string, IconComp> = {
   text: Type, h1: Heading1, h2: Heading2, h3: Heading3,
   bullet: List, number: ListOrdered, todo: ListTodo, quote: Quote,
   callout: Info, code: Code2, livecode: Sigma, divider: Minus, image: ImageIcon, notes: Mic,
+  htmlartifact: AppWindow,
   table: Table, cols2: Columns2, cols3: Columns3, cols4: Columns3, group: Boxes,
   tabs: PanelTop, accordion: LayoutList,
   newpage: FilePlus2, newdatabase: Table2, linkpage: Link2, linkdatabase: Database,
@@ -227,6 +229,7 @@ export const SLASH_ITEMS: SlashItem[] = [
   {id: 'code', label: 'Code', hint: 'Monospaced block', keywords: 'code snippet', group: 'basic', apply: turn('code')},
   {id: 'image', label: 'Image', hint: 'Upload, paste or drop a picture', keywords: 'image picture photo img upload media figure', group: 'basic', apply: insertAfterOrReplace(() => ({type: 'image'}))},
   {id: 'livecode', label: 'Live code', hint: 'Computes over inputs; name the output to chain', keywords: 'livecode live code formula compute expr reactive calculation', group: 'interactive', apply: turn('code', {live: true, name: 'result', language: 'js'})},
+  {id: 'htmlartifact', label: 'HTML artifact', hint: 'Upload a .html file — runs interactive, sandboxed', keywords: 'html artifact iframe embed widget interactive sandbox web app demo', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'htmlArtifact'}))},
   {id: 'group', label: 'Group', hint: 'Lockable, syncable container that namespaces its inputs', keywords: 'group container section lock sync namespace box organise organize', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'group', props: {name: ''}, children: [{type: 'paragraph'}]}))},
   {id: 'tabs', label: 'Tabs', hint: 'Tabbed sections with auto completion and optional gating', keywords: 'tabs tabbed sections wizard steps completion gating container', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'tabs', props: {name: '', active: 0}, children: [{type: 'tab', props: {label: 'Tab 1'}, children: [{type: 'paragraph'}]}, {type: 'tab', props: {label: 'Tab 2'}, children: [{type: 'paragraph'}]}]}))},
   {id: 'accordion', label: 'Accordion', hint: 'Collapsible checklist sections with auto completion and gating', keywords: 'accordion collapse sections checklist wizard stages completion gating container fold', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'accordion', props: {name: ''}, children: [{type: 'accordionsection', props: {label: 'Section 1'}, children: [{type: 'paragraph'}]}, {type: 'accordionsection', props: {label: 'Section 2', collapsed: true}, children: [{type: 'paragraph'}]}]}))},
