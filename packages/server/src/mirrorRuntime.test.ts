@@ -26,7 +26,7 @@ import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {BOOK_RUNTIME_DIR, BOOK_RUNTIME_FILE, type PageSnapshot} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
-import {BookMirror} from './mirror';
+import {BookMirror, WriteBudgetError} from './mirror';
 
 const RT1 = 'var OpenBookViewer = {mount: function () {}}; /* bundle v1 */';
 const RT2 = 'var OpenBookViewer = {mount: function () {}}; /* bundle v2 — upgraded */';
@@ -176,6 +176,46 @@ describe('BookMirror runtime bundle — format flips (upgrade-class rewrite)', (
     const [file] = await htmlFiles();
     expect(await readFile(file, 'utf8')).not.toContain('_openbook');
     await without.close();
+  });
+});
+
+describe('BookMirror runtime bundle — flip durability (F1: commit AFTER the rewrite flush)', () => {
+  it('an aborted flip leaves the OLD marker, so the flip re-fires idempotently on reopen', async () => {
+    // Build a static (pre-runtime) folder first.
+    await store.upsertPage({name: 'Durable', data: snap('content')});
+    const legacy = await BookMirror.create({store, dir: bookDir, watch: false});
+    await legacy.close();
+    const [pageFile] = await htmlFiles();
+
+    // Abort the GAIN flip mid-window via the write budget: one write is allowed
+    // (the bundle lands), then the flip's first page rewrite trips — the same
+    // on-disk shape a hard kill between the bundle write and the whole-folder
+    // flush would leave. Before F1 the new runtimeHash was persisted up front,
+    // so this folder would reboot as "already flipped" with a stale static page.
+    await expect(
+      BookMirror.create({
+        store,
+        dir: bookDir,
+        watch: false,
+        runtimeBundle: RT1,
+        writeBudget: {writes: 1, intervalMs: 60_000},
+      }),
+    ).rejects.toBeInstanceOf(WriteBudgetError);
+    expect(await readFile(bundlePath(), 'utf8')).toBe(RT1); // bundle DID land…
+    expect(await readFile(pageFile, 'utf8')).not.toContain('_openbook'); // …pages did NOT
+    // The ordering under test: the flip's marker must NOT have been persisted
+    // (commitRuntimeFlip runs only after a successful reconcile+flush), so the
+    // state on disk still describes the pre-flip folder.
+    const state = JSON.parse(await readFile(join(bookDir, '.openbook-mirror.json'), 'utf8')) as {runtimeHash?: string};
+    expect(state.runtimeHash).toBeUndefined();
+
+    // Reopen without the budget: the flip re-fires (had=false) and completes —
+    // pages gain the reference and only THEN does the marker commit.
+    const recovered = await BookMirror.create({store, dir: bookDir, watch: false, runtimeBundle: RT1});
+    expect(await readFile(pageFile, 'utf8')).toContain('data-openbook-runtime');
+    const committed = JSON.parse(await readFile(join(bookDir, '.openbook-mirror.json'), 'utf8')) as {runtimeHash?: string};
+    expect(typeof committed.runtimeHash).toBe('string');
+    await recovered.close();
   });
 });
 

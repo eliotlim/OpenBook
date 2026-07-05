@@ -243,6 +243,17 @@ export class BookMirror {
    * {@link reconcileAll}, which enqueues every live page once and clears it.
    */
   private runtimeFormatFlipped = false;
+  /**
+   * The runtimeHash a format flip will commit — STAGED by {@link ensureRuntime}
+   * and only assigned + persisted by {@link commitRuntimeFlip} AFTER the flip's
+   * reconcile+flush completed (durability, F1): persisting the new marker before
+   * the page rewrites land would strand a hard-killed folder as "flipped" with
+   * un-rewritten page files that never converge (they'd stay stale until next
+   * edited). With the commit deferred, a crash in that window leaves the OLD
+   * marker on disk, so the flip simply re-fires idempotently on the next open.
+   * `undefined` = no flip staged.
+   */
+  private pendingRuntimeHash: string | null | undefined = undefined;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushing: Promise<void> | null = null;
   private statePersist: Promise<void> = Promise.resolve();
@@ -302,6 +313,10 @@ export class BookMirror {
       // and any journal entries a prior crash left un-flushed.
       await mirror.reconcileAll();
       await mirror.flush();
+      // Only now that a runtime-format flip's whole-folder rewrite has flushed
+      // does the flip's marker commit (F1) — a crash anywhere above re-fires the
+      // flip idempotently on the next open instead of stranding stale pages.
+      await mirror.commitRuntimeFlip();
       if (mirror.doWatch) mirror.startWatch();
     } catch (err) {
       // A post-lock failure (e.g. a WriteBudgetError tripping during the bootstrap
@@ -396,19 +411,46 @@ export class BookMirror {
         await this.atomicWrite(abs, bundle);
         this.log(`book mirror: wrote viewer runtime ${BOOK_RUNTIME_FILE} (${hash.slice(0, 12)}…)`);
       }
-      this.runtimeHash = hash;
+      if (had) {
+        // No format flip (an in-place bundle upgrade / steady state): commit the
+        // hash immediately — page files aren't involved, so there is no
+        // rewrite window to survive.
+        this.runtimeHash = hash;
+      } else {
+        // Format flip (folder GAINS the runtime): stage the commit; it lands via
+        // commitRuntimeFlip() only after the whole-folder rewrite flushed (F1).
+        this.pendingRuntimeHash = hash;
+      }
     } else if (had) {
       // Downgrade: the host no longer supplies a bundle — drop the folder copy so
-      // no page's (now-removed) reference dangles at a stale runtime.
+      // no page's (now-removed) reference dangles at a stale runtime. The marker
+      // clear is STAGED like the gain flip: a crash before the reference-stripping
+      // rewrite flushed leaves the old marker, and the downgrade re-fires (the
+      // rm/rmdir here are idempotent on the re-fire).
       await rm(join(this.dir, BOOK_RUNTIME_FILE), {force: true});
       try {
         await rmdir(join(this.dir, BOOK_RUNTIME_DIR));
       } catch {
         // Not empty / already gone — leave it.
       }
-      this.runtimeHash = null;
+      this.pendingRuntimeHash = null;
     }
     if (had !== has) this.runtimeFormatFlipped = true;
+    await this.persistState();
+  }
+
+  /**
+   * Commit a staged runtime-format flip (F1): assign + persist the new
+   * `runtimeHash` marker. Called by {@link create} strictly AFTER the flip's
+   * reconcile+flush completed, so the persisted marker never runs ahead of the
+   * page files it describes. No-op when no flip is staged. Any persistState()
+   * that runs before this (state journaling during the flush) still writes the
+   * OLD marker — exactly the recovery point a crash should reboot from.
+   */
+  private async commitRuntimeFlip(): Promise<void> {
+    if (this.pendingRuntimeHash === undefined) return;
+    this.runtimeHash = this.pendingRuntimeHash;
+    this.pendingRuntimeHash = undefined;
     await this.persistState();
   }
 
