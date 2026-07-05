@@ -1124,7 +1124,7 @@ export const CalendarView: React.FC<{
                         onDragStart={() => setDragRow(row.id)}
                         onDragEnd={() => setDragRow(null)}
                         onClick={() => db.openRow(row.id)}
-                        style={accent ? {backgroundColor: `${accent}24`, borderLeft: `3px solid ${accent}`} : undefined}
+                        style={accent ? {backgroundColor: `color-mix(in srgb, ${accent} 14%, transparent)`, borderLeft: `3px solid ${accent}`} : undefined}
                         className={cn(
                           'flex flex-col gap-0.5 rounded bg-brand/10 px-1 py-0.5 text-left text-[11px] text-foreground/80 transition-colors hover:bg-brand/20',
                           editable && 'cursor-grab active:cursor-grabbing',
