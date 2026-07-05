@@ -425,6 +425,15 @@ export const ja: PartialMessages = {
       append_to_page: 'ページに追記',
     },
   },
+  importer: {
+    htmlModeLabel: 'このHTMLファイルをどのように取り込みますか？',
+    artifactOption: 'インタラクティブなアーティファクトとして実行',
+    artifactOptionHint: 'ファイルをそのまま保持 — スクリプトとスタイルはサンドボックスフレーム内で動作します。',
+    convertOption: '編集可能なブロックに変換',
+    convertOptionHint: '表示コンテンツを編集可能なOpenBookブロックに変換します。スクリプトは失われます。',
+    artifactNote: '新しいページに元のファイルがそのまま入り、サンドボックスで実行されます。変換は行われません。',
+    artifactHeuristicNote: 'このファイルにはスクリプトが含まれているため、インタラクティブ実行を提案しています。',
+  },
   slash: {
     text: {label: 'テキスト', hint: 'プレーンな段落'},
     h1: {label: '見出し 1', hint: '大見出し'},

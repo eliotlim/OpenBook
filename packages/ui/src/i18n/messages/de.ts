@@ -425,6 +425,15 @@ export const de: PartialMessages = {
       append_to_page: 'Ergänzt eine Seite',
     },
   },
+  importer: {
+    htmlModeLabel: 'Wie soll diese HTML-Datei importiert werden?',
+    artifactOption: 'Als interaktives Artefakt ausführen',
+    artifactOptionHint: 'Die Datei bleibt unverändert — Skripte und Styling laufen live in einem Sandbox-Frame.',
+    convertOption: 'In bearbeitbare Blöcke umwandeln',
+    convertOptionHint: 'Der sichtbare Inhalt wird zu bearbeitbaren OpenBook-Blöcken. Skripte entfallen.',
+    artifactNote: 'Eine neue Seite enthält die Originaldatei und führt sie in einer Sandbox aus. Nichts wird umgewandelt.',
+    artifactHeuristicNote: 'Diese Datei enthält Skripte — die interaktive Ausführung wird vorgeschlagen.',
+  },
   slash: {
     text: {label: 'Text', hint: 'Einfacher Absatz'},
     h1: {label: 'Überschrift 1', hint: 'Große Abschnittsüberschrift'},

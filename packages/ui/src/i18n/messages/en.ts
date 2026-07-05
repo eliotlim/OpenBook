@@ -772,6 +772,13 @@ export const en = {
     registryKeyInvalid: 'Enter a 32-byte Ed25519 public key in base64.',
   },
   importer: {
+    htmlModeLabel: 'How should this HTML file land?',
+    artifactOption: 'Run as interactive artifact',
+    artifactOptionHint: 'Keep the file exactly as it is — scripts and styling run live in a sandboxed frame.',
+    convertOption: 'Convert to editable blocks',
+    convertOptionHint: 'Turn the visible content into OpenBook blocks you can edit. Scripts are dropped.',
+    artifactNote: 'A new page will hold the original file, running sandboxed. Nothing is converted.',
+    artifactHeuristicNote: 'This file contains scripts, so running it interactively is suggested.',
     title: 'Bring your content',
     description: 'Import from a Notion export or a Markdown file. Your originals stay untouched.',
     chooseFile: 'Choose a file',

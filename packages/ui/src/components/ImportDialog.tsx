@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
-import {Check, FileText, Image, Loader2, TriangleAlert, Upload} from 'lucide-react';
+import {AppWindow, Blocks, Check, FileText, Image, Loader2, TriangleAlert, Upload} from 'lucide-react';
 import {notionAssetResolver, urlAssetResolver, type AssetBytes, type ImportedDoc} from '@book.dev/sdk';
 import type {TKey} from '@/i18n';
 import {
@@ -27,6 +27,7 @@ import {
 } from '@/lib/importContent';
 import {htmlToImportedDoc, parseHtmlImport} from '@/lib/htmlImport';
 import {runIslandImport, type HtmlIsland} from '@/lib/islandImport';
+import {artifactChoiceFor, runArtifactImport, type ArtifactImportChoice} from '@/lib/artifactImport';
 import {isImportAbortError, parseImportInWorker, type ImportParseProgress} from '@/lib/importParse';
 
 /** Extensions the file picker offers — Notion export zips, Markdown, and HTML. */
@@ -63,6 +64,10 @@ type Phase =
       /** Present when the file carries an OpenBook source island — the import
        *  restores losslessly from it, skipping the HTML conversion entirely. */
       island?: IslandPayload;
+      /** Present for a foreign (no-island) `.html` file: the run-as-artifact
+       *  choice payload. The chooser is offered ONLY when this is set —
+       *  island files never see it (see artifactChoiceFor, the one seam). */
+      artifact?: ArtifactImportChoice;
     }
   | {step: 'importing'; summary: ImportSummary}
   | {step: 'done'; summary: ImportSummary; jumpTarget: string | null}
@@ -104,6 +109,10 @@ export default function ImportDialog() {
   // Opt-in: fetch each linked (http) image and store a copy in the workspace
   // (default off — a linked image is kept as a URL that loads from the web).
   const [downloadUrls, setDownloadUrls] = useState(false);
+  // For a foreign `.html` file: land it as a sandboxed interactive artifact
+  // (true) or convert it to editable blocks (false). Preselected by the
+  // script/canvas heuristic when the preview opens; the user can flip it.
+  const [runAsArtifact, setRunAsArtifact] = useState(false);
 
   // Reset to a clean picker each time the dialog opens, so a previous import's
   // result or error never greets the next one; abort any parse still running
@@ -115,6 +124,7 @@ export default function ImportDialog() {
       setPasteText('');
       setPasteFormat('markdown');
       setDownloadUrls(false);
+      setRunAsArtifact(false);
       importingRef.current = false;
     } else {
       parseAbortRef.current?.abort();
@@ -162,13 +172,18 @@ export default function ImportDialog() {
       format: ImportFormat,
       zipBytes?: Uint8Array,
       island?: IslandPayload,
+      artifact?: ArtifactImportChoice,
     ) => {
-      if (summary.pages === 0) {
+      // Run-as-artifact needs no convertible content — an empty-body but
+      // script-bearing file still lands verbatim; only a pure conversion with
+      // nothing to convert is a dead end.
+      if (summary.pages === 0 && !artifact) {
         setPhase({step: 'error', message: t('importer.empty')});
         return;
       }
       setDownloadUrls(false);
-      setPhase({step: 'preview', doc, summary, sourceLabel, format, zipBytes, island});
+      setRunAsArtifact(artifact?.preferArtifact ?? false);
+      setPhase({step: 'preview', doc, summary, sourceLabel, format, zipBytes, island, artifact});
     },
     [t],
   );
@@ -189,11 +204,15 @@ export default function ImportDialog() {
       // parse (like pasted Markdown) is fine; no worker, no abort controller.
       if (format === 'html') {
         try {
-          const parsed = parseHtmlImport(await file.text(), {defaultTitle: titleFromFileName(file.name) || undefined});
+          const text = await file.text();
+          const parsed = parseHtmlImport(text, {defaultTitle: titleFromFileName(file.name) || undefined});
           if (parsed.kind === 'island') {
             toPreview(null, parsed.summary, file.name, format, undefined, {found: parsed.island, assets: parsed.assets});
           } else {
-            toPreview(parsed.doc, summarizeImportedDoc(parsed.doc), file.name, format);
+            // Foreign HTML: offer the run-as-artifact vs convert choice
+            // (island files never reach here — `artifactChoiceFor` is the seam).
+            const artifact = artifactChoiceFor(parsed, text, file.name) ?? undefined;
+            toPreview(parsed.doc, summarizeImportedDoc(parsed.doc), file.name, format, undefined, undefined, artifact);
           }
         } catch (e) {
           setPhase({step: 'error', message: t('importer.parseFailed', {error: (e as Error).message})});
@@ -251,13 +270,24 @@ export default function ImportDialog() {
   }, [pasteText, pasteFormat, t, toPreview]);
 
   const doImport = useCallback(
-    async (doc: ImportedDoc | null, summary: ImportSummary, format: ImportFormat, zipBytes?: Uint8Array, island?: IslandPayload) => {
+    async (
+      doc: ImportedDoc | null,
+      summary: ImportSummary,
+      format: ImportFormat,
+      zipBytes?: Uint8Array,
+      island?: IslandPayload,
+      artifact?: ArtifactImportChoice,
+    ) => {
       if (importingRef.current) return;
       importingRef.current = true;
       setPhase({step: 'importing', summary});
       try {
         let result: {pageIds: string[]};
-        if (island) {
+        if (artifact) {
+          // Run as interactive artifact: the file lands VERBATIM — a new page
+          // holding one sandboxed htmlArtifact block over the stored bytes.
+          result = await runArtifactImport(client, artifact);
+        } else if (island) {
           // An OpenBook export: restore losslessly from its source island (the
           // block-doc, structure, and databases land verbatim as a copy), then
           // re-store the asset bytes recovered from the file's own data-URIs
@@ -399,17 +429,73 @@ export default function ImportDialog() {
               <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="truncate text-sm font-medium">{phase.sourceLabel}</span>
                 <span className="text-xs text-muted-foreground">
-                  {t('importer.preview', {summary: summaryPhrase(phase.summary)})}
+                  {/* Run-as-artifact lands exactly one page holding the file —
+                      showing the CONVERSION tally there would contradict the
+                      "nothing is converted" note below. */}
+                  {t('importer.preview', {
+                    summary: summaryPhrase(
+                      runAsArtifact && phase.artifact ? {pages: 1, databases: 0, rows: 0, images: 0} : phase.summary,
+                    ),
+                  })}
                 </span>
               </div>
             </div>
             {/* An OpenBook export restores exactly from its embedded source —
                 the conversion notes below don't apply. */}
             {phase.island && <p className="text-xs text-muted-foreground">{t('importer.losslessNote')}</p>}
-            {phase.summary.databases > 0 && !phase.island && (
+            {/* Foreign .html: run-as-artifact vs convert-to-blocks. Preselected
+                by the script/canvas heuristic; island files never offer this.
+                Native radios inside label cards (the AiSettings provider-picker
+                pattern), so arrow-key navigation and the single tab stop come
+                from the browser instead of a hand-rolled radio contract. */}
+            {phase.artifact && (
+              <div role="radiogroup" aria-label={t('importer.htmlModeLabel')} className="flex flex-col gap-2">
+                {(
+                  [
+                    {artifact: true, icon: AppWindow, label: 'importer.artifactOption', hint: 'importer.artifactOptionHint'},
+                    {artifact: false, icon: Blocks, label: 'importer.convertOption', hint: 'importer.convertOptionHint'},
+                  ] as const
+                ).map((opt) => {
+                  const selected = runAsArtifact === opt.artifact;
+                  const Icon = opt.icon;
+                  return (
+                    <label
+                      key={opt.label}
+                      className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-[background-color,border-color,box-shadow] ${
+                        selected ? 'border-primary bg-primary/5' : 'border-border bg-sheet-1 hover:bg-hover'
+                      }`}
+                    >
+                      <Icon
+                        className={`mt-0.5 h-5 w-5 shrink-0 ${selected ? 'text-primary' : 'text-muted-foreground'}`}
+                        aria-hidden
+                      />
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="text-sm font-medium">{t(opt.label)}</span>
+                        <span className="text-xs text-muted-foreground">{t(opt.hint)}</span>
+                      </span>
+                      <input
+                        type="radio"
+                        name="html-import-mode"
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-primary"
+                        checked={selected}
+                        onChange={() => setRunAsArtifact(opt.artifact)}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            {/* Tie the preselection to the file: scripts suggested the default. */}
+            {phase.artifact?.preferArtifact && (
+              <p className="text-xs text-muted-foreground">{t('importer.artifactHeuristicNote')}</p>
+            )}
+            {phase.artifact && runAsArtifact && (
+              <p className="text-xs text-muted-foreground">{t('importer.artifactNote')}</p>
+            )}
+            {phase.summary.databases > 0 && !phase.island && !runAsArtifact && (
               <p className="text-xs text-muted-foreground">{t('importer.databasesNote')}</p>
             )}
-            {phase.summary.images > 0 && !phase.island && (
+            {phase.summary.images > 0 && !phase.island && !runAsArtifact && (
               <p className="flex items-start gap-2 text-xs text-muted-foreground">
                 <Image className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                 {plural(phase.summary.images, 'importer.imagesNoteOne', 'importer.imagesNote')}
@@ -418,7 +504,7 @@ export default function ImportDialog() {
             {/* Opt-in: store a copy of linked (http) images — Notion images are
                 always stored (and island imports recover their own bytes), so
                 the toggle is only offered for converted Markdown/HTML. */}
-            {phase.summary.images > 0 && phase.format !== 'notion-zip' && !phase.island && (
+            {phase.summary.images > 0 && phase.format !== 'notion-zip' && !phase.island && !runAsArtifact && (
               <label className="flex items-start justify-between gap-3 rounded-lg border border-border bg-sheet-1 p-3">
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="text-sm font-medium">{t('importer.downloadImages')}</span>
@@ -436,7 +522,20 @@ export default function ImportDialog() {
               <Button variant="ghost" onClick={() => setPhase({step: 'pick'})}>
                 {t('importer.back')}
               </Button>
-              <Button onClick={() => void doImport(phase.doc, phase.summary, phase.format, phase.zipBytes, phase.island)}>
+              <Button
+                onClick={() =>
+                  void doImport(
+                    phase.doc,
+                    // Run-as-artifact lands exactly one page holding the file —
+                    // the conversion tallies don't apply.
+                    runAsArtifact && phase.artifact ? {pages: 1, databases: 0, rows: 0, images: 0} : phase.summary,
+                    phase.format,
+                    phase.zipBytes,
+                    phase.island,
+                    runAsArtifact ? phase.artifact : undefined,
+                  )
+                }
+              >
                 {t('importer.import')}
               </Button>
             </DialogFooter>
