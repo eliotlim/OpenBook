@@ -17,9 +17,9 @@ export type {UpdateCheckParams, UpdateCheckOptions} from './lib/updateCheck';
 export {SANDBOX_FLAGS, EXPORT_ARTIFACT_CSP, escapeSrcdocAttribute, wrapSandboxDocument} from './lib/srcdoc';
 export {SandboxedHtml, SandboxCspContext, type SandboxedHtmlProps} from './components/SandboxedHtml';
 
-// The custom CRDT block editor — the app's only editor. `migrateEditorJs` still
-// upgrades legacy EditorJS snapshots to the block document on open.
-export {BlockEditor, createDoc as createBlockDoc, createSeededDoc as createSeededBlockDoc, decodeSnapshot as decodeBlockDoc, encodeSnapshot as encodeBlockDoc, migrateEditorJs, docToJSON as blockDocToJSON, type BlockDocSnapshot, type BlockJSON} from './blockeditor';
+// The custom CRDT block editor — the app's only editor. `migrateLegacyBlocks`
+// still upgrades legacy stored snapshots to the block document on open.
+export {BlockEditor, createDoc as createBlockDoc, createSeededDoc as createSeededBlockDoc, decodeSnapshot as decodeBlockDoc, encodeSnapshot as encodeBlockDoc, migrateLegacyBlocks, docToJSON as blockDocToJSON, type BlockDocSnapshot, type BlockJSON} from './blockeditor';
 export {connectBroadcast, type BroadcastConnection, type PresencePeer} from './blockeditor';
 // Live collaboration (Collab T4): the presence/awareness data layer + the registry
 // the remote-cursor surface (Collab T5) reads peers/selections from.

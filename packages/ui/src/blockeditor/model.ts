@@ -759,15 +759,16 @@ function jsonToNewBlock(json: BlockJSON): NewBlock {
   };
 }
 
-// ── EditorJS migration ───────────────────────────────────────────────────────
+// ── Legacy migration ─────────────────────────────────────────────────────────
 
-interface EditorJsBlock {
+/** A legacy stored block (`{type, data}`) — the migrate-on-open input shape. */
+interface LegacyBlock {
   id?: string;
   type: string;
   data: Record<string, unknown>;
 }
 
-/** Strip an EditorJS HTML string into rich runs (b/i/code/links survive). */
+/** Strip a legacy HTML string into rich runs (b/i/code/links survive). */
 export function htmlToRuns(html: string): TextRun[] {
   if (typeof document === 'undefined') return [{t: html.replace(/<[^>]+>/g, '')}];
   const el = document.createElement('div');
@@ -1001,13 +1002,15 @@ function rewriteExprSource(source: string, nameOf: Map<string, string>): string 
 }
 
 /**
- * One-way migration of an EditorJS document into the block model. Every block
- * type the app ships maps to something — reactive blocks (slider/expr) become
- * the editor's reactive plugins, links to nested pages survive as mention
- * runs, derived blocks (toc) are skipped, and the rest degrade to readable
- * text. Nothing is lost silently — the original snapshot stays on the page.
+ * One-way migration of a legacy stored document into the block model. Every
+ * block type the app ships maps to something — reactive blocks (slider/expr)
+ * become the editor's reactive plugins, links to nested pages survive as
+ * mention runs, derived blocks (toc) are skipped, and the rest degrade to
+ * readable text. Nothing is lost silently — the original snapshot stays on the
+ * page. Kept as the on-open path for pre-existing pages that lack a `blockdoc`;
+ * new pages are born block-native (see sdk `textSnapshot`).
  */
-export function migrateEditorJs(blocks: EditorJsBlock[], ctx: MigrationContext = {}): NewBlock[] {
+export function migrateLegacyBlocks(blocks: LegacyBlock[], ctx: MigrationContext = {}): NewBlock[] {
   const values = new Map(ctx.values ?? []);
   // names is [name, cellId][] — invert to cellId → name for token rewriting.
   const nameOf = new Map((ctx.names ?? []).map(([name, cellId]) => [cellId, name] as const));

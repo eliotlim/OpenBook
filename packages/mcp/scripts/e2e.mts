@@ -103,8 +103,12 @@ async function main(): Promise<void> {
   const reread = await client.callTool({name: 'read_page', arguments: {pageId: createdId!}});
   check('appended text is readable back', resultText(reread).includes('Appended line.'));
 
-  const guarded = await client.callTool({name: 'append_to_page', arguments: {pageId: blocksPage.id, content: 'nope'}});
-  check('append refuses collaborative-editor pages', guarded.isError === true && resultText(guarded).includes('collaborative editor'));
+  // append_to_page now works on block-editor pages too — the text merges into the
+  // blockdoc JSON projection (a live client re-merges from `blocks` on next load).
+  const onBlockPage = await client.callTool({name: 'append_to_page', arguments: {pageId: blocksPage.id, content: 'Added to the collab doc.'}});
+  check('append_to_page appends to a block-editor page', onBlockPage.isError !== true && resultText(onBlockPage).includes('Appended to'));
+  const rereadBlock = await client.callTool({name: 'read_page', arguments: {pageId: blocksPage.id}});
+  check('append_to_page text lands on the block page', resultText(rereadBlock).includes('Added to the collab doc.'));
 
   // Names are not unique (server migration 0015): a duplicate title lands as a
   // distinct page rather than erroring.

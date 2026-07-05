@@ -7,7 +7,7 @@ import {
   createSeededDoc,
   decodeSnapshot,
   encodeSnapshot,
-  migrateEditorJs,
+  migrateLegacyBlocks,
   type BlockDocSnapshot,
 } from '@/blockeditor/model';
 import {projectSnapshotForExport} from '@/blockeditor/exportBlocks';
@@ -131,7 +131,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       if (cancelled) return;
       // The reactive context (cell values + the name index) rides along so
       // sliders keep their live values and expr sources resolve to names.
-      setDoc(createSeededDoc(migrateEditorJs(legacy, {values: snap?.values, names: snap?.names, pageLabels}), `mig-${pageId ?? 'page'}`));
+      setDoc(createSeededDoc(migrateLegacyBlocks(legacy, {values: snap?.values, names: snap?.names, pageLabels}), `mig-${pageId ?? 'page'}`));
     })();
     return () => {
       cancelled = true;
