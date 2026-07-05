@@ -64,7 +64,7 @@ export default function WorkspaceNavigationTree() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between px-3 pb-1 pt-1">
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">{t('nav.pages')}</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('nav.pages')}</span>
         <div className="flex items-center gap-0.5">
           <IconButton
             size="sm"

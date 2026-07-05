@@ -76,7 +76,7 @@ export function SuggestionCard({
       </div>
 
       {/* before → after diff */}
-      <div className="rounded-md border border-border bg-sheet-1 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed">
+      <div className="rounded-md border border-border bg-muted px-2.5 py-1.5 font-mono text-[11px] leading-relaxed">
         {s.before ? (
           <p className="break-words text-destructive/80">- {s.before}</p>
         ) : (
