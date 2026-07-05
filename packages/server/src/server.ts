@@ -9,9 +9,10 @@ import {AiService} from './ai/service';
 import {IdentityService} from './instanceConfig';
 import {BackupScheduler} from './backups';
 import {RosterSyncer, httpRosterFetcher, type RosterAssertionProvider} from './rosterSync';
-import {writeFileSync, rmSync, unlinkSync} from 'node:fs';
+import {readFileSync, writeFileSync, rmSync, unlinkSync} from 'node:fs';
 import {createServer} from 'node:http';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import os from 'node:os';
 
 export interface StartOptions {
@@ -87,6 +88,15 @@ export interface StartOptions {
    * re-import changes (DB-wins on conflict). Off when unset. See {@link BookMirror}.
    */
   bookDir?: string;
+  /**
+   * The viewer runtime bundle's JS source for the book mirror's
+   * `_openbook/viewer.js` (see {@link BookMirror}'s `runtimeBundle`). The
+   * compiled sidecar passes its embedded copy here; under Node it's resolved
+   * from `OPENBOOK_VIEWER_BUNDLE` (a path) or the server package's staged
+   * `assets/openbook-viewer.js`, and when none is available the mirror simply
+   * writes the plain static files (no reference — graceful degradation).
+   */
+  viewerRuntime?: string;
   /**
    * When set, require this access token on every `/api/*` request (header or
    * `?token=`). Used when the desktop publishes its server on the LAN so the
@@ -192,6 +202,36 @@ const DEFAULT_EDIT_LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 const DEFAULT_IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const DEFAULT_ASSET_GC_GRACE_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Best-effort disk lookup of the viewer runtime bundle for the book mirror's
+ * `_openbook/viewer.js`, used when {@link StartOptions.viewerRuntime} isn't
+ * supplied (i.e. every mode but the compiled sidecar, which embeds its copy):
+ *
+ *  1. `OPENBOOK_VIEWER_BUNDLE` — an explicit path (ops/dev override);
+ *  2. the server package's staged `assets/openbook-viewer.js` (build-sidecar.mjs
+ *     stages it there from the ui build; a headless deployment can drop one in
+ *     the same spot beside `dist/`).
+ *
+ * Returns `null` when neither yields bytes — the mirror then writes plain
+ * static files with no runtime reference (the documented graceful fallback), so
+ * a dev checkout that never built the ui works exactly as before.
+ */
+function resolveViewerRuntime(): string | null {
+  const candidates: string[] = [];
+  if (process.env.OPENBOOK_VIEWER_BUNDLE) candidates.push(process.env.OPENBOOK_VIEWER_BUNDLE);
+  // dist/…js and src/server.ts are both one level below the package root.
+  candidates.push(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'assets', 'openbook-viewer.js'));
+  for (const candidate of candidates) {
+    try {
+      const text = readFileSync(candidate, 'utf8');
+      if (text.length > 0) return text;
+    } catch {
+      // Missing/unreadable — try the next candidate.
+    }
+  }
+  return null;
+}
 
 /**
  * Start the OpenBook server. The single entry both modes use:
@@ -432,6 +472,10 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
       mirror = await BookMirror.create({
         store,
         dir: opts.bookDir,
+        // Folder-level viewer runtime (`_openbook/viewer.js`): explicit override
+        // (the sidecar's embedded copy) or the best-effort disk lookup; absent →
+        // the mirror writes plain static files, exactly as before.
+        runtimeBundle: opts.viewerRuntime ?? resolveViewerRuntime() ?? undefined,
         // A re-imported page must reach open clients, so publish it on the hub.
         onImported: async (page) => {
           hub.publishPage(page);

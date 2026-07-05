@@ -204,6 +204,35 @@ export function imagePlaceholderCell(asset: ImportedAsset): string {
   return asset.ref;
 }
 
+// ── HTML-artifact pending shim (run-as-artifact import) ──────────────────────
+
+/**
+ * The marker prop on an `htmlArtifact` block whose document bytes have not been
+ * uploaded yet. The run-as-artifact import lands the page FIRST (`putAsset`
+ * needs the landed page id for the asset's read-gate ref), then uploads the
+ * file's bytes and rewrites the pending block to a real `assetId` — the same
+ * land-then-rehydrate order as {@link IMAGE_PLACEHOLDER_PROP} images. A block
+ * still carrying the marker (upload failed) renders as the editor's visible
+ * "add an artifact" placeholder — degraded, never dropped.
+ */
+export const HTML_ARTIFACT_PENDING_PROP = 'importedArtifactPending';
+
+/**
+ * An `htmlArtifact` IR block awaiting its document upload — the run-as-artifact
+ * counterpart of {@link imagePlaceholderBlock}, minimal by design: the bytes
+ * live outside the IR (they go straight to the asset store), so the block only
+ * carries the display title and the pending marker. Pure: the id derives from
+ * the title, so the same import always yields the same block id.
+ */
+export function htmlArtifactPendingBlock(title?: string): ImportedBlock {
+  const clean = title?.trim() ?? '';
+  return {
+    id: `imp_art_${contentHash(clean)}`,
+    type: 'htmlArtifact',
+    props: {...(clean ? {title: clean} : {}), [HTML_ARTIFACT_PENDING_PROP]: true},
+  };
+}
+
 // ── Snapshot construction ────────────────────────────────────────────────────
 
 /**

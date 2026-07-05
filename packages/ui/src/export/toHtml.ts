@@ -23,7 +23,7 @@
  *   navigable via the viewer's hash nav (or the legacy router on fallback).
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
-import {assetsIslandScript, pageIslandScript, spaceIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
+import {assetsIslandScript, isSafeHref, pageIslandScript, spaceIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
@@ -158,7 +158,9 @@ function runToHtml(r: InlineRun, ctx: RenderCtx): string {
     const value = token ? `var(--obtc-${token}, ${escapeHtml(r.color)})` : escapeHtml(r.color);
     html = `<span style="color:${value}">${html}</span>`;
   }
-  if (r.link) html = `<a href="${escapeHtml(r.link)}">${html}</a>`;
+  // Scheme-gate the link href (escapeHtml doesn't touch the scheme); an unsafe
+  // scheme (javascript:/data:/…) degrades to inert text. See sdk isSafeHref.
+  if (r.link && isSafeHref(r.link)) html = `<a href="${escapeHtml(r.link)}">${html}</a>`;
   return html;
 }
 
@@ -347,7 +349,10 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
       const label = escapeHtml(str(d.label) || str(d.url));
       const url = str(d.url);
       const ext = /^https?:\/\//i.test(url) ? ' target="_blank" rel="noreferrer noopener"' : '';
-      html.push(url ? `<p><a class="button" href="${escapeHtml(url)}"${ext}>${label}</a></p>` : `<p><span class="button is-empty">${label}</span></p>`);
+      // Scheme-gate the button href; an unsafe/empty url renders as the inert
+      // is-empty span (same as no url). See sdk isSafeHref.
+      const safeUrl = url && isSafeHref(url);
+      html.push(safeUrl ? `<p><a class="button" href="${escapeHtml(url)}"${ext}>${label}</a></p>` : `<p><span class="button is-empty">${label}</span></p>`);
       break;
     }
     case 'divider': {
@@ -379,18 +384,21 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
       const assetId = str(d.assetId);
       const rawSrc = str(d.src);
       const direct = rawSrc && (rawSrc.startsWith('data:') || /^https?:\/\//i.test(rawSrc)) ? rawSrc : '';
-      const src = (assetId ? ctx.assets.get(assetId) : '') || direct;
+      const resolved = (assetId ? ctx.assets.get(assetId) : '') ?? '';
+      const src = resolved || direct;
       const alt = escapeHtml(str(d.alt));
       const caption = str(d.caption).trim();
       const widthStyle = d.width ? ` style="width:${escapeHtml(str(d.width))}"` : '';
       const figcap = caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : '';
-      // `data-asset-id` is part of the export asset contract: import (and the
-      // viewer's boot) recover `Map<assetId, bytes>` by pairing these tags'
-      // data-URIs with the assets island (which carries artifact documents).
-      const assetAttr = assetId && ctx.assets.get(assetId) ? ` data-asset-id="${escapeHtml(assetId)}"` : '';
+      // A store-resolved image is tagged with its content-addressed `assetId` so
+      // an island-first import (and the viewer's boot) can recover the bytes
+      // from this very file: the island's block-doc keeps the assetId, this
+      // <img> carries the data-URI (artifact documents ride the assets island
+      // instead), and re-uploading those bytes restores the SAME id.
+      const assetAttr = resolved ? ` data-asset-id="${escapeHtml(assetId)}"` : '';
       html.push(
         src
-          ? `<figure class="ob-image"><img${assetAttr} src="${escapeHtml(src)}" alt="${alt}"${widthStyle}>${figcap}</figure>`
+          ? `<figure class="ob-image"><img src="${escapeHtml(src)}" alt="${alt}"${widthStyle}${assetAttr}>${figcap}</figure>`
           : `<figure class="ob-image is-missing"><div class="ob-image-alt"${widthStyle}>${alt || 'Image'}</div>${figcap}</figure>`,
       );
       break;
@@ -506,7 +514,14 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
     }
     case 'kitbutton': {
       if (str(d.action) === 'link') {
-        html.push(`<p class="kitbtn"><a class="kit-btn" href="${escapeHtml(str(d.url))}" target="_blank" rel="noreferrer noopener">${escapeHtml(str(d.label))}</a></p>`);
+        // Scheme-gate the kit-button href; an unsafe scheme renders as an inert
+        // labelled span (no live link). See sdk isSafeHref.
+        const url = str(d.url);
+        html.push(
+          url && isSafeHref(url)
+            ? `<p class="kitbtn"><a class="kit-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(str(d.label))}</a></p>`
+            : `<p class="kitbtn"><span class="kit-btn is-empty">${escapeHtml(str(d.label))}</span></p>`,
+        );
         break;
       }
       ctx.buttons.push({id, action: str(d.action), target: str(d.target), amount: num(d.amount, 1), ...(typeof d.min === 'number' ? {min: d.min} : {}), ...(typeof d.max === 'number' ? {max: d.max} : {})});

@@ -24,11 +24,19 @@
  */
 import {
   imagePlaceholderBlock,
+  type AssetBytes,
   type ImportedBlock,
   type ImportedDoc,
   type ImportTextRun,
 } from '@book.dev/sdk';
 import {htmlToBlocks, type HtmlImageRef, type NewBlock} from '../blockeditor/model';
+import {
+  detectHtmlIsland,
+  readExportAssetMap,
+  summarizeHtmlIsland,
+  type HtmlIsland,
+  type IslandSummary,
+} from './islandImport';
 
 /** Options for {@link htmlToImportedDoc}. */
 export interface HtmlImportOptions {
@@ -142,4 +150,25 @@ export function htmlToImportedDoc(html: string, opts: HtmlImportOptions = {}): I
   title = title?.trim() || opts.defaultTitle || DEFAULT_TITLE;
 
   return {pages: [{title, blocks}]};
+}
+
+/** What {@link parseHtmlImport} produced: a lossless island restore, or the
+ *  legacy DOM-converted IR for foreign HTML. */
+export type ParsedHtmlImport =
+  | {kind: 'island'; island: HtmlIsland; assets: Map<string, AssetBytes>; summary: IslandSummary}
+  | {kind: 'doc'; doc: ImportedDoc};
+
+/**
+ * The single HTML-import entry point: scan for an OpenBook source island FIRST
+ * (a pure string scan — see `islandImport.ts`), and only when the file has none
+ * fall back to the lossy DOM conversion ({@link htmlToImportedDoc}). An OpenBook
+ * export therefore re-imports losslessly (block-doc, structure, databases,
+ * asset references intact), while foreign/legacy HTML routes exactly as before.
+ */
+export function parseHtmlImport(html: string, opts: HtmlImportOptions = {}): ParsedHtmlImport {
+  const island = detectHtmlIsland(html ?? '');
+  if (island) {
+    return {kind: 'island', island, assets: readExportAssetMap(html), summary: summarizeHtmlIsland(island)};
+  }
+  return {kind: 'doc', doc: htmlToImportedDoc(html, opts)};
 }

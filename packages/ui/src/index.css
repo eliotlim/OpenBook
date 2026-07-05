@@ -1429,6 +1429,29 @@ a.obe-mention {
   box-shadow: 0 0 0 2px hsl(var(--background) / 0.7);
 }
 .obe-artifact-frame:hover .obe-artifact-resize { opacity: 1; }
+/* Run full-window (top-right, hover-revealed like the resize handle). A
+   VIEWING affordance, not authoring chrome — deliberately NOT hidden by the
+   present-mode / read-only chrome rules below, so readers and presenters can
+   expand an artifact edge-to-edge. */
+.obe-artifact-expand {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem;
+  border-radius: 6px;
+  color: hsl(var(--muted-foreground));
+  background: hsl(var(--background) / 0.85);
+  box-shadow: 0 0 0 1px hsl(var(--border));
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.obe-artifact-expand:hover { background: var(--hover); color: hsl(var(--foreground)); }
+/* Keyboard reveal + themed ring live in the shared focus-visible rule below. */
+.obe-artifact-frame:hover .obe-artifact-expand { opacity: 1; }
 
 /* ── Present mode (slide deck) ───────────────────────────────────────────────
    A page rendered as slides (split at dividers): a centred sheet that fades and
@@ -1486,7 +1509,8 @@ a.obe-mention {
 
 /* The page reads as locked: hide every editing affordance. `.ob-viewer` is the
    standalone export viewer bundle (src/viewer), which reuses the same locked
-   surface outside the app shell. */
+   surface outside the app shell. The htmlArtifact chrome (title input, replace
+   tool, resize handle) is authoring UI, hidden on both locked surfaces too. */
 :is(.ob-present, .ob-viewer) .obe-gutter,
 :is(.ob-present, .ob-viewer) .obe-kit-gear,
 :is(.ob-present, .ob-viewer) .obe-cnt-add,
@@ -2029,6 +2053,7 @@ a.obe-mention {
 .obe-image-resize:focus-visible,
 .obe-artifact-tool:focus-visible,
 .obe-artifact-resize:focus-visible,
+.obe-artifact-expand:focus-visible,
 .obe-image-placeholder:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 1px;

@@ -85,6 +85,12 @@ export interface SandboxedHtmlProps {
    * sandbox.
    */
   csp?: string;
+  /**
+   * Fill the parent instead of using the fixed pixel `height` — for surfaces
+   * that size the frame themselves (the full-window artifact overlay). The
+   * sandbox posture is identical; only the sizing strategy changes.
+   */
+  fill?: boolean;
   className?: string;
 }
 
@@ -102,11 +108,14 @@ export function SandboxedHtml({
   emptyLabel = 'Nothing to preview yet.',
   errorLabel = 'This content could not be displayed.',
   csp,
+  fill = false,
   className,
 }: SandboxedHtmlProps): React.ReactElement {
   const ambientCsp = React.useContext(SandboxCspContext);
   const [state, setState] = React.useState<LoadState>('loading');
   const isEmpty = html.trim().length === 0;
+  // `fill` sizes via the parent (h-full); otherwise the fixed prop height.
+  const sizeStyle = fill ? undefined : {height};
 
   // Re-enter the loading state whenever the source changes, so the skeleton
   // reappears while the new document paints instead of flashing stale content.
@@ -120,9 +129,10 @@ export function SandboxedHtml({
       <div
         className={cn(
           'flex items-center justify-center rounded-md border border-dashed border-border bg-muted/30 text-sm text-muted-foreground',
+          fill && 'h-full',
           className,
         )}
-        style={{height}}
+        style={sizeStyle}
         data-testid="sandboxed-html-empty"
       >
         {emptyLabel}
@@ -133,7 +143,7 @@ export function SandboxedHtml({
   const srcDoc = wrapSandboxDocument(html, {csp: csp ?? ambientCsp});
 
   return (
-    <div className={cn('relative overflow-hidden rounded-md border border-border bg-background', className)}>
+    <div className={cn('relative overflow-hidden rounded-md border border-border bg-background', fill && 'h-full', className)}>
       {state === 'loading' && (
         <Skeleton className="absolute inset-0 rounded-md" data-testid="sandboxed-html-loading" />
       )}
@@ -161,8 +171,8 @@ export function SandboxedHtml({
         loading="lazy"
         onLoad={() => setState('ready')}
         onError={() => setState('error')}
-        className="block w-full border-0 bg-background"
-        style={{height}}
+        className={cn('block w-full border-0 bg-background', fill && 'h-full')}
+        style={sizeStyle}
         data-testid="sandboxed-html-frame"
       />
     </div>
