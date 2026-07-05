@@ -83,9 +83,12 @@ test('backup: export downloads a bundle and restore brings pages back', {tag: ['
   await request.delete(`${SERVER}/api/trash`);
 });
 
-// The full kit stays interactive offline: radio pills, checklists, dropdowns,
-// toggles and action buttons all drive multi-line live code, charts, and
-// status lights in the exported file — not just sliders.
+// The full kit stays interactive offline: radio pills, dropdowns, toggles and
+// action buttons all drive multi-line live code, charts, and status lights in
+// the exported file. Block-doc exports hydrate through the vendored viewer
+// (the REAL block renderer, locked-but-interactive), so the assertions target
+// the app's own widget markup — the retired bespoke runtime's `[data-cell]`
+// scaffolding no longer exists on this path.
 test('interactive HTML: option inputs and buttons drive code, charts, lights offline', {tag: ['@export']}, async ({page, request, context}) => {
   const res = await request.post(`${SERVER}/api/pages`, {
     data: {
@@ -130,27 +133,35 @@ test('interactive HTML: option inputs and buttons drive code, charts, lights off
   await viewer.route('**/*', (route) => route.abort());
   await viewer.setContent(html, {waitUntil: 'load'});
 
-  const total = viewer.locator('[data-cell="lc"] [data-val]');
+  // The vendored viewer hydrated over the static body (no legacy runtime).
+  await expect(viewer.locator('.ob-viewer')).toBeVisible();
+  await expect(viewer.locator('main')).toHaveCount(0);
+
+  const total = viewer.locator('.obe-code-out');
   // Pro(100) + turbo(20) + 4 × EU(10) = 160 → total > 150 → the light reads ok.
-  await expect(total).toHaveText('160');
-  await expect(viewer.locator('.kitlight')).toHaveAttribute('data-status', 'ok');
+  await expect(total).toContainText('= 160');
+  const light = viewer.locator('.obe-kit-status');
+  await expect(light).toHaveAttribute('data-status', 'ok');
 
-  // Wide radio: full-width pills with dots; flipping recomputes.
-  await expect(viewer.locator('.kit-radio.kit-wide .kit-dot')).toHaveCount(2);
-  await viewer.locator('.kit-radio [data-opt="Basic"]').click();
-  await expect(total).toHaveText('110');
+  // Radio pills; flipping recomputes.
+  await viewer.getByRole('radio', {name: 'Basic'}).click();
+  await expect(total).toContainText('= 110');
   // 110 ≤ 150 → false → the light flips to bad (no longer ok).
-  await expect(viewer.locator('.kitlight')).toHaveAttribute('data-status', 'bad');
+  await expect(light).toHaveAttribute('data-status', 'bad');
 
-  // Dropdown + toggle + button all keep working offline.
-  await viewer.locator('.kit-dropdown select').selectOption('US');
-  await expect(total).toHaveText('90');
-  await viewer.locator('.kit-toggle input').uncheck();
-  await expect(total).toHaveText('70');
-  await viewer.locator('[data-btn="btn"]').click();
-  await expect(total).toHaveText('80');
+  // Dropdown (the app's custom listbox) + toggle + button keep working offline.
+  await viewer.getByRole('combobox', {name: 'region value'}).click();
+  await viewer.getByRole('option', {name: 'US'}).click();
+  await expect(total).toContainText('= 90');
+  await viewer.getByRole('switch', {name: 'turbo toggle'}).click();
+  await expect(total).toContainText('= 70');
+  await viewer.getByRole('button', {name: 'Rate up'}).click();
+  await expect(total).toContainText('= 80');
 
-  // The chart redraws from the recomputed cell (bar rects present).
-  await expect.poll(() => viewer.locator('[data-chart] rect').count()).toBeGreaterThan(1);
+  // The chart redraws from the recomputed value (bar rects present).
+  await expect.poll(() => viewer.locator('.obe-chart-svg rect').count()).toBeGreaterThan(1);
+
+  // Nothing was edited or persisted: the source island is byte-unchanged.
+  await expect(viewer.locator('[contenteditable="true"]')).toHaveCount(0);
   await viewer.close();
 });
