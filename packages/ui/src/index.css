@@ -349,9 +349,7 @@
    chrome. Components tag chrome with `print:hidden`; the content column drops
    its width cap so the page uses the paper. */
 @media print {
-  .max-w-content,
-  .ce-block__content,
-  .ce-toolbar__content {
+  .max-w-content {
     max-width: none !important;
   }
 }
@@ -399,30 +397,6 @@
 /* Don't draw a scrollbar until there's a reason to hover the region. */
 *::-webkit-scrollbar-corner {
   background: transparent;
-}
-
-/* ── EditorJS theming to match the document surface ─────────────────────── */
-.codex-editor {
-  color: hsl(var(--foreground));
-}
-/* Center the editor content in a comfortable column (toolbar/+ stays in the
-   left gutter). The editor element itself is full-width so EditorJS never
-   switches to its narrow layout (which would move the toolbar to the right). */
-.ce-block__content,
-.ce-toolbar__content {
-  max-width: 46rem;
-}
-/* Full-width view: let the editor content fill the page like the title and
-   database sections (toggled by the holder class the document sets). */
-.ob-editor-full .ce-block__content,
-.ob-editor-full .ce-toolbar__content {
-  max-width: none;
-}
-/* On a page that hosts a database, collapse EditorJS's tall default bottom
-   padding (~300px, set inline so it needs !important) so the database sits right
-   under the content — the breathing room belongs below the database, not above. */
-.ob-editor-compact .codex-editor__redactor {
-  padding-bottom: 0.25rem !important;
 }
 
 /* Page cover banner: a full-bleed image / gradient above the title. The height
@@ -502,19 +476,10 @@
 }
 .ob-page-fonts :is(h1, h2, h3, h4, h5, h6),
 .ob-page-fonts .ob-page-title,
-.ob-page-fonts .ce-header,
 .ob-page-fonts .obe-heading {
   font-family: var(--ob-font-heading, var(--ob-font-body, inherit));
 }
-.ce-paragraph {
-  line-height: 1.6;
-  font-size: 0.9375rem; /* 15px — comfortable reading body */
-}
-.cdx-block {
-  padding: 0.2rem 0;
-}
-[data-placeholder]:empty::before,
-.ce-paragraph[data-placeholder]:empty::before {
+[data-placeholder]:empty::before {
   color: hsl(var(--muted-foreground) / 0.7);
   font-style: normal;
 }
@@ -523,131 +488,6 @@
    reads as clutter. Keep the hint for the focused block only. */
 .obe-compact [data-placeholder]:empty:not(:focus)::before {
   content: none;
-}
-.ce-header {
-  font-weight: 650;
-  line-height: 1.3;
-  padding: 0.4em 0 0.2em;
-  letter-spacing: -0.01em;
-}
-h1.ce-header {
-  font-size: 1.875rem;
-}
-h2.ce-header {
-  font-size: 1.5rem;
-}
-h3.ce-header {
-  font-size: 1.25rem;
-}
-.cdx-list,
-.cdx-checklist {
-  line-height: 1.65;
-}
-.cdx-quote {
-  border-left: 3px solid hsl(var(--border));
-  padding-left: 1rem;
-  margin: 0.5rem 0;
-}
-.cdx-quote .cdx-input,
-.cdx-quote__text,
-.cdx-quote__caption {
-  border: 0 !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  padding: 0.1rem 0 !important;
-  border-radius: 0 !important;
-}
-/* @editorjs/quote reserves a 158px-tall text area — a one-line quote floats in
-   a sea of dead space. Let it hug its content (the extra selector outranks the
-   plugin's own rule regardless of stylesheet order). */
-.cdx-quote .cdx-quote__text {
-  min-height: 0;
-}
-.cdx-quote__text {
-  font-size: 1.05rem;
-  line-height: 1.6;
-}
-.cdx-quote__caption {
-  color: hsl(var(--muted-foreground));
-  font-size: 0.85rem;
-}
-.ce-delimiter {
-  padding: 0.5rem 0;
-}
-/* Generic boxed inputs (e.g. code blocks) themed to the surface. */
-.cdx-input,
-.ce-code__textarea {
-  border: 1px solid hsl(var(--border));
-  border-radius: var(--radius);
-  background-color: hsl(var(--muted) / 0.5);
-  color: hsl(var(--foreground));
-}
-
-/* EditorJS toolbar + popover (slash / plus / settings) */
-.ce-toolbar__plus,
-.ce-toolbar__settings-btn {
-  color: hsl(var(--muted-foreground));
-  background-color: transparent;
-  border-radius: var(--radius);
-}
-.ce-toolbar__plus:hover,
-.ce-toolbar__settings-btn:hover {
-  background-color: hsl(var(--accent));
-  color: hsl(var(--foreground));
-}
-.ce-popover,
-.ce-popover--opened > .ce-popover__container {
-  background-color: hsl(var(--popover));
-  color: hsl(var(--popover-foreground));
-  border: 1px solid hsl(var(--border));
-  border-radius: calc(var(--radius) + 2px);
-  box-shadow: 0 10px 38px -10px hsl(var(--foreground) / 0.18), 0 4px 12px hsl(var(--foreground) / 0.08);
-}
-.ce-popover-item__icon,
-.ce-popover-item__title {
-  color: hsl(var(--popover-foreground));
-}
-.ce-popover-item:hover,
-.ce-popover-item--focused {
-  background-color: hsl(var(--accent)) !important;
-}
-.ce-popover-item__icon {
-  background-color: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
-}
-.cdx-search-field {
-  background-color: hsl(var(--muted));
-  border: 1px solid hsl(var(--border));
-  color: hsl(var(--foreground));
-}
-/* Theme only the *shown* toolbar: the bare element keeps a border/background
-   even while hidden, which painted as a stray 2px speck in the left gutter. */
-.ce-inline-toolbar--showed {
-  background-color: hsl(var(--popover));
-  color: hsl(var(--popover-foreground));
-  border: 1px solid hsl(var(--border));
-}
-.ce-inline-tool,
-.ce-conversion-toolbar {
-  color: hsl(var(--popover-foreground));
-  background-color: hsl(var(--popover));
-}
-.ce-inline-tool:hover,
-.ce-conversion-tool:hover {
-  background-color: hsl(var(--accent));
-}
-/* WKWebView (the desktop's Safari engine) suppresses `click` events on elements
-   that aren't "clickable" — i.e. lack `cursor: pointer` — while a contenteditable
-   is focused. EditorJS 2.31 only sets a cursor on *disabled* popover items, so the
-   toolbox/inline-tool items default to `cursor: auto`: the popover opens but
-   selecting an item silently does nothing on desktop (works in Chromium, which
-   ignores the quirk). Marking the interactive items as pointers restores clicks.
-   See https://developer.apple.com/forums/thread/71375. */
-.ce-popover-item,
-.ce-inline-tool,
-.ce-conversion-tool,
-.ce-toolbox__button {
-  cursor: pointer;
 }
 
 /* Inline @-mention: a link from one page to another. Atomic (contenteditable
@@ -692,13 +532,6 @@ h3.ce-header {
 .reactive-block figure > div {
   color: hsl(var(--muted-foreground));
   font-size: 0.75rem;
-}
-/* EditorJS ships `.codex-editor path { stroke: currentColor }` for its icons,
-   which clobbers Observable Plot's per-series stroke attributes — every chart
-   line rendered foreground-black while the legend kept its colors. revert-layer
-   skips the (unlayered) EditorJS rule so the SVG attribute wins again. */
-.codex-editor .reactive-block figure path {
-  stroke: revert-layer;
 }
 
 /* ── New block types ──────────────────────────────────────────────────────── */
@@ -903,24 +736,6 @@ h3.ce-header {
 .block-toc__link:hover {
   color: hsl(var(--foreground));
   text-decoration: underline;
-}
-.ce-block--toc-flash {
-  animation: tocFlash 0.9s ease-out;
-}
-@keyframes tocFlash {
-  0% { background: hsl(var(--brand-subtle)); }
-  100% { background: transparent; }
-}
-
-/* @editorjs/table theming (it reads these CSS vars). */
-.tc-wrap {
-  --color-border: hsl(var(--border));
-  --color-text-secondary: hsl(var(--muted-foreground));
-  --toolbox-buttons-color: hsl(var(--muted-foreground));
-  --toolbox-buttons-color-hover: hsl(var(--foreground));
-}
-.tc-table {
-  font-size: 0.9rem;
 }
 
 /* ── Block editor (obe-*) ─────────────────────────────────────────────────────
