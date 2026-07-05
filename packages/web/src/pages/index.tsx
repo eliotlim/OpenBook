@@ -102,6 +102,41 @@ function useDesktopShellPreview(): PlatformLibrary | undefined {
   );
 }
 
+/**
+ * Preview / test seam for the desktop-only updates section. The real self-update
+ * capability is supplied by the Tauri shell; the web app can't self-update, so
+ * the section is normally absent here. `?updates=<outcome>` injects a *mock*
+ * `updates` capability so the section can be exercised in the browser (Chromatic
+ * / e2e): `available` → an update is offered, `security` → a security update,
+ * `error` → the check fails, anything else → up to date. Read after mount so the
+ * initial render still matches the server-rendered HTML. Never active without
+ * the query flag, so production stays update-free on the web.
+ */
+function useUpdatesPreview(): PlatformLibrary['updates'] | undefined {
+  const [mode, setMode] = useState<string | null>(null);
+  useEffect(() => {
+    setMode(new URLSearchParams(window.location.search).get('updates'));
+  }, []);
+  return useMemo<PlatformLibrary['updates']>(() => {
+    if (!mode) return undefined;
+    return {
+      getAppVersion: async () => '1.69.1',
+      checkForUpdate: async () => {
+        if (mode === 'available') return {status: 'update-available', latestVersion: '1.72.0', latestForCurrentMajor: '1.72.0'};
+        if (mode === 'security')
+          return {status: 'update-available', latestVersion: '1.72.0', security: {updateAvailable: true, fixedIn: '1.72.0'}};
+        if (mode === 'error') return {status: 'error', error: 'mock'};
+        return {status: 'up-to-date'};
+      },
+      // Install/relaunch are inert in the browser preview — there's no Tauri
+      // updater to drive. The seam exists to exercise the *check* states; the
+      // real download/relaunch only runs in the desktop shell.
+      downloadAndInstall: async () => {},
+      relaunch: async () => {},
+    };
+  }, [mode]);
+}
+
 // The forwarding edge tags a `<prefix>.book.pub` app-shell request with the site
 // prefix (open.book.pub's edge `PREFIX_HEADER`). It's a request header, so it's only
 // visible server-side — read it here and hand it to the client, which uses it to pick
@@ -124,6 +159,7 @@ export const getServerSideProps: GetServerSideProps<{
 export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSidePropsType<typeof getServerSideProps>) {
   const {client, browserLocal} = useWebClient(forwardedPrefix);
   const shellPreview = useDesktopShellPreview();
+  const updatesPreview = useUpdatesPreview();
   // Tell the UI when the workspace is the in-browser store (nothing outside this
   // browser can reach it) so the sharing surfaces annotate themselves honestly.
   // Merged over the desktop-shell preview: even under `?shell=desktop` the data
@@ -132,9 +168,10 @@ export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSid
   // than the generic local default.
   const platform = useMemo<PlatformLibrary | undefined>(() => {
     const base = browserLocal ? {...shellPreview, browserLocalWorkspace: true} : shellPreview;
-    if (!forwardedHost) return base;
-    return {...(base ?? {}), forwardedHost};
-  }, [browserLocal, shellPreview, forwardedHost]);
+    const withHost = forwardedHost ? {...(base ?? {}), forwardedHost} : base;
+    if (!updatesPreview) return withHost;
+    return {...(withHost ?? {}), updates: updatesPreview};
+  }, [browserLocal, shellPreview, forwardedHost, updatesPreview]);
 
   return (
     <>

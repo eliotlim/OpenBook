@@ -15,6 +15,7 @@
  */
 import type {PageSnapshot} from './types';
 import {latestBlockMtime} from './mtime';
+import {islandScript, readIsland} from './island';
 
 /** A page reduced to what a book file needs to carry. */
 export interface BookPageRecord {
@@ -26,7 +27,21 @@ export interface BookPageRecord {
   data: PageSnapshot;
 }
 
-const MARKER = 'application/openbook+json';
+/**
+ * The canonical **page source-island** payload: a versioned {@link BookPageRecord}.
+ * This is exactly what a `.book.html` file AND a single-page / slide-deck HTML
+ * export embed, so `bookHtmlToPage` (or the generic `readIsland`) reads any of
+ * them back the same way. Downstream import consumes this shape.
+ */
+export interface PageIsland extends BookPageRecord {
+  version: 1;
+}
+
+/** Wrap a page record as its source-island `<script>` (versioned, escaped). */
+export function pageIslandScript(record: BookPageRecord, opts: {attrs?: string; indent?: string} = {}): string {
+  const {id, name, icon, updatedAt, data} = record;
+  return islandScript({version: 1, id, name, icon, updatedAt, data}, opts);
+}
 
 const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -134,10 +149,6 @@ export function pageToBookHtml(record: BookPageRecord): string {
     })
     .join('\n');
 
-  // The island JSON is escaped so a literal `</script>` in content can't close
-  // the tag early; `<\/` is still valid JSON and parses back to `</`.
-  const island = JSON.stringify({version: 1, id, name, icon, updatedAt, data}).replace(/<\//g, '<\\/');
-
   return `<!doctype html>
 <html lang="en" data-openbook="book-page" data-page-id="${esc(id)}" data-page-name="${esc(title)}" data-page-updated="${esc(updatedAt)}" data-page-mtime="${esc(pageMtime)}">
 <head>
@@ -150,9 +161,7 @@ export function pageToBookHtml(record: BookPageRecord): string {
     <h1 class="ob-page-title">${icon ? `${esc(icon)} ` : ''}${esc(title)}</h1>
 ${body}
   </article>
-  <script type="${MARKER}" data-openbook-snapshot>
-${island}
-  </script>
+${pageIslandScript({id, name, icon, updatedAt, data}, {attrs: 'data-openbook-snapshot', indent: '  '})}
 </body>
 </html>
 `;
@@ -181,21 +190,13 @@ const unesc = (s: string): string =>
  * backups, moved files all preserve the island).
  */
 export function bookHtmlToPage(html: string): BookPageRecord | null {
-  const m = html.match(
-    new RegExp(`<script[^>]*type="${MARKER.replace(/[/+]/g, '\\$&')}"[^>]*>([\\s\\S]*?)</script>`, 'i'),
-  );
-  if (!m) return null;
-  try {
-    const parsed = JSON.parse(m[1].trim()) as Partial<BookPageRecord> & {version?: number};
-    if (!parsed.id || !parsed.data) return null;
-    return {
-      id: parsed.id,
-      name: parsed.name ?? null,
-      icon: parsed.icon ?? null,
-      updatedAt: parsed.updatedAt ?? '',
-      data: parsed.data,
-    };
-  } catch {
-    return null;
-  }
+  const parsed = readIsland<Partial<PageIsland>>(html);
+  if (!parsed || !parsed.id || !parsed.data) return null;
+  return {
+    id: parsed.id,
+    name: parsed.name ?? null,
+    icon: parsed.icon ?? null,
+    updatedAt: parsed.updatedAt ?? '',
+    data: parsed.data,
+  };
 }

@@ -25,6 +25,7 @@ import type {BookFolderFile, DataClient, ServerInfo} from '@book.dev/sdk';
 import {createDesktopClient, DEV_SERVER_URL} from './data/client';
 import {tauriStreamFetch} from './data/ipc';
 import {createTauriKeyStore, createLocalStorageKeyStore, createTauriAccountStore} from './data/keychain';
+import {createDesktopUpdates} from './data/updates';
 
 import '@book.dev/ui/style.css';
 
@@ -171,6 +172,10 @@ const platform: PlatformLibrary = {
       return () => unlisten?.();
     },
   },
+  // Self-update (OB-342): version surface + account-driven check + Tauri
+  // updater install/relaunch. Presence of this key is the capability flag the
+  // UI's Updates section (and the scheduler) key off; the web shell has none.
+  updates: createDesktopUpdates(),
 };
 
 function App() {

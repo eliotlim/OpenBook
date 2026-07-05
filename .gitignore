@@ -148,6 +148,9 @@ packages/web/playwright-report/
 packages/web/blob-report/
 packages/web/.last-run.json
 
+# Viewer bundle (generated into the ?raw-able vendor dir by `pnpm build:viewer`)
+packages/ui/src/export/vendor/openbook-viewer.js
+
 # Nx cache
 .nx/cache
 .nx/workspace-data

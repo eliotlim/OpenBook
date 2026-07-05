@@ -107,13 +107,77 @@ export interface ForwardingPlatform {
   localFetch?: FetchLike;
 }
 
+/** Security-relevant detail on an available update, when the check surfaced any. */
+export interface UpdateSecurityInfo {
+  /** True when the available update fixes a security issue affecting this build. */
+  updateAvailable: boolean;
+  /** The first version that ships the fix, when known (e.g. "1.72.0"). */
+  fixedIn?: string;
+}
+
+/**
+ * The normalized outcome of an update check. `checkForUpdate` never rejects —
+ * transport / server failures resolve as `{status: 'error'}` so the UI can show
+ * a calm inline error rather than crash. The version fields mirror the check
+ * endpoint's `{latestVersion, latestMajor, latestForCurrentMajor, security}`
+ * shape so the desktop integration can pass them straight through.
+ */
+export interface UpdateCheckResult {
+  status: 'update-available' | 'up-to-date' | 'error';
+  /** The newest version available for this build to move to (respects the
+   *  current major line unless a major jump is offered). */
+  latestVersion?: string;
+  /** The newest version on any major line (e.g. a `2.x` when the user is on `1.x`). */
+  latestMajor?: string;
+  /** The newest version on the *current* major line — the safe, same-major update. */
+  latestForCurrentMajor?: string;
+  /** Security-relevant update detail, when the check surfaced any. */
+  security?: UpdateSecurityInfo;
+  /** Human-readable failure detail when `status === 'error'`. */
+  error?: string;
+}
+
+/**
+ * How the host checks for, downloads and applies app updates. Only the desktop
+ * (Tauri) shell can self-update, so it supplies this; the web shell leaves it
+ * undefined (the browser app is always the latest served build — nothing to
+ * update) and the UI hides the whole updates section — the capability flag is
+ * the *presence* of `platform.updates`, not any per-method probing. The desktop
+ * implementation (`packages/app/src/data/updates.ts`) wraps
+ * `@tauri-apps/plugin-updater` / `@tauri-apps/plugin-process`. It intentionally
+ * carries no cadence / security-only preference: those are user settings
+ * persisted by the UI (see `lib/updatePreferences`), read by a scheduler, and
+ * used to decide *when* and *what* to act on — the platform layer only performs
+ * a single check / install step on demand.
+ */
+export interface UpdatesPlatform {
+  /** The running app's version string (e.g. "1.69.1"). */
+  getAppVersion(): Promise<string>;
+  /** Ask the update server whether a newer build exists. Never rejects — see
+   *  {@link UpdateCheckResult}. */
+  checkForUpdate(): Promise<UpdateCheckResult>;
+  /**
+   * Download and stage the newest same-major update through the host's signed
+   * update channel (the Tauri updater: pinned manifest endpoint + pinned
+   * pubkey — NOT the `checkForUpdate` endpoint, which is informational).
+   * Resolves once the update is staged and a {@link relaunch} will apply it;
+   * resolves as a no-op when the manifest says this build is already current.
+   * Rejects on download / signature-verification failure — callers (the
+   * scheduler, the Settings action) surface that as their own error state.
+   */
+  downloadAndInstall(): Promise<void>;
+  /** Relaunch the app, applying any update staged by {@link downloadAndInstall}. */
+  relaunch(): Promise<void>;
+}
+
 /**
  * Capabilities the host platform provides to the UI. The Tauri desktop app
  * supplies `serverControls` (inspect/publish the local server), `bookFolder`
  * (native folder export/import), `forwarding` (keychain for *.book.pub),
  * `tabs` (in-window tabs), `windowControls` (frameless min/max/close on
- * Windows/Linux), and `account` (deep-link sign-in); the web shell leaves these
- * undefined and the UI falls back to browser behaviour.
+ * Windows/Linux), `account` (deep-link sign-in), and `updates` (self-update
+ * check); the web shell leaves these undefined and the UI falls back to browser
+ * behaviour (and hides desktop-only surfaces like the updates section).
  */
 export interface PlatformLibrary {
   serverControls?: ServerControls;
@@ -122,6 +186,9 @@ export interface PlatformLibrary {
   tabs?: TabsPlatform;
   windowControls?: WindowControls;
   account?: AccountPlatform;
+  /** Self-update checking. Desktop only; its presence is the "updates
+   *  supported" capability flag the UI keys the updates section off. */
+  updates?: UpdatesPlatform;
   /**
    * Declared by hosts whose workspace lives only in this browser profile — the
    * standalone web app's embedded PGlite store (P0-4 sharing audit). Nothing

@@ -7,6 +7,10 @@ export * from './providers';
 export * from './screens';
 export {SETTINGS_TABS, isSettingsTab} from './lib/hud';
 export type {HudProps, SettingsTab, SettingsMode} from './lib/hud';
+// The account update-check client + response mapping, consumed by the desktop
+// shell's `platform.updates` implementation (and the update scheduler).
+export {checkForUpdateViaAccount, mapUpdateCheckResponse, compareSemver} from './lib/updateCheck';
+export type {UpdateCheckParams, UpdateCheckOptions} from './lib/updateCheck';
 
 // Untrusted-HTML sandbox contract (no React dep) — reused by the SandboxedHtml
 // component and, later, the export pipeline's string-built iframes.

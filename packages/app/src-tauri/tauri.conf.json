@@ -8,6 +8,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -31,6 +32,12 @@
       "desktop": {
         "schemes": ["openbook"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJERDA1QzRBQjRFMUQ2RkIKUldUNzF1RzBTbHpRdlNJYndRbzJwcmVzZExzcFJiUEFoRDNKMXlDT1VmbXp1K09GbWZyL2xuNUQK",
+      "endpoints": [
+        "https://account.book.pub/api/updates/manifest?target={{target}}&arch={{arch}}&current_version={{current_version}}"
+      ]
     }
   },
   "app": {

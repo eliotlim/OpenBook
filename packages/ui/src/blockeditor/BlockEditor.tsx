@@ -66,7 +66,7 @@ import {MentionMenu} from './MentionMenu';
 import {EmojiMenu} from './EmojiMenu';
 import {LinkPicker} from './LinkPicker';
 import {hasKitConfig, openKitConfig} from './kit/kitConfig';
-import {KitLockContext, KitPageLockContext, useKitLock} from './kit/lock';
+import {KitLockContext, KitPageLockContext, useKitLock, useKitPageLock} from './kit/lock';
 import {KitInlineText} from './kit/KitFrame';
 import {groupInputs, inputValue, setInputValue} from './kit/scope';
 import {sectionCompletion, type CompletionStat} from './kit/completion';
@@ -1465,6 +1465,7 @@ const AccordionView: React.FC<RowShared & {block: BlockMap}> = ({block, ...share
   const sections = blockChildren(block)!;
   const gated = Boolean(blockProp<boolean>(block, 'gated'));
   const parentLocked = useKitLock();
+  const pageLocked = useKitPageLock();
 
   const set = (key: string, value: unknown): void => doc.transact(() => setBlockProp(block, key, value), 'local');
   const addSection = (): void => {
@@ -1479,9 +1480,14 @@ const AccordionView: React.FC<RowShared & {block: BlockMap}> = ({block, ...share
   return (
     <section className="obe-cnt obe-accordion" data-kit-name={blockProp<string>(block, 'name') || undefined}>
       {sections.map((section, i) => {
-        const locked = parentLocked || (gated && !reachable(i));
-        // Gating force-collapses unreachable sections; otherwise honour state.
-        const collapsed = locked || Boolean(blockProp<boolean>(section, 'collapsed'));
+        const gateLocked = gated && !reachable(i);
+        const locked = parentLocked || gateLocked;
+        // Gating (and an author-locked group) force-collapses sections; a
+        // whole-page reader lock (read-only viewer, the export viewer bundle)
+        // keeps them navigable — expanding a section is reader navigation,
+        // not an edit (its contents stay locked either way).
+        const forceCollapsed = gateLocked || (parentLocked && !pageLocked);
+        const collapsed = forceCollapsed || Boolean(blockProp<boolean>(section, 'collapsed'));
         return (
           <div key={blockId(section)} className={`obe-acc-section${locked ? ' obe-cnt-locked' : ''}`}>
             <header className="obe-acc-head" contentEditable={false}>
@@ -1489,7 +1495,7 @@ const AccordionView: React.FC<RowShared & {block: BlockMap}> = ({block, ...share
                 type="button"
                 className="obe-acc-toggle"
                 aria-expanded={!collapsed}
-                disabled={locked}
+                disabled={forceCollapsed}
                 onClick={() => doc.transact(() => setBlockProp(section, 'collapsed', !collapsed), 'local')}
               >
                 {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -1504,7 +1510,7 @@ const AccordionView: React.FC<RowShared & {block: BlockMap}> = ({block, ...share
               />
               <span className="obe-cnt-spacer" />
               <CompletionBadge stat={stats[i]} />
-              {locked && <Lock className="h-3.5 w-3.5 opacity-60" aria-hidden />}
+              {forceCollapsed && <Lock className="h-3.5 w-3.5 opacity-60" aria-hidden />}
             </header>
             {!collapsed && (
               <KitLockContext.Provider value={{locked}}>

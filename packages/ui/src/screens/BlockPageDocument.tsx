@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import * as Y from 'yjs';
 import type {PageSnapshot} from '@book.dev/sdk';
+import {ICON_PROPERTY_ID} from '@book.dev/sdk';
 import {BlockEditor, type BlockEditorHandle, type LocalSelection} from '@/blockeditor/BlockEditor';
 import {
   createSeededDoc,
@@ -349,6 +350,10 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       blockdoc: encodeSnapshot(doc),
     });
     const base = safeFilename(title);
+    // Identity stamped into a single-page/deck export's source island (so a saved
+    // page re-imports onto its own id). Unsaved pages leave it blank — the island
+    // still round-trips the content losslessly.
+    const meta = {id: pageId};
     try {
       if (kind === 'md') {
         // Resolve image assets (assetId → data-URI) up front so every renderer
@@ -365,17 +370,38 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         ]);
         const blob =
           kind === 'pdf-slides'
-            ? await toPdfSlides(toSlideDeck(snapshot, title, icon, assets))
-            : await toPdf(toHtml(snapshot, title, icon, assets), kind === 'pdf-continuous' ? 'continuous' : 'paged');
+            ? await toPdfSlides(toSlideDeck(snapshot, title, icon, assets, meta))
+            : await toPdf(toHtml(snapshot, title, icon, assets, meta), kind === 'pdf-continuous' ? 'continuous' : 'paged');
         downloadBlob(`${base}${kind === 'pdf-slides' ? '-slides' : ''}.pdf`, blob);
       } else if (kind === 'html-slides') {
         const [{toSlideDeck}, assets] = await Promise.all([import('@/export/toHtml'), resolveExportAssets(client, [snapshot])]);
-        downloadText(`${base}-slides.html`, toSlideDeck(snapshot, title, icon, assets), 'text/html');
+        downloadText(`${base}-slides.html`, toSlideDeck(snapshot, title, icon, assets, meta), 'text/html');
       } else {
         const [{toHtmlSite}, {gatherSite}] = await Promise.all([import('@/export/toHtml'), import('@/export/exportSite')]);
         const bundle = pageId
           ? await gatherSite(client, pageId, {snapshot, title, icon})
-          : {rootId: '', pages: [{id: '', title, icon, snapshot}]};
+          : {
+            rootId: '',
+            pages: [{id: '', title, icon, snapshot}],
+            // Unsaved single page: the island still carries the lossless source.
+            space: {
+              pages: [
+                {
+                  id: '',
+                  name: title,
+                  data: snapshot,
+                  hostedDatabaseId: null,
+                  databaseId: null,
+                  parentId: null,
+                  properties: icon ? {[ICON_PROPERTY_ID]: icon} : {},
+                  deletedAt: null,
+                  createdAt: '',
+                  updatedAt: '',
+                },
+              ],
+              databases: [],
+            },
+          };
         // A whole-site export can embed images from every reachable page.
         const assets = await resolveExportAssets(client, bundle.pages.map((p) => p.snapshot));
         downloadText(`${base}.html`, toHtmlSite(bundle, assets), 'text/html');
