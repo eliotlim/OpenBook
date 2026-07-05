@@ -15,7 +15,7 @@ import {
   type StoredDatabase,
   type StoredPage,
 } from '@book.dev/sdk';
-import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
+import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
 import {DEFAULT_PAGE_ICON, readPageIcon} from '@/lib/pageIcon';
 
 /** A database hosted by a page, projected for static rendering. */
@@ -53,7 +53,7 @@ const MAX_PAGES = 400;
 
 /** Page ids a snapshot references: subpage/database blocks and inline `@`-mentions. */
 export function referencedPageIds(rawSnapshot: PageSnapshot): string[] {
-  const snapshot = blockSnapshotToEditorJs(rawSnapshot);
+  const snapshot = projectSnapshotForExport(rawSnapshot);
   const ids = new Set<string>();
   const blocks = (snapshot.editorjs as {blocks?: Array<{type?: string; data?: Record<string, unknown>}>} | undefined)?.blocks ?? [];
   const fromStrings = (v: unknown): void => {
@@ -100,7 +100,7 @@ export async function gatherSite(
     const isRoot = id === rootId;
     if (!stored && !isRoot) continue;
 
-    const snapshot = blockSnapshotToEditorJs(isRoot ? root.snapshot : stored!.data);
+    const snapshot = projectSnapshotForExport(isRoot ? root.snapshot : stored!.data);
     const title = (isRoot ? root.title : stored!.name ?? '').trim() || 'Untitled';
     // Prefer the icon stored on the page record (it travels in properties now);
     // fall back to the in-memory cache / default for the unsaved root.

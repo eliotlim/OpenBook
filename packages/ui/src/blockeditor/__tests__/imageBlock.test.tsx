@@ -4,7 +4,7 @@ import {createDoc, decodeSnapshot, docToJSON, encodeSnapshot, rootBlocks} from '
 import {BlockEditor} from '../BlockEditor';
 import {PresentBlocks} from '../PresentBlocks';
 import {SLASH_ITEMS} from '../SlashMenu';
-import {blocksToEditorJs, blocksToHtml, blocksToMarkdown} from '../exportBlocks';
+import {projectBlocksForExport, blocksToHtml, blocksToMarkdown} from '../exportBlocks';
 import {
   IMAGE_BLOCK_TYPE,
   MAX_IMAGE_DATA_URL_BYTES,
@@ -221,7 +221,7 @@ describe('image block — export is crash-safe (real image export is Assets A3)'
   it('HTML / Markdown / EditorJS exporters do not throw on an image block', () => {
     expect(() => blocksToHtml(blocks)).not.toThrow();
     expect(() => blocksToMarkdown(blocks)).not.toThrow();
-    expect(() => blocksToEditorJs(blocks)).not.toThrow();
+    expect(() => projectBlocksForExport(blocks)).not.toThrow();
     // The surrounding blocks still export.
     expect(blocksToHtml(blocks)).toContain('Title');
     expect(blocksToMarkdown(blocks)).toContain('After');

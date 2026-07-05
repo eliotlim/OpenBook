@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {createDoc, docToJSON} from '../../model';
-import {blocksToEditorJs, blocksToHtml, blocksToMarkdown} from '../../exportBlocks';
+import {projectBlocksForExport, blocksToHtml, blocksToMarkdown} from '../../exportBlocks';
 
 const doc = () =>
   docToJSON(
@@ -23,7 +23,7 @@ const doc = () =>
 
 describe('export of June-2026 inputs', () => {
   it('publishes new input values and tokenizes a progress expr', () => {
-    const out = blocksToEditorJs(doc());
+    const out = projectBlocksForExport(doc());
     expect(out.values).toEqual(
       expect.arrayContaining([['cc', 'pro'], ['tg', ['ai', 'ml']], ['lt', 'hi'], ['rt', 'Bold']]),
     );
@@ -32,7 +32,7 @@ describe('export of June-2026 inputs', () => {
   });
 
   it('flattens the accordion children in reading order with section headings', () => {
-    const out = blocksToEditorJs(doc());
+    const out = projectBlocksForExport(doc());
     const header = out.blocks.find((b) => b.type === 'header' && (b.data as {text: string}).text.includes('A'));
     expect(header).toBeTruthy();
     // The number input inside the section still emits as a live slider.

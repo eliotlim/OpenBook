@@ -19,10 +19,10 @@ import {awaitImages} from '../toPdf';
 const PNG_BYTES = new Uint8Array([1, 2, 3, 4]);
 const PNG_DATA_URI = bytesToDataUri(PNG_BYTES, 'image/png'); // data:image/png;base64,AQIDBA==
 
-/** An EditorJS-shape snapshot (passes through blockSnapshotToEditorJs untouched). */
+/** A legacy stored-shape snapshot (passes through projectSnapshotForExport untouched). */
 const snapshot = (blocks: unknown[]): PageSnapshot => ({editorjs: {blocks}, values: [], names: []});
 
-/** A block-CRDT snapshot (exercises the blocksToEditorJs image projection). */
+/** A block-CRDT snapshot (exercises the projectBlocksForExport image projection). */
 const blockSnapshot = (blocks: Parameters<typeof createDoc>[0]): PageSnapshot =>
   ({editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(createDoc(blocks))}) as never;
 

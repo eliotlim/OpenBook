@@ -8,7 +8,7 @@ import type {
   StoredPage,
 } from '@book.dev/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
-import {blockSnapshotToEditorJs} from '../../blockeditor/exportBlocks';
+import {projectSnapshotForExport} from '../../blockeditor/exportBlocks';
 import {toHtml, toHtmlSite} from '../../export/toHtml';
 import type {SiteBundle} from '../../export/exportSite';
 import {bytesToDataUri} from '../../export/exportAssets';
@@ -214,7 +214,7 @@ describe('site export → island-first import (round trip)', () => {
     const bundle: SiteBundle = {
       rootId: 'root',
       // gatherSite projects each page for rendering; the island keeps the raw space.
-      pages: space.pages.map((p) => ({id: p.id, title: p.name ?? '', icon: '', snapshot: blockSnapshotToEditorJs(p.data)})),
+      pages: space.pages.map((p) => ({id: p.id, title: p.name ?? '', icon: '', snapshot: projectSnapshotForExport(p.data)})),
       space,
     };
     const html = toHtmlSite(bundle, new Map([[assetId, bytesToDataUri(PNG, 'image/png')]]));

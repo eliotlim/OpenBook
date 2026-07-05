@@ -141,7 +141,7 @@ function collectFromBlocks(blocks: ImportedBlock[] | undefined, into: Set<string
   }
 }
 
-/** Every image `assetId` a snapshot references (blockdoc and EditorJS shapes). */
+/** Every image `assetId` a snapshot references (blockdoc and legacy `editorjs` shapes). */
 export function snapshotAssetIds(data: PageSnapshot): string[] {
   const ids = new Set<string>();
   collectFromBlocks((data.blockdoc as {blocks?: ImportedBlock[]} | undefined)?.blocks, ids);

@@ -301,9 +301,6 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
       const data = appendTextToSnapshot(page.data, content, `mcp-${Date.now().toString(36)}`);
-      if (!data) {
-        return failure('This page uses the collaborative editor and cannot be appended to from here — create a new page instead.');
-      }
       if (data === page.data) return failure('Nothing to append.');
       await client.savePage({id: page.id, name: page.name, data});
       return text(`Appended to "${page.name ?? 'Untitled'}".`);
