@@ -1413,7 +1413,7 @@ a.obe-mention {
    show their "Add a description…" edit placeholder on the read-only stage. */
 :is(.ob-present, .ob-viewer) .obe-kit-inline:placeholder-shown { display: none; }
 /* The group sync / lock / gate buttons are author chrome, same as below. */
-.ob-viewer .obe-group-btn { display: none; }
+:is(.ob-present, .ob-viewer) .obe-group-btn { display: none; }
 
 /* Whole-document read-only (OB-205): a viewer who can't write sees the page as
    locked. The editor's own `readOnly` path already drops the gutter, drag

@@ -1,5 +1,5 @@
 import {describe, it, expect, afterEach} from 'vitest';
-import {render, screen, cleanup} from '@testing-library/react';
+import {render, screen, cleanup, fireEvent} from '@testing-library/react';
 import {createDoc} from '../model';
 import {registerArtifactKit} from '../kit';
 import {BlockEditor} from '../BlockEditor';
@@ -43,6 +43,38 @@ describe('BlockEditor read-only (viewer rendering)', () => {
     expect(switches).toHaveLength(2);
     expect(switches[0].disabled).toBe(false); // default — stays interactive for the reader
     expect(switches[1].disabled).toBe(true); // interactive: false — frozen
+  });
+
+  it('keeps accordion sections toggleable for a read-only viewer, contents frozen', () => {
+    const doc = createDoc([
+      {id: 'acc', type: 'accordion', children: [
+        {id: 's1', type: 'accordionsection', props: {label: 'One'}, children: [
+          {id: 'sp', type: 'paragraph', text: [{t: 'inside section'}]},
+        ]},
+      ]},
+    ]);
+    const {container} = render(<BlockEditor doc={doc} readOnly />);
+
+    // The section starts expanded and its toggle stays operable — collapse is
+    // reader navigation, not an edit (only gating / an author-locked group
+    // force-collapses; see AccordionView).
+    const toggle = container.querySelector('.obe-acc-toggle') as HTMLButtonElement;
+    expect(toggle).not.toBeNull();
+    expect(toggle.disabled).toBe(false);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const body = (): HTMLElement | null => container.querySelector('.obe-acc-body');
+    expect(body()?.textContent).toContain('inside section');
+
+    // But the section's CONTENTS are frozen for the reader.
+    const text = container.querySelector('[data-block-text="sp"]') as HTMLElement;
+    expect(text.getAttribute('contenteditable')).toBe('false');
+
+    // Toggling collapses and re-expands the section.
+    fireEvent.click(toggle);
+    expect(container.querySelector('.obe-acc-toggle')?.getAttribute('aria-expanded')).toBe('false');
+    expect(body()).toBeNull();
+    fireEvent.click(container.querySelector('.obe-acc-toggle') as HTMLButtonElement);
+    expect(body()?.textContent).toContain('inside section');
   });
 
   it('renders fully editable (gutter + contentEditable) when writable', () => {
