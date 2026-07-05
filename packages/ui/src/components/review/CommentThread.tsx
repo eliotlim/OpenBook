@@ -54,7 +54,7 @@ export function CommentThread({comments, newComment, authorName, onPost, onDelet
       {comments.length > 0 && (
         <ul className="flex flex-col gap-2">
           {comments.map((c) => (
-            <li key={c.id} className="group rounded-md border border-border bg-sheet-1 px-2.5 py-2">
+            <li key={c.id} className="group rounded-md border border-border bg-muted px-2.5 py-2">
               <div className="mb-1 flex items-center gap-2">
                 <span className="text-xs font-medium">{c.authorName}</span>
                 <span className="text-[11px] text-muted-foreground">{fmtTime(c.createdAt)}</span>

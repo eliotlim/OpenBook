@@ -8,11 +8,16 @@
  * runtime (where it redraws live as sliders move), and executed here via
  * `new Function` for the static PDF export ({@link kitChartSvg}). Keeping it as
  * one string avoids the two copies drifting apart.
+ *
+ * The chart series colours are NOT baked into the string: {@link kitChartRuntime}
+ * prepends `const KIT_PALETTE=[…]` resolved from the canonical `SERIES_ORDER`
+ * (OB-378), so the exported charts share one palette source with the in-app kit
+ * charts and can never drift.
  */
+import {DATA_PALETTE, DEFAULT_DATA_COLOR_SCHEME, SERIES_ORDER, type DataColorScheme} from '@book.dev/sdk';
 
 export const KIT_CHART_JS = `
 function kitEsc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
-const KIT_PALETTE=["#6366f1","#f59e0b","#10b981","#ef4444","#8b5cf6","#06b6d4","#f97316","#14b8a6"];
 function kitSeries(v){ if(v&&typeof v==="object"&&Array.isArray(v.series)) return v.series.filter(s=>Array.isArray(s.data)&&s.data.every(n=>typeof n==="number")&&s.data.length).map(s=>({name:String(s.name??""),values:s.data})); if(Array.isArray(v)&&v.every(n=>typeof n==="number")) return v.length?[{name:"",values:v}]:[]; if(Array.isArray(v)&&v.length&&v.every(p=>p&&typeof p==="object"&&isFinite(p.x)&&isFinite(p.y))) return [{name:"",values:v.map(p=>p.y)}]; if(Array.isArray(v)&&v.every(a=>Array.isArray(a)&&a.every(n=>typeof n==="number"))) return v.filter(a=>a.length).map((a,i)=>({name:"s"+(i+1),values:a})); if(v&&typeof v==="object"&&!Array.isArray(v)) return Object.entries(v).filter(([,a])=>Array.isArray(a)&&a.every(n=>typeof n==="number")&&a.length).map(([n,a])=>({name:n,values:a})); if(typeof v==="number"&&isFinite(v)) return [{name:"",values:[v]}]; return []; }
 function kitLabelled(v,labels){ if(v&&typeof v==="object"&&!Array.isArray(v)){ const e=Object.entries(v).filter(([,n])=>typeof n==="number"&&isFinite(n)); if(e.length) return e.map(([label,value])=>({label,value})); } if(Array.isArray(v)&&v.every(n=>typeof n==="number")) return v.map((value,i)=>({label:labels[i]||("#"+(i+1)),value})); return []; }
 function kitExtent(vals){ if(!vals.length) return {min:0,max:1}; let min=Math.min.apply(null,vals.concat([0])), max=Math.max.apply(null,vals); if(min===max){min-=1;max+=1;} return {min,max}; }
@@ -65,6 +70,19 @@ function drawKit(v,kind,labels){
 export const KIT_CHART_W = 660;
 export const KIT_CHART_H = 300;
 
+/** The canonical series fills, as a JS literal to prepend to {@link KIT_CHART_JS}. */
+export const kitPaletteJs = (scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME): string =>
+  `const KIT_PALETTE=${JSON.stringify(SERIES_ORDER.map((t) => DATA_PALETTE[scheme][t].fill))};`;
+
+/**
+ * The full kit-chart runtime — the canonical palette prepended to the drawing
+ * source. Use this (not {@link KIT_CHART_JS} raw) everywhere the chart is drawn:
+ * the standalone HTML runtime and the static PDF `new Function`, so both inline
+ * the same series colours from one source.
+ */
+export const kitChartRuntime = (scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME): string =>
+  `${kitPaletteJs(scheme)}\n${KIT_CHART_JS}`;
+
 let draw: ((value: unknown, kind: string, labels: string[]) => string) | null = null;
 
 /**
@@ -74,7 +92,7 @@ let draw: ((value: unknown, kind: string, labels: string[]) => string) | null = 
  */
 export function kitChartSvg(value: unknown, kind: string, labels: string[] = []): string {
   if (!draw) {
-    draw = new Function(`${KIT_CHART_JS}\nreturn drawKit;`)() as typeof draw;
+    draw = new Function(`${kitChartRuntime()}\nreturn drawKit;`)() as typeof draw;
   }
   try {
     return draw!(value, kind, labels);

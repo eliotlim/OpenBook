@@ -340,7 +340,7 @@ export function AgentPanel() {
   const barSummary = [providerShortLabel(provider), `${modelLabel} (${effortLabel})`, ...(thinking ? [t('agent.thinkingToggle')] : [])].join('  ·  ');
 
   return (
-    <div data-agent-panel aria-label={t('agent.title')} className="flex h-full flex-col bg-sheet-1">
+    <div data-agent-panel aria-label={t('agent.title')} className="flex h-full flex-col bg-muted">
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Bot className="size-4 text-muted-foreground" aria-hidden />
         <h2 className="flex-1 truncate text-sm font-medium">{t('agent.title')}</h2>
@@ -452,7 +452,7 @@ export function AgentPanel() {
                 <p className="text-[11px] text-muted-foreground">{t('agent.suggestionsHint')}</p>
                 <ul className="flex flex-col gap-1.5">
                   {item.suggestions.map((s) => (
-                    <li key={s.id} className="rounded-md border border-border bg-sheet-1 px-2.5 py-1.5">
+                    <li key={s.id} className="rounded-md border border-border bg-muted px-2.5 py-1.5">
                       <p className="text-xs font-medium">
                         {typeof s.payload.summary === 'string' ? s.payload.summary : s.kind}
                       </p>

@@ -11,7 +11,7 @@ import {cn} from '@/lib/utils';
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import type {UseDatabase} from './useDatabase';
-import {SWATCH_HEX} from './databaseColors';
+import {swatchHex} from './databaseColors';
 import {RowChips, RowContextMenu} from './databaseLayouts';
 import {cachedGeocode, geocodeAddress, locationFromGeocode} from './geocode';
 import type {PlacedMarker} from './databaseMapLeaflet';
@@ -21,7 +21,7 @@ import type {PlacedMarker} from './databaseMapLeaflet';
 const LeafletMap = lazy(() => import('./databaseMapLeaflet'));
 
 /** Neutral pin colour for rows whose group carries no swatch (or no grouping). */
-const DEFAULT_PIN = SWATCH_HEX.blue;
+const DEFAULT_PIN = swatchHex('blue')!;
 
 const Hint: React.FC<{children: React.ReactNode}> = ({children}) => (
   <div className="rounded-md border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">{children}</div>
@@ -31,7 +31,7 @@ const Hint: React.FC<{children: React.ReactNode}> = ({children}) => (
  * Map view: rows with resolvable coordinates rendered as markers on Leaflet +
  * OpenStreetMap raster tiles. Markers are coloured by the view's
  * `groupByPropertyId` (shared with every other layout via {@link groupRowsBy} +
- * {@link SWATCH_HEX}), with a legend below the map and clustering at low zoom for
+ * the canonical swatch palette), with a legend below the map and clustering at low zoom for
  * dense data. Clicking a marker opens the row (the same affordance other views
  * use). Rows without coordinates collect into an "unplaced" affordance — which,
  * when an address property is configured, can geocode them on demand (opt-in,
@@ -55,7 +55,7 @@ export const MapView: React.FC<{
   const colorByRow = new Map<string, string>();
   const usedGroups: {key: string; label: string; color: string}[] = [];
   for (const g of groups) {
-    const color = g.color ? SWATCH_HEX[g.color] ?? DEFAULT_PIN : DEFAULT_PIN;
+    const color = g.color ? swatchHex(g.color) ?? DEFAULT_PIN : DEFAULT_PIN;
     let placedInGroup = 0;
     for (const row of g.rows) {
       if (rowLocation(row, view, properties)) {

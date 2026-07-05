@@ -53,8 +53,15 @@
   --color-sheet-1: hsl(var(--sheet-1));
   --color-sheet-1-foreground: hsl(var(--sheet-1-foreground));
 
+  /* --sheet-2 is still composed (it's the deeper companion sheet in manifest
+     §2.2) but currently has no consumer — kept as a painted token for a future
+     second-surface use, not dead-stripped. */
   --color-sheet-2: hsl(var(--sheet-2));
   --color-sheet-2-foreground: hsl(var(--sheet-2-foreground));
+
+  /* The neutral desk (book cover) behind the page sheets — stays a neutral
+     canvas even when the sidebar sheets go full-accent (OB-377). */
+  --color-desk: hsl(var(--desk));
 
   --color-brand: hsl(var(--brand));
   --color-brand-foreground: hsl(var(--brand-foreground));
@@ -182,10 +189,18 @@
     --ring: 207 75% 49%;
     /* Refined-minimal: softer 8px corners cascade to every rounded-{sm,md,lg}. */
     --radius: 0.5rem;
+    /* Sidebar sheets — the ThemeTokens base (tinted default). applyAppearance
+       recomposes these on mount: the tinted default derives a soft accent panel
+       from these, and the opt-in `sidebar: 'accent'` overrides to a full accent
+       surface (manifest §2). First paint uses the neutral base to avoid a flash. */
     --sheet-1: 40 14% 97.5%;
     --sheet-1-foreground: 34 9% 19%;
     --sheet-2: 40 11% 93.5%;
     --sheet-2-foreground: 34 9% 19%;
+    /* Sidebar hover/active/press overlay pole (manifest §2.3). */
+    --sheet-veil: 0 0% 0%;
+    /* The neutral desk (book cover) behind the page sheets (manifest §2.5). */
+    --desk: 40 11% 93.5%;
     --brand: 207 76% 47%;
     --brand-foreground: 0 0% 100%;
     --brand-subtle: 207 86% 95%;
@@ -243,10 +258,13 @@
     --border: 0 0% 22%;
     --input: 0 0% 26%;
     --ring: 207 68% 55%;
+    /* Sidebar sheets — the ThemeTokens dark base (tinted default); see :root. */
     --sheet-1: 0 0% 15.5%;
     --sheet-1-foreground: 0 0% 82%;
     --sheet-2: 0 0% 18.5%;
     --sheet-2-foreground: 0 0% 82%;
+    --sheet-veil: 0 0% 100%;
+    --desk: 0 0% 11%;
     --brand: 207 70% 57%;
     --brand-foreground: 0 0% 100%;
     --brand-subtle: 208 48% 22%;
@@ -415,12 +433,14 @@
 
 /* ── Notebook "sheets" on a book cover ───────────────────────────────────────
    The primary page and the right split pane read like facing notebook pages.
-   The "desk" they sit on is the book cover — the same colour as the sidebar and
-   titlebar — inset from the window edge (no top inset on desktop, where the
-   titlebar is the cover's top; no left inset while the sidebar is pinned, so the
-   page binds straight into it). The two pages meet at a central seam, not a gap. */
+   The "desk" they sit on is the book cover — a *neutral* canvas (`--desk`),
+   deliberately not the sidebar/titlebar sheet colour now that the sheets are a
+   full-accent surface (OB-377) — inset from the window edge (no top inset on
+   desktop, where the titlebar is the cover's top; no left inset while the
+   sidebar is pinned, so the page binds straight into it). The two pages meet at
+   a central seam, not a gap. */
 .ob-desk {
-  background-color: hsl(var(--sheet-1));
+  background-color: hsl(var(--desk));
   gap: 0;
   padding-top: var(--ob-inset-top);
   padding-bottom: var(--ob-page-inset);
@@ -466,6 +486,38 @@
 }
 .dark .ob-desk > [data-split-pane]::before {
   background: linear-gradient(to right, hsl(0 0% 0% / 0.25), transparent);
+}
+
+/* ── Accent-chrome surfaces (sidebar, settings rail, titlebar) ───────────────
+   `.ob-accent-chrome` marks the sidebar/titlebar chrome. It only *does* anything
+   when the sidebar is the opt-in full-accent surface (`[data-sidebar='accent']`,
+   set on <html> by applyAppearance) — the tinted default is left untouched, so
+   it renders exactly as before.
+
+   On the saturated accent sheet the neutral text/icon and hover tokens can't
+   read, so we remap them to the sheet's own contrast-audited poles. Crucially we
+   override the Tailwind `--color-*` tokens (what `text-muted-foreground` /
+   `bg-hover` actually resolve), NOT the underlying `--muted-foreground` etc: the
+   `--color-*` intermediates are declared at :root (@theme) and substitute their
+   nested `var()` there, so overriding the base tokens in this subtree would never
+   reach them. De-emphasised text collapses to the FULL sheet foreground
+   (hierarchy is then size/weight only, per manifest §2.2); hover/active washes
+   use the `--sheet-veil`. `--color-foreground` is left intact so a neutral chip
+   that opts back onto a light surface (e.g. the active titlebar tab,
+   `bg-background text-foreground`) keeps its dark ink; sidebar body/rows read a
+   light foreground via `text-sheet-1-foreground` instead. Portaled menus/dialogs
+   render outside these subtrees, so they stay neutral popovers. */
+[data-sidebar='accent'] .ob-accent-chrome {
+  --color-muted-foreground: hsl(var(--sheet-1-foreground));
+  --color-accent-foreground: hsl(var(--sheet-1-foreground));
+  --color-hover: hsl(var(--sheet-veil) / 0.1);
+  --color-hover-strong: hsl(var(--sheet-veil) / 0.16);
+}
+/* Dark scheme uses the audited 8/13 % veil alphas (manifest §2.3) so shared
+   `bg-hover` consumers (the page tree) match the SIDEBAR_* item washes. */
+[data-sidebar='accent'].dark .ob-accent-chrome {
+  --color-hover: hsl(var(--sheet-veil) / 0.08);
+  --color-hover-strong: hsl(var(--sheet-veil) / 0.13);
 }
 
 /* Per-page typefaces (lib/pageFont): the wrapper sets the body family, headings
@@ -1278,7 +1330,9 @@ a.obe-mention {
   position: fixed;
   inset: 0;
   display: flex;
-  background: hsl(var(--sheet-2));
+  /* The stage backdrop is the neutral desk, not the (now accent) sidebar
+     sheets — slides must not inherit the sidebar surface (OB-377). */
+  background: hsl(var(--desk));
   color: hsl(var(--foreground));
   overflow: hidden;
 }
@@ -2293,17 +2347,20 @@ a.obe-mention {
 .obe-chart-msg { fill: hsl(var(--muted-foreground) / 0.8); font-size: 12px; text-anchor: middle; }
 .obe-chart-funnel-label { fill: hsl(var(--background)); font-size: 11px; font-weight: 600; text-anchor: middle; }
 
-/* Status light */
+/* Status light — canonical data palette (OB-378): fill from the semantic status
+   token, a ring at 25% of that fill, and the pastel/muted light-mode hairline
+   (--data-stroke, transparent in vivid + dark). */
 .obe-kit-light {
   width: 0.7rem;
   height: 0.7rem;
   border-radius: 999px;
   flex-shrink: 0;
-  background: hsl(var(--muted-foreground) / 0.3);
+  background: color-mix(in srgb, var(--data-gray, #d4d4d8) 35%, transparent);
+  box-shadow: inset 0 0 0 1px var(--data-stroke, rgba(0,0,0,0.12));
 }
-.obe-kit-light-ok { background: #10b981; box-shadow: 0 0 6px #10b98166; }
-.obe-kit-light-warn { background: #f59e0b; box-shadow: 0 0 6px #f59e0b66; }
-.obe-kit-light-bad { background: #ef4444; box-shadow: 0 0 6px #ef444466; }
+.obe-kit-light-ok { background: var(--data-status-ok, #86efac); box-shadow: inset 0 0 0 1px var(--data-stroke, rgba(0,0,0,0.12)), 0 0 0 3px color-mix(in srgb, var(--data-status-ok, #86efac) 25%, transparent); }
+.obe-kit-light-warn { background: var(--data-status-warn, #fdba74); box-shadow: inset 0 0 0 1px var(--data-stroke, rgba(0,0,0,0.12)), 0 0 0 3px color-mix(in srgb, var(--data-status-warn, #fdba74) 25%, transparent); }
+.obe-kit-light-bad { background: var(--data-status-bad, #fca5a5); box-shadow: inset 0 0 0 1px var(--data-stroke, rgba(0,0,0,0.12)), 0 0 0 3px color-mix(in srgb, var(--data-status-bad, #fca5a5) 25%, transparent); }
 .obe-kit-status-label { font-size: 0.88rem; font-weight: 550; }
 .obe-kit-status-value {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

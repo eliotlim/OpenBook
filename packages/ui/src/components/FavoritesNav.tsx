@@ -55,7 +55,7 @@ export default function FavoritesNav() {
                 <div
                   onClick={() => selectPageInPane(page.id, 'primary')}
                   className={cn(
-                    'group/fav mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-foreground/75 transition-colors',
+                    'group/fav mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-sheet-1-foreground transition-colors',
                     SIDEBAR_HOVER,
                     selected && cn(SIDEBAR_ACTIVE, 'font-medium'),
                   )}

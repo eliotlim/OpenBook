@@ -105,7 +105,7 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
     <div className="relative flex h-full min-h-0 w-full flex-row">
       <nav
         className={cn(
-          'flex w-[210px] shrink-0 flex-col gap-1 overflow-y-auto bg-sheet-1 px-3 pb-4 pt-8 text-sheet-1-foreground',
+          'ob-accent-chrome flex w-[210px] shrink-0 flex-col gap-1 overflow-y-auto bg-sheet-1 px-3 pb-4 pt-8 text-sheet-1-foreground',
           !fullscreen && 'rounded-l-lg',
         )}
       >
