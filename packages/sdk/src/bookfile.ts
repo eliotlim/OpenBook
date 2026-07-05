@@ -86,6 +86,8 @@ export function sanitizeLegacyInline(html: string): string {
   // `<br>` (void): the plain, self-closing, and spaced variants → a bare `<br>`.
   out = out.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
   return out;
+}
+
 /** The folder-level runtime directory name (never a valid book-folder slug). */
 export const BOOK_RUNTIME_DIR = '_openbook';
 
