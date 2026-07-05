@@ -78,13 +78,19 @@ describe('reactive export from a block document', () => {
 
   it('renders interactive HTML with computed values, a 3-state light, a bar, and a drawn chart', () => {
     const html = toHtml(blockSnapshot(), 'T', '🛒');
+    // The static first-paint body carries the fully computed render (also what
+    // the no-JS fallback and the PDF pipeline consume).
     expect(html).toContain('<span data-val>86</span>'); // best
     expect(html).toContain('data-status="ok"'); // status light colour
     expect(html).toContain('width:72%'); // progress fill
     expect(html).toContain('<figcaption class="chart-title">Baskets</figcaption>');
     expect(html).toContain('<svg'); // the kit chart is drawn at build time (first paint)
-    expect(html).toContain('id="ob-data"'); // live runtime seeded
     expect(html).not.toContain('= <span data-val>—</span>'); // nothing left uncomputed
+    // Block-doc exports hydrate through the vendored viewer (the island is the
+    // mount source) — the bespoke #ob-data runtime is retired on this path.
+    expect(html).toContain('OpenBookViewer');
+    expect(html).toContain('__OB_NO_HYDRATE'); // the PDF pipeline's static opt-out
+    expect(html).not.toContain('id="ob-data"');
   });
 
   it('splits a divider-delimited deck and keeps widgets live', () => {

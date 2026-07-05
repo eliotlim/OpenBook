@@ -1,14 +1,26 @@
 /**
  * Render a page — or a whole reachable mini-site — to a **self-contained,
- * interactive** HTML document. Prose, lists, code, mentions and links are styled
- * static HTML; reactive blocks stay *live* (sliders recompute their dependent
- * expressions and redraw charts) via a small inlined runtime; and nested pages,
- * subpages and database rows are **navigable** — clicking one swaps the document
- * to that page, all inside the single file.
+ * interactive** HTML document, structured in three layers:
+ *
+ * 1. A **static first-paint body** — the `renderBlocks` projection: readable
+ *    without JS, and the surface the PDF pipeline snapshots.
+ * 2. The **`application/openbook+json` source island** — the lossless source
+ *    of truth (block-doc + assetIds intact), always embedded for re-import.
+ * 3. The **vendored viewer bundle** (the real OpenBook block renderer, built
+ *    self-contained by `vite.viewer.config.js`) plus a small boot script that
+ *    parses the island and mounts `OpenBookViewer` over the static body —
+ *    locked-but-interactive: sliders drive charts, tabs switch, sections
+ *    collapse, and nothing ever persists.
+ *
+ * Block-doc snapshots hydrate through the viewer. Two surfaces still use the
+ * bespoke legacy runtime (`RUNTIME`/`NAV` + conditional d3/Plot vendoring):
+ * legacy EditorJS-only snapshots (the viewer has no block-doc to mount) and
+ * site bundles containing databases (the viewer does not render database
+ * rosters yet), plus slide decks (a viewer deck mode is a follow-up).
  *
  * - {@link toHtml} renders one page snapshot (the Markdown/PDF-parity baseline).
- * - {@link toHtmlSite} renders a {@link SiteBundle}: every page as a section, a
- *   client-side router, and databases drawn as tables of navigable rows.
+ * - {@link toHtmlSite} renders a {@link SiteBundle}: every page as a section,
+ *   navigable via the viewer's hash nav (or the legacy router on fallback).
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
 import {pageIslandScript, spaceIslandScript} from '@book.dev/sdk';
@@ -16,9 +28,14 @@ import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
 // then Plot's UMD (which expects a global d3) sets `window.Plot`. Inlined only
 // when the document actually has a chart, and code-split (this module is a
-// dynamic import) so it never weighs on the main bundle.
+// dynamic import) so it never weighs on the main bundle. LEGACY-PATH ONLY (see
+// module doc) — viewer-hydrated exports carry their own chart renderer.
 import d3Umd from './vendor/d3.min.js?raw';
 import plotUmd from './vendor/plot.umd.min.js?raw';
+// The self-contained viewer bundle (IIFE exposing `OpenBookViewer`), generated
+// into vendor/ by `pnpm --filter @book.dev/ui run build:viewer` (which runs
+// FIRST in the ui package's build, so this ?raw always inlines a fresh bundle).
+import viewerJs from './vendor/openbook-viewer.js?raw';
 import {parseInline, type InlineRun, type ListItem} from './documentModel';
 import {COLOR_EXPORT_HEX} from '../blockeditor/colors';
 import {KIT_CHART_JS, kitChartSvg} from './kitChart';
@@ -522,22 +539,67 @@ function loadSnapshot(snapshot: PageSnapshot, values: Map<string, unknown>, name
   for (const [name, cell] of snapshot.names as Array<[string, string]>) nameByCell.set(cell, name);
 }
 
+/**
+ * The viewer boot: parses the source island and mounts the vendored
+ * `OpenBookViewer` over the static body. Emitted only on the hydrate path
+ * (block-doc content), directly after the island + bundle scripts.
+ *
+ * Island access: the boot reads the island element's `textContent` from the
+ * live DOM. That is safe **here, by construction**: every character of the
+ * static body is HTML-escaped by this renderer (no raw `<!--` can reach the
+ * parser) and the island's `</` are `<\/`-escaped (sdk `encodeIsland`), so the
+ * browser's parse of this generated document is faithful. Consumers that hold
+ * the export as a *string* (import, tooling, tests) must extract the island
+ * with the sdk's `readIslandRaw`/`readIsland` (string/regex) — never by
+ * feeding untrusted HTML through a DOM parser, where hostile raw text can
+ * swallow a trailing island.
+ *
+ * Failure modes all keep the static render: no island, corrupt JSON, a legacy
+ * snapshot without a block-doc, or a mount throw (the static body is restored).
+ * `window.__OB_NO_HYDRATE` short-circuits the boot entirely — the PDF pipeline
+ * sets it so `toPdf` snapshots the static projection (see toPdf `layout`).
+ */
+const VIEWER_BOOT = `
+(function(){
+  if (window.__OB_NO_HYDRATE) return; // static consumers (the PDF pipeline) opt out
+  var tag = document.querySelector('script[type="application/openbook+json"]');
+  if (!tag || !window.OpenBookViewer) return;
+  var island = null;
+  try { island = JSON.parse(tag.textContent); } catch (e) { /* corrupt island */ }
+  if (!island) return; // keep the static render
+  var source = null, opts;
+  if (island.space && island.space.pages) { source = island.space; opts = island.rootId ? {page: island.rootId} : undefined; }
+  else if (island.data && island.data.blockdoc) { source = island; }
+  if (!source) return; // legacy snapshot: the static body IS the render
+  var main = document.querySelector('main');
+  if (!main || !main.parentNode) return;
+  var host = document.createElement('div');
+  host.id = 'ob-viewer-host';
+  main.parentNode.replaceChild(host, main);
+  try { window.OpenBookViewer.mount(host, source, opts); }
+  catch (e) { if (host.parentNode) host.parentNode.replaceChild(main, host); }
+})();
+`;
+
 /** Assemble the final HTML document from rendered body markup + collected specs.
  *  `extra` injects deck-specific CSS + a nav script (used by the slide deck).
  *  `island` is the lossless `application/openbook+json` source blob — ALWAYS
  *  embedded (no toggle) so the standalone file round-trips back into OpenBook; it
- *  is inert data (a non-JS `<script type>`), sits last in `<body>`, and its
- *  `</`-escaping means hostile page content can't break out of it or the document.
- *  Its block-doc keeps image `assetId`s (the visible body carries the data-URIs);
- *  see the SDK `island.ts` asset contract. */
+ *  is inert data (a non-JS `<script type>`), and its `</`-escaping means hostile
+ *  page content can't break out of it or the document. Its block-doc keeps image
+ *  `assetId`s (the visible body carries the data-URIs); see the SDK `island.ts`
+ *  asset contract.
+ *
+ *  `hydrate` picks the runtime: the vendored viewer bundle + boot (block-doc
+ *  content — the island precedes them in the body so the boot can read it), or
+ *  the legacy `RUNTIME`/`NAV` scripts (`rootId` wires the legacy site router). */
 function document_(
   bodyHtml: string,
   headTitle: string,
   ctx: RenderCtx,
-  rootId?: string,
-  extra?: {styles?: string; script?: string},
-  island?: string,
+  opts: {rootId?: string; extra?: {styles?: string; script?: string}; island?: string; hydrate?: boolean} = {},
 ): string {
+  const {rootId, extra, island, hydrate} = opts;
   const live =
     ctx.sliders.length > 0 ||
     ctx.exprs.length > 0 ||
@@ -563,10 +625,14 @@ function document_(
   // Kit charts draw themselves (drawKit in the runtime) — only classic
   // cell-driven charts need the vendored d3 + Observable Plot bundles.
   const libs = ctx.charts.some((c) => !c.kind) ? `<script>${escapeScript(d3Umd)}</script>\n<script>${escapeScript(plotUmd)}</script>\n` : '';
-  const reactive = live
+  const reactive = !hydrate && live
     ? `${libs}<script type="application/json" id="ob-data">${JSON.stringify(data)}</script>\n<script type="module">${RUNTIME}</script>\n`
     : '';
-  const nav = rootId ? `<script>${NAV.replace('__ROOT__', JSON.stringify(rootId))}</script>` : '';
+  const nav = !hydrate && rootId ? `<script>${NAV.replace('__ROOT__', JSON.stringify(rootId))}</script>` : '';
+  // Hydrate path: the island must already be in the DOM when the boot runs, so
+  // the order is island → viewer bundle → boot, at the end of <body>.
+  const viewer = hydrate ? `\n<script>${escapeScript(viewerJs)}</script>\n<script>${VIEWER_BOOT}</script>` : '';
+  const legacyHeader = !hydrate && rootId ? '<header class="ob-nav"><button id="ob-back" hidden>← Back</button></header>\n' : '';
 
   return `<!doctype html>
 <html lang="en">
@@ -576,11 +642,16 @@ function document_(
 <title>${escapeHtml(headTitle)}</title>
 <style>${STYLES}</style>${extra?.styles ? `\n<style>${extra.styles}</style>` : ''}
 </head>
-<body${rootId ? ` data-root="${escapeHtml(rootId)}"` : ''}>
-${rootId ? '<header class="ob-nav"><button id="ob-back" hidden>← Back</button></header>\n' : ''}${bodyHtml}
-${reactive}${nav}${extra?.script ? `\n<script>${escapeScript(extra.script)}</script>` : ''}${island ? `\n${island}` : ''}
+<body${!hydrate && rootId ? ` data-root="${escapeHtml(rootId)}"` : ''}>
+${legacyHeader}${bodyHtml}
+${reactive}${nav}${extra?.script ? `\n<script>${escapeScript(extra.script)}</script>` : ''}${island ? `\n${island}` : ''}${viewer}
 </body>
 </html>`;
+}
+
+/** Whether a snapshot carries the native block-doc the viewer can hydrate. */
+function hasBlockdoc(snapshot: {editor?: string; blockdoc?: unknown} | null | undefined): boolean {
+  return Boolean(snapshot && snapshot.editor === 'blocks' && snapshot.blockdoc);
 }
 
 /** Identity carried into a single-page export's source island (all optional —
@@ -626,7 +697,9 @@ export function toHtml(
   };
   const blocks = (snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? [];
   const body = `<main>\n<h1 class="doc-title">${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1>\n${renderBlocks(blocks, ctx)}\n</main>`;
-  return document_(body, title, ctx, undefined, undefined, pageIsland(rawSnapshot, title, icon, meta));
+  // Block-doc pages hydrate through the vendored viewer (the island IS the
+  // mount source); legacy EditorJS snapshots keep the bespoke reactive runtime.
+  return document_(body, title, ctx, {island: pageIsland(rawSnapshot, title, icon, meta), hydrate: hasBlockdoc(rawSnapshot)});
 }
 
 /** The source island for a single page export: a versioned page record carrying
@@ -738,7 +811,10 @@ export function toSlideDeck(
   const body = `<main class="ob-deck">\n${sections}\n<nav class="deck-nav"><button id="deck-prev" aria-label="Previous slide">‹</button><span id="deck-counter"></span><button id="deck-next" aria-label="Next slide">›</button></nav>\n</main>`;
   // The deck's island carries the WHOLE page snapshot (every slide) losslessly —
   // the divider-split into slides is a render, the island re-imports the source.
-  return document_(body, title, ctx, undefined, {styles: SLIDE_STYLES, script: SLIDE_NAV}, pageIsland(rawSnapshot, title, icon, meta));
+  // Decks stay on the legacy runtime (never `hydrate`): the viewer renders a
+  // page as one scrolling document, so a viewer-based deck mode (slide split +
+  // keyboard nav) is an explicit follow-up.
+  return document_(body, title, ctx, {extra: {styles: SLIDE_STYLES, script: SLIDE_NAV}, island: pageIsland(rawSnapshot, title, icon, meta)});
 }
 
 /**
@@ -793,7 +869,16 @@ export function toHtmlSite(bundle: SiteBundle, assets: Map<string, string> = new
   // `openbook.space.json` structure, so a site export re-imports with structure
   // intact. The visible sections are a render; this is the authoritative source.
   const island = spaceIslandScript(bundle.rootId, bundle.space);
-  return document_(`<main>\n${sections}\n</main>`, rootTitle, ctx, bundle.rootId, undefined, island);
+  // Hydrate through the viewer (its `#page=` hash nav replaces the legacy
+  // router) only when the viewer can faithfully render the WHOLE bundle: every
+  // page a block-doc, and no databases anywhere (the viewer has no database
+  // roster renderer yet — those bundles keep the legacy router + runtime).
+  const hydrate =
+    bundle.space.pages.length > 0 &&
+    bundle.space.databases.length === 0 &&
+    bundle.pages.every((p) => !p.database) &&
+    bundle.space.pages.every((p) => hasBlockdoc(p.data));
+  return document_(`<main>\n${sections}\n</main>`, rootTitle, ctx, {rootId: bundle.rootId, island, hydrate});
 }
 
 const STYLES = `
