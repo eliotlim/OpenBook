@@ -10,6 +10,8 @@
  *  - `{label: number, …}` (pie/bar/funnel) → labelled values
  */
 
+import {DATA_PALETTE, DEFAULT_DATA_COLOR_SCHEME, SERIES_ORDER} from '@book.dev/sdk';
+
 export interface Series {
   name: string;
   values: number[];
@@ -160,5 +162,10 @@ export function ticks(d: Extent, count = 3): number[] {
   return out;
 }
 
-/** The kit palette — readable on both themes, in series order. */
-export const PALETTE = ['#6366f1', '#f59e0b', '#10b981', '#ef4444', '#8b5cf6', '#06b6d4', '#f97316', '#14b8a6'];
+/**
+ * The kit chart palette: the canonical data-colour `SERIES_ORDER` resolved to
+ * concrete fills of the fixed default (pastel) scheme — one source shared with
+ * the database charts and the export runtime (OB-378). Concrete hex (not a
+ * `var()`) because the charts paint via the SVG `fill` presentation attribute.
+ */
+export const PALETTE = SERIES_ORDER.map((t) => DATA_PALETTE[DEFAULT_DATA_COLOR_SCHEME][t].fill);

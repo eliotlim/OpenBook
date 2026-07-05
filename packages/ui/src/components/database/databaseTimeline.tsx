@@ -15,7 +15,7 @@ import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 import {Select} from '@/components/ui/select';
 import type {UseDatabase} from './useDatabase';
-import {SWATCH_HEX} from './databaseColors';
+import {dotStyle, swatchColor} from './databaseColors';
 import {groupCollapsed, groupGlyph, groupHeading, RowChips, RowContextMenu, useRelationGroupTitles} from './databaseLayouts';
 
 const DAY_MS = 86_400_000;
@@ -405,9 +405,9 @@ const TimelineCanvas: React.FC<{
   const barColor = (row: DatabaseRow): string => {
     if (selectProp) {
       const opt = selectProp.options?.find((o) => o.id === row.properties[selectProp.id]);
-      if (opt?.color) return SWATCH_HEX[opt.color] ?? SWATCH_HEX.blue;
+      if (opt?.color) return swatchColor(opt.color) ?? swatchColor('blue')!;
     }
-    return SWATCH_HEX.blue;
+    return swatchColor('blue')!;
   };
 
   // ── Scroll: centre today, and extend the range near the edges ───────────────
@@ -701,7 +701,7 @@ const TimelineCanvas: React.FC<{
                       )}
                     >
                       <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
-                      {g.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[g.color] ?? '#9ca3af'}} />}
+                      {g.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(g.color)} />}
                       {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
                       <span className="truncate">{heading}</span>
                       <span className="ml-auto shrink-0 text-muted-foreground/60">{g.rows.length}</span>

@@ -40,6 +40,24 @@ export {
   type SignRosterAssertionInput,
   type VerifyRosterAssertionInput,
 } from './forwarding';
+export {
+  DATA_PALETTE,
+  DATA_COLOR_TOKENS,
+  DATA_COLOR_SCHEMES,
+  DEFAULT_DATA_COLOR_SCHEME,
+  SERIES_ORDER,
+  DATA_STROKE,
+  STATUS_TOKENS,
+  dataStroke,
+  isDataColorToken,
+  seriesColor,
+  statusColor,
+  hexAlpha,
+  type DataColorToken,
+  type DataColorScheme,
+  type DataColor,
+  type ChipColors,
+} from './dataColors';
 export type {
   DatabasePropertyType,
   NumberFormat,

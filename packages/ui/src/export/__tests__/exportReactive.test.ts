@@ -102,6 +102,28 @@ describe('reactive export from a block document', () => {
 
   });
 
+  // OB-378: exports inline the canonical pastel data palette (self-contained: no
+  // live CSS vars), so an exported doc's colours match the in-app render.
+  it('inlines the canonical pastel palette for status lights and kit charts', () => {
+    const html = toHtml(blockSnapshot(), 'T', '🛒');
+    // Status-light CSS: pastel `ok` fill (#86efac), the 25%-alpha ring, and the
+    // pastel light-mode hairline (§1.2).
+    expect(html).toContain('.kitlight[data-status=ok] .kit-light-dot { background: #86efac;');
+    expect(html).toContain('0 0 0 3px rgba(134,239,172,0.25)');
+    expect(html).toContain('inset 0 0 0 1px rgba(0,0,0,0.12)');
+    expect(html).toContain('.kitlight[data-status=warn] .kit-light-dot { background: #fdba74;');
+    expect(html).toContain('.kitlight[data-status=bad] .kit-light-dot { background: #fca5a5;');
+    // The drawn kit bar (series 0) uses the canonical blue-first SERIES_ORDER fill.
+    expect(html).toContain('fill="#93c5fd"');
+  });
+
+  it('prepends the canonical KIT_PALETTE to the live chart runtime (no drift)', () => {
+    const html = toSlideDeck(blockSnapshot(), 'T', '🛒'); // legacy runtime path (#ob-data)
+    // The blue-first SERIES_ORDER, resolved to pastel fills, is inlined as the
+    // runtime palette — one source shared with the in-app kit charts.
+    expect(html).toContain('const KIT_PALETTE=["#93c5fd","#fdba74","#86efac","#fca5a5"');
+  });
+
   // PDF is now rendered from the HTML in a real browser (dom-to-svg → svg2pdf),
   // so it can't run under happy-dom — its coverage lives in the e2e suite
   // (export.spec.ts downloads + validates the paged/continuous PDFs).

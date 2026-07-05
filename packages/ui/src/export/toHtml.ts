@@ -24,6 +24,7 @@
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
 import {assetsIslandScript, isSafeHref, pageIslandScript, spaceIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
+import {DATA_PALETTE, DATA_STROKE, DEFAULT_DATA_COLOR_SCHEME, hexAlpha, isDataColorToken, statusColor} from '@book.dev/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
@@ -39,12 +40,24 @@ import plotUmd from './vendor/plot.umd.min.js?raw';
 import viewerJs from './vendor/openbook-viewer.js?raw';
 import {parseInline, type InlineRun, type ListItem} from './documentModel';
 import {COLOR_EXPORT_HEX} from '../blockeditor/colors';
-import {KIT_CHART_JS, kitChartSvg} from './kitChart';
+import {kitChartRuntime, kitChartSvg} from './kitChart';
 import {formatValue} from './format';
 import {pageIconToText} from '@/lib/iconValue';
 import {cellValue, formatCellValue} from '@/components/database/databaseCells';
-import {SWATCH_HEX} from '@/components/database/databaseColors';
 import type {SiteBundle, SiteDatabase} from './exportSite';
+
+// ── Canonical data-colour values, inlined at export (self-contained: no live
+// CSS vars). Fixed to the default (pastel) scheme until the "Data colours"
+// control (OB-379) resolves the exporting user's choice. ─────────────────────
+const EXPORT_SCHEME = DEFAULT_DATA_COLOR_SCHEME;
+const EXPORT_PALETTE = DATA_PALETTE[EXPORT_SCHEME];
+/** Status-light CSS: pastel lamps + the pastel/muted light-mode hairline (§1.2). */
+const STATUS_LIGHT_CSS = (['ok', 'warn', 'bad'] as const)
+  .map((s) => {
+    const fill = statusColor(s, EXPORT_SCHEME);
+    return `.kitlight[data-status=${s}] .kit-light-dot { background: ${fill}; box-shadow: inset 0 0 0 1px ${DATA_STROKE}, 0 0 0 3px ${hexAlpha(fill, 0.25)}; }`;
+  })
+  .join('\n');
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]!);
@@ -204,8 +217,10 @@ function visibleProps(schema: DatabaseSchema): DatabaseProperty[] {
   return chosen.filter((p) => p.type !== 'files' && p.type !== 'backlinks');
 }
 
-const tag = (label: string, color?: string): string =>
-  `<span class="tag" style="background:${SWATCH_HEX[color ?? 'gray'] ?? SWATCH_HEX.gray}33">${escapeHtml(label)}</span>`;
+const tag = (label: string, color?: string): string => {
+  const chip = EXPORT_PALETTE[isDataColorToken(color) ? color : 'gray'].chip.light;
+  return `<span class="tag" style="background:${chip.bg};color:${chip.fg}">${escapeHtml(label)}</span>`;
+};
 
 function cellHtml(row: DatabaseRow, prop: DatabaseProperty, props: DatabaseProperty[], rows: DatabaseRow[], ctx: RenderCtx): string {
   const raw = cellValue(row, prop, props, rows);
@@ -1066,10 +1081,8 @@ a.subpage:hover { background: rgba(127,127,127,.08); }
 .kit-btn:hover { background: rgba(127,127,127,.16); }
 .kitlight { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .kit-light-val { font-weight: 500; opacity: .6; font-size: .9em; }
-.kit-light-dot { width: 12px; height: 12px; border-radius: 999px; background: #9ca3af; box-shadow: 0 0 0 3px rgba(156,163,175,.25); }
-.kitlight[data-status=ok] .kit-light-dot { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,.25); }
-.kitlight[data-status=warn] .kit-light-dot { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.25); }
-.kitlight[data-status=bad] .kit-light-dot { background: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.25); }
+.kit-light-dot { width: 12px; height: 12px; border-radius: 999px; background: ${hexAlpha(EXPORT_PALETTE.gray.fill, 0.35)}; box-shadow: inset 0 0 0 1px ${DATA_STROKE}; }
+${STATUS_LIGHT_CSS}
 .kitprogress { display: flex; flex-direction: column; gap: 6px; }
 .kit-prog-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .kit-prog-label { font-weight: 600; font-size: .92rem; }
@@ -1132,7 +1145,7 @@ hr.divider[data-style=thick] { border-top-width: 3px; }
 // Inlined live runtime: recomputes expressions from slider values and redraws
 // charts. Reuses the saved \`__C__{cellId}__\` reference tokens. Observable Plot
 // (and d3) are inlined as classic scripts above, so this works offline.
-const RUNTIME = KIT_CHART_JS + `
+const RUNTIME = kitChartRuntime() + `
 const Plot = (typeof window !== "undefined" && window.Plot) || null;
 const D = JSON.parse(document.getElementById("ob-data").textContent);
 const store = new Map(Object.entries(D.values));
