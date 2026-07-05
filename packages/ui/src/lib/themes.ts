@@ -17,9 +17,11 @@
  *
  * The content surfaces of {@link DEFAULT_APPEARANCE} match the legacy palette
  * (verbatim from index.css) in both schemes; the one intended departure is the
- * sidebar, which is always tinted (the sheets adopt the accent hue, with a
- * strength that follows the interface intensity — level 0 falls back to a flat
- * neutral panel).
+ * sidebar, which is a **full-intensity accent surface** by default (OB-377):
+ * at interface intensity ≥ 2 the sheets take the accent's primary colour with a
+ * flipped, contrast-audited foreground; level 1 falls back to the earlier soft
+ * accent tint and level 0 to a flat neutral panel. Exact values + WCAG audit:
+ * docs/design/colour-consistency-manifest-2026-07.md §2.
  *
  * `--radius` is intentionally not themed (it's part of the brand geometry).
  */
@@ -49,6 +51,13 @@ export interface ThemeTokens {
   sheet1Foreground: string;
   sheet2: string;
   sheet2Foreground: string;
+  /** The hover/active/press overlay pole for sidebar items (`--sheet-veil`):
+   *  black or white, chosen so a translucent wash of it over the sheets always
+   *  *increases* the sheet-foreground contrast (manifest §2.3). */
+  sheetVeil: string;
+  /** The neutral "desk" (book-cover) canvas behind the page sheets. Stays
+   *  neutral even when the sidebar sheets go full-accent (manifest §2.5). */
+  desk: string;
   brand: string;
   brandForeground: string;
   brandSubtle: string;
@@ -98,6 +107,8 @@ const DEFAULT_LIGHT: ThemeTokens = {
   sheet1Foreground: '34 9% 19%',
   sheet2: '40 11% 93.5%',
   sheet2Foreground: '34 9% 19%',
+  sheetVeil: '0 0% 0%',
+  desk: '40 11% 93.5%',
   brand: '207 76% 47%',
   brandForeground: '0 0% 100%',
   brandSubtle: '207 86% 95%',
@@ -129,6 +140,8 @@ const DEFAULT_DARK: ThemeTokens = {
   sheet1Foreground: '0 0% 82%',
   sheet2: '0 0% 18.5%',
   sheet2Foreground: '0 0% 82%',
+  sheetVeil: '0 0% 100%',
+  desk: '0 0% 11%',
   brand: '207 70% 57%',
   brandForeground: '0 0% 100%',
   brandSubtle: '208 48% 22%',
@@ -309,9 +322,11 @@ export interface AppearanceOptions {
    *  gray temperature — the gray accents (warm / neutral / cool) make the whole
    *  app that temperature; coloured accents stay warm. */
   themeId: string;
-  /** How saturated the neutral surfaces are — also how strongly the sidebar
-   *  sheets take the accent tint (the sidebar is always tinted; level 0 falls
-   *  back to a flat neutral panel). */
+  /** How saturated the neutral surfaces are — and what the sidebar sheets
+   *  render as: 0 = flat neutral panel, 1 = soft accent tint (the pre-OB-377
+   *  default look), 2 (default) and 3 = full-intensity accent surface with a
+   *  flipped foreground. Level 3 differs from 2 only in how strongly the other
+   *  neutral surfaces take the tint (the sidebar is already at maximum). */
   interfaceIntensity: Level;
   /** How colored the faded control surface (`--accent`) is. */
   controlIntensity: Level;
@@ -353,6 +368,11 @@ export type AppearanceOverride = Partial<AppearanceOptions>;
  * renamed gray theme ids. The old `neutral` temperature knob and the retired
  * `tintedSidebar` toggle are dropped (the sidebar is always tinted now). Unknown
  * keys are dropped by the `{...DEFAULT_APPEARANCE, ...}` merge at the call site.
+ *
+ * OB-377 deliberately adds **no** migration: existing users keep their stored
+ * `interfaceIntensity` (2 by default), whose *meaning* changed — level ≥ 2 now
+ * renders the full-accent sidebar. That is the intended rollout (manifest
+ * §2.6); the old soft look lives on at level 1.
  */
 export function normalizeAppearance(raw: Record<string, unknown>): AppearanceOverride {
   const out: Record<string, unknown> = {...raw};
@@ -422,8 +442,9 @@ const SURFACE_WEIGHT: Record<string, number> = {
   muted: 0.85,
   input: 0.9,
   border: 0.85,
-  sheet1: 1.2,
-  sheet2: 1.3,
+  // The desk (book cover) is a neutral canvas — it tracks the gray temperature
+  // like the other neutrals but never takes the sidebar's accent (OB-377).
+  desk: 0.85,
 };
 
 const NEUTRAL_KEYS = Object.keys(SURFACE_WEIGHT) as Array<keyof ThemeTokens>;
@@ -432,6 +453,26 @@ const FAMILY_HUE: Record<NeutralFamily, number> = {
   warm: 40,
   cool: 220,
   neutral: 0, // saturation forced to 0; hue irrelevant
+};
+
+/**
+ * Light-scheme full-accent sidebar escape hatches, **encoded from the audited
+ * table** in docs/design/colour-consistency-manifest-2026-07.md §2.2 (computed
+ * by docs/design/ob-375-palette-audit.mjs — don't re-derive at runtime):
+ * - `l`: the sheet keeps the primary's hue/saturation but darkens to this
+ *   lightness so the white foreground reaches 4.5:1 (default 49→44,
+ *   forest 38→31, teal 38→30).
+ * - `ink`: white can't win on this hue — flip the foreground to a deep
+ *   same-hue ink `(H 55% 15%)` instead (mirrors the amber theme's own ink).
+ */
+const SHEET_LIGHT_OVERRIDES: Record<string, {l?: number; ink?: boolean}> = {
+  default: {l: 44},
+  forest: {l: 31},
+  teal: {l: 30},
+  sunset: {ink: true},
+  'pastel-lavender': {ink: true},
+  'pastel-rose': {ink: true},
+  'pastel-peach': {ink: true},
 };
 
 /**
@@ -477,21 +518,46 @@ export function composeAppearance(opts: AppearanceOptions, scheme: 'light' | 'da
     tokens.background = PAGE_BACKGROUNDS[opts.background][scheme];
   }
 
-  // Tinted sidebar (always on): the sheets adopt the accent hue as a soft
-  // colored panel. The tint is strong by default and its strength rides the
-  // interface-intensity knob (so the one control that saturates the surfaces
-  // also dials the sidebar) — at level 0 the saturation falls to 0 and the
-  // sheets read as a flat neutral panel, which is the old "untinted" look.
-  // Gray (neutral-family) accents stay fully desaturated so the panel reads as
-  // clean gray rather than picking up a hue at 0°.
-  {
-    const mul = TINT_MUL[opts.interfaceIntensity];
+  // Sidebar sheets (OB-377): level 0 = flat neutral panel, level 1 = the soft
+  // accent tint (the pre-OB-377 default look), levels 2–3 = a full-intensity
+  // accent surface with a flipped, contrast-audited foreground (level 3 differs
+  // from 2 only in the neutral-surface tint above — the sidebar is already at
+  // maximum). The veil is the hover/active/press overlay pole: chosen so a
+  // translucent wash always *increases* the foreground contrast (white in the
+  // dark scheme for visibility on the deep sheets). Exact values + audit:
+  // docs/design/colour-consistency-manifest-2026-07.md §2.
+  if (opts.interfaceIntensity <= 1) {
     const sheet =
       scheme === 'dark'
         ? {s1: 34, l1: 16, s2: 40, l2: 19.5}
         : {s1: 42, l1: 96, s2: 50, l2: 90.5};
+    const mul = opts.interfaceIntensity === 0 ? 0 : 1;
     tokens.sheet1 = toTriple({h: accentHue, s: gray ? 0 : sheet.s1 * mul, l: sheet.l1});
     tokens.sheet2 = toTriple({h: accentHue, s: gray ? 0 : sheet.s2 * mul, l: sheet.l2});
+    tokens.sheet1Foreground = base.foreground;
+    tokens.sheet2Foreground = base.foreground;
+    tokens.sheetVeil = scheme === 'dark' ? '0 0% 100%' : '0 0% 0%';
+  } else if (scheme === 'dark') {
+    // Deep accent shade — not the (light-ish) dark primary itself.
+    const p = parseHsl(base.primary);
+    const s = p.s === 0 ? 0 : clamp(p.s * 0.7, 12, 60);
+    tokens.sheet1 = toTriple({h: p.h, s, l: 24});
+    tokens.sheet2 = toTriple({h: p.h, s, l: 28.5});
+    tokens.sheet1Foreground = '0 0% 93%';
+    tokens.sheet2Foreground = '0 0% 93%';
+    tokens.sheetVeil = '0 0% 100%';
+  } else {
+    // The primary verbatim, with the audited per-theme escape hatches.
+    const p = parseHsl(base.primary);
+    const override = SHEET_LIGHT_OVERRIDES[theme.id] ?? {};
+    const l = override.l ?? p.l;
+    tokens.sheet1 = toTriple({h: p.h, s: p.s, l});
+    tokens.sheet2 = toTriple({h: p.h, s: Math.min(p.s + 4, 100), l: l - 6});
+    const fg = override.ink ? toTriple({h: p.h, s: 55, l: 15}) : base.primaryForeground;
+    tokens.sheet1Foreground = fg;
+    tokens.sheet2Foreground = fg;
+    // Light foreground → darken on hover; ink foreground → lighten.
+    tokens.sheetVeil = parseHsl(fg).l >= 60 ? '0 0% 0%' : '0 0% 100%';
   }
 
   return tokens;

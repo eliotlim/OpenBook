@@ -106,11 +106,57 @@ describe('composeAppearance', () => {
     expect(satOf(t.sheet1)).toBeGreaterThan(0);
   });
 
-  it('interface intensity dials the sidebar tint strength (level 0 = flat panel)', () => {
-    const off = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'ocean', interfaceIntensity: 0}, 'light');
-    const strong = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'ocean', interfaceIntensity: 3}, 'light');
+  // ── OB-377 full-accent sidebar (values audited in
+  //    docs/design/colour-consistency-manifest-2026-07.md §2.2) ──────────────
+
+  it('renders the full-accent sidebar at the default intensity', () => {
+    const light = composeAppearance(DEFAULT_APPEARANCE, 'light');
+    expect(light.sheet1).toBe('207 75% 44%'); // audited: darkened 49 → 44 for white text
+    expect(light.sheet2).toBe('207 79% 38%');
+    expect(light.sheet1Foreground).toBe('0 0% 100%');
+    expect(light.sheet2Foreground).toBe('0 0% 100%');
+    expect(light.sheetVeil).toBe('0 0% 0%'); // black veil under a light foreground
+    const dark = composeAppearance(DEFAULT_APPEARANCE, 'dark');
+    expect(dark.sheet1).toBe('207 47.6% 24%'); // deep shade, not the dark primary
+    expect(dark.sheet2).toBe('207 47.6% 28.5%');
+    expect(dark.sheet1Foreground).toBe('0 0% 93%');
+    expect(dark.sheetVeil).toBe('0 0% 100%');
+  });
+
+  it('flips warm/pastel hues to an ink foreground (audited override)', () => {
+    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'sunset'}, 'light');
+    expect(t.sheet1).toBe('25 95% 53%'); // primary verbatim — no darkening needed
+    expect(t.sheet1Foreground).toBe('25 55% 15%');
+    expect(t.sheetVeil).toBe('0 0% 100%'); // white veil under an ink foreground
+  });
+
+  it('gray accents render a charcoal panel at full intensity', () => {
+    const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: 'graphite'}, 'light');
+    expect(t.sheet1).toBe('0 0% 34%'); // the gray primary, verbatim
+    expect(t.sheet1Foreground).toBe('0 0% 100%');
+  });
+
+  it('interface intensity: 0 = flat panel, 1 = soft tint, 3 = same sheets as 2', () => {
+    const off = composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 0}, 'light');
     expect(satOf(off.sheet1)).toBe(0); // no tint at level 0
-    expect(satOf(strong.sheet1)).toBeGreaterThan(satOf(composeAppearance({...DEFAULT_APPEARANCE, themeId: 'ocean'}, 'light').sheet1));
+    expect(off.sheet1Foreground).toBe('34 9% 19%');
+    const soft = composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 1}, 'light');
+    expect(soft.sheet1).toBe('207 42% 96%'); // the pre-OB-377 default look
+    expect(soft.sheet1Foreground).toBe('34 9% 19%');
+    // The sidebar is already at maximum at level 2; level 3 only strengthens
+    // the other neutral surfaces.
+    const l2 = composeAppearance(DEFAULT_APPEARANCE, 'light');
+    const l3 = composeAppearance({...DEFAULT_APPEARANCE, interfaceIntensity: 3}, 'light');
+    expect(l3.sheet1).toBe(l2.sheet1);
+    expect(l3.sheet1Foreground).toBe(l2.sheet1Foreground);
+  });
+
+  it('the desk stays a neutral canvas while the sheets go full-accent', () => {
+    const light = composeAppearance(DEFAULT_APPEARANCE, 'light');
+    expect(light.desk).toBe('40 11% 93.5%'); // warm neutral, no accent
+    const dark = composeAppearance(DEFAULT_APPEARANCE, 'dark');
+    expect(satOf(dark.desk)).toBe(0);
+    expect(dark.desk.endsWith('11%')).toBe(true);
   });
 });
 

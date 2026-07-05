@@ -56,6 +56,10 @@
   --color-sheet-2: hsl(var(--sheet-2));
   --color-sheet-2-foreground: hsl(var(--sheet-2-foreground));
 
+  /* The neutral desk (book cover) behind the page sheets — stays a neutral
+     canvas even when the sidebar sheets go full-accent (OB-377). */
+  --color-desk: hsl(var(--desk));
+
   --color-brand: hsl(var(--brand));
   --color-brand-foreground: hsl(var(--brand-foreground));
   --color-brand-subtle: hsl(var(--brand-subtle));
@@ -182,10 +186,18 @@
     --ring: 207 75% 49%;
     /* Refined-minimal: softer 8px corners cascade to every rounded-{sm,md,lg}. */
     --radius: 0.5rem;
-    --sheet-1: 40 14% 97.5%;
-    --sheet-1-foreground: 34 9% 19%;
-    --sheet-2: 40 11% 93.5%;
-    --sheet-2-foreground: 34 9% 19%;
+    /* Sidebar sheets: the *composed* default appearance (full-accent, OB-377)
+       so the first paint matches what applyAppearance writes — kept in
+       lockstep with composeAppearance at DEFAULT_APPEARANCE (level 2), not
+       with the ThemeTokens base fields. Audited values: manifest §2.2. */
+    --sheet-1: 207 75% 44%;
+    --sheet-1-foreground: 0 0% 100%;
+    --sheet-2: 207 79% 38%;
+    --sheet-2-foreground: 0 0% 100%;
+    /* Sidebar hover/active/press overlay pole (manifest §2.3). */
+    --sheet-veil: 0 0% 0%;
+    /* The neutral desk (book cover) behind the page sheets (manifest §2.5). */
+    --desk: 40 11% 93.5%;
     --brand: 207 76% 47%;
     --brand-foreground: 0 0% 100%;
     --brand-subtle: 207 86% 95%;
@@ -243,10 +255,13 @@
     --border: 0 0% 22%;
     --input: 0 0% 26%;
     --ring: 207 68% 55%;
-    --sheet-1: 0 0% 15.5%;
-    --sheet-1-foreground: 0 0% 82%;
-    --sheet-2: 0 0% 18.5%;
-    --sheet-2-foreground: 0 0% 82%;
+    /* Composed default sheets (full-accent, OB-377) — see the :root note. */
+    --sheet-1: 207 47.6% 24%;
+    --sheet-1-foreground: 0 0% 93%;
+    --sheet-2: 207 47.6% 28.5%;
+    --sheet-2-foreground: 0 0% 93%;
+    --sheet-veil: 0 0% 100%;
+    --desk: 0 0% 11%;
     --brand: 207 70% 57%;
     --brand-foreground: 0 0% 100%;
     --brand-subtle: 208 48% 22%;
@@ -441,12 +456,14 @@
 
 /* ── Notebook "sheets" on a book cover ───────────────────────────────────────
    The primary page and the right split pane read like facing notebook pages.
-   The "desk" they sit on is the book cover — the same colour as the sidebar and
-   titlebar — inset from the window edge (no top inset on desktop, where the
-   titlebar is the cover's top; no left inset while the sidebar is pinned, so the
-   page binds straight into it). The two pages meet at a central seam, not a gap. */
+   The "desk" they sit on is the book cover — a *neutral* canvas (`--desk`),
+   deliberately not the sidebar/titlebar sheet colour now that the sheets are a
+   full-accent surface (OB-377) — inset from the window edge (no top inset on
+   desktop, where the titlebar is the cover's top; no left inset while the
+   sidebar is pinned, so the page binds straight into it). The two pages meet at
+   a central seam, not a gap. */
 .ob-desk {
-  background-color: hsl(var(--sheet-1));
+  background-color: hsl(var(--desk));
   gap: 0;
   padding-top: var(--ob-inset-top);
   padding-bottom: var(--ob-page-inset);
@@ -1462,7 +1479,9 @@ a.obe-mention {
   position: fixed;
   inset: 0;
   display: flex;
-  background: hsl(var(--sheet-2));
+  /* The stage backdrop is the neutral desk, not the (now accent) sidebar
+     sheets — slides must not inherit the sidebar surface (OB-377). */
+  background: hsl(var(--desk));
   color: hsl(var(--foreground));
   overflow: hidden;
 }
