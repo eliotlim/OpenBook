@@ -1,3 +1,14 @@
+## 1.72.0 (2026-07-05)
+
+### 🚀 Features
+
+- **ui,sdk:** exported HTML renders embedded artifacts — sandboxed, interactive, CSP-clamped ([#99](https://github.com/eliotlim/OpenBook/pull/99))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 1.71.0 (2026-07-05)
 
 ### 🚀 Features
