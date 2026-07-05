@@ -158,6 +158,66 @@ describe('composeAppearance', () => {
     expect(satOf(dark.desk)).toBe(0);
     expect(dark.desk.endsWith('11%')).toBe(true);
   });
+
+  // The §2.2 audited table, encoded verbatim for the archetypes the manifest
+  // calls out (per-theme sheet-darken and ink-flip overrides among them). This
+  // pins composeAppearance to the signed-off values — it must not re-derive them
+  // at runtime and drift.
+  const SHEET_TABLE: Array<{
+    id: string;
+    light: [string, string, string];
+    dark: [string, string, string];
+  }> = [
+    {id: 'default', light: ['207 75% 44%', '207 79% 38%', '0 0% 100%'], dark: ['207 47.6% 24%', '207 47.6% 28.5%', '0 0% 93%']},
+    {id: 'graphite', light: ['0 0% 34%', '0 4% 28%', '0 0% 100%'], dark: ['0 0% 24%', '0 0% 28.5%', '0 0% 93%']},
+    {id: 'ocean', light: ['221 83% 53%', '221 87% 47%', '0 0% 100%'], dark: ['217 60% 24%', '217 60% 28.5%', '0 0% 93%']},
+    {id: 'forest', light: ['142 71% 31%', '142 75% 25%', '0 0% 100%'], dark: ['142 45.5% 24%', '142 45.5% 28.5%', '0 0% 93%']},
+    {id: 'teal', light: ['174 72% 30%', '174 76% 24%', '0 0% 100%'], dark: ['173 49% 24%', '173 49% 28.5%', '0 0% 93%']},
+    {id: 'sunset', light: ['25 95% 53%', '25 99% 47%', '25 55% 15%'], dark: ['21 60% 24%', '21 60% 28.5%', '0 0% 93%']},
+    {id: 'amber', light: ['38 92% 48%', '38 96% 42%', '30 40% 14%'], dark: ['41 60% 24%', '41 60% 28.5%', '0 0% 93%']},
+    {id: 'pastel-butter', light: ['46 80% 70%', '46 84% 64%', '40 55% 24%'], dark: ['46 46.2% 24%', '46 46.2% 28.5%', '0 0% 93%']},
+    {id: 'pastel-lavender', light: ['258 60% 76%', '258 64% 70%', '258 55% 15%'], dark: ['258 33.6% 24%', '258 33.6% 28.5%', '0 0% 93%']},
+  ];
+
+  it.each(SHEET_TABLE)('matches the §2.2 audited sheet tokens for $id', ({id, light, dark}) => {
+    const l = composeAppearance({...DEFAULT_APPEARANCE, themeId: id}, 'light');
+    expect([l.sheet1, l.sheet2, l.sheet1Foreground]).toEqual(light);
+    expect(l.sheet2Foreground).toBe(light[2]); // both sheets share the foreground
+    const d = composeAppearance({...DEFAULT_APPEARANCE, themeId: id}, 'dark');
+    expect([d.sheet1, d.sheet2, d.sheet1Foreground]).toEqual(dark);
+  });
+
+  // Acceptance guard: the foreground must clear WCAG 4.5:1 on *both* sheets, for
+  // *every* theme, in *both* schemes, at the default full-accent intensity.
+  const hslToRgb = (triple: string): [number, number, number] => {
+    const [h, s, l] = triple.replace(/%/g, '').split(/\s+/).map(Number).map((n, i) => (i === 0 ? n : n / 100));
+    const k = (n: number): number => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number): number => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+    return [f(0), f(8), f(4)].map((c) => Math.round(c * 255)) as [number, number, number];
+  };
+  const luminance = (triple: string): number => {
+    const lin = hslToRgb(triple)
+      .map((c) => c / 255)
+      .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+  };
+  const contrast = (a: string, b: string): number => {
+    const [la, lb] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (la + 0.05) / (lb + 0.05);
+  };
+
+  it('keeps foreground-on-sheet ≥ 4.5:1 for all 17 themes in both schemes (level 2)', () => {
+    for (const theme of themes) {
+      for (const scheme of ['light', 'dark'] as const) {
+        const t = composeAppearance({...DEFAULT_APPEARANCE, themeId: theme.id}, scheme);
+        for (const [sheet, fg] of [[t.sheet1, t.sheet1Foreground], [t.sheet2, t.sheet2Foreground]] as const) {
+          const ratio = contrast(fg, sheet);
+          expect(ratio, `${theme.id}/${scheme}: fg ${fg} on sheet ${sheet}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
 });
 
 describe('mergeAppearance', () => {

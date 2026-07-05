@@ -58,7 +58,7 @@ export function SidebarSection({id, label, children}: {id: string; label: string
         aria-expanded={open}
         className="group/section flex w-full cursor-pointer items-center gap-1 px-3 pb-1 pt-1 text-left"
       >
-        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 transition-colors group-hover/section:text-muted-foreground">
+        <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {label}
         </span>
         <ChevronRight
@@ -85,7 +85,7 @@ export function SidebarPageRow({page}: {page: PageMeta}) {
         <div
           onClick={() => selectPageInPane(page.id, 'primary')}
           className={cn(
-            'mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-foreground/75 transition-colors',
+            'mx-1 flex cursor-pointer items-center rounded-md py-1 pl-2 pr-1.5 text-sm text-sheet-1-foreground transition-colors',
             SIDEBAR_HOVER,
             selected && cn(SIDEBAR_ACTIVE, 'font-medium'),
           )}

@@ -511,6 +511,23 @@
   background: linear-gradient(to right, hsl(0 0% 0% / 0.25), transparent);
 }
 
+/* ── Accent-chrome surfaces (sidebar, settings rail, titlebar) ───────────────
+   These surfaces paint the full-accent sheet (`--sheet-1`/`--sheet-2`, OB-377).
+   The neutral text/icon and hover tokens can't read on a saturated surface, so
+   inside them we remap those tokens to the sheet's own contrast-audited poles:
+   de-emphasised text collapses to the FULL sheet foreground (hierarchy is then
+   size/weight only, per manifest §2.2), and hover/active washes use the
+   `--sheet-veil` (matching lib/sidebarStyles.ts). `--foreground` itself is left
+   intact so a neutral chip that opts back onto a light surface (e.g. the active
+   titlebar tab, `bg-background text-foreground`) keeps its dark ink. Portaled
+   menus/dialogs render outside these subtrees, so they stay neutral popovers. */
+.ob-accent-chrome {
+  --muted-foreground: var(--sheet-1-foreground);
+  --accent-foreground: var(--sheet-1-foreground);
+  --hover: hsl(var(--sheet-veil) / 0.1);
+  --hover-strong: hsl(var(--sheet-veil) / 0.16);
+}
+
 /* Per-page typefaces (lib/pageFont): the wrapper sets the body family, headings
    (and the title) take the heading family — falling back to the body family
    when only one is set. Code keeps its own monospace (set explicitly elsewhere). */

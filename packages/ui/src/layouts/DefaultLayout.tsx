@@ -54,7 +54,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
             window controls on the right (Windows/Linux). Its height comes from
             `--ob-titlebar-height`, which the desktop shell sets; it is unset (0)
             on the web, so the web layout is unchanged. */}
-        <div className="flex shrink-0 bg-sheet-1 print:hidden" style={{height: 'var(--ob-titlebar-height, 0px)'}}>
+        <div className="ob-accent-chrome flex shrink-0 bg-sheet-1 text-sheet-1-foreground print:hidden" style={{height: 'var(--ob-titlebar-height, 0px)'}}>
           <div className="min-w-0 flex-1">
             <TitlebarTabs />
           </div>

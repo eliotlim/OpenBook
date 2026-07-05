@@ -9,7 +9,7 @@ export interface DrawerProps {
 
 export default function Drawer({children, ...props}: DrawerProps) {
   const classes = cn(
-    'z-50 flex w-64 shrink-0 flex-col bg-sheet-1 text-sheet-1-foreground transition-transform duration-300 ease-out print:hidden',
+    'ob-accent-chrome z-50 flex w-64 shrink-0 flex-col bg-sheet-1 text-sheet-1-foreground transition-transform duration-300 ease-out print:hidden',
     // Docked: no border — the divider belongs to the primary page pane on the
     // right (`.ob-sheet`'s left border), which binds flush against the sidebar.
     // Auto-hide: a floating overlay, so it carries its own edge + shadow.
