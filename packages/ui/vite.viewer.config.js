@@ -28,12 +28,21 @@ const inlineCssPlugin = () => ({
     for (const name of cssNames) delete bundle[name];
     const entry = Object.values(bundle).find((c) => c.type === "chunk" && c.isEntry);
     if (!entry || !css) return;
+    // Guarded against double load: the style injects once, and a second copy of
+    // the script keeps the FIRST OpenBookViewer instance (the `var` declaration
+    // hoists out of the `else` block, so the global binding still exists; only
+    // the assignment is skipped) rather than silently redefining the global.
     const inject =
-      "(function(){try{var d=document,s=d.createElement('style');" +
+      "(function(){try{if(document.querySelector('style[data-openbook-viewer]'))return;" +
+      "var d=document,s=d.createElement('style');" +
       "s.setAttribute('data-openbook-viewer','');" +
       `s.textContent=${JSON.stringify(css)};` +
       "(d.head||d.documentElement).appendChild(s);}catch(e){}})();\n";
-    entry.code = inject + entry.code;
+    entry.code =
+      inject +
+      'if (window.OpenBookViewer) { console.warn("OpenBookViewer: already loaded; keeping the first instance."); } else {\n' +
+      entry.code +
+      "\n}";
   },
 });
 

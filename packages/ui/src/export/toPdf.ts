@@ -133,9 +133,18 @@ export async function awaitImages(root: Element): Promise<void> {
   );
 }
 
+// The PDF consumes the export's STATIC projection: viewer-hydrated exports
+// check this flag in their boot script and skip mounting entirely, so the
+// iframe keeps the server-rendered body (kit charts, expression values and
+// widget states are all baked at export time — same pixels, no React). The
+// legacy reactive runtime (#ob-data path) ignores the flag and still runs,
+// exactly as before, for legacy-snapshot exports and slide decks.
+const NO_HYDRATE = '<script>window.__OB_NO_HYDRATE=true</script>';
+
 /**
- * Lay the HTML out in a hidden iframe (real layout + the reactive runtime, so
- * computed values and charts render), and hand back its `<main>` element.
+ * Lay the HTML out in a hidden iframe (real layout — plus the legacy reactive
+ * runtime where present, so its computed values and charts render), and hand
+ * back its `<main>` element. Viewer hydration is disabled (see NO_HYDRATE).
  */
 async function layout(html: string): Promise<{frame: HTMLIFrameElement; el: Element}> {
   const frame = document.createElement('iframe');
@@ -145,8 +154,9 @@ async function layout(html: string): Promise<{frame: HTMLIFrameElement; el: Elem
   });
   document.body.appendChild(frame);
   const idoc = frame.contentDocument!;
+  const head = `${NO_HYDRATE}${PDF_FONT}`;
   idoc.open();
-  idoc.write(html.includes('</head>') ? html.replace('</head>', `${PDF_FONT}</head>`) : PDF_FONT + html);
+  idoc.write(html.includes('</head>') ? html.replace('</head>', `${head}</head>`) : head + html);
   idoc.close();
   await new Promise<void>((res) => {
     if (idoc.readyState === 'complete') res();

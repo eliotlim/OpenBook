@@ -78,13 +78,19 @@ describe('reactive export from a block document', () => {
 
   it('renders interactive HTML with computed values, a 3-state light, a bar, and a drawn chart', () => {
     const html = toHtml(blockSnapshot(), 'T', '🛒');
+    // The static first-paint body carries the fully computed render (also what
+    // the no-JS fallback and the PDF pipeline consume).
     expect(html).toContain('<span data-val>86</span>'); // best
     expect(html).toContain('data-status="ok"'); // status light colour
     expect(html).toContain('width:72%'); // progress fill
     expect(html).toContain('<figcaption class="chart-title">Baskets</figcaption>');
     expect(html).toContain('<svg'); // the kit chart is drawn at build time (first paint)
-    expect(html).toContain('id="ob-data"'); // live runtime seeded
     expect(html).not.toContain('= <span data-val>—</span>'); // nothing left uncomputed
+    // Block-doc exports hydrate through the vendored viewer (the island is the
+    // mount source) — the bespoke #ob-data runtime is retired on this path.
+    expect(html).toContain('OpenBookViewer');
+    expect(html).toContain('__OB_NO_HYDRATE'); // the PDF pipeline's static opt-out
+    expect(html).not.toContain('id="ob-data"');
   });
 
   it('splits a divider-delimited deck and keeps widgets live', () => {
@@ -142,10 +148,14 @@ describe('export block fidelity', () => {
     ]);
     const snap = {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(doc)} as never;
     const html = toHtml(snap, 'T', '');
-    // Text colour re-emits as a var() with the light hex as the fallback, so light
-    // mode shows #b91c1c and dark mode picks up the brighter --obtc-red override.
+    // Text colour re-emits as a var() with the light hex as the fallback. The
+    // HYDRATE path is light-only v1 (the viewer bundle has no dark theme), so
+    // the var() just falls back; the brighter dark override is only defined on
+    // the legacy/no-hydrate path, whose static body honours the OS scheme.
     expect(html).toContain('color:var(--obtc-red, #b91c1c)');
-    expect(html).toContain('--obtc-red: #f87171'); // dark-mode override defined
+    expect(html).not.toContain('--obtc-red: #f87171'); // no dark override on the light-only hydrate path
+    const legacy = toHtml({editorjs: {blocks: [{type: 'paragraph', data: {text: 'x'}}]}, values: [], names: []} as never, 'T', '');
+    expect(legacy).toContain('--obtc-red: #f87171'); // dark-capable legacy path keeps it
     expect(html).toMatch(/<mark style="background:#fef3c7">lit<\/mark>/); // yellow highlight tint
     // The document model resolves the run colours so the PDF can use them.
     const model = buildDocumentModel({title: 'T', icon: '', snapshot: snap});

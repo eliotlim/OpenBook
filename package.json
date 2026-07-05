@@ -23,7 +23,7 @@
     "test": "pnpm -r --if-present run test",
     "test:e2e": "pnpm --filter @book.dev/server run test:e2e && pnpm --filter @book.dev/mcp run test:e2e",
     "test:e2e:web": "pnpm --filter @book.dev/web run test:e2e",
-    "test:e2e:viewer": "pnpm --filter @book.dev/ui run build:viewer && pnpm --filter @book.dev/web run test:e2e:viewer",
+    "test:e2e:viewer": "pnpm --filter @book.dev/ui run build:viewer && pnpm --filter @book.dev/ui run gen:export-fixtures && pnpm --filter @book.dev/web run test:e2e:viewer",
     "verify": "pnpm run build:libs && pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run test:e2e",
     "chromatic": "pnpm --filter @book.dev/web run chromatic",
     "seed": "pnpm --filter @book.dev/server run seed",

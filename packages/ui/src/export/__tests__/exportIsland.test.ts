@@ -16,9 +16,11 @@ import type {SiteBundle} from '../exportSite';
 const blockSnapshot = (blocks: NewBlock[]): PageSnapshot =>
   ({editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(createDoc(blocks))}) as never;
 
-/** Count the source-island `<script>`s in a document. */
+/** Count the source-island `<script>`s in a document. Matches the actual tag
+ *  (`<script type="…"`), not any occurrence of the marker string — the vendored
+ *  viewer's boot script legitimately mentions the marker in its selector. */
 const islandCount = (html: string): number =>
-  (html.match(new RegExp(`type="${OPENBOOK_ISLAND_MARKER.replace(/[/+]/g, '\\$&')}"`, 'g')) ?? []).length;
+  (html.match(new RegExp(`<script type="${OPENBOOK_ISLAND_MARKER.replace(/[/+]/g, '\\$&')}"`, 'g')) ?? []).length;
 
 describe('single-page export island', () => {
   const snapshot = blockSnapshot([
