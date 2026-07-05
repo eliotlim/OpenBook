@@ -13,7 +13,7 @@
 
 /** The subset of a `PageSnapshot` the viewer reads. Extra keys pass through. */
 export interface ViewerPageData {
-  /** `'blocks'` for native block-docs (the only editor since the EditorJS retirement). */
+  /** `'blocks'` for native block-docs — currently the only editor. */
   editor?: string;
   /** The block-doc snapshot: `{v:1, update: base64-Y-update, blocks: JSON projection}`. */
   blockdoc?: unknown;

@@ -2,7 +2,7 @@
  * Lightweight i18n runtime (no library). `t(key, vars?)` looks the dotted key up
  * in the current locale, falling back to English, and interpolates `{var}`
  * placeholders. The current locale is a module singleton so non-React callers
- * (EditorJS tool classes, exporters) can use the same `t`; React code reads it
+ * (block tools, exporters) can use the same `t`; React code reads it
  * reactively through {@link providers/I18nProvider}.
  */
 import {en, type Messages} from './messages/en';
