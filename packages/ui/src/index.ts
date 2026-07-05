@@ -14,7 +14,8 @@ export type {UpdateCheckParams, UpdateCheckOptions} from './lib/updateCheck';
 
 // Untrusted-HTML sandbox contract (no React dep) — reused by the SandboxedHtml
 // component and the export pipeline.
-export {SANDBOX_FLAGS, escapeSrcdocAttribute, wrapSandboxDocument} from './lib/srcdoc';
+export {SANDBOX_FLAGS, EXPORT_ARTIFACT_CSP, escapeSrcdocAttribute, wrapSandboxDocument} from './lib/srcdoc';
+export {SandboxedHtml, SandboxCspContext, type SandboxedHtmlProps} from './components/SandboxedHtml';
 
 // The custom CRDT block editor — the app's only editor. `migrateEditorJs` still
 // upgrades legacy EditorJS snapshots to the block document on open.

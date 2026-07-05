@@ -5,6 +5,18 @@ import {Skeleton} from '@/components/ui/skeleton';
 import {SANDBOX_FLAGS, wrapSandboxDocument} from '@/lib/srcdoc';
 
 /**
+ * Ambient Content-Security-Policy for every {@link SandboxedHtml} beneath the
+ * provider. Default `undefined` = no CSP meta (the app's posture: the opaque
+ * origin is the boundary; artifacts may load their own remote assets). The
+ * standalone export viewer provides `EXPORT_ARTIFACT_CSP` so an exported file
+ * keeps its zero-network promise even against adversarial artifacts. A context
+ * (not a prop threaded through every block) because the block renderer is
+ * shared verbatim between the app and the viewer bundle — only the mounting
+ * shell knows which world it is.
+ */
+export const SandboxCspContext = React.createContext<string | undefined>(undefined);
+
+/**
  * Render arbitrary UNTRUSTED HTML (AI-generated artifacts, imported/embedded
  * documents, published-page previews) inside a locked-down `<iframe srcdoc>`.
  * This is the one reusable surface every "HTML artifact" block/preview mounts,
@@ -66,6 +78,13 @@ export interface SandboxedHtmlProps {
   emptyLabel?: string;
   /** Text for the error state — same provider-free contract as `emptyLabel`. */
   errorLabel?: string;
+  /**
+   * Content-Security-Policy meta injected into the sandboxed document (see
+   * `wrapSandboxDocument`). Defaults to the ambient {@link SandboxCspContext}
+   * value; pass explicitly to override. Tightens only — it can never widen the
+   * sandbox.
+   */
+  csp?: string;
   className?: string;
 }
 
@@ -82,8 +101,10 @@ export function SandboxedHtml({
   title = 'Sandboxed HTML content',
   emptyLabel = 'Nothing to preview yet.',
   errorLabel = 'This content could not be displayed.',
+  csp,
   className,
 }: SandboxedHtmlProps): React.ReactElement {
+  const ambientCsp = React.useContext(SandboxCspContext);
   const [state, setState] = React.useState<LoadState>('loading');
   const isEmpty = html.trim().length === 0;
 
@@ -109,7 +130,7 @@ export function SandboxedHtml({
     );
   }
 
-  const srcDoc = wrapSandboxDocument(html);
+  const srcDoc = wrapSandboxDocument(html, {csp: csp ?? ambientCsp});
 
   return (
     <div className={cn('relative overflow-hidden rounded-md border border-border bg-background', className)}>
