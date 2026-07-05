@@ -11,7 +11,7 @@
  *   client-side router, and databases drawn as tables of navigable rows.
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
-import {pageIslandScript, spaceIslandScript} from '@book.dev/sdk';
+import {isSafeHref, pageIslandScript, spaceIslandScript} from '@book.dev/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
 // then Plot's UMD (which expects a global d3) sets `window.Plot`. Inlined only
@@ -140,7 +140,9 @@ function runToHtml(r: InlineRun, ctx: RenderCtx): string {
     const value = token ? `var(--obtc-${token}, ${escapeHtml(r.color)})` : escapeHtml(r.color);
     html = `<span style="color:${value}">${html}</span>`;
   }
-  if (r.link) html = `<a href="${escapeHtml(r.link)}">${html}</a>`;
+  // Scheme-gate the link href (escapeHtml doesn't touch the scheme); an unsafe
+  // scheme (javascript:/data:/…) degrades to inert text. See sdk isSafeHref.
+  if (r.link && isSafeHref(r.link)) html = `<a href="${escapeHtml(r.link)}">${html}</a>`;
   return html;
 }
 
@@ -329,7 +331,10 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
       const label = escapeHtml(str(d.label) || str(d.url));
       const url = str(d.url);
       const ext = /^https?:\/\//i.test(url) ? ' target="_blank" rel="noreferrer noopener"' : '';
-      html.push(url ? `<p><a class="button" href="${escapeHtml(url)}"${ext}>${label}</a></p>` : `<p><span class="button is-empty">${label}</span></p>`);
+      // Scheme-gate the button href; an unsafe/empty url renders as the inert
+      // is-empty span (same as no url). See sdk isSafeHref.
+      const safeUrl = url && isSafeHref(url);
+      html.push(safeUrl ? `<p><a class="button" href="${escapeHtml(url)}"${ext}>${label}</a></p>` : `<p><span class="button is-empty">${label}</span></p>`);
       break;
     }
     case 'divider': {
@@ -474,7 +479,14 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
     }
     case 'kitbutton': {
       if (str(d.action) === 'link') {
-        html.push(`<p class="kitbtn"><a class="kit-btn" href="${escapeHtml(str(d.url))}" target="_blank" rel="noreferrer noopener">${escapeHtml(str(d.label))}</a></p>`);
+        // Scheme-gate the kit-button href; an unsafe scheme renders as an inert
+        // labelled span (no live link). See sdk isSafeHref.
+        const url = str(d.url);
+        html.push(
+          url && isSafeHref(url)
+            ? `<p class="kitbtn"><a class="kit-btn" href="${escapeHtml(url)}" target="_blank" rel="noreferrer noopener">${escapeHtml(str(d.label))}</a></p>`
+            : `<p class="kitbtn"><span class="kit-btn is-empty">${escapeHtml(str(d.label))}</span></p>`,
+        );
         break;
       }
       ctx.buttons.push({id, action: str(d.action), target: str(d.target), amount: num(d.amount, 1), ...(typeof d.min === 'number' ? {min: d.min} : {}), ...(typeof d.max === 'number' ? {max: d.max} : {})});

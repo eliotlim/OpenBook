@@ -1,3 +1,4 @@
+import {isSafeHref} from '@book.dev/sdk';
 import type {BlockJSON, InlineAttrs, TextRun} from './model';
 import {decodeSnapshot} from './model';
 import {COLOR_EXPORT_HEX} from './colors';
@@ -27,7 +28,9 @@ function runToHtml(run: TextRun): string {
   if (a.hl) out = `<mark${COLOR_EXPORT_HEX[a.hl] ? ` style="background:${COLOR_EXPORT_HEX[a.hl].hl}"` : ''}>${out}</mark>`;
   if (a.tc && COLOR_EXPORT_HEX[a.tc]) out = `<span style="color:${COLOR_EXPORT_HEX[a.tc].fg}">${out}</span>`;
   if (a.m) out = `<a class="ob-mention" data-page-id="${escapeHtml(a.m)}">${out}</a>`;
-  else if (a.a) out = `<a href="${escapeHtml(a.a)}">${out}</a>`;
+  // Scheme-gate the href (esc doesn't touch the scheme) — a rejected link
+  // (javascript:/data:/…) degrades to inert text. See sdk isSafeHref.
+  else if (a.a && isSafeHref(a.a)) out = `<a href="${escapeHtml(a.a)}">${out}</a>`;
   return out;
 }
 
