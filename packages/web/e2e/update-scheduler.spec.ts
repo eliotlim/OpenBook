@@ -80,6 +80,39 @@ test('new major: announced once by toast, surfaced durably in Settings, never in
   await expect(page.getByTestId('major-available')).toHaveText('OpenBook 2.x is available');
 });
 
+test('Settings install button: appears after a check finds an update, drives install+relaunch', async ({page}) => {
+  // Cadence `never` keeps the background scheduler silent (no auto-download), so
+  // the install-call counter starts clean and only the button moves it. The
+  // manual "Check for updates" runs regardless of cadence.
+  await page.addInitScript(() => {
+    localStorage.setItem('updates.cadence', 'never');
+  });
+  await page.goto('/?updates=available');
+  await appReady(page);
+
+  await page.getByRole('button', {name: 'Settings'}).first().click();
+  await page.getByRole('button', {name: 'General', exact: true}).click();
+
+  // No check yet → no update surfaced → no install affordance.
+  await expect(page.getByTestId('install-update')).toHaveCount(0);
+
+  // Run a manual check; it reports the available update.
+  await page.getByTestId('check-for-updates').click();
+  await expect(page.getByTestId('update-check-result')).toHaveText('Update available: v1.72.0');
+
+  // Now the one-click action appears, and nothing has been installed yet.
+  const installBtn = page.getByTestId('install-update');
+  await expect(installBtn).toBeVisible();
+  await expect(installBtn).toHaveText('Install & restart');
+  expect(await counter(page, '__updateInstallCalls')).toBe(0);
+  expect(await counter(page, '__updateRelaunchCalls')).toBe(0);
+
+  // One click downloads+installs+relaunches through the shared runner.
+  await installBtn.click();
+  await expect.poll(() => counter(page, '__updateInstallCalls')).toBe(1);
+  await expect.poll(() => counter(page, '__updateRelaunchCalls')).toBe(1);
+});
+
 test('cadence never: zero checkForUpdate calls even with an update on offer', async ({page}) => {
   await page.addInitScript(() => {
     localStorage.setItem('updates.cadence', 'never');

@@ -954,6 +954,12 @@ export const en = {
     updateAvailable: 'Update available: v{version}',
     securityUpdateAvailable: 'Security update available: v{version}',
     checkError: 'Couldn’t check for updates. Try again.',
+    // One-click install action in Settings (offered when a check finds an
+    // update): the idle label, then the two in-progress phases, then the error.
+    installAction: 'Install & restart',
+    downloading: 'Downloading…',
+    installing: 'Installing…',
+    installError: 'Couldn’t install the update. Try again.',
     version: 'Version {version}',
     lastChecked: 'Last checked {when}',
     neverChecked: 'Not checked yet',

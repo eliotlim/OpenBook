@@ -1,10 +1,11 @@
 import {useCallback, useEffect, useState} from 'react';
-import {RefreshCw} from 'lucide-react';
+import {Download, Loader2, RefreshCw} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
-import {usePlatformLibrary, useTranslation} from '@/providers';
+import {useConfirm, usePlatformLibrary, useTranslation} from '@/providers';
 import type {UpdateCheckResult} from '@/providers';
 import {SettingsSection, SettingsField, SettingsToggle} from '@/components/settings/primitives';
+import {anyPageSavePending} from '@/lib/pageSaveStatus';
 import {
   getUpdateCadence,
   getUpdateLastCheckSuccessAt,
@@ -13,7 +14,7 @@ import {
   setUpdateSecurityOnly,
   type UpdateCadence,
 } from '@/lib/updatePreferences';
-import {runUpdateCheck} from '@/lib/updateRunner';
+import {runDownloadAndInstall, runUpdateCheck} from '@/lib/updateRunner';
 import {getLatestMajorSeen} from '@/lib/updateScheduler';
 import {semverMajor} from '@/lib/updateCheck';
 import {cn} from '@/lib/utils';
@@ -41,6 +42,7 @@ type Tone = 'ok' | 'available' | 'error';
 export function UpdatesSection() {
   const platform = usePlatformLibrary();
   const {t} = useTranslation();
+  const confirm = useConfirm();
   const updates = platform.updates;
 
   const [cadence, setCadence] = useState<UpdateCadence>('daily');
@@ -53,6 +55,14 @@ export function UpdatesSection() {
   const [version, setVersion] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<UpdateCheckResult | null>(null);
+  // The one-click install action's progress: `downloading` while the signed
+  // update is fetched+staged (runDownloadAndInstall), `installing` while the
+  // relaunch that applies it is invoked. On desktop the process ends during
+  // `installing`; on web the stub resolves and the button just stays inert.
+  const [installPhase, setInstallPhase] = useState<'downloading' | 'installing' | null>(null);
+  // A download / signature-verification / relaunch failure, surfaced inline
+  // (assertively — an action the user just took failed) rather than swallowed.
+  const [installError, setInstallError] = useState<string | null>(null);
   // The `latestMajor` the most recent successful check reported (recorded by
   // the shared runner) — the durable "a new major exists" surface. The
   // once-per-major toast is a ~7s signal; this line is what a user who missed
@@ -98,6 +108,7 @@ export function UpdatesSection() {
   const check = useCallback(async () => {
     if (!updates || checking) return; // no double-click; the runner also single-flights
     setChecking(true);
+    setInstallError(null); // a fresh check supersedes any stale install failure
     // The shared single-flight runner (same pipeline the background scheduler
     // uses, so manual + background can never double-run) stamps the timestamps:
     // the attempt on every check, the success one only when it completed —
@@ -109,6 +120,40 @@ export function UpdatesSection() {
     setResult(r);
     setChecking(false);
   }, [updates, checking]);
+
+  // One-click: download+stage the signed update through the pinned channel, then
+  // relaunch to apply it — the same runner pipeline the background scheduler
+  // uses (single-flighted, so a background download in flight is joined, never
+  // doubled). The restart is guarded exactly like UpdateScheduler.restart(): a
+  // save mid-flight (or failed) is the only case that risks data loss, so confirm
+  // only then; the debounced autosave means the common path restarts without
+  // ceremony.
+  const install = useCallback(async () => {
+    if (!updates || installPhase) return;
+    setInstallError(null);
+    setInstallPhase('downloading');
+    try {
+      await runDownloadAndInstall(updates);
+      if (anyPageSavePending()) {
+        const ok = await confirm({
+          title: t('updates.restartConfirmTitle'),
+          description: t('updates.restartConfirmBody'),
+          confirmText: t('updates.restartConfirmAction'),
+          destructive: true, // data-loss class → red confirm (matches the toast idiom)
+        });
+        if (!ok) {
+          setInstallPhase(null); // update stays staged; applies on the next restart
+          return;
+        }
+      }
+      setInstallPhase('installing');
+      await updates.relaunch(); // on desktop the process ends here
+    } catch (e) {
+      console.error('OpenBook: update install failed:', e);
+      setInstallError(t('updates.installError'));
+      setInstallPhase(null);
+    }
+  }, [updates, installPhase, confirm, t]);
 
   if (!updates) return null;
 
@@ -180,6 +225,30 @@ export function UpdatesSection() {
           <RefreshCw className={cn('h-3.5 w-3.5', checking && 'animate-spin')} aria-hidden />
           {checking ? t('updates.checking') : t('updates.checkNow')}
         </Button>
+        {/* One-click download+install+relaunch, offered only once a check has
+            found something to install. Primary tone so it reads as the action
+            to take when an update is waiting. */}
+        {result?.status === 'update-available' && (
+          <Button
+            variant="default"
+            size="sm"
+            onClick={install}
+            disabled={installPhase !== null}
+            aria-busy={installPhase !== null}
+            data-testid="install-update"
+          >
+            {installPhase ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+            ) : (
+              <Download className="h-3.5 w-3.5" aria-hidden />
+            )}
+            {installPhase === 'downloading'
+              ? t('updates.downloading')
+              : installPhase === 'installing'
+                ? t('updates.installing')
+                : t('updates.installAction')}
+          </Button>
+        )}
         {/* Always mounted so the live region exists before its first
             announcement — a region inserted with its content is often skipped. */}
         <span
@@ -203,6 +272,12 @@ export function UpdatesSection() {
       {newerMajor !== null && (
         <p data-testid="major-available" className="text-sm font-medium text-foreground">
           {t('updates.majorAvailable', {major: newerMajor})}
+        </p>
+      )}
+
+      {installError && (
+        <p role="alert" data-testid="install-error" className="text-sm text-destructive">
+          {installError}
         </p>
       )}
 
