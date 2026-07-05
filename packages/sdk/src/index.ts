@@ -237,10 +237,15 @@ export {
 } from './authors';
 export {
   OPENBOOK_ISLAND_MARKER,
+  OPENBOOK_ASSETS_MARKER,
   encodeIsland,
   islandScript,
+  assetsIslandScript,
   readIsland,
   readIslandRaw,
+  readAssetsIsland,
+  type ExportAssetEntry,
+  type ExportAssetsIsland,
 } from './island';
 export {
   pageToBookHtml,

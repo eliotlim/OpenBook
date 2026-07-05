@@ -40,18 +40,24 @@ export function encodeIsland(value: unknown): string {
  * executes a non-JS `type`, so the island is pure carried data.
  */
 export function islandScript(value: unknown, opts: {attrs?: string; indent?: string} = {}): string {
-  const {attrs = '', indent = ''} = opts;
-  return `${indent}<script type="${OPENBOOK_ISLAND_MARKER}"${attrs ? ` ${attrs}` : ''}>\n${encodeIsland(value)}\n${indent}</script>`;
+  return taggedIslandScript(OPENBOOK_ISLAND_MARKER, value, opts);
 }
 
-const ISLAND_RE = new RegExp(
-  `<script[^>]*type="${OPENBOOK_ISLAND_MARKER.replace(/[/+]/g, '\\$&')}"[^>]*>([\\s\\S]*?)</script>`,
-  'i',
-);
+/** The generic inert-tag wrapper behind every island flavour. */
+function taggedIslandScript(marker: string, value: unknown, opts: {attrs?: string; indent?: string} = {}): string {
+  const {attrs = '', indent = ''} = opts;
+  return `${indent}<script type="${marker}"${attrs ? ` ${attrs}` : ''}>\n${encodeIsland(value)}\n${indent}</script>`;
+}
+
+const islandRe = (marker: string): RegExp =>
+  new RegExp(`<script[^>]*type="${marker.replace(/[/+]/g, '\\$&')}"[^>]*>([\\s\\S]*?)</script>`, 'gi');
+
+const ISLAND_RE = islandRe(OPENBOOK_ISLAND_MARKER);
 
 /** Extract the first island's raw (still `<\/`-escaped) JSON text, or `null`. */
 export function readIslandRaw(html: string): string | null {
-  const m = html.match(ISLAND_RE);
+  ISLAND_RE.lastIndex = 0; // shared sticky regex — always scan from the top
+  const m = ISLAND_RE.exec(html);
   return m ? m[1].trim() : null;
 }
 
@@ -68,4 +74,68 @@ export function readIsland<T = unknown>(html: string): T | null {
   } catch {
     return null;
   }
+}
+
+// ── Export assets island ─────────────────────────────────────────────────────
+
+/**
+ * The `<script type>` marking an export's **assets island** — the sibling blob
+ * carrying asset BYTES the visible document has no natural carrier for (today:
+ * `htmlArtifact` documents; images ride the visible `<img data-asset-id
+ * src="data:…">` tags instead and are never duplicated here). Emitted by the
+ * ui export pipeline AFTER the source island; consumed by the standalone
+ * viewer's boot and by island-first import, which together with the img tags
+ * recovers a producer-decoupled `Map<assetId, bytes>`.
+ */
+export const OPENBOOK_ASSETS_MARKER = 'application/openbook-assets+json';
+
+/** One asset's bytes in the assets island. `utf8` carries text directly (an
+ *  HTML artifact stays human-readable inside the JSON); `base64` is the
+ *  extension point for binary payloads. */
+export interface ExportAssetEntry {
+  mime: string;
+  encoding: 'utf8' | 'base64';
+  data: string;
+}
+
+/** The assets island payload: `{version: 1, assets: {assetId → entry}}`. */
+export interface ExportAssetsIsland {
+  version: 1;
+  assets: Record<string, ExportAssetEntry>;
+}
+
+/**
+ * Wrap an assets map as its island `<script>` (versioned, `</`-escaped).
+ *
+ * ORDERING CONTRACT: emitters must place this AFTER the source island. String
+ * readers accept the first plausible `<script type=…>` sequence, and hostile
+ * *content* inside an earlier blob can embed a spoof opening tag — keeping the
+ * trusted islands first means a spoof can only trail the real ones (and
+ * {@link readAssetsIsland} additionally shape-checks every candidate).
+ */
+export function assetsIslandScript(assets: Record<string, ExportAssetEntry>, opts: {attrs?: string; indent?: string} = {}): string {
+  const payload: ExportAssetsIsland = {version: 1, assets};
+  return taggedIslandScript(OPENBOOK_ASSETS_MARKER, payload, {attrs: 'data-openbook-assets', ...opts});
+}
+
+/**
+ * Read an export's assets island back, or `null` when absent/corrupt. Scans
+ * EVERY candidate tag and returns the first that parses to the versioned
+ * shape: a spoof opening tag smuggled inside the (earlier) source island's
+ * JSON text captures garbage that fails the parse, so it cannot mask the real
+ * island that follows.
+ */
+export function readAssetsIsland(html: string): ExportAssetsIsland | null {
+  const re = islandRe(OPENBOOK_ASSETS_MARKER);
+  for (let m = re.exec(html); m; m = re.exec(html)) {
+    try {
+      const parsed = JSON.parse(m[1].trim()) as Partial<ExportAssetsIsland>;
+      if (parsed && parsed.version === 1 && parsed.assets && typeof parsed.assets === 'object' && !Array.isArray(parsed.assets)) {
+        return {version: 1, assets: parsed.assets as Record<string, ExportAssetEntry>};
+      }
+    } catch {
+      /* spoofed / truncated candidate — keep scanning */
+    }
+  }
+  return null;
 }
