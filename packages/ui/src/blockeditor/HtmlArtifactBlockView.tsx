@@ -1,11 +1,12 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {AppWindow, FileWarning, Loader2, Upload} from 'lucide-react';
+import {AppWindow, FileWarning, Loader2, Maximize2, Upload} from 'lucide-react';
 import {blockId, blockProp, setBlockProp, type BlockMap} from './model';
 import {htmlArtifactBlockFromFile, isHtmlFile, type HtmlArtifactBlockProps} from './htmlArtifactBlock';
 import {useKitLock} from './kit/lock';
 import {assetBridge} from '@/lib/assetBridge';
 import {getPageIdForDoc} from '@/lib/aiBridge';
 import {SandboxedHtml} from '@/components/SandboxedHtml';
+import {ArtifactOverlay} from '@/components/ArtifactOverlay';
 import {t} from '../i18n';
 import type {BlockEditorController} from './useBlockEditor';
 import type {EditorUI} from './BlockEditor';
@@ -52,6 +53,9 @@ export const HtmlArtifactBlockView: React.FC<{block: BlockMap; editor: BlockEdit
 
   const [html, setHtml] = useState<string | null>(null);
   const [broken, setBroken] = useState(false);
+  // Full-window run/present overlay (ArtifactOverlay). A VIEWING affordance:
+  // available to readers, present mode, and locked groups alike — not chrome.
+  const [expanded, setExpanded] = useState(false);
   // Seed from the assetId so a block with one paints the loading placeholder on
   // the first frame — never a flash of the "add an artifact" empty state.
   const [resolving, setResolving] = useState(Boolean(assetId));
@@ -283,6 +287,20 @@ export const HtmlArtifactBlockView: React.FC<{block: BlockMap; editor: BlockEdit
           emptyLabel={t('blocks.artifact.empty')}
           errorLabel={t('blocks.artifact.error')}
         />
+        {/* Run full-window: hover chrome, but a VIEWING affordance — offered
+            to readers/present mode too (only obe-artifact-tool/resize are
+            authoring chrome). Overlay state contract: see ArtifactOverlay. */}
+        {html !== null && (
+          <button
+            type="button"
+            className="obe-artifact-expand"
+            aria-label={t('blocks.artifact.expand')}
+            title={t('blocks.artifact.expand')}
+            onClick={() => setExpanded(true)}
+          >
+            <Maximize2 className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        )}
         {chrome && (
           <button
             type="button"
@@ -293,6 +311,13 @@ export const HtmlArtifactBlockView: React.FC<{block: BlockMap; editor: BlockEdit
           />
         )}
       </div>
+      {expanded && html !== null && (
+        <ArtifactOverlay
+          html={html}
+          title={title || t('blocks.artifact.fallbackTitle')}
+          onClose={() => setExpanded(false)}
+        />
+      )}
       {noticeEl}
       {fileInput}
     </figure>
