@@ -1,3 +1,27 @@
+## 1.71.0 (2026-07-05)
+
+### 🚀 Features
+
+- **sdk,server,ui:** sync-folder .book.html hydrates via a shared per-folder viewer runtime ([#92](https://github.com/eliotlim/OpenBook/pull/92))
+- **sdk,ui:** lossless openbook+json source island in every HTML export ([#88](https://github.com/eliotlim/OpenBook/pull/88))
+- **ui:** SandboxedHtml — sandboxed srcdoc renderer + security contract ([#87](https://github.com/eliotlim/OpenBook/pull/87))
+- **ui:** OpenBookViewer — self-contained compiled locked renderer bundle ([#90](https://github.com/eliotlim/OpenBook/pull/90))
+- **ui:** htmlArtifact block — embed and run interactive HTML artifacts in pages ([#93](https://github.com/eliotlim/OpenBook/pull/93))
+- **ui:** rearchitect HTML export — island-hydrated vendored viewer replaces the bespoke runtime ([#97](https://github.com/eliotlim/OpenBook/pull/97))
+- **ui:** run/present an HTML artifact full-window (ArtifactOverlay) ([#95](https://github.com/eliotlim/OpenBook/pull/95))
+- **ui,sdk:** ImportDialog chooser — run .html as sandboxed artifact or convert to blocks ([#96](https://github.com/eliotlim/OpenBook/pull/96), [#91](https://github.com/eliotlim/OpenBook/issues/91))
+- **ui,web:** island-first lossless HTML import — exports re-import exactly ([#91](https://github.com/eliotlim/OpenBook/pull/91))
+
+### 🩹 Fixes
+
+- **sdk:** escape legacy-EditorJS raw text in .book.html rendering ([#94](https://github.com/eliotlim/OpenBook/pull/94), [#92](https://github.com/eliotlim/OpenBook/issues/92))
+- **sdk,ui:** scheme-allowlist anchor hrefs in static HTML rendering ([#98](https://github.com/eliotlim/OpenBook/pull/98), [#94](https://github.com/eliotlim/OpenBook/issues/94))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 1.70.0 (2026-07-04)
 
 ### 🚀 Features
