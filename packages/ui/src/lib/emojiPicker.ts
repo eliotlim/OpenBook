@@ -1,6 +1,6 @@
 /**
  * A tiny singleton bridge to the one app-wide emoji grid picker. Any call site —
- * React component or **vanilla** EditorJS block tool (which has no provider tree,
+ * React component or **vanilla** block tool (which has no provider tree,
  * cf. `lib/pageLinks.ts`) — opens the picker anchored at a screen rect and gets a
  * callback when an emoji is chosen. The `<EmojiPickerHost>` mounted at the app
  * shell renders the actual picker over this state.

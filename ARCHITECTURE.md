@@ -27,7 +27,7 @@ web (Next.js)─┘        ▲
 |---------|------|
 | **`@book.dev/sdk`** | The contract: TypeScript types (`StoredPage`, `PageSnapshot`, `DatabaseSchema`, …), the route table (`API`), `HttpDataClient` (the isomorphic `fetch` client), and the shared content helpers (`snapshotText`, `textSnapshot`, …). No React, no Node. |
 | **`@book.dev/server`** | `PageStore` (all SQL) + a Hono HTTP API + a `PageHub` (in-memory pub/sub for live updates). Runs over **embedded PGlite** (desktop/local) or **external Postgres** (headless). |
-| **`@book.dev/ui`** | The React app: the EditorJS document, reactive blocks, the sidebar tree, providers, and the design primitives (`components/ui/*`). Consumed as a built library. |
+| **`@book.dev/ui`** | The React app: the block editor, reactive blocks, the sidebar tree, providers, and the design primitives (`components/ui/*`). Consumed as a built library. |
 | **`@book.dev/app`** | The Tauri desktop shell. Spawns the server as a sidecar and points the UI at it. |
 | **`@book.dev/web`** | The Next.js web shell. Talks to a deployed server. Hosts the Playwright e2e + Chromatic config. |
 | **`@book.dev/mcp`** | A stdio [MCP](https://modelcontextprotocol.io) server (`openbook-mcp`) exposing the workspace to external agents (Claude Desktop/Code) as tools, over `HttpDataClient`. See its README. |
@@ -210,46 +210,10 @@ expired trash; `purgePage` / `emptyTrash` do it on demand. See `README.md`.
 
 ## 4. The editor & reactive system
 
-The document is **EditorJS** (vanilla JS) hosting **React** blocks via a small
-adapter (`packages/ui/src/reactive/editorJsReactAdapter.ts`): each block tool
-mounts its own React root.
+### The block editor (`packages/ui/src/blockeditor/`)
 
-### Reactive blocks (`packages/ui/src/reactive/`)
-- **`ReactiveStore`** — a Preact-signals store of named cells. Lazy signal
-  creation keyed by `cellId`; downstream blocks subscribe by reading a signal.
-- **`ExprBlock`** — a formula cell; `compile.ts` turns `@name` / `__C__{id}__`
-  references into a function that re-runs (via a signals `effect`) whenever a
-  referenced cell changes.
-- **`ChartBlock`** — plots one or more cells (Observable Plot); re-renders on
-  value change; shows a height-reserving skeleton while pending.
-- **`SliderBlock`** — an input cell.
-- **`SubpageBlock`** — an inline link to a nested page; creates the child once on
-  first mount and records its `pageId` in the block data.
-
-### Live sync — `packages/ui/src/screens/liveSync.ts`
-The trickiest part, and the source of two classes of bug, so the logic is **pure
-and unit-tested** (`liveSync.test.ts`):
-
-- **`planBlockSync(current, next, focusedBlockId)`** diffs the editor against an
-  incoming snapshot and returns *only* the delete/update/insert ops for blocks
-  that changed. An identical snapshot → an empty plan. `PageDocument` executes the
-  plan via the EditorJS block API; it **never calls `editor.render(next)`**.
-  - *Why*: a full render tears down and rebuilds every block — shifting layout and
-    re-mounting reactive/subpage blocks, which re-runs their side effects. With
-    the SSE echo of a save, that becomes an infinite **save loop + layout jump** on
-    pages with reactive blocks.
-  - The block under the caret (`focusedBlockId`) is never touched, so typing
-    survives a peer's edits.
-- **`isPersistWorthyChange(event)`** decides whether an `onChange` is a real edit
-  worth autosaving. Structural changes (add/remove/move) count; a subpage
-  recording its new child id counts; **reactive `block-changed` events do not** —
-  reactive blocks fire them constantly as they recompute, and treating those as
-  edits is the other half of the save loop.
-
-### The block editor (`packages/ui/src/blockeditor/`) — the successor
-
-A fully custom, CRDT-native block editor being introduced **in parallel** with
-the EditorJS surface (per-page dispatch in `ConnectedPageDocument`):
+A fully custom, CRDT-native block editor — OpenBook's sole editor (per-page
+dispatch in `ConnectedPageDocument`):
 
 - **Model** (`model.ts`) — a Y.Doc holding one uniform recursive tree:
   `Y.Array` of block `Y.Map`s (`id`, `type`, `text: Y.Text` with attribute
@@ -468,4 +432,4 @@ tests can't catch:
    the `translate` CSS property, which WKWebView didn't apply (modals jumped to the
    top-left). `dialog.tsx` centers with `fixed inset-0 flex items-center justify-center`.
 5. **HTML5 drag needs `fileDropEnabled: false`** in `tauri.conf.json`, or the native
-   OS file-drop handler eats EditorJS block reordering.
+   OS file-drop handler eats block drag-reordering in the editor.

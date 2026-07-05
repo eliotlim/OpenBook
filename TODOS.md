@@ -28,7 +28,7 @@ Post-v0 follow-ups surfaced during `/office-hours` (2026-05-27) and `/plan-eng-r
 
 **Cons:** Sweep timing is tricky — must run AFTER all blocks have mounted and registered, not during a transition. Easiest hook is a "document fully loaded" event followed by a `setTimeout(0)` sweep.
 
-**Context:** The bug class to avoid is "sweep runs while a block is unmounted mid-rerender and the cellId looks orphaned." Mitigation: only sweep cellIds with no subscribers AND not present in the EditorJS block list AND no recent activity.
+**Context:** The bug class to avoid is "sweep runs while a block is unmounted mid-rerender and the cellId looks orphaned." Mitigation: only sweep cellIds with no subscribers AND not present in the editor's block list AND no recent activity.
 
 **Depends on / blocked by:** Not blocking; runs whenever it bothers the user. Probably triggered by multi-doc landing (T5).
 
@@ -88,7 +88,7 @@ Post-v0 follow-ups surfaced during `/office-hours` (2026-05-27) and `/plan-eng-r
 
 **Why:** Undo is a baseline editor trust feature — its absence is the largest remaining interaction gap after the 2026-06-10 polish pass.
 
-**Pros:** `editorjs-undo` exists and pairs with the already-used `editorjs-drag-drop`.
+**Pros:** the CRDT (Yjs) model already provides an `UndoManager`, so block-level history can build on the existing update pipeline.
 
 **Cons / landmines:** The plugin restores snapshots via a full `editor.render()` — exactly the remount-everything path `liveSync`'s diff renderer was built to avoid (reactive blocks re-run side effects → save-loop risk, ARCHITECTURE §4). It also restores state programmatically, so `userEditedRef` (which gates autosave on genuine `input`/`beforeinput` events) would treat the undone state as not-an-edit and never persist it. A correct integration likely means a custom history stack that replays through `planBlockSync` instead of `render`, and an explicit "undo counts as a user edit" hook into the autosave gate.
 
