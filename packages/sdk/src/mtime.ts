@@ -7,7 +7,7 @@
  *
  * Pure and isomorphic (no DOM, no Node): it reads whichever block projection a
  * page uses — the CRDT block editor's JSON projection (`blockdoc.blocks`) or the
- * legacy EditorJS blocks (`editorjs.blocks`) — so the same logic runs on the
+ * legacy stored blocks (`editorjs.blocks`) — so the same logic runs on the
  * server write path and in unit tests.
  */
 import type {PageSnapshot} from './types';
@@ -22,7 +22,7 @@ export interface BlockDigest {
   hash: string;
 }
 
-interface AnyEditorJsBlock {
+interface ExportBlock {
   id?: string;
   type?: string;
   data?: unknown;
@@ -61,8 +61,8 @@ function stableStringify(value: unknown): string {
 
 /**
  * The ordered list of a snapshot's top-level blocks, each as a {@link BlockDigest}.
- * Reads the block-editor projection for `editor: 'blocks'` pages and the EditorJS
- * blocks otherwise. A block with no explicit id falls back to a positional id so
+ * Reads the block-editor projection for `editor: 'blocks'` pages and the legacy
+ * stored `editorjs` blocks otherwise. A block with no explicit id falls back to a positional id so
  * an unchanged document still matches itself across versions.
  */
 export function snapshotBlocks(data: PageSnapshot | null | undefined): BlockDigest[] {
@@ -77,7 +77,7 @@ export function snapshotBlocks(data: PageSnapshot | null | undefined): BlockDige
     }));
   }
 
-  const blocks = (data.editorjs as {blocks?: AnyEditorJsBlock[]} | undefined)?.blocks ?? [];
+  const blocks = (data.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? [];
   return blocks.map((b, i) => ({
     id: typeof b.id === 'string' && b.id ? b.id : `b${i}`,
     type: typeof b.type === 'string' ? b.type : 'unknown',

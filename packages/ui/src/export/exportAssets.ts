@@ -20,7 +20,7 @@
  * resolution — the renderers use it directly; only `assetId`s are fetched here.
  */
 import type {DataClient, PageSnapshot} from '@book.dev/sdk';
-import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
+import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
 
 /** Resolved image assets for one export: `assetId` → a base64 `data:` URI. */
 export type AssetMap = Map<string, string>;
@@ -55,7 +55,7 @@ export function bytesToDataUri(bytes: Uint8Array, mime: string): string {
   return `data:${mime || 'application/octet-stream'};base64,${bytesToBase64(bytes)}`;
 }
 
-interface EditorJsBlock {
+interface ExportBlock {
   type?: string;
   data?: Record<string, unknown>;
 }
@@ -65,9 +65,9 @@ interface CollectedIds {
   artifacts: Set<string>;
 }
 
-/** Walk projected EditorJS blocks (recursing `columns`) collecting asset ids
+/** Walk projected export blocks (recursing `columns`) collecting asset ids
  *  by KIND — an image's bytes become a data-URI, an artifact's become text. */
-function collectFromBlocks(blocks: EditorJsBlock[], out: CollectedIds): void {
+function collectFromBlocks(blocks: ExportBlock[], out: CollectedIds): void {
   for (const block of blocks) {
     const d = block.data ?? {};
     if (typeof d.assetId === 'string' && d.assetId) {
@@ -75,7 +75,7 @@ function collectFromBlocks(blocks: EditorJsBlock[], out: CollectedIds): void {
       else if (block.type === 'htmlArtifact') out.artifacts.add(d.assetId);
     }
     if (block.type === 'columns' && Array.isArray(d.columns)) {
-      for (const col of d.columns as EditorJsBlock[][]) collectFromBlocks(Array.isArray(col) ? col : [], out);
+      for (const col of d.columns as ExportBlock[][]) collectFromBlocks(Array.isArray(col) ? col : [], out);
     }
   }
 }
@@ -84,8 +84,8 @@ function collectFromBlocks(blocks: EditorJsBlock[], out: CollectedIds): void {
  *  first). The content-addressed store can in principle hand the SAME id to an
  *  image and an artifact, so an id may appear in both sets. */
 export function collectExportAssetIds(rawSnapshot: PageSnapshot): CollectedIds {
-  const snapshot = blockSnapshotToEditorJs(rawSnapshot);
-  const blocks = (snapshot.editorjs as {blocks?: EditorJsBlock[]} | undefined)?.blocks ?? [];
+  const snapshot = projectSnapshotForExport(rawSnapshot);
+  const blocks = (snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? [];
   const out: CollectedIds = {images: new Set(), artifacts: new Set()};
   collectFromBlocks(blocks, out);
   return out;

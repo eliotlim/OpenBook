@@ -2,14 +2,14 @@
  * A normalized, presentation-agnostic model of a page document, built once from
  * a {@link PageSnapshot} and consumed by every exporter (Markdown, PDF, HTML).
  *
- * It parses each EditorJS block into a typed shape: inline HTML → formatting
+ * It parses each export block into a typed shape: inline HTML → formatting
  * runs (bold/italic/code/marker/link/`@`-mention), lists into nested items, and
  * reactive blocks (slider/expr/chart) resolved against the snapshot's persisted
  * `values`/`names`. Pure and DOM-light (uses `DOMParser`, available in the
  * browser and happy-dom) so it is unit-tested directly.
  */
 import type {PageSnapshot} from '@book.dev/sdk';
-import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
+import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
 import {normalizeChartInput, type NormalizedSeries} from './chartNormalize';
 
 export interface InlineRun {
@@ -62,7 +62,7 @@ export interface DocModel {
   blocks: DocBlock[];
 }
 
-interface RawBlock {
+interface ExportBlock {
   id?: string;
   type?: string;
   data?: Record<string, unknown>;
@@ -72,11 +72,11 @@ const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
 /** The HTML export keeps `columns` nested for side-by-side layout; the linear
  *  PDF/Markdown model flattens each column's blocks into reading order. */
-function flattenColumns(blocks: RawBlock[]): RawBlock[] {
-  const out: RawBlock[] = [];
+function flattenColumns(blocks: ExportBlock[]): ExportBlock[] {
+  const out: ExportBlock[] = [];
   for (const b of blocks) {
     if (b.type === 'columns' && Array.isArray(b.data?.columns)) {
-      for (const col of b.data!.columns as RawBlock[][]) out.push(...flattenColumns(col));
+      for (const col of b.data!.columns as ExportBlock[][]) out.push(...flattenColumns(col));
     } else {
       out.push(b);
     }
@@ -158,10 +158,10 @@ export interface BuildModelOptions {
 }
 
 export function buildDocumentModel({title, icon, snapshot: rawSnapshot, assets = new Map()}: BuildModelOptions): DocModel {
-  // Pages written by the CRDT block editor project into the EditorJS shape
-  // first, so every exporter below works on one block dialect.
-  const snapshot = blockSnapshotToEditorJs(rawSnapshot);
-  const blocks = flattenColumns(((snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? []) as RawBlock[]);
+  // Pages written by the CRDT block editor project into the export-projection
+  // shape first, so every exporter below works on one block dialect.
+  const snapshot = projectSnapshotForExport(rawSnapshot);
+  const blocks = flattenColumns(((snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? []) as ExportBlock[]);
   const values = new Map<string, unknown>(snapshot.values as Array<[string, unknown]>);
   const nameByCell = new Map<string, string>();
   for (const [name, cellId] of snapshot.names as Array<[string, string]>) nameByCell.set(cellId, name);

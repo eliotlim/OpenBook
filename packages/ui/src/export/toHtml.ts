@@ -24,7 +24,7 @@
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
 import {assetsIslandScript, isSafeHref, pageIslandScript, spaceIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
-import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
+import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
 import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
 // then Plot's UMD (which expects a global d3) sets `window.Plot`. Inlined only
@@ -251,10 +251,10 @@ function renderDatabaseTable(db: SiteDatabase, ctx: RenderCtx): string {
 
 // ── Block rendering ──────────────────────────────────────────────────────────
 
-interface RawBlock {id?: string; type?: string; data?: Record<string, unknown>}
+interface ExportBlock {id?: string; type?: string; data?: Record<string, unknown>}
 
 /** Render a page's blocks to HTML, collecting reactive specs into the context. */
-function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
+function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
   // Pre-pass: stable, document-unique anchor per heading (for table-of-contents).
   const headerList: {anchor: string; level: number; text: string}[] = [];
   for (const block of blocks) {
@@ -310,7 +310,7 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
       // Side-by-side columns (the projection keeps them nested for HTML; PDF/MD
       // flatten). Each column's blocks render through the shared context so any
       // reactive widgets inside stay live.
-      const cols = Array.isArray(d.columns) ? (d.columns as RawBlock[][]) : [];
+      const cols = Array.isArray(d.columns) ? (d.columns as ExportBlock[][]) : [];
       const colHtml = cols.map((col) => `<div class="col">${renderBlocks(col, ctx)}</div>`).join('');
       if (colHtml) html.push(`<div class="cols">${colHtml}</div>`);
       break;
@@ -765,7 +765,7 @@ export function toHtml(
   meta: PageExportMeta = {},
 ): string {
   const {images, artifactText} = normalizeAssets(assets);
-  const snapshot = blockSnapshotToEditorJs(rawSnapshot);
+  const snapshot = projectSnapshotForExport(rawSnapshot);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
   loadSnapshot(snapshot, values, nameByCell);
@@ -788,7 +788,7 @@ export function toHtml(
     iconOf: () => '',
     databaseOf: () => undefined,
   };
-  const blocks = (snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? [];
+  const blocks = (snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? [];
   const body = `<main>\n<h1 class="doc-title">${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1>\n${renderBlocks(blocks, ctx)}\n</main>`;
   // Block-doc pages hydrate through the vendored viewer (the island IS the
   // mount source); legacy EditorJS snapshots keep the bespoke reactive runtime.
@@ -865,7 +865,7 @@ export function toSlideDeck(
   meta: PageExportMeta = {},
 ): string {
   const {images} = normalizeAssets(assets);
-  const snapshot = blockSnapshotToEditorJs(rawSnapshot);
+  const snapshot = projectSnapshotForExport(rawSnapshot);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
   loadSnapshot(snapshot, values, nameByCell);
@@ -888,10 +888,10 @@ export function toSlideDeck(
     iconOf: () => '',
     databaseOf: () => undefined,
   };
-  const blocks = (snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? [];
+  const blocks = (snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? [];
   // Group blocks into slides at each divider (notes are already stripped by the
-  // block→editorjs projection); drop empty groups from doubled/edge dividers.
-  const groups: RawBlock[][] = [[]];
+  // block→export projection); drop empty groups from doubled/edge dividers.
+  const groups: ExportBlock[][] = [[]];
   for (const b of blocks) {
     if (b.type === 'divider') groups.push([]);
     else groups[groups.length - 1].push(b);
@@ -953,7 +953,7 @@ export function toHtmlSite(bundle: SiteBundle, assets: ExportAssetsLike = emptyE
   const sections = bundle.pages
     .map((page, i) => {
       ctx.anchorPrefix = `p${i}-`;
-      const blocks = (page.snapshot.editorjs as {blocks?: RawBlock[]} | undefined)?.blocks ?? [];
+      const blocks = (page.snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? [];
       const bodyHtml = renderBlocks(blocks, ctx);
       const dbHtml = page.database ? renderDatabaseTable(page.database, ctx) : '';
       const hidden = page.id === bundle.rootId ? '' : ' hidden';

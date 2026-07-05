@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {createDoc, docToJSON} from '../../model';
-import {blocksToEditorJs} from '../../exportBlocks';
+import {projectBlocksForExport} from '../../exportBlocks';
 
 const kitDoc = () =>
   docToJSON(
@@ -18,7 +18,7 @@ const kitDoc = () =>
 
 describe('kit export mappings', () => {
   it('keeps steppers interactive as sliders and publishes every input value', () => {
-    const out = blocksToEditorJs(kitDoc());
+    const out = projectBlocksForExport(kitDoc());
     const slider = out.blocks.find((b) => b.type === 'slider');
     expect(slider).toMatchObject({id: 'n1', data: {name: 'n', min: 0, max: 10, step: 2, initial: 4}});
     expect(out.values).toEqual(
@@ -40,7 +40,7 @@ describe('kit export mappings', () => {
   });
 
   it('tokenizes status and chart expressions over every named input', () => {
-    const out = blocksToEditorJs(kitDoc());
+    const out = projectBlocksForExport(kitDoc());
     const exprs = out.blocks.filter((b) => b.type === 'expr');
     expect(exprs).toHaveLength(2);
     const status = exprs.find((b) => (b.data as {name: string}).name === 'Health');
@@ -50,13 +50,13 @@ describe('kit export mappings', () => {
   });
 
   it('draws charts in the export by referencing the computed cell', () => {
-    const out = blocksToEditorJs(kitDoc());
+    const out = projectBlocksForExport(kitDoc());
     const plot = out.blocks.find((b) => b.type === 'chart');
     expect(plot).toMatchObject({id: 'k1-plot', data: {refCellIds: ['k1']}});
   });
 
   it('keeps option inputs interactive (kitinput) and buttons working (kitbutton)', () => {
-    const out = blocksToEditorJs(kitDoc());
+    const out = projectBlocksForExport(kitDoc());
     const inputs = out.blocks.filter((b) => b.type === 'kitinput');
     expect(inputs.map((b) => (b.data as {kind: string}).kind).sort()).toEqual(['checklist', 'radio', 'textfield']);
     const radio = inputs.find((b) => (b.data as {kind: string}).kind === 'radio');
@@ -76,7 +76,7 @@ describe('kit export mappings', () => {
   });
 
   it('exports the dropdown as an interactive kitinput publishing its value', () => {
-    const out = blocksToEditorJs(
+    const out = projectBlocksForExport(
       docToJSON(createDoc([{id: 'd1', type: 'dropdown', props: {name: 'region', options: 'EU, US', value: 'US'}}])),
     );
     expect(out.blocks.find((b) => b.type === 'kitinput')).toMatchObject({
@@ -90,7 +90,7 @@ describe('kit export mappings', () => {
 
 describe('live code export', () => {
   it('exports live code as named exprs with chained references tokenized', () => {
-    const out = blocksToEditorJs(
+    const out = projectBlocksForExport(
       docToJSON(
         createDoc([
           {id: 'n1', type: 'number', props: {name: 'n', value: 2}},

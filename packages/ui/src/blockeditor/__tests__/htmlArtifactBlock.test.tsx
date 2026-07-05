@@ -10,7 +10,7 @@ import {
   type HtmlArtifactBlockProps,
 } from '../htmlArtifactBlock';
 import {MAX_ASSET_BYTES} from '../imageBlock';
-import {blockSnapshotToEditorJs, blocksToHtml, blocksToMarkdown} from '../exportBlocks';
+import {projectSnapshotForExport, blocksToHtml, blocksToMarkdown} from '../exportBlocks';
 import {collectAssetIds} from '../../export/exportAssets';
 import {SANDBOX_FLAGS} from '@/lib/srcdoc';
 import {setAssetBridge, type AssetBridgeImpl} from '@/lib/assetBridge';
@@ -147,8 +147,8 @@ describe('htmlArtifact — block JSON projection carries the assetId', () => {
     expect(b.props?.height).toBe(480);
   });
 
-  it('blockSnapshotToEditorJs projects the artifact with its assetId', () => {
-    const snapshot = blockSnapshotToEditorJs({editor: 'blocks', blockdoc: blockdoc(), editorjs: {blocks: []}} as never);
+  it('projectSnapshotForExport projects the artifact with its assetId', () => {
+    const snapshot = projectSnapshotForExport({editor: 'blocks', blockdoc: blockdoc(), editorjs: {blocks: []}} as never);
     const blocks = (snapshot as {editorjs?: {blocks?: Array<{type: string; data: Record<string, unknown>}>}}).editorjs?.blocks ?? [];
     const art = blocks.find((b) => b.type === 'htmlArtifact');
     expect(art?.data.assetId).toBe('A-html');

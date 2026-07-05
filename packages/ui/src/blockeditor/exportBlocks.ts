@@ -329,9 +329,15 @@ export function blocksToMarkdown(blocks: BlockJSON[]): string {
   return out.join('\n\n');
 }
 
-// ── EditorJS adapter (the bridge into the app's export pipeline) ─────────────
+// ── Export projection (the bridge into the app's export pipeline) ────────────
 
-interface EditorJsOut {
+/**
+ * The block-native intermediate representation every exporter consumes: a flat
+ * `{blocks}` list plus the reactive `values`/`names` indices. Persisted on the
+ * page snapshot under the back-compat storage key `editorjs` (see
+ * `projectSnapshotForExport`); in memory it is always this `ExportDoc` shape.
+ */
+interface ExportDoc {
   blocks: Array<{id?: string; type: string; data: Record<string, unknown>}>;
   values: Array<[string, unknown]>;
   names: Array<[string, string]>;
@@ -340,7 +346,7 @@ interface EditorJsOut {
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
- * Project a block document into the EditorJS shape the export pipeline
+ * Project a block document into the export-projection shape the export pipeline
  * (markdown / PDF / the interactive HTML site) consumes — so block pages get
  * every exporter, including the live reactive runtime, without a second
  * pipeline. Sliders/formulas become reactive blocks keyed by their block id
@@ -367,8 +373,8 @@ const KIT_INPUT_VALUE: Record<string, (props: Record<string, unknown>) => unknow
   richtext: (p) => (Array.isArray(p.runs) ? (p.runs as Array<{t?: string}>).map((r) => r?.t ?? '').join('') : ''),
 };
 
-export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, ExportCell>): EditorJsOut {
-  const out: EditorJsOut = {blocks: [], values: [], names: []};
+export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<string, ExportCell>): ExportDoc {
+  const out: ExportDoc = {blocks: [], values: [], names: []};
   // Seed a reactive cell's CURRENT value (resolved by the editor's evaluator) so
   // static exports show the same numbers/series/states as the live window. Only
   // when a value was actually computed — never a spurious `undefined` entry.
@@ -420,7 +426,7 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
     if (b.props?.name) out.names.push([String(b.props.name), b.id]);
   };
 
-  const emit = (list: BlockJSON[], sink: EditorJsOut['blocks'] = out.blocks): void => {
+  const emit = (list: BlockJSON[], sink: ExportDoc['blocks'] = out.blocks): void => {
     let i = 0;
     while (i < list.length) {
       const b = list[i];
@@ -531,7 +537,7 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
         // side-by-side (PDF/Markdown flatten them later). Inner reactive blocks
         // still publish via emit, so charts/formulas stay live wherever they sit.
         const columns = (b.children ?? []).map((col) => {
-          const sub: EditorJsOut['blocks'] = [];
+          const sub: ExportDoc['blocks'] = [];
           emit(col.children ?? [], sub);
           return sub;
         });
@@ -763,10 +769,10 @@ export function blocksToEditorJs(blocks: BlockJSON[], computed?: Map<string, Exp
 }
 
 /** Snapshot-level normalization: pages written by the block editor project
- *  into the EditorJS shape; everything else passes through untouched. Export
- *  entry points call this so mixed trees (an EditorJS parent linking block
- *  subpages, or vice versa) export every page faithfully. */
-export function blockSnapshotToEditorJs<T extends {editor?: string; blockdoc?: unknown}>(snapshot: T): T {
+ *  into the export-projection shape; everything else passes through untouched.
+ *  Export entry points call this so mixed trees (a legacy stored page linking
+ *  block subpages, or vice versa) export every page faithfully. */
+export function projectSnapshotForExport<T extends {editor?: string; blockdoc?: unknown}>(snapshot: T): T {
   if (!snapshot || snapshot.editor !== 'blocks' || !snapshot.blockdoc) return snapshot;
   const blockdoc = snapshot.blockdoc as {blocks?: BlockJSON[]; update?: string};
   const blocks = (blockdoc.blocks ?? []) as BlockJSON[];
@@ -781,6 +787,10 @@ export function blockSnapshotToEditorJs<T extends {editor?: string; blockdoc?: u
   } catch {
     computed = undefined;
   }
-  const projected = blocksToEditorJs(blocks, computed);
+  const projected = projectBlocksForExport(blocks, computed);
+  // `editorjs` is the RETAINED on-disk storage key for the export projection
+  // (back-compat alias — see PageSnapshot in sdk/types.ts). Every consumer reads
+  // `snapshot.editorjs.blocks`; the key name must not change or persisted
+  // snapshots would be stranded. Only the in-memory TYPE is `ExportDoc`.
   return {...snapshot, editorjs: {blocks: projected.blocks}, values: projected.values, names: projected.names};
 }
