@@ -57,6 +57,15 @@ export interface SandboxedHtmlProps {
   height?: number;
   /** Accessible title for the frame (screen readers, and required by a11y). */
   title?: string;
+  /**
+   * Text for the empty state (no HTML yet). The component is deliberately
+   * provider-free (it also mounts inside the block editor's bare React root),
+   * so it cannot call the i18n hook itself — callers pass an already-translated
+   * string; the default is the English fallback.
+   */
+  emptyLabel?: string;
+  /** Text for the error state — same provider-free contract as `emptyLabel`. */
+  errorLabel?: string;
   className?: string;
 }
 
@@ -71,6 +80,8 @@ export function SandboxedHtml({
   html,
   height = DEFAULT_HEIGHT,
   title = 'Sandboxed HTML content',
+  emptyLabel = 'Nothing to preview yet.',
+  errorLabel = 'This content could not be displayed.',
   className,
 }: SandboxedHtmlProps): React.ReactElement {
   const [state, setState] = React.useState<LoadState>('loading');
@@ -93,7 +104,7 @@ export function SandboxedHtml({
         style={{height}}
         data-testid="sandboxed-html-empty"
       >
-        Nothing to preview yet.
+        {emptyLabel}
       </div>
     );
   }
@@ -110,13 +121,17 @@ export function SandboxedHtml({
           className="absolute inset-0 flex items-center justify-center bg-muted/30 text-sm text-muted-foreground"
           data-testid="sandboxed-html-error"
         >
-          This content could not be displayed.
+          {errorLabel}
         </div>
       )}
       <iframe
         // NB: no `allow-same-origin` — the opaque origin is the security
         // boundary. See the component doc comment before touching the sandbox.
         sandbox={SANDBOX_FLAGS}
+        // Explicitly empty permissions policy: no camera/mic/geolocation/etc.
+        // The opaque origin already denies powerful features (permission grants
+        // key on origin), so this is self-documenting posture, not the boundary.
+        allow=""
         srcDoc={srcDoc}
         title={title}
         // `referrerPolicy` keeps the app's URL out of any request the frame

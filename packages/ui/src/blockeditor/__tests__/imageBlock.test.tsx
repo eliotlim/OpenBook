@@ -10,10 +10,10 @@ import {
   MAX_IMAGE_DATA_URL_BYTES,
   altFromFileName,
   imageBlockFromFile,
-  imageFilesFromTransfer,
   isImageFile,
   type ImageBlockProps,
 } from '../imageBlock';
+import {editorFilesFromTransfer} from '../htmlArtifactBlock';
 
 afterEach(() => cleanup());
 
@@ -64,19 +64,21 @@ describe('image block — ingest (paste / drop / slash all use imageBlockFromFil
     expect(altFromFileName('IMG_1234.PNG')).toBe('IMG 1234');
   });
 
-  it('extracts image files from a paste/drop transfer (files first, items fallback, dedup)', () => {
+  it('extracts image files from a paste/drop transfer (files first, items fallback, filter)', () => {
+    // The one mixed funnel (editorFilesFromTransfer) handles the image cases the
+    // old image-only extractor covered.
     const file = imgFile();
     // Paste/drop usually expose `.files`.
-    expect(imageFilesFromTransfer({files: [file], items: []} as unknown as DataTransfer)).toEqual([file]);
+    expect(editorFilesFromTransfer({files: [file], items: []} as unknown as DataTransfer)).toEqual([file]);
     // Some clipboard pastes only expose the image via `.items`.
-    const viaItems = imageFilesFromTransfer({
+    const viaItems = editorFilesFromTransfer({
       files: [],
       items: [{kind: 'file', getAsFile: () => file}],
     } as unknown as DataTransfer);
     expect(viaItems).toEqual([file]);
-    // Non-image files are ignored.
+    // Non-ingestible files are ignored.
     const text = new File(['x'], 'notes.txt', {type: 'text/plain'});
-    expect(imageFilesFromTransfer({files: [text], items: []} as unknown as DataTransfer)).toEqual([]);
+    expect(editorFilesFromTransfer({files: [text], items: []} as unknown as DataTransfer)).toEqual([]);
   });
 
   it('isImageFile narrows correctly', () => {

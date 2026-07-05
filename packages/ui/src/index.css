@@ -1341,10 +1341,94 @@ a.obe-mention {
 /* External image drag hovering the editor — subtle drop-target confirmation so
    a drop reads as intentional (pairs with the drag/drop handlers). */
 .obe-root.obe-file-dragover { box-shadow: inset 0 0 0 2px hsl(var(--primary) / 0.4); border-radius: 8px; }
-.obe-root.obe-file-dragover .obe-image-empty .obe-image-placeholder {
+.obe-root.obe-file-dragover .obe-image-empty .obe-image-placeholder,
+.obe-root.obe-file-dragover .obe-artifact-empty .obe-image-placeholder {
   border-color: hsl(var(--primary) / 0.7);
   background: hsl(var(--primary) / 0.08);
 }
+
+/* ── HTML artifact block ─────────────────────────────────────────────────────
+   A sandboxed-iframe document (SandboxedHtml) with a slim title bar and a
+   bottom resize handle. Placeholder / notice states reuse the image block's
+   classes (same visual language). The frame content is always interactive; the
+   bar input / tools / resize are authoring chrome (also CSS-hidden in present
+   and viewer read-only, mirroring the kit chrome enumeration below). */
+.obe-artifact {
+  flex: 1;
+  min-width: 0;
+  margin: 0.35rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.obe-artifact-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.5rem;
+  color: hsl(var(--muted-foreground));
+}
+.obe-artifact-bar-icon { width: 0.9rem; height: 0.9rem; flex: none; opacity: 0.7; }
+.obe-artifact-title {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0.1rem 0;
+  color: hsl(var(--foreground));
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+.obe-artifact-title::placeholder { color: hsl(var(--muted-foreground) / 0.55); }
+.obe-artifact-title-static {
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.obe-artifact-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0.2rem;
+  border-radius: 5px;
+  color: hsl(var(--muted-foreground));
+  cursor: pointer;
+}
+.obe-artifact-tool:hover { background: var(--hover); color: hsl(var(--foreground)); }
+.obe-artifact-frame { position: relative; }
+/* The fixed-height loading placeholder — same footprint as the frame it
+   becomes, so late-resolving artifacts never shift a long page. */
+.obe-artifact-loading { box-sizing: border-box; }
+/* Drag handle on the bottom edge (vertical resize). */
+.obe-artifact-resize {
+  position: absolute;
+  left: 50%;
+  bottom: -3px;
+  width: 44px;
+  max-width: 60%;
+  height: 10px;
+  transform: translateX(-50%);
+  border-radius: 6px;
+  cursor: ns-resize;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.obe-artifact-resize::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 100%;
+  height: 4px;
+  border-radius: 4px;
+  background: hsl(var(--foreground) / 0.35);
+  box-shadow: 0 0 0 2px hsl(var(--background) / 0.7);
+}
+.obe-artifact-frame:hover .obe-artifact-resize { opacity: 1; }
 
 /* ── Present mode (slide deck) ───────────────────────────────────────────────
    A page rendered as slides (split at dividers): a centred sheet that fades and
@@ -1402,12 +1486,16 @@ a.obe-mention {
 
 /* The page reads as locked: hide every editing affordance. `.ob-viewer` is the
    standalone export viewer bundle (src/viewer), which reuses the same locked
-   surface outside the app shell. */
+   surface outside the app shell. The htmlArtifact chrome (title input, replace
+   tool, resize handle) is authoring UI, hidden on both locked surfaces too. */
 :is(.ob-present, .ob-viewer) .obe-gutter,
 :is(.ob-present, .ob-viewer) .obe-kit-gear,
 :is(.ob-present, .ob-viewer) .obe-cnt-add,
 :is(.ob-present, .ob-viewer) .obe-table-add,
 :is(.ob-present, .ob-viewer) .obe-code-actions,
+:is(.ob-present, .ob-viewer) .obe-artifact-tool,
+:is(.ob-present, .ob-viewer) .obe-artifact-resize,
+:is(.ob-present, .ob-viewer) input.obe-artifact-title,
 :is(.ob-present, .ob-viewer) .obe-handle-anchor { display: none !important; }
 /* Empty editable fields (chart title/description, kit labels) would otherwise
    show their "Add a description…" edit placeholder on the read-only stage. */
@@ -1422,6 +1510,9 @@ a.obe-mention {
    (CSS-gated like present mode), so hide them here too. Interactive widgets stay
    live — only their edit chrome (the ⚙ / code actions) goes. */
 .obe-root.obe-readonly .obe-kit-gear,
+.obe-root.obe-readonly .obe-artifact-tool,
+.obe-root.obe-readonly .obe-artifact-resize,
+.obe-root.obe-readonly input.obe-artifact-title,
 .obe-root.obe-readonly .obe-code-actions { display: none !important; }
 .obe-root.obe-readonly .obe-kit-inline:placeholder-shown { display: none; }
 /* The group sync / lock / gate buttons are author chrome — disabled for a
@@ -1937,6 +2028,8 @@ a.obe-mention {
 .obe-image-size:focus-visible,
 .obe-image-tool:focus-visible,
 .obe-image-resize:focus-visible,
+.obe-artifact-tool:focus-visible,
+.obe-artifact-resize:focus-visible,
 .obe-image-placeholder:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 1px;

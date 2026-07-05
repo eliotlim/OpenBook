@@ -41,18 +41,21 @@ interface EditorJsBlock {
   data?: Record<string, unknown>;
 }
 
-/** Walk projected EditorJS blocks (recursing `columns`) collecting image assetIds. */
+/** Walk projected EditorJS blocks (recursing `columns`) collecting asset ids
+ *  (image pictures + htmlArtifact documents). */
 function collectFromBlocks(blocks: EditorJsBlock[], out: Set<string>): void {
   for (const block of blocks) {
     const d = block.data ?? {};
-    if (block.type === 'image' && typeof d.assetId === 'string' && d.assetId) out.add(d.assetId);
+    if ((block.type === 'image' || block.type === 'htmlArtifact') && typeof d.assetId === 'string' && d.assetId) {
+      out.add(d.assetId);
+    }
     if (block.type === 'columns' && Array.isArray(d.columns)) {
       for (const col of d.columns as EditorJsBlock[][]) collectFromBlocks(Array.isArray(col) ? col : [], out);
     }
   }
 }
 
-/** The image `assetId`s referenced by a page snapshot (projecting block docs first). */
+/** The asset ids referenced by a page snapshot (projecting block docs first). */
 export function collectAssetIds(rawSnapshot: PageSnapshot): string[] {
   const snapshot = blockSnapshotToEditorJs(rawSnapshot);
   const blocks = (snapshot.editorjs as {blocks?: EditorJsBlock[]} | undefined)?.blocks ?? [];
