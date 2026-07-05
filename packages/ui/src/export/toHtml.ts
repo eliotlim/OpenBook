@@ -24,7 +24,7 @@
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
 import {assetsIslandScript, isSafeHref, pageIslandScript, spaceIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
-import {DATA_PALETTE, DATA_STROKE, DEFAULT_DATA_COLOR_SCHEME, hexAlpha, isDataColorToken, statusColor, type DataColorScheme} from '@book.dev/sdk';
+import {DATA_COLOR_SCHEMES, DATA_PALETTE, DATA_STROKE, DEFAULT_DATA_COLOR_SCHEME, hexAlpha, isDataColorToken, statusColor, type DataColorScheme} from '@book.dev/sdk';
 import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
 import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
@@ -50,6 +50,15 @@ import type {SiteBundle, SiteDatabase} from './exportSite';
 // CSS vars). The exporting user's chosen scheme (OB-379) is threaded through the
 // render (`RenderCtx.scheme`) and `document_`, so the standalone file bakes the
 // active Pastel/Vivid/Muted values rather than always pastel. ─────────────────
+/**
+ * Clamp the caller's scheme to a known value before it's baked into the file —
+ * defense-in-depth. `JSON.stringify` does NOT escape `</script>`, so the
+ * `window.__OB_DATA_SCHEME=…` injection (and every inlined palette lookup) must
+ * never trust an unnormalized scheme from a future caller (OB-379 hardening).
+ */
+const safeScheme = (scheme: DataColorScheme): DataColorScheme =>
+  (DATA_COLOR_SCHEMES as readonly string[]).includes(scheme) ? scheme : DEFAULT_DATA_COLOR_SCHEME;
+
 /** Status-light CSS for a scheme: the lamps + the pastel/muted light-mode
  *  hairline (§1.2; vivid has none — `DATA_STROKE` stays the ring). */
 const statusLightCss = (scheme: DataColorScheme): string =>
@@ -811,7 +820,7 @@ export function toHtml(
     titleOf: (id) => id,
     iconOf: () => '',
     databaseOf: () => undefined,
-    scheme,
+    scheme: safeScheme(scheme),
   };
   const blocks = (snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? [];
   const body = `<main>\n<h1 class="doc-title">${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1>\n${renderBlocks(blocks, ctx)}\n</main>`;
@@ -913,7 +922,7 @@ export function toSlideDeck(
     titleOf: (id) => id,
     iconOf: () => '',
     databaseOf: () => undefined,
-    scheme,
+    scheme: safeScheme(scheme),
   };
   const blocks = (snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? [];
   // Group blocks into slides at each divider (notes are already stripped by the
@@ -979,7 +988,7 @@ export function toHtmlSite(
     titleOf: (id) => byId.get(id)?.title ?? '',
     iconOf: (id) => byId.get(id)?.icon ?? '',
     databaseOf: (hostId) => byId.get(hostId)?.database,
-    scheme,
+    scheme: safeScheme(scheme),
   };
 
   const sections = bundle.pages

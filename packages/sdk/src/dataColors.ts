@@ -77,7 +77,9 @@ export const dataStroke = (scheme: DataColorScheme): string =>
 type Palette = Record<DataColorToken, DataColor>;
 
 /** `fillDark` defaults to `fill` — the mode-invariant case (vivid/muted, and the
- *  pastel extension tokens). The pastel select tokens pass a distinct dark dot. */
+ *  pastel extension tokens). The pastel select tokens pass a distinct dark dot;
+ *  so do the muted status trio (green/yellow/red), whose LIGHT fill is punched up
+ *  for a clearer traffic light while the dark fill stays the desaturated wash. */
 const entry = (
   fill: string, lightBg: string, lightFg: string, darkBg: string, darkFg: string, fillDark: string = fill,
 ): DataColor => ({
@@ -124,17 +126,23 @@ const VIVID: Palette = {
   indigo: entry('#6366f1', '#a5b4fc', '#15165b', '#252764', '#bebfe4'),
 };
 
-/** Muted: hue preserved, saturation compressed — greyed washes. */
+/**
+ * Muted: hue preserved, saturation compressed — greyed washes. The status trio
+ * (green/yellow/red) carries a punched-up **light** fill (+12% saturation, hue
+ * kept) so the status lamps read as a clear red/yellow/green traffic light while
+ * still sitting in the muted family (well below vivid); their dark fill keeps the
+ * desaturated wash (OB-379 review). No other muted value moves.
+ */
 const MUTED: Palette = {
   gray: entry('#8d929a', '#e4e5e7', '#4d5056', '#3b3d40', '#c4c6ca'),
   brown: entry('#9f9389', '#e8e5e3', '#59514a', '#413d3a', '#cac7c3'),
   orange: entry('#b28e75', '#ebe5e0', '#694d3a', '#463c34', '#d2c5bc'),
-  yellow: entry('#b2a376', '#ebe8e0', '#685d3b', '#464235', '#d1ccbc'),
-  green: entry('#7dab8e', '#e2e9e4', '#40634d', '#37443b', '#bfcfc5'),
+  yellow: entry('#bfa969', '#ebe8e0', '#685d3b', '#464235', '#d1ccbc', '#b2a376'),
+  green: entry('#70b88b', '#e2e9e4', '#40634d', '#37443b', '#bfcfc5', '#7dab8e'),
   blue: entry('#778db1', '#e0e4eb', '#3b4c68', '#353b46', '#bdc4d1'),
   purple: entry('#9577b1', '#e6e0eb', '#523b68', '#3d3546', '#c7bdd1'),
   pink: entry('#ae7a94', '#eae1e5', '#653e51', '#45363d', '#d0bec7'),
-  red: entry('#af7979', '#eae1e1', '#663d3d', '#453535', '#d0bdbd'),
+  red: entry('#bc6c6c', '#eae1e1', '#663d3d', '#453535', '#d0bdbd', '#af7979'),
   teal: entry('#7aaea8', '#e1eae9', '#3e6561', '#364543', '#bed0ce'),
   cyan: entry('#76a9b2', '#e0e9eb', '#3a6269', '#354346', '#bcced2'),
   indigo: entry('#797aaf', '#e1e1ea', '#3d3e66', '#363645', '#bebed0'),
