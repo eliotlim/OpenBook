@@ -248,6 +248,7 @@ export {
   readBookHtmlMeta,
   pageIslandScript,
   sanitizeLegacyInline,
+  isSafeHref,
   slugify,
   bookRuntimeScripts,
   BOOK_RUNTIME_DIR,

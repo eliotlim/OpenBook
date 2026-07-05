@@ -88,6 +88,36 @@ export function sanitizeLegacyInline(html: string): string {
   return out;
 }
 
+/**
+ * Scheme-allowlist for an anchor `href` rendered into STATIC HTML (the readable
+ * `.book.html` body AND the standalone exports — both opened from a `file://`
+ * origin, where a `javascript:` link is click-to-execute XSS). `esc()` escapes
+ * the value as an attribute but does NOT touch the URI scheme, so schemes must
+ * be gated separately; callers degrade a rejected href to inert text.
+ *
+ * Permits: `http(s):`, `mailto:`, and relative / anchor / query links (`#`, `/`,
+ * `.`, `?`, or any path with no scheme). Denies everything else — `javascript:`,
+ * `data:`, `vbscript:`, `file:`, `tel:`, … — and **protocol-relative `//host`**
+ * (a benign relative link never starts `//`, and a protocol-relative URL is
+ * meaningless in a standalone file, so denying it closes a classic bypass).
+ *
+ * The scheme is tested on a NORMALIZED copy — ASCII control chars + whitespace
+ * removed and backslashes folded to `/`, then lower-cased — because browsers
+ * ignore embedded tabs/newlines and treat `\` as `/` when parsing a URL, so
+ * `jAvA\tscript:` or `/\/\host` would otherwise slip past a naive prefix check.
+ */
+export function isSafeHref(raw: string): boolean {
+  // Stripping C0 control chars + space is the whole point (browsers ignore
+  // embedded tabs/newlines when parsing a scheme) — the control-char class is
+  // intentional, not the accidental bug no-control-regex guards against.
+  // eslint-disable-next-line no-control-regex
+  const probe = raw.replace(/[\u0000-\u0020]+/g, '').replace(/\\/g, '/').toLowerCase();
+  if (probe.startsWith('//')) return false; // protocol-relative → deny
+  const scheme = /^([a-z][a-z0-9+.-]*):/.exec(probe);
+  if (!scheme) return true; // no scheme → relative / anchor / query, safe
+  return scheme[1] === 'http' || scheme[1] === 'https' || scheme[1] === 'mailto';
+}
+
 /** The folder-level runtime directory name (never a valid book-folder slug). */
 export const BOOK_RUNTIME_DIR = '_openbook';
 
@@ -197,7 +227,11 @@ function runHtml(run: {t: string; a?: Record<string, unknown>}): string {
   if (a.u) out = `<u>${out}</u>`;
   if (a.s) out = `<s>${out}</s>`;
   if (typeof a.m === 'string') out = `<a class="ob-mention" data-page-id="${esc(a.m)}">${out}</a>`;
-  else if (typeof a.a === 'string') out = `<a href="${esc(a.a)}">${out}</a>`;
+  // Scheme-gate the href: esc() escapes the attribute but not the URI scheme, so
+  // a `javascript:`/`data:` link would render live and clickable in the static
+  // file. A rejected href degrades to inert text (no anchor) — same posture as
+  // the legacy-inline sanitizer.
+  else if (typeof a.a === 'string' && isSafeHref(a.a)) out = `<a href="${esc(a.a)}">${out}</a>`;
   return out;
 }
 
