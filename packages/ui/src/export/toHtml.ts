@@ -23,8 +23,9 @@
  *   navigable via the viewer's hash nav (or the legacy router on fallback).
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
-import {isSafeHref, pageIslandScript, spaceIslandScript} from '@book.dev/sdk';
+import {assetsIslandScript, isSafeHref, pageIslandScript, spaceIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
 import {blockSnapshotToEditorJs} from '../blockeditor/exportBlocks';
+import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
 // then Plot's UMD (which expects a global d3) sets `window.Plot`. Inlined only
 // when the document actually has a chart, and code-split (this module is a
@@ -390,14 +391,31 @@ function renderBlocks(blocks: RawBlock[], ctx: RenderCtx): string {
       const widthStyle = d.width ? ` style="width:${escapeHtml(str(d.width))}"` : '';
       const figcap = caption ? `<figcaption>${escapeHtml(caption)}</figcaption>` : '';
       // A store-resolved image is tagged with its content-addressed `assetId` so
-      // an island-first import can recover the bytes from this very file: the
-      // island's block-doc keeps the assetId, this <img> carries the data-URI,
-      // and re-uploading those bytes restores the SAME id (content addressing).
+      // an island-first import (and the viewer's boot) can recover the bytes
+      // from this very file: the island's block-doc keeps the assetId, this
+      // <img> carries the data-URI (artifact documents ride the assets island
+      // instead), and re-uploading those bytes restores the SAME id.
       const assetAttr = resolved ? ` data-asset-id="${escapeHtml(assetId)}"` : '';
       html.push(
         src
           ? `<figure class="ob-image"><img src="${escapeHtml(src)}" alt="${alt}"${widthStyle}${assetAttr}>${figcap}</figure>`
           : `<figure class="ob-image is-missing"><div class="ob-image-alt"${widthStyle}>${alt || 'Image'}</div>${figcap}</figure>`,
+      );
+      break;
+    }
+    case 'htmlArtifact': {
+      // Static first-paint: a captioned placeholder figure, NEVER a live
+      // iframe — the artifact only runs once the vendored viewer hydrates it
+      // through the sandboxed renderer (page/site exports). Slide decks and
+      // legacy-path exports never hydrate, so they keep this placeholder. The
+      // bytes travel in the assets island (see sdk `assetsIslandScript`), keyed
+      // by the `data-artifact-asset-id` stamped here.
+      const artifactId = str(d.assetId);
+      const artifactTitle = escapeHtml(str(d.title).trim()) || 'HTML artifact';
+      const idAttr = artifactId ? ` data-artifact-asset-id="${escapeHtml(artifactId)}"` : '';
+      html.push(
+        `<figure class="ob-artifact"${idAttr}><div class="ob-artifact-placeholder"><span class="ob-artifact-label">${artifactTitle}</span>` +
+          '<span class="ob-artifact-hint">Interactive HTML artifact — needs JavaScript (or open in OpenBook).</span></div></figure>',
       );
       break;
     }
@@ -572,6 +590,12 @@ function loadSnapshot(snapshot: PageSnapshot, values: Map<string, unknown>, name
  * feeding untrusted HTML through a DOM parser, where hostile raw text can
  * swallow a trailing island.
  *
+ * Assets: the boot assembles the viewer's `Map<assetId, bytes>` payload from
+ * two carriers — the assets island (artifact document text) and the static
+ * body's `<img data-asset-id src="data:…">` tags (image bytes, which are never
+ * duplicated into the island). Harvesting happens BEFORE the static body is
+ * replaced. This is the same recovery contract island-first import uses.
+ *
  * Failure modes all keep the static render: no island, corrupt JSON, a legacy
  * snapshot without a block-doc, or a mount throw (the static body is restored).
  * `window.__OB_NO_HYDRATE` short-circuits the boot entirely — the PDF pipeline
@@ -585,16 +609,31 @@ const VIEWER_BOOT = `
   var island = null;
   try { island = JSON.parse(tag.textContent); } catch (e) { /* corrupt island */ }
   if (!island) return; // keep the static render
-  var source = null, opts;
-  if (island.space && island.space.pages) { source = island.space; opts = island.rootId ? {page: island.rootId} : undefined; }
+  var source = null, pageRef;
+  if (island.space && island.space.pages) { source = island.space; pageRef = island.rootId || undefined; }
   else if (island.data && island.data.blockdoc) { source = island; }
   if (!source) return; // legacy snapshot: the static body IS the render
   var main = document.querySelector('main');
   if (!main || !main.parentNode) return;
+  // The asset payload: artifact text from the assets island…
+  var assets = {};
+  var assetsTag = document.querySelector('script[type="application/openbook-assets+json"]');
+  if (assetsTag) {
+    try {
+      var carried = JSON.parse(assetsTag.textContent);
+      if (carried && carried.version === 1 && carried.assets && typeof carried.assets === 'object') assets = carried.assets;
+    } catch (e) { /* corrupt assets island — artifacts degrade to placeholders */ }
+  }
+  // …plus image bytes harvested from the static body's data-URIs.
+  main.querySelectorAll('img[data-asset-id]').forEach(function(img){
+    var id = img.getAttribute('data-asset-id');
+    var m = /^data:([^;,]*);base64,(.*)$/.exec(img.getAttribute('src') || '');
+    if (id && m && !assets[id]) assets[id] = {mime: m[1] || 'application/octet-stream', encoding: 'base64', data: m[2]};
+  });
   var host = document.createElement('div');
   host.id = 'ob-viewer-host';
   main.parentNode.replaceChild(host, main);
-  try { window.OpenBookViewer.mount(host, source, opts); }
+  try { window.OpenBookViewer.mount(host, source, {page: pageRef, assets: assets}); }
   catch (e) { if (host.parentNode) host.parentNode.replaceChild(main, host); }
 })();
 `;
@@ -615,9 +654,17 @@ function document_(
   bodyHtml: string,
   headTitle: string,
   ctx: RenderCtx,
-  opts: {rootId?: string; extra?: {styles?: string; script?: string}; island?: string; hydrate?: boolean} = {},
+  opts: {
+    rootId?: string;
+    extra?: {styles?: string; script?: string};
+    island?: string;
+    /** The assets island (artifact bytes) — MUST follow the source island (sdk
+     *  ordering contract: string readers trust the first plausible tag). */
+    assetsIsland?: string;
+    hydrate?: boolean;
+  } = {},
 ): string {
-  const {rootId, extra, island, hydrate} = opts;
+  const {rootId, extra, island, assetsIsland, hydrate} = opts;
   const live =
     ctx.sliders.length > 0 ||
     ctx.exprs.length > 0 ||
@@ -662,7 +709,7 @@ function document_(
 </head>
 <body${!hydrate && rootId ? ` data-root="${escapeHtml(rootId)}"` : ''}>
 ${legacyHeader}${bodyHtml}
-${reactive}${nav}${extra?.script ? `\n<script>${escapeScript(extra.script)}</script>` : ''}${island ? `\n${island}` : ''}${viewer}
+${reactive}${nav}${extra?.script ? `\n<script>${escapeScript(extra.script)}</script>` : ''}${island ? `\n${island}` : ''}${assetsIsland ? `\n${assetsIsland}` : ''}${viewer}
 </body>
 </html>`;
 }
@@ -670,6 +717,31 @@ ${reactive}${nav}${extra?.script ? `\n<script>${escapeScript(extra.script)}</scr
 /** Whether a snapshot carries the native block-doc the viewer can hydrate. */
 function hasBlockdoc(snapshot: {editor?: string; blockdoc?: unknown} | null | undefined): boolean {
   return Boolean(snapshot && snapshot.editor === 'blocks' && snapshot.blockdoc);
+}
+
+/** Exporters accept the full {@link ExportAssets} resolution or (legacy call
+ *  sites and tests) a bare image `AssetMap`; normalize to the full shape. */
+type ExportAssetsLike = ExportAssets | AssetMap;
+function normalizeAssets(assets: ExportAssetsLike | undefined): ExportAssets {
+  if (!assets) return emptyExportAssets();
+  return assets instanceof Map ? {images: assets, artifactText: new Map()} : assets;
+}
+
+/** Build the assets island for the artifact documents these snapshots actually
+ *  reference (filtered so an unrelated resolution entry never leaks into the
+ *  file), or '' when there is nothing to carry. Hydrate-path only: the island
+ *  feeds the viewer's sandboxed renderer; placeholder-only surfaces (decks,
+ *  the legacy runtime) have no consumer for the bytes. */
+function artifactAssetsIsland(snapshots: PageSnapshot[], artifactText: Map<string, string>): string {
+  if (artifactText.size === 0) return '';
+  const entries: Record<string, ExportAssetEntry> = {};
+  for (const snapshot of snapshots) {
+    for (const id of collectExportAssetIds(snapshot).artifacts) {
+      const text = artifactText.get(id);
+      if (text !== undefined && !(id in entries)) entries[id] = {mime: 'text/html', encoding: 'utf8', data: text};
+    }
+  }
+  return Object.keys(entries).length > 0 ? assetsIslandScript(entries) : '';
 }
 
 /** Identity carried into a single-page export's source island (all optional —
@@ -680,16 +752,19 @@ export interface PageExportMeta {
 }
 
 /** Build the interactive HTML for a single page snapshot (Markdown/PDF parity).
- *  `assets` maps image `assetId`s to resolved `data:` URIs (see exportAssets).
+ *  `assets` is the pre-resolved {@link ExportAssets} (image data-URIs +
+ *  artifact document text; a bare image `AssetMap` is still accepted).
  *  Always embeds the lossless `rawSnapshot` as an `openbook+json` source island
- *  (same shape as `.book.html`), so the file re-imports without loss. */
+ *  (same shape as `.book.html`), so the file re-imports without loss; artifact
+ *  bytes ride the sibling assets island (hydrate path). */
 export function toHtml(
   rawSnapshot: PageSnapshot,
   title: string,
   icon: string,
-  assets: Map<string, string> = new Map(),
+  assets: ExportAssetsLike = emptyExportAssets(),
   meta: PageExportMeta = {},
 ): string {
+  const {images, artifactText} = normalizeAssets(assets);
   const snapshot = blockSnapshotToEditorJs(rawSnapshot);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
@@ -705,7 +780,7 @@ export function toHtml(
     lights: [],
     progress: [],
     initialValues: {},
-    assets,
+    assets: images,
     chartSeq: {n: 0},
     anchorPrefix: '',
     pageExists: () => false,
@@ -717,7 +792,12 @@ export function toHtml(
   const body = `<main>\n<h1 class="doc-title">${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1>\n${renderBlocks(blocks, ctx)}\n</main>`;
   // Block-doc pages hydrate through the vendored viewer (the island IS the
   // mount source); legacy EditorJS snapshots keep the bespoke reactive runtime.
-  return document_(body, title, ctx, {island: pageIsland(rawSnapshot, title, icon, meta), hydrate: hasBlockdoc(rawSnapshot)});
+  const hydrate = hasBlockdoc(rawSnapshot);
+  return document_(body, title, ctx, {
+    island: pageIsland(rawSnapshot, title, icon, meta),
+    assetsIsland: hydrate ? artifactAssetsIsland([rawSnapshot], artifactText) : '',
+    hydrate,
+  });
 }
 
 /** The source island for a single page export: a versioned page record carrying
@@ -774,14 +854,17 @@ const SLIDE_NAV = `
 `;
 
 /** Build a self-contained, interactive slide deck: blocks split into slides at
- *  every divider, widgets stay live offline, arrow-key navigation. */
+ *  every divider, widgets stay live offline, arrow-key navigation. HTML
+ *  artifacts render as their captioned placeholder — a deck never hydrates the
+ *  viewer (phase-2 deferral), so no assets island is emitted either. */
 export function toSlideDeck(
   rawSnapshot: PageSnapshot,
   title: string,
   icon: string,
-  assets: Map<string, string> = new Map(),
+  assets: ExportAssetsLike = emptyExportAssets(),
   meta: PageExportMeta = {},
 ): string {
+  const {images} = normalizeAssets(assets);
   const snapshot = blockSnapshotToEditorJs(rawSnapshot);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
@@ -797,7 +880,7 @@ export function toSlideDeck(
     lights: [],
     progress: [],
     initialValues: {},
-    assets,
+    assets: images,
     chartSeq: {n: 0},
     anchorPrefix: '',
     pageExists: () => false,
@@ -840,7 +923,8 @@ export function toSlideDeck(
  * navigable section, databases as tables of navigable rows, and a client-side
  * router that swaps the visible page on link clicks (with browser back/forward).
  */
-export function toHtmlSite(bundle: SiteBundle, assets: Map<string, string> = new Map()): string {
+export function toHtmlSite(bundle: SiteBundle, assets: ExportAssetsLike = emptyExportAssets()): string {
+  const {images, artifactText} = normalizeAssets(assets);
   const byId = new Map(bundle.pages.map((p) => [p.id, p]));
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
@@ -857,7 +941,7 @@ export function toHtmlSite(bundle: SiteBundle, assets: Map<string, string> = new
     lights: [],
     progress: [],
     initialValues: {},
-    assets,
+    assets: images,
     chartSeq: {n: 0},
     anchorPrefix: '',
     pageExists: (id) => byId.has(id),
@@ -896,7 +980,12 @@ export function toHtmlSite(bundle: SiteBundle, assets: Map<string, string> = new
     bundle.space.databases.length === 0 &&
     bundle.pages.every((p) => !p.database) &&
     bundle.space.pages.every((p) => hasBlockdoc(p.data));
-  return document_(`<main>\n${sections}\n</main>`, rootTitle, ctx, {rootId: bundle.rootId, island, hydrate});
+  return document_(`<main>\n${sections}\n</main>`, rootTitle, ctx, {
+    rootId: bundle.rootId,
+    island,
+    assetsIsland: hydrate ? artifactAssetsIsland(bundle.pages.map((p) => p.snapshot), artifactText) : '',
+    hydrate,
+  });
 }
 
 /** Colour-scheme tail appended after {@link STYLES}, picked per runtime.
@@ -999,6 +1088,10 @@ figure.ob-image { margin: 1.2em 0; }
 figure.ob-image img { max-width: 100%; height: auto; border-radius: 8px; display: block; }
 figure.ob-image figcaption { margin-top: 6px; text-align: center; font-size: .88rem; opacity: .7; }
 figure.ob-image .ob-image-alt { padding: 24px; text-align: center; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; opacity: .6; font-size: .9rem; }
+figure.ob-artifact { margin: 1.2em 0; }
+.ob-artifact-placeholder { display: flex; flex-direction: column; gap: 4px; padding: 18px 20px; border: 1px dashed rgba(127,127,127,.4); border-radius: 8px; }
+.ob-artifact-label { font-weight: 600; }
+.ob-artifact-hint { font-size: .85rem; opacity: .65; }
 table.block-table, table.db-table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .95em; }
 table.block-table th, table.block-table td, table.db-table th, table.db-table td { border: 1px solid rgba(127,127,127,.3); padding: 6px 10px; text-align: left; vertical-align: top; }
 table.block-table th, table.db-table th { background: rgba(127,127,127,.08); font-weight: 600; }

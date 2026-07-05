@@ -28,7 +28,12 @@ function watch(page: Page): {network: string[]; errors: string[]} {
     if (/^https?:/i.test(r.url())) network.push(r.url());
   });
   page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(m.text());
+    // Known-benign: EXPORT_ARTIFACT_CSP carries a best-effort `navigate-to`
+    // directive (security finding #1) that engines without support log-and-
+    // ignore — Chromium reports it as a console error. Everything else fails.
+    if (m.type() === 'error' && !/Unrecognized Content-Security-Policy directive 'navigate-to'/.test(m.text())) {
+      errors.push(m.text());
+    }
   });
   page.on('pageerror', (e) => errors.push(String(e)));
   return {network, errors};
@@ -96,6 +101,20 @@ test.describe('page export, hydrated', () => {
     await expect(bodyA).toBeHidden();
     await viewer.locator('.obe-acc-toggle').first().click();
     await expect(bodyA).toBeVisible();
+
+    // ── HTML artifact: hydrated into a sandboxed, interactive iframe ────────
+    const frameEl = viewer.locator('iframe[data-testid="sandboxed-html-frame"]');
+    await expect(frameEl).toBeVisible();
+    // Canonical sandbox flags — opaque origin (NO allow-same-origin).
+    const sandbox = await frameEl.getAttribute('sandbox');
+    expect(sandbox).toBe('allow-scripts allow-popups allow-forms allow-modals');
+    const artifact = viewer.frameLocator('iframe[data-testid="sandboxed-html-frame"]');
+    // The artifact runs its own JS: clicking increments its in-frame counter.
+    await expect(artifact.locator('#n')).toHaveText('0');
+    await artifact.getByRole('button').click();
+    await expect(artifact.locator('#n')).toHaveText('1');
+    // Its breakout attempt was blocked by the opaque origin (can't read the host).
+    await expect(artifact.locator('#leak')).toHaveText('host: blocked');
 
     // Locked semantics: no editing affordances, nothing persisted anywhere.
     // Including ghost placeholder text on locked chart chrome: the fixture has

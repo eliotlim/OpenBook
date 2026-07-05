@@ -77,6 +77,27 @@ describe('BlockEditor read-only (viewer rendering)', () => {
     expect(body()?.textContent).toContain('inside section');
   });
 
+  it('freezes table cells under a locked group (TableView applies the lock swap)', () => {
+    // Regression coverage for the TableView lock leak: cells render
+    // TextBlockView directly (not through BlockBody), so the table must apply
+    // the lock swap itself — in a WRITABLE editor, a locked group's table
+    // cells were left contenteditable while everything around them froze.
+    const doc = createDoc([
+      {id: 'free', type: 'paragraph', text: [{t: 'outside'}]},
+      {id: 'grp', type: 'group', props: {name: 'Box', locked: true}, children: [
+        {id: 'tbl', type: 'table', children: [
+          {id: 'row', type: 'row', children: [{id: 'cell', type: 'cell', text: [{t: 'locked cell'}]}]},
+        ]},
+      ]},
+    ]);
+    const {container} = render(<BlockEditor doc={doc} />); // writable editor
+    const outside = container.querySelector('[data-block-text="free"]') as HTMLElement;
+    expect(outside.getAttribute('contenteditable')).toBe('true'); // page itself is editable
+    const cell = container.querySelector('[data-block-text="cell"]') as HTMLElement;
+    expect(cell).not.toBeNull();
+    expect(cell.getAttribute('contenteditable')).toBe('false'); // the locked group freezes the cell
+  });
+
   it('renders fully editable (gutter + contentEditable) when writable', () => {
     const doc = createDoc([{id: 'p', type: 'paragraph', text: [{t: 'Hello'}]}]);
     const {container} = render(<BlockEditor doc={doc} />);

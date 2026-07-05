@@ -1,7 +1,9 @@
 import {describe, it, expect, afterEach} from 'vitest';
 import {act} from 'react';
-import {render, cleanup, fireEvent, screen} from '@testing-library/react';
+import {render, cleanup, fireEvent, screen, waitFor} from '@testing-library/react';
 import {createDoc, encodeSnapshot} from '../../blockeditor/model';
+import {MAX_ASSET_BYTES} from '../../blockeditor/imageBlock';
+import {SANDBOX_FLAGS} from '../../lib/srcdoc';
 import {mount} from '../index'; // also registers the reactive + kit blocks
 import {ViewerApp} from '../ViewerApp';
 import type {IslandPageJson, SpaceBundleJson, ViewerHandle} from '../types';
@@ -67,6 +69,48 @@ describe('viewer', () => {
     expect(container.querySelector('[data-viewer-page="b"]')).toBeTruthy();
     expect(container.textContent).toContain('beta body');
     expect(container.querySelectorAll('.ob-viewer-nav a').length).toBe(2);
+  });
+
+  it('bounds + validates the asset payload: over-cap and unknown encodings degrade to placeholders', async () => {
+    // Three artifacts: a valid utf8 document, one over the shared asset cap,
+    // and one with an unrecognised encoding (never guessed — Quinn's nit).
+    const doc = createDoc([
+      {id: 'a-ok', type: 'htmlArtifact', props: {assetId: 'ok', title: 'OK'}},
+      {id: 'a-big', type: 'htmlArtifact', props: {assetId: 'big', title: 'Big'}},
+      {id: 'a-weird', type: 'htmlArtifact', props: {assetId: 'weird', title: 'Weird'}},
+    ]);
+    const island: IslandPageJson = {
+      version: 1, id: 'p-art', name: 'Artifacts', icon: null, updatedAt: '',
+      data: {editor: 'blocks', blockdoc: encodeSnapshot(doc)},
+    };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let handle!: ViewerHandle;
+    act(() => {
+      handle = mount(container, island, {assets: {
+        ok: {mime: 'text/html', encoding: 'utf8', data: '<p>hello artifact</p>'},
+        big: {mime: 'text/html', encoding: 'utf8', data: '#'.repeat(MAX_ASSET_BYTES + 1)},
+        // An unknown encoding must resolve null, not be decoded as utf8.
+        weird: {mime: 'text/html', encoding: 'hex' as never, data: '<p>nope</p>'},
+      }});
+    });
+
+    // The valid artifact hydrates into the sandboxed frame (canonical flags +
+    // the export CSP meta inside its srcdoc); the other two show placeholders.
+    await waitFor(() => {
+      const frames = container.querySelectorAll('iframe[data-testid="sandboxed-html-frame"]');
+      expect(frames.length).toBe(1);
+    });
+    const frame = container.querySelector('iframe[data-testid="sandboxed-html-frame"]')!;
+    expect(frame.getAttribute('sandbox')).toBe(SANDBOX_FLAGS);
+    expect(frame.getAttribute('srcdoc')).toContain('Content-Security-Policy');
+    expect(frame.getAttribute('srcdoc')).toContain('hello artifact');
+    await waitFor(() => {
+      expect(container.querySelectorAll('figure.obe-artifact-empty').length).toBe(2);
+    });
+
+    act(() => handle.unmount());
+    container.remove();
   });
 
   it('mount() renders into a bare container and unmount() releases it', () => {

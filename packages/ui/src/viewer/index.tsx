@@ -25,8 +25,10 @@
 import {createRoot} from 'react-dom/client';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
+import {MAX_ASSET_BYTES} from '@/blockeditor/imageBlock';
+import {setAssetBridge} from '@/lib/assetBridge';
 import {ViewerApp} from './ViewerApp';
-import type {ViewerHandle, ViewerMountOptions, ViewerSource} from './types';
+import type {ViewerAssetEntry, ViewerHandle, ViewerMountOptions, ViewerSource} from './types';
 import '@/index.css';
 import './viewer.css';
 
@@ -34,6 +36,7 @@ export type {
   IslandPageJson,
   SpaceBundleJson,
   SpaceBundlePage,
+  ViewerAssetEntry,
   ViewerHandle,
   ViewerMountOptions,
   ViewerPage,
@@ -46,6 +49,52 @@ export type {
 // cards). Registered once at load, same as the app's page host does.
 registerReactiveBlocks();
 registerArtifactKit();
+
+/** Decode a base64 payload to bytes (inverse of the export's data-URI body). */
+function base64ToBytes(data: string): Uint8Array {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * Install the read-only asset bridge backed by the mount payload, so
+ * asset-referencing blocks (images by `assetId`, HTML artifact documents)
+ * resolve inside a standalone file exactly like they do in the app — but from
+ * carried bytes instead of the data server. Uploads are rejected (the viewer
+ * is read-only and nothing persists). Returns an uninstaller.
+ *
+ * Bounded decode: a malicious/corrupt island entry must not OOM the reader's
+ * own tab, so each entry is capped at the app's asset limit
+ * ({@link MAX_ASSET_BYTES}, shared constant — the store never legitimately
+ * holds more): a cheap pre-decode length guard (base64 is 4/3×; UTF-8 is
+ * ≤3 bytes per UTF-16 unit, so 4× covers both with slack) bounds the work,
+ * and the exact post-decode check enforces the cap. Unknown `encoding` values
+ * are rejected, never guessed — an over-cap, malformed, or unrecognised entry
+ * resolves `null` and the block shows its placeholder.
+ */
+function installAssetPayload(assets: Record<string, ViewerAssetEntry>): () => void {
+  setAssetBridge({
+    putAsset: () => Promise.reject(new Error('OpenBookViewer is read-only — assets cannot be uploaded')),
+    getAsset: (id) => {
+      const entry = assets[id];
+      if (!entry || typeof entry.data !== 'string') return Promise.resolve(null);
+      if (entry.data.length > MAX_ASSET_BYTES * 4) return Promise.resolve(null); // pre-decode bound
+      try {
+        let bytes: Uint8Array;
+        if (entry.encoding === 'base64') bytes = base64ToBytes(entry.data);
+        else if (entry.encoding === 'utf8') bytes = new TextEncoder().encode(entry.data);
+        else return Promise.resolve(null); // unknown encoding — never guess a decode
+        if (bytes.byteLength > MAX_ASSET_BYTES) return Promise.resolve(null); // exact cap
+        return Promise.resolve({bytes, mime: entry.mime || 'application/octet-stream'});
+      } catch {
+        return Promise.resolve(null); // malformed entry — the block shows its placeholder
+      }
+    },
+  });
+  return () => setAssetBridge(null);
+}
 
 // No <StrictMode>: its mount-cycle cleanup destroys the block editor's
 // useMemo'd/effect-held internals (see useBlockEditor's UndoManager note).
@@ -60,11 +109,13 @@ export function mount(container: HTMLElement, source: ViewerSource, opts?: Viewe
   if (!source || typeof source !== 'object') {
     throw new Error('OpenBookViewer.mount: source must be a page island or space bundle object');
   }
+  const uninstallAssets = opts?.assets && Object.keys(opts.assets).length > 0 ? installAssetPayload(opts.assets) : null;
   const root = createRoot(container);
   root.render(<ViewerApp source={source} initialPage={opts?.page} />);
   return {
     unmount(): void {
       root.unmount();
+      uninstallAssets?.();
     },
   };
 }
