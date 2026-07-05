@@ -248,6 +248,10 @@ export {
   readBookHtmlMeta,
   pageIslandScript,
   slugify,
+  bookRuntimeScripts,
+  BOOK_RUNTIME_DIR,
+  BOOK_RUNTIME_FILE,
+  type BookHtmlOptions,
   type BookPageRecord,
   type PageIsland,
 } from './bookfile';
@@ -259,6 +263,7 @@ export {
   SPACE_BUNDLE_FILE,
   type BookFolderFile,
   type SpaceSnapshot,
+  type SpaceToBookFilesOptions,
   type SpaceIsland,
 } from './bookFolder';
 export {

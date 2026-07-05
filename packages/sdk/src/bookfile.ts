@@ -46,6 +46,74 @@ export function pageIslandScript(record: BookPageRecord, opts: {attrs?: string; 
 const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/** The folder-level runtime directory name (never a valid book-folder slug). */
+export const BOOK_RUNTIME_DIR = '_openbook';
+
+/** Relative path (from the folder root) of the shared viewer runtime bundle. */
+export const BOOK_RUNTIME_FILE = `${BOOK_RUNTIME_DIR}/viewer.js`;
+
+/**
+ * The **byte-constant** runtime reference block a `.book.html` embeds in its
+ * `<head>` when the folder carries the shared viewer bundle (`_openbook/viewer.js`
+ * — ONE copy per folder, owner decision 2026-07-04: never vendored per-file).
+ *
+ * Stability contract: this block contains NO per-page and NO per-version variance
+ * (no content hash, no build id), so
+ *  - a page save re-renders to the same reference bytes (no mirror churn), and
+ *  - a viewer-bundle upgrade rewrites ONLY `_openbook/viewer.js`, never the N
+ *    page files. Only gaining/losing the runtime altogether changes page bytes
+ *    (a deliberate one-time, upgrade-class rewrite).
+ *
+ * The boot script:
+ *  - loads after parse (the src script is `defer`; boot waits for DOMContentLoaded),
+ *    so both tags sit safely in `<head>` where hostile body text (an unterminated
+ *    `<!--`) can never swallow them;
+ *  - extracts the island by REGEX over the serialized document — the sdk
+ *    `readIslandRaw` pattern, never `querySelector`/DOMParser (see viewer/index.tsx:
+ *    a DOM query misses an island a stray open comment swallowed, while the
+ *    serialized comment text still matches the regex);
+ *  - mounts the interactive viewer over the static `<article>` and hides it; ANY
+ *    failure (bundle deleted, no global, corrupt island, mount throw) leaves the
+ *    readable static article exactly as-is — the runtime is progressive
+ *    enhancement over the no-JS fallback.
+ *
+ * Inside the inline script every `/` that could form `</script>` (the regex
+ * literal) is escaped as `<\/` so the block can never close itself early, and the
+ * island marker appears only in its regex-escaped form (`application\/openbook\+json`),
+ * which the sdk island reader does NOT match — the boot can never be mistaken for
+ * the island itself.
+ */
+export function bookRuntimeScripts(): string {
+  return `<script src="../${BOOK_RUNTIME_FILE}" defer data-openbook-runtime></script>
+<script data-openbook-runtime-boot>
+(function () {
+  function boot() {
+    try {
+      if (typeof OpenBookViewer === 'undefined') return;
+      var m = document.documentElement.outerHTML.match(/<script[^>]*type="application\\/openbook\\+json"[^>]*>([\\s\\S]*?)<\\/script>/i);
+      if (!m) return;
+      var island = JSON.parse(m[1].trim());
+      var article = document.querySelector('article');
+      var host = document.createElement('div');
+      (article && article.parentNode ? article.parentNode : document.body).insertBefore(host, article);
+      // Inline display:none (not the hidden attribute): the bundle injects the
+      // app stylesheet, whose author-level display rules would defeat the UA's
+      // [hidden] mapping. The inline style always wins; mount failure restores it.
+      if (article) article.style.display = 'none';
+      try {
+        OpenBookViewer.mount(host, island);
+      } catch (err) {
+        host.remove();
+        if (article) article.style.display = '';
+      }
+    } catch (err) { /* leave the static article untouched */ }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
+  else boot();
+})();
+</script>`;
+}
+
 /** Lower-case, dash-separated, filesystem-safe slug (for the on-disk filename). */
 export function slugify(input: string, fallback = 'untitled'): string {
   const slug = (input || '')
@@ -134,8 +202,22 @@ function blockInnerHtml(type: string, block: RawBlock): {tag: string; inner: str
   }
 }
 
+/** Options for {@link pageToBookHtml}. */
+export interface BookHtmlOptions {
+  /**
+   * Reference the folder's shared viewer runtime (`_openbook/viewer.js`) so the
+   * file, opened directly in a browser, hydrates into the interactive locked
+   * viewer. Pass true ONLY when the writer also ships the bundle into the folder
+   * (sdk `spaceToBookFiles({runtime})` / server `BookMirror` with `runtimeBundle`)
+   * — a reference without the bundle degrades gracefully (static article), but
+   * writers keep the invariant anyway. Emitters MUST agree on this flag for the
+   * SDK/server byte-compatibility contract to hold.
+   */
+  runtimeRef?: boolean;
+}
+
 /** Render a page to its on-disk book-file HTML (readable body + canonical island). */
-export function pageToBookHtml(record: BookPageRecord): string {
+export function pageToBookHtml(record: BookPageRecord, opts: BookHtmlOptions = {}): string {
   const {id, name, icon, updatedAt, data} = record;
   const title = (name ?? '').trim() || 'Untitled';
   const mtime = new Map<string, string>(data.mtimes ?? []);
@@ -155,7 +237,7 @@ export function pageToBookHtml(record: BookPageRecord): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
-</head>
+${opts.runtimeRef ? `${bookRuntimeScripts()}\n` : ''}</head>
 <body class="ob-page">
   <article>
     <h1 class="ob-page-title">${icon ? `${esc(icon)} ` : ''}${esc(title)}</h1>
