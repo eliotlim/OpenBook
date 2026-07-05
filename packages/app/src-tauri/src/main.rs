@@ -411,6 +411,33 @@ fn keychain_delete(key: String) -> Result<(), String> {
     }
 }
 
+// ── Update target (self-update check) ────────────────────────────────────────
+
+/// The build target the update-check API keys on: OS family (`darwin` | `linux`
+/// | `windows`) + CPU architecture (`aarch64` | `x86_64`).
+#[derive(serde::Serialize)]
+struct UpdateTarget {
+    target: &'static str,
+    arch: &'static str,
+}
+
+/// Compile-time truth about what binary this is — `std::env::consts` reflects
+/// the target the app was *built for*, which is exactly what the updater wants
+/// (an Intel build under Rosetta must keep receiving x86_64 updates). Reading
+/// it here, rather than sniffing `navigator.userAgent` in the webview, also
+/// keeps the JS check path and the Rust updater plugin on the same answer.
+#[tauri::command]
+fn update_target() -> UpdateTarget {
+    UpdateTarget {
+        // Rust says "macos"; the update API (like Tauri's own {{target}}) says "darwin".
+        target: match std::env::consts::OS {
+            "macos" => "darwin",
+            os => os,
+        },
+        arch: std::env::consts::ARCH,
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         // Single-instance guard (registered first): a second launch focuses the
@@ -427,6 +454,12 @@ fn main() {
         .plugin(tauri_plugin_opener::init())
         // Handles `openbook://auth-callback#token=…` sign-in deep links.
         .plugin(tauri_plugin_deep_link::init())
+        // Self-update: manifest endpoint + minisign pubkey are pinned in
+        // tauri.conf.json (plugins.updater); the JS side drives it through
+        // `platform.updates` (packages/app/src/data/updates.ts).
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        // Relaunch-to-apply after an update is staged.
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             {
@@ -515,6 +548,7 @@ fn main() {
             keychain_set,
             keychain_get,
             keychain_delete,
+            update_target,
             ipc::api_request,
             ipc::api_request_stream,
             ipc::api_request_abort

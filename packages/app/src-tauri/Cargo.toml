@@ -30,6 +30,11 @@ tauri-plugin-single-instance = "2"
 # (reveal it). Used from Rust commands, not invoked directly from JS.
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+# Self-update (OB-342): fetches the manifest from the endpoint pinned in
+# tauri.conf.json and applies signed updater archives, verifying each against
+# the pinned minisign pubkey. `process` provides the post-install relaunch.
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 # Random access tokens for the published-server gate.
 uuid = { version = "1", features = ["v4"] }
 # The streaming IPC bridge (`api_request_stream`) base64-encodes each body chunk

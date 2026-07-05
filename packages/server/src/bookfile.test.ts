@@ -136,3 +136,55 @@ describe('slugify', () => {
     expect(slugify('///')).toBe('untitled');
   });
 });
+
+// ── The viewer-runtime reference (folder-level `_openbook/viewer.js`) ───────────
+
+describe('pageToBookHtml — runtime reference', () => {
+  const record = {
+    id: 'page-rt',
+    name: 'Runtime Page',
+    icon: null,
+    updatedAt: NOW,
+    data: stampSnapshotMtimes(null, snap([{id: 'a', text: 'hello'}]), NOW),
+  };
+
+  it('is opt-in: the default render carries NO runtime reference (current shape)', () => {
+    const html = pageToBookHtml(record);
+    expect(html).not.toContain('_openbook');
+    expect(html).not.toContain('data-openbook-runtime');
+    expect(html).toBe(pageToBookHtml(record, {})); // explicit empty opts = default
+  });
+
+  it('renders a byte-constant reference block: relative src + boot, no per-write variance', () => {
+    const html = pageToBookHtml(record, {runtimeRef: true});
+    // Relative reference so the folder stays portable (moved/zipped whole).
+    expect(html).toContain('<script src="../_openbook/viewer.js" defer data-openbook-runtime></script>');
+    expect(html).toContain('data-openbook-runtime-boot');
+    expect(html).toContain('OpenBookViewer.mount');
+    // Byte-stable across renders — the mirror's own-write hash index depends on it.
+    expect(pageToBookHtml(record, {runtimeRef: true})).toBe(html);
+    // The reference block is IDENTICAL for a different page/updatedAt (pure constant):
+    // strip everything but the runtime block and compare.
+    const other = pageToBookHtml({...record, id: 'other', name: 'Other', updatedAt: LATER, data: record.data}, {runtimeRef: true});
+    const runtimeBlock = (h: string): string => h.slice(h.indexOf('<script src="../_openbook'), h.indexOf('</head>'));
+    expect(runtimeBlock(other)).toBe(runtimeBlock(html));
+  });
+
+  it('keeps the island + meta readers working (boot never mistaken for the island)', () => {
+    const html = pageToBookHtml(record, {runtimeRef: true});
+    // The boot script mentions the island marker only regex-escaped, so the sdk
+    // island reader still lands on the REAL island, not the boot.
+    const parsed = bookHtmlToPage(html);
+    expect(parsed).not.toBeNull();
+    expect(parsed!.id).toBe(record.id);
+    expect(JSON.stringify(parsed!.data)).toBe(JSON.stringify(record.data));
+    expect(readBookHtmlMeta(html)).toEqual({id: record.id, name: 'Runtime Page', updatedAt: NOW});
+  });
+
+  it('the inline boot cannot close its own tag early (every </ is escaped)', () => {
+    const html = pageToBookHtml(record, {runtimeRef: true});
+    const boot = html.slice(html.indexOf('data-openbook-runtime-boot'), html.indexOf('</head>'));
+    // The only literal `</script>` in the boot block is its own closing tag.
+    expect(boot.match(/<\/script>/g)).toHaveLength(1);
+  });
+});

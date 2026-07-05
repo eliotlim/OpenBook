@@ -1,3 +1,16 @@
+## 1.70.0 (2026-07-04)
+
+### 🚀 Features
+
+- **app,ci:** Tauri auto-updater — signed release artifacts + pinned desktop updater runtime ([#85](https://github.com/eliotlim/OpenBook/pull/85))
+- **ui:** update preferences — cadence, security-only, check now, version display ([#84](https://github.com/eliotlim/OpenBook/pull/84))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Claude Opus 4.8 (1M context)
+- Eliot Lim @eliotlim
+
 ## 1.69.2 (2026-07-04)
 
 ### 🩹 Fixes

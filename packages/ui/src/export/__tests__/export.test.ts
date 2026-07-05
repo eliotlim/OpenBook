@@ -201,6 +201,9 @@ describe('toHtmlSite', () => {
       },
       {id: 'r1', title: 'Task one', icon: '📄', snapshot: snapshot([{type: 'paragraph', data: {text: 'row body'}}])},
     ],
+    // The lossless source island bundle (rendering here is driven by `pages`; the
+    // island shape has dedicated coverage in exportIsland.test.ts).
+    space: {pages: [], databases: []},
   };
   const html = toHtmlSite(bundle);
 

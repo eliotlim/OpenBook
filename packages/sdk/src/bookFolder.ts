@@ -1,6 +1,7 @@
 import type {StoredPage, PageSnapshot} from './types';
 import type {StoredDatabase} from './database';
-import {pageToBookHtml, bookHtmlToPage, slugify} from './bookfile';
+import {pageToBookHtml, bookHtmlToPage, slugify, BOOK_RUNTIME_FILE} from './bookfile';
+import {islandScript, readIsland} from './island';
 
 /**
  * Whole-space → folder-of-files serialisation, shared by every "dump my books
@@ -32,6 +33,41 @@ export interface SpaceSnapshot {
 /** Lossless structured sidecar, parsed back by {@link parseBookFolder}. */
 export const SPACE_BUNDLE_FILE = 'openbook.space.json';
 
+/**
+ * The whole-space **source-island** payload embedded in a standalone *site* HTML
+ * export: the full {@link SpaceSnapshot} (pages + databases + nesting via each
+ * page's `parentId`/`databaseId`) plus the root id shown first. Same structure as
+ * {@link SPACE_BUNDLE_FILE}, so a site export re-imports with structure intact.
+ */
+export interface SpaceIsland {
+  version: 1;
+  rootId: string;
+  space: SpaceSnapshot;
+}
+
+/** Wrap a whole-space bundle as its source-island `<script>` (versioned, escaped). */
+export function spaceIslandScript(
+  rootId: string,
+  space: SpaceSnapshot,
+  opts: {attrs?: string; indent?: string} = {},
+): string {
+  return islandScript({version: 1, rootId, space}, opts);
+}
+
+/** Read a site export's space island back, or `null` when absent/corrupt. */
+export function readSpaceIsland(html: string): SpaceIsland | null {
+  const parsed = readIsland<Partial<SpaceIsland>>(html);
+  if (!parsed || !parsed.space || !Array.isArray(parsed.space.pages)) return null;
+  return {
+    version: 1,
+    rootId: parsed.rootId ?? '',
+    space: {
+      pages: parsed.space.pages,
+      databases: Array.isArray(parsed.space.databases) ? parsed.space.databases : [],
+    },
+  };
+}
+
 const MAX_DEPTH = 64;
 
 const pageIcon = (page: StoredPage): string | null => {
@@ -60,29 +96,51 @@ function rootOf(
   return root;
 }
 
+/** Options for {@link spaceToBookFiles}. */
+export interface SpaceToBookFilesOptions {
+  /** Include the lossless {@link SPACE_BUNDLE_FILE} sidecar. Default true. */
+  includeBundle?: boolean;
+  /**
+   * The viewer runtime bundle's JS source (the compiled `OpenBookViewer` IIFE).
+   * When provided, ONE copy is emitted at {@link BOOK_RUNTIME_FILE}
+   * (`_openbook/viewer.js`) and every page file references it relatively, so a
+   * `.book.html` opened straight from `file://` hydrates into the interactive
+   * locked viewer with zero network — and the folder stays portable
+   * (moved/zipped whole). Omit it (bundle unavailable) and the writer emits NO
+   * reference: the files are the plain static articles, exactly as before.
+   */
+  runtime?: string;
+}
+
 /**
  * Serialise a space to its on-disk files. By default includes the lossless
  * {@link SPACE_BUNDLE_FILE}; pass `includeBundle: false` for the human-readable
- * HTML files only.
+ * HTML files only. Pass `runtime` (the viewer bundle source) to make the folder
+ * self-hydrating — see {@link SpaceToBookFilesOptions.runtime}.
  */
-export function spaceToBookFiles(snapshot: SpaceSnapshot, opts: {includeBundle?: boolean} = {}): BookFolderFile[] {
+export function spaceToBookFiles(snapshot: SpaceSnapshot, opts: SpaceToBookFilesOptions = {}): BookFolderFile[] {
   const {pages, databases} = snapshot;
   const byId = new Map(pages.map((p) => [p.id, p]));
   const dbHost = new Map(databases.map((d) => [d.id, d.pageId]));
+  const runtimeRef = typeof opts.runtime === 'string' && opts.runtime.length > 0;
 
   const files: BookFolderFile[] = [];
   for (const page of pages) {
     const root = rootOf(page, byId, dbHost);
-    const html = pageToBookHtml({
-      id: page.id,
-      name: page.name,
-      icon: pageIcon(page),
-      updatedAt: page.updatedAt,
-      data: page.data,
-    });
+    const html = pageToBookHtml(
+      {
+        id: page.id,
+        name: page.name,
+        icon: pageIcon(page),
+        updatedAt: page.updatedAt,
+        data: page.data,
+      },
+      {runtimeRef},
+    );
     files.push({path: `${folderName(root)}/${fileName(page)}`, contents: html});
   }
 
+  if (runtimeRef) files.push({path: BOOK_RUNTIME_FILE, contents: opts.runtime!});
   if (opts.includeBundle !== false) {
     files.push({path: SPACE_BUNDLE_FILE, contents: JSON.stringify(snapshot, null, 2)});
   }

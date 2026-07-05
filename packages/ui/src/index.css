@@ -1507,19 +1507,24 @@ a.obe-mention {
 .ob-slide-title-icon { font-size: 2.5rem; line-height: 1; }
 .ob-slide-title h1 { margin: 0; font-size: 2.2rem; font-weight: 700; letter-spacing: -0.01em; }
 
-/* The page reads as locked: hide every editing affordance. */
-.ob-present .obe-gutter,
-.ob-present .obe-kit-gear,
-.ob-present .obe-cnt-add,
-.ob-present .obe-table-add,
-.ob-present .obe-code-actions,
-.ob-present .obe-artifact-tool,
-.ob-present .obe-artifact-resize,
-.ob-present input.obe-artifact-title,
-.ob-present .obe-handle-anchor { display: none !important; }
+/* The page reads as locked: hide every editing affordance. `.ob-viewer` is the
+   standalone export viewer bundle (src/viewer), which reuses the same locked
+   surface outside the app shell. The htmlArtifact chrome (title input, replace
+   tool, resize handle) is authoring UI, hidden on both locked surfaces too. */
+:is(.ob-present, .ob-viewer) .obe-gutter,
+:is(.ob-present, .ob-viewer) .obe-kit-gear,
+:is(.ob-present, .ob-viewer) .obe-cnt-add,
+:is(.ob-present, .ob-viewer) .obe-table-add,
+:is(.ob-present, .ob-viewer) .obe-code-actions,
+:is(.ob-present, .ob-viewer) .obe-artifact-tool,
+:is(.ob-present, .ob-viewer) .obe-artifact-resize,
+:is(.ob-present, .ob-viewer) input.obe-artifact-title,
+:is(.ob-present, .ob-viewer) .obe-handle-anchor { display: none !important; }
 /* Empty editable fields (chart title/description, kit labels) would otherwise
    show their "Add a description…" edit placeholder on the read-only stage. */
-.ob-present .obe-kit-inline:placeholder-shown { display: none; }
+:is(.ob-present, .ob-viewer) .obe-kit-inline:placeholder-shown { display: none; }
+/* The group sync / lock / gate buttons are author chrome, same as below. */
+.ob-viewer .obe-group-btn { display: none; }
 
 /* Whole-document read-only (OB-205): a viewer who can't write sees the page as
    locked. The editor's own `readOnly` path already drops the gutter, drag
