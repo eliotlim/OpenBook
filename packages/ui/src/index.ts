@@ -18,7 +18,6 @@ export {SANDBOX_FLAGS, escapeSrcdocAttribute, wrapSandboxDocument} from './lib/s
 
 // Untrusted-HTML sandbox contract (no React dep) — reused by the SandboxedHtml
 // component and, later, the export pipeline's string-built iframes.
-export {SANDBOX_FLAGS, escapeSrcdocAttribute, wrapSandboxDocument} from './lib/srcdoc';
 
 // The custom CRDT block editor — the app's only editor. `migrateEditorJs` still
 // upgrades legacy EditorJS snapshots to the block document on open.
