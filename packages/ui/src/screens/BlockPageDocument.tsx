@@ -357,9 +357,10 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     try {
       if (kind === 'md') {
         // Resolve image assets (assetId → data-URI) up front so every renderer
-        // embeds the picture rather than a dangling reference.
+        // embeds the picture rather than a dangling reference. Markdown has no
+        // sandboxed-iframe equivalent, so only the image map applies here.
         const assets = await resolveExportAssets(client, [snapshot]);
-        downloadText(`${base}.md`, toMarkdown(buildDocumentModel({title, icon, snapshot, assets})), 'text/markdown');
+        downloadText(`${base}.md`, toMarkdown(buildDocumentModel({title, icon, snapshot, assets: assets.images})), 'text/markdown');
       } else if (kind === 'pdf-paged' || kind === 'pdf-continuous' || kind === 'pdf-slides') {
         // PDF mirrors the HTML export (vector, selectable) rather than a separate
         // hand-drawn renderer — so it looks like the window. See export/toPdf.ts.

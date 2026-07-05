@@ -58,9 +58,24 @@ export interface SpaceBundleJson {
 
 export type ViewerSource = IslandPageJson | SpaceBundleJson;
 
+/**
+ * One asset's bytes in the mount payload — the same entry shape as the export
+ * assets island (sdk `ExportAssetEntry`): `utf8` carries text (HTML artifact
+ * documents), `base64` carries binary (images harvested from the static body's
+ * data-URIs). The boot script assembles this record; asset-referencing blocks
+ * (images, HTML artifacts) resolve through it instead of the app asset store.
+ */
+export interface ViewerAssetEntry {
+  mime: string;
+  encoding: 'utf8' | 'base64';
+  data: string;
+}
+
 export interface ViewerMountOptions {
   /** Initial page for a space bundle: a page id (preferred) or exact name. */
   page?: string;
+  /** Pre-resolved asset bytes by assetId (see {@link ViewerAssetEntry}). */
+  assets?: Record<string, ViewerAssetEntry>;
 }
 
 export interface ViewerHandle {

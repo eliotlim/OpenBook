@@ -45,22 +45,23 @@ describe('resolveExportAssets', () => {
 
   it('resolves each referenced asset to a data-URI', async () => {
     const assets = await resolveExportAssets(client, [snapshot([{type: 'image', data: {assetId: 'a1'}}])]);
-    expect(assets.get('a1')).toBe(PNG_DATA_URI);
+    expect(assets.images.get('a1')).toBe(PNG_DATA_URI);
   });
 
   it('leaves a missing asset out of the map (renderers degrade)', async () => {
     const assets = await resolveExportAssets(client, [snapshot([{type: 'image', data: {assetId: 'gone'}}])]);
-    expect(assets.has('gone')).toBe(false);
+    expect(assets.images.has('gone')).toBe(false);
   });
 
   it('never crashes when getAsset throws — the asset is just absent', async () => {
     const flaky = {getAsset: () => Promise.reject(new Error('boom'))} as unknown as DataClient;
     const assets = await resolveExportAssets(flaky, [snapshot([{type: 'image', data: {assetId: 'a1'}}])]);
-    expect(assets.size).toBe(0);
+    expect(assets.images.size).toBe(0);
+    expect(assets.artifactText.size).toBe(0);
   });
 
   it('returns an empty map when no asset client is available', async () => {
-    expect((await resolveExportAssets(null, [snapshot([{type: 'image', data: {assetId: 'a1'}}])])).size).toBe(0);
+    expect((await resolveExportAssets(null, [snapshot([{type: 'image', data: {assetId: 'a1'}}])])).images.size).toBe(0);
   });
 });
 
@@ -72,7 +73,7 @@ describe('toHtml — image block', () => {
       '',
       new Map([['a1', PNG_DATA_URI]]),
     );
-    expect(html).toContain(`<img src="${PNG_DATA_URI}" alt="A cat" style="width:50%">`);
+    expect(html).toContain(`<img data-asset-id="a1" src="${PNG_DATA_URI}" alt="A cat" style="width:50%">`);
     expect(html).toContain('<figcaption>Fluffy</figcaption>');
   });
 
@@ -93,7 +94,7 @@ describe('toHtml — image block', () => {
 
   it('resolves through the block-CRDT projection (assetId carried end-to-end)', () => {
     const html = toHtml(blockSnapshot([{type: 'image', props: {assetId: 'a1', alt: 'Cat', width: '30%'}}]), 'T', '', new Map([['a1', PNG_DATA_URI]]));
-    expect(html).toContain(`<img src="${PNG_DATA_URI}" alt="Cat" style="width:30%">`);
+    expect(html).toContain(`<img data-asset-id="a1" src="${PNG_DATA_URI}" alt="Cat" style="width:30%">`);
   });
 });
 

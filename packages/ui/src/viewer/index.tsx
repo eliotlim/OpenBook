@@ -25,8 +25,9 @@
 import {createRoot} from 'react-dom/client';
 import {registerReactiveBlocks} from '@/blockeditor/reactiveBlocks';
 import {registerArtifactKit} from '@/blockeditor/kit';
+import {setAssetBridge} from '@/lib/assetBridge';
 import {ViewerApp} from './ViewerApp';
-import type {ViewerHandle, ViewerMountOptions, ViewerSource} from './types';
+import type {ViewerAssetEntry, ViewerHandle, ViewerMountOptions, ViewerSource} from './types';
 import '@/index.css';
 import './viewer.css';
 
@@ -34,6 +35,7 @@ export type {
   IslandPageJson,
   SpaceBundleJson,
   SpaceBundlePage,
+  ViewerAssetEntry,
   ViewerHandle,
   ViewerMountOptions,
   ViewerPage,
@@ -46,6 +48,38 @@ export type {
 // cards). Registered once at load, same as the app's page host does.
 registerReactiveBlocks();
 registerArtifactKit();
+
+/** Decode a base64 payload to bytes (inverse of the export's data-URI body). */
+function base64ToBytes(data: string): Uint8Array {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * Install the read-only asset bridge backed by the mount payload, so
+ * asset-referencing blocks (images by `assetId`, HTML artifact documents)
+ * resolve inside a standalone file exactly like they do in the app — but from
+ * carried bytes instead of the data server. Uploads are rejected (the viewer
+ * is read-only and nothing persists). Returns an uninstaller.
+ */
+function installAssetPayload(assets: Record<string, ViewerAssetEntry>): () => void {
+  setAssetBridge({
+    putAsset: () => Promise.reject(new Error('OpenBookViewer is read-only — assets cannot be uploaded')),
+    getAsset: (id) => {
+      const entry = assets[id];
+      if (!entry || typeof entry.data !== 'string') return Promise.resolve(null);
+      try {
+        const bytes = entry.encoding === 'base64' ? base64ToBytes(entry.data) : new TextEncoder().encode(entry.data);
+        return Promise.resolve({bytes, mime: entry.mime || 'application/octet-stream'});
+      } catch {
+        return Promise.resolve(null); // malformed entry — the block shows its placeholder
+      }
+    },
+  });
+  return () => setAssetBridge(null);
+}
 
 // No <StrictMode>: its mount-cycle cleanup destroys the block editor's
 // useMemo'd/effect-held internals (see useBlockEditor's UndoManager note).
@@ -60,11 +94,13 @@ export function mount(container: HTMLElement, source: ViewerSource, opts?: Viewe
   if (!source || typeof source !== 'object') {
     throw new Error('OpenBookViewer.mount: source must be a page island or space bundle object');
   }
+  const uninstallAssets = opts?.assets && Object.keys(opts.assets).length > 0 ? installAssetPayload(opts.assets) : null;
   const root = createRoot(container);
   root.render(<ViewerApp source={source} initialPage={opts?.page} />);
   return {
     unmount(): void {
       root.unmount();
+      uninstallAssets?.();
     },
   };
 }
