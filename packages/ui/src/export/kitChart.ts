@@ -11,6 +11,7 @@
  */
 
 export const KIT_CHART_JS = `
+function kitEsc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 const KIT_PALETTE=["#6366f1","#f59e0b","#10b981","#ef4444","#8b5cf6","#06b6d4","#f97316","#14b8a6"];
 function kitSeries(v){ if(v&&typeof v==="object"&&Array.isArray(v.series)) return v.series.filter(s=>Array.isArray(s.data)&&s.data.every(n=>typeof n==="number")&&s.data.length).map(s=>({name:String(s.name??""),values:s.data})); if(Array.isArray(v)&&v.every(n=>typeof n==="number")) return v.length?[{name:"",values:v}]:[]; if(Array.isArray(v)&&v.length&&v.every(p=>p&&typeof p==="object"&&isFinite(p.x)&&isFinite(p.y))) return [{name:"",values:v.map(p=>p.y)}]; if(Array.isArray(v)&&v.every(a=>Array.isArray(a)&&a.every(n=>typeof n==="number"))) return v.filter(a=>a.length).map((a,i)=>({name:"s"+(i+1),values:a})); if(v&&typeof v==="object"&&!Array.isArray(v)) return Object.entries(v).filter(([,a])=>Array.isArray(a)&&a.every(n=>typeof n==="number")&&a.length).map(([n,a])=>({name:n,values:a})); if(typeof v==="number"&&isFinite(v)) return [{name:"",values:[v]}]; return []; }
 function kitLabelled(v,labels){ if(v&&typeof v==="object"&&!Array.isArray(v)){ const e=Object.entries(v).filter(([,n])=>typeof n==="number"&&isFinite(n)); if(e.length) return e.map(([label,value])=>({label,value})); } if(Array.isArray(v)&&v.every(n=>typeof n==="number")) return v.map((value,i)=>({label:labels[i]||("#"+(i+1)),value})); return []; }
@@ -28,12 +29,12 @@ function drawKit(v,kind,labels){
     body=slices.map((s,i)=>{ const sweep=s.value/total*Math.PI*2, a0=ang, a1=ang+sweep; ang=a1; const end=sweep>=Math.PI*2-1e-6?a1-1e-4:a1, large=sweep>Math.PI?1:0; const pt=(a,rad)=>(cx+Math.cos(a)*rad)+','+(cy+Math.sin(a)*rad);
       const path=r0>0?'M '+pt(a0,r)+' A '+r+' '+r+' 0 '+large+' 1 '+pt(end,r)+' L '+pt(end,r0)+' A '+r0+' '+r0+' 0 '+large+' 0 '+pt(a0,r0)+' Z':'M '+cx+','+cy+' L '+pt(a0,r)+' A '+r+' '+r+' 0 '+large+' 1 '+pt(end,r)+' Z';
       return '<path d="'+path+'" fill="'+P[i%P.length]+'"/>';
-    }).join('')+slices.map((s,i)=>'<g transform="translate('+(H+24)+','+(28+i*20)+')"><rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/><text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+s.label+' · '+Math.round(s.value/total*100)+'%</text></g>').join('');
+    }).join('')+slices.map((s,i)=>'<g transform="translate('+(H+24)+','+(28+i*20)+')"><rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/><text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+kitEsc(s.label)+' · '+Math.round(s.value/total*100)+'%</text></g>').join('');
   } else if(kind==='funnel'){
     const stages=kitLabelled(v,labels); const max=Math.max.apply(null,stages.map(s=>Math.max(0,s.value)).concat([0])); if(!stages.length||max<=0) return '';
     const gap=3, rowH=(H-PAD-gap*(stages.length-1))/stages.length;
     body=stages.map((s,i)=>{ const w=Math.max(Math.max(0,s.value)/max*(W-PAD*2),2), x=PAD+((W-PAD*2)-w)/2, y=12+i*(rowH+gap);
-      return '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+rowH+'" rx="4" fill="'+P[i%P.length]+'" opacity="0.85"/><text x="'+(W/2)+'" y="'+(y+rowH/2+4)+'" font-size="11" font-weight="600" text-anchor="middle" fill="#fff">'+s.label+' · '+s.value+'</text>';
+      return '<rect x="'+x+'" y="'+y+'" width="'+w+'" height="'+rowH+'" rx="4" fill="'+P[i%P.length]+'" opacity="0.85"/><text x="'+(W/2)+'" y="'+(y+rowH/2+4)+'" font-size="11" font-weight="600" text-anchor="middle" fill="#fff">'+kitEsc(s.label)+' · '+s.value+'</text>';
     }).join('');
   } else if(kind==='scatter'){
     const pts=Array.isArray(v)&&v.length&&v.every(p=>p&&typeof p==="object"&&isFinite(p.x)&&isFinite(p.y))?v:(Array.isArray(v)&&v.every(n=>typeof n==="number")?v.map((y,x)=>({x,y})):[]); if(!pts.length) return '';
@@ -42,7 +43,7 @@ function drawKit(v,kind,labels){
   } else if(kind==='bar'){
     const series=kitSeries(v); if(!series.length) return '';
     const d=kitExtent(series.flatMap(s=>s.values)), n=Math.max.apply(null,series.map(s=>s.values.length)), groupW=(W-PAD*2)/n, barW=Math.max(groupW*0.7/series.length,2), zero=kitScale(Math.max(d.min,0),d,H-PAD,PAD);
-    body=grid(d)+series.map((s,si)=>s.values.map((val,i)=>{ const y=kitScale(val,d,H-PAD,PAD), x=PAD+i*groupW+groupW*0.15+si*barW; return '<rect x="'+x+'" y="'+Math.min(y,zero)+'" width="'+(barW-1)+'" height="'+Math.max(Math.abs(zero-y),1)+'" rx="2" fill="'+P[si%P.length]+'"/>'; }).join('')).join('')+labels.slice(0,n).map((l,i)=>'<text x="'+(PAD+i*groupW+groupW/2)+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.55">'+l+'</text>').join('');
+    body=grid(d)+series.map((s,si)=>s.values.map((val,i)=>{ const y=kitScale(val,d,H-PAD,PAD), x=PAD+i*groupW+groupW*0.15+si*barW; return '<rect x="'+x+'" y="'+Math.min(y,zero)+'" width="'+(barW-1)+'" height="'+Math.max(Math.abs(zero-y),1)+'" rx="2" fill="'+P[si%P.length]+'"/>'; }).join('')).join('')+labels.slice(0,n).map((l,i)=>'<text x="'+(PAD+i*groupW+groupW/2)+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.55">'+kitEsc(l)+'</text>').join('');
   } else { // line / area
     const series=kitSeries(v); if(!series.length) return '';
     const d=kitExtent(series.flatMap(s=>s.values)), base=kitScale(Math.max(d.min,0),d,H-PAD,PAD);
@@ -50,11 +51,11 @@ function drawKit(v,kind,labels){
     body=grid(d)+series.map((s,i)=>{ const len=s.values.length; const pts=s.values.map((val,j)=>{ const x=len===1?W/2:PAD+(j/(len-1))*(W-PAD*2); return (Math.round(x*10)/10)+','+(Math.round(kitScale(val,d,H-PAD,PAD)*10)/10); }).join(' ');
       const first=pts.split(' ')[0].split(',')[0], parts=pts.split(' '), last=parts[parts.length-1].split(',')[0];
       return (kind==='area'?'<polygon points="'+first+','+base+' '+pts+' '+last+','+base+'" fill="'+P[i%P.length]+'" opacity="0.15"/>':'')+'<polyline points="'+pts+'" fill="none" stroke="'+P[i%P.length]+'" stroke-width="2" stroke-linejoin="round"/>';
-    }).join('')+labels.slice(0,n).map((l,i)=>'<text x="'+(n===1?W/2:PAD+(i/(n-1))*(W-PAD*2))+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.55">'+l+'</text>').join('');
+    }).join('')+labels.slice(0,n).map((l,i)=>'<text x="'+(n===1?W/2:PAD+(i/(n-1))*(W-PAD*2))+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.55">'+kitEsc(l)+'</text>').join('');
   }
   if(kind!=='pie'&&kind!=='donut'&&kind!=='funnel'&&kind!=='scatter'){
     const named=kitSeries(v).filter(s=>s.name);
-    if(named.length>1) body+=named.map((s,i)=>'<g transform="translate('+(W-PAD-90)+','+(16+i*18)+')"><rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/><text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+s.name+'</text></g>').join('');
+    if(named.length>1) body+=named.map((s,i)=>'<g transform="translate('+(W-PAD-90)+','+(16+i*18)+')"><rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/><text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+kitEsc(s.name)+'</text></g>').join('');
   }
   return '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">'+body+'</svg>';
 }
