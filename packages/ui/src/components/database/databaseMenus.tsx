@@ -73,7 +73,7 @@ import {
 import {IconButton} from '@/components/ui/icon-button';
 import {cn} from '@/lib/utils';
 import {downloadText, safeFilename} from '@/lib/download';
-import {SWATCH_HEX} from './databaseColors';
+import {DEFAULT_SWATCH, swatchColor} from './databaseColors';
 import {rowsToCsv} from './databaseCells';
 import type {NewPropertyInput, UseDatabase} from './useDatabase';
 
@@ -436,7 +436,7 @@ const ColorSwatch: React.FC<{value?: string; onChange: (color: string) => void}>
       <button
         type="button"
         className="h-5 w-5 shrink-0 rounded-full border border-black/10 transition-shadow hover:ring-2 hover:ring-foreground/30 hover:ring-offset-1 dark:border-white/15"
-        style={{backgroundColor: SWATCH_HEX[value ?? 'gray']}}
+        style={{backgroundColor: swatchColor(value ?? 'gray')}}
         aria-label="Option color"
         title={value ?? 'gray'}
       />
@@ -454,7 +454,7 @@ const ColorSwatch: React.FC<{value?: string; onChange: (color: string) => void}>
               'h-5 w-5 rounded-full border border-black/10 transition-shadow hover:ring-2 hover:ring-foreground/30 hover:ring-offset-1 dark:border-white/15',
               (value ?? 'gray') === c && 'ring-2 ring-foreground/50 ring-offset-1',
             )}
-            style={{backgroundColor: SWATCH_HEX[c]}}
+            style={{backgroundColor: swatchColor(c)}}
           />
         ))}
       </div>
@@ -1204,7 +1204,7 @@ const ColorRuleRow: React.FC<{db: UseDatabase; view: DatabaseView; rule: ColorRu
 
   return (
     <div className="flex items-center gap-1">
-      <span className="h-4 w-1.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[rule.color] ?? '#9ca3af'}} />
+      <span className="h-4 w-1.5 shrink-0 rounded-full" style={{backgroundColor: swatchColor(rule.color) ?? DEFAULT_SWATCH}} />
       <Select unstyled
         value={rule.propertyId}
         onChange={(e) => {

@@ -34,7 +34,7 @@ import {useData} from '@/data';
 import {useNavigation} from '@/providers';
 import type {UseDatabase} from './useDatabase';
 import {cellValue, formatCellValue, SelectChip} from './databaseCells';
-import {SWATCH_HEX} from './databaseColors';
+import {dotStyle, swatchColor} from './databaseColors';
 import {RowHoverCard} from './DatabaseCard';
 
 // ── Group headings ───────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ export function cardAccent(row: DatabaseRow, colorProperty: DatabaseProperty | u
   if (!colorProperty || (colorProperty.type !== 'select' && colorProperty.type !== 'status')) return undefined;
   const optId = row.properties[colorProperty.id];
   const color = colorProperty.options?.find((o) => o.id === optId)?.color;
-  return color ? SWATCH_HEX[color] ?? undefined : undefined;
+  return color ? swatchColor(color) : undefined;
 }
 
 /**
@@ -184,7 +184,7 @@ export function cardAccent(row: DatabaseRow, colorProperty: DatabaseProperty | u
  */
 export function rowColor(row: DatabaseRow, view: DbView, properties: DatabaseProperty[], rows?: DatabaseRow[]): string | undefined {
   for (const rule of view.colorRules ?? []) {
-    if (rowMatchesCondition(row, rule, properties, rows)) return SWATCH_HEX[rule.color] ?? rule.color;
+    if (rowMatchesCondition(row, rule, properties, rows)) return swatchColor(rule.color) ?? rule.color;
   }
   return view.cardColorPropertyId ? cardAccent(row, properties.find((p) => p.id === view.cardColorPropertyId)) : undefined;
 }
@@ -302,7 +302,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
             <section key={group.key} data-group={group.key}>
               <button onClick={() => toggle(group.key)} className="mb-2 flex w-full items-center gap-1.5 text-sm font-medium">
                 <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !isCollapsed && 'rotate-90')} />
-                {group.color && <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />}
+                {group.color && <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />}
                 {glyph && <span className="text-base leading-none">{glyph}</span>}
                 <span className="truncate">{groupHeading(group, groupProp)}</span>
                 <span className="text-muted-foreground/60">{group.rows.length}</span>
@@ -643,7 +643,7 @@ export const BoardView: React.FC<{
               overKey === cellKey(group.key, null) && 'ring-1 ring-brand/40',
             )}
           >
-            {group.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />}
+            {group.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(group.color)} />}
             {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
             {!isCollapsed && <span className="truncate">{heading}</span>}
             <span className="text-muted-foreground/60">{group.rows.length}</span>
@@ -759,7 +759,7 @@ export const BoardView: React.FC<{
                     )}
                   >
                     <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !laneCollapsed && 'rotate-90')} />
-                    {lane.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[lane.color] ?? '#9ca3af'}} />}
+                    {lane.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(lane.color)} />}
                     {laneGlyph && <span className="shrink-0 text-sm leading-none">{laneGlyph}</span>}
                     <span className="truncate text-foreground/80">{laneHeading}</span>
                     <span className="text-muted-foreground/60">{lane.rows.length}</span>
@@ -825,7 +825,7 @@ export const BoardView: React.FC<{
                 >
                   <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                   {group.color && (
-                    <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
+                    <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
                   )}
                   {glyph && <span className="text-sm leading-none">{glyph}</span>}
                   <span className="text-muted-foreground/60">{group.rows.length}</span>
@@ -851,7 +851,7 @@ export const BoardView: React.FC<{
                     )}
                   >
                     {group.color && (
-                      <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
+                      <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
                     )}
                     {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
                     <span className="truncate">{heading}</span>

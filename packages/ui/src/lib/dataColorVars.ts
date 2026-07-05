@@ -86,6 +86,22 @@ export const seriesFillVar = (i: number): string => {
   return `var(--data-series-${n + 1}, ${DEFAULTS[SERIES_ORDER[n]].fill})`;
 };
 
+// ── Resolved concrete-hex accessors (fixed default scheme) ──────────────────
+// For consumers that CANNOT resolve `var()`: `<canvas>` contexts, Leaflet
+// markers, and SVG *presentation attributes* (`fill="…"`). They pin to the
+// fixed default (pastel) scheme — the "Data colours" control (OB-379) will make
+// these reactive; today OB-378 keeps the scheme constant.
+
+/** The resolved (non-var) fill hex for a token, or `undefined` when unknown. */
+export const swatchHex = (token: string | undefined | null): string | undefined =>
+  isDataColorToken(token) ? DEFAULTS[token].fill : undefined;
+
+/** The resolved (non-var) fill hex for chart series `i` (cycles `SERIES_ORDER`). */
+export const seriesHex = (i: number): string => {
+  const n = ((i % SERIES_ORDER.length) + SERIES_ORDER.length) % SERIES_ORDER.length;
+  return DEFAULTS[SERIES_ORDER[n]].fill;
+};
+
 /** Select-chip background/text for a token (gray when unknown). */
 export const chipBgVar = (token: string | undefined | null): string => {
   const t = isDataColorToken(token) ? token : 'gray';

@@ -2476,17 +2476,20 @@ a.obe-mention {
 .obe-chart-msg { fill: hsl(var(--muted-foreground) / 0.8); font-size: 12px; text-anchor: middle; }
 .obe-chart-funnel-label { fill: hsl(var(--background)); font-size: 11px; font-weight: 600; text-anchor: middle; }
 
-/* Status light */
+/* Status light — canonical data palette (OB-378): fill from the semantic status
+   token, a ring at 25% of that fill, and the pastel/muted light-mode hairline
+   (--data-stroke, transparent in vivid + dark). */
 .obe-kit-light {
   width: 0.7rem;
   height: 0.7rem;
   border-radius: 999px;
   flex-shrink: 0;
-  background: hsl(var(--muted-foreground) / 0.3);
+  background: color-mix(in srgb, var(--data-gray, #d4d4d8) 35%, transparent);
+  box-shadow: inset 0 0 0 1px var(--data-stroke, rgba(0,0,0,0.12));
 }
-.obe-kit-light-ok { background: #10b981; box-shadow: 0 0 6px #10b98166; }
-.obe-kit-light-warn { background: #f59e0b; box-shadow: 0 0 6px #f59e0b66; }
-.obe-kit-light-bad { background: #ef4444; box-shadow: 0 0 6px #ef444466; }
+.obe-kit-light-ok { background: var(--data-status-ok, #86efac); box-shadow: inset 0 0 0 1px var(--data-stroke, rgba(0,0,0,0.12)), 0 0 0 3px color-mix(in srgb, var(--data-status-ok, #86efac) 25%, transparent); }
+.obe-kit-light-warn { background: var(--data-status-warn, #fdba74); box-shadow: inset 0 0 0 1px var(--data-stroke, rgba(0,0,0,0.12)), 0 0 0 3px color-mix(in srgb, var(--data-status-warn, #fdba74) 25%, transparent); }
+.obe-kit-light-bad { background: var(--data-status-bad, #fca5a5); box-shadow: inset 0 0 0 1px var(--data-stroke, rgba(0,0,0,0.12)), 0 0 0 3px color-mix(in srgb, var(--data-status-bad, #fca5a5) 25%, transparent); }
 .obe-kit-status-label { font-size: 0.88rem; font-weight: 550; }
 .obe-kit-status-value {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

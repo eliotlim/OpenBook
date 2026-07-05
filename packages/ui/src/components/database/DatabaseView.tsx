@@ -61,7 +61,7 @@ import {BarChartView, PieChartView} from './databaseCharts';
 import {TimelineView} from './databaseTimeline';
 import {MapView} from './databaseMap';
 import {GraphView} from './databaseGraph';
-import {SWATCH_HEX} from './databaseColors';
+import {dotStyle} from './databaseColors';
 
 const exprValueOf = (row: DatabaseRow, property: DatabaseProperty): unknown =>
   row.exports[property.cellName ?? property.name];
@@ -674,7 +674,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                     <DropdownMenuSubContent className="w-44">
                       {(prop.options ?? []).map((o) => (
                         <DropdownMenuItem key={o.id} onClick={() => bulkSet(prop.id, o.id)} className="gap-2">
-                          <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[o.color ?? 'gray'] ?? SWATCH_HEX.gray}} />
+                          <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(o.color)} />
                           {o.label}
                         </DropdownMenuItem>
                       ))}
@@ -799,7 +799,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                       <button onClick={() => toggleGroup(group.key)} className="flex items-center gap-1.5 text-xs font-medium">
                         <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
                         {group.color && (
-                          <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
+                          <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
                         )}
                         {glyph && <span className="text-sm leading-none">{glyph}</span>}
                         <span>{groupHeading(group, groupProp)}</span>
@@ -924,7 +924,7 @@ const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, vi
               <button onClick={() => toggle(group.key)} className="flex w-full items-center gap-1.5 bg-muted/20 px-3 py-1.5 text-xs font-medium">
                 <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
                 {group.color && (
-                  <span className="h-2.5 w-2.5 rounded-full" style={{backgroundColor: SWATCH_HEX[group.color] ?? '#9ca3af'}} />
+                  <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
                 )}
                 {glyph && <span className="text-sm leading-none">{glyph}</span>}
                 <span>{groupHeading(group, groupProp)}</span>
