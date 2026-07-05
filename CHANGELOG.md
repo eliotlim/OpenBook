@@ -1,3 +1,15 @@
+## 1.73.0 (2026-07-05)
+
+### 🚀 Features
+
+- **ui:** land the background update scheduler + one-click install button ([#101](https://github.com/eliotlim/OpenBook/pull/101), [#86](https://github.com/eliotlim/OpenBook/issues/86))
+- **ui,sdk,server,mcp:** retire EditorJS — de-name export IR to block-native, creators emit blockdoc ([#100](https://github.com/eliotlim/OpenBook/pull/100))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 1.72.0 (2026-07-05)
 
 ### 🚀 Features
