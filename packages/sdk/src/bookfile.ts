@@ -46,6 +46,48 @@ export function pageIslandScript(record: BookPageRecord, opts: {attrs?: string; 
 const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/**
+ * The attribute-less inline formatting tags a legacy EditorJS text string may
+ * carry, and the editor's own migration ({@link htmlToRuns} in the ui package)
+ * honors: bold / italic / underline / strike / code. Every one is a bare tag
+ * with NO attributes, so it can never carry a payload — that is the whole safety
+ * argument for the escape-then-restore approach below.
+ */
+const LEGACY_INLINE_TAGS = ['b', 'strong', 'i', 'em', 'u', 's', 'del', 'code'];
+
+/**
+ * Sanitize a **legacy EditorJS** inline-HTML string for the readable `.book.html`
+ * body (block-editor pages carry structured rich-text runs and never reach here;
+ * they are already fully escaped by {@link runHtml}). This closes a stored-XSS
+ * sink: a hostile EditorJS-shaped snapshot (a crafted import or a pre-migration
+ * page) otherwise renders raw `<script>` / `<img onerror>` / event handlers /
+ * `javascript:` hrefs straight into the static file, which execute when the
+ * mirrored/exported file is opened from `file://`.
+ *
+ * DEFAULT-INERT: escape the ENTIRE string first (so everything is neutralized),
+ * then restore ONLY the exact, attribute-less inline formatting tags above via a
+ * regex that requires the tag name be followed immediately by `>` — so
+ * `<b onclick=…>` (escaped, has an attribute) is never restored, only a bare
+ * `<b>`. Anchors are DELIBERATELY not restored: safely reconstructing an `href`
+ * would require attribute + scheme parsing (the classic sanitizer footgun) with
+ * no DOM available in this isomorphic module — a legacy link degrades to inert
+ * escaped text in this best-effort readable preview, while the JSON island keeps
+ * it losslessly and the page migrates to fully-rendered runs the first time it
+ * is opened. See the module's mirror byte-compat note.
+ */
+export function sanitizeLegacyInline(html: string): string {
+  let out = esc(html);
+  for (const tag of LEGACY_INLINE_TAGS) {
+    // Bare open/close tags only (no attributes) — `&lt;b&gt;` / `&lt;/b&gt;`.
+    out = out
+      .replace(new RegExp(`&lt;${tag}&gt;`, 'gi'), `<${tag}>`)
+      .replace(new RegExp(`&lt;/${tag}&gt;`, 'gi'), `</${tag}>`);
+  }
+  // `<br>` (void): the plain, self-closing, and spaced variants → a bare `<br>`.
+  out = out.replace(/&lt;br\s*\/?&gt;/gi, '<br>');
+  return out;
+}
+
 /** Lower-case, dash-separated, filesystem-safe slug (for the on-disk filename). */
 export function slugify(input: string, fallback = 'untitled'): string {
   const slug = (input || '')
@@ -96,8 +138,10 @@ const runsHtml = (runs: RawBlock['text']): string => (runs ?? []).map(runHtml).j
 /** Best-effort readable inner HTML for one block (the island stays authoritative). */
 function blockInnerHtml(type: string, block: RawBlock): {tag: string; inner: string} {
   const d = block.data ?? {};
-  // Block-editor pages carry rich-text runs; EditorJS pages carry HTML strings.
-  const textHtml = block.text ? runsHtml(block.text) : typeof d.text === 'string' ? (d.text as string) : '';
+  // Block-editor pages carry rich-text runs (escaped by runHtml); legacy EditorJS
+  // pages carry raw inline-HTML strings — sanitize those before they reach the
+  // static body (default-inert allowlist; see sanitizeLegacyInline).
+  const textHtml = block.text ? runsHtml(block.text) : typeof d.text === 'string' ? sanitizeLegacyInline(d.text) : '';
 
   switch (type) {
   case 'heading':
@@ -113,7 +157,7 @@ function blockInnerHtml(type: string, block: RawBlock): {tag: string; inner: str
     const items = Array.isArray(d.items) ? (d.items as unknown[]) : [];
     const ordered = d.style === 'ordered';
     const lis = items
-      .map((it) => `<li>${typeof it === 'string' ? it : esc(String((it as {content?: string})?.content ?? ''))}</li>`)
+      .map((it) => `<li>${typeof it === 'string' ? sanitizeLegacyInline(it) : esc(String((it as {content?: string})?.content ?? ''))}</li>`)
       .join('');
     return {tag: ordered ? 'ol' : 'ul', inner: lis};
   }

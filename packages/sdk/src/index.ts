@@ -247,6 +247,7 @@ export {
   bookHtmlToPage,
   readBookHtmlMeta,
   pageIslandScript,
+  sanitizeLegacyInline,
   slugify,
   type BookPageRecord,
   type PageIsland,
