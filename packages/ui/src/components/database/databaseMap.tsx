@@ -15,13 +15,11 @@ import {swatchHex} from './databaseColors';
 import {RowChips, RowContextMenu} from './databaseLayouts';
 import {cachedGeocode, geocodeAddress, locationFromGeocode} from './geocode';
 import type {PlacedMarker} from './databaseMapLeaflet';
+import {useDataScheme} from '@/lib/dataScheme';
 
 // The Leaflet map is a separate chunk: it (and its CSS) only load with a real map
 // view, and never during SSR (Leaflet touches `window` at import time).
 const LeafletMap = lazy(() => import('./databaseMapLeaflet'));
-
-/** Neutral pin colour for rows whose group carries no swatch (or no grouping). */
-const DEFAULT_PIN = swatchHex('blue')!;
 
 const Hint: React.FC<{children: React.ReactNode}> = ({children}) => (
   <div className="rounded-md border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">{children}</div>
@@ -44,6 +42,10 @@ export const MapView: React.FC<{
   /** The view's visible property set, shown as chips in the unplaced list. */
   cardProperties?: DatabaseProperty[];
 }> = ({db, view, properties, cardProperties}) => {
+  const scheme = useDataScheme();
+  // Neutral pin colour for rows whose group carries no swatch (or no grouping),
+  // resolved for the active data-colour scheme (OB-379).
+  const defaultPin = swatchHex('blue', scheme)!;
   const geoProp = view.geoPropertyId ? properties.find((p) => p.id === view.geoPropertyId) : undefined;
 
   if (!geoProp) {
@@ -55,7 +57,7 @@ export const MapView: React.FC<{
   const colorByRow = new Map<string, string>();
   const usedGroups: {key: string; label: string; color: string}[] = [];
   for (const g of groups) {
-    const color = g.color ? swatchHex(g.color) ?? DEFAULT_PIN : DEFAULT_PIN;
+    const color = g.color ? swatchHex(g.color, scheme) ?? defaultPin : defaultPin;
     let placedInGroup = 0;
     for (const row of g.rows) {
       if (rowLocation(row, view, properties)) {
@@ -76,7 +78,7 @@ export const MapView: React.FC<{
         row,
         lat: loc.lat,
         lng: loc.lng,
-        color: colorByRow.get(row.id) ?? DEFAULT_PIN,
+        color: colorByRow.get(row.id) ?? defaultPin,
         label: row.name?.trim() || 'Untitled',
       });
     } else {

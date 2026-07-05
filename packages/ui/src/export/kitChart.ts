@@ -83,19 +83,29 @@ export const kitPaletteJs = (scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME
 export const kitChartRuntime = (scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME): string =>
   `${kitPaletteJs(scheme)}\n${KIT_CHART_JS}`;
 
-let draw: ((value: unknown, kind: string, labels: string[]) => string) | null = null;
+type DrawFn = (value: unknown, kind: string, labels: string[]) => string;
+// One compiled drawing per scheme — the palette is baked into the runtime string,
+// so the fills differ by scheme (OB-379); cache each so we compile at most once.
+const drawByScheme = new Map<DataColorScheme, DrawFn>();
 
 /**
- * Draw a kit chart to an SVG string for a value/kind/labels — the static-export
- * counterpart of the runtime's live redraw. Returns '' when there's nothing
- * plottable.
+ * Draw a kit chart to an SVG string for a value/kind/labels in `scheme` — the
+ * static-export counterpart of the runtime's live redraw. Returns '' when
+ * there's nothing plottable.
  */
-export function kitChartSvg(value: unknown, kind: string, labels: string[] = []): string {
+export function kitChartSvg(
+  value: unknown,
+  kind: string,
+  labels: string[] = [],
+  scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME,
+): string {
+  let draw = drawByScheme.get(scheme);
   if (!draw) {
-    draw = new Function(`${kitChartRuntime()}\nreturn drawKit;`)() as typeof draw;
+    draw = new Function(`${kitChartRuntime(scheme)}\nreturn drawKit;`)() as DrawFn;
+    drawByScheme.set(scheme, draw);
   }
   try {
-    return draw!(value, kind, labels);
+    return draw(value, kind, labels);
   } catch {
     return '';
   }

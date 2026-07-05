@@ -27,6 +27,7 @@
  *
  * `--radius` is intentionally not themed (it's part of the brand geometry).
  */
+import {DATA_COLOR_SCHEMES, DEFAULT_DATA_COLOR_SCHEME, type DataColorScheme} from '@book.dev/sdk';
 
 /** One palette: every themable token as an `H S% L%` triple (no `hsl(...)`). */
 export interface ThemeTokens {
@@ -340,6 +341,11 @@ export interface AppearanceOptions {
    *  OB-377). Missing/invalid persists as `'tinted'`, so existing users don't
    *  flip. */
   sidebar: SidebarMode;
+  /** The data-colour scheme painting tags, dots/swatches, charts (kit + db),
+   *  map pins and status lights (`@book.dev/sdk` dataColors). `'pastel'` (the
+   *  soft default) unless the user picks the saturated `'vivid'` or the greyed
+   *  `'muted'` set. Missing/invalid persists as `'pastel'` (OB-379). */
+  dataColors: DataColorScheme;
   /** Blur the canvas behind modal/search overlays. Off by default — it's a
    *  global preference, not a per-page one. */
   blurOverlays?: boolean;
@@ -369,6 +375,8 @@ export const DEFAULT_APPEARANCE: AppearanceOptions = {
   // is opt-in, so it's left off here.
   sidebar: 'tinted',
   blurOverlays: false,
+  // The soft-pastel data palette is the default (unchanged for existing users).
+  dataColors: DEFAULT_DATA_COLOR_SCHEME,
 };
 
 /** A per-page override: any subset of the global appearance. */
@@ -393,6 +401,10 @@ export function normalizeAppearance(raw: Record<string, unknown>): AppearanceOve
   if (out.accentIntensity !== undefined && out.controlIntensity === undefined) out.controlIntensity = out.accentIntensity;
   if (typeof out.themeId === 'string' && THEME_RENAME[out.themeId]) out.themeId = THEME_RENAME[out.themeId];
   if (out.sidebar !== undefined && out.sidebar !== 'tinted' && out.sidebar !== 'accent') delete out.sidebar;
+  // Drop an unknown data-colour scheme so it merges to the 'pastel' default.
+  if (out.dataColors !== undefined && !(DATA_COLOR_SCHEMES as readonly string[]).includes(out.dataColors as string)) {
+    delete out.dataColors;
+  }
   delete out.tint;
   delete out.accentIntensity;
   delete out.neutral; // neutral is now derived from the accent theme

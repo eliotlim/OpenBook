@@ -124,6 +124,23 @@ describe('reactive export from a block document', () => {
     expect(html).toContain('const KIT_PALETTE=["#a9ccdf","#debea6","#9fdf9f","#cdade1"');
   });
 
+  // OB-379: the export bakes the ACTIVE data-colour scheme (not always pastel),
+  // so a Vivid/Muted user's file is self-contained in their chosen colours.
+  it('bakes the chosen data-colour scheme into charts, status lights, and the viewer', () => {
+    const vivid = toHtml(blockSnapshot(), 'T', '🛒', undefined, {}, 'vivid');
+    // Status-light green + drawn kit bar swap pastel → the vivid set. (The inlined
+    // viewer bundle still carries pastel fallback literals in its code — it repaints
+    // to vivid at runtime via the scheme global — so only the emitted CSS/SVG asserts.)
+    expect(vivid).toContain('.kitlight[data-status=ok] .kit-light-dot { background: #22c55e;');
+    expect(vivid).toContain('fill="#3b82f6"'); // vivid blue (series 0), not pastel #a9ccdf
+    // The provider-less viewer bundle is told which scheme to paint.
+    expect(vivid).toContain('window.__OB_DATA_SCHEME="vivid"');
+
+    // The legacy runtime path (deck) inlines the vivid palette too.
+    const deck = toSlideDeck(blockSnapshot(), 'T', '🛒', undefined, {}, 'muted');
+    expect(deck).toContain('const KIT_PALETTE=["#778db1"'); // muted blue leads SERIES_ORDER
+  });
+
   // PDF is now rendered from the HTML in a real browser (dom-to-svg → svg2pdf),
   // so it can't run under happy-dom — its coverage lives in the e2e suite
   // (export.spec.ts downloads + validates the paged/continuous PDFs).

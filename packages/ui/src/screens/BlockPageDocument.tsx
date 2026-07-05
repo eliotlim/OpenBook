@@ -42,7 +42,7 @@ import {registerOpenDoc} from '@/lib/openDocs';
 import {registerBlockEditorDoc} from '@/lib/aiBridge';
 import {SuggestHost} from '@/components/review/SuggestHost';
 import {BlockReviewMarkers} from '@/components/review/BlockReviewMarkers';
-import {useConfirm, usePreferences, useTranslation} from '@/providers';
+import {useConfirm, usePreferences, useTheme, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
 import {PageHeader, type PageDocumentProps, type PageTitleHandle} from './pageChrome';
@@ -81,6 +81,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
 }) => {
   const {t} = useTranslation();
   const {preferences} = usePreferences();
+  const {appearance} = useTheme();
   const client = useData();
   const confirm = useConfirm();
   // A viewer who can't write this instance reads the whole document locked: no
@@ -371,12 +372,12 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         ]);
         const blob =
           kind === 'pdf-slides'
-            ? await toPdfSlides(toSlideDeck(snapshot, title, icon, assets, meta))
-            : await toPdf(toHtml(snapshot, title, icon, assets, meta), kind === 'pdf-continuous' ? 'continuous' : 'paged');
+            ? await toPdfSlides(toSlideDeck(snapshot, title, icon, assets, meta, appearance.dataColors))
+            : await toPdf(toHtml(snapshot, title, icon, assets, meta, appearance.dataColors), kind === 'pdf-continuous' ? 'continuous' : 'paged');
         downloadBlob(`${base}${kind === 'pdf-slides' ? '-slides' : ''}.pdf`, blob);
       } else if (kind === 'html-slides') {
         const [{toSlideDeck}, assets] = await Promise.all([import('@/export/toHtml'), resolveExportAssets(client, [snapshot])]);
-        downloadText(`${base}-slides.html`, toSlideDeck(snapshot, title, icon, assets, meta), 'text/html');
+        downloadText(`${base}-slides.html`, toSlideDeck(snapshot, title, icon, assets, meta, appearance.dataColors), 'text/html');
       } else {
         const [{toHtmlSite}, {gatherSite}] = await Promise.all([import('@/export/toHtml'), import('@/export/exportSite')]);
         const bundle = pageId
@@ -405,7 +406,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
           };
         // A whole-site export can embed images from every reachable page.
         const assets = await resolveExportAssets(client, bundle.pages.map((p) => p.snapshot));
-        downloadText(`${base}.html`, toHtmlSite(bundle, assets), 'text/html');
+        downloadText(`${base}.html`, toHtmlSite(bundle, assets, appearance.dataColors), 'text/html');
       }
     } catch (e) {
       console.error('BlockPageDocument: export failed:', e);

@@ -7,7 +7,8 @@ import {computeScope, evalExpr} from './scope';
 import {useKitPageLock} from './lock';
 import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionFields, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
-import {extent, funnelRows, linePoints, PALETTE, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
+import {extent, funnelRows, linePoints, paletteFor, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
+import {useDataScheme} from '@/lib/dataScheme';
 
 /**
  * The kit's chart block: one block, many kinds (line, area, bar, pie, donut,
@@ -51,14 +52,14 @@ const Grid: React.FC<{d: ReturnType<typeof extent>}> = ({d}) => (
 );
 
 /** Compact top-right legend for named multi-series data. */
-const SeriesLegend: React.FC<{series: Array<{name: string}>}> = ({series}) => {
+const SeriesLegend: React.FC<{series: Array<{name: string}>; palette: string[]}> = ({series, palette}) => {
   const named = series.filter((s) => s.name);
   if (named.length < 2) return null;
   return (
     <g className="obe-chart-legend">
       {named.map((s, i) => (
         <g key={s.name} transform={`translate(${W - PAD - 90}, ${16 + i * 18})`}>
-          <rect width={10} height={10} rx={2} fill={PALETTE[i % PALETTE.length]} />
+          <rect width={10} height={10} rx={2} fill={palette[i % palette.length]} />
           <text x={16} y={9}>
             {s.name}
           </text>
@@ -83,7 +84,7 @@ const XLabels: React.FC<{labels: string[]; n: number}> = ({labels, n}) => {
   );
 };
 
-const LineArea: React.FC<{value: unknown; area: boolean; labels: string[]}> = ({value, area, labels}) => {
+const LineArea: React.FC<{value: unknown; area: boolean; labels: string[]; palette: string[]}> = ({value, area, labels, palette}) => {
   const series = toSeries(value);
   if (series.length === 0) return null;
   const d = extent(series.flatMap((s) => s.values));
@@ -98,18 +99,18 @@ const LineArea: React.FC<{value: unknown; area: boolean; labels: string[]}> = ({
         const last = coords[coords.length - 1]?.split(',')[0];
         return (
           <g key={i}>
-            {area && <polygon points={`${first},${base} ${pts} ${last},${base}`} fill={PALETTE[i % PALETTE.length]} opacity={0.15} />}
-            <polyline points={pts} fill="none" stroke={PALETTE[i % PALETTE.length]} strokeWidth={2} strokeLinejoin="round" />
+            {area && <polygon points={`${first},${base} ${pts} ${last},${base}`} fill={palette[i % palette.length]} opacity={0.15} />}
+            <polyline points={pts} fill="none" stroke={palette[i % palette.length]} strokeWidth={2} strokeLinejoin="round" />
           </g>
         );
       })}
-      <SeriesLegend series={series} />
+      <SeriesLegend series={series} palette={palette} />
       <XLabels labels={labels} n={Math.max(...series.map((s) => s.values.length))} />
     </>
   );
 };
 
-const Bars: React.FC<{value: unknown; labels: string[]}> = ({value, labels}) => {
+const Bars: React.FC<{value: unknown; labels: string[]; palette: string[]}> = ({value, labels, palette}) => {
   const series = toSeries(value);
   if (series.length === 0) return null;
   const d = extent(series.flatMap((s) => s.values));
@@ -124,7 +125,7 @@ const Bars: React.FC<{value: unknown; labels: string[]}> = ({value, labels}) => 
         s.values.map((v, i) => {
           const y = scale(v, d, H - PAD, PAD);
           const x = PAD + i * groupW + groupW * 0.15 + si * barW;
-          return <rect key={`${si}-${i}`} x={x} y={Math.min(y, zero)} width={barW - 1} height={Math.max(Math.abs(zero - y), 1)} rx={2} fill={PALETTE[si % PALETTE.length]} />;
+          return <rect key={`${si}-${i}`} x={x} y={Math.min(y, zero)} width={barW - 1} height={Math.max(Math.abs(zero - y), 1)} rx={2} fill={palette[si % palette.length]} />;
         }),
       )}
       {labels.length > 0 && (
@@ -136,12 +137,12 @@ const Bars: React.FC<{value: unknown; labels: string[]}> = ({value, labels}) => 
           ))}
         </g>
       )}
-      <SeriesLegend series={series} />
+      <SeriesLegend series={series} palette={palette} />
     </>
   );
 };
 
-const PieDonut: React.FC<{value: unknown; labels: string[]; donut: boolean}> = ({value, labels, donut}) => {
+const PieDonut: React.FC<{value: unknown; labels: string[]; donut: boolean; palette: string[]}> = ({value, labels, donut, palette}) => {
   const slices = toLabelled(value, labels).filter((s) => s.value > 0);
   if (slices.length === 0) return null;
   const r = H / 2 - 16;
@@ -149,12 +150,12 @@ const PieDonut: React.FC<{value: unknown; labels: string[]; donut: boolean}> = (
   return (
     <>
       {arcs.map((a, i) => (
-        <path key={i} d={a.path} fill={PALETTE[i % PALETTE.length]} stroke="hsl(var(--background, 0 0% 100%))" strokeWidth={1.5} />
+        <path key={i} d={a.path} fill={palette[i % palette.length]} stroke="hsl(var(--background, 0 0% 100%))" strokeWidth={1.5} />
       ))}
       <g className="obe-chart-legend">
         {slices.map((s, i) => (
           <g key={i} transform={`translate(${H + 24}, ${28 + i * 20})`}>
-            <rect width={10} height={10} rx={2} fill={PALETTE[i % PALETTE.length]} />
+            <rect width={10} height={10} rx={2} fill={palette[i % palette.length]} />
             <text x={16} y={9}>
               {s.label} · {Math.round((arcs[i]?.fraction ?? 0) * 100)}%
             </text>
@@ -165,7 +166,7 @@ const PieDonut: React.FC<{value: unknown; labels: string[]; donut: boolean}> = (
   );
 };
 
-const Scatter: React.FC<{value: unknown}> = ({value}) => {
+const Scatter: React.FC<{value: unknown; palette: string[]}> = ({value, palette}) => {
   const pts = toPoints(value);
   if (pts.length === 0) return null;
   const dx = extent(pts.map((p) => p.x));
@@ -174,13 +175,13 @@ const Scatter: React.FC<{value: unknown}> = ({value}) => {
     <>
       <Grid d={dy} />
       {pts.map((p, i) => (
-        <circle key={i} cx={scale(p.x, dx, PAD, W - PAD)} cy={scale(p.y, dy, H - PAD, PAD)} r={4} fill={PALETTE[0]} opacity={0.75} />
+        <circle key={i} cx={scale(p.x, dx, PAD, W - PAD)} cy={scale(p.y, dy, H - PAD, PAD)} r={4} fill={palette[0]} opacity={0.75} />
       ))}
     </>
   );
 };
 
-const Funnel: React.FC<{value: unknown; labels: string[]}> = ({value, labels}) => {
+const Funnel: React.FC<{value: unknown; labels: string[]; palette: string[]}> = ({value, labels, palette}) => {
   const stages = toLabelled(value, labels);
   if (stages.length === 0) return null;
   const rows = funnelRows(stages.map((s) => s.value), W - PAD * 2, H - PAD);
@@ -188,7 +189,7 @@ const Funnel: React.FC<{value: unknown; labels: string[]}> = ({value, labels}) =
     <>
       {rows.map((r, i) => (
         <g key={i}>
-          <rect x={PAD + r.x} y={12 + r.y} width={r.width} height={r.height} rx={4} fill={PALETTE[i % PALETTE.length]} opacity={0.85} />
+          <rect x={PAD + r.x} y={12 + r.y} width={r.width} height={r.height} rx={4} fill={palette[i % palette.length]} opacity={0.85} />
           <text className="obe-chart-funnel-label" x={W / 2} y={12 + r.y + r.height / 2 + 4}>
             {stages[i].label} · {stages[i].value}
           </text>
@@ -213,6 +214,10 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const pageLocked = useKitPageLock();
   const chromeEditable = !editor.readOnly && !pageLocked;
   const {value, error} = evalExpr(source, computeScope(editor.doc).scope);
+  // Concrete-hex series fills for the active data-colour scheme (OB-379): the SVG
+  // `fill=` attribute can't read a CSS var, so resolve the palette here — it
+  // recolours live when the scheme switches.
+  const palette = paletteFor(useDataScheme());
 
   const body = (() => {
     if (error) return <text className="obe-chart-msg" x={W / 2} y={H / 2}>⚠ {error}</text>;
@@ -225,19 +230,19 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
     }
     switch (kind) {
     case 'area':
-      return <LineArea value={value} area labels={labels} />;
+      return <LineArea value={value} area labels={labels} palette={palette} />;
     case 'bar':
-      return <Bars value={value} labels={labels} />;
+      return <Bars value={value} labels={labels} palette={palette} />;
     case 'pie':
-      return <PieDonut value={value} labels={labels} donut={false} />;
+      return <PieDonut value={value} labels={labels} donut={false} palette={palette} />;
     case 'donut':
-      return <PieDonut value={value} labels={labels} donut />;
+      return <PieDonut value={value} labels={labels} donut palette={palette} />;
     case 'scatter':
-      return <Scatter value={value} />;
+      return <Scatter value={value} palette={palette} />;
     case 'funnel':
-      return <Funnel value={value} labels={labels} />;
+      return <Funnel value={value} labels={labels} palette={palette} />;
     default:
-      return <LineArea value={value} area={false} labels={labels} />;
+      return <LineArea value={value} area={false} labels={labels} palette={palette} />;
     }
   })();
 

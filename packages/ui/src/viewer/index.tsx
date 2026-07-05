@@ -28,6 +28,7 @@ import {registerArtifactKit} from '@/blockeditor/kit';
 import {MAX_ASSET_BYTES} from '@/blockeditor/imageBlock';
 import {setAssetBridge} from '@/lib/assetBridge';
 import {applyDataColors} from '@/lib/dataColorVars';
+import {readGlobalDataScheme} from '@/lib/dataScheme';
 import {ViewerApp} from './ViewerApp';
 import type {ViewerAssetEntry, ViewerHandle, ViewerMountOptions, ViewerSource} from './types';
 import '@/index.css';
@@ -52,12 +53,13 @@ registerReactiveBlocks();
 registerArtifactKit();
 
 // The viewer is provider-less (no ThemeProvider), so nothing else writes the
-// data-colour CSS vars. Emit them once at load so tags/charts/status lights read
-// the canonical palette rather than the `var(…, fallback)` literals — and so the
-// pastel/muted light-mode hairline (`--data-stroke`) correctly becomes
+// data-colour CSS vars. Emit them once at load — for the scheme the export baked
+// in (`window.__OB_DATA_SCHEME`, OB-379; pastel otherwise) — so tags/charts/status
+// lights read the canonical palette rather than the `var(…, fallback)` literals,
+// and so the pastel/muted light-mode hairline (`--data-stroke`) correctly becomes
 // transparent under any `.dark` host instead of a baked light-mode rgba (OB-378,
 // Devon's dark-viewer note).
-applyDataColors();
+applyDataColors(readGlobalDataScheme());
 
 /** Decode a base64 payload to bytes (inverse of the export's data-URI body). */
 function base64ToBytes(data: string): Uint8Array {

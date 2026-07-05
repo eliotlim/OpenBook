@@ -24,7 +24,7 @@
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
 import {assetsIslandScript, isSafeHref, pageIslandScript, spaceIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
-import {DATA_PALETTE, DATA_STROKE, DEFAULT_DATA_COLOR_SCHEME, hexAlpha, isDataColorToken, statusColor} from '@book.dev/sdk';
+import {DATA_PALETTE, DATA_STROKE, DEFAULT_DATA_COLOR_SCHEME, hexAlpha, isDataColorToken, statusColor, type DataColorScheme} from '@book.dev/sdk';
 import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
 import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
@@ -47,17 +47,18 @@ import {cellValue, formatCellValue} from '@/components/database/databaseCells';
 import type {SiteBundle, SiteDatabase} from './exportSite';
 
 // ── Canonical data-colour values, inlined at export (self-contained: no live
-// CSS vars). Fixed to the default (pastel) scheme until the "Data colours"
-// control (OB-379) resolves the exporting user's choice. ─────────────────────
-const EXPORT_SCHEME = DEFAULT_DATA_COLOR_SCHEME;
-const EXPORT_PALETTE = DATA_PALETTE[EXPORT_SCHEME];
-/** Status-light CSS: pastel lamps + the pastel/muted light-mode hairline (§1.2). */
-const STATUS_LIGHT_CSS = (['ok', 'warn', 'bad'] as const)
-  .map((s) => {
-    const fill = statusColor(s, EXPORT_SCHEME);
-    return `.kitlight[data-status=${s}] .kit-light-dot { background: ${fill}; box-shadow: inset 0 0 0 1px ${DATA_STROKE}, 0 0 0 3px ${hexAlpha(fill, 0.25)}; }`;
-  })
-  .join('\n');
+// CSS vars). The exporting user's chosen scheme (OB-379) is threaded through the
+// render (`RenderCtx.scheme`) and `document_`, so the standalone file bakes the
+// active Pastel/Vivid/Muted values rather than always pastel. ─────────────────
+/** Status-light CSS for a scheme: the lamps + the pastel/muted light-mode
+ *  hairline (§1.2; vivid has none — `DATA_STROKE` stays the ring). */
+const statusLightCss = (scheme: DataColorScheme): string =>
+  (['ok', 'warn', 'bad'] as const)
+    .map((s) => {
+      const fill = statusColor(s, scheme);
+      return `.kitlight[data-status=${s}] .kit-light-dot { background: ${fill}; box-shadow: inset 0 0 0 1px ${DATA_STROKE}, 0 0 0 3px ${hexAlpha(fill, 0.25)}; }`;
+    })
+    .join('\n');
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, (c) => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'})[c]!);
@@ -137,6 +138,9 @@ interface RenderCtx {
   iconOf: (id: string) => string;
   /** The database hosted by a page id, when that page is in the bundle. */
   databaseOf: (hostPageId: string) => SiteDatabase | undefined;
+  /** The exporting user's data-colour scheme, baked into chips/charts/status
+   *  (the file is self-contained — no live CSS vars to read; OB-379). */
+  scheme: DataColorScheme;
 }
 
 /**
@@ -217,8 +221,8 @@ function visibleProps(schema: DatabaseSchema): DatabaseProperty[] {
   return chosen.filter((p) => p.type !== 'files' && p.type !== 'backlinks');
 }
 
-const tag = (label: string, color?: string): string => {
-  const chip = EXPORT_PALETTE[isDataColorToken(color) ? color : 'gray'].chip.light;
+const tag = (label: string, color: string | undefined, scheme: DataColorScheme): string => {
+  const chip = DATA_PALETTE[scheme][isDataColorToken(color) ? color : 'gray'].chip.light;
   return `<span class="tag" style="background:${chip.bg};color:${chip.fg}">${escapeHtml(label)}</span>`;
 };
 
@@ -226,11 +230,11 @@ function cellHtml(row: DatabaseRow, prop: DatabaseProperty, props: DatabasePrope
   const raw = cellValue(row, prop, props, rows);
   if (prop.type === 'select' || prop.type === 'status') {
     const opt = prop.options?.find((o) => o.id === raw);
-    return opt ? tag(opt.label, opt.color) : '';
+    return opt ? tag(opt.label, opt.color, ctx.scheme) : '';
   }
   if (prop.type === 'multi_select') {
     const ids = Array.isArray(raw) ? (raw as string[]) : [];
-    return (prop.options ?? []).filter((o) => ids.includes(o.id)).map((o) => tag(o.label, o.color)).join(' ');
+    return (prop.options ?? []).filter((o) => ids.includes(o.id)).map((o) => tag(o.label, o.color, ctx.scheme)).join(' ');
   }
   if (prop.type === 'relation' || prop.type === 'dependency') {
     const ids = Array.isArray(raw) ? (raw as string[]) : [];
@@ -471,7 +475,7 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
       // Kit charts (with a kind) are drawn at build time too, so the chart shows
       // on first paint and without JS — the runtime then redraws it live. Classic
       // (Plot) charts need d3/Plot at runtime, so they hydrate from empty.
-      const initial = d.kind && cells.length && ctx.values.has(cells[0]) ? kitChartSvg(ctx.values.get(cells[0]), str(d.kind), labels) : '';
+      const initial = d.kind && cells.length && ctx.values.has(cells[0]) ? kitChartSvg(ctx.values.get(cells[0]), str(d.kind), labels, ctx.scheme) : '';
       // The title is a sibling of the plotted node — the runtime replaces the
       // `[data-chart]` node's innerHTML, so a caption inside it would be wiped.
       html.push(
@@ -706,12 +710,16 @@ function document_(
   // cell-driven charts need the vendored d3 + Observable Plot bundles.
   const libs = ctx.charts.some((c) => !c.kind) ? `<script>${escapeScript(d3Umd)}</script>\n<script>${escapeScript(plotUmd)}</script>\n` : '';
   const reactive = !hydrate && live
-    ? `${libs}<script type="application/json" id="ob-data">${JSON.stringify(data)}</script>\n<script type="module">${RUNTIME}</script>\n`
+    ? `${libs}<script type="application/json" id="ob-data">${JSON.stringify(data)}</script>\n<script type="module">${runtimeFor(ctx.scheme)}</script>\n`
     : '';
   const nav = !hydrate && rootId ? `<script>${NAV.replace('__ROOT__', JSON.stringify(rootId))}</script>` : '';
   // Hydrate path: the island must already be in the DOM when the boot runs, so
-  // the order is island → viewer bundle → boot, at the end of <body>.
-  const viewer = hydrate ? `\n<script>${escapeScript(viewerJs)}</script>\n<script>${VIEWER_BOOT}</script>` : '';
+  // the order is island → viewer bundle → boot, at the end of <body>. The scheme
+  // global is set FIRST so the viewer (provider-less) recolours its data surfaces
+  // to the exporting user's scheme rather than the pastel default (OB-379).
+  const viewer = hydrate
+    ? `\n<script>window.__OB_DATA_SCHEME=${JSON.stringify(ctx.scheme)}</script>\n<script>${escapeScript(viewerJs)}</script>\n<script>${VIEWER_BOOT}</script>`
+    : '';
   const legacyHeader = !hydrate && rootId ? '<header class="ob-nav"><button id="ob-back" hidden>← Back</button></header>\n' : '';
 
   return `<!doctype html>
@@ -720,7 +728,7 @@ function document_(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(headTitle)}</title>
-<style>${STYLES}${hydrate ? SCHEME_LIGHT : SCHEME_DUAL}</style>${extra?.styles ? `\n<style>${extra.styles}</style>` : ''}
+<style>${stylesFor(ctx.scheme)}${hydrate ? SCHEME_LIGHT : SCHEME_DUAL}</style>${extra?.styles ? `\n<style>${extra.styles}</style>` : ''}
 </head>
 <body${!hydrate && rootId ? ` data-root="${escapeHtml(rootId)}"` : ''}>
 ${legacyHeader}${bodyHtml}
@@ -778,6 +786,7 @@ export function toHtml(
   icon: string,
   assets: ExportAssetsLike = emptyExportAssets(),
   meta: PageExportMeta = {},
+  scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME,
 ): string {
   const {images, artifactText} = normalizeAssets(assets);
   const snapshot = projectSnapshotForExport(rawSnapshot);
@@ -802,6 +811,7 @@ export function toHtml(
     titleOf: (id) => id,
     iconOf: () => '',
     databaseOf: () => undefined,
+    scheme,
   };
   const blocks = (snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? [];
   const body = `<main>\n<h1 class="doc-title">${icon ? `${escapeHtml(icon)} ` : ''}${escapeHtml(title)}</h1>\n${renderBlocks(blocks, ctx)}\n</main>`;
@@ -878,6 +888,7 @@ export function toSlideDeck(
   icon: string,
   assets: ExportAssetsLike = emptyExportAssets(),
   meta: PageExportMeta = {},
+  scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME,
 ): string {
   const {images} = normalizeAssets(assets);
   const snapshot = projectSnapshotForExport(rawSnapshot);
@@ -902,6 +913,7 @@ export function toSlideDeck(
     titleOf: (id) => id,
     iconOf: () => '',
     databaseOf: () => undefined,
+    scheme,
   };
   const blocks = (snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? [];
   // Group blocks into slides at each divider (notes are already stripped by the
@@ -938,7 +950,11 @@ export function toSlideDeck(
  * navigable section, databases as tables of navigable rows, and a client-side
  * router that swaps the visible page on link clicks (with browser back/forward).
  */
-export function toHtmlSite(bundle: SiteBundle, assets: ExportAssetsLike = emptyExportAssets()): string {
+export function toHtmlSite(
+  bundle: SiteBundle,
+  assets: ExportAssetsLike = emptyExportAssets(),
+  scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME,
+): string {
   const {images, artifactText} = normalizeAssets(assets);
   const byId = new Map(bundle.pages.map((p) => [p.id, p]));
   const values = new Map<string, unknown>();
@@ -963,6 +979,7 @@ export function toHtmlSite(bundle: SiteBundle, assets: ExportAssetsLike = emptyE
     titleOf: (id) => byId.get(id)?.title ?? '',
     iconOf: (id) => byId.get(id)?.icon ?? '',
     databaseOf: (hostId) => byId.get(hostId)?.database,
+    scheme,
   };
 
   const sections = bundle.pages
@@ -1028,7 +1045,7 @@ const SCHEME_DUAL = `
 }
 `;
 
-const STYLES = `
+const stylesFor = (scheme: DataColorScheme): string => `
 * { box-sizing: border-box; }
 body { margin: 0; background: #fff; color: #1a1a1a; font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
 main { max-width: 720px; margin: 0 auto; padding: 48px 24px 120px; }
@@ -1081,8 +1098,8 @@ a.subpage:hover { background: rgba(127,127,127,.08); }
 .kit-btn:hover { background: rgba(127,127,127,.16); }
 .kitlight { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .kit-light-val { font-weight: 500; opacity: .6; font-size: .9em; }
-.kit-light-dot { width: 12px; height: 12px; border-radius: 999px; background: ${hexAlpha(EXPORT_PALETTE.gray.fill, 0.35)}; box-shadow: inset 0 0 0 1px ${DATA_STROKE}; }
-${STATUS_LIGHT_CSS}
+.kit-light-dot { width: 12px; height: 12px; border-radius: 999px; background: ${hexAlpha(DATA_PALETTE[scheme].gray.fill, 0.35)}; box-shadow: inset 0 0 0 1px ${DATA_STROKE}; }
+${statusLightCss(scheme)}
 .kitprogress { display: flex; flex-direction: column; gap: 6px; }
 .kit-prog-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .kit-prog-label { font-weight: 600; font-size: .92rem; }
@@ -1144,8 +1161,10 @@ hr.divider[data-style=thick] { border-top-width: 3px; }
 
 // Inlined live runtime: recomputes expressions from slider values and redraws
 // charts. Reuses the saved \`__C__{cellId}__\` reference tokens. Observable Plot
-// (and d3) are inlined as classic scripts above, so this works offline.
-const RUNTIME = kitChartRuntime() + `
+// (and d3) are inlined as classic scripts above, so this works offline. The kit
+// palette prepended by `kitChartRuntime(scheme)` bakes the active scheme (OB-379)
+// so a redrawn kit chart keeps the exporting user's colours.
+const RUNTIME_REST = `
 const Plot = (typeof window !== "undefined" && window.Plot) || null;
 const D = JSON.parse(document.getElementById("ob-data").textContent);
 const store = new Map(Object.entries(D.values));
@@ -1224,6 +1243,10 @@ for (const b of (D.buttons||[])){
 }
 recompute();
 `;
+
+/** The full live runtime for a scheme: the kit palette (scheme-baked) + drawing
+ *  source + the slider/expr/chart re-computation loop. */
+const runtimeFor = (scheme: DataColorScheme): string => kitChartRuntime(scheme) + RUNTIME_REST;
 
 // Inlined navigation runtime: shows one page section at a time, swapping on clicks
 // of any in-bundle link (mentions, subpages, database rows) via the URL hash, so
