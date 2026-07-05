@@ -2263,10 +2263,11 @@ a.obe-mention {
   font-size: 0.88rem;
   font-weight: 550;
   cursor: pointer;
-  transition: opacity 120ms, transform 60ms;
+  transition: opacity 120ms, background-color 120ms;
 }
 .obe-kit-action:hover { opacity: 0.9; }
-.obe-kit-action:active { transform: translateY(1px); }
+/* Colour-only press — deepen the fill toward --press-ink (matches Button), no geometry shift. */
+.obe-kit-action:active { background: color-mix(in srgb, hsl(var(--primary)), var(--press-ink) 8%); }
 .obe-kit-select { cursor: pointer; }
 
 /* Chart */

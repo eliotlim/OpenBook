@@ -11,9 +11,9 @@ export const SIDEBAR_HOVER = 'hover:bg-primary/10 hover:text-foreground dark:hov
 export const SIDEBAR_ACTIVE = 'bg-primary/15 text-foreground dark:bg-primary/25';
 
 /**
- * Press feedback for sidebar control buttons (settings, menu toggle). Cancels
- * the shared Button's shrink-on-press (`active:scale-[0.97]`) and deepens the
- * highlight instead — a darker tint in light mode, a lighter one in dark mode.
+ * Press feedback for sidebar control buttons (settings, menu toggle). Deepens the
+ * highlight on press — a darker tint in light mode, a lighter one in dark mode.
+ * The press treatment is colour-only (the Button base no longer scales on press).
  * Applied via `cn` so it overrides the Button base through tailwind-merge.
  */
-export const SIDEBAR_PRESS = 'active:scale-100 active:bg-primary/20 dark:active:bg-primary/30';
+export const SIDEBAR_PRESS = 'active:bg-primary/20 dark:active:bg-primary/30';
