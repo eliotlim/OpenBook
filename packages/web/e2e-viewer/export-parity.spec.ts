@@ -97,6 +97,20 @@ test.describe('page export, hydrated', () => {
     await viewer.locator('.obe-acc-toggle').first().click();
     await expect(bodyA).toBeVisible();
 
+    // ── HTML artifact: hydrated into a sandboxed, interactive iframe ────────
+    const frameEl = viewer.locator('iframe[data-testid="sandboxed-html-frame"]');
+    await expect(frameEl).toBeVisible();
+    // Canonical sandbox flags — opaque origin (NO allow-same-origin).
+    const sandbox = await frameEl.getAttribute('sandbox');
+    expect(sandbox).toBe('allow-scripts allow-popups allow-forms allow-modals');
+    const artifact = viewer.frameLocator('iframe[data-testid="sandboxed-html-frame"]');
+    // The artifact runs its own JS: clicking increments its in-frame counter.
+    await expect(artifact.locator('#n')).toHaveText('0');
+    await artifact.getByRole('button').click();
+    await expect(artifact.locator('#n')).toHaveText('1');
+    // Its breakout attempt was blocked by the opaque origin (can't read the host).
+    await expect(artifact.locator('#leak')).toHaveText('host: blocked');
+
     // Locked semantics: no editing affordances, nothing persisted anywhere.
     // Including ghost placeholder text on locked chart chrome: the fixture has
     // a titled chart with an empty description AND an untitled chart — neither

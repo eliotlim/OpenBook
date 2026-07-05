@@ -14,11 +14,44 @@
 import type {PageSnapshot, SpaceSnapshot} from '@book.dev/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
 import {blockSnapshotToEditorJs} from '../../blockeditor/exportBlocks';
+import {emptyExportAssets, type ExportAssets} from '../exportAssets';
 import type {SiteBundle} from '../exportSite';
 
 /** An 8×8 grey PNG — a real decodable image with zero network. */
 export const PARITY_IMAGE_DATA_URI =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAD0lEQVR4nGM4gwMwDC0JAMg9mQEkEhIxAAAAAElFTkSuQmCC';
+
+/** The content-addressed id the artifact block references. */
+export const PARITY_ARTIFACT_ID = 'sha256-parity-artifact';
+
+/**
+ * The artifact's HTML document — a self-contained interactive widget: a button
+ * that increments a counter (proves the sandboxed frame runs its own JS live),
+ * plus a `parent.document` reach that must throw under the opaque origin
+ * (proves the sandbox walls the frame off from the host). Inline style/script
+ * only, so it works under the export's network-off CSP.
+ *
+ * Note it carries adversarial *marker* content — quotes, emoji, a literal
+ * `</iframe>` in visible text — to prove it survives the island + srcdoc
+ * escaping when hydrated. It deliberately does NOT put a literal `</script>`
+ * inside the inline script: the HTML parser (in ANY browser, unrelated to our
+ * pipeline) would close the script element early — that class of payload is
+ * covered at the byte layer by exportArtifact.test.ts instead.
+ */
+export const PARITY_ARTIFACT_DOC = [
+  '<!doctype html><meta charset="utf-8"><title>"Counter" & \'demo\' 🎉</title>',
+  '<style>body{font:14px system-ui;margin:12px}button{font-size:16px}</style>',
+  '<p>Marker: &lt;/iframe&gt; "quoted" 🎉</p>',
+  '<button id="b">count: <span id="n">0</span></button>',
+  '<p id="leak">host: checking…</p>',
+  '<scr' + 'ipt>',
+  'var n=0;document.getElementById("b").addEventListener("click",function(){',
+  '  n++;document.getElementById("n").textContent=String(n);});',
+  '// Breakout attempt — must fail under the opaque origin:',
+  'try{document.getElementById("leak").textContent="host:"+parent.document.title;}',
+  'catch(e){document.getElementById("leak").textContent="host: blocked";}',
+  '</scr' + 'ipt>',
+].join('\n');
 
 const GROWTH_SOURCE =
   'return {low: Array.from({length: months}, (_, i) => Math.pow(1.03, i / 12)), high: Array.from({length: months}, (_, i) => Math.pow(1.10, i / 12))};';
@@ -75,7 +108,17 @@ export const PARITY_BLOCKS: NewBlock[] = [
       {id: 'fx-tp2', type: 'paragraph', text: [{t: 'second tab body'}]},
     ]},
   ]},
+  {id: 'fx-artifact', type: 'htmlArtifact', props: {assetId: PARITY_ARTIFACT_ID, title: 'Counter widget'}},
 ];
+
+/** The export assets bundle the fixture needs: the artifact document text
+ *  keyed by its assetId (no async store — the parity generator is synchronous).
+ *  The image rides its inline data-URI, so nothing goes in the image map. */
+export function parityExportAssets(): ExportAssets {
+  const assets = emptyExportAssets();
+  assets.artifactText.set(PARITY_ARTIFACT_ID, PARITY_ARTIFACT_DOC);
+  return assets;
+}
 
 /** A raw block-doc snapshot (what the store holds / the island carries). */
 export function parityRawSnapshot(blocks: NewBlock[] = PARITY_BLOCKS): PageSnapshot {

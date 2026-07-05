@@ -3,7 +3,7 @@ import {mkdirSync, writeFileSync} from 'fs';
 import {dirname, resolve} from 'path';
 import {fileURLToPath} from 'url';
 import {toHtml, toHtmlSite} from '../src/export/toHtml';
-import {parityExportSnapshot, paritySiteBundle} from '../src/export/__tests__/parityFixtureDoc';
+import {parityExportSnapshot, parityExportAssets, paritySiteBundle} from '../src/export/__tests__/parityFixtureDoc';
 
 /**
  * Generates the exported-HTML fixtures the Playwright parity harness opens
@@ -18,6 +18,13 @@ import {parityExportSnapshot, paritySiteBundle} from '../src/export/__tests__/pa
  * (after `build:viewer`) before the browser suite. It lives in scripts/ (not
  * src/) because it needs node fs/path, which the DOM-typed src tsconfig
  * rejects — vitest still runs it as part of the package's test suite.
+ *
+ * NOTE on fixture bytes across RUNS: each generator run builds a fresh Y.Doc
+ * via createDoc(), whose random Yjs clientID lands in the island's base64
+ * update — so the generated FILES differ run-to-run. That is expected and not
+ * an export-determinism regression: the byte-stability assertions below feed
+ * the SAME snapshot twice, which is the real contract (a persisted snapshot
+ * always exports byte-identically).
  */
 
 const OUT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/e2e-viewer/generated');
@@ -25,17 +32,18 @@ const OUT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../web/e2e-
 describe('parity fixture generation (consumed by e2e-viewer/export-parity.spec.ts)', () => {
   it('writes a deterministic single-page export', () => {
     const snap = parityExportSnapshot();
+    const assets = parityExportAssets();
     const meta = {id: 'fx-root', updatedAt: '2026-07-04T00:00:00.000Z'};
-    const html = toHtml(snap, 'Parity fixture', '🧪', new Map(), meta);
-    expect(toHtml(snap, 'Parity fixture', '🧪', new Map(), meta)).toBe(html); // byte-stable
+    const html = toHtml(snap, 'Parity fixture', '🧪', assets, meta);
+    expect(toHtml(snap, 'Parity fixture', '🧪', parityExportAssets(), meta)).toBe(html); // byte-stable
     mkdirSync(OUT_DIR, {recursive: true});
     writeFileSync(resolve(OUT_DIR, 'export-page.html'), html);
   });
 
   it('writes a deterministic site-bundle export', () => {
     const bundle = paritySiteBundle();
-    const html = toHtmlSite(bundle);
-    expect(toHtmlSite(bundle)).toBe(html); // byte-stable
+    const html = toHtmlSite(bundle, parityExportAssets());
+    expect(toHtmlSite(bundle, parityExportAssets())).toBe(html); // byte-stable
     mkdirSync(OUT_DIR, {recursive: true});
     writeFileSync(resolve(OUT_DIR, 'export-site.html'), html);
   });
