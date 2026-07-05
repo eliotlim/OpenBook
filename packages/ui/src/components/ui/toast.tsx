@@ -24,7 +24,9 @@ export interface ToastInput {
   /** Optional action rendered as a button (e.g. "Undo"). Dismisses the toast. */
   actionLabel?: string;
   onAction?: () => void;
-  /** Auto-dismiss delay; defaults to 7s (toasts with an action deserve slack). */
+  /** Auto-dismiss delay; defaults to 7s (toasts with an action deserve slack).
+   *  Pass `Infinity` for a persistent toast that only dismisses explicitly
+   *  (close button / action) — e.g. "security update ready, restart". */
   durationMs?: number;
 }
 
@@ -54,6 +56,9 @@ export function dismissToast(id: number): void {
 }
 
 const arm = (item: ToastItem): void => {
+  // Persistent toast: no timer at all (setTimeout would coerce Infinity to 0
+  // and dismiss immediately). Dismissal is the close button or the action.
+  if (!Number.isFinite(item.durationMs)) return;
   timers.set(
     item.id,
     setTimeout(() => dismissToast(item.id), item.durationMs),

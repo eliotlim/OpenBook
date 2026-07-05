@@ -1,7 +1,7 @@
 import {describe, it, expect, afterEach} from 'vitest';
 import {render, screen, cleanup} from '@testing-library/react';
 import SettingsPanel from '../SettingsPanel';
-import {I18nProvider, PreferencesProvider} from '@/providers';
+import {ConfirmProvider, I18nProvider, PreferencesProvider} from '@/providers';
 
 const noop = () => {};
 
@@ -9,7 +9,12 @@ function renderPanel(tab: Parameters<typeof SettingsPanel>[0]['tab']) {
   return render(
     <I18nProvider>
       <PreferencesProvider>
-        <SettingsPanel tab={tab} onTabChange={noop} mode="modal" onModeChange={noop} onClose={noop} />
+        {/* The General tab's UpdatesSection consumes useConfirm (its install
+            action's restart guard), as sibling settings tabs already do — in
+            the app the whole modal is nested in ConfirmProvider. */}
+        <ConfirmProvider>
+          <SettingsPanel tab={tab} onTabChange={noop} mode="modal" onModeChange={noop} onClose={noop} />
+        </ConfirmProvider>
       </PreferencesProvider>
     </I18nProvider>,
   );
