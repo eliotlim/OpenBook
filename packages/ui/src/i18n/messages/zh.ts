@@ -422,6 +422,15 @@ export const zh: PartialMessages = {
       append_to_page: '追加到页面',
     },
   },
+  importer: {
+    htmlModeLabel: '如何导入这个 HTML 文件？',
+    artifactOption: '作为交互式组件运行',
+    artifactOptionHint: '保留文件原样 — 脚本和样式在沙箱框架中实时运行。',
+    convertOption: '转换为可编辑块',
+    convertOptionHint: '将可见内容转换为可编辑的 OpenBook 块。脚本将被丢弃。',
+    artifactNote: '新页面将保存原始文件并在沙箱中运行。不做任何转换。',
+    artifactHeuristicNote: '该文件包含脚本，因此建议以交互方式运行。',
+  },
   slash: {
     text: {label: '文本', hint: '普通段落'},
     h1: {label: '标题 1', hint: '大节标题'},

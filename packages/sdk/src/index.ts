@@ -306,6 +306,8 @@ export {
   importDoc,
   IMAGE_PLACEHOLDER_KIND,
   IMAGE_PLACEHOLDER_PROP,
+  HTML_ARTIFACT_PENDING_PROP,
+  htmlArtifactPendingBlock,
   type ImportInlineAttrs,
   type ImportTextRun,
   type ImportedBlock,
