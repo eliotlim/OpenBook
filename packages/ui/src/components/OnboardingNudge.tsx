@@ -68,7 +68,11 @@ export default function OnboardingNudge() {
       </button>
       <p className="pr-6 text-sm font-semibold">{t('account.nudge.title')}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{t('account.nudge.body')}</p>
-      <Button size="sm" className="mt-2.5 w-full" onClick={openSignIn}>
+      {/* `secondary` (a light neutral chip) not the default primary: the nudge
+          card sits on the full-accent sidebar sheet, where a primary-blue fill
+          barely separates from the blue surface (OB-377). secondary keeps its
+          own neutral surface + ink through .ob-accent-chrome, so the CTA reads. */}
+      <Button variant="secondary" size="sm" className="mt-2.5 w-full" onClick={openSignIn}>
         {t('account.nudge.cta')}
       </Button>
     </div>

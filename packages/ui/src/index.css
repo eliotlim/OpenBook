@@ -53,6 +53,9 @@
   --color-sheet-1: hsl(var(--sheet-1));
   --color-sheet-1-foreground: hsl(var(--sheet-1-foreground));
 
+  /* --sheet-2 is still composed (it's the deeper companion sheet in manifest
+     §2.2) but currently has no consumer — kept as a painted token for a future
+     second-surface use, not dead-stripped. */
   --color-sheet-2: hsl(var(--sheet-2));
   --color-sheet-2-foreground: hsl(var(--sheet-2-foreground));
 
@@ -526,6 +529,12 @@
   --accent-foreground: var(--sheet-1-foreground);
   --hover: hsl(var(--sheet-veil) / 0.1);
   --hover-strong: hsl(var(--sheet-veil) / 0.16);
+}
+/* Dark scheme uses the audited 8/13 % veil alphas (manifest §2.3) so shared
+   `bg-hover` consumers (the page tree) match the SIDEBAR_* item washes. */
+.dark .ob-accent-chrome {
+  --hover: hsl(var(--sheet-veil) / 0.08);
+  --hover-strong: hsl(var(--sheet-veil) / 0.13);
 }
 
 /* Per-page typefaces (lib/pageFont): the wrapper sets the body family, headings

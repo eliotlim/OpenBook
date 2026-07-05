@@ -356,7 +356,7 @@ const TreeRow = React.forwardRef<HTMLDivElement, TreeRowProps & React.HTMLAttrib
           >
             <ChevronRight
               className={cn(
-                "h-4 w-4 shrink-0 text-accent-foreground/70 transition-transform duration-200",
+                "h-4 w-4 shrink-0 text-accent-foreground/75 transition-transform duration-200",
                 isExpanded && "rotate-90",
               )}
             />
@@ -390,9 +390,9 @@ function RowIcon({icon, Fallback}: {icon?: LucideIcon | string; Fallback?: Lucid
   }
   if (typeof icon === "function") {
     const Icon = icon;
-    return <Icon className="mr-2 h-4 w-4 shrink-0 text-accent-foreground/70" aria-hidden="true" />;
+    return <Icon className="mr-2 h-4 w-4 shrink-0 text-accent-foreground/75" aria-hidden="true" />;
   }
-  if (Fallback) return <Fallback className="mr-2 h-4 w-4 shrink-0 text-accent-foreground/70" aria-hidden="true" />;
+  if (Fallback) return <Fallback className="mr-2 h-4 w-4 shrink-0 text-accent-foreground/75" aria-hidden="true" />;
   return null;
 }
 
