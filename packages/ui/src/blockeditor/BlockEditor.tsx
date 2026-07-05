@@ -1792,6 +1792,12 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   const rows = blockChildren(block)!;
   const header = blockProp<boolean>(block, 'header') ?? false;
   const cols = rows.length > 0 ? (blockChildren(rows.get(0))?.length ?? 0) : 0;
+  // Cells render TextBlockView directly (not through BlockBody), so the table
+  // must apply the lock swap itself — a locked group / present mode / the
+  // export viewer would otherwise leave cell text EDITABLE (a lock leak).
+  const locked = useKitLock();
+  const lockText = locked && !editor.readOnly;
+  const cellEditor = useMemo(() => (lockText ? {...editor, readOnly: true} : editor), [editor, lockText]);
 
   return (
     <div className="obe-table-wrap">
@@ -1801,7 +1807,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
             <tr key={blockId(row)} className={header && r === 0 ? 'obe-table-header' : undefined}>
               {blockChildren(row)!.map((cell) => (
                 <td key={blockId(cell)}>
-                  <TextBlockView block={cell} editor={editor} ui={ui} />
+                  <TextBlockView block={cell} editor={cellEditor} ui={ui} />
                 </td>
               ))}
             </tr>
