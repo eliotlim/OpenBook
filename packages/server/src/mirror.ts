@@ -16,6 +16,8 @@ import {
   pageToBookHtml,
   readBookHtmlMeta,
   slugify,
+  BOOK_RUNTIME_DIR,
+  BOOK_RUNTIME_FILE,
   type StoredDatabase,
   type StoredPage,
 } from '@book.dev/sdk';
@@ -38,6 +40,16 @@ interface MirrorState {
   index: Record<string, IndexEntry>;
   /** Page ids with an un-flushed write or delete (survive a crash, replay on boot). */
   pending: Record<string, 'write' | 'delete'>;
+  /**
+   * Content hash of the viewer runtime bundle (`_openbook/viewer.js`) the mirror
+   * last wrote — the bundle's own-write/dedup record. Present ⇔ the page files
+   * were rendered WITH the runtime reference, so a presence flip against the
+   * current {@link BookMirrorOptions.runtimeBundle} marks the one-time,
+   * upgrade-class whole-folder rewrite (the reference block itself is a byte
+   * constant, so nothing short of a flip ever re-renders pages for runtime
+   * reasons). Absent on pre-runtime folders (additive, still version 1).
+   */
+  runtimeHash?: string;
 }
 
 export interface BookMirrorOptions {
@@ -59,6 +71,17 @@ export interface BookMirrorOptions {
    * writes-per-interval shorthand; see {@link WriteBudgetSpec}.
    */
   writeBudget?: WriteBudgetSpec | number;
+  /**
+   * The viewer runtime bundle's JS source (the compiled `OpenBookViewer` IIFE).
+   * When provided, ONE copy is kept at `_openbook/viewer.js` and every mirrored
+   * page file carries the byte-constant runtime reference (see sdk
+   * `bookRuntimeScripts`), so a `.book.html` opened from `file://` hydrates into
+   * the interactive locked viewer. The bundle is (re)written only at open, and
+   * only when its content hash changed (an app upgrade) or the file diverged —
+   * never on page-save churn. Omit it and the mirror writes the plain static
+   * files exactly as before (and strips a previously-written runtime).
+   */
+  runtimeBundle?: string;
 }
 
 const STATE_FILE = '.openbook-mirror.json';
@@ -208,8 +231,18 @@ export class BookMirror {
   private readonly importDebounceMs: number;
   private readonly doWatch: boolean;
 
+  private readonly runtimeBundle: string | null;
+
   private index = new Map<string, IndexEntry>();
   private pending = new Map<string, 'write' | 'delete'>();
+  /** Hash of the runtime bundle we last wrote (mirrors {@link MirrorState.runtimeHash}). */
+  private runtimeHash: string | null = null;
+  /**
+   * Set when the runtime format flipped (bundle gained/lost) since the persisted
+   * state: the one-time, upgrade-class whole-folder rewrite. Consumed by
+   * {@link reconcileAll}, which enqueues every live page once and clears it.
+   */
+  private runtimeFormatFlipped = false;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private flushing: Promise<void> | null = null;
   private statePersist: Promise<void> = Promise.resolve();
@@ -240,6 +273,8 @@ export class BookMirror {
     this.writeDebounceMs = opts.writeDebounceMs ?? 150;
     this.importDebounceMs = opts.importDebounceMs ?? 250;
     this.doWatch = opts.watch ?? true;
+    this.runtimeBundle =
+      typeof opts.runtimeBundle === 'string' && opts.runtimeBundle.length > 0 ? opts.runtimeBundle : null;
   }
 
   /**
@@ -258,6 +293,11 @@ export class BookMirror {
     await mirror.acquireLock();
     try {
       await mirror.loadState();
+      // Bring the folder-level viewer runtime (`_openbook/viewer.js`) up to date
+      // BEFORE the reconcile: a runtime-format flip must be known when reconcile
+      // decides what to rewrite, and a page opened right after boot should find
+      // the bundle its reference points at.
+      await mirror.ensureRuntime();
       // reconcile re-enqueues anything stale; flush drains both the reconciled set
       // and any journal entries a prior crash left un-flushed.
       await mirror.reconcileAll();
@@ -289,10 +329,12 @@ export class BookMirror {
       const state = JSON.parse(raw) as MirrorState;
       this.index = new Map(Object.entries(state.index ?? {}));
       this.pending = new Map(Object.entries(state.pending ?? {}));
+      this.runtimeHash = typeof state.runtimeHash === 'string' ? state.runtimeHash : null;
     } catch {
       // No prior state (first run) or unreadable — start clean.
       this.index = new Map();
       this.pending = new Map();
+      this.runtimeHash = null;
     }
   }
 
@@ -302,6 +344,7 @@ export class BookMirror {
       version: 1,
       index: Object.fromEntries(this.index),
       pending: Object.fromEntries(this.pending),
+      ...(this.runtimeHash ? {runtimeHash: this.runtimeHash} : {}),
     };
     this.statePersist = this.statePersist
       .then(() => this.atomicWrite(this.statePath, JSON.stringify(state)))
@@ -309,6 +352,64 @@ export class BookMirror {
       // so a failed persist (e.g. the dir was removed) must never crash the app.
       .catch((err) => this.log(`book mirror: state persist failed: ${String(err)}`));
     return this.statePersist;
+  }
+
+  // ── Folder-level viewer runtime (`_openbook/viewer.js`) ─────────────────────
+
+  /**
+   * Bring the shared viewer runtime up to date at open (create() only — the
+   * page-save write path never touches it, by design):
+   *
+   *  - bundle provided + content hash changed since we last wrote it (an app
+   *    upgrade) → rewrite `_openbook/viewer.js`. Page files are untouched: the
+   *    reference block is a byte constant (sdk `bookRuntimeScripts`), so a bundle
+   *    upgrade costs exactly ONE file write.
+   *  - bundle provided + hash unchanged → verify the on-disk bytes (own-write
+   *    dedup semantics, same as pages: an externally-diverged/deleted bundle is
+   *    restored, canonical wins) and otherwise write nothing.
+   *  - bundle newly ABSENT on a folder that had one → remove `_openbook/` and
+   *    flag the format flip so every page sheds its reference.
+   *
+   * A presence flip either way marks {@link runtimeFormatFlipped}: the one-time,
+   * upgrade-class whole-folder page rewrite (consumed by {@link reconcileAll}).
+   * Writes go through {@link atomicWrite}, so they are budget-checked + counted.
+   */
+  private async ensureRuntime(): Promise<void> {
+    const had = this.runtimeHash !== null;
+    const has = this.runtimeBundle !== null;
+    if (has) {
+      const bundle = this.runtimeBundle!;
+      const hash = contentHash(bundle);
+      const abs = join(this.dir, BOOK_RUNTIME_FILE);
+      let current: string | null = null;
+      if (this.runtimeHash === hash) {
+        // Same bundle as last time — skip the write only if the FILE still holds
+        // it (never trust the recorded hash alone; see writePageFile's skip).
+        try {
+          current = await readFile(abs, 'utf8');
+        } catch {
+          current = null; // missing/unreadable → restore below.
+        }
+      }
+      if (current !== bundle) {
+        await mkdir(dirname(abs), {recursive: true});
+        await this.atomicWrite(abs, bundle);
+        this.log(`book mirror: wrote viewer runtime ${BOOK_RUNTIME_FILE} (${hash.slice(0, 12)}…)`);
+      }
+      this.runtimeHash = hash;
+    } else if (had) {
+      // Downgrade: the host no longer supplies a bundle — drop the folder copy so
+      // no page's (now-removed) reference dangles at a stale runtime.
+      await rm(join(this.dir, BOOK_RUNTIME_FILE), {force: true});
+      try {
+        await rmdir(join(this.dir, BOOK_RUNTIME_DIR));
+      } catch {
+        // Not empty / already gone — leave it.
+      }
+      this.runtimeHash = null;
+    }
+    if (had !== has) this.runtimeFormatFlipped = true;
+    await this.persistState();
   }
 
   // ── Single-owner lock (OB-241) ───────────────────────────────────────────────
@@ -479,6 +580,13 @@ export class BookMirror {
     const {pages, databases} = await this.store.exportAll();
     const live = new Set(pages.map((p) => p.id));
     const ctx = this.buildContext(pages, databases);
+    // A runtime-format flip (folder gained/lost `_openbook/viewer.js`) re-renders
+    // every page once — the deliberate upgrade-class rewrite. `updatedAt` can't
+    // catch it (the DB rows didn't change), so it forces the enqueue here; the
+    // per-page no-op skip in writePageFile keeps any actually-identical file
+    // (there are none on a real flip) from touching disk.
+    const rewriteAll = this.runtimeFormatFlipped;
+    this.runtimeFormatFlipped = false;
     for (const p of pages) {
       const path = this.relPathFor(p.id, ctx);
       const entry = this.index.get(p.id);
@@ -486,7 +594,7 @@ export class BookMirror {
       // file went missing out-of-band (a crash mid-write, or an external delete).
       // The DB is canonical, so reconcile always restores the disk to match it.
       const missing = !entry || !existsSync(join(this.dir, entry.path));
-      if (missing || entry!.path !== path || entry!.updatedAt !== p.updatedAt) this.enqueueWrite(p.id);
+      if (rewriteAll || missing || entry!.path !== path || entry!.updatedAt !== p.updatedAt) this.enqueueWrite(p.id);
     }
     // Prune files for pages that no longer exist (deleted subtrees, purges).
     for (const id of [...this.index.keys()]) if (!live.has(id)) this.enqueueDelete(id);
@@ -504,7 +612,13 @@ export class BookMirror {
     }
     const rel = await this.relPathForLive(page);
     const abs = join(this.dir, rel);
-    const html = pageToBookHtml({id: page.id, name: page.name, icon: pageIcon(page), updatedAt: page.updatedAt, data: page.data});
+    // The runtime reference tracks bundle presence (byte-constant block, so this
+    // adds NO per-write variance — see the SDK/server byte-compat contract:
+    // spaceToBookFiles({runtime}) renders the identical bytes).
+    const html = pageToBookHtml(
+      {id: page.id, name: page.name, icon: pageIcon(page), updatedAt: page.updatedAt, data: page.data},
+      {runtimeRef: this.runtimeBundle !== null},
+    );
     const hash = contentHash(html);
 
     const prior = this.index.get(pageId);
@@ -630,8 +744,11 @@ export class BookMirror {
         const w = watch(target, (_event, filename) => {
           if (!filename) return;
           const name = filename.toString();
-          // The root watcher sees folder churn; (re)attach to keep coverage.
-          if (target === this.dir && !name.endsWith('.html') && !name.startsWith('.')) {
+          // The root watcher sees folder churn; (re)attach to keep coverage. The
+          // runtime dir (`_openbook/`) is OURS, never a book folder: it holds no
+          // `.book.html`, must never be watched for re-import, and a page slug
+          // can't collide with it (slugify never yields an underscore).
+          if (target === this.dir && !name.endsWith('.html') && !name.startsWith('.') && name !== BOOK_RUNTIME_DIR) {
             this.attachBookFolder(join(this.dir, name));
             return;
           }

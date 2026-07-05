@@ -7,10 +7,12 @@
  */
 import {runCli} from './cli';
 import {loadEmbeddedPgliteAssets} from './pglite-assets.bun';
+import {loadEmbeddedViewerRuntime} from './viewer-asset.bun';
 
 const pgliteAssets = await loadEmbeddedPgliteAssets();
+const viewerRuntime = await loadEmbeddedViewerRuntime();
 
-runCli({pgliteAssets}).catch((err) => {
+runCli({pgliteAssets, viewerRuntime}).catch((err) => {
   console.error(err);
   process.exit(1);
 });
