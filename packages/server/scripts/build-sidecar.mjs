@@ -16,7 +16,7 @@
  * release builds the Intel sidecar on an Apple Silicon runner.
  */
 import {execFileSync} from 'node:child_process';
-import {mkdirSync} from 'node:fs';
+import {copyFileSync, existsSync, mkdirSync} from 'node:fs';
 import {dirname, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -59,6 +59,18 @@ const crossCompiling = triple !== hostTriple();
 
 // 1. Stage PGlite's WASM/data so Bun can embed them.
 execFileSync('node', [join(here, 'copy-pglite-assets.mjs')], {stdio: 'inherit'});
+
+// 1b. Stage the viewer runtime bundle so Bun can embed it (the book mirror's
+// folder-level `_openbook/viewer.js` — see mirror.ts `runtimeBundle`). The
+// bundle is a ui build product (vite.viewer.config.js, gitignored), so build it
+// on demand when this script runs before/without a ui build.
+const viewerSrc = join(serverDir, '..', 'ui', 'src', 'export', 'vendor', 'openbook-viewer.js');
+if (!existsSync(viewerSrc)) {
+  console.log('Viewer bundle missing — building it (pnpm --filter @book.dev/ui run build:viewer)…');
+  execFileSync('pnpm', ['--filter', '@book.dev/ui', 'run', 'build:viewer'], {stdio: 'inherit'});
+}
+mkdirSync(join(serverDir, 'assets'), {recursive: true});
+copyFileSync(viewerSrc, join(serverDir, 'assets', 'openbook-viewer.js'));
 
 // 2. Compile the Bun entrypoint into a single binary. The optional llama.cpp
 // engine stays external (mirroring tsup.config.ts): its per-platform binding

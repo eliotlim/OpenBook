@@ -30,6 +30,26 @@ import {t as bareT} from '@/i18n';
 
 const displayName = (name: string | null): string => (name && name.trim() ? name : bareT('common.untitled'));
 
+/**
+ * The viewer runtime bundle for the folder export's `_openbook/viewer.js` — ONE
+ * copy per exported folder, referenced relatively from every `.book.html` so a
+ * file opened straight from `file://` hydrates into the interactive locked
+ * viewer (owner decision 2026-07-04: never vendored per-file).
+ *
+ * Loaded lazily at export time via a `?raw` dynamic import of the vite-built
+ * vendor bundle (`build:viewer` runs before the lib build, so a packaged ui
+ * always has it). When it can't be resolved (e.g. a dev/test context that never
+ * built the viewer), the export gracefully degrades to the plain static files —
+ * `spaceToBookFiles` emits no reference without a runtime.
+ */
+async function loadFolderRuntime(): Promise<string | undefined> {
+  try {
+    return (await import('@/export/vendor/openbook-viewer.js?raw')).default;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Human-readable byte size (e.g. `1.5 GB`). */
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -95,7 +115,7 @@ export default function BackupSettings() {
     setBusy('folder');
     setStatus(null);
     try {
-      const files = spaceToBookFiles(await client.exportSpace());
+      const files = spaceToBookFiles(await client.exportSpace(), {runtime: await loadFolderRuntime()});
       const name = `openbook-${new Date().toISOString().slice(0, 10)}`;
       const result = platform.bookFolder?.export
         ? await platform.bookFolder.export(files)

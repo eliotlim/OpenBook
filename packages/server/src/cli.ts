@@ -20,6 +20,12 @@ import {installSidecarParentDeath} from './parentDeath';
 export interface CliOverrides {
   /** PGlite asset overrides supplied by the compiled sidecar. */
   pgliteAssets?: Partial<PGliteOptions>;
+  /**
+   * The viewer runtime bundle (JS source) the compiled sidecar embeds for the
+   * book mirror's `_openbook/viewer.js`. Under Node this is omitted and the
+   * server falls back to its own disk lookup (see `resolveViewerRuntime`).
+   */
+  viewerRuntime?: string;
 }
 
 function flag(name: string): string | undefined {
@@ -68,6 +74,7 @@ export async function runCli(overrides: CliOverrides = {}): Promise<void> {
     accessToken: accessToken || undefined,
     socketPath: socketPath ? resolve(socketPath) : undefined,
     pgliteAssets: overrides.pgliteAssets,
+    viewerRuntime: overrides.viewerRuntime,
     // Headless defaults to all interfaces; embedded desktop to loopback.
     host: wantTcp ? host ?? (databaseUrl ? '0.0.0.0' : '127.0.0.1') : undefined,
     port: wantTcp ? port ?? 4319 : undefined,
