@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useRef, useState} from 'react';
 import {Check, FileText, Image, Loader2, TriangleAlert, Upload} from 'lucide-react';
-import {notionAssetResolver, urlAssetResolver, type ImportedDoc} from '@book.dev/sdk';
+import {notionAssetResolver, urlAssetResolver, type AssetBytes, type ImportedDoc} from '@book.dev/sdk';
 import type {TKey} from '@/i18n';
 import {
   Dialog,
@@ -25,7 +25,8 @@ import {
   type ImportSummary,
   type RunImportAssetOptions,
 } from '@/lib/importContent';
-import {htmlToImportedDoc} from '@/lib/htmlImport';
+import {htmlToImportedDoc, parseHtmlImport} from '@/lib/htmlImport';
+import {runIslandImport, type HtmlIsland} from '@/lib/islandImport';
 import {isImportAbortError, parseImportInWorker, type ImportParseProgress} from '@/lib/importParse';
 
 /** Extensions the file picker offers — Notion export zips, Markdown, and HTML. */
@@ -42,10 +43,27 @@ type PasteFormat = 'markdown' | 'html';
  * Any failure becomes a friendly `error` the user can retry from — never a
  * thrown crash.
  */
+/** A detected OpenBook export island, staged for a lossless restore: the parsed
+ *  island plus the asset bytes recovered from the file's own data-URIs. */
+interface IslandPayload {
+  found: HtmlIsland;
+  assets: Map<string, AssetBytes>;
+}
+
 type Phase =
   | {step: 'pick'}
   | {step: 'reading'; progress?: ImportParseProgress}
-  | {step: 'preview'; doc: ImportedDoc; summary: ImportSummary; sourceLabel: string; format: ImportFormat; zipBytes?: Uint8Array}
+  | {
+      step: 'preview';
+      doc: ImportedDoc | null;
+      summary: ImportSummary;
+      sourceLabel: string;
+      format: ImportFormat;
+      zipBytes?: Uint8Array;
+      /** Present when the file carries an OpenBook source island — the import
+       *  restores losslessly from it, skipping the HTML conversion entirely. */
+      island?: IslandPayload;
+    }
   | {step: 'importing'; summary: ImportSummary}
   | {step: 'done'; summary: ImportSummary; jumpTarget: string | null}
   | {step: 'error'; message: string};
@@ -137,13 +155,20 @@ export default function ImportDialog() {
   // summary is computed by the parser (in the worker, off the main thread) and
   // handed in, so the dialog never re-walks the tree on the main thread.
   const toPreview = useCallback(
-    (doc: ImportedDoc, summary: ImportSummary, sourceLabel: string, format: ImportFormat, zipBytes?: Uint8Array) => {
+    (
+      doc: ImportedDoc | null,
+      summary: ImportSummary,
+      sourceLabel: string,
+      format: ImportFormat,
+      zipBytes?: Uint8Array,
+      island?: IslandPayload,
+    ) => {
       if (summary.pages === 0) {
         setPhase({step: 'error', message: t('importer.empty')});
         return;
       }
       setDownloadUrls(false);
-      setPhase({step: 'preview', doc, summary, sourceLabel, format, zipBytes});
+      setPhase({step: 'preview', doc, summary, sourceLabel, format, zipBytes, island});
     },
     [t],
   );
@@ -156,14 +181,20 @@ export default function ImportDialog() {
         return;
       }
       setPhase({step: 'reading'});
-      // HTML reuses the editor's DOM-based `htmlToBlocks`, which needs a live
-      // `document` the import worker lacks — so it parses on the MAIN thread.
-      // A single HTML document is light, so an inline parse (like pasted
-      // Markdown) is fine; no worker, no abort controller needed.
+      // HTML parses on the MAIN thread: an OpenBook export's source island is
+      // detected FIRST (a pure string scan — a hit means a lossless restore
+      // that skips the HTML conversion entirely); foreign HTML falls back to
+      // the editor's DOM-based `htmlToBlocks`, which needs the live `document`
+      // the import worker lacks. A single HTML document is light, so an inline
+      // parse (like pasted Markdown) is fine; no worker, no abort controller.
       if (format === 'html') {
         try {
-          const doc = htmlToImportedDoc(await file.text(), {defaultTitle: titleFromFileName(file.name) || undefined});
-          toPreview(doc, summarizeImportedDoc(doc), file.name, format);
+          const parsed = parseHtmlImport(await file.text(), {defaultTitle: titleFromFileName(file.name) || undefined});
+          if (parsed.kind === 'island') {
+            toPreview(null, parsed.summary, file.name, format, undefined, {found: parsed.island, assets: parsed.assets});
+          } else {
+            toPreview(parsed.doc, summarizeImportedDoc(parsed.doc), file.name, format);
+          }
         } catch (e) {
           setPhase({step: 'error', message: t('importer.parseFailed', {error: (e as Error).message})});
         }
@@ -220,21 +251,32 @@ export default function ImportDialog() {
   }, [pasteText, pasteFormat, t, toPreview]);
 
   const doImport = useCallback(
-    async (doc: ImportedDoc, summary: ImportSummary, format: ImportFormat, zipBytes?: Uint8Array) => {
+    async (doc: ImportedDoc | null, summary: ImportSummary, format: ImportFormat, zipBytes?: Uint8Array, island?: IslandPayload) => {
       if (importingRef.current) return;
       importingRef.current = true;
       setPhase({step: 'importing', summary});
       try {
-        // Wire the image-rehydration seam: a Notion export uploads its embedded
-        // bytes; a Markdown/HTML import preserves linked images as URLs unless the
-        // user opted to download a copy into the workspace.
-        const assetOpts: RunImportAssetOptions =
-          format === 'notion-zip' && zipBytes
-            ? {resolveAssetBytes: notionAssetResolver(zipBytes)}
-            : downloadUrls
-              ? {resolveAssetBytes: urlAssetResolver(), downloadUrls: true}
-              : {};
-        const result = await runImport(client, doc, assetOpts);
+        let result: {pageIds: string[]};
+        if (island) {
+          // An OpenBook export: restore losslessly from its source island (the
+          // block-doc, structure, and databases land verbatim as a copy), then
+          // re-store the asset bytes recovered from the file's own data-URIs
+          // (content addressing restores the exact ids the blocks reference).
+          result = await runIslandImport(client, island.found, island.assets);
+        } else if (doc) {
+          // Wire the image-rehydration seam: a Notion export uploads its embedded
+          // bytes; a Markdown/HTML import preserves linked images as URLs unless the
+          // user opted to download a copy into the workspace.
+          const assetOpts: RunImportAssetOptions =
+            format === 'notion-zip' && zipBytes
+              ? {resolveAssetBytes: notionAssetResolver(zipBytes)}
+              : downloadUrls
+                ? {resolveAssetBytes: urlAssetResolver(), downloadUrls: true}
+                : {};
+          result = await runImport(client, doc, assetOpts);
+        } else {
+          return; // unreachable: a preview always carries a doc or an island
+        }
         // Reload first, then resolve the jump target against the fresh nav list
         // (rows excluded) so "view imported" can only ever land on a real page.
         const pages = await reload();
@@ -361,18 +403,22 @@ export default function ImportDialog() {
                 </span>
               </div>
             </div>
-            {phase.summary.databases > 0 && (
+            {/* An OpenBook export restores exactly from its embedded source —
+                the conversion notes below don't apply. */}
+            {phase.island && <p className="text-xs text-muted-foreground">{t('importer.losslessNote')}</p>}
+            {phase.summary.databases > 0 && !phase.island && (
               <p className="text-xs text-muted-foreground">{t('importer.databasesNote')}</p>
             )}
-            {phase.summary.images > 0 && (
+            {phase.summary.images > 0 && !phase.island && (
               <p className="flex items-start gap-2 text-xs text-muted-foreground">
                 <Image className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
                 {plural(phase.summary.images, 'importer.imagesNoteOne', 'importer.imagesNote')}
               </p>
             )}
             {/* Opt-in: store a copy of linked (http) images — Notion images are
-                always stored, so the toggle is only offered for Markdown/HTML. */}
-            {phase.summary.images > 0 && phase.format !== 'notion-zip' && (
+                always stored (and island imports recover their own bytes), so
+                the toggle is only offered for converted Markdown/HTML. */}
+            {phase.summary.images > 0 && phase.format !== 'notion-zip' && !phase.island && (
               <label className="flex items-start justify-between gap-3 rounded-lg border border-border bg-sheet-1 p-3">
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="text-sm font-medium">{t('importer.downloadImages')}</span>
@@ -390,7 +436,7 @@ export default function ImportDialog() {
               <Button variant="ghost" onClick={() => setPhase({step: 'pick'})}>
                 {t('importer.back')}
               </Button>
-              <Button onClick={() => void doImport(phase.doc, phase.summary, phase.format, phase.zipBytes)}>
+              <Button onClick={() => void doImport(phase.doc, phase.summary, phase.format, phase.zipBytes, phase.island)}>
                 {t('importer.import')}
               </Button>
             </DialogFooter>
