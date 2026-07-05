@@ -1450,8 +1450,8 @@ a.obe-mention {
   transition: opacity 0.12s ease;
 }
 .obe-artifact-expand:hover { background: var(--hover); color: hsl(var(--foreground)); }
-.obe-artifact-frame:hover .obe-artifact-expand,
-.obe-artifact-expand:focus-visible { opacity: 1; }
+/* Keyboard reveal + themed ring live in the shared focus-visible rule below. */
+.obe-artifact-frame:hover .obe-artifact-expand { opacity: 1; }
 
 /* ── Present mode (slide deck) ───────────────────────────────────────────────
    A page rendered as slides (split at dividers): a centred sheet that fades and
@@ -2048,6 +2048,7 @@ a.obe-mention {
 .obe-image-resize:focus-visible,
 .obe-artifact-tool:focus-visible,
 .obe-artifact-resize:focus-visible,
+.obe-artifact-expand:focus-visible,
 .obe-image-placeholder:focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 1px;
