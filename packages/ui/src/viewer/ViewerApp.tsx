@@ -4,6 +4,7 @@ import {decodeSnapshot, rootBlocks, type BlockDocSnapshot} from '@/blockeditor/m
 import {KitPageLockContext} from '@/blockeditor/kit/lock';
 import {SandboxCspContext} from '@/components/SandboxedHtml';
 import {EXPORT_ARTIFACT_CSP} from '@/lib/srcdoc';
+import {DataSchemeProvider, readGlobalDataScheme} from '@/lib/dataScheme';
 import type {SpaceBundleJson, SpaceBundlePage, ViewerPage, ViewerSource} from './types';
 
 /**
@@ -114,31 +115,35 @@ export const ViewerApp: React.FC<{source: ViewerSource; initialPage?: string}> =
   if (!active) return <div className="ob-viewer-empty">Nothing to show.</div>;
 
   return (
-    <KitPageLockContext.Provider value={true}>
-      {/* Standalone exports stay quiet on open: artifacts get the sub-resource-
+    // The concrete-hex chart/map surfaces (kit charts) resolve the scheme the
+    // export baked in, matching the CSS-var surfaces applyDataColors set (OB-379).
+    <DataSchemeProvider value={readGlobalDataScheme()}>
+      <KitPageLockContext.Provider value={true}>
+        {/* Standalone exports stay quiet on open: artifacts get the sub-resource-
           off CSP on top of the opaque-origin sandbox (closes fetch/img/media/
           font/form loads; frame self-navigation is the documented residual —
           see EXPORT_ARTIFACT_CSP). */}
-      <SandboxCspContext.Provider value={EXPORT_ARTIFACT_CSP}>
-        <div className="ob-viewer" onClick={onClick}>
-          {pages.length > 1 && (
-            <nav className="ob-viewer-nav" aria-label="Pages">
-              {pages.map((p) => (
-                <a
-                  key={p.id}
-                  href={`#page=${encodeURIComponent(p.id)}`}
-                  className={`ob-viewer-nav-link${p.id === active.id ? ' ob-viewer-nav-on' : ''}`}
-                  aria-current={p.id === active.id ? 'page' : undefined}
-                >
-                  {p.icon ? `${p.icon} ` : ''}
-                  {(p.name ?? '').trim() || 'Untitled'}
-                </a>
-              ))}
-            </nav>
-          )}
-          <PageView key={active.id} page={active} />
-        </div>
-      </SandboxCspContext.Provider>
-    </KitPageLockContext.Provider>
+        <SandboxCspContext.Provider value={EXPORT_ARTIFACT_CSP}>
+          <div className="ob-viewer" onClick={onClick}>
+            {pages.length > 1 && (
+              <nav className="ob-viewer-nav" aria-label="Pages">
+                {pages.map((p) => (
+                  <a
+                    key={p.id}
+                    href={`#page=${encodeURIComponent(p.id)}`}
+                    className={`ob-viewer-nav-link${p.id === active.id ? ' ob-viewer-nav-on' : ''}`}
+                    aria-current={p.id === active.id ? 'page' : undefined}
+                  >
+                    {p.icon ? `${p.icon} ` : ''}
+                    {(p.name ?? '').trim() || 'Untitled'}
+                  </a>
+                ))}
+              </nav>
+            )}
+            <PageView key={active.id} page={active} />
+          </div>
+        </SandboxCspContext.Provider>
+      </KitPageLockContext.Provider>
+    </DataSchemeProvider>
   );
 };

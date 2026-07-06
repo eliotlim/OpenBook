@@ -274,4 +274,14 @@ describe('normalizeAppearance (migration)', () => {
     expect('sidebar' in normalizeAppearance({themeId: 'ocean'})).toBe(false);
     expect(mergeAppearance(DEFAULT_APPEARANCE, normalizeAppearance({themeId: 'ocean'})).sidebar).toBe('tinted');
   });
+
+  it('defaults the data-colour scheme to pastel and keeps/drops values (OB-379)', () => {
+    expect(DEFAULT_APPEARANCE.dataColors).toBe('pastel');
+    expect(normalizeAppearance({dataColors: 'vivid'}).dataColors).toBe('vivid');
+    expect(normalizeAppearance({dataColors: 'muted'}).dataColors).toBe('muted');
+    // Unknown value dropped → merges to the 'pastel' default (existing users don't flip).
+    expect('dataColors' in normalizeAppearance({dataColors: 'candy'})).toBe(false);
+    expect('dataColors' in normalizeAppearance({themeId: 'ocean'})).toBe(false);
+    expect(mergeAppearance(DEFAULT_APPEARANCE, normalizeAppearance({themeId: 'ocean'})).dataColors).toBe('pastel');
+  });
 });

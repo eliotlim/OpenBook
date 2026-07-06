@@ -191,6 +191,9 @@ const TW: Record<string, Tw> = {
 };
 const DARK_CARD = tripleToHex('0 0% 16%');
 const LIGHT_PAGE = '#ffffff';
+// The muted status tokens whose LIGHT fill is punched up for the traffic light
+// (their dark fill keeps the desaturated wash) — see auditColor's muted branch.
+const MUTED_STATUS = new Set(['green', 'yellow', 'red']);
 
 /** ob-375 vivid + muted DataColor for a token (fillDark == fill, mode-invariant). */
 function auditColor(t: string, scheme: 'vivid' | 'muted'): DataColor {
@@ -209,7 +212,11 @@ function auditColor(t: string, scheme: 'vivid' | 'muted'): DataColor {
   const fill = hslToHex(h, isNeutral ? 6 : dclamp(s * 0.3, 10, 32), 58);
   const lightBg = hslToHex(h, isNeutral ? 5 : dclamp(s * 0.22, 8, 26), 90);
   const darkBg = hslToHex(h, isNeutral ? 4 : dclamp(s * 0.15, 6, 18), 24);
-  return {fill, fillDark: fill, chip: {
+  // The status trio's LIGHT fill is punched up +12% saturation (hue kept) for a
+  // clearer traffic light; the dark fill stays the desaturated wash (OB-379).
+  const [fh, fs, fl] = rgbToHsl(...hexToRgb(fill));
+  const lightFill = MUTED_STATUS.has(t) ? hslToHex(fh, dclamp(fs + 12, 0, 100), fl) : fill;
+  return {fill: lightFill, fillDark: fill, chip: {
     light: {bg: lightBg, fg: solveFg(lightBg, h, isNeutral ? 6 : dclamp(s * 0.3, 8, 30), 32, -1)},
     dark: {bg: darkBg, fg: solveFg(darkBg, h, isNeutral ? 5 : dclamp(s * 0.2, 6, 22), 78, +1)},
   }};

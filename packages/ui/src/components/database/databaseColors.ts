@@ -9,19 +9,24 @@
  * (`fill="…"`) don't resolve `var()`. Both read the same canonical `SERIES_ORDER`
  * shared with the kit charts, so every surface agrees.
  */
-import type {ChartDatum} from '@book.dev/sdk';
+import type {ChartDatum, DataColorScheme} from '@book.dev/sdk';
+import {DEFAULT_DATA_COLOR_SCHEME} from '@book.dev/sdk';
 import {DATA_DOT_RING, DEFAULT_SWATCH, seriesHex, swatchColor, swatchHex} from '@/lib/dataColorVars';
 
 export {swatchColor, swatchHex, DEFAULT_SWATCH, DATA_DOT_RING};
 
 /**
- * Resolve a chart slice/bar colour to a **concrete hex** (the group's swatch if
- * any, else the canonical series cycle). Concrete rather than a `var()` because
- * db charts paint SVG via the `fill` presentation attribute, which never
- * resolves custom properties.
+ * Resolve a chart slice/bar colour to a **concrete hex** in `scheme` (the
+ * group's swatch if any, else the canonical series cycle). Concrete rather than
+ * a `var()` because db charts paint SVG via the `fill` presentation attribute,
+ * which never resolves custom properties — so the caller threads the active
+ * scheme (from {@link useDataScheme}) for it to recolour live (OB-379).
  */
-export const chartColor = (datum: Pick<ChartDatum, 'color'>, index: number): string =>
-  swatchHex(datum.color) ?? seriesHex(index);
+export const chartColor = (
+  datum: Pick<ChartDatum, 'color'>,
+  index: number,
+  scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME,
+): string => swatchHex(datum.color, scheme) ?? seriesHex(index, scheme);
 
 /** Inline style for a small swatch dot: token fill + the scheme's hairline ring. */
 export const dotStyle = (color: string | undefined | null): {backgroundColor: string; boxShadow: string} => ({

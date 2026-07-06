@@ -14,6 +14,7 @@ import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import type {UseDatabase} from './useDatabase';
 import {chartColor} from './databaseColors';
+import {useDataScheme} from '@/lib/dataScheme';
 
 /** A short numeric label for a bar/slice value (keeps long sums readable). */
 const fmt = (n: number): string => {
@@ -137,6 +138,7 @@ const DrillPanel: React.FC<{db: UseDatabase; drill: NonNullable<Drill>; onClose:
  * and the desktop WKWebView.
  */
 export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
+  const scheme = useDataScheme();
   const [drill, setDrill] = useState<Drill>(null);
   const [hover, setHover] = useState<Hover>(null);
   // The hovered bar/segment, and (from the legend) the hovered series — together
@@ -190,7 +192,7 @@ export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
                         title={`${s.label || '—'}: ${fmt(seg.value)}`}
                         aria-label={`${label}: ${fmt(seg.value)}`}
                         className="h-full cursor-pointer transition-all first:rounded-l last:rounded-r"
-                        style={{width: `${(seg.value / (percent ? g.total || 1 : max)) * 100}%`, backgroundColor: chartColor(s, si), opacity: dimOpacity(lit)}}
+                        style={{width: `${(seg.value / (percent ? g.total || 1 : max)) * 100}%`, backgroundColor: chartColor(s, si, scheme), opacity: dimOpacity(lit)}}
                       />
                     );
                   })
@@ -205,7 +207,7 @@ export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
                       title={fmt(g.total)}
                       aria-label={`${g.label || 'No value'}: ${fmt(g.total)}`}
                       className="h-full cursor-pointer rounded transition-all"
-                      style={{width: `${Math.max(2, (g.total / max) * 100)}%`, backgroundColor: chartColor(g, gi), opacity: dimOpacity(hoverKey === g.key)}}
+                      style={{width: `${Math.max(2, (g.total / max) * 100)}%`, backgroundColor: chartColor(g, gi, scheme), opacity: dimOpacity(hoverKey === g.key)}}
                     />
                   )}
               </div>
@@ -241,29 +243,32 @@ const SeriesLegend: React.FC<{
   onHover: (key: string, h: Hover) => void;
   onLeave: () => void;
   onPick: (title: string, rows: DatabaseRow[]) => void;
-}> = ({series, groups, hoverSeries, onHover, onLeave, onPick}) => (
-  <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 border-t border-border/60 pt-2.5">
-    {series.map((s, si) => {
-      const rows = groups.flatMap((g) => g.segments.find((seg) => seg.seriesKey === s.key)?.rows ?? []);
-      const value = groups.reduce((sum, g) => sum + (g.segments.find((seg) => seg.seriesKey === s.key)?.value ?? 0), 0);
-      return (
-        <button
-          key={s.key}
-          onMouseEnter={() => onHover(s.key, {label: s.label || '—', value})}
-          onMouseLeave={onLeave}
-          onClick={() => onPick(s.label || '—', rows)}
-          className={cn(
-            'flex cursor-pointer items-center gap-1.5 text-xs transition-colors hover:text-foreground',
-            hoverSeries === s.key ? 'text-foreground' : 'text-muted-foreground',
-          )}
-        >
-          <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si)}} />
-          <span className="max-w-[10rem] truncate">{s.label || '—'}</span>
-        </button>
-      );
-    })}
-  </div>
-);
+}> = ({series, groups, hoverSeries, onHover, onLeave, onPick}) => {
+  const scheme = useDataScheme();
+  return (
+    <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 border-t border-border/60 pt-2.5">
+      {series.map((s, si) => {
+        const rows = groups.flatMap((g) => g.segments.find((seg) => seg.seriesKey === s.key)?.rows ?? []);
+        const value = groups.reduce((sum, g) => sum + (g.segments.find((seg) => seg.seriesKey === s.key)?.value ?? 0), 0);
+        return (
+          <button
+            key={s.key}
+            onMouseEnter={() => onHover(s.key, {label: s.label || '—', value})}
+            onMouseLeave={onLeave}
+            onClick={() => onPick(s.label || '—', rows)}
+            className={cn(
+              'flex cursor-pointer items-center gap-1.5 text-xs transition-colors hover:text-foreground',
+              hoverSeries === s.key ? 'text-foreground' : 'text-muted-foreground',
+            )}
+          >
+            <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si, scheme)}} />
+            <span className="max-w-[10rem] truncate">{s.label || '—'}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 /**
  * A pie chart drawn with a CSS `conic-gradient` plus an interactive legend. Each
@@ -273,6 +278,7 @@ const SeriesLegend: React.FC<{
  * legend row hovers for a readout and clicks to drill into its rows.
  */
 export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
+  const scheme = useDataScheme();
   const [drill, setDrill] = useState<Drill>(null);
   const [hover, setHover] = useState<Hover>(null);
   // The slice/legend the pointer is over — drives the slice highlight + readout,
@@ -297,7 +303,7 @@ export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
     const frac = g.total / total;
     const a0 = ga;
     ga += frac * TAU;
-    return {key: `g:${g.key}`, a0, a1: ga, frac, rInner: 0, rOuter: stacked ? RINNER : R, color: chartColor(g, i), label: g.label || '—', value: g.total, rows: g.rows};
+    return {key: `g:${g.key}`, a0, a1: ga, frac, rInner: 0, rOuter: stacked ? RINNER : R, color: chartColor(g, i, scheme), label: g.label || '—', value: g.total, rows: g.rows};
   });
 
   // Outer ring (sunburst): each group's arc subdivided into its breakdown segments.
@@ -312,7 +318,7 @@ export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
           const frac = seg.value / total;
           const a0 = sa;
           sa += frac * TAU;
-          return {key: `s:${g.key}:${seg.seriesKey}`, a0, a1: sa, frac, rInner: RINNER, rOuter: R, color: chartColor(s, si), label: `${g.label || '—'} · ${s.label || '—'}`, value: seg.value, rows: seg.rows};
+          return {key: `s:${g.key}:${seg.seriesKey}`, a0, a1: sa, frac, rInner: RINNER, rOuter: R, color: chartColor(s, si, scheme), label: `${g.label || '—'} · ${s.label || '—'}`, value: seg.value, rows: seg.rows};
         }),
     )
     : [];
@@ -381,7 +387,7 @@ export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
                       hoverKey === gk && 'bg-accent/50',
                     )}
                   >
-                    <span className="h-3 w-3 shrink-0 rounded-sm" style={{backgroundColor: chartColor(g, i)}} />
+                    <span className="h-3 w-3 shrink-0 rounded-sm" style={{backgroundColor: chartColor(g, i, scheme)}} />
                     <span className="min-w-0 flex-1 truncate text-left" title={g.label}>
                       {g.label || '—'}
                     </span>
@@ -412,7 +418,7 @@ export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
                                 hoverKey === sk ? 'bg-accent text-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-hover hover:text-foreground',
                               )}
                             >
-                              <span className="h-2 w-2 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si)}} />
+                              <span className="h-2 w-2 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si, scheme)}} />
                               <span className="max-w-[7rem] truncate">{s.label || '—'}</span>
                               <span className="tabular-nums">{fmt(seg.value)}</span>
                             </button>

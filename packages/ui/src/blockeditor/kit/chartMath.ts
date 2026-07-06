@@ -10,7 +10,7 @@
  *  - `{label: number, …}` (pie/bar/funnel) → labelled values
  */
 
-import {DATA_PALETTE, DEFAULT_DATA_COLOR_SCHEME, SERIES_ORDER} from '@book.dev/sdk';
+import {DATA_PALETTE, DEFAULT_DATA_COLOR_SCHEME, SERIES_ORDER, type DataColorScheme} from '@book.dev/sdk';
 
 export interface Series {
   name: string;
@@ -163,9 +163,14 @@ export function ticks(d: Extent, count = 3): number[] {
 }
 
 /**
- * The kit chart palette: the canonical data-colour `SERIES_ORDER` resolved to
- * concrete fills of the fixed default (pastel) scheme — one source shared with
- * the database charts and the export runtime (OB-378). Concrete hex (not a
- * `var()`) because the charts paint via the SVG `fill` presentation attribute.
+ * The kit chart palette for a scheme: the canonical data-colour `SERIES_ORDER`
+ * resolved to concrete fills — one source shared with the database charts and
+ * the export runtime (OB-378). Concrete hex (not a `var()`) because the charts
+ * paint via the SVG `fill` presentation attribute. The kit chart block passes
+ * the active scheme from {@link useDataScheme} so it recolours live (OB-379).
  */
-export const PALETTE = SERIES_ORDER.map((t) => DATA_PALETTE[DEFAULT_DATA_COLOR_SCHEME][t].fill);
+export const paletteFor = (scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME): string[] =>
+  SERIES_ORDER.map((t) => DATA_PALETTE[scheme][t].fill);
+
+/** The default (pastel) kit chart palette — provider-less / test convenience. */
+export const PALETTE = paletteFor(DEFAULT_DATA_COLOR_SCHEME);

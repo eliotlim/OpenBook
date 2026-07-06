@@ -75,6 +75,18 @@ export default function AppearanceSettings() {
         />
       </Field>
 
+      <Field label={t('appearance.dataColors')} hint={t('appearance.dataColorsHint')}>
+        <Segmented
+          options={[
+            {value: 'pastel', label: t('appearance.dataColorsPastel')},
+            {value: 'vivid', label: t('appearance.dataColorsVivid')},
+            {value: 'muted', label: t('appearance.dataColorsMuted')},
+          ]}
+          value={appearance.dataColors}
+          onChange={(dataColors) => setAppearance({dataColors})}
+        />
+      </Field>
+
       <label className="flex cursor-pointer items-center justify-between gap-4">
         <span className="flex flex-col gap-1">
           <span className="text-sm font-medium">{t('appearance.blurOverlays')}</span>
