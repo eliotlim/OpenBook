@@ -42,6 +42,7 @@ import type {BackupController} from './backups';
 import type {RosterController} from './rosterSync';
 import type {AppEnv} from './appEnv';
 import type {AiService} from './ai/service';
+import type {AiUsageLog} from './ai/usage';
 
 /**
  * Build the Hono app over a page store. Routes implement the shared
@@ -198,6 +199,14 @@ export interface AppOptions {
    * the in-browser client) ⇒ the hatch is inert.
    */
   localOwnerSecret?: string;
+  /**
+   * The server-managed AI usage-attribution log (C1). When provided, the AI
+   * routes log a usage row per model call through it, and the database write
+   * routes reject end-user create-row / update-row / patch / delete against its
+   * managed database (only the server's own attribution writes land). Seeded and
+   * owned by the caller (`startServer`); omitted in tests / the in-webview store.
+   */
+  aiUsage?: AiUsageLog;
 }
 
 /**
@@ -404,9 +413,24 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     });
   };
 
+  // The server-managed AI usage database (C1) is read-only over the API. The
+  // DB-route guard (`rejectManaged`, below) covers `/api/databases/*`, but its
+  // host page and attribution rows are ordinary pages reachable through the generic
+  // `/api/pages/*` routes — so an owner/admin could otherwise delete rows, trash the
+  // host, un-restrict it (exposing every user's usage), re-home it, or grant it an
+  // ACL. This mirrors `rejectManaged` for a PAGE id and is called AFTER the access
+  // gate, so a non-reader still gets an existence-hiding 404 and only a would-be
+  // mutator sees the managed 403. Server-internal store calls (the seed, attribution
+  // writes, the auto-expiry sweep) never pass through here, so they're untouched.
+  const rejectManagedPage = async (pageId: string): Promise<void> => {
+    if (await opts.aiUsage?.isManagedPage(pageId)) {
+      throw new HTTPException(403, {message: 'this page is server-managed and cannot be edited via the API'});
+    }
+  };
+
   // Optional local-AI subsystem (status/search/generate). Mounted only when
   // the host passed a service; document APIs never depend on it.
-  if (ai) mountAiRoutes(app, ai, store, broadcastList);
+  if (ai) mountAiRoutes(app, ai, store, broadcastList, opts.aiUsage);
   mountPluginRoutes(app, store);
 
   app.get(API.health, (c) => c.text('ok'));
@@ -426,6 +450,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     } else {
       await requireCreate(c, store);
     }
+    // A POST carrying a managed usage page's id is an upsert onto it (ON CONFLICT →
+    // name+data overwrite), so gate it like the other page routes. Placed after the
+    // access gate: a would-be mutator (reader, or a create-capable guest whose upsert
+    // would otherwise clobber the managed host/row) sees the managed 403; a normal
+    // create/update is untouched (isManagedPage is false for any other id).
+    if (input.id) await rejectManagedPage(input.id);
     // ER-7: a keyless create carrying an `input.idempotencyKey` is deduped
     // per-principal inside `upsertPage` — a retried/replayed POST returns the page
     // the first call minted instead of a duplicate. The key is scoped to this
@@ -448,6 +478,9 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.put(`${API.pages}/:id`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));
+    // A managed usage page (host or attribution row) can't be renamed/body-overwritten
+    // via upsert either — after the access gate so a non-reader stays 404 (see PATCH).
+    await rejectManagedPage(c.req.param('id'));
     const input = await c.req.json<PageInput>();
     input.id = c.req.param('id');
     const page = await store.upsertPage(input, c.get('principal'));
@@ -460,6 +493,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.patch(`${API.pages}/:id`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));
+    await rejectManagedPage(c.req.param('id'));
     const body = await c.req.json<{name?: string | null}>();
     const page = await store.renamePage(c.req.param('id'), body.name ?? null);
     if (!page) return c.json({error: 'page not found'}, 404);
@@ -474,6 +508,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // the owning database's rows when the page is a row.
   app.patch(`${API.pages}/:id/properties`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));
+    await rejectManagedPage(c.req.param('id'));
     const body = await c.req.json<{properties?: Record<string, unknown>}>();
     const page = await store.setPageProperties(c.req.param('id'), body.properties ?? {});
     if (!page) return c.json({error: 'page not found'}, 404);
@@ -777,6 +812,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.put(`${API.pages}/:id/move`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
     const body = await c.req.json<{parentId?: string | null; orderedIds?: string[]}>();
     const existing = await store.getPage(id);
     if (!existing) return c.json({error: 'page not found'}, 404);
@@ -793,6 +829,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.delete(`${API.pages}/:id`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
     // Learn the page's database membership before it's gone, so we can refresh
     // the owning database's row list after the delete.
     const existing = await store.getPage(id);
@@ -1024,6 +1061,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.post(`${API.pages}/:id/acl`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
     const body = await c.req.json<{invitee?: string; level?: AclLevel}>();
     const resolved = await resolveInvitee(body.invitee ?? '', opts.handleResolver);
     const grant = await store.setPageAcl(id, {
@@ -1039,6 +1077,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.delete(`${API.pages}/:id/acl`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
     const subject = c.req.query('subject');
     const email = c.req.query('email');
     if (!subject && !email) return c.json({error: 'a subject or email query param is required'}, 400);
@@ -1060,6 +1099,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.put(`${API.pages}/:id/visibility`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
     const {visibility} = await c.req.json<{visibility?: PageVisibility}>();
     if (!visibility || !PAGE_VISIBILITIES.includes(visibility)) {
       return c.json({error: 'a valid visibility scope is required'}, 400);
@@ -1156,6 +1196,17 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   // ── Databases ──────────────────────────────────────────────────────────────
 
+  // The server-managed AI usage database (C1) is read-only over the API: reject
+  // end-user create-row / update-row / patch / delete / reorder against it. Called
+  // AFTER the access gate, so a non-reader still gets an existence-hiding 404 and
+  // only someone who could otherwise write sees the managed 403. The server's own
+  // attribution writes go straight through the store, bypassing these routes.
+  const rejectManaged = (databaseId: string): void => {
+    if (opts.aiUsage?.isManagedDatabase(databaseId)) {
+      throw new HTTPException(403, {message: 'this database is server-managed and cannot be edited via the API'});
+    }
+  };
+
   app.post(API.databases, async (c) => {
     const input = await c.req.json<DatabaseInput>();
     // Hosting a database on a page is a write to that page.
@@ -1178,6 +1229,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.patch(`${API.databases}/:id`, async (c) => {
     await requireDbAccess(c, store, 'write', c.req.param('id'));
+    rejectManaged(c.req.param('id'));
     const patch = await c.req.json<DatabaseUpdate>();
     const database = await store.updateDatabase(c.req.param('id'), patch);
     if (!database) return c.json({error: 'database not found'}, 404);
@@ -1189,6 +1241,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.delete(`${API.databases}/:id`, async (c) => {
     const id = c.req.param('id');
     await requireDbAccess(c, store, 'write', id);
+    rejectManaged(id);
     const database = await store.getDatabase(id);
     const deleted = await store.deleteDatabase(id);
     if (!deleted) return c.json({error: 'database not found'}, 404);
@@ -1215,6 +1268,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.post(`${API.databases}/:id/rows`, async (c) => {
     const id = c.req.param('id');
     await requireDbAccess(c, store, 'write', id);
+    rejectManaged(id);
     const input = await c.req.json<RowInput>().catch(() => ({}) as RowInput);
     const page = await store.createRow(id, input, c.get('principal'));
     hub.publishPage(page);
@@ -1226,6 +1280,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.put(`${API.databases}/:id/rows/order`, async (c) => {
     const id = c.req.param('id');
     await requireDbAccess(c, store, 'write', id);
+    rejectManaged(id);
     const {orderedIds} = await c.req.json<{orderedIds: string[]}>();
     await store.reorderRows(id, orderedIds ?? []);
     await broadcastRows(id);
@@ -1236,6 +1291,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const id = c.req.param('id');
     // A row is a page; gate write on the row itself (it may carry its own ACL).
     await requireAccess(c, store, 'write', c.req.param('rowId'));
+    rejectManaged(id);
     const body = await c.req.json<{name?: string | null; properties?: Record<string, unknown>}>();
     const row = await store.updateRow(id, c.req.param('rowId'), body);
     if (!row) return c.json({error: 'row not found'}, 404);

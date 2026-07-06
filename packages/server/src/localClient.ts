@@ -1,6 +1,8 @@
 import type {
   AclLevel,
   AiConfig,
+  AiPricingResponse,
+  AiPricingTable,
   AiSearchResponse,
   AiSkill,
   AiStatus,
@@ -589,6 +591,19 @@ export class LocalDataClient implements DataClient {
 
   aiDeleteSkill(): Promise<boolean> {
     return Promise.resolve(false);
+  }
+
+  // No hosted engine in local in-app mode → no usage attribution to price.
+  getAiPricing(): Promise<AiPricingResponse> {
+    return Promise.resolve({default: {}, override: {}, effective: {}});
+  }
+
+  setAiPricing(override: AiPricingTable): Promise<AiPricingResponse> {
+    return Promise.resolve({default: {}, override, effective: override});
+  }
+
+  setAiUsageRetention(days: number): Promise<{days: number}> {
+    return Promise.resolve({days});
   }
 
   private aiUnavailable(): Error {

@@ -42,6 +42,15 @@ import type {Db} from './dbCore';
 import {runMigrations} from './migrations';
 
 /**
+ * The `settings` key holding `{databaseId, hostPageId}` for the server-managed AI
+ * usage DB (C1). Mirrors `USAGE_DB_KEY` in `./ai/usage`, duplicated here on purpose:
+ * `store.ts` is bundled into `@book.dev/server/browser` (which must carry NO Node
+ * imports), and `./ai/usage` transitively pulls in `./ai/providers` → `node:*`. The
+ * import-overwrite guard test keeps the two literals in sync.
+ */
+const USAGE_DB_SETTING_KEY = 'aiUsageDb';
+
+/**
  * Thrown by {@link PageStore.putAsset} when storing a NEW asset would push the
  * instance's total asset bytes past the configured storage budget (Assets A6).
  * A byte-identical re-upload of already-stored content never throws — it adds no
@@ -436,6 +445,15 @@ export class PageStore {
     //    transactions; on real Postgres the unique-index lock on `import_log.key`
     //    makes the loser block on the winner, then dedupe. A genuinely *distinct*
     //    bundle hashes differently and imports normally.
+    // C1: a workspace restore must never rewrite the server-managed AI usage DB.
+    // A crafted overwrite bundle could otherwise re-home / rewrite its attribution
+    // rows (user/cost/tokens), its restricted host page, or the database itself —
+    // bypassing the `/api/pages` + `/api/databases` managed write-gates (an
+    // audit-integrity tamper, even for an admin). Load the managed ids here so the
+    // dispatch below can strip any bundle entry that targets them. Read from
+    // `settings` BEFORE the transaction (the ids are seeded once at startup and
+    // stable); reading inside would re-enter the PGlite mutex the tx already holds.
+    const managedUsage = await this.getSetting<{databaseId: string; hostPageId: string | null}>(USAGE_DB_SETTING_KEY);
     const key = await bundleKey(req);
     return this.db.begin(async (tx) => {
       const claim = await tx.query<{key: string}>(
@@ -448,15 +466,19 @@ export class PageStore {
         const recorded = parseJson<ImportResult>(prior[0]?.result, {created: 0, overwritten: 0, renamed: 0, idMap: {}});
         return {...recorded, deduped: true};
       }
+      // Drop any bundle entry that targets the server-managed AI usage DB before it
+      // reaches the writers — so overwrite mode can't tamper with the audit rows and
+      // recordSyncedAttributionTx never credits a skipped (managed) page.
+      const {pages, databases} = await this.stripManagedUsage(tx, req.pages, req.databases, managedUsage);
       const result =
         req.mode === 'overwrite'
-          ? await this.importOverwriteTx(tx, req.pages, req.databases)
-          : await this.importCopyTx(tx, req.pages, req.databases);
+          ? await this.importOverwriteTx(tx, pages, databases)
+          : await this.importCopyTx(tx, pages, databases);
       // OB-170: a page may carry verified per-block authorship from the instance it
       // was authored on. Credit that as a `synced` edit-log entry — in the SAME
       // transaction so a crash can't leave the claimed key committed without its
       // attribution (which a later re-apply would then skip as `deduped`, losing it).
-      await this.recordSyncedAttributionTx(tx, req.pages, result.idMap);
+      await this.recordSyncedAttributionTx(tx, pages, result.idMap);
       await tx.query('UPDATE import_log SET result = $2::jsonb WHERE key = $1', [key, JSON.stringify(result)]);
       return result;
     });
@@ -493,6 +515,40 @@ export class PageStore {
         summary: 'attributed from a synced edit',
       });
     }
+  }
+
+  /**
+   * Strip every bundle entry that targets the server-managed AI usage DB (C1),
+   * mirroring {@link AiUsageLog.isManagedPage} against the CURRENT store state (not
+   * the bundle's own untrusted claim). Dropped are:
+   *  - the usage DB's restricted host page (by id);
+   *  - any page CLAIMING to belong to the usage DB (`databaseId === usageDbId`) —
+   *    an overwrite bundle could otherwise inject a forged attribution row;
+   *  - any page whose id currently IS an attribution row (its stored `database_id`
+   *    is the usage DB) — even when the bundle re-homes it elsewhere, so a rewrite /
+   *    detach of a real row is blocked;
+   *  - the usage database itself (by id), so its schema (managed marker, retention)
+   *    and host page can't be re-homed.
+   * A normal (non-managed) page/database in the same bundle is untouched, and when
+   * no usage DB is seeded this is a no-op. Server-internal writes (seed, attribution,
+   * the auto-expiry sweep) never flow through import, so they stay unaffected.
+   */
+  private async stripManagedUsage(
+    tx: Db,
+    pages: StoredPage[],
+    databases: StoredDatabase[],
+    managed: {databaseId: string; hostPageId: string | null} | null,
+  ): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
+    if (!managed?.databaseId) return {pages, databases};
+    const kept: StoredPage[] = [];
+    for (const p of pages) {
+      if (p.id === managed.hostPageId) continue;
+      if (p.databaseId === managed.databaseId) continue;
+      const cur = await tx.query<{database_id: string | null}>('SELECT database_id FROM pages WHERE id = $1', [p.id]);
+      if (cur[0]?.database_id === managed.databaseId) continue;
+      kept.push(p);
+    }
+    return {pages: kept, databases: databases.filter((d) => d.id !== managed.databaseId)};
   }
 
   private async importCopyTx(tx: Db, pages: StoredPage[], databases: StoredDatabase[]): Promise<ImportResult> {
@@ -1613,6 +1669,29 @@ export class PageStore {
         [cap],
       );
     return rows.map(editFromRow);
+  }
+
+  // ── Generic settings key/value ───────────────────────────────────────────────
+  //
+  // Small JSON blobs keyed by name in the `settings` table (the same table the AI
+  // config, instance policy, and backups config use). Used by subsystems that need
+  // a bit of durable state without their own table — e.g. the AI usage-attribution
+  // log (its managed database id + the admin pricing override).
+
+  /** Read a JSON settings value by key, or `null` when unset. */
+  async getSetting<T>(key: string): Promise<T | null> {
+    const rows = await this.db.query<{value: T | string}>('SELECT value FROM settings WHERE key = $1', [key]);
+    if (rows.length === 0) return null;
+    return parseJson<T | null>(rows[0].value, null);
+  }
+
+  /** Upsert a JSON settings value by key. */
+  async setSetting(key: string, value: unknown): Promise<void> {
+    await this.db.query(
+      `INSERT INTO settings (key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [key, JSON.stringify(value)],
+    );
   }
 
   /** The instance's multi-user policy (guest gate + trusted issuers), with

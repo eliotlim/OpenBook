@@ -1,20 +1,39 @@
 import {Hono, type Context} from 'hono';
 import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
-import {API, isPaidProvider, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiProvider, type AiSkill, type PluginAgentTool} from '@book.dev/sdk';
+import {API, isPaidProvider, providerSettings, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiPricingTable, type AiProvider, type AiSkill, type PluginAgentTool, type Principal} from '@book.dev/sdk';
 import type {PageStore} from '../store';
 import type {AppEnv} from '../appEnv';
-import {requireCreate} from '../access';
+import {requireCreate, requireInstanceAdmin} from '../access';
 import {AgentRunner, type AgentMessage} from './agent';
 import type {AiService} from './service';
+import type {TokenUsage} from './providers';
+import type {AiUsageLog, UsageKind} from './usage';
 
 /**
  * The `/api/ai/*` surface. Generation endpoints stream tokens as SSE
  * (`data: {"token": "..."}` frames, closed by `data: {"done": true}`);
  * everything else is plain JSON. Engine failures return 503 with a
  * human-readable `error` so the UI can guide the user to Settings → AI.
+ *
+ * `aiUsage` (when provided) is the server-managed usage-attribution log: each
+ * generate / complete / agent-turn writes ONE row through it. Best-effort — a
+ * logging failure never breaks the request.
  */
-export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore, onPagesChanged?: () => Promise<void>): void {
+export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore, onPagesChanged?: () => Promise<void>, aiUsage?: AiUsageLog): void {
+  /**
+   * Log a single generate/complete usage row against the effective provider/model.
+   * Best-effort (the logger swallows its own errors); does nothing without a logger
+   * or without captured usage.
+   */
+  const logUsage = async (kind: UsageKind, principal: Principal, usage: TokenUsage | undefined): Promise<void> => {
+    if (!aiUsage || !usage) return;
+    const config = await ai.getConfig();
+    const provider = config.provider;
+    const model = providerSettings(config, provider).model ?? '';
+    await aiUsage.log({provider, model, kind, usage, principal});
+  };
+
   app.get(API.aiStatus, async (c) => {
     // The instance's PAID-PROVIDER API KEYS never leave the server. Inference runs
     // entirely server-side, so NO client (writer/owner/loopback included) needs the
@@ -84,39 +103,51 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     const {prompt, system, maxTokens} = (await c.req.json()) as {prompt?: string; system?: string; maxTokens?: number};
     if (!prompt?.trim()) return c.json({error: 'prompt is required'}, 400);
     await requirePaidInferenceAccess(c, store, (await ai.getConfig()).provider);
+    const principal = c.get('principal');
     return streamSSE(c, async (stream) => {
       const abort = new AbortController();
       stream.onAbort(() => abort.abort());
+      let usage: TokenUsage | undefined;
       try {
         await ai.generate(prompt, {
           system,
           maxTokens,
           signal: abort.signal,
           onToken: (token) => void stream.writeSSE({data: JSON.stringify({token})}),
+          onUsage: (u) => {
+            usage = u;
+          },
         });
         await stream.writeSSE({data: JSON.stringify({done: true})});
       } catch (err) {
         await stream.writeSSE({data: JSON.stringify({error: err instanceof Error ? err.message : String(err)})});
       }
+      await logUsage('generate', principal, usage);
     });
   });
 
   app.post(API.aiComplete, async (c) => {
     const {text, instruction} = (await c.req.json()) as {text?: string; instruction?: string};
     await requirePaidInferenceAccess(c, store, (await ai.getConfig()).provider);
+    const principal = c.get('principal');
     return streamSSE(c, async (stream) => {
       const abort = new AbortController();
       stream.onAbort(() => abort.abort());
+      let usage: TokenUsage | undefined;
       try {
         await ai.complete(text ?? '', instruction, {
           signal: abort.signal,
           maxTokens: 400,
           onToken: (token) => void stream.writeSSE({data: JSON.stringify({token})}),
+          onUsage: (u) => {
+            usage = u;
+          },
         });
         await stream.writeSSE({data: JSON.stringify({done: true})});
       } catch (err) {
         await stream.writeSSE({data: JSON.stringify({error: err instanceof Error ? err.message : String(err)})});
       }
+      await logUsage('complete', principal, usage);
     });
   });
 
@@ -180,7 +211,7 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     // Thread the request principal so the agent's autonomous read/write tools are
     // bounded by the SAME per-page/ACL decisions the content routes enforce — the
     // runner can't be driven to read/edit pages this caller can't (OB-190 follow-up).
-    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, context, allowDirectEdits: body.allowDirectEdits === true, onPagesChanged, principal: c.get('principal')});
+    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, context, allowDirectEdits: body.allowDirectEdits === true, onPagesChanged, principal: c.get('principal'), usage: aiUsage});
     return streamSSE(c, async (stream) => {
       const abort = new AbortController();
       stream.onAbort(() => abort.abort());
@@ -215,6 +246,36 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     await requireCreate(c, store);
     const removed = await ai.skills.remove(c.req.param('name') ?? '');
     return c.json({removed});
+  });
+
+  // ── Usage-attribution pricing + retention (admin only) ──────────────────────
+  // The pricing table (default + admin override merged) drives the `cost_usd`
+  // snapshotted onto every usage row. Editing it — and the usage DB's retention
+  // window — is instance ADMINISTRATION (owner/admin), stricter than the plain
+  // writer gate: an acl-write member must not be able to reprice or re-retention.
+  app.get(API.aiPricing, async (c) => {
+    await requireInstanceAdmin(c, store);
+    if (!aiUsage) return c.json({default: {}, override: {}, effective: {}});
+    return c.json(await aiUsage.pricing());
+  });
+
+  app.put(API.aiPricing, async (c) => {
+    await requireInstanceAdmin(c, store);
+    if (!aiUsage) return c.json({error: 'usage attribution is not available'}, 503);
+    const override = (await c.req.json().catch(() => ({}))) as AiPricingTable;
+    return c.json(await aiUsage.setPricingOverride(override));
+  });
+
+  app.put(API.aiUsageRetention, async (c) => {
+    await requireInstanceAdmin(c, store);
+    if (!aiUsage) return c.json({error: 'usage attribution is not available'}, 503);
+    const {days} = (await c.req.json().catch(() => ({}))) as {days?: number};
+    if (typeof days !== 'number' || !Number.isFinite(days)) return c.json({error: 'days must be a number'}, 400);
+    try {
+      return c.json(await aiUsage.setRetentionDays(days));
+    } catch (err) {
+      return c.json({error: err instanceof Error ? err.message : String(err)}, 503);
+    }
   });
 }
 

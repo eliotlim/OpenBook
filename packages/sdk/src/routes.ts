@@ -107,6 +107,12 @@ export const API = {
   aiSkills: '/api/ai/skills',
   /** One skill by name: `DELETE`. */
   aiSkill: (name: string) => `/api/ai/skills/${encodeURIComponent(name)}`,
+  /** Usage-attribution pricing (admin only): `GET` (default+override merged) /
+   *  `PUT` `{[provider]:{[model]:{inputPerMtok,outputPerMtok}}}` (set override). */
+  aiPricing: '/api/ai/pricing',
+  /** Admin retention setter for the AI usage database: `PUT` `{days}` → updates
+   *  the usage DB's auto-expiry window. */
+  aiUsageRetention: '/api/ai/usage/retention',
   plugins: '/api/plugins',
   plugin: (id: string) => `/api/plugins/${id}`,
 

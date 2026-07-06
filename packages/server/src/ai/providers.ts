@@ -32,6 +32,31 @@ export interface NativeToolCall {
   args: Record<string, unknown>;
 }
 
+/**
+ * Token accounting surfaced by an engine's {@link AiEngine.generate}. Real
+ * counts where the provider reports them (Anthropic SSE usage frames, an
+ * OpenAI-compatible final usage chunk), a best-effort local tokenize for
+ * llama.cpp, and deterministic numbers for the mock engine (so tests can assert
+ * exact values). `cache*` are populated only when the provider reports them
+ * (Anthropic prompt caching). The routes and the agent tool-loop log ONE usage
+ * row per generate call from this (see `ai/usage.ts`).
+ */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  /** Prompt-cache read tokens, when the provider reports them (Anthropic). */
+  cacheReadTokens?: number;
+  /** Prompt-cache write/creation tokens, when the provider reports them (Anthropic). */
+  cacheWriteTokens?: number;
+}
+
+/** Deterministic whitespace token estimate — used by the mock engine and as a
+ *  best-effort fallback. Stable so tests can compute exact expected counts. */
+export function estimateTokens(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
 export interface GenerateOptions {
   system?: string;
   maxTokens?: number;
@@ -49,6 +74,13 @@ export interface GenerateOptions {
   /** Called with any native tool calls the model emitted this turn. */
   onToolCalls?: (calls: NativeToolCall[]) => void;
   onToken: (token: string) => void;
+  /**
+   * Called once, after the turn completes, with the turn's token accounting
+   * (input/output, plus cache tokens where the provider reports them). The
+   * routes + agent loop use this to log a usage-attribution row per model call.
+   * Best-effort: an engine that can't surface counts simply never calls it.
+   */
+  onUsage?: (usage: TokenUsage) => void;
   signal?: AbortSignal;
 }
 
@@ -121,6 +153,12 @@ export class MockEngine implements AiEngine {
       opts.onToken(token);
       await new Promise((r) => setTimeout(r, 2));
     }
+    // Deterministic usage (whitespace token estimate over the prompt + system and
+    // the produced output) so attribution tests can assert exact numbers.
+    opts.onUsage?.({
+      inputTokens: estimateTokens(prompt) + estimateTokens(opts.system ?? ''),
+      outputTokens: estimateTokens(out),
+    });
     return out;
   }
 
@@ -206,6 +244,10 @@ export class OpenAiCompatEngine implements AiEngine {
       body: JSON.stringify({
         model: this.model || 'default',
         stream: true,
+        // Ask the server for a trailing usage chunk (prompt/completion tokens).
+        // OpenAI + most compatible servers (mlx_lm, vLLM, llama-server) honour it;
+        // ones that don't simply omit the chunk and usage stays best-effort.
+        stream_options: {include_usage: true},
         max_tokens: opts.maxTokens ?? 512,
         temperature: opts.temperature ?? 0.7,
         ...(useTools
@@ -227,6 +269,7 @@ export class OpenAiCompatEngine implements AiEngine {
     if (!res.ok || !res.body) throw new Error(`Generation failed: HTTP ${res.status}`);
 
     let full = '';
+    let usage: TokenUsage | undefined;
     // Native tool-call fragments accumulate by index across deltas.
     const toolAcc = new Map<number, {id: string; name: string; args: string}>();
     const reader = res.body.getReader();
@@ -251,7 +294,13 @@ export class OpenAiCompatEngine implements AiEngine {
                 tool_calls?: Array<{index?: number; id?: string; function?: {name?: string; arguments?: string}}>;
               };
             }>;
+            /** Trailing usage chunk (stream_options.include_usage). */
+            usage?: {prompt_tokens?: number; completion_tokens?: number};
           };
+          // The final usage chunk carries the whole-request token counts.
+          if (parsed.usage) {
+            usage = {inputTokens: parsed.usage.prompt_tokens ?? 0, outputTokens: parsed.usage.completion_tokens ?? 0};
+          }
           const delta = parsed.choices?.[0]?.delta;
           // Out-of-band reasoning → wrap so the splitter routes it to the
           // reasoning channel (it's never document content).
@@ -292,6 +341,7 @@ export class OpenAiCompatEngine implements AiEngine {
       }
       if (calls.length > 0) opts.onToolCalls(calls);
     }
+    if (usage) opts.onUsage?.(usage);
     return full;
   }
 
@@ -455,12 +505,30 @@ export class LlamaEngine implements AiEngine {
         contextSequence: context.getSequence(),
         systemPrompt: opts.system,
       });
-      return await session.prompt(prompt, {
+      const out = await session.prompt(prompt, {
         maxTokens: opts.maxTokens ?? 512,
         temperature: opts.temperature ?? 0.7,
         signal: opts.signal,
         onTextChunk: (chunk: string) => opts.onToken(chunk),
       });
+      // Best-effort local token counts via the model's own tokenizer; fall back to
+      // 0 if unavailable. Local inference is free (priced at 0), so precise counts
+      // aren't load-bearing for cost — they're logged for volume attribution only.
+      if (opts.onUsage) {
+        let inputTokens = 0;
+        let outputTokens = 0;
+        try {
+          const model = this.model as {tokenize?: (t: string) => {length: number}};
+          if (typeof model.tokenize === 'function') {
+            inputTokens = model.tokenize(prompt).length + (opts.system ? model.tokenize(opts.system).length : 0);
+            outputTokens = model.tokenize(out).length;
+          }
+        } catch {
+          // tokenizer unavailable — leave at 0
+        }
+        opts.onUsage({inputTokens, outputTokens});
+      }
+      return out;
     } finally {
       await context.dispose();
     }
@@ -566,6 +634,14 @@ export class AnthropicEngine implements AiEngine {
 
     let full = '';
     let streamError: string | undefined;
+    // Token accounting from the SSE usage frames: `message_start` carries the
+    // input (+ cache) counts and a seed output; each `message_delta` updates the
+    // cumulative output. We keep the latest of each.
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheWriteTokens = 0;
+    let sawUsage = false;
     // Tool-use blocks accumulate their streamed JSON input by block index.
     const toolAcc = new Map<number, {id: string; name: string; args: string}>();
     const reader = res.body.getReader();
@@ -587,8 +663,22 @@ export class AnthropicEngine implements AiEngine {
             index?: number;
             content_block?: {type?: string; id?: string; name?: string};
             delta?: {type?: string; text?: string; thinking?: string; partial_json?: string};
+            message?: {usage?: {input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number}};
+            usage?: {output_tokens?: number};
             error?: {message?: string};
           };
+          if (ev.type === 'message_start' && ev.message?.usage) {
+            const u = ev.message.usage;
+            inputTokens = u.input_tokens ?? 0;
+            outputTokens = u.output_tokens ?? 0;
+            cacheReadTokens = u.cache_read_input_tokens ?? 0;
+            cacheWriteTokens = u.cache_creation_input_tokens ?? 0;
+            sawUsage = true;
+          } else if (ev.type === 'message_delta' && ev.usage) {
+            // Cumulative output-token count for the message.
+            outputTokens = ev.usage.output_tokens ?? outputTokens;
+            sawUsage = true;
+          }
           if (ev.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
             toolAcc.set(ev.index ?? 0, {id: ev.content_block.id ?? '', name: ev.content_block.name ?? '', args: ''});
           } else if (ev.type === 'content_block_delta') {
@@ -628,6 +718,14 @@ export class AnthropicEngine implements AiEngine {
     }
     // A mid-stream error with nothing produced is a real failure; surface it.
     if (streamError && !full && toolAcc.size === 0) throw new Error(`Anthropic: ${streamError}`);
+    if (sawUsage) {
+      opts.onUsage?.({
+        inputTokens,
+        outputTokens,
+        ...(cacheReadTokens ? {cacheReadTokens} : {}),
+        ...(cacheWriteTokens ? {cacheWriteTokens} : {}),
+      });
+    }
     return full;
   }
 
