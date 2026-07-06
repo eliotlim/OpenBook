@@ -24,6 +24,7 @@
 
 import {
   emptyPageSnapshot,
+  type AiModelPrice,
   type AiPricingResponse,
   type AiPricingTable,
   type AiProvider,
@@ -110,6 +111,8 @@ const FREE_PROVIDERS = new Set<AiProvider>(['off', 'mock', 'llama', 'mlx']);
  */
 export class AiUsageLog {
   private usageDbId: string | null = null;
+  /** The usage DB's host page id — tracked so the generic page routes can guard it. */
+  private hostPageId: string | null = null;
   private seeded = false;
   private seeding: Promise<void> | null = null;
   private override: AiPricingTable | null = null;
@@ -121,9 +124,30 @@ export class AiUsageLog {
     return this.usageDbId;
   }
 
+  /** The seeded usage DB's host page id (once {@link ensureSeeded} has run), else null. */
+  get hostPage(): string | null {
+    return this.hostPageId;
+  }
+
   /** True for the server-managed usage database — the API write-gate for it. */
   isManagedDatabase(databaseId: string): boolean {
     return this.usageDbId !== null && databaseId === this.usageDbId;
+  }
+
+  /**
+   * True for a page that belongs to the server-managed usage DB — its host page,
+   * or any of its attribution rows (a row is a page tagged with the usage DB's
+   * `database_id`). The API page-route write-gate keys off this so an owner/admin
+   * can't delete rows, trash the host, un-restrict it, re-home it, or grant it an
+   * ACL through the generic `/api/pages/*` routes (which the DB-route guard misses).
+   * Server-internal store calls (the seed, attribution writes, the auto-expiry
+   * sweep) never pass through here, so they stay unaffected.
+   */
+  async isManagedPage(pageId: string): Promise<boolean> {
+    if (this.usageDbId === null) return false;
+    if (this.hostPageId !== null && pageId === this.hostPageId) return true;
+    const page = await this.store.getPage(pageId);
+    return page?.databaseId === this.usageDbId;
   }
 
   /**
@@ -147,16 +171,21 @@ export class AiUsageLog {
         const db = await this.store.getDatabase(recorded.databaseId);
         if (db) {
           this.usageDbId = recorded.databaseId;
+          this.hostPageId = recorded.hostPageId ?? null;
           this.seeded = true;
           return;
         }
         // Recorded but gone (purged externally): fall through and recreate.
       }
       const host = await this.store.upsertPage({name: USAGE_DB_TITLE, data: emptyPageSnapshot()});
-      const database = await this.store.createDatabase({pageId: host.id, name: USAGE_DB_TITLE, schema: buildUsageSchema()});
-      // Restricted host ⇒ only owner / admin / ACL may read (see authorize()).
+      // Restrict the host BEFORE it hosts the database — so the usage DB's host page
+      // is never briefly world-readable. (The seed also runs before the server binds
+      // its listener, so there is no request-serving window either way.) Restricted ⇒
+      // only owner / admin / ACL may read (see authorize()).
       await this.store.setPageVisibility(host.id, 'restricted');
+      const database = await this.store.createDatabase({pageId: host.id, name: USAGE_DB_TITLE, schema: buildUsageSchema()});
       this.usageDbId = database.id;
+      this.hostPageId = host.id;
       await this.store.setSetting(USAGE_DB_KEY, {databaseId: database.id, hostPageId: host.id});
       this.seeded = true;
     } catch (err) {
@@ -180,9 +209,15 @@ export class AiUsageLog {
     return {default: DEFAULT_PRICING, override, effective: mergePricing(DEFAULT_PRICING, override)};
   }
 
-  /** Persist a new admin pricing override; returns the merged view. */
+  /**
+   * Persist a new admin pricing override; returns the merged view. The incoming
+   * table is SANITIZED first ({@link sanitizePricingOverride}): every model entry
+   * must carry finite, non-negative `input`/`output` prices (optional `cache*`
+   * prices likewise), else the entry is dropped — a bad admin PUT can never
+   * snapshot a `NaN`/negative `cost_usd` onto a usage row.
+   */
   async setPricingOverride(override: AiPricingTable): Promise<AiPricingResponse> {
-    const clean = override && typeof override === 'object' ? override : {};
+    const clean = sanitizePricingOverride(override);
     await this.store.setSetting(PRICING_KEY, clean);
     this.override = clean;
     return {default: DEFAULT_PRICING, override: clean, effective: mergePricing(DEFAULT_PRICING, clean)};
@@ -269,6 +304,57 @@ export class AiUsageLog {
 function formatUser(principal: Principal): string {
   const subject = principal.subject || principal.kind || 'unknown';
   return principal.name ? `${subject} (${principal.name})` : subject;
+}
+
+/**
+ * Coerce one admin-supplied price to a finite, non-negative number, or null when
+ * it is missing / non-numeric / negative (so it can never snapshot a bad cost).
+ * A numeric string ("5") is coerced; anything else (NaN, Infinity, "abc", -1) is
+ * rejected.
+ */
+function finitePrice(raw: unknown): number | null {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' && raw.trim() !== '' ? Number(raw) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Sanitize one model's price entry: both `inputPerMtok` and `outputPerMtok` are
+ * required and must validate, else the whole entry is dropped (null). Optional
+ * `cache*` prices are kept only when they validate.
+ */
+function sanitizePrice(raw: unknown): AiModelPrice | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const inputPerMtok = finitePrice(r.inputPerMtok);
+  const outputPerMtok = finitePrice(r.outputPerMtok);
+  if (inputPerMtok === null || outputPerMtok === null) return null;
+  const entry: AiModelPrice = {inputPerMtok, outputPerMtok};
+  const cacheRead = finitePrice(r.cacheReadPerMtok);
+  if (cacheRead !== null) entry.cacheReadPerMtok = cacheRead;
+  const cacheWrite = finitePrice(r.cacheWritePerMtok);
+  if (cacheWrite !== null) entry.cacheWritePerMtok = cacheWrite;
+  return entry;
+}
+
+/**
+ * Sanitize a whole admin pricing override: drop any provider/model whose price
+ * entry doesn't validate to finite, non-negative numbers. The result is safe to
+ * snapshot `cost_usd` from — a hostile/typo'd PUT can't inject `NaN`/negative
+ * cost, and a provider with no valid model entries is omitted entirely.
+ */
+function sanitizePricingOverride(raw: unknown): AiPricingTable {
+  if (!raw || typeof raw !== 'object') return {};
+  const out: AiPricingTable = {};
+  for (const [provider, models] of Object.entries(raw as Record<string, unknown>)) {
+    if (!models || typeof models !== 'object') continue;
+    const cleanModels: Record<string, AiModelPrice> = {};
+    for (const [model, price] of Object.entries(models as Record<string, unknown>)) {
+      const entry = sanitizePrice(price);
+      if (entry) cleanModels[model] = entry;
+    }
+    if (Object.keys(cleanModels).length > 0) out[provider as AiProvider] = cleanModels;
+  }
+  return out;
 }
 
 /** Merge an override table over the default (per provider → per model). */

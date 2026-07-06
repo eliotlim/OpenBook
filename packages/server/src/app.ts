@@ -413,6 +413,21 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     });
   };
 
+  // The server-managed AI usage database (C1) is read-only over the API. The
+  // DB-route guard (`rejectManaged`, below) covers `/api/databases/*`, but its
+  // host page and attribution rows are ordinary pages reachable through the generic
+  // `/api/pages/*` routes — so an owner/admin could otherwise delete rows, trash the
+  // host, un-restrict it (exposing every user's usage), re-home it, or grant it an
+  // ACL. This mirrors `rejectManaged` for a PAGE id and is called AFTER the access
+  // gate, so a non-reader still gets an existence-hiding 404 and only a would-be
+  // mutator sees the managed 403. Server-internal store calls (the seed, attribution
+  // writes, the auto-expiry sweep) never pass through here, so they're untouched.
+  const rejectManagedPage = async (pageId: string): Promise<void> => {
+    if (await opts.aiUsage?.isManagedPage(pageId)) {
+      throw new HTTPException(403, {message: 'this page is server-managed and cannot be edited via the API'});
+    }
+  };
+
   // Optional local-AI subsystem (status/search/generate). Mounted only when
   // the host passed a service; document APIs never depend on it.
   if (ai) mountAiRoutes(app, ai, store, broadcastList, opts.aiUsage);
@@ -469,6 +484,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.patch(`${API.pages}/:id`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));
+    await rejectManagedPage(c.req.param('id'));
     const body = await c.req.json<{name?: string | null}>();
     const page = await store.renamePage(c.req.param('id'), body.name ?? null);
     if (!page) return c.json({error: 'page not found'}, 404);
@@ -483,6 +499,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // the owning database's rows when the page is a row.
   app.patch(`${API.pages}/:id/properties`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));
+    await rejectManagedPage(c.req.param('id'));
     const body = await c.req.json<{properties?: Record<string, unknown>}>();
     const page = await store.setPageProperties(c.req.param('id'), body.properties ?? {});
     if (!page) return c.json({error: 'page not found'}, 404);
@@ -786,6 +803,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.put(`${API.pages}/:id/move`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
     const body = await c.req.json<{parentId?: string | null; orderedIds?: string[]}>();
     const existing = await store.getPage(id);
     if (!existing) return c.json({error: 'page not found'}, 404);
@@ -802,6 +820,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.delete(`${API.pages}/:id`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
     // Learn the page's database membership before it's gone, so we can refresh
     // the owning database's row list after the delete.
     const existing = await store.getPage(id);
@@ -1033,6 +1052,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.post(`${API.pages}/:id/acl`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
     const body = await c.req.json<{invitee?: string; level?: AclLevel}>();
     const resolved = await resolveInvitee(body.invitee ?? '', opts.handleResolver);
     const grant = await store.setPageAcl(id, {
@@ -1048,6 +1068,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.delete(`${API.pages}/:id/acl`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
     const subject = c.req.query('subject');
     const email = c.req.query('email');
     if (!subject && !email) return c.json({error: 'a subject or email query param is required'}, 400);
@@ -1069,6 +1090,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.put(`${API.pages}/:id/visibility`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
     const {visibility} = await c.req.json<{visibility?: PageVisibility}>();
     if (!visibility || !PAGE_VISIBILITIES.includes(visibility)) {
       return c.json({error: 'a valid visibility scope is required'}, 400);

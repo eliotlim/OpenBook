@@ -20,10 +20,11 @@
 import {rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {afterEach, beforeEach, describe, expect, it} from 'vitest';
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
   signIdentity,
   mintIdentityKeypair,
+  type AiPricingTable,
   type IdentityClaims,
   type IdentityKeypair,
   type Jwks,
@@ -36,7 +37,7 @@ import {createApp} from './app';
 import {AiService} from './ai/service';
 import {AgentRunner} from './ai/agent';
 import {AiUsageLog, DEFAULT_PRICING} from './ai/usage';
-import {MockEngine, estimateTokens, type AiEngine, type TokenUsage} from './ai/providers';
+import {AnthropicEngine, LlamaEngine, MockEngine, OpenAiCompatEngine, estimateTokens, type AiEngine, type TokenUsage} from './ai/providers';
 import {IdentityService} from './instanceConfig';
 import {IDENTITY_HEADER} from './principal';
 
@@ -373,8 +374,198 @@ describe('seeding is idempotent', () => {
     const u2 = new AiUsageLog(store);
     await u2.ensureSeeded();
     expect(u2.databaseId).toBe(first);
+    expect(u2.hostPage).toBe(u1.hostPage); // the host page id survives the restart too
 
     // Exactly one database exists in the store.
     expect((await db.query('SELECT id FROM databases')).length).toBe(1);
+  });
+});
+
+// ── Host restricted from creation (Fix 2 — no non-restricted window) ──────────
+
+describe('the usage DB host page is restricted from creation', () => {
+  it('records the host page id and seeds it restricted (before the DB is linked)', async () => {
+    const usage = await seededUsage();
+    expect(usage.hostPage).not.toBeNull();
+    expect(await store.getPageVisibility(usage.hostPage!)).toBe('restricted');
+    // The recorded host page really hosts the usage DB.
+    const hostDb = await store.getDatabaseByPage(usage.hostPage!);
+    expect(hostDb?.id).toBe(usage.databaseId);
+  });
+});
+
+// ── Managed page-route lockout (Fix 1 — the generic /api/pages/* guard) ───────
+
+describe('the managed usage DB is locked against the generic page routes', () => {
+  beforeEach(async () => {
+    await claim();
+    await store.addMember({subject: `${ISS}#admin`, role: 'admin', status: 'active'});
+    await store.addMember({subject: `${ISS}#viewer`, role: 'viewer', status: 'active'});
+  });
+
+  it('an owner/admin cannot delete rows, trash/move/patch the host, un-restrict it, or grant an ACL (all 403); a viewer/guest stays existence-hidden (404)', async () => {
+    const usage = await seededUsage();
+    await usage.log({provider: 'mock', model: 'm', kind: 'generate', usage: {inputTokens: 1, outputTokens: 1}, principal: principal('owner')});
+    const rowId = (await rowsOf(usage))[0].id;
+    const hostId = usage.hostPage!;
+    const app = appWith({ai: new AiService(db, join(dir, 'models')), aiUsage: usage});
+    const owner = await idFor('owner');
+
+    // owner: every mutation on a managed page (a row or the host) is a managed 403.
+    expect((await del(app, `/api/pages/${rowId}`, owner)).status).toBe(403); // delete an attribution row
+    expect((await patch(app, `/api/pages/${rowId}/properties`, {properties: {p_cost: 0}}, owner)).status).toBe(403);
+    expect((await del(app, `/api/pages/${hostId}`, owner)).status).toBe(403); // trash the usage DB
+    expect((await patch(app, `/api/pages/${hostId}`, {name: 'pwn'}, owner)).status).toBe(403);
+    expect((await put(app, `/api/pages/${hostId}/move`, {parentId: null, orderedIds: []}, owner)).status).toBe(403);
+    expect((await put(app, `/api/pages/${hostId}/visibility`, {visibility: 'public'}, owner)).status).toBe(403); // un-restrict
+    expect((await post(app, `/api/pages/${hostId}/acl`, {invitee: 'e@x.com', level: 'read'}, owner)).status).toBe(403);
+    expect((await del(app, `/api/pages/${hostId}/acl?email=e@x.com`, owner)).status).toBe(403);
+    // admin is likewise locked out.
+    expect((await del(app, `/api/pages/${rowId}`, await idFor('admin'))).status).toBe(403);
+
+    // a non-reader (viewer / guest) is existence-hidden — the guard runs AFTER the access gate.
+    expect((await del(app, `/api/pages/${rowId}`, await idFor('viewer'))).status).toBe(404);
+    expect((await put(app, `/api/pages/${hostId}/visibility`, {visibility: 'public'}, await idFor('viewer'))).status).toBe(404);
+    expect((await del(app, `/api/pages/${rowId}`)).status).toBe(404); // guest
+
+    // Nothing above mutated the DB: the host stays restricted and the row survives.
+    expect(await store.getPageVisibility(hostId)).toBe('restricted');
+    expect((await rowsOf(usage)).length).toBe(1);
+  });
+
+  it('the server-internal auto-expiry sweep + attribution writes stay ungated', async () => {
+    const usage = await seededUsage();
+    await usage.log({provider: 'mock', model: 'm', kind: 'generate', usage: {inputTokens: 1, outputTokens: 1}, principal: principal('owner')});
+    expect((await rowsOf(usage)).length).toBe(1);
+
+    // The 30-day auto-expiry sweep runs at the STORE level (never the guarded page
+    // route), so it still soft-deletes expired rows — unaffected by the lockout.
+    const future = new Date(Date.now() + 100 * 86_400_000);
+    expect(await store.sweepExpiredRows({now: future})).toBeGreaterThanOrEqual(1);
+    expect((await rowsOf(usage)).length).toBe(0); // swept to the trash
+
+    // …and a fresh attribution write still lands (bypasses the page routes).
+    await usage.log({provider: 'mock', model: 'm', kind: 'generate', usage: {inputTokens: 2, outputTokens: 2}, principal: principal('owner')});
+    expect((await rowsOf(usage)).length).toBe(1);
+  });
+});
+
+// ── Pricing-override validation (Fix 4 — no NaN/negative cost) ────────────────
+
+describe('a bad admin pricing override is sanitized', () => {
+  it('drops non-numeric / negative / malformed entries, keeping only valid finite prices', async () => {
+    const usage = await seededUsage();
+    const bad = {
+      claude: {
+        'claude-opus-4-8': {inputPerMtok: 7, outputPerMtok: 3}, // valid → kept
+        'claude-bad-neg': {inputPerMtok: -5, outputPerMtok: 1}, // negative → dropped
+        'claude-bad-str': {inputPerMtok: 'abc', outputPerMtok: 1}, // non-numeric → dropped
+        'claude-bad-nan': {inputPerMtok: Number.NaN, outputPerMtok: 1}, // NaN → dropped
+        'claude-bad-shape': 'nope', // not an object → dropped
+      },
+      openai: {'gpt-x': {inputPerMtok: Infinity, outputPerMtok: 2}}, // non-finite → dropped (empties provider)
+    } as unknown as AiPricingTable;
+
+    const res = await usage.setPricingOverride(bad);
+    expect(res.override.claude).toEqual({'claude-opus-4-8': {inputPerMtok: 7, outputPerMtok: 3}});
+    expect(res.override.openai).toBeUndefined(); // no valid model → provider omitted
+
+    // No NaN/negative leaks into the effective (merged) table used to snapshot cost.
+    for (const models of Object.values(res.effective)) {
+      for (const price of Object.values(models ?? {})) {
+        expect(Number.isFinite(price.inputPerMtok) && price.inputPerMtok >= 0).toBe(true);
+        expect(Number.isFinite(price.outputPerMtok) && price.outputPerMtok >= 0).toBe(true);
+      }
+    }
+  });
+
+  it('coerces numeric strings and keeps valid optional cache prices (dropping a bad one)', async () => {
+    const usage = await seededUsage();
+    const res = await usage.setPricingOverride({
+      claude: {'claude-opus-4-8': {inputPerMtok: '9', outputPerMtok: '4', cacheReadPerMtok: '0.5', cacheWritePerMtok: -1}},
+    } as unknown as AiPricingTable);
+    // strings coerced; the negative cacheWrite dropped rather than snapshotted.
+    expect(res.override.claude?.['claude-opus-4-8']).toEqual({inputPerMtok: 9, outputPerMtok: 4, cacheReadPerMtok: 0.5});
+  });
+});
+
+// ── Provider SSE / usage parsers (Fix 3 — coverage for the bug-prone code) ────
+
+describe('provider usage parsers surface onUsage exactly once', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it('AnthropicEngine folds message_start (+cache) and the cumulative message_delta output', async () => {
+    const sse = [
+      'event: message_start',
+      'data: {"type":"message_start","message":{"usage":{"input_tokens":100,"output_tokens":1,"cache_read_input_tokens":40,"cache_creation_input_tokens":10}}}',
+      '',
+      'event: content_block_delta',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',
+      '',
+      'event: message_delta',
+      'data: {"type":"message_delta","delta":{},"usage":{"output_tokens":55}}',
+      '',
+      'event: message_stop',
+      'data: {"type":"message_stop"}',
+      '',
+    ].join('\n');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(sse, {status: 200})));
+
+    const engine = new AnthropicEngine('sk-ant-api-test', 'claude-opus-4-8');
+    const usages: TokenUsage[] = [];
+    const text = await engine.generate('go', {onToken: () => undefined, onUsage: (u) => usages.push(u)});
+    expect(text).toBe('Hi');
+    expect(usages).toEqual([{inputTokens: 100, outputTokens: 55, cacheReadTokens: 40, cacheWriteTokens: 10}]);
+  });
+
+  it('OpenAiCompatEngine reads the trailing include_usage chunk', async () => {
+    const sse = [
+      'data: {"choices":[{"delta":{"content":"Hello"}}]}',
+      '',
+      'data: {"choices":[{"delta":{"content":" world"}}]}',
+      '',
+      'data: {"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":22}}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n');
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(sse, {status: 200})));
+
+    const engine = new OpenAiCompatEngine('http://localhost:11434', 'test-model');
+    const usages: TokenUsage[] = [];
+    const text = await engine.generate('go', {onToken: () => undefined, onUsage: (u) => usages.push(u)});
+    expect(text).toBe('Hello world');
+    expect(usages).toEqual([{inputTokens: 11, outputTokens: 22}]);
+  });
+
+  it('LlamaEngine counts input/output via the model tokenizer', async () => {
+    const engine = new LlamaEngine('/models', 'model.gguf');
+    // Inject a fake loaded model + modules so ensureReady() short-circuits and the
+    // tokenize path runs without the optional native dependency.
+    const fakeModel = {
+      createContext: async () => ({getSequence: () => ({}), dispose: async () => undefined}),
+      tokenize: (t: string) => ({length: t.trim() ? t.trim().split(/\s+/).length : 0}),
+    };
+    class FakeSession {
+      constructor(_opts: unknown) {
+        void _opts;
+      }
+      async prompt(_text: string, opts: {onTextChunk: (c: string) => void}): Promise<string> {
+        const out = 'hello world out';
+        opts.onTextChunk(out);
+        return out;
+      }
+    }
+    const injected = engine as unknown as {model: unknown; modules: unknown};
+    injected.model = fakeModel;
+    injected.modules = {LlamaChatSession: FakeSession};
+
+    const usages: TokenUsage[] = [];
+    await engine.generate('prompt one two', {system: 'sys a', onToken: () => undefined, onUsage: (u) => usages.push(u)});
+    // input = tokenize(prompt=3) + tokenize(system=2) = 5; output = tokenize(out=3) = 3.
+    expect(usages).toEqual([{inputTokens: 5, outputTokens: 3}]);
   });
 });
