@@ -1,7 +1,7 @@
 import {createWriteStream, existsSync, mkdirSync} from 'node:fs';
 import {rename, unlink} from 'node:fs/promises';
 import path from 'node:path';
-import {providerSettings, type AiConfig, type AiProvider, type AiSearchResponse, type AiStatus, type AiTasksResponse} from '@book.dev/sdk';
+import {providerSettings, type AiConfig, type AiProvider, type AiProviderSettings, type AiSearchResponse, type AiStatus, type AiTasksResponse} from '@book.dev/sdk';
 import type {Db} from '../db';
 import {createEngine, type AiEngine, type GenerateOptions} from './providers';
 import {bm25Scores, buildIndex, chunkText, cosine, parseTaskList, snapshotText, snippetFor, type Bm25Index, type IndexedDoc} from './search';
@@ -19,6 +19,62 @@ import {SkillStore} from './skills';
  */
 
 const DEFAULT_CONFIG: AiConfig = {provider: 'off'};
+
+/**
+ * Resolve one incoming API-key field against its stored value. The key is
+ * WRITE-ONLY over the wire (the status route never returns it), so the settings
+ * form saves back a config with the field blank — which must not wipe the secret.
+ * Convention (see {@link AiProviderSettings.apiKey}):
+ *   • `undefined` / blank / whitespace-only → PRESERVE the stored key (blank-on-save no-op);
+ *   • a non-empty string                    → set the new (trimmed) key;
+ *   • explicit `null`                        → CLEAR the stored key.
+ */
+function resolveKey(prev: string | null | undefined, next: string | null | undefined): string | undefined {
+  if (next === null) return undefined; // explicit clear
+  if (next === undefined) return prev ?? undefined; // omitted → preserve stored
+  const v = next.trim();
+  if (v === '') return prev ?? undefined; // blank / whitespace-only → preserve (no unclearable ghost key)
+  return v; // new key (trimmed)
+}
+
+/**
+ * Merge an incoming {@link AiConfig} over the stored one, preserving API keys the
+ * client can't see (per {@link resolveKey}) and dropping the response-only
+ * `apiKeySet` flags so they never get persisted. Covers the legacy flat `apiKey`
+ * and every `providers[*].apiKey`. The provider map is OVERLAID onto the stored
+ * one, not rebuilt from `next`: a provider omitted from a partial PUT keeps its
+ * stored settings (and secret) untouched, while a provider present in `next`
+ * replaces its entry with the incoming settings + its resolved key.
+ */
+function mergeStoredKeys(prev: AiConfig, next: AiConfig): AiConfig {
+  const merged: AiConfig = {...next};
+  delete merged.apiKeySet;
+  const flat = resolveKey(prev.apiKey, next.apiKey);
+  if (flat === undefined) delete merged.apiKey;
+  else merged.apiKey = flat;
+  const prevProviders = prev.providers ?? {};
+  if (next.providers || prev.providers) {
+    // Start from the stored providers so an OMITTED provider keeps its key…
+    const out: Partial<Record<AiProvider, AiProviderSettings>> = {};
+    for (const [p, settings] of Object.entries(prevProviders)) {
+      const carried: AiProviderSettings = {...settings};
+      delete carried.apiKeySet; // response-only flag never persists
+      out[p as AiProvider] = carried;
+    }
+    // …then overlay each provider present in `next`, resolving its write-only key.
+    for (const [p, settings] of Object.entries(next.providers ?? {})) {
+      if (!settings || typeof settings !== 'object') continue; // ignore a malformed `{claude: null}` entry
+      const safe: AiProviderSettings = {...settings};
+      delete safe.apiKeySet;
+      const key = resolveKey(prevProviders[p as AiProvider]?.apiKey, settings.apiKey);
+      if (key === undefined) delete safe.apiKey;
+      else safe.apiKey = key;
+      out[p as AiProvider] = safe;
+    }
+    merged.providers = out as AiConfig['providers'];
+  }
+  return merged;
+}
 
 /** A small, capable default for the in-process engine (~0.9 GB Q4). */
 export const DEFAULT_MODEL_URL =
@@ -74,7 +130,7 @@ export class AiService {
   async setConfig(next: AiConfig): Promise<AiConfig> {
     await this.loadConfig();
     await this.engine?.dispose().catch(() => undefined);
-    this.config = {...DEFAULT_CONFIG, ...next};
+    this.config = mergeStoredKeys(this.config, {...DEFAULT_CONFIG, ...next});
     await this.db.query(
       `INSERT INTO settings (key, value) VALUES ('ai', $1)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,

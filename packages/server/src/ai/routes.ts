@@ -16,14 +16,13 @@ import type {AiService} from './service';
  */
 export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore, onPagesChanged?: () => Promise<void>): void {
   app.get(API.aiStatus, async (c) => {
-    // The status stays readable to every principal that passes the request gate
-    // (clients render provider/ready state), but the embedded config carries the
-    // instance's PAID PROVIDER API KEYS — writer-only readback. Non-writers get
-    // the same status with the secrets stripped; writers (AiSettings seeds its
-    // draft from `status.config`) keep the full config.
+    // The instance's PAID-PROVIDER API KEYS never leave the server. Inference runs
+    // entirely server-side, so NO client (writer/owner/loopback included) needs the
+    // key — returning it only widens the leak surface. We strip every stored key for
+    // EVERY principal and swap in an `apiKeySet` flag, so the settings form can show
+    // a "key set" state and write a replacement without ever holding the secret.
     const status = await ai.status();
-    const decision = await store.decideCreateAccess(c.get('principal'));
-    return c.json(decision.canWrite ? status : {...status, config: redactAiConfig(status.config)});
+    return c.json({...status, config: redactAiConfig(status.config)});
   });
 
   app.put(API.aiConfig, async (c) => {
@@ -34,7 +33,11 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     if (!['off', 'mock', 'llama', 'mlx', 'openai', 'claude'].includes(body.provider)) {
       return c.json({error: `Unknown provider: ${String(body.provider)}`}, 400);
     }
-    return c.json(await ai.setConfig(body));
+    // Redact the echoed config too: a blank-on-save PRESERVES the stored key
+    // (see `AiService.setConfig`), so returning the saved config raw would hand a
+    // previously-stored key back to the writer that just blanked the field. The key
+    // never leaves the server — the client uses `apiKeySet`, not the value.
+    return c.json(redactAiConfig(await ai.setConfig(body)));
   });
 
   app.post(API.aiIndex, async (c) => {
@@ -216,20 +219,27 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
 }
 
 /**
- * Strip the secrets from an {@link AiConfig} before returning it to a
- * non-writer: every `providers[*].apiKey` plus the legacy flat `apiKey`
- * (pre-`providers` configs stored the then-active provider's key there).
- * Everything else (provider choice, models, baseUrls, effort…) stays, so a
- * non-writer client can still render the AI surface.
+ * Strip the secrets from an {@link AiConfig} before it leaves the server: every
+ * `providers[*].apiKey` plus the legacy flat `apiKey` (pre-`providers` configs
+ * stored the then-active provider's key there). Each stripped key is replaced by
+ * an `apiKeySet: true` flag when a non-empty value was present, so a client can
+ * render a "key set" state (and offer to replace/clear it) without the value.
+ * Everything else (provider choice, models, baseUrls, effort…) stays, so the AI
+ * surface still renders. Applied to EVERY response — the key never leaves the box.
  */
 function redactAiConfig(config: AiConfig): AiConfig {
+  const hasKey = (v: unknown): boolean => typeof v === 'string' && v.trim().length > 0;
   const redacted: AiConfig = {...config};
   delete redacted.apiKey;
+  if (hasKey(config.apiKey)) redacted.apiKeySet = true;
+  else delete redacted.apiKeySet;
   if (config.providers) {
     redacted.providers = Object.fromEntries(
       Object.entries(config.providers).map(([p, settings]) => {
         const safe = {...settings};
         delete safe.apiKey;
+        if (hasKey(settings.apiKey)) safe.apiKeySet = true;
+        else delete safe.apiKeySet;
         return [p, safe];
       }),
     ) as AiConfig['providers'];

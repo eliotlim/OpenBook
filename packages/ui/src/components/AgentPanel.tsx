@@ -317,7 +317,9 @@ export function AgentPanel() {
     if (config.provider !== 'off') picks.add(config.provider);
     for (const p of ['llama', 'mlx', 'openai', 'claude'] as AiProvider[]) {
       const s = providerSettings(config, p);
-      if (s.model || (p === 'claude' && s.apiKey)) picks.add(p);
+      // The status config is redacted (the key never leaves the server) — key
+      // presence is signalled by `apiKeySet`, not the value.
+      if (s.model || (p === 'claude' && s.apiKeySet)) picks.add(p);
     }
     return [...picks];
   })();
