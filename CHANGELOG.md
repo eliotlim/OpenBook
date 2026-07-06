@@ -1,3 +1,19 @@
+## 1.74.0 (2026-07-06)
+
+### 🚀 Features
+
+- **ui,sdk:** colour epic — full-accent sidebar option + soft-pastel data colours (integration) ([#107](https://github.com/eliotlim/OpenBook/pull/107), [#104](https://github.com/eliotlim/OpenBook/issues/104), [#105](https://github.com/eliotlim/OpenBook/issues/105))
+- **ui,sdk:** Data colours scheme control — Pastel/Vivid/Muted (OB-379) ([#109](https://github.com/eliotlim/OpenBook/pull/109), [#70](https://github.com/eliotlim/OpenBook/issues/70))
+
+### 🩹 Fixes
+
+- **ui:** buttons no longer shift or resize on click (colour-only press) ([#103](https://github.com/eliotlim/OpenBook/pull/103))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 1.73.0 (2026-07-05)
 
 ### 🚀 Features
