@@ -1,3 +1,14 @@
+## 1.75.0 (2026-07-06)
+
+### 🚀 Features
+
+- **ui:** kind-less reactive chart export uses the canonical data palette (OB-380) ([#110](https://github.com/eliotlim/OpenBook/pull/110), [#3](https://github.com/eliotlim/OpenBook/issues/3))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8 (1M context)
+- Eliot Lim @eliotlim
+
 ## 1.74.0 (2026-07-06)
 
 ### 🚀 Features
