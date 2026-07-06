@@ -3,6 +3,7 @@ import type {
   AiConfig,
   AiPricingResponse,
   AiPricingTable,
+  AiUsageResponse,
   AiSearchResponse,
   AiSkill,
   AiStatus,
@@ -600,6 +601,10 @@ export class LocalDataClient implements DataClient {
 
   setAiPricing(override: AiPricingTable): Promise<AiPricingResponse> {
     return Promise.resolve({default: {}, override, effective: override});
+  }
+
+  getAiUsage(): Promise<AiUsageResponse> {
+    return Promise.resolve({exists: false, databaseId: null, hostPageId: null, retentionDays: null});
   }
 
   setAiUsageRetention(days: number): Promise<{days: number}> {

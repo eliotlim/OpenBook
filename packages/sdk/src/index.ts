@@ -405,5 +405,8 @@ export type {
   AiModelPrice,
   AiPricingTable,
   AiPricingResponse,
+  AiUsageRow,
+  AiUsageTotals,
+  AiUsageResponse,
 } from './ai';
 export {providerSettings, isPaidProvider} from './ai';

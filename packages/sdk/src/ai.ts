@@ -143,6 +143,54 @@ export interface AiPricingResponse {
   effective: AiPricingTable;
 }
 
+/**
+ * One attribution row projected out of the admin-only usage database (the raw
+ * property ids `p_*` are resolved to these named fields server-side, so the
+ * admin viewer never depends on the internal schema). `cost` is `null` for a
+ * model whose price is unknown (tokens are still counted); `time` is the ISO
+ * timestamp of the call.
+ */
+export interface AiUsageRow {
+  id: string;
+  time: string | null;
+  user: string;
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cost: number | null;
+  kind: string;
+}
+
+/**
+ * Aggregate totals across ALL usage rows in the database — NOT just the page of
+ * rows returned in {@link AiUsageResponse.rows} (which is capped). So `rows` here
+ * is the true total call count and can exceed `AiUsageResponse.rows.length`.
+ */
+export interface AiUsageTotals {
+  /** Total number of usage rows (calls) in the database, across all pages. */
+  rows: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** Sum of the known (non-null) row costs, in US dollars. */
+  cost: number;
+}
+
+/**
+ * The admin-only usage view returned by `GET /api/ai/usage`. The usage database
+ * is created LAZILY on first AI use, so `exists` is `false` (and `rows`/`totals`
+ * absent) until then — the viewer renders a graceful empty state. `retentionDays`
+ * is the usage DB's current auto-expiry window when known, else `null`.
+ */
+export interface AiUsageResponse {
+  exists: boolean;
+  databaseId: string | null;
+  hostPageId: string | null;
+  retentionDays: number | null;
+  rows?: AiUsageRow[];
+  totals?: AiUsageTotals;
+}
+
 export interface AiStatus {
   config: AiConfig;
   /** The engine can generate text right now. */

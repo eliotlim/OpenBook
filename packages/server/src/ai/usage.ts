@@ -32,6 +32,9 @@ import {
   type AiPricingResponse,
   type AiPricingTable,
   type AiProvider,
+  type AiUsageResponse,
+  type AiUsageRow,
+  type AiUsageTotals,
   type DatabaseProperty,
   type DatabaseSchema,
   type Principal,
@@ -303,6 +306,49 @@ export class AiUsageLog {
     return {days: clamped};
   }
 
+  // ── Read path (admin viewer) ────────────────────────────────────────────────────
+
+  /**
+   * Project the usage database into the admin viewer's shape: the most recent
+   * `limit` rows (newest first) plus aggregate totals, and the current retention
+   * window. NEVER seeds — a workspace that has never used AI reports
+   * `exists:false` (so merely opening the admin viewer can't create a phantom
+   * usage page). The raw `p_*` property ids are resolved to named fields here so
+   * the client never depends on the internal schema.
+   */
+  async report(limit = 100): Promise<AiUsageResponse> {
+    if (this.usageDbId === null) {
+      return {exists: false, databaseId: null, hostPageId: null, retentionDays: null};
+    }
+    const db = await this.store.getDatabase(this.usageDbId);
+    const retentionDays = db?.schema.autoExpiry?.days ?? null;
+    const all = await this.store.listRows(this.usageDbId);
+    const totals: AiUsageTotals = {rows: all.length, inputTokens: 0, outputTokens: 0, cost: 0};
+    for (const r of all) {
+      totals.inputTokens += numberProp(r.properties[PROP.input]);
+      totals.outputTokens += numberProp(r.properties[PROP.output]);
+      const cost = r.properties[PROP.cost];
+      if (typeof cost === 'number' && Number.isFinite(cost)) totals.cost += cost;
+    }
+    // Newest first, then cap the payload — the DB is retention-bounded but can
+    // still hold thousands of rows between sweeps.
+    const rows: AiUsageRow[] = all
+      .map((r) => ({
+        id: r.id,
+        time: stringProp(r.properties[PROP.time]) || null,
+        user: stringProp(r.properties[PROP.user]),
+        provider: stringProp(r.properties[PROP.provider]),
+        model: stringProp(r.properties[PROP.model]),
+        inputTokens: numberProp(r.properties[PROP.input]),
+        outputTokens: numberProp(r.properties[PROP.output]),
+        cost: typeof r.properties[PROP.cost] === 'number' ? (r.properties[PROP.cost] as number) : null,
+        kind: stringProp(r.properties[PROP.kind]),
+      }))
+      .sort((a, b) => (b.time ?? '').localeCompare(a.time ?? ''))
+      .slice(0, Math.max(0, Math.floor(limit)));
+    return {exists: true, databaseId: this.usageDbId, hostPageId: this.hostPageId, retentionDays, rows, totals};
+  }
+
   // ── Write path ─────────────────────────────────────────────────────────────────
 
   /**
@@ -334,6 +380,19 @@ export class AiUsageLog {
       console.error('AI usage attribution failed:', err);
     }
   }
+}
+
+/** Coerce a stored property to a display string (empty for missing/non-scalar). */
+function stringProp(raw: unknown): string {
+  if (typeof raw === 'string') return raw;
+  if (typeof raw === 'number' || typeof raw === 'boolean') return String(raw);
+  return '';
+}
+
+/** Coerce a stored property to a finite number (0 for missing/non-numeric). */
+function numberProp(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : NaN;
+  return Number.isFinite(n) ? n : 0;
 }
 
 /** `subject (name)` for the attribution `user` cell — never a client-supplied id. */
