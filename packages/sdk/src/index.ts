@@ -402,5 +402,8 @@ export type {
   AiSearchResponse,
   AiTasksResponse,
   AiStreamEvent,
+  AiModelPrice,
+  AiPricingTable,
+  AiPricingResponse,
 } from './ai';
 export {providerSettings, isPaidProvider} from './ai';

@@ -6,6 +6,7 @@ import {PageStore} from './store';
 import {PageHub} from './hub';
 import {BookMirror, MirrorLockedError, WriteBudgetError} from './mirror';
 import {AiService} from './ai/service';
+import {AiUsageLog} from './ai/usage';
 import {IdentityService} from './instanceConfig';
 import {BackupScheduler} from './backups';
 import {RosterSyncer, httpRosterFetcher, type RosterAssertionProvider} from './rosterSync';
@@ -276,6 +277,15 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     }
   }
 
+  // AI usage attribution (C1): seed the admin-only usage database idempotently
+  // (host page + database + 30-day auto-expiry, on a `restricted` host so only
+  // owner/admin/ACL can read it). Independent of whether AI is configured — the
+  // managed database and its API write-gate exist regardless. Every server-side
+  // model request logs one token/cost row through this. Best-effort: a failed seed
+  // leaves the log inert, never blocking startup.
+  const aiUsage = new AiUsageLog(store);
+  await aiUsage.ensureSeeded();
+
   // Trash cleanup job: periodically purge pages whose `deleted_at` is older than
   // the retention window. Runs once on boot to catch up after downtime, then on
   // an interval. The timer is `unref`'d so it never keeps the process alive.
@@ -407,6 +417,9 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     backups,
     roster,
     serverPersist,
+    // C1: the AI usage-attribution log — routes log through it, and the database
+    // write routes reject end-user edits to its managed database.
+    aiUsage,
     // Loopback-owner hatch: the spawning host (the desktop app) shares its per-run
     // secret via env; a dev setup can export the same value to both processes.
     localOwnerSecret: opts.localOwnerSecret ?? process.env.OPENBOOK_LOCAL_OWNER_SECRET,

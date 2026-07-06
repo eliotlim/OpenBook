@@ -1615,6 +1615,29 @@ export class PageStore {
     return rows.map(editFromRow);
   }
 
+  // ── Generic settings key/value ───────────────────────────────────────────────
+  //
+  // Small JSON blobs keyed by name in the `settings` table (the same table the AI
+  // config, instance policy, and backups config use). Used by subsystems that need
+  // a bit of durable state without their own table — e.g. the AI usage-attribution
+  // log (its managed database id + the admin pricing override).
+
+  /** Read a JSON settings value by key, or `null` when unset. */
+  async getSetting<T>(key: string): Promise<T | null> {
+    const rows = await this.db.query<{value: T | string}>('SELECT value FROM settings WHERE key = $1', [key]);
+    if (rows.length === 0) return null;
+    return parseJson<T | null>(rows[0].value, null);
+  }
+
+  /** Upsert a JSON settings value by key. */
+  async setSetting(key: string, value: unknown): Promise<void> {
+    await this.db.query(
+      `INSERT INTO settings (key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [key, JSON.stringify(value)],
+    );
+  }
+
   /** The instance's multi-user policy (guest gate + trusted issuers), with
    *  defaults filled in. Cheap — one settings row. */
   async getInstanceConfig(): Promise<InstanceConfig> {

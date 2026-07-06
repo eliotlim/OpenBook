@@ -540,6 +540,16 @@ export interface DatabaseSchema {
   /** Auto-remove rows older than N days (soft-delete to trash). See
    *  {@link AutoExpiryConfig}. Absent/disabled by default. */
   autoExpiry?: AutoExpiryConfig;
+  /**
+   * Server-managed, read-only marker. When true, the database is populated and
+   * maintained by the server itself (e.g. the admin-only AI usage-attribution
+   * log) and the API rejects end-user create-row / update-row / patch / delete
+   * against it — only the server's own writes land. A display/inspection signal;
+   * the authoritative write-gate keys off the server's own record of the managed
+   * database id, so a user can't lock their own database by setting this. Absent
+   * ⇒ an ordinary user-editable database.
+   */
+  managed?: boolean;
 }
 
 /** A database as returned by the store. */

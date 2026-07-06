@@ -5,6 +5,8 @@ import type {
   AgentChatMessage,
   AgentChatOptions,
   AiConfig,
+  AiPricingResponse,
+  AiPricingTable,
   AiSearchResponse,
   AiSkill,
   AiStatus,
@@ -94,6 +96,12 @@ export interface DataClient {
   aiSaveSkill(skill: AiSkill): Promise<AiSkill>;
   /** Delete a prompt/recipe skill by name. */
   aiDeleteSkill(name: string): Promise<boolean>;
+  /** Read the usage-attribution pricing (admin only): default + override merged. */
+  getAiPricing(): Promise<AiPricingResponse>;
+  /** Set the admin pricing override (admin only); returns the merged view. */
+  setAiPricing(override: AiPricingTable): Promise<AiPricingResponse>;
+  /** Set the AI usage database's retention window in days (admin only). */
+  setAiUsageRetention(days: number): Promise<{days: number}>;
 
   // ── Extensions (installed plugins, stored server-side per workspace) ───────
   listPlugins(): Promise<StoredPlugin[]>;
@@ -1228,6 +1236,18 @@ export class HttpDataClient implements DataClient {
   async aiDeleteSkill(name: string): Promise<boolean> {
     const {removed} = await this.request<{removed: boolean}>('DELETE', API.aiSkill(name));
     return removed;
+  }
+
+  async getAiPricing(): Promise<AiPricingResponse> {
+    return this.request<AiPricingResponse>('GET', API.aiPricing);
+  }
+
+  async setAiPricing(override: AiPricingTable): Promise<AiPricingResponse> {
+    return this.request<AiPricingResponse>('PUT', API.aiPricing, override);
+  }
+
+  async setAiUsageRetention(days: number): Promise<{days: number}> {
+    return this.request<{days: number}>('PUT', API.aiUsageRetention, {days});
   }
 
   /** Run the workspace agent, surfacing each streamed step via `onEvent`. */

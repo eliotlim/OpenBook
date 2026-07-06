@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {
+  providerSettings,
   snapshotText,
   textSnapshot,
   type AgentProposal,
@@ -18,8 +19,9 @@ import {
 } from '@book.dev/sdk';
 import type {PageStore} from '../store';
 import {effortProfile} from './effort';
-import type {AiEngine, NativeTool, NativeToolCall} from './providers';
+import type {AiEngine, NativeTool, NativeToolCall, TokenUsage} from './providers';
 import type {AiService} from './service';
+import type {AiUsageLog} from './usage';
 import {ReasoningSplitter, SCRATCHPAD_INSTRUCTION, splitReasoning} from './thinking';
 
 /**
@@ -99,6 +101,13 @@ export interface AgentRunOptions {
    * the legacy single-user path, because `authorize()` grants guests blanket
    * access there). */
   principal?: Principal;
+  /**
+   * The server-managed usage-attribution log. When set (and a {@link principal}
+   * is present), the run logs ONE usage row per model turn — provider/model,
+   * tokens, and snapshotted cost. Best-effort: a logging failure never disturbs
+   * the run. Omitted ⇒ no attribution (e.g. the in-webview/local path).
+   */
+  usage?: AiUsageLog;
 }
 
 interface ToolDef {
@@ -1252,6 +1261,27 @@ export class AgentRunner {
       if (this.interactive) await emitSeq(this.interactive);
     };
 
+    // Usage attribution: the EFFECTIVE provider/model for this run (the override
+    // if present, else the configured default) — used to log one row per model
+    // turn. Only active when a usage log and a (server-resolved) principal are
+    // present; best-effort throughout (the log swallows its own errors).
+    const usageLog = this.options.usage;
+    const usagePrincipal = this.principal;
+    let usageProvider: AiProvider | null = null;
+    let usageModel = '';
+    if (usageLog && usagePrincipal) {
+      const config = await this.ai.getConfig();
+      usageProvider = this.options.engineOverride?.provider ?? config.provider;
+      usageModel = this.options.engineOverride?.model || providerSettings(config, usageProvider).model || '';
+    }
+    // Fire-and-forget so a DB write never sits between the model turns, but track
+    // the promises so the run drains them before it resolves (drained in `finally`).
+    const pendingUsageLogs: Promise<void>[] = [];
+    const logTurnUsage = (usage: TokenUsage | undefined): void => {
+      if (!usage || !usageLog || !usagePrincipal || !usageProvider) return;
+      pendingUsageLogs.push(usageLog.log({provider: usageProvider, model: usageModel, kind: 'agent', usage, principal: usagePrincipal}).catch(() => undefined));
+    };
+
     try {
       for (let step = 0; step < maxSteps; step += 1) {
         const calls: NativeToolCall[] = [];
@@ -1268,6 +1298,7 @@ export class AgentRunner {
             },
           )
           : null;
+        let turnUsage: TokenUsage | undefined;
         const genOpts = {
           system: this.systemPrompt(useNative),
           maxTokens,
@@ -1276,8 +1307,13 @@ export class AgentRunner {
           effort: this.options.effort,
           ...(useNative ? {tools: this.nativeTools(), onToolCalls: (c: NativeToolCall[]) => calls.push(...c)} : {}),
           onToken: splitter ? (token: string) => splitter.push(token) : () => undefined,
+          onUsage: (u: TokenUsage) => {
+            turnUsage = u;
+          },
         };
         const raw = await engine.generate(this.transcript(messages, toolTrace), genOpts);
+        // One usage-attribution row per model turn (best-effort).
+        logTurnUsage(turnUsage);
         splitter?.flush();
         const {answer, reasoning} = splitReasoning(raw);
         // Non-streaming path surfaces reasoning once, after the turn (the
@@ -1324,6 +1360,9 @@ export class AgentRunner {
     } finally {
       // Flush any fire-and-forget token writes before the route sends `done`.
       await emitChain.catch(() => undefined);
+      // Drain the per-turn usage-attribution writes (best-effort; each already
+      // swallows its own error) so a run's rows are durable before it resolves.
+      if (pendingUsageLogs.length > 0) await Promise.allSettled(pendingUsageLogs);
       // Re-broadcast the page list when the run restructured the tree (create /
       // move), so the sidebar reflects it live rather than on the next refresh.
       if (this.pagesTouched) await Promise.resolve(this.options.onPagesChanged?.()).catch(() => undefined);

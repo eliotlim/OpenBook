@@ -111,6 +111,38 @@ export function isPaidProvider(provider: AiProvider): boolean {
   return provider === 'openai' || provider === 'claude';
 }
 
+// ── Usage attribution pricing (admin-editable) ─────────────────────────────────
+
+/**
+ * Per-model list price, in US dollars per MILLION tokens. `input`/`output` are
+ * required; the optional `cache*` prices apply to prompt-cache read/write tokens
+ * (Claude) and are folded into cost only when the engine actually reports cache
+ * tokens. Local providers (llama/mlx/mock) are priced at 0.
+ */
+export interface AiModelPrice {
+  inputPerMtok: number;
+  outputPerMtok: number;
+  /** Prompt-cache READ price ($/Mtok). Defaults to the input price's cache tier. */
+  cacheReadPerMtok?: number;
+  /** Prompt-cache WRITE/creation price ($/Mtok). */
+  cacheWritePerMtok?: number;
+}
+
+/** Pricing keyed by provider → model id → {@link AiModelPrice}. Used for the
+ *  shipped default table and the admin override alike. */
+export type AiPricingTable = Partial<Record<AiProvider, Record<string, AiModelPrice>>>;
+
+/**
+ * The pricing view returned by `GET /api/ai/pricing` (admin only): the shipped
+ * `default` table, the admin `override`, and the `effective` merge
+ * (override → default → null) used to snapshot `cost_usd` at log time.
+ */
+export interface AiPricingResponse {
+  default: AiPricingTable;
+  override: AiPricingTable;
+  effective: AiPricingTable;
+}
+
 export interface AiStatus {
   config: AiConfig;
   /** The engine can generate text right now. */

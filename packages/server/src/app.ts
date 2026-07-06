@@ -42,6 +42,7 @@ import type {BackupController} from './backups';
 import type {RosterController} from './rosterSync';
 import type {AppEnv} from './appEnv';
 import type {AiService} from './ai/service';
+import type {AiUsageLog} from './ai/usage';
 
 /**
  * Build the Hono app over a page store. Routes implement the shared
@@ -198,6 +199,14 @@ export interface AppOptions {
    * the in-browser client) ⇒ the hatch is inert.
    */
   localOwnerSecret?: string;
+  /**
+   * The server-managed AI usage-attribution log (C1). When provided, the AI
+   * routes log a usage row per model call through it, and the database write
+   * routes reject end-user create-row / update-row / patch / delete against its
+   * managed database (only the server's own attribution writes land). Seeded and
+   * owned by the caller (`startServer`); omitted in tests / the in-webview store.
+   */
+  aiUsage?: AiUsageLog;
 }
 
 /**
@@ -406,7 +415,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   // Optional local-AI subsystem (status/search/generate). Mounted only when
   // the host passed a service; document APIs never depend on it.
-  if (ai) mountAiRoutes(app, ai, store, broadcastList);
+  if (ai) mountAiRoutes(app, ai, store, broadcastList, opts.aiUsage);
   mountPluginRoutes(app, store);
 
   app.get(API.health, (c) => c.text('ok'));
@@ -1156,6 +1165,17 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   // ── Databases ──────────────────────────────────────────────────────────────
 
+  // The server-managed AI usage database (C1) is read-only over the API: reject
+  // end-user create-row / update-row / patch / delete / reorder against it. Called
+  // AFTER the access gate, so a non-reader still gets an existence-hiding 404 and
+  // only someone who could otherwise write sees the managed 403. The server's own
+  // attribution writes go straight through the store, bypassing these routes.
+  const rejectManaged = (databaseId: string): void => {
+    if (opts.aiUsage?.isManagedDatabase(databaseId)) {
+      throw new HTTPException(403, {message: 'this database is server-managed and cannot be edited via the API'});
+    }
+  };
+
   app.post(API.databases, async (c) => {
     const input = await c.req.json<DatabaseInput>();
     // Hosting a database on a page is a write to that page.
@@ -1178,6 +1198,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.patch(`${API.databases}/:id`, async (c) => {
     await requireDbAccess(c, store, 'write', c.req.param('id'));
+    rejectManaged(c.req.param('id'));
     const patch = await c.req.json<DatabaseUpdate>();
     const database = await store.updateDatabase(c.req.param('id'), patch);
     if (!database) return c.json({error: 'database not found'}, 404);
@@ -1189,6 +1210,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.delete(`${API.databases}/:id`, async (c) => {
     const id = c.req.param('id');
     await requireDbAccess(c, store, 'write', id);
+    rejectManaged(id);
     const database = await store.getDatabase(id);
     const deleted = await store.deleteDatabase(id);
     if (!deleted) return c.json({error: 'database not found'}, 404);
@@ -1215,6 +1237,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.post(`${API.databases}/:id/rows`, async (c) => {
     const id = c.req.param('id');
     await requireDbAccess(c, store, 'write', id);
+    rejectManaged(id);
     const input = await c.req.json<RowInput>().catch(() => ({}) as RowInput);
     const page = await store.createRow(id, input, c.get('principal'));
     hub.publishPage(page);
@@ -1226,6 +1249,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.put(`${API.databases}/:id/rows/order`, async (c) => {
     const id = c.req.param('id');
     await requireDbAccess(c, store, 'write', id);
+    rejectManaged(id);
     const {orderedIds} = await c.req.json<{orderedIds: string[]}>();
     await store.reorderRows(id, orderedIds ?? []);
     await broadcastRows(id);
@@ -1236,6 +1260,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const id = c.req.param('id');
     // A row is a page; gate write on the row itself (it may carry its own ACL).
     await requireAccess(c, store, 'write', c.req.param('rowId'));
+    rejectManaged(id);
     const body = await c.req.json<{name?: string | null; properties?: Record<string, unknown>}>();
     const row = await store.updateRow(id, c.req.param('rowId'), body);
     if (!row) return c.json({error: 'row not found'}, 404);
