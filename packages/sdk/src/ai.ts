@@ -41,8 +41,23 @@ export interface AiProviderSettings {
    *  http://127.0.0.1:8080, openai http://127.0.0.1:11434, claude
    *  https://api.anthropic.com (override for a proxy/gateway). */
   baseUrl?: string;
-  /** `claude` only: the Anthropic API key. */
-  apiKey?: string;
+  /**
+   * `claude` only: the Anthropic API key. **Write-only across the wire** — the
+   * server NEVER returns the stored key to any client (inference runs entirely
+   * server-side; no client needs it). Status responses carry {@link apiKeySet}
+   * instead. On save (`PUT /api/ai/config`) the value is interpreted three ways:
+   *   • omitted / empty string → PRESERVE the stored key (blank-on-save is a no-op);
+   *   • a non-empty string     → set a new key;
+   *   • explicit `null`        → CLEAR the stored key.
+   */
+  apiKey?: string | null;
+  /**
+   * Response-only signal: the server holds a non-empty key for this provider.
+   * Set by `GET /api/ai/status` (in place of the redacted {@link apiKey}) so the
+   * settings form can show a "key set" state and offer to replace/clear it
+   * without ever receiving the secret. Never persisted; never carries the value.
+   */
+  apiKeySet?: boolean;
   /** `mlx` only: spawn `mlx_lm.server` automatically when possible. */
   autoStart?: boolean;
 }
@@ -61,7 +76,10 @@ export interface AiConfig {
   // they were saved. New code reads/writes `providers` via {@link providerSettings}.
   /** @deprecated use `providers[provider].model` */ model?: string;
   /** @deprecated use `providers[provider].baseUrl` */ baseUrl?: string;
-  /** @deprecated use `providers[provider].apiKey` */ apiKey?: string;
+  /** @deprecated use `providers[provider].apiKey` — same write-only/preserve/clear
+   *  semantics (the flat key belonged to the then-active provider). */ apiKey?: string | null;
+  /** Response-only mirror of {@link AiProviderSettings.apiKeySet} for a legacy flat
+   *  config (the stored key belonged to the then-active provider). */ apiKeySet?: boolean;
   /** @deprecated use `providers[provider].autoStart` */ autoStart?: boolean;
 }
 
@@ -75,7 +93,7 @@ export function providerSettings(config: AiConfig, provider: AiProvider): AiProv
   const entry = config.providers?.[provider];
   if (entry) return entry;
   if (provider === config.provider) {
-    return {model: config.model, baseUrl: config.baseUrl, apiKey: config.apiKey, autoStart: config.autoStart};
+    return {model: config.model, baseUrl: config.baseUrl, apiKey: config.apiKey, apiKeySet: config.apiKeySet, autoStart: config.autoStart};
   }
   return {};
 }

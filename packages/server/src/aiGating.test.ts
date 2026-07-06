@@ -368,9 +368,13 @@ describe('AI mutation routes are instance-writer-gated (P0-5)', () => {
   });
 });
 
-describe('GET /api/ai/status redacts provider API keys for non-writers (P0-5)', () => {
+describe('GET /api/ai/status never returns a provider API key to ANY principal (A)', () => {
   const CLAUDE_KEY = 'sk-ant-verysecret';
   const LEGACY_KEY = 'legacy-flat-secret';
+
+  type StatusBody = {
+    config: {provider: string; apiKey?: string; apiKeySet?: boolean; providers?: Record<string, {model?: string; apiKey?: string; apiKeySet?: boolean}>};
+  };
 
   /** An AiService configured with a paid key in `providers` AND the legacy flat field. */
   const keyedAi = async (): Promise<AiService> => {
@@ -383,39 +387,108 @@ describe('GET /api/ai/status redacts provider API keys for non-writers (P0-5)', 
     return ai;
   };
 
-  it('a viewer / jws non-member / guest gets status with NO apiKey anywhere', async () => {
+  /** Assert the response carries no key value anywhere, but keeps the surface + `apiKeySet`. */
+  const assertRedacted = (text: string): void => {
+    expect(text).not.toContain(CLAUDE_KEY);
+    expect(text).not.toContain(LEGACY_KEY);
+    const body = JSON.parse(text) as StatusBody;
+    // No key field survives — not the flat one, not any provider's.
+    expect(body.config.apiKey).toBeUndefined();
+    for (const s of Object.values(body.config.providers ?? {})) expect(s.apiKey).toBeUndefined();
+    // …but the "a key is stored" signal + the rest of the surface do.
+    expect(body.config.provider).toBe('mock');
+    expect(body.config.providers?.claude?.model).toBe('m');
+    expect(body.config.providers?.claude?.apiKeySet).toBe(true);
+    expect(body.config.apiKeySet).toBe(true); // legacy flat key present → flagged
+  };
+
+  it('guest, viewer, jws non-member, AND writer/owner all get status with NO apiKey', async () => {
     await claim();
     await store.addMember({subject: `${ISS}#viewer`, role: 'viewer', status: 'active'});
     const app = appWith({ai: await keyedAi()});
-    for (const jws of [await idFor('viewer'), await idFor('stranger'), undefined]) {
+    // Every principal class on a claimed instance: guest, viewer, jws non-member, owner (writer).
+    for (const jws of [undefined, await idFor('viewer'), await idFor('stranger'), await idFor('owner')]) {
       const res = await get(app, '/api/ai/status', jws);
       expect(res.status).toBe(200);
-      const text = await res.text();
-      expect(text).not.toContain(CLAUDE_KEY);
-      expect(text).not.toContain(LEGACY_KEY);
-      expect(text).not.toContain('apiKey');
-      // The rest of the surface still renders: provider + per-provider settings survive.
-      const body = JSON.parse(text) as {config: {provider: string; providers?: Record<string, {model?: string}>}};
-      expect(body.config.provider).toBe('mock');
-      expect(body.config.providers?.claude?.model).toBe('m');
+      assertRedacted(await res.text());
     }
   });
 
-  it('a writer (owner) still reads the full config back (AiSettings seeds its draft from it)', async () => {
-    await claim();
+  it('the loopback/local single-user (unclaimed) app is redacted too — the key stays server-side', async () => {
+    // No claim() → the guest IS the loopback single-user app; it still never receives the key,
+    // it just gets `apiKeySet` (inference runs server-side; the browser never needs the value).
     const app = appWith({ai: await keyedAi()});
-    const res = await get(app, '/api/ai/status', await idFor('owner'));
+    const res = await get(app, '/api/ai/status'); // loopback, no identity
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {config: {apiKey?: string; providers?: Record<string, {apiKey?: string}>}};
-    expect(body.config.providers?.claude?.apiKey).toBe(CLAUDE_KEY);
-    expect(body.config.apiKey).toBe(LEGACY_KEY);
+    assertRedacted(await res.text());
   });
 
-  it('legacy single-user (unclaimed) status keeps full readback for the local app', async () => {
-    // No claim() → the guest IS the single-user app; it must still see its own keys.
+  it('PUT /api/ai/config echoes a redacted config (a blank-preserved key is not handed back)', async () => {
+    await claim();
     const app = appWith({ai: await keyedAi()});
-    const body = (await (await get(app, '/api/ai/status')).json()) as {config: {providers?: Record<string, {apiKey?: string}>}};
-    expect(body.config.providers?.claude?.apiKey).toBe(CLAUDE_KEY);
+    // Owner re-saves with the claude key field BLANK (the form never holds the key). The
+    // server preserves the stored key, but the echoed config must not leak it back.
+    const res = await put(app, '/api/ai/config', {provider: 'mock', providers: {claude: {model: 'm'}}}, await idFor('owner'));
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain(CLAUDE_KEY);
+    const body = JSON.parse(text) as {apiKey?: string; providers?: Record<string, {apiKey?: string; apiKeySet?: boolean}>};
+    expect(body.providers?.claude?.apiKey).toBeUndefined();
+    expect(body.providers?.claude?.apiKeySet).toBe(true); // still stored, just not returned
+  });
+});
+
+describe('PUT /api/ai/config preserves a blank key and clears on explicit null (A)', () => {
+  const KEY = 'sk-ant-preserve-me';
+
+  const keyedAi = async (): Promise<AiService> => {
+    const ai = aiService();
+    await ai.setConfig({provider: 'claude', providers: {claude: {apiKey: KEY, model: 'm'}}});
+    return ai;
+  };
+
+  it('omitting the key preserves the stored value (engine still constructs with it)', async () => {
+    const ai = await keyedAi();
+    // Re-save with the claude entry present but NO apiKey (the write-only field left blank).
+    await ai.setConfig({provider: 'claude', providers: {claude: {model: 'm2'}}});
+    const cfg = await ai.getConfig();
+    expect(cfg.providers?.claude?.apiKey).toBe(KEY); // preserved
+    expect(cfg.providers?.claude?.model).toBe('m2'); // other edits applied
+  });
+
+  it('an empty-string key is treated as blank (preserve), not a wipe', async () => {
+    const ai = await keyedAi();
+    await ai.setConfig({provider: 'claude', providers: {claude: {apiKey: '', model: 'm'}}});
+    expect((await ai.getConfig()).providers?.claude?.apiKey).toBe(KEY);
+  });
+
+  it('a new non-empty key replaces the stored one', async () => {
+    const ai = await keyedAi();
+    await ai.setConfig({provider: 'claude', providers: {claude: {apiKey: 'sk-ant-new', model: 'm'}}});
+    expect((await ai.getConfig()).providers?.claude?.apiKey).toBe('sk-ant-new');
+  });
+
+  it('an explicit null clears the stored key', async () => {
+    const ai = await keyedAi();
+    await ai.setConfig({provider: 'claude', providers: {claude: {apiKey: null, model: 'm'}}});
+    expect((await ai.getConfig()).providers?.claude?.apiKey).toBeUndefined();
+  });
+
+  it('the response-only apiKeySet flag is never persisted into the stored config', async () => {
+    const ai = await keyedAi();
+    await ai.setConfig({provider: 'claude', providers: {claude: {apiKeySet: true, model: 'm'}}});
+    const cfg = await ai.getConfig();
+    expect(cfg.providers?.claude?.apiKeySet).toBeUndefined();
+    expect(cfg.providers?.claude?.apiKey).toBe(KEY); // apiKeySet-only save is a blank → preserve
+  });
+
+  it('the legacy flat key follows the same preserve/clear rules', async () => {
+    const ai = aiService();
+    await ai.setConfig({provider: 'claude', apiKey: KEY});
+    await ai.setConfig({provider: 'claude'}); // no flat key → preserve
+    expect((await ai.getConfig()).apiKey).toBe(KEY);
+    await ai.setConfig({provider: 'claude', apiKey: null}); // explicit clear
+    expect((await ai.getConfig()).apiKey).toBeUndefined();
   });
 });
 

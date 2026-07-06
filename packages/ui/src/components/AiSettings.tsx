@@ -24,9 +24,12 @@ const CONFIGURABLE: AiProvider[] = ['llama', 'mlx', 'openai', 'claude'];
  */
 function normalize(c: AiConfig): AiConfig {
   const providers: Partial<Record<AiProvider, AiProviderSettings>> = {...(c.providers ?? {})};
-  const hasLegacy = c.model !== undefined || c.baseUrl !== undefined || c.apiKey !== undefined || c.autoStart !== undefined;
+  const hasLegacy =
+    c.model !== undefined || c.baseUrl !== undefined || c.apiKey != null || c.apiKeySet !== undefined || c.autoStart !== undefined;
   if (hasLegacy && !providers[c.provider]) {
-    providers[c.provider] = {model: c.model, baseUrl: c.baseUrl, apiKey: c.apiKey, autoStart: c.autoStart};
+    // The status config is redacted, so `apiKey` is never a real value here; carry
+    // the `apiKeySet` signal so the form knows a key is stored without holding it.
+    providers[c.provider] = {model: c.model, baseUrl: c.baseUrl, apiKeySet: c.apiKeySet, autoStart: c.autoStart};
   }
   return {provider: c.provider, providers, effort: c.effort, thinking: c.thinking};
 }
@@ -138,6 +141,21 @@ export default function AiSettings() {
     ...draft,
     providers: {...draft.providers, [p]: {...providerSettings(draft, p), ...patch}},
   });
+  // Persist a write-only API-key field on blur, then SCRUB the raw entry from
+  // local state so the secret never lingers in React: a non-empty entry is now
+  // stored on the server (surface it as a masked "key set"), while a blank is a
+  // no-op that leaves the stored key untouched. Explicit removal uses "Clear key".
+  const saveKey = (p: AiProvider): void => {
+    const typed = providerSettings(draft, p).apiKey;
+    void apply(draft).then(() => {
+      const stored = typeof typed === 'string' && typed.trim().length > 0;
+      setDraft((d) => {
+        if (!d) return d;
+        const cur = providerSettings(d, p);
+        return {...d, providers: {...d.providers, [p]: {...cur, apiKey: undefined, apiKeySet: stored || (cur.apiKeySet ?? false)}}};
+      });
+    });
+  };
   const modelInput = (p: AiProvider, placeholder: string, hint: string) => (
     <SettingsField label={t('ai.modelName')} hint={hint}>
       <input
@@ -214,22 +232,43 @@ export default function AiSettings() {
             {modelInput(p, 'qwen2.5:1.5b', t('ai.openaiModelHint'))}
           </>
         )}
-        {p === 'claude' && (
-          <>
-            <SettingsField label={t('ai.apiKey')} hint={t('ai.apiKeyHint')}>
-              <input
-                type="password"
-                autoComplete="off"
-                className={fieldClass}
-                value={s.apiKey ?? ''}
-                placeholder="sk-ant-…"
-                onChange={(e) => setDraft(set(p, {apiKey: e.target.value}))}
-                onBlur={() => void apply(draft)}
-              />
-            </SettingsField>
-            {modelInput(p, 'claude-sonnet-4-6', t('ai.claudeModelHint'))}
-          </>
-        )}
+        {p === 'claude' && (() => {
+          // Write-only key field. The server never returns the stored key, so
+          // `s.apiKey` is only ever the NEW key being typed (or null on clear); a
+          // stored key surfaces as a masked "key set" placeholder over an EMPTY
+          // input — the input `value` is never bound to a real key string.
+          const typed = typeof s.apiKey === 'string' ? s.apiKey : '';
+          const showKeySet = Boolean(s.apiKeySet) && s.apiKey == null;
+          return (
+            <>
+              <SettingsField label={t('ai.apiKey')} hint={t('ai.apiKeyHint')}>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    className={fieldClass}
+                    value={typed}
+                    placeholder={showKeySet ? t('ai.apiKeySet') : 'sk-ant-…'}
+                    onChange={(e) => setDraft(set(p, {apiKey: e.target.value}))}
+                    onBlur={() => saveKey(p)}
+                  />
+                  {showKeySet && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      disabled={busy}
+                      onClick={() => void apply(set(p, {apiKey: null, apiKeySet: false}))}
+                    >
+                      {t('ai.apiKeyClear')}
+                    </Button>
+                  )}
+                </div>
+              </SettingsField>
+              {modelInput(p, 'claude-sonnet-4-6', t('ai.claudeModelHint'))}
+            </>
+          );
+        })()}
       </ProviderAccordion>
     );
   };
