@@ -37,7 +37,7 @@ import type {
   SuggestionUpdate,
   VerifiedVia,
 } from '@book.dev/sdk';
-import {authorize, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, isEmailAuthoritative, latestSnapshotAuthor, projectExports, propertiesReferencePage, remapBundle, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import type {Db} from './dbCore';
 import {runMigrations} from './migrations';
 
@@ -1114,6 +1114,81 @@ export class PageStore {
       [Math.max(0, Math.trunc(retentionMs))],
     );
     return rows.length;
+  }
+
+  /**
+   * Auto-expiry (TTL) sweep: for every database whose
+   * {@link DatabaseSchema.autoExpiry} resolves to an active rule
+   * ({@link resolveAutoExpiry}), soft-delete its rows whose expiry-basis
+   * timestamp is at or before `now − days`. Rows are moved to the trash — the
+   * same restorable soft-delete {@link deletePage} performs (`deleted_at` set),
+   * NEVER hard-deleted here; the later {@link purgeExpired} sweep decides when a
+   * trashed row is finally purged.
+   *
+   * Each database is swept in isolation, scoped strictly to its own
+   * `database_id`, so one database's TTL can never touch another's rows. `now`
+   * is injectable for deterministic tests (defaults to the wall clock). Returns
+   * the number of rows newly trashed across all databases.
+   *
+   * Basis handling:
+   *  - `created` / `lastEdited` → one bounded `UPDATE … WHERE created_at`
+   *    (resp. `updated_at`) `<= cutoff` — no row scan.
+   *  - a `date` property id → a bounded scan of the database's live rows, parsing
+   *    the stored value ({@link dateStart} + {@link parseDay}) and trashing those
+   *    on/before the cutoff day. (A `created_time` property basis collapses to
+   *    `created` in {@link resolveAutoExpiry}, so it never reaches the scan.)
+   */
+  async sweepExpiredRows(opts: {now?: Date} = {}): Promise<number> {
+    const now = opts.now ?? new Date();
+    const dbRows = await this.db.query<DatabaseRowRecord>(
+      'SELECT id, page_id, name, schema, created_at, updated_at FROM databases',
+    );
+    let trashed = 0;
+    for (const raw of dbRows) {
+      const schema = parseJson<DatabaseSchema>(raw.schema, EMPTY_SCHEMA);
+      const rule = resolveAutoExpiry(schema);
+      if (!rule) continue;
+      const cutoffIso = new Date(now.getTime() - rule.days * 86_400_000).toISOString();
+      if (rule.kind === 'created' || rule.kind === 'lastEdited') {
+        // A single bounded UPDATE, scoped to THIS database only.
+        const col = rule.kind === 'created' ? 'created_at' : 'updated_at';
+        const deleted = await this.db.query<{id: string}>(
+          `UPDATE pages SET deleted_at = now()
+             WHERE database_id = $1 AND deleted_at IS NULL AND ${col} <= $2::timestamptz
+           RETURNING id`,
+          [raw.id, cutoffIso],
+        );
+        trashed += deleted.length;
+        continue;
+      }
+      // date-property basis: the date lives in `pages.properties` (JSONB, not a
+      // comparable column), so scan the database's live rows and parse each value.
+      // Bounded to this database's rows.
+      const scan = await this.db.query<{id: string; properties?: Record<string, unknown> | string | null}>(
+        'SELECT id, properties FROM pages WHERE database_id = $1 AND deleted_at IS NULL',
+        [raw.id],
+      );
+      const cutoffMs = new Date(cutoffIso).getTime();
+      const expired: string[] = [];
+      for (const r of scan) {
+        const props = parseJson<Record<string, unknown>>(r.properties, {});
+        const day = parseDay(dateStart(props[rule.propertyId]));
+        if (day && day.getTime() <= cutoffMs) expired.push(r.id);
+      }
+      if (expired.length === 0) continue;
+      const placeholders = expired.map((_, i) => `$${i + 2}`).join(', ');
+      const deleted = await this.db.query<{id: string}>(
+        `UPDATE pages SET deleted_at = now()
+           WHERE database_id = $1 AND deleted_at IS NULL AND id IN (${placeholders})
+         RETURNING id`,
+        [raw.id, ...expired],
+      );
+      trashed += deleted.length;
+    }
+    // Trashed rows leave every reader's view — invalidate the live read-gate cache
+    // (Collab T1), matching deletePage's bumpAccess.
+    if (trashed > 0) this.bumpAccess();
+    return trashed;
   }
 
   // ── Databases ──────────────────────────────────────────────────────────────

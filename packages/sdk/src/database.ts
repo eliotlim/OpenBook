@@ -467,6 +467,56 @@ export interface DatabaseView {
   mapClustered?: boolean;
 }
 
+/**
+ * Auto-expiry (TTL) config for a database. When `enabled`, the server
+ * periodically soft-deletes (to the trash — restorable, NEVER hard-deleted) the
+ * rows whose expiry-basis timestamp is older than `days` days. A general
+ * databases feature (later reused by an admin AI-usage database for 30-day
+ * retention). Absent/`enabled: false` ⇒ nothing expires.
+ *
+ * `basis` is either the row's `'created'` (page `created_at`) time, its
+ * `'lastEdited'` (`updated_at`) time, or the id of one of this database's own
+ * `date` / `created_time` properties. An invalid config — `days < 1`, or a
+ * `basis` property that no longer exists or isn't a date/created-time column — is
+ * treated as a no-op by {@link resolveAutoExpiry}.
+ */
+export interface AutoExpiryConfig {
+  enabled: boolean;
+  /** Rows older than this many days expire. Clamped to a minimum of 1. */
+  days: number;
+  /** `'created'`, `'lastEdited'`, or a `date`/`created_time` property id. */
+  basis: 'created' | 'lastEdited' | string;
+}
+
+/** A validated, ready-to-apply auto-expiry rule (see {@link resolveAutoExpiry}). */
+export type ResolvedAutoExpiry =
+  | {days: number; kind: 'created'}
+  | {days: number; kind: 'lastEdited'}
+  | {days: number; kind: 'dateProperty'; propertyId: string};
+
+/**
+ * Validate + normalise a database's {@link AutoExpiryConfig} against its schema,
+ * returning the rule to apply, or `null` when auto-expiry should do nothing:
+ * absent, `enabled: false`, a non-numeric/NaN/Infinite `days`, or a `basis`
+ * property that doesn't exist or isn't a `date`/`created_time` column. `days` is
+ * clamped to `>= 1` (floored). A `created_time` property basis resolves to the
+ * row's created time — identical to `'created'` — so it collapses to
+ * `kind: 'created'` and never needs a per-row date lookup.
+ */
+export function resolveAutoExpiry(schema: DatabaseSchema | null | undefined): ResolvedAutoExpiry | null {
+  const cfg = schema?.autoExpiry;
+  if (!cfg || !cfg.enabled) return null;
+  if (typeof cfg.days !== 'number' || !Number.isFinite(cfg.days)) return null;
+  const days = Math.max(1, Math.floor(cfg.days));
+  if (cfg.basis === 'created') return {days, kind: 'created'};
+  if (cfg.basis === 'lastEdited') return {days, kind: 'lastEdited'};
+  const prop = schema?.properties.find((p) => p.id === cfg.basis);
+  if (!prop) return null;
+  if (prop.type === 'created_time') return {days, kind: 'created'};
+  if (prop.type === 'date') return {days, kind: 'dateProperty', propertyId: prop.id};
+  return null;
+}
+
 /** The full editable definition of a database: its columns, views, and the
  *  page-view property groups. */
 export interface DatabaseSchema {
@@ -476,6 +526,9 @@ export interface DatabaseSchema {
   propertyGroups?: PropertyGroup[];
   /** Reusable new-row presets offered by the New-row control. */
   templates?: RowTemplate[];
+  /** Auto-remove rows older than N days (soft-delete to trash). See
+   *  {@link AutoExpiryConfig}. Absent/disabled by default. */
+  autoExpiry?: AutoExpiryConfig;
 }
 
 /** A database as returned by the store. */
