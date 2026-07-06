@@ -1172,7 +1172,9 @@ hr.divider[data-style=thick] { border-top-width: 3px; }
 // charts. Reuses the saved \`__C__{cellId}__\` reference tokens. Observable Plot
 // (and d3) are inlined as classic scripts above, so this works offline. The kit
 // palette prepended by `kitChartRuntime(scheme)` bakes the active scheme (OB-379)
-// so a redrawn kit chart keeps the exporting user's colours.
+// so a redrawn kit chart keeps the exporting user's colours — and the kind-less
+// (Plot) chart below sets `color.range` to that same `KIT_PALETTE`, so it paints
+// the canonical data palette rather than Plot's default categorical scheme (OB-380).
 const RUNTIME_REST = `
 const Plot = (typeof window !== "undefined" && window.Plot) || null;
 const D = JSON.parse(document.getElementById("ob-data").textContent);
@@ -1195,7 +1197,7 @@ function recompute(){
     const series=[]; for(const cell of c.cells) series.push(...normalize(get(cell), cell));
     const long=[]; series.forEach(s=>s.data.forEach((y,i)=>long.push({i,y,series:s.name})));
     fig.innerHTML="";
-    if(Plot && long.length) fig.appendChild(Plot.plot({marks:[Plot.lineY(long,{x:"i",y:"y",stroke:"series"})],width:660,height:330,marginLeft:44,grid:true,style:{background:"transparent",color:"currentColor",fontSize:"12px"},color:{legend:series.length>1}}));
+    if(Plot && long.length) fig.appendChild(Plot.plot({marks:[Plot.lineY(long,{x:"i",y:"y",stroke:"series"})],width:660,height:330,marginLeft:44,grid:true,style:{background:"transparent",color:"currentColor",fontSize:"12px"},color:{range:KIT_PALETTE,legend:series.length>1}}));
   }
 }
 for (const s of D.sliders){
