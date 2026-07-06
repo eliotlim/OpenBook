@@ -366,6 +366,47 @@ describe('seeded auto-expiry + admin retention', () => {
   });
 });
 
+// ── Lazy seeding (no phantom page in a fresh workspace) ───────────────────────
+
+describe('the usage DB is created lazily, only on first AI use', () => {
+  it('a workspace that never uses AI has NO usage database or page (stays empty)', async () => {
+    // Startup wiring only RE-ADOPTS an already-created DB; it must never create one,
+    // so a workspace that never uses AI stays empty (lands on Home in the app).
+    const usage = new AiUsageLog(store);
+    await usage.load();
+    expect(usage.databaseId).toBeNull();
+    expect(usage.hostPage).toBeNull();
+    // Nothing is managed until the DB exists ⇒ the write-gate guards are inert.
+    expect(usage.isManagedDatabase('any-id')).toBe(false);
+    expect(await usage.isManagedPage('any-id')).toBe(false);
+    // The store is genuinely empty: no database and no "AI usage" page.
+    expect((await db.query('SELECT id FROM databases')).length).toBe(0);
+    expect((await db.query('SELECT id FROM pages')).length).toBe(0);
+  });
+
+  it('the FIRST log() lazily creates the managed DB; a restart re-adopts it (no duplicate)', async () => {
+    const usage = new AiUsageLog(store);
+    await usage.load();
+    expect(usage.databaseId).toBeNull(); // nothing yet
+
+    await usage.log({provider: 'mock', model: 'm', kind: 'generate', usage: {inputTokens: 1, outputTokens: 1}, principal: principal('owner')});
+    const created = usage.databaseId;
+    expect(created).not.toBeNull(); // created on first write
+    expect((await rowsOf(usage)).length).toBe(1);
+    // Now that it exists, the guards protect it.
+    expect(usage.isManagedDatabase(created!)).toBe(true);
+    expect(await usage.isManagedPage(usage.hostPage!)).toBe(true);
+    expect((await db.query('SELECT id FROM databases')).length).toBe(1);
+
+    // A restart (fresh log on the same store) re-adopts the recorded DB — no second one.
+    const restarted = new AiUsageLog(store);
+    await restarted.load();
+    expect(restarted.databaseId).toBe(created);
+    expect(restarted.hostPage).toBe(usage.hostPage);
+    expect((await db.query('SELECT id FROM databases')).length).toBe(1);
+  });
+});
+
 // ── Idempotent seed ──────────────────────────────────────────────────────────
 
 describe('seeding is idempotent', () => {

@@ -277,14 +277,15 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     }
   }
 
-  // AI usage attribution (C1): seed the admin-only usage database idempotently
-  // (host page + database + 30-day auto-expiry, on a `restricted` host so only
-  // owner/admin/ACL can read it). Independent of whether AI is configured — the
-  // managed database and its API write-gate exist regardless. Every server-side
-  // model request logs one token/cost row through this. Best-effort: a failed seed
-  // leaves the log inert, never blocking startup.
+  // AI usage attribution (C1): the admin-only usage database (host page + database
+  // + 30-day auto-expiry, on a `restricted` host so only owner/admin/ACL can read
+  // it) is created LAZILY on the first attribution write — NOT at startup — so a
+  // workspace that never uses AI keeps no usage page and a fresh workspace stays
+  // empty. `load()` only re-adopts an already-created DB (from a prior run) so the
+  // managed write-gate resolves immediately after a restart; it creates nothing.
+  // Best-effort: a failed load/seed leaves the log inert, never blocking startup.
   const aiUsage = new AiUsageLog(store);
-  await aiUsage.ensureSeeded();
+  await aiUsage.load();
 
   // Trash cleanup job: periodically purge pages whose `deleted_at` is older than
   // the retention window. Runs once on boot to catch up after downtime, then on

@@ -451,8 +451,9 @@ export class PageStore {
     // bypassing the `/api/pages` + `/api/databases` managed write-gates (an
     // audit-integrity tamper, even for an admin). Load the managed ids here so the
     // dispatch below can strip any bundle entry that targets them. Read from
-    // `settings` BEFORE the transaction (the ids are seeded once at startup and
-    // stable); reading inside would re-enter the PGlite mutex the tx already holds.
+    // `settings` BEFORE the transaction (the ids are recorded once on first AI use
+    // and stable thereafter — absent, so a no-op strip, until then); reading inside
+    // would re-enter the PGlite mutex the tx already holds.
     const managedUsage = await this.getSetting<{databaseId: string; hostPageId: string | null}>(USAGE_DB_SETTING_KEY);
     const key = await bundleKey(req);
     return this.db.begin(async (tx) => {
