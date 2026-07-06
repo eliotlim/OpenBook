@@ -9,10 +9,14 @@
  *     effective price is `override → default → null` (an unknown model prices to
  *     null: tokens are still logged, `cost_usd` stays empty).
  *
- *  2. The usage database — an ordinary OpenBook database seeded once at startup on
- *     a `restricted` host page (owner/admin/ACL read only) and marked `managed` so
- *     the API rejects end-user writes. The server writes attribution rows straight
- *     through {@link PageStore.createRow}, bypassing the route gate.
+ *  2. The usage database — an ordinary OpenBook database created LAZILY on the
+ *     first attribution write (never at startup: a workspace that never uses AI
+ *     keeps no usage page, so a fresh workspace stays empty) on a `restricted` host
+ *     page (owner/admin/ACL read only) and marked `managed` so the API rejects
+ *     end-user writes. The server writes attribution rows straight through
+ *     {@link PageStore.createRow}, bypassing the route gate. On a restart the
+ *     already-created DB is re-adopted from `settings` ({@link AiUsageLog.load}) so
+ *     the managed write-gates resolve without waiting for the next AI call.
  *
  *  3. {@link AiUsageLog.log} — snapshots `cost_usd` and the raw token counts into
  *     one row per model call, attributed to the SERVER-resolved principal.
@@ -156,9 +160,27 @@ export class AiUsageLog {
   }
 
   /**
-   * Idempotently create the usage database (host page + database + restricted
-   * visibility + managed marker) and record its ids in `settings`. On a restart
-   * the recorded ids are reused when still resolvable, so no duplicate DB appears.
+   * Adopt an already-created usage DB (recorded in `settings` by a prior run)
+   * WITHOUT creating one. Called at startup so the managed write-gates resolve
+   * immediately for a workspace that has previously logged AI usage — while a
+   * workspace that has NEVER used AI gets no usage DB/page (stays empty, lands on
+   * Home). Best-effort and cheap (a single settings read + existence check).
+   */
+  async load(): Promise<void> {
+    if (this.seeded) return;
+    try {
+      await this.tryAdopt();
+    } catch (err) {
+      console.error('AI usage database load failed:', err);
+    }
+  }
+
+  /**
+   * Lazily and idempotently create the usage database (host page + database +
+   * restricted visibility + managed marker) and record its ids in `settings` —
+   * called on the FIRST attribution write (see {@link log}), not at startup. On a
+   * restart the recorded ids are reused when still resolvable, so no duplicate DB
+   * appears; concurrent first writes share the one in-flight `seeding` promise.
    */
   async ensureSeeded(): Promise<void> {
     if (this.seeded) return;
@@ -169,19 +191,28 @@ export class AiUsageLog {
     return this.seeding;
   }
 
+  /**
+   * Adopt a previously-created usage DB from `settings` without creating one.
+   * Returns true when an existing DB was found and adopted (ids populated).
+   */
+  private async tryAdopt(): Promise<boolean> {
+    const recorded = await this.store.getSetting<{databaseId: string; hostPageId: string}>(USAGE_DB_KEY);
+    if (recorded?.databaseId) {
+      const db = await this.store.getDatabase(recorded.databaseId);
+      if (db) {
+        this.usageDbId = recorded.databaseId;
+        this.hostPageId = recorded.hostPageId ?? null;
+        this.seeded = true;
+        return true;
+      }
+      // Recorded but gone (purged externally): fall through and recreate.
+    }
+    return false;
+  }
+
   private async doSeed(): Promise<void> {
     try {
-      const recorded = await this.store.getSetting<{databaseId: string; hostPageId: string}>(USAGE_DB_KEY);
-      if (recorded?.databaseId) {
-        const db = await this.store.getDatabase(recorded.databaseId);
-        if (db) {
-          this.usageDbId = recorded.databaseId;
-          this.hostPageId = recorded.hostPageId ?? null;
-          this.seeded = true;
-          return;
-        }
-        // Recorded but gone (purged externally): fall through and recreate.
-      }
+      if (await this.tryAdopt()) return;
       const host = await this.store.upsertPage({name: USAGE_DB_TITLE, data: emptyPageSnapshot()});
       // Restrict the host BEFORE it hosts the database — so the usage DB's host page
       // is never briefly world-readable. (The seed also runs before the server binds
