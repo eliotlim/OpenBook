@@ -35,7 +35,12 @@ import {
 import type {PageStore} from '../store';
 import {AnthropicEngine, type TokenUsage} from './providers';
 
-/** The settings key holding `{databaseId, hostPageId}` for the seeded usage DB. */
+/**
+ * The settings key holding `{databaseId, hostPageId}` for the seeded usage DB.
+ * NOTE: `store.ts` duplicates this literal (`USAGE_DB_SETTING_KEY`) to keep its
+ * import-overwrite tamper guard free of this module's Node-only transitive imports;
+ * the guard test keeps the two in sync.
+ */
 const USAGE_DB_KEY = 'aiUsageDb';
 /** The settings key holding the admin pricing override table. */
 const PRICING_KEY = 'aiPricing';

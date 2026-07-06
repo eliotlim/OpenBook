@@ -22,13 +22,17 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {
+  emptyPageSnapshot,
   signIdentity,
   mintIdentityKeypair,
   type AiPricingTable,
   type IdentityClaims,
   type IdentityKeypair,
+  type ImportRequest,
   type Jwks,
   type Principal,
+  type StoredDatabase,
+  type StoredPage,
 } from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
@@ -447,6 +451,126 @@ describe('the managed usage DB is locked against the generic page routes', () =>
     // …and a fresh attribution write still lands (bypasses the page routes).
     await usage.log({provider: 'mock', model: 'm', kind: 'generate', usage: {inputTokens: 2, outputTokens: 2}, principal: principal('owner')});
     expect((await rowsOf(usage)).length).toBe(1);
+  });
+});
+
+describe('the managed usage DB is locked against the content-body page routes', () => {
+  beforeEach(async () => {
+    await claim();
+    await store.addMember({subject: `${ISS}#admin`, role: 'admin', status: 'active'});
+    await store.addMember({subject: `${ISS}#viewer`, role: 'viewer', status: 'active'});
+  });
+
+  it('PUT/POST /api/pages onto the managed host or a row → 403 (owner/admin); viewer/guest stays 404', async () => {
+    const usage = await seededUsage();
+    await usage.log({provider: 'mock', model: 'm', kind: 'generate', usage: {inputTokens: 1, outputTokens: 1}, principal: principal('owner')});
+    const rowId = (await rowsOf(usage))[0].id;
+    const hostId = usage.hostPage!;
+    const app = appWith({ai: new AiService(db, join(dir, 'models')), aiUsage: usage});
+    const owner = await idFor('owner');
+
+    // A PUT (rename / body-overwrite via upsert) onto the host or a row is a managed 403.
+    expect((await put(app, `/api/pages/${hostId}`, {name: 'pwn', data: emptyPageSnapshot()}, owner)).status).toBe(403);
+    expect((await put(app, `/api/pages/${rowId}`, {name: 'pwn', data: emptyPageSnapshot()}, owner)).status).toBe(403);
+    expect((await put(app, `/api/pages/${hostId}`, {name: 'pwn'}, await idFor('admin'))).status).toBe(403);
+    // A POST upsert-by-id onto the managed host (ON CONFLICT name+data overwrite) too.
+    expect((await post(app, '/api/pages', {id: hostId, name: 'pwn', data: emptyPageSnapshot()}, owner)).status).toBe(403);
+    expect((await post(app, '/api/pages', {id: rowId, name: 'pwn', data: emptyPageSnapshot()}, owner)).status).toBe(403);
+
+    // A non-reader (viewer / guest) is existence-hidden — the access gate 404s first.
+    expect((await put(app, `/api/pages/${hostId}`, {name: 'pwn'}, await idFor('viewer'))).status).toBe(404);
+    expect((await put(app, `/api/pages/${rowId}`, {name: 'pwn'})).status).toBe(404); // guest
+
+    // Nothing above mutated the page: the host keeps its title + restricted visibility.
+    expect(await store.getPageVisibility(hostId)).toBe('restricted');
+    expect((await store.getPage(hostId))?.name).toBe('AI usage');
+  });
+});
+
+// ── Import-overwrite tamper (Fix — hostile restore can't rewrite the usage DB) ─
+
+describe('a hostile import-overwrite bundle cannot rewrite the server-managed usage DB', () => {
+  it('strips the host page, its attribution rows, and the DB itself — but still imports an ordinary page', async () => {
+    const usage = await seededUsage();
+    await usage.log({provider: 'mock', model: 'm', kind: 'generate', usage: {inputTokens: 1, outputTokens: 1}, principal: principal('owner')});
+    const realRow = (await rowsOf(usage))[0];
+    const rowId = realRow.id;
+    const hostId = usage.hostPage!;
+    const dbId = usage.databaseId!;
+    const now = new Date().toISOString();
+    const blankPage = (over: Partial<StoredPage>): StoredPage => ({
+      id: '',
+      name: null,
+      data: emptyPageSnapshot(),
+      hostedDatabaseId: null,
+      databaseId: null,
+      parentId: null,
+      properties: {},
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      ...over,
+    });
+
+    // A crafted overwrite bundle: forge the row's attribution + DETACH it from the
+    // usage DB (databaseId:null exercises the current-state guard, not the claim),
+    // rewrite the host page, strip the DB's `managed`/retention schema — plus one
+    // ordinary page that MUST still import.
+    const NORMAL_ID = '11111111-1111-4111-8111-111111111111';
+    const req: ImportRequest = {
+      mode: 'overwrite',
+      pages: [
+        blankPage({id: rowId, name: 'PWNED ROW', databaseId: null, properties: {p_user: `${ISS}#attacker`, p_cost: 999999, p_input: 0, p_output: 0}}),
+        blankPage({id: hostId, name: 'PWNED HOST'}),
+        blankPage({id: NORMAL_ID, name: 'Legit imported page'}),
+      ],
+      databases: [{id: dbId, pageId: hostId, name: 'PWNED DB', schema: {properties: [], views: [], managed: false}, createdAt: now, updatedAt: now} as StoredDatabase],
+    };
+    const result = await store.importBundle(req);
+
+    // Only the ordinary page was written — every managed-targeting entry was stripped.
+    expect(result.created).toBe(1);
+    expect(result.overwritten).toBe(0);
+    expect((await store.getPage(NORMAL_ID))?.name).toBe('Legit imported page');
+
+    // The real attribution row is untouched: still in the usage DB, original cells.
+    const rowsAfter = await rowsOf(usage);
+    expect(rowsAfter).toHaveLength(1);
+    expect(rowsAfter[0].id).toBe(rowId);
+    expect(String(rowsAfter[0].properties.p_user)).toContain(`${ISS}#owner`);
+    expect(String(rowsAfter[0].properties.p_user)).not.toContain('attacker');
+    expect(rowsAfter[0].properties.p_input).toBe(1);
+    expect(rowsAfter[0].properties.p_cost).not.toBe(999999);
+
+    // The host page survives (name + restricted visibility) and still hosts the DB;
+    // the DB keeps its managed marker + 30-day retention (schema NOT overwritten).
+    expect((await store.getPage(hostId))?.name).toBe('AI usage');
+    expect(await store.getPageVisibility(hostId)).toBe('restricted');
+    const dbAfter = await store.getDatabase(dbId);
+    expect(dbAfter?.schema.managed).toBe(true);
+    expect(dbAfter?.schema.autoExpiry).toEqual({enabled: true, days: 30, basis: 'created'});
+    expect(await store.getDatabaseByPage(hostId)).not.toBeNull();
+  });
+
+  it('leaves a normal (no usage DB seeded) overwrite import unaffected', async () => {
+    // No AiUsageLog seeded → the strip is a no-op; the bundle imports verbatim.
+    const now = new Date().toISOString();
+    const ID = '22222222-2222-4222-8222-222222222222';
+    const page: StoredPage = {
+      id: ID,
+      name: 'Ordinary',
+      data: emptyPageSnapshot(),
+      hostedDatabaseId: null,
+      databaseId: null,
+      parentId: null,
+      properties: {},
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const result = await store.importBundle({mode: 'overwrite', pages: [page], databases: []});
+    expect(result.created).toBe(1);
+    expect((await store.getPage(ID))?.name).toBe('Ordinary');
   });
 });
 

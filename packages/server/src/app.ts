@@ -450,6 +450,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     } else {
       await requireCreate(c, store);
     }
+    // A POST carrying a managed usage page's id is an upsert onto it (ON CONFLICT →
+    // name+data overwrite), so gate it like the other page routes. Placed after the
+    // access gate: a would-be mutator (reader, or a create-capable guest whose upsert
+    // would otherwise clobber the managed host/row) sees the managed 403; a normal
+    // create/update is untouched (isManagedPage is false for any other id).
+    if (input.id) await rejectManagedPage(input.id);
     // ER-7: a keyless create carrying an `input.idempotencyKey` is deduped
     // per-principal inside `upsertPage` — a retried/replayed POST returns the page
     // the first call minted instead of a duplicate. The key is scoped to this
@@ -472,6 +478,9 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.put(`${API.pages}/:id`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));
+    // A managed usage page (host or attribution row) can't be renamed/body-overwritten
+    // via upsert either — after the access gate so a non-reader stays 404 (see PATCH).
+    await rejectManagedPage(c.req.param('id'));
     const input = await c.req.json<PageInput>();
     input.id = c.req.param('id');
     const page = await store.upsertPage(input, c.get('principal'));
