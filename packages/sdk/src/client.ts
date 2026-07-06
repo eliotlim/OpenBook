@@ -7,6 +7,7 @@ import type {
   AiConfig,
   AiPricingResponse,
   AiPricingTable,
+  AiUsageResponse,
   AiSearchResponse,
   AiSkill,
   AiStatus,
@@ -100,6 +101,9 @@ export interface DataClient {
   getAiPricing(): Promise<AiPricingResponse>;
   /** Set the admin pricing override (admin only); returns the merged view. */
   setAiPricing(override: AiPricingTable): Promise<AiPricingResponse>;
+  /** Read the admin-only AI usage view (recent rows + totals; admin only). Never
+   *  seeds the usage DB — a fresh workspace reports `exists:false`. */
+  getAiUsage(): Promise<AiUsageResponse>;
   /** Set the AI usage database's retention window in days (admin only). */
   setAiUsageRetention(days: number): Promise<{days: number}>;
 
@@ -1244,6 +1248,10 @@ export class HttpDataClient implements DataClient {
 
   async setAiPricing(override: AiPricingTable): Promise<AiPricingResponse> {
     return this.request<AiPricingResponse>('PUT', API.aiPricing, override);
+  }
+
+  async getAiUsage(): Promise<AiUsageResponse> {
+    return this.request<AiUsageResponse>('GET', API.aiUsage);
   }
 
   async setAiUsageRetention(days: number): Promise<{days: number}> {

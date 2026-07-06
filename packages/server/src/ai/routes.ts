@@ -266,6 +266,15 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     return c.json(await aiUsage.setPricingOverride(override));
   });
 
+  app.get(API.aiUsage, async (c) => {
+    // The usage rows carry per-user attribution + cost — instance ADMINISTRATION,
+    // same gate as pricing (an acl-write member must not read the roster's spend).
+    // Reports without seeding: a workspace that has never used AI reports exists:false.
+    await requireInstanceAdmin(c, store);
+    if (!aiUsage) return c.json({exists: false, databaseId: null, hostPageId: null, retentionDays: null});
+    return c.json(await aiUsage.report());
+  });
+
   app.put(API.aiUsageRetention, async (c) => {
     await requireInstanceAdmin(c, store);
     if (!aiUsage) return c.json({error: 'usage attribution is not available'}, 503);

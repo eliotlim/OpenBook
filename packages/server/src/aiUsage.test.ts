@@ -343,6 +343,66 @@ describe('admin-editable pricing changes the effective cost snapshot', () => {
   });
 });
 
+// ── Admin usage viewer (GET /api/ai/usage) ───────────────────────────────────
+
+describe('GET /api/ai/usage reports the usage view to admins only', () => {
+  beforeEach(async () => {
+    await claim();
+    await store.addMember({subject: `${ISS}#admin`, role: 'admin', status: 'active'});
+    await store.addMember({subject: `${ISS}#viewer`, role: 'viewer', status: 'active'});
+  });
+
+  it('a viewer and an anonymous guest are 403 (no leak of usage/cost)', async () => {
+    const usage = await seededUsage();
+    const app = appWith({ai: new AiService(db, join(dir, 'models')), aiUsage: usage});
+    expect((await get(app, '/api/ai/usage', await idFor('viewer'))).status).toBe(403);
+    expect((await get(app, '/api/ai/usage')).status).toBe(403);
+  });
+
+  it('reports exists:false WITHOUT seeding when the workspace has never used AI', async () => {
+    // A non-seeded log (startup adopt found nothing) must not be created by a read.
+    const usage = new AiUsageLog(store);
+    await usage.load();
+    const app = appWith({ai: new AiService(db, join(dir, 'models')), aiUsage: usage});
+
+    const res = await get(app, '/api/ai/usage', await idFor('owner'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({exists: false, databaseId: null, hostPageId: null, retentionDays: null});
+    // The read created no phantom database/page.
+    expect((await db.query('SELECT id FROM databases')).length).toBe(0);
+  });
+
+  it('an admin gets rows (newest first) + totals + the retention window', async () => {
+    const usage = await seededUsage();
+    await usage.log({provider: 'claude', model: 'claude-opus-4-8', kind: 'generate', usage: {inputTokens: 1_000_000, outputTokens: 0}, principal: principal('owner')});
+    await usage.log({provider: 'mock', model: 'm', kind: 'agent', usage: {inputTokens: 10, outputTokens: 5}, principal: principal('admin')});
+    const app = appWith({ai: new AiService(db, join(dir, 'models')), aiUsage: usage});
+
+    // Owner and admin both read it.
+    for (const who of ['owner', 'admin']) {
+      const res = await get(app, '/api/ai/usage', await idFor(who));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        exists: boolean;
+        retentionDays: number;
+        rows: Array<{provider: string; model: string; inputTokens: number; cost: number | null}>;
+        totals: {rows: number; inputTokens: number; outputTokens: number; cost: number};
+      };
+      expect(body.exists).toBe(true);
+      expect(body.retentionDays).toBe(30);
+      expect(body.rows).toHaveLength(2);
+      // Totals fold both rows; the claude row prices 1e6 input tokens at $5/Mtok.
+      expect(body.totals).toEqual({rows: 2, inputTokens: 1_000_010, outputTokens: 5, cost: 5});
+      // The claude row carries its priced cost; the local mock row is free.
+      const claudeRow = body.rows.find((r) => r.provider === 'claude');
+      expect(claudeRow?.model).toBe('claude-opus-4-8');
+      expect(claudeRow?.cost).toBe(5);
+      // No raw property ids leak — the projection is by named field.
+      expect(JSON.stringify(body.rows)).not.toContain('p_input');
+    }
+  });
+});
+
 describe('seeded auto-expiry + admin retention', () => {
   it('the seeded DB carries autoExpiry {enabled, days:30, basis:created} + managed marker', async () => {
     const usage = await seededUsage();

@@ -110,6 +110,10 @@ export const API = {
   /** Usage-attribution pricing (admin only): `GET` (default+override merged) /
    *  `PUT` `{[provider]:{[model]:{inputPerMtok,outputPerMtok}}}` (set override). */
   aiPricing: '/api/ai/pricing',
+  /** Usage-attribution viewer (admin only): `GET` returns `{exists, databaseId,
+   *  hostPageId, retentionDays, rows?, totals?}`. Never seeds the usage DB (a
+   *  fresh workspace reports `exists:false`). */
+  aiUsage: '/api/ai/usage',
   /** Admin retention setter for the AI usage database: `PUT` `{days}` → updates
    *  the usage DB's auto-expiry window. */
   aiUsageRetention: '/api/ai/usage/retention',
