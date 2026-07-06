@@ -239,13 +239,18 @@ export default function AiSettings() {
           // input — the input `value` is never bound to a real key string.
           const typed = typeof s.apiKey === 'string' ? s.apiKey : '';
           const showKeySet = Boolean(s.apiKeySet) && s.apiKey == null;
+          const keyFieldId = 'ai-claude-apikey';
+          const keyStatusId = 'ai-claude-apikey-status';
           return (
             <>
-              <SettingsField label={t('ai.apiKey')} hint={t('ai.apiKeyHint')}>
+              <SettingsField label={t('ai.apiKey')} hint={t('ai.apiKeyHint')} htmlFor={keyFieldId}>
                 <div className="flex items-center gap-2">
                   <input
+                    id={keyFieldId}
                     type="password"
                     autoComplete="off"
+                    aria-label={t('ai.apiKey')}
+                    aria-describedby={showKeySet ? keyStatusId : undefined}
                     className={fieldClass}
                     value={typed}
                     placeholder={showKeySet ? t('ai.apiKeySet') : 'sk-ant-…'}
@@ -264,6 +269,14 @@ export default function AiSettings() {
                     </Button>
                   )}
                 </div>
+                {/* A real, always-rendered status node (not just the placeholder, which drops
+                    on focus + is low-contrast) so a screen reader announces the stored-key state
+                    and the blank-to-keep affordance. Referenced by the input's aria-describedby. */}
+                {showKeySet && (
+                  <p id={keyStatusId} className="text-xs text-muted-foreground">
+                    <span className="font-medium text-foreground">{t('ai.apiKeySetStatus')}</span> · {t('ai.apiKeyKeepHint')}
+                  </p>
+                )}
               </SettingsField>
               {modelInput(p, 'claude-sonnet-4-6', t('ai.claudeModelHint'))}
             </>

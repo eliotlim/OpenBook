@@ -462,6 +462,40 @@ describe('PUT /api/ai/config preserves a blank key and clears on explicit null (
     expect((await ai.getConfig()).providers?.claude?.apiKey).toBe(KEY);
   });
 
+  it('a whitespace-only key is treated as blank (preserve) — no unclearable ghost key', async () => {
+    const ai = await keyedAi();
+    await ai.setConfig({provider: 'claude', providers: {claude: {apiKey: '   ', model: 'm'}}});
+    expect((await ai.getConfig()).providers?.claude?.apiKey).toBe(KEY);
+  });
+
+  it('a new key is stored trimmed', async () => {
+    const ai = await keyedAi();
+    await ai.setConfig({provider: 'claude', providers: {claude: {apiKey: '  sk-ant-new  ', model: 'm'}}});
+    expect((await ai.getConfig()).providers?.claude?.apiKey).toBe('sk-ant-new');
+  });
+
+  it('a partial save that omits a provider preserves that provider’s stored key', async () => {
+    const ai = aiService();
+    await ai.setConfig({
+      provider: 'claude',
+      providers: {claude: {apiKey: KEY, model: 'm'}, openai: {apiKey: 'sk-openai', model: 'o'}},
+    });
+    // Re-save touching ONLY openai — the claude entry is absent from the providers map.
+    await ai.setConfig({provider: 'claude', providers: {openai: {model: 'o2'}}});
+    const cfg = await ai.getConfig();
+    expect(cfg.providers?.claude?.apiKey).toBe(KEY); // omitted provider's key survives the partial PUT
+    expect(cfg.providers?.claude?.model).toBe('m'); // …and its other settings
+    expect(cfg.providers?.openai?.apiKey).toBe('sk-openai'); // the touched provider's own blank preserves
+    expect(cfg.providers?.openai?.model).toBe('o2');
+  });
+
+  it('a malformed `{claude: null}` provider entry is ignored, not a 500 (stored key survives)', async () => {
+    const ai = await keyedAi();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await ai.setConfig({provider: 'claude', providers: {claude: null as any}});
+    expect((await ai.getConfig()).providers?.claude?.apiKey).toBe(KEY);
+  });
+
   it('a new non-empty key replaces the stored one', async () => {
     const ai = await keyedAi();
     await ai.setConfig({provider: 'claude', providers: {claude: {apiKey: 'sk-ant-new', model: 'm'}}});

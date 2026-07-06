@@ -25,22 +25,26 @@ const DEFAULT_CONFIG: AiConfig = {provider: 'off'};
  * WRITE-ONLY over the wire (the status route never returns it), so the settings
  * form saves back a config with the field blank — which must not wipe the secret.
  * Convention (see {@link AiProviderSettings.apiKey}):
- *   • `undefined` / `''` (blank)  → PRESERVE the stored key (blank-on-save no-op);
- *   • a non-empty string          → set the new key;
- *   • explicit `null`             → CLEAR the stored key.
+ *   • `undefined` / blank / whitespace-only → PRESERVE the stored key (blank-on-save no-op);
+ *   • a non-empty string                    → set the new (trimmed) key;
+ *   • explicit `null`                        → CLEAR the stored key.
  */
 function resolveKey(prev: string | null | undefined, next: string | null | undefined): string | undefined {
   if (next === null) return undefined; // explicit clear
-  if (next === undefined || next === '') return prev ?? undefined; // blank → preserve stored
-  return next; // new key
+  if (next === undefined) return prev ?? undefined; // omitted → preserve stored
+  const v = next.trim();
+  if (v === '') return prev ?? undefined; // blank / whitespace-only → preserve (no unclearable ghost key)
+  return v; // new key (trimmed)
 }
 
 /**
  * Merge an incoming {@link AiConfig} over the stored one, preserving API keys the
  * client can't see (per {@link resolveKey}) and dropping the response-only
  * `apiKeySet` flags so they never get persisted. Covers the legacy flat `apiKey`
- * and every `providers[*].apiKey`; a provider entry absent from `next` is left as
- * `next` had it (the form always sends the full provider set).
+ * and every `providers[*].apiKey`. The provider map is OVERLAID onto the stored
+ * one, not rebuilt from `next`: a provider omitted from a partial PUT keeps its
+ * stored settings (and secret) untouched, while a provider present in `next`
+ * replaces its entry with the incoming settings + its resolved key.
  */
 function mergeStoredKeys(prev: AiConfig, next: AiConfig): AiConfig {
   const merged: AiConfig = {...next};
@@ -48,18 +52,26 @@ function mergeStoredKeys(prev: AiConfig, next: AiConfig): AiConfig {
   const flat = resolveKey(prev.apiKey, next.apiKey);
   if (flat === undefined) delete merged.apiKey;
   else merged.apiKey = flat;
-  if (next.providers) {
-    const prevProviders = prev.providers ?? {};
-    merged.providers = Object.fromEntries(
-      Object.entries(next.providers).map(([p, settings]) => {
-        const safe: AiProviderSettings = {...settings};
-        delete safe.apiKeySet;
-        const key = resolveKey(prevProviders[p as AiProvider]?.apiKey, settings.apiKey);
-        if (key === undefined) delete safe.apiKey;
-        else safe.apiKey = key;
-        return [p, safe];
-      }),
-    ) as AiConfig['providers'];
+  const prevProviders = prev.providers ?? {};
+  if (next.providers || prev.providers) {
+    // Start from the stored providers so an OMITTED provider keeps its key…
+    const out: Partial<Record<AiProvider, AiProviderSettings>> = {};
+    for (const [p, settings] of Object.entries(prevProviders)) {
+      const carried: AiProviderSettings = {...settings};
+      delete carried.apiKeySet; // response-only flag never persists
+      out[p as AiProvider] = carried;
+    }
+    // …then overlay each provider present in `next`, resolving its write-only key.
+    for (const [p, settings] of Object.entries(next.providers ?? {})) {
+      if (!settings || typeof settings !== 'object') continue; // ignore a malformed `{claude: null}` entry
+      const safe: AiProviderSettings = {...settings};
+      delete safe.apiKeySet;
+      const key = resolveKey(prevProviders[p as AiProvider]?.apiKey, settings.apiKey);
+      if (key === undefined) delete safe.apiKey;
+      else safe.apiKey = key;
+      out[p as AiProvider] = safe;
+    }
+    merged.providers = out as AiConfig['providers'];
   }
   return merged;
 }

@@ -567,6 +567,8 @@ export const en = {
     apiKey: 'API key',
     apiKeyHint: 'An Anthropic API key from console.anthropic.com (starts with “sk-ant-api…”) — not a `claude setup-token`. Stored on the server; never sent back to your browser.',
     apiKeySet: '•••••••• (key set)',
+    apiKeySetStatus: 'Key set',
+    apiKeyKeepHint: 'Leave blank to keep the current key.',
     apiKeyClear: 'Clear key',
     claudeModelHint: 'A Claude model id, e.g. claude-sonnet-4-6 or claude-haiku-4-5.',
     search: 'Note search',
