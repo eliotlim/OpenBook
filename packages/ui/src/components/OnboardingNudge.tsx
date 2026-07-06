@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react';
 import {XMarkIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
-import {useAccount, useHud, useTranslation} from '@/providers';
+import {useAccount, useHud, useTheme, useTranslation} from '@/providers';
 
 /** Persisted so a dismissal sticks across reloads (and never nags again). */
 const DISMISS_KEY = 'openbook.onboarding.publishNudge';
@@ -20,6 +20,7 @@ export default function OnboardingNudge() {
   const {t} = useTranslation();
   const {connected, accounts} = useAccount();
   const {setHud} = useHud();
+  const {appearance} = useTheme();
   // Hidden until we've read storage on the client, so the server-rendered HTML
   // (which can't see localStorage) and the first client render agree — no
   // hydration mismatch (see I18nProvider for the same SSR tradeoff).
@@ -68,7 +69,16 @@ export default function OnboardingNudge() {
       </button>
       <p className="pr-6 text-sm font-semibold">{t('account.nudge.title')}</p>
       <p className="mt-0.5 text-xs text-muted-foreground">{t('account.nudge.body')}</p>
-      <Button size="sm" className="mt-2.5 w-full" onClick={openSignIn}>
+      {/* CTA fill is mode-aware: on the tinted default the primary (blue) pops on
+          the pale sheet; on the full-accent sidebar a primary-blue fill barely
+          separates from the blue surface (OB-377), so a light neutral `secondary`
+          chip reads instead (it keeps its own surface + ink under the sheet). */}
+      <Button
+        variant={appearance.sidebar === 'accent' ? 'secondary' : 'default'}
+        size="sm"
+        className="mt-2.5 w-full"
+        onClick={openSignIn}
+      >
         {t('account.nudge.cta')}
       </Button>
     </div>

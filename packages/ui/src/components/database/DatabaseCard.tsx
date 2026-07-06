@@ -7,7 +7,7 @@ import {PageIcon} from '@/components/PageIcon';
 import {readPageCover} from '@/lib/pageCover';
 import {pageLinks} from '@/lib/pageLinks';
 import {cn} from '@/lib/utils';
-import {SWATCH_HEX} from './databaseColors';
+import {DATA_DOT_RING, swatchColor} from './databaseColors';
 
 /**
  * The extensible **database card** — a compact preview of an entity used for
@@ -63,7 +63,7 @@ export const DatabaseCard: React.FC<{data: DatabaseCardData; onOpen?: () => void
 /** A small colour dot + label for a select/status value. */
 const OptionChip: React.FC<{label: string; color?: string}> = ({label, color}) => (
   <span className="inline-flex items-center gap-1">
-    {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[color] ?? color}} />}
+    {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{backgroundColor: swatchColor(color) ?? color, boxShadow: DATA_DOT_RING}} />}
     <span className="truncate">{label}</span>
   </span>
 );

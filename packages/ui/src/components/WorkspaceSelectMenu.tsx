@@ -105,7 +105,7 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
             </Button>
           )}
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-72 bg-sheet-2 text-sheet-2-foreground">
+        <DropdownMenuContent align="start" className="w-72">
           <DropdownMenuLabel>{t('workspace.workspaces')}</DropdownMenuLabel>
           <DropdownMenuSeparator />
           {workspaces.map((ws) => {

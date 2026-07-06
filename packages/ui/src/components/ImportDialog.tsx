@@ -342,7 +342,7 @@ export default function ImportDialog() {
             <button
               type="button"
               onClick={() => fileInput.current?.click()}
-              className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-sheet-1 px-4 py-8 text-center transition-[background-color,border-color,box-shadow] hover:border-foreground/20 hover:bg-hover focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)]"
+              className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border bg-muted px-4 py-8 text-center transition-[background-color,border-color,box-shadow] hover:border-foreground/20 hover:bg-hover focus-visible:outline-hidden focus-visible:shadow-[var(--ring-control)]"
             >
               <Upload className="h-6 w-6 text-muted-foreground" aria-hidden />
               <span className="text-sm font-medium">{t('importer.chooseFile')}</span>
@@ -462,7 +462,7 @@ export default function ImportDialog() {
                     <label
                       key={opt.label}
                       className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-[background-color,border-color,box-shadow] ${
-                        selected ? 'border-primary bg-primary/5' : 'border-border bg-sheet-1 hover:bg-hover'
+                        selected ? 'border-primary bg-primary/5' : 'border-border bg-muted hover:bg-hover'
                       }`}
                     >
                       <Icon
@@ -505,7 +505,7 @@ export default function ImportDialog() {
                 always stored (and island imports recover their own bytes), so
                 the toggle is only offered for converted Markdown/HTML. */}
             {phase.summary.images > 0 && phase.format !== 'notion-zip' && !phase.island && !runAsArtifact && (
-              <label className="flex items-start justify-between gap-3 rounded-lg border border-border bg-sheet-1 p-3">
+              <label className="flex items-start justify-between gap-3 rounded-lg border border-border bg-muted p-3">
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="text-sm font-medium">{t('importer.downloadImages')}</span>
                   <span className="text-xs text-muted-foreground">{t('importer.downloadImagesHint')}</span>

@@ -88,7 +88,7 @@ export function SuggestHost() {
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-xs font-medium text-foreground/80">Current</span>
-            <p className="rounded-md border border-border bg-sheet-1 px-2.5 py-1.5 text-sm text-muted-foreground">
+            <p className="rounded-md border border-border bg-muted px-2.5 py-1.5 text-sm text-muted-foreground">
               {editReq?.before || '(empty)'}
             </p>
           </label>

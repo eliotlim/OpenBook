@@ -8,6 +8,7 @@ import {
   type AppearanceOptions,
   type Theme,
 } from '@/lib/themes';
+import {applyDataColors} from '@/lib/dataColorVars';
 
 export type ColorScheme = 'light' | 'dark';
 export type ColorMode = ColorScheme | 'system';
@@ -81,6 +82,10 @@ export function ThemeProvider({
   // Apply the composed appearance whenever the choice or resolved scheme changes.
   React.useEffect(() => {
     applyAppearance(appearance, resolvedScheme);
+    // Data-colour palette (tags, charts, status lights) as CSS vars. Fixed to
+    // the default scheme until the "Data colours" control (OB-379) lands; the
+    // `.dark` chip flip in the emitted CSS follows the root `.dark` class below.
+    applyDataColors();
   }, [appearance, resolvedScheme]);
 
   // Overlay blur is a global, scheme-independent preference: drive a single CSS

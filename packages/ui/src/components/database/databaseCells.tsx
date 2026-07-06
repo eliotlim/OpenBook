@@ -34,7 +34,8 @@ import {usePreferences, useNavigation} from '@/providers';
 import {useData} from '@/data';
 import {pageLinks, subscribePageLinks} from '@/lib/pageLinks';
 import {cn} from '@/lib/utils';
-import {SWATCH_HEX} from './databaseColors';
+import {dotStyle} from './databaseColors';
+import {chipBgVar, chipFgVar} from '@/lib/dataColorVars';
 import {RowHoverCard} from './DatabaseCard';
 
 /**
@@ -89,27 +90,18 @@ export const VerificationBadge: React.FC<{value: unknown}> = ({value}) => {
   );
 };
 
-/** Tailwind classes for each `select` swatch token. */
-const COLOR_CLASSES: Record<string, string> = {
-  gray: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700/60 dark:text-zinc-200',
-  brown: 'bg-amber-200/70 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200',
-  orange: 'bg-orange-200 text-orange-800 dark:bg-orange-900/40 dark:text-orange-200',
-  yellow: 'bg-yellow-200 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-200',
-  green: 'bg-green-200 text-green-800 dark:bg-green-900/40 dark:text-green-200',
-  blue: 'bg-blue-200 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200',
-  purple: 'bg-purple-200 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200',
-  pink: 'bg-pink-200 text-pink-800 dark:bg-pink-900/40 dark:text-pink-200',
-  red: 'bg-red-200 text-red-800 dark:bg-red-900/40 dark:text-red-200',
-};
-
-const colorClass = (color?: string): string => COLOR_CLASSES[color ?? 'gray'] ?? COLOR_CLASSES.gray;
+/** Inline chip colours for a `select` swatch token (canonical palette vars). */
+const chipStyle = (color?: string): React.CSSProperties => ({
+  backgroundColor: chipBgVar(color),
+  color: chipFgVar(color),
+});
 
 const findOption = (property: DatabaseProperty, value: unknown): DatabaseSelectOption | undefined =>
   property.options?.find((o) => o.id === value);
 
 /** A colored select-option chip. */
 export const SelectChip: React.FC<{option: DatabaseSelectOption}> = ({option}) => (
-  <span className={cn('inline-flex max-w-full items-center truncate rounded px-1.5 py-0.5 text-xs', colorClass(option.color))}>
+  <span className="inline-flex max-w-full items-center truncate rounded px-1.5 py-0.5 text-xs" style={chipStyle(option.color)}>
     {option.label}
   </span>
 );
@@ -1183,7 +1175,7 @@ const StatusCell: React.FC<{property: DatabaseProperty; value: unknown; onChange
   const selected = findOption(property, value);
   const options = property.options ?? [];
   const dot = (color?: string) => (
-    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{backgroundColor: SWATCH_HEX[color ?? 'gray'] ?? SWATCH_HEX.gray}} />
+    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(color)} />
   );
 
   return (

@@ -1,37 +1,30 @@
+/**
+ * Data colours for database views (charts, boards, timelines, swatch dots).
+ *
+ * Thin layer over the canonical palette (`@book.dev/sdk` dataColors) exposed by
+ * `lib/dataColorVars` — the old hard-coded `SWATCH_HEX` / `CHART_PALETTE` lists
+ * are gone (OB-378). Swatch dots resolve through {@link swatchColor} (live CSS
+ * vars, so dark-mode + a future per-page scheme come free); chart fills resolve
+ * to concrete hex via {@link chartColor} because SVG *presentation attributes*
+ * (`fill="…"`) don't resolve `var()`. Both read the same canonical `SERIES_ORDER`
+ * shared with the kit charts, so every surface agrees.
+ */
 import type {ChartDatum} from '@book.dev/sdk';
+import {DATA_DOT_RING, DEFAULT_SWATCH, seriesHex, swatchColor, swatchHex} from '@/lib/dataColorVars';
+
+export {swatchColor, swatchHex, DEFAULT_SWATCH, DATA_DOT_RING};
 
 /**
- * Concrete colors for charts/boards. The `select` swatch tokens
- * ({@link SELECT_COLORS}) render as Tailwind classes elsewhere (see
- * `COLOR_CLASSES` in `databaseCells`), but charts need raw color values for
- * inline `conic-gradient` / SVG fills, so this maps each token to a hex color.
+ * Resolve a chart slice/bar colour to a **concrete hex** (the group's swatch if
+ * any, else the canonical series cycle). Concrete rather than a `var()` because
+ * db charts paint SVG via the `fill` presentation attribute, which never
+ * resolves custom properties.
  */
-export const SWATCH_HEX: Record<string, string> = {
-  gray: '#9ca3af',
-  brown: '#b08968',
-  orange: '#f59e0b',
-  yellow: '#eab308',
-  green: '#22c55e',
-  blue: '#3b82f6',
-  purple: '#a855f7',
-  pink: '#ec4899',
-  red: '#ef4444',
-};
-
-/** Fallback palette for groups that carry no swatch token (cycled by index). */
-export const CHART_PALETTE = [
-  '#3b82f6',
-  '#22c55e',
-  '#f59e0b',
-  '#a855f7',
-  '#ec4899',
-  '#ef4444',
-  '#14b8a6',
-  '#eab308',
-  '#6366f1',
-  '#f97316',
-];
-
-/** Resolve a chart slice/bar color: the group's swatch if any, else the palette. */
 export const chartColor = (datum: Pick<ChartDatum, 'color'>, index: number): string =>
-  (datum.color && SWATCH_HEX[datum.color]) || CHART_PALETTE[index % CHART_PALETTE.length];
+  swatchHex(datum.color) ?? seriesHex(index);
+
+/** Inline style for a small swatch dot: token fill + the scheme's hairline ring. */
+export const dotStyle = (color: string | undefined | null): {backgroundColor: string; boxShadow: string} => ({
+  backgroundColor: swatchColor(color) ?? DEFAULT_SWATCH,
+  boxShadow: DATA_DOT_RING,
+});

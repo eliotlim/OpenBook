@@ -225,6 +225,9 @@ describe('toHtmlSite', () => {
     expect(html).toContain('class="db-row" href="#r1" data-page-id="r1"');
     expect(html).toContain('Task one');
     expect(html).toContain('Done'); // the select option label as a tag
+    // The tag inlines the canonical soft-pastel green chip colours (OB-378),
+    // matching the in-app SelectChip — not the old fill@20%-alpha wash.
+    expect(html).toContain('style="background:#dbeddb;color:#1e761e">Done</span>');
   });
 
   it('embeds the navigation runtime', () => {
