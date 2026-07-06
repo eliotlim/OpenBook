@@ -296,6 +296,11 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
       // same sweep — the retention doubles as the replay-dedup window.
       const prunedKeys = await store.purgeOldIdempotencyKeys(idempotencyRetentionMs);
       if (prunedKeys > 0) console.log(`OpenBook idempotency cleanup: pruned ${prunedKeys} old key(s)`);
+      // Feature B: auto-expiry (TTL) — soft-delete rows older than each database's
+      // configured window to the trash (restorable, not hard-deleted), where the
+      // purge above eventually reaps them. No-op for databases without autoExpiry.
+      const expiredRows = await store.sweepExpiredRows();
+      if (expiredRows > 0) console.log(`OpenBook auto-expiry: trashed ${expiredRows} expired row(s)`);
     } catch (err) {
       console.error('OpenBook cleanup failed:', err);
     }

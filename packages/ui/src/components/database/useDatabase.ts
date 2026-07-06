@@ -157,6 +157,8 @@ export interface UseDatabase {
   reorderView: (fromId: string, toId: string) => Promise<void>;
   /** Rename the database itself. */
   renameDatabase: (name: string) => Promise<void>;
+  /** Persist a full schema replacement (used by DB-level config, e.g. auto-expiry). */
+  saveSchema: (schema: StoredDatabase['schema']) => Promise<void>;
 }
 
 /**
@@ -971,6 +973,7 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     duplicateView,
     deleteView,
     renameDatabase,
+    saveSchema,
   };
 }
 

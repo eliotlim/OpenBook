@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, ChevronDown, ChevronRight, Copy, EyeOff, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, X} from 'lucide-react';
+import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, EyeOff, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, X} from 'lucide-react';
 import {
   buildRowTree,
   dateStart,
@@ -38,6 +38,13 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {IconButton} from '@/components/ui/icon-button';
+import {Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle} from '@/components/ui/dialog';
+import {Switch} from '@/components/ui/switch';
+import {Label} from '@/components/ui/label';
+import {Input} from '@/components/ui/input';
+import {Button} from '@/components/ui/button';
+import {Select} from '@/components/ui/select';
+import {showToast} from '@/components/ui/toast';
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
@@ -1175,7 +1182,12 @@ const Toolbar: React.FC<{db: UseDatabase; view: DbView; renamingId: string | nul
  * a database menu ("Rename view") instead of falling through to the page menu
  * ("Rename page"). Cell/column/row right-clicks still hit their own nested menus.
  */
-const DatabaseContextMenu: React.FC<{db: UseDatabase; onRenameView: () => void; children: React.ReactNode}> = ({db, onRenameView, children}) => {
+const DatabaseContextMenu: React.FC<{
+  db: UseDatabase;
+  onRenameView: () => void;
+  onConfigureExpiry: () => void;
+  children: React.ReactNode;
+}> = ({db, onRenameView, onConfigureExpiry, children}) => {
   const view = db.activeView!;
   const canDeleteView = (db.database?.schema.views.length ?? 0) > 1;
   return (
@@ -1217,10 +1229,128 @@ const DatabaseContextMenu: React.FC<{db: UseDatabase; onRenameView: () => void; 
           <Rows3 className="mr-2 h-4 w-4" />
           New row
         </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={onConfigureExpiry}>
+          <CalendarClock className="mr-2 h-4 w-4" />
+          Auto-expiry…
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   );
 };
+
+/**
+ * DB-level auto-expiry (TTL) settings: toggle it on, choose how old a row must be
+ * (in days) and which timestamp its age is measured from (created / last-edited /
+ * one of the database's own date columns) before it is moved to the trash. The
+ * expired rows are soft-deleted (restorable), never hard-removed. Disabled by
+ * default. Persists via {@link UseDatabase.saveSchema} → `updateDatabase`.
+ */
+const AutoExpiryForm: React.FC<{db: UseDatabase; onClose: () => void}> = ({db, onClose}) => {
+  const schema = db.database!.schema;
+  const current = schema.autoExpiry;
+  // Only `date` columns get their own basis option. A `created_time` column would
+  // resolve to the row's created time (see resolveAutoExpiry) — identical to the
+  // built-in "Created time" option below — so we suppress it to avoid a duplicate.
+  const dateProps = schema.properties.filter((p) => p.type === 'date');
+  const [enabled, setEnabled] = useState(!!current?.enabled);
+  const [days, setDays] = useState(current?.days != null && current.days >= 1 ? String(current.days) : '30');
+  const [basis, setBasis] = useState<string>(current?.basis ?? 'created');
+  const [saving, setSaving] = useState(false);
+
+  const save = async (): Promise<void> => {
+    setSaving(true);
+    const parsedDays = Math.max(1, Math.floor(Number(days)) || 1);
+    try {
+      await db.saveSchema({...schema, autoExpiry: {enabled, days: parsedDays, basis}});
+      onClose();
+    } catch {
+      // Keep the dialog open + usable; never strand it with both buttons disabled.
+      showToast({message: 'Could not save auto-expiry settings. Please try again.'});
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Auto-expiry</DialogTitle>
+        <DialogDescription>
+          Automatically move rows in this database older than the chosen age to the trash, where they
+          stay restorable until the trash is emptied. Applies to the whole database, not just this
+          view. Checked about once an hour. Off by default.
+        </DialogDescription>
+      </DialogHeader>
+      <div className="grid gap-4">
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="auto-expiry-enabled">Enable auto-expiry</Label>
+          <Switch
+            id="auto-expiry-enabled"
+            checked={enabled}
+            onCheckedChange={setEnabled}
+            aria-label="Enable auto-expiry"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="auto-expiry-days">Expire rows older than (days)</Label>
+          <Input
+            id="auto-expiry-days"
+            inputSize="sm"
+            type="number"
+            min={1}
+            step={1}
+            value={days}
+            disabled={!enabled}
+            onChange={(e) => setDays(e.target.value)}
+            aria-label="Expire rows older than, in days"
+            className="w-24"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <Label htmlFor="auto-expiry-basis">Measure age from</Label>
+          <Select
+            id="auto-expiry-basis"
+            value={basis}
+            disabled={!enabled}
+            onChange={(e) => setBasis(e.target.value)}
+            aria-label="Measure age from"
+            wrapperClassName="w-48"
+          >
+            <option value="created">Created time</option>
+            <option value="lastEdited">Last edited</option>
+            {dateProps.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </div>
+      <DialogFooter>
+        <Button variant="ghost" onClick={onClose} disabled={saving}>
+          Cancel
+        </Button>
+        <Button onClick={() => void save()} disabled={saving}>
+          Save
+        </Button>
+      </DialogFooter>
+    </>
+  );
+};
+
+const AutoExpiryDialog: React.FC<{db: UseDatabase; open: boolean; onOpenChange: (open: boolean) => void}> = ({
+  db,
+  open,
+  onOpenChange,
+}) => (
+  <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="max-w-md">
+      {/* Keyed so the form re-seeds from the persisted schema every time it opens. */}
+      {open && <AutoExpiryForm key={db.database?.id ?? 'db'} db={db} onClose={() => onOpenChange(false)} />}
+    </DialogContent>
+  </Dialog>
+);
 
 export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | null; inline?: boolean}> = ({
   pageId,
@@ -1229,6 +1359,7 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
 }) => {
   const db = useDatabase(pageId, databaseIdHint);
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
+  const [expiryOpen, setExpiryOpen] = useState(false);
   if (!db.database || !db.activeView) return null;
 
   const schema = db.database.schema.properties;
@@ -1241,25 +1372,34 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
       : schema;
 
   return (
-    <DatabaseContextMenu db={db} onRenameView={() => setRenamingViewId(view.id)}>
-      <div className={cn(inline ? 'rounded-lg border border-border p-3' : 'mt-6 border-t border-border pt-5')}>
-        {inline && (
-          <input
-            defaultValue={db.database.name ?? ''}
-            onBlur={(e) => e.target.value !== (db.database?.name ?? '') && void db.renameDatabase(e.target.value)}
-            placeholder="Untitled database"
-            className="mb-2 w-full bg-transparent text-base font-semibold outline-hidden placeholder:text-muted-foreground/40"
-          />
-        )}
-        <Toolbar db={db} view={view} renamingId={renamingViewId} setRenamingId={setRenamingViewId} />
-        <div className="flex flex-wrap items-center gap-x-3">
-          <FilterChips db={db} view={view} />
-          <SortChips db={db} view={view} />
+    <>
+      {/* Portaled — kept OUTSIDE the context-menu trigger, whose `asChild` demands
+          a single child (a second child throws React.Children.only). */}
+      <AutoExpiryDialog db={db} open={expiryOpen} onOpenChange={setExpiryOpen} />
+      <DatabaseContextMenu
+        db={db}
+        onRenameView={() => setRenamingViewId(view.id)}
+        onConfigureExpiry={() => setExpiryOpen(true)}
+      >
+        <div className={cn(inline ? 'rounded-lg border border-border p-3' : 'mt-6 border-t border-border pt-5')}>
+          {inline && (
+            <input
+              defaultValue={db.database.name ?? ''}
+              onBlur={(e) => e.target.value !== (db.database?.name ?? '') && void db.renameDatabase(e.target.value)}
+              placeholder="Untitled database"
+              className="mb-2 w-full bg-transparent text-base font-semibold outline-hidden placeholder:text-muted-foreground/40"
+            />
+          )}
+          <Toolbar db={db} view={view} renamingId={renamingViewId} setRenamingId={setRenamingViewId} />
+          <div className="flex flex-wrap items-center gap-x-3">
+            <FilterChips db={db} view={view} />
+            <SortChips db={db} view={view} />
+          </div>
+          <MetricsBar db={db} view={view} />
+          <ViewBody db={db} view={view} columns={columns} schema={schema} />
         </div>
-        <MetricsBar db={db} view={view} />
-        <ViewBody db={db} view={view} columns={columns} schema={schema} />
-      </div>
-    </DatabaseContextMenu>
+      </DatabaseContextMenu>
+    </>
   );
 };
 

@@ -467,6 +467,67 @@ export interface DatabaseView {
   mapClustered?: boolean;
 }
 
+/**
+ * Auto-expiry (TTL) config for a database. When `enabled`, the server
+ * periodically soft-deletes (to the trash — restorable, NEVER hard-deleted) the
+ * rows whose expiry-basis timestamp is older than `days` days. A general
+ * databases feature (later reused by an admin AI-usage database for 30-day
+ * retention). Absent/`enabled: false` ⇒ nothing expires.
+ *
+ * `basis` is either the row's `'created'` (page `created_at`) time, its
+ * `'lastEdited'` (`updated_at`) time, or the id of one of this database's own
+ * `date` / `created_time` properties. An invalid config — `days < 1`, or a
+ * `basis` property that no longer exists or isn't a date/created-time column — is
+ * treated as a no-op by {@link resolveAutoExpiry}.
+ */
+export interface AutoExpiryConfig {
+  enabled: boolean;
+  /** Rows older than this many days expire. Clamped to `[1, 365_000]`. */
+  days: number;
+  /** `'created'`, `'lastEdited'`, or a `date`/`created_time` property id. */
+  basis: 'created' | 'lastEdited' | string;
+}
+
+/** A validated, ready-to-apply auto-expiry rule (see {@link resolveAutoExpiry}). */
+export type ResolvedAutoExpiry =
+  | {days: number; kind: 'created'}
+  | {days: number; kind: 'lastEdited'}
+  | {days: number; kind: 'dateProperty'; propertyId: string};
+
+/**
+ * Validate + normalise a database's {@link AutoExpiryConfig} against its schema,
+ * returning the rule to apply, or `null` when auto-expiry should do nothing:
+ * absent, `enabled: false`, a non-numeric/NaN/Infinite `days`, or a `basis`
+ * property that doesn't exist or isn't a `date`/`created_time` column. `days` is
+ * clamped to `[1, 365_000]` (floored) — the upper cap keeps `now − days·day`
+ * inside both the representable Date range and PostgreSQL's usable `timestamptz`
+ * (AD-era) range so the sweep never throws. A `created_time` property basis resolves to the
+ * row's created time — identical to `'created'` — so it collapses to
+ * `kind: 'created'` and never needs a per-row date lookup.
+ */
+export function resolveAutoExpiry(schema: DatabaseSchema | null | undefined): ResolvedAutoExpiry | null {
+  const cfg = schema?.autoExpiry;
+  if (!cfg || !cfg.enabled) return null;
+  if (typeof cfg.days !== 'number' || !Number.isFinite(cfg.days)) return null;
+  // Clamp to [1, ~1,000 years]. Without the upper cap a huge finite `days` (e.g.
+  // 1e12) makes `now − days·86_400_000` underflow the Date range, so the sweep's
+  // `new Date(...).toISOString()` throws and aborts the whole pass. The cap must
+  // also keep the cutoff in the AD era: the created/lastEdited path binds the
+  // cutoff as `$::timestamptz`, and PostgreSQL/PGlite throws "time zone
+  // displacement out of range" for BC (negative-year) instants — empirically the
+  // boundary is ~730k days back (≈27 AD), long before its 4713 BC hard limit.
+  // ~365k days ≈ year 1027 AD leaves ~1,000 years of margin while staying an
+  // effectively-infinite TTL (nothing real is centuries old).
+  const days = Math.min(365_000, Math.max(1, Math.floor(cfg.days)));
+  if (cfg.basis === 'created') return {days, kind: 'created'};
+  if (cfg.basis === 'lastEdited') return {days, kind: 'lastEdited'};
+  const prop = (schema?.properties ?? []).find((p) => p.id === cfg.basis);
+  if (!prop) return null;
+  if (prop.type === 'created_time') return {days, kind: 'created'};
+  if (prop.type === 'date') return {days, kind: 'dateProperty', propertyId: prop.id};
+  return null;
+}
+
 /** The full editable definition of a database: its columns, views, and the
  *  page-view property groups. */
 export interface DatabaseSchema {
@@ -476,6 +537,9 @@ export interface DatabaseSchema {
   propertyGroups?: PropertyGroup[];
   /** Reusable new-row presets offered by the New-row control. */
   templates?: RowTemplate[];
+  /** Auto-remove rows older than N days (soft-delete to trash). See
+   *  {@link AutoExpiryConfig}. Absent/disabled by default. */
+  autoExpiry?: AutoExpiryConfig;
 }
 
 /** A database as returned by the store. */
