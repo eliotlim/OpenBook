@@ -1,6 +1,7 @@
 import {useCallback} from 'react';
 import {Button} from '@/components/ui/button';
 import BackupSettings from '@/components/BackupSettings';
+import AiUsageSettings from '@/components/settings/AiUsageSettings';
 import {useConfirm, useTranslation} from '@/providers';
 import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
 
@@ -34,6 +35,11 @@ export default function AdminSettings() {
   return (
     <SettingsScreen title={t('admin.title')} description={t('admin.description')}>
       <BackupSettings />
+
+      {/* AI usage attribution + pricing + retention. Renders nothing unless YOU
+          are an instance admin (self-gated + 403-gated); a viewer/guest sees none
+          of it. */}
+      <AiUsageSettings />
 
       <SettingsSection title={t('admin.dangerZone')} description={t('admin.dangerZoneHint')} className="gap-3">
         <div className="flex items-center justify-between gap-6 rounded-md border border-destructive/40 px-3.5 py-3">
