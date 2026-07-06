@@ -5,6 +5,8 @@ import {projectSnapshotForExport} from '../../blockeditor/exportBlocks';
 import {buildDocumentModel} from '../documentModel';
 import {toHtml, toSlideDeck} from '../toHtml';
 import {toMarkdown} from '../toMarkdown';
+import {buildChartSvg} from '../chartSvg';
+import type {NormalizedSeries} from '../chartNormalize';
 
 /**
  * Exports start from a CRDT block document (`editor: 'blocks'` + `blockdoc`), not
@@ -144,6 +146,46 @@ describe('reactive export from a block document', () => {
   // PDF is now rendered from the HTML in a real browser (dom-to-svg → svg2pdf),
   // so it can't run under happy-dom — its coverage lives in the e2e suite
   // (export.spec.ts downloads + validates the paged/continuous PDFs).
+});
+
+// OB-380: a kind-less reactive chart (a chart cell with no fixed `kind`) exports
+// via Observable Plot. Its colour range is the canonical data palette for the
+// active scheme — the same blue-first SERIES_ORDER fills the kit/db charts use —
+// not Plot's default categorical scheme, so an exported chart colour-matches the
+// window. Both the client runtime (inlined) and the server SVG path are covered.
+describe('kind-less (Plot) reactive chart export uses the canonical palette (OB-380)', () => {
+  const multiSeries: NormalizedSeries[] = [
+    {name: 'A', data: [1, 2, 3]},
+    {name: 'B', data: [3, 2, 1]},
+    {name: 'C', data: [2, 2, 2]},
+  ];
+
+  it('server SVG paints the SERIES_ORDER fills (blue/orange/green), not Plot defaults', () => {
+    const pastel = buildChartSvg(multiSeries);
+    expect(pastel).not.toBeNull();
+    const svg = pastel!.outerHTML;
+    // Series 0/1/2 → canonical pastel blue/orange/green (SERIES_ORDER lead trio),
+    // inlined as concrete `stroke` hex — Plot's default scheme would lead elsewhere.
+    expect(svg).toContain('stroke="#a9ccdf"'); // blue
+    expect(svg).toContain('stroke="#debea6"'); // orange
+    expect(svg).toContain('stroke="#9fdf9f"'); // green
+    // The passed scheme is honoured — vivid swaps to the saturated set.
+    const vivid = buildChartSvg(multiSeries, 600, '#111111', 'vivid');
+    expect(vivid!.outerHTML).toContain('stroke="#3b82f6"'); // vivid blue (not pastel #a9ccdf)
+  });
+
+  it('client runtime sets Plot color.range to the inlined KIT_PALETTE (self-contained)', () => {
+    const deck = toSlideDeck(blockSnapshot(), 'T', '🛒'); // legacy runtime path (#ob-data)
+    // The kind-less Plot spec draws its series colours from the prepended palette
+    // const (not Plot's default scheme); the const inlines the pastel fills, so the
+    // export needs no live CSS vars or app modules at runtime.
+    expect(deck).toContain('color:{range:KIT_PALETTE,legend:series.length>1}');
+    expect(deck).toContain('const KIT_PALETTE=["#a9ccdf"'); // pastel blue leads SERIES_ORDER
+    // A vivid export bakes the vivid fills into that same range.
+    const vividDeck = toSlideDeck(blockSnapshot(), 'T', '🛒', undefined, {}, 'vivid');
+    expect(vividDeck).toContain('color:{range:KIT_PALETTE,legend:series.length>1}');
+    expect(vividDeck).toContain('const KIT_PALETTE=["#3b82f6"'); // vivid blue leads
+  });
 });
 
 // Inline marks, columns, and every chart kind must survive the projection into
