@@ -1164,6 +1164,14 @@ export class PageStore {
       // date-property basis: the date lives in `pages.properties` (JSONB, not a
       // comparable column), so scan the database's live rows and parse each value.
       // Bounded to this database's rows.
+      //
+      // NOTE: date-property expiry is DAY-GRANULAR. `parseDay` normalises the
+      // stored value to a local-midnight Date and compares it against a `cutoffMs`
+      // derived from a UTC `now − days`. Because the day is anchored at local
+      // midnight while the cutoff is a UTC instant, the effective boundary can
+      // shift by up to ~a day relative to a naive UTC-day reading. That coarseness
+      // is acceptable for a retention feature (nothing is hard-deleted — rows only
+      // move to the restorable trash); do not treat it as sub-day-precise.
       const scan = await this.db.query<{id: string; properties?: Record<string, unknown> | string | null}>(
         'SELECT id, properties FROM pages WHERE database_id = $1 AND deleted_at IS NULL',
         [raw.id],

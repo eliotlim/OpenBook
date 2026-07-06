@@ -146,6 +146,19 @@ describe('PageStore.sweepExpiredRows — other bases', () => {
     expect(await isTrashed(active.id)).toBe(false);
   });
 
+  it('is a safe no-op on a date-basis DB whose rows are all fresh (empty expired set)', async () => {
+    // Guards the `expired.length === 0` short-circuit: no rows past the cutoff
+    // must NOT build an empty `IN ()` clause or otherwise throw.
+    const dueProp: DatabaseProperty = {id: 'p_due', name: 'Due', type: 'date'};
+    const dbId = await makeDatabase([dueProp], {enabled: true, days: 30, basis: 'p_due'});
+    const a = await store.createRow(dbId, {name: 'a', properties: {p_due: '2026-07-05'}});
+    const b = await store.createRow(dbId, {name: 'b', properties: {p_due: '2026-07-06'}});
+
+    expect(await store.sweepExpiredRows({now: NOW})).toBe(0);
+    expect(await isTrashed(a.id)).toBe(false);
+    expect(await isTrashed(b.id)).toBe(false);
+  });
+
   it('honours a date-property basis (value in pages.properties)', async () => {
     const dueProp: DatabaseProperty = {id: 'p_due', name: 'Due', type: 'date'};
     const dbId = await makeDatabase([dueProp], {enabled: true, days: 30, basis: 'p_due'});
@@ -234,6 +247,21 @@ describe('PageStore.sweepExpiredRows — clamp & invalid basis (no-op)', () => {
     expect(await isTrashed(twoDaysOld.id)).toBe(true);
   });
 
+  it('caps an absurdly large finite days without throwing (Date-range overflow guard)', async () => {
+    // A huge finite `days` (e.g. 1e12) would overflow `now − days·day` past the
+    // representable Date range (and Postgres's timestamptz bound), making the
+    // sweep's date math throw and aborting the whole pass. resolveAutoExpiry caps
+    // it, so the tick completes cleanly and simply trashes nothing (no live row is
+    // old enough to beat a ~1,000-year TTL).
+    const dbId = await makeDatabase([], {enabled: true, days: 1e12, basis: 'created'});
+    const old = await store.createRow(dbId, {name: 'old'});
+    await setCreatedAt(old.id, days(9999));
+
+    // A throw here (Date overflow) would fail the test outright.
+    expect(await store.sweepExpiredRows({now: NOW})).toBe(0);
+    expect(await isTrashed(old.id)).toBe(false);
+  });
+
   it('is a no-op when the basis property does not exist', async () => {
     const dbId = await makeDatabase([], {enabled: true, days: 1, basis: 'p_missing'});
     const old = await store.createRow(dbId, {name: 'old', properties: {p_missing: '2000-01-01'}});
@@ -271,6 +299,21 @@ describe('resolveAutoExpiry (SDK validator)', () => {
   it('rejects NaN / Infinite days', () => {
     expect(resolveAutoExpiry({...base, autoExpiry: {enabled: true, days: Number.NaN, basis: 'created'}})).toBeNull();
     expect(resolveAutoExpiry({...base, autoExpiry: {enabled: true, days: Infinity, basis: 'created'}})).toBeNull();
+  });
+
+  it('caps an absurdly large finite days (never throws, yields a clamped rule)', () => {
+    expect(resolveAutoExpiry({...base, autoExpiry: {enabled: true, days: 1e12, basis: 'created'}})).toEqual({days: 365_000, kind: 'created'});
+    // The capped cutoff stays inside the representable Date range.
+    const rule = resolveAutoExpiry({...base, autoExpiry: {enabled: true, days: 1e12, basis: 'created'}})!;
+    expect(() => new Date(Date.now() - rule.days * 86_400_000).toISOString()).not.toThrow();
+  });
+
+  it('does not throw when the schema is missing its properties array', () => {
+    // A schema lacking `properties` + a property-id basis must resolve to null,
+    // not TypeError (which would stall the whole sweep tick).
+    const schema = {views: [], autoExpiry: {enabled: true, days: 5, basis: 'p_due'}} as unknown as Parameters<typeof resolveAutoExpiry>[0];
+    expect(() => resolveAutoExpiry(schema)).not.toThrow();
+    expect(resolveAutoExpiry(schema)).toBeNull();
   });
 
   it('resolves a date property basis, collapses created_time to created, rejects others', () => {

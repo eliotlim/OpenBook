@@ -482,7 +482,7 @@ export interface DatabaseView {
  */
 export interface AutoExpiryConfig {
   enabled: boolean;
-  /** Rows older than this many days expire. Clamped to a minimum of 1. */
+  /** Rows older than this many days expire. Clamped to `[1, 365_000]`. */
   days: number;
   /** `'created'`, `'lastEdited'`, or a `date`/`created_time` property id. */
   basis: 'created' | 'lastEdited' | string;
@@ -499,7 +499,9 @@ export type ResolvedAutoExpiry =
  * returning the rule to apply, or `null` when auto-expiry should do nothing:
  * absent, `enabled: false`, a non-numeric/NaN/Infinite `days`, or a `basis`
  * property that doesn't exist or isn't a `date`/`created_time` column. `days` is
- * clamped to `>= 1` (floored). A `created_time` property basis resolves to the
+ * clamped to `[1, 365_000]` (floored) — the upper cap keeps `now − days·day`
+ * inside both the representable Date range and PostgreSQL's usable `timestamptz`
+ * (AD-era) range so the sweep never throws. A `created_time` property basis resolves to the
  * row's created time — identical to `'created'` — so it collapses to
  * `kind: 'created'` and never needs a per-row date lookup.
  */
@@ -507,10 +509,19 @@ export function resolveAutoExpiry(schema: DatabaseSchema | null | undefined): Re
   const cfg = schema?.autoExpiry;
   if (!cfg || !cfg.enabled) return null;
   if (typeof cfg.days !== 'number' || !Number.isFinite(cfg.days)) return null;
-  const days = Math.max(1, Math.floor(cfg.days));
+  // Clamp to [1, ~1,000 years]. Without the upper cap a huge finite `days` (e.g.
+  // 1e12) makes `now − days·86_400_000` underflow the Date range, so the sweep's
+  // `new Date(...).toISOString()` throws and aborts the whole pass. The cap must
+  // also keep the cutoff in the AD era: the created/lastEdited path binds the
+  // cutoff as `$::timestamptz`, and PostgreSQL/PGlite throws "time zone
+  // displacement out of range" for BC (negative-year) instants — empirically the
+  // boundary is ~730k days back (≈27 AD), long before its 4713 BC hard limit.
+  // ~365k days ≈ year 1027 AD leaves ~1,000 years of margin while staying an
+  // effectively-infinite TTL (nothing real is centuries old).
+  const days = Math.min(365_000, Math.max(1, Math.floor(cfg.days)));
   if (cfg.basis === 'created') return {days, kind: 'created'};
   if (cfg.basis === 'lastEdited') return {days, kind: 'lastEdited'};
-  const prop = schema?.properties.find((p) => p.id === cfg.basis);
+  const prop = (schema?.properties ?? []).find((p) => p.id === cfg.basis);
   if (!prop) return null;
   if (prop.type === 'created_time') return {days, kind: 'created'};
   if (prop.type === 'date') return {days, kind: 'dateProperty', propertyId: prop.id};
