@@ -69,7 +69,9 @@ function buildOverride(draft: PriceDraft, defaults: AiPricingTable, effective: A
     for (const [model, entry] of Object.entries(models)) {
       const input = parsePrice(entry.input);
       const output = parsePrice(entry.output);
-      if (input === null || output === null) continue; // skip invalid — keep prior
+      // Empty or invalid → drop this model from the override so it falls back to
+      // the shipped default (NOT the prior override): clearing a field restores it.
+      if (input === null || output === null) continue;
       const def = defaults[provider as AiProvider]?.[model];
       const differs = !def || def.inputPerMtok !== input || def.outputPerMtok !== output;
       if (!differs) continue;
@@ -85,7 +87,10 @@ function buildOverride(draft: PriceDraft, defaults: AiPricingTable, effective: A
 }
 
 const num = (n: number): string => n.toLocaleString();
+/** Per-row cost — 4dp so a sub-cent Haiku call doesn't round to `$0.00`. */
 const money = (n: number): string => `$${n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 4})}`;
+/** Summary total — 2dp (the aggregate is well above the sub-cent noise floor). */
+const money2 = (n: number): string => `$${n.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 
 export default function AiUsageSettings() {
   const client = useData();
@@ -199,7 +204,7 @@ export default function AiUsageSettings() {
                 <SummaryStat label={t('aiUsage.totalCalls')} value={num(totals.rows)} />
                 <SummaryStat label={t('aiUsage.totalInput')} value={num(totals.inputTokens)} />
                 <SummaryStat label={t('aiUsage.totalOutput')} value={num(totals.outputTokens)} />
-                <SummaryStat label={t('aiUsage.totalCost')} value={money(totals.cost)} />
+                <SummaryStat label={t('aiUsage.totalCost')} value={money2(totals.cost)} />
               </dl>
             )}
             <div className="overflow-x-auto rounded-md border border-border">
@@ -221,7 +226,7 @@ export default function AiUsageSettings() {
                         {r.time ? new Date(r.time).toLocaleString() : '—'}
                       </td>
                       <td className="max-w-[200px] truncate px-2.5 py-1.5" title={r.user}>{r.user || '—'}</td>
-                      <td className="px-2.5 py-1.5">
+                      <td className="whitespace-nowrap px-2.5 py-1.5">
                         <span className="font-mono">{r.model || r.provider}</span>
                         <span className="ml-1.5 text-muted-foreground">{r.provider}</span>
                       </td>
@@ -233,6 +238,11 @@ export default function AiUsageSettings() {
                 </tbody>
               </table>
             </div>
+            {totals && totals.rows > rows.length && (
+              <p className="text-xs text-muted-foreground">
+                {t('aiUsage.shownOfTotal', {shown: num(rows.length), total: num(totals.rows)})}
+              </p>
+            )}
           </>
         )}
       </SettingsSection>
@@ -259,6 +269,11 @@ export default function AiUsageSettings() {
                     const inId = `price-${provider}-${model}-in`;
                     const outId = `price-${provider}-${model}-out`;
                     const overridden = pricing.override[provider as AiProvider]?.[model] !== undefined;
+                    // The shipped default doubles as the field placeholder: an admin
+                    // can SEE it (empty field shows it) and RESTORE it (clear the field).
+                    const def = pricing.default[provider as AiProvider]?.[model];
+                    const defIn = def ? String(def.inputPerMtok) : undefined;
+                    const defOut = def ? String(def.outputPerMtok) : undefined;
                     return (
                       <div key={model} className="grid grid-cols-[1fr_7rem_7rem] items-center gap-2">
                         <label htmlFor={inId} className={cn('truncate font-mono text-xs', overridden && 'font-semibold')} title={model}>
@@ -273,6 +288,7 @@ export default function AiUsageSettings() {
                           inputSize="sm"
                           className="text-right tabular-nums"
                           aria-label={t('aiUsage.inputPriceFor', {model})}
+                          placeholder={defIn}
                           value={draft[provider]?.[model]?.input ?? ''}
                           onChange={(e) => setPrice(provider, model, 'input', e.target.value)}
                         />
@@ -284,6 +300,7 @@ export default function AiUsageSettings() {
                           inputSize="sm"
                           className="text-right tabular-nums"
                           aria-label={t('aiUsage.outputPriceFor', {model})}
+                          placeholder={defOut}
                           value={draft[provider]?.[model]?.output ?? ''}
                           onChange={(e) => setPrice(provider, model, 'output', e.target.value)}
                         />

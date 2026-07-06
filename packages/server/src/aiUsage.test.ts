@@ -401,6 +401,18 @@ describe('GET /api/ai/usage reports the usage view to admins only', () => {
       expect(JSON.stringify(body.rows)).not.toContain('p_input');
     }
   });
+
+  it('caps the returned rows at the limit while totals still count EVERY row', async () => {
+    const usage = await seededUsage();
+    await usage.log({provider: 'mock', model: 'm', kind: 'generate', usage: {inputTokens: 1, outputTokens: 1}, principal: principal('owner')});
+    await usage.log({provider: 'mock', model: 'm', kind: 'generate', usage: {inputTokens: 2, outputTokens: 3}, principal: principal('admin')});
+    // A tiny page (limit 1) still folds totals over both rows — the viewer's
+    // "Showing N of M" hint relies on totals.rows being the TRUE call count.
+    const view = await usage.report(1);
+    expect(view.rows).toHaveLength(1); // page capped
+    expect(view.totals?.rows).toBe(2); // …but totals count all rows
+    expect(view.totals?.inputTokens).toBe(3);
+  });
 });
 
 describe('seeded auto-expiry + admin retention', () => {

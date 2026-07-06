@@ -162,8 +162,13 @@ export interface AiUsageRow {
   kind: string;
 }
 
-/** Aggregate totals across the returned usage rows (admin viewer summary). */
+/**
+ * Aggregate totals across ALL usage rows in the database — NOT just the page of
+ * rows returned in {@link AiUsageResponse.rows} (which is capped). So `rows` here
+ * is the true total call count and can exceed `AiUsageResponse.rows.length`.
+ */
 export interface AiUsageTotals {
+  /** Total number of usage rows (calls) in the database, across all pages. */
   rows: number;
   inputTokens: number;
   outputTokens: number;

@@ -132,6 +132,38 @@ describe('AiUsageSettings (admin AI usage + pricing)', () => {
     await waitFor(() => expect((screen.getByLabelText('Input price per million tokens for claude-opus-4-8') as HTMLInputElement).value).toBe('9'));
   });
 
+  it('surfaces the shipped default as a placeholder and restores it by clearing the field', async () => {
+    const setAiPricing = vi.fn(async () => pricing());
+    // An override is in effect (input repriced to 9); the default (5) stays discoverable.
+    const overridden = pricing({
+      override: {claude: {'claude-opus-4-8': {inputPerMtok: 9, outputPerMtok: 25}}},
+      effective: {claude: {'claude-opus-4-8': {...OPUS, inputPerMtok: 9}}},
+    });
+    wrap(adminClient({getAiPricing: async () => overridden, setAiPricing}));
+    const input = (await screen.findByLabelText('Input price per million tokens for claude-opus-4-8')) as HTMLInputElement;
+    expect(input.value).toBe('9');
+    expect(input.getAttribute('placeholder')).toBe('5'); // the shipped default is visible
+
+    // Clearing the field drops the override for that model → it falls back to the default.
+    fireEvent.change(input, {target: {value: ''}});
+    fireEvent.click(screen.getByText('Save pricing'));
+    await waitFor(() => expect(setAiPricing).toHaveBeenCalledTimes(1));
+    expect(setAiPricing).toHaveBeenCalledWith({}); // no override → default applies
+  });
+
+  it('formats the total-cost summary to 2dp while keeping the per-row cost at 4dp', async () => {
+    wrap(adminClient());
+    await screen.findByTestId('ai-usage-admin');
+    expect(screen.getByText('$0.02')).toBeTruthy(); // summary card: 0.0175 → $0.02
+    expect(screen.getByText('$0.0175')).toBeTruthy(); // per-row cost keeps 4dp
+  });
+
+  it('shows a row-cap hint when the total call count exceeds the shown rows', async () => {
+    const many: AiUsageResponse = {...usageWithRows(), totals: {rows: 150, inputTokens: 1000, outputTokens: 500, cost: 0.0175}};
+    wrap(adminClient({getAiUsage: async () => many}));
+    expect(await screen.findByText(/Showing the latest 1 of 150 calls/)).toBeTruthy();
+  });
+
   it('the retention control calls setAiUsageRetention with the entered days', async () => {
     const setAiUsageRetention = vi.fn(async (days: number) => ({days}));
     wrap(adminClient({setAiUsageRetention, getAiUsage: async () => usageWithRows()}));
