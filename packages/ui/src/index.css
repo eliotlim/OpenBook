@@ -433,14 +433,16 @@
 
 /* ── Notebook "sheets" on a book cover ───────────────────────────────────────
    The primary page and the right split pane read like facing notebook pages.
-   The "desk" they sit on is the book cover — a *neutral* canvas (`--desk`),
-   deliberately not the sidebar/titlebar sheet colour now that the sheets are a
-   full-accent surface (OB-377) — inset from the window edge (no top inset on
-   desktop, where the titlebar is the cover's top; no left inset while the
-   sidebar is pinned, so the page binds straight into it). The two pages meet at
-   a central seam, not a gap. */
+   The "desk" they sit on is the book cover — it carries the SAME tint as the
+   sidebar/titlebar (`--sheet-1`), so the chrome tint runs continuously around
+   the whole window and the white page sheets read as floating on a single
+   book cover (rather than the earlier neutral desk, which broke the tint at the
+   sheet's corners). Inset from the window edge (no top inset on desktop, where
+   the titlebar is the cover's top; no left inset while the sidebar is pinned, so
+   the page binds straight into it). The two pages meet at a central seam, not a
+   gap. (Present mode keeps its own neutral `--desk` backdrop.) */
 .ob-desk {
-  background-color: hsl(var(--desk));
+  background-color: hsl(var(--sheet-1));
   gap: 0;
   padding-top: var(--ob-inset-top);
   padding-bottom: var(--ob-page-inset);
@@ -457,6 +459,17 @@
   border-radius: var(--ob-page-radius);
   box-shadow: var(--shadow-sheet);
   overflow: hidden;
+}
+/* Desktop: the in-window titlebar is the cover's top edge, so the page sheets
+   bind flush UP into it — square their top corners and drop the top border (the
+   same "bind flush, share no border" move the primary page makes into the pinned
+   sidebar on its left). This removes the seam line under the titlebar so the
+   active tab merges straight into the page. Web keeps its top inset, so the
+   sheets stay fully rounded, bordered cards there. */
+.ob-desk[data-titlebar='true'] > .ob-sheet {
+  border-top-width: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 /* Split view: the two pages meet at a central seam (the book's spine). No gap;
    square the inner corners so they sit flush; a single seam line is the right

@@ -47,7 +47,7 @@ export default function TitlebarTabs() {
         <BackForwardCluster />
       </div>
 
-      <div className="flex min-w-0 items-end gap-1 overflow-x-auto pb-1 scrollbar-none">
+      <div className="flex min-w-0 items-end gap-1 overflow-x-auto scrollbar-none">
         {tabs.map((tab) => {
           const active = tab.id === activeTabId;
           return (
@@ -58,10 +58,14 @@ export default function TitlebarTabs() {
               onMouseDown={() => selectTab(tab.id)}
               title={pageLabel(tab.pageId)}
               className={cn(
-                'group flex h-7 min-w-0 max-w-[200px] cursor-default items-center gap-1.5 rounded-md px-2 text-sm transition-colors',
+                'group flex min-w-0 max-w-[200px] cursor-default items-center gap-1.5 px-2 text-sm transition-colors',
+                // The active tab drops the floating gap, takes the page's fill +
+                // hairline border (open at the bottom) and sits flush on the
+                // titlebar's lower edge, so it reads as the page below extruded
+                // up into a tab. Inactive tabs float above that connection line.
                 active
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:bg-background/40 hover:text-foreground',
+                  ? 'h-8 rounded-t-md border border-b-0 border-border bg-background text-foreground'
+                  : 'mb-1 h-7 rounded-md text-muted-foreground hover:bg-background/40 hover:text-foreground',
               )}
             >
               <PageIcon value={readPageIcon(tab.pageId)} className="shrink-0 text-[0.95em] leading-none" />
@@ -89,7 +93,7 @@ export default function TitlebarTabs() {
           onClick={() => openInNew(HOME_PAGE_ID, 'tab')}
           aria-label={t('tabs.new')}
           title={t('tabs.new')}
-          className="mb-0.5 flex h-6 shrink-0 items-center rounded p-1 text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"
+          className="mb-1 flex h-6 shrink-0 items-center rounded p-1 text-muted-foreground transition-colors hover:bg-background/50 hover:text-foreground"
         >
           <Plus className="h-4 w-4" />
         </button>

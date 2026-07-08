@@ -28,7 +28,7 @@ export interface DefaultLayoutProps {
 
 export default function DefaultLayout(props: DefaultLayoutProps) {
   const {hud, setHud} = useHud();
-  const {currentPageId} = useNavigation();
+  const {currentPageId, inWindowTabs} = useNavigation();
   // The page binds straight into the sidebar (no left inset) only while it is
   // pinned open — i.e. taking layout space. Undocked/closed leaves the inset.
   const sidebarPinned = hud.sideNav.docked && hud.sideNav.open;
@@ -96,10 +96,13 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           )}
           {/* The book cover: the primary page and the split pane sit on it as
               rounded "notebook" sheets, inset from the window (no left inset
-              while the sidebar is pinned). */}
+              while the sidebar is pinned; no top inset / top border while the
+              in-window titlebar is the cover's top edge, so the sheets bind flush
+              up into it and the active tab merges into the page). */}
           <div
             className="ob-desk flex min-h-0 w-full min-w-0 flex-row overflow-hidden"
             data-sidebar-pinned={sidebarPinned}
+            data-titlebar={inWindowTabs}
           >
             <div className="ob-sheet flex min-h-0 w-full min-w-0 flex-col">
               <NavBar/>
