@@ -6,8 +6,18 @@ import {test, expect, chooseValue} from './fixtures';
 // so the section — and the check-now outcomes — can be exercised in the browser.
 
 const openGeneralSettings = async (page: import('@playwright/test').Page) => {
-  await page.getByRole('button', {name: 'Settings'}).first().click();
-  await page.getByRole('button', {name: 'General', exact: true}).click();
+  // Opening settings can race the shell's post-load restore: the window
+  // re-initialises async (NavigationProvider resolves the page + writes the
+  // URL, DocumentArea flips from its loading null-render to content), and a
+  // dialog opened inside that transition is torn back down — detaching the tab
+  // buttons mid-click. It bites the reopen after `page.reload()` (the route is
+  // already compiled, so the app renders before it settles) and shows up under
+  // load. Retry the open until the General panel is actually up and stays up.
+  await expect(async () => {
+    await page.getByRole('button', {name: 'Settings'}).first().click({timeout: 3000});
+    await page.getByRole('button', {name: 'General', exact: true}).click({timeout: 3000});
+    await expect(page.getByRole('heading', {name: 'Behavior'})).toBeVisible({timeout: 3000});
+  }).toPass({timeout: 20_000});
 };
 
 test('updates section is hidden in plain web mode', async ({page}) => {
