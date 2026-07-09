@@ -70,11 +70,11 @@ test('settings: every provider is configurable in its own panel + the radio pick
   await expect
     .poll(async () => {
       const s = (await (await request.get(`${SERVER}/api/ai/status`)).json()) as {
-        config?: {providers?: {claude?: {apiKey?: string}}};
+        config?: {providers?: {claude?: {apiKeySet?: boolean}}};
       };
-      return s.config?.providers?.claude?.apiKey;
+      return s.config?.providers?.claude?.apiKeySet;
     })
-    .toBe('sk-ant-test-key');
+    .toBe(true);
   const status = await (await request.get(`${SERVER}/api/ai/status`)).json();
   expect(status.config.provider).toBe('off');
   await page.keyboard.press('Escape');

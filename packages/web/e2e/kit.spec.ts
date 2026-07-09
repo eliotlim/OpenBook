@@ -262,23 +262,27 @@ test('HTML export keeps a kit artifact computing offline', {tag: ['@editor']}, a
   const file = testInfo.outputPath('kit-export.html');
   await download.saveAs(file);
   await page.goto(`file://${file}`);
-  const exprs = page.locator('.reactive.expr [data-val]');
-  await expect(exprs.nth(0)).toHaveText('70'); // the formula readout
-  // The status light renders as a LIVE dot (its expr is hidden): done*10 = 70 ≥ okAt 50 → ok.
-  await expect(page.locator('.kitlight')).toHaveAttribute('data-status', 'ok');
+  // The export hydrates the island-mounted OpenBookViewer over the static body;
+  // wait for its locked-but-interactive surface (only present post-hydration)
+  // before asserting on the live kit DOM.
+  await expect(page.locator('.obe-present-blocks')).toBeVisible();
+  const formula = page.locator('.obe-formula-out').first();
+  await expect(formula).toHaveText('70'); // the formula readout
+  // The status light renders as a LIVE dot: done*10 = 70 ≥ okAt 50 → ok.
+  await expect(page.locator('.obe-kit-status')).toHaveAttribute('data-status', 'ok');
   // The kit chart exports as a DRAWN, kind-faithful plot over its cell:
   // three bars with their x labels, redrawn when the input moves.
-  const fig = page.locator('[data-chart]'); // the chart's title is a sibling; the plot node carries data-chart
-  await expect(fig.locator('svg rect')).toHaveCount(3);
-  await expect(fig.locator('svg text', {hasText: 'b'})).toBeVisible();
+  const fig = page.locator('.obe-chart-svg'); // the drawn plot svg
+  await expect(fig.locator('rect')).toHaveCount(3);
+  await expect(fig.locator('text', {hasText: 'b'})).toBeVisible();
   // y-axis ticks prove the redraw: data max 21 → a "20" tick…
-  await expect(fig.locator('svg text', {hasText: '20'})).toBeVisible();
-  await page.locator('.reactive.slider input[type=range]').fill('3');
-  await expect(exprs.nth(0)).toHaveText('30');
+  await expect(fig.locator('text', {hasText: '20'})).toBeVisible();
+  await page.locator('.obe-kit-number .obe-kit-stepper input').fill('3');
+  await expect(formula).toHaveText('30');
   // …data max 9 → the axis rescales to a "5" tick.
-  await expect(fig.locator('svg rect')).toHaveCount(3);
-  await expect(fig.locator('svg text', {hasText: '5'})).toBeVisible();
-  await expect(fig.locator('svg text', {hasText: '20'})).toHaveCount(0);
+  await expect(fig.locator('rect')).toHaveCount(3);
+  await expect(fig.locator('text', {hasText: '5'})).toBeVisible();
+  await expect(fig.locator('text', {hasText: '20'})).toHaveCount(0);
 });
 
 test('dropdown publishes its pick; full-width radio renders stacked rows', {tag: ['@editor']}, async ({page}) => {

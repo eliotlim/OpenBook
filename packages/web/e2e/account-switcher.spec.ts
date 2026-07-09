@@ -63,8 +63,10 @@ test('account switcher: lists accounts and switches the active one', {tag: ['@sh
   await page.getByRole('button', {name: 'Sign-in & email'}).click();
 
   // Both personas are listed; the seeded account is the active one.
-  await expect(page.getByText('personal@home.example')).toBeVisible();
-  await expect(page.getByText('work@corp.example')).toBeVisible();
+  // The email also renders in the ProfileMenu + SettingsPanel's ProfileChip, so
+  // scope each assertion to its own switcher row.
+  await expect(page.locator('[data-account-id="acct-personal"]').getByText('personal@home.example')).toBeVisible();
+  await expect(page.locator('[data-account-id="acct-work"]').getByText('work@corp.example')).toBeVisible();
   await expect(page.locator('[data-account-id="acct-personal"]')).toHaveAttribute('data-active', 'true');
   await expect(page.locator('[data-account-id="acct-work"]')).toHaveAttribute('data-active', 'false');
   await takeSnapshot(page, testInfo); // visual: the account switcher
