@@ -412,9 +412,13 @@ test('block page: interactive HTML export stays live offline', {tag: ['@editor']
   const viewer = await context.newPage();
   await viewer.route('**/*', (route) => route.abort());
   await viewer.setContent(html, {waitUntil: 'load'});
-  const out = viewer.locator('.expr [data-val]').first();
+  // The export hydrates the island-mounted OpenBookViewer over the static body;
+  // wait for its locked-but-interactive surface (only present post-hydration) so
+  // we don't read the pre-hydration static projection.
+  await expect(viewer.locator('.obe-present-blocks')).toBeVisible();
+  const out = viewer.locator('.obe-formula-out').first();
   await expect(out).toHaveText('6');
-  const input = viewer.locator('.slider input').first();
+  const input = viewer.locator('.obe-kit-slider input[type=range]').first();
   await input.fill('9');
   await input.dispatchEvent('input');
   await expect(out).toHaveText('18');

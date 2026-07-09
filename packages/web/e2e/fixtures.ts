@@ -251,19 +251,26 @@ export const takeSnapshot: typeof chromaticTakeSnapshot = ARCHIVE_VISUALS
  * never changes WHICH button sits under the pointer, so skipping the gate is
  * safe — and it makes every Select-driven spec far less flaky.
  */
-async function pickOption(option: Locator): Promise<void> {
+async function pickOption(page: Page, option: Locator): Promise<void> {
   await option.first().waitFor({state: 'visible'});
   await option.first().click({force: true});
+  // Wait for the popover listbox to tear down before returning. The Select
+  // opens side=bottom, directly over whatever sits below the trigger (e.g. the
+  // "Security updates only" toggle in the Updates settings), so a caller that
+  // clicks that control next can otherwise land on the still-mounted listbox
+  // and loop until timeout. The Select closes without an exit animation, so in
+  // the normal case this resolves immediately.
+  await expect(page.locator('[role="option"]')).toHaveCount(0);
 }
 
 export async function chooseValue(page: Page, trigger: Locator | string, value: string): Promise<void> {
   const t = typeof trigger === 'string' ? page.locator(trigger) : trigger;
   await t.click();
-  await pickOption(page.locator(`[role="option"][data-value="${value}"]`));
+  await pickOption(page, page.locator(`[role="option"][data-value="${value}"]`));
 }
 
 export async function chooseLabel(page: Page, trigger: Locator | string, label: string): Promise<void> {
   const t = typeof trigger === 'string' ? page.locator(trigger) : trigger;
   await t.click();
-  await pickOption(page.getByRole('option', {name: label, exact: true}));
+  await pickOption(page, page.getByRole('option', {name: label, exact: true}));
 }
