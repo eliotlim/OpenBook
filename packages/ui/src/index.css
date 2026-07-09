@@ -460,16 +460,18 @@
   box-shadow: var(--shadow-sheet);
   overflow: hidden;
 }
-/* Desktop: the in-window titlebar is the cover's top edge, so the page sheets
-   bind flush UP into it — square their top corners and drop the top border (the
-   same "bind flush, share no border" move the primary page makes into the pinned
-   sidebar on its left). This removes the seam line under the titlebar so the
-   active tab merges straight into the page. Web keeps its top inset, so the
-   sheets stay fully rounded, bordered cards there. */
-.ob-desk[data-titlebar='true'] > .ob-sheet {
-  border-top-width: 0;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+/* Desktop: the in-window titlebar is the cover's top edge. The page sheets stay
+   fully rounded, bordered cards (as on the web) — the ONLY change is that the
+   whole desk is pulled up 1px so each sheet's top border rides into the
+   titlebar's lower edge. The active titlebar tab (`relative z-[1]`, same fill as
+   the page) then paints over the 1px of sheet border directly beneath it, so the
+   border is interrupted precisely where the tab connects and the tab merges into
+   the page — while the rest of the top border, the rounded top corners, and the
+   inactive tabs floating above the line all stay intact. Web keeps its top inset,
+   so `data-titlebar` is absent there and the sheets sit fully framed on the
+   cover. */
+.ob-desk[data-titlebar='true'] {
+  margin-top: -1px;
 }
 /* Split view: the two pages meet at a central seam (the book's spine). No gap;
    square the inner corners so they sit flush; a single seam line is the right

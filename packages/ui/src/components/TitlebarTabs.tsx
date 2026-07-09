@@ -60,11 +60,15 @@ export default function TitlebarTabs() {
               className={cn(
                 'group flex min-w-0 max-w-[200px] cursor-default items-center gap-1.5 px-2 text-sm transition-colors',
                 // The active tab drops the floating gap, takes the page's fill +
-                // hairline border (open at the bottom) and sits flush on the
-                // titlebar's lower edge, so it reads as the page below extruded
-                // up into a tab. Inactive tabs float above that connection line.
+                // a hairline border open at the bottom (rounded only on top) and
+                // sits flush on the titlebar's lower edge. `relative z-[1]` lifts
+                // it one layer above the desk so its fill paints over the page
+                // sheet's top border where they meet (the desk is pulled up 1px —
+                // see `.ob-desk[data-titlebar]` in index.css): the sheet's border
+                // is thus interrupted only under this tab, so it reads as the page
+                // extruded up into a tab. Inactive tabs float above that line.
                 active
-                  ? 'h-8 rounded-t-md border border-b-0 border-border bg-background text-foreground'
+                  ? 'relative z-[1] h-8 rounded-t-md border border-b-0 border-border bg-background text-foreground'
                   : 'mb-1 h-7 rounded-md text-muted-foreground hover:bg-background/40 hover:text-foreground',
               )}
             >
