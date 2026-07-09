@@ -63,13 +63,16 @@ test('backup: export downloads a bundle and restore brings pages back', {tag: ['
 
   const beforePages = (await (await request.get(`${SERVER}/api/pages`)).json()) as {id: string}[];
   await dialog.getByRole('button', {name: /^Restore/}).click();
+  // Restore copies the WHOLE workspace; the load-bearing proof is that the
+  // clashing page comes back as a name-suffixed twin (copy mode). Assert that
+  // directly rather than a raw count delta, and give the restore room on a slow
+  // long-lived dev server (the flake was a too-tight poll window).
   await expect
-    .poll(async () => ((await (await request.get(`${SERVER}/api/pages`)).json()) as unknown[]).length)
-    .toBeGreaterThan(beforePages.length);
-  // Copy mode suffixes the clashing name.
-  await expect
-    .poll(async () => ((await (await request.get(`${SERVER}/api/pages`)).json()) as {name: string}[]).some((p) => /\(imported\)/.test(p.name)))
+    .poll(async () => ((await (await request.get(`${SERVER}/api/pages`)).json()) as {name: string}[]).some((p) => /Backup Spec Page \(imported\)/.test(p.name)), {timeout: 20_000})
     .toBe(true);
+  await expect
+    .poll(async () => ((await (await request.get(`${SERVER}/api/pages`)).json()) as unknown[]).length, {timeout: 20_000})
+    .toBeGreaterThan(beforePages.length);
 
   // The restore just copied the WHOLE workspace. Against a long-lived dev
   // server that doubles the page count every run (and the "X (imported)"
