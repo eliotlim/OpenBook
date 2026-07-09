@@ -27,10 +27,10 @@ jobs:
       - name: Verify
         run: pnpm run verify
 
-  # Fast P1 core gate — the REQUIRED check on pull requests (OB-225). Runs only
+  # Fast P1 core gate — a quick early canary on pull requests (OB-225). Runs only
   # the @p1 specs minus anything tagged @flaky (`test:e2e:core`): ~15 tests in a
-  # single job (~1.4min), so no shard matrix. The full sharded suite is reserved
-  # for `push` to main below; PRs gate on this fast subset.
+  # single job (~1.4min), so no shard matrix. It surfaces core breakage fast; the
+  # full sharded suite (`e2e` below) now also runs on PRs for complete coverage.
   e2e-p1:
     name: Playwright P1 gate
     if: github.event_name == 'pull_request'
@@ -98,15 +98,16 @@ jobs:
           path: packages/web/playwright-report
           retention-days: 7
 
-  # Full browser e2e against the web shell, sharded across 4 runners. Runs ONLY
-  # on `push` to main (post-merge full coverage); PRs gate on the fast `e2e-p1`
-  # job above. Each shard runs the existing per-shard worker count
-  # (playwright.config.ts) and emits a blob report; the `e2e-report` job merges
-  # those into one HTML report. The gate is this matrix job — every shard must
-  # pass.
+  # Full browser e2e against the web shell, sharded across 4 runners. Runs on
+  # both `push` to main and pull requests — the workflow only triggers on those
+  # two events (see the `on:` block), so no event guard is needed. Running the
+  # full suite on PRs gives pre-merge coverage instead of discovering breakage
+  # post-merge (which repeatedly reddened `main`). Each shard runs the existing
+  # per-shard worker count (playwright.config.ts) and emits a blob report; the
+  # `e2e-report` job merges those into one HTML report. The gate is this matrix
+  # job — every shard must pass.
   e2e:
     name: Playwright e2e (shard ${{ matrix.shard }}/4)
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
       # Don't cancel the other shards when one fails — we still want their blob
@@ -189,13 +190,14 @@ jobs:
           path: packages/web/blob-report
           retention-days: 7
 
-  # Merge the per-shard blob reports into a single HTML report. Push-only (the
-  # sharded `e2e` job it merges is push-only); runs even when a shard failed
-  # (always()) so the report covers the whole suite. This job is NOT the gate
-  # (the `e2e` matrix job is), so its success never masks a failed shard.
+  # Merge the per-shard blob reports into a single HTML report. Runs on the same
+  # events as the sharded `e2e` job it merges (push + pull_request); `always()`
+  # so it still produces a report even when a shard failed, covering the whole
+  # suite. This job is NOT the gate (the `e2e` matrix job is), so its success
+  # never masks a failed shard.
   e2e-report:
     name: Merge Playwright reports
-    if: always() && github.event_name == 'push'
+    if: always()
     needs: [e2e]
     runs-on: ubuntu-latest
     steps:
