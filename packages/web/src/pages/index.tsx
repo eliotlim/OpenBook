@@ -88,9 +88,15 @@ function useDesktopShellPreview(): PlatformLibrary | undefined {
     const root = document.documentElement;
     root.style.setProperty('--ob-titlebar-height', '38px');
     root.style.setProperty('--ob-titlebar-pad-left', '8px');
+    // Mirror the real Tauri shell (App.tsx): on the desktop the titlebar is the
+    // book cover's top edge, so the sheets sit flush beneath it with no top
+    // inset. Without this the preview keeps the web inset and the active tab
+    // floats a gap above the page instead of merging into it.
+    root.style.setProperty('--ob-inset-top', '0px');
     return () => {
       root.style.removeProperty('--ob-titlebar-height');
       root.style.removeProperty('--ob-titlebar-pad-left');
+      root.style.removeProperty('--ob-inset-top');
     };
   }, []);
   return useMemo<PlatformLibrary | undefined>(

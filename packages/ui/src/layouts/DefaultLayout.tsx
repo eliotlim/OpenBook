@@ -28,7 +28,7 @@ export interface DefaultLayoutProps {
 
 export default function DefaultLayout(props: DefaultLayoutProps) {
   const {hud, setHud} = useHud();
-  const {currentPageId} = useNavigation();
+  const {currentPageId, inWindowTabs} = useNavigation();
   // The page binds straight into the sidebar (no left inset) only while it is
   // pinned open — i.e. taking layout space. Undocked/closed leaves the inset.
   const sidebarPinned = hud.sideNav.docked && hud.sideNav.open;
@@ -61,7 +61,16 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           </div>
           <WindowControls />
         </div>
-        <div className="flex min-h-0 flex-1 flex-row items-stretch overflow-hidden">
+        {/* The cover row (sidebar + desk). With the desktop in-window titlebar
+            it is pulled up 1px (`.ob-desk-row[data-titlebar]` in index.css) so
+            the page sheet's top border rides into the titlebar's lower edge and
+            the active tab can merge into it — the pull-up lives here (not on
+            the desk) because this row clips its children, and the clip box
+            must move with the border. */}
+        <div
+          className="ob-desk-row flex min-h-0 flex-1 flex-row items-stretch overflow-hidden"
+          data-titlebar={inWindowTabs}
+        >
           <GlobalShortcuts/>
           <PluginBoot/>
           {/* Background self-update checks (desktop only — inert without the
@@ -96,7 +105,8 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           )}
           {/* The book cover: the primary page and the split pane sit on it as
               rounded "notebook" sheets, inset from the window (no left inset
-              while the sidebar is pinned). */}
+              while the sidebar is pinned); the sheets stay fully rounded,
+              bordered cards on both platforms. */}
           <div
             className="ob-desk flex min-h-0 w-full min-w-0 flex-row overflow-hidden"
             data-sidebar-pinned={sidebarPinned}
