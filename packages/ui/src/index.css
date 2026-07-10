@@ -462,15 +462,19 @@
 }
 /* Desktop: the in-window titlebar is the cover's top edge. The page sheets stay
    fully rounded, bordered cards (as on the web) — the ONLY change is that the
-   whole desk is pulled up 1px so each sheet's top border rides into the
-   titlebar's lower edge. The active titlebar tab (`relative z-[1]`, same fill as
-   the page) then paints over the 1px of sheet border directly beneath it, so the
-   border is interrupted precisely where the tab connects and the tab merges into
-   the page — while the rest of the top border, the rounded top corners, and the
-   inactive tabs floating above the line all stay intact. Web keeps its top inset,
-   so `data-titlebar` is absent there and the sheets sit fully framed on the
-   cover. */
-.ob-desk[data-titlebar='true'] {
+   whole cover row (`.ob-desk-row`, the desk's `overflow-hidden` wrapper) is
+   pulled up 1px so each sheet's top border rides into the titlebar's lower
+   edge. The pull-up must sit on the row, not the desk: the row clips its
+   children, so a desk-level negative margin would push the border strip outside
+   the row's clip box and erase the top border entirely. Moving the row moves
+   its clip box with it, keeping the border visible. The active titlebar tab
+   (`relative z-[1]`, same fill as the page) then paints over the 1px of sheet
+   border directly beneath it, so the border is interrupted precisely where the
+   tab connects and the tab merges into the page — while the rest of the top
+   border, the rounded top corners, and the inactive tabs floating above the
+   line all stay intact. Web keeps its top inset, so `data-titlebar` is absent
+   there and the sheets sit fully framed on the cover. */
+.ob-desk-row[data-titlebar='true'] {
   margin-top: -1px;
 }
 /* Split view: the two pages meet at a central seam (the book's spine). No gap;

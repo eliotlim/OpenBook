@@ -61,7 +61,16 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           </div>
           <WindowControls />
         </div>
-        <div className="flex min-h-0 flex-1 flex-row items-stretch overflow-hidden">
+        {/* The cover row (sidebar + desk). With the desktop in-window titlebar
+            it is pulled up 1px (`.ob-desk-row[data-titlebar]` in index.css) so
+            the page sheet's top border rides into the titlebar's lower edge and
+            the active tab can merge into it — the pull-up lives here (not on
+            the desk) because this row clips its children, and the clip box
+            must move with the border. */}
+        <div
+          className="ob-desk-row flex min-h-0 flex-1 flex-row items-stretch overflow-hidden"
+          data-titlebar={inWindowTabs}
+        >
           <GlobalShortcuts/>
           <PluginBoot/>
           {/* Background self-update checks (desktop only — inert without the
@@ -96,14 +105,11 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           )}
           {/* The book cover: the primary page and the split pane sit on it as
               rounded "notebook" sheets, inset from the window (no left inset
-              while the sidebar is pinned). `data-titlebar` flags the desktop
-              in-window titlebar so the desk pulls up 1px and the active tab
-              merges into the page's top border (see `.ob-desk[data-titlebar]` in
-              index.css); the sheets stay fully rounded, bordered cards either way. */}
+              while the sidebar is pinned); the sheets stay fully rounded,
+              bordered cards on both platforms. */}
           <div
             className="ob-desk flex min-h-0 w-full min-w-0 flex-row overflow-hidden"
             data-sidebar-pinned={sidebarPinned}
-            data-titlebar={inWindowTabs}
           >
             <div className="ob-sheet flex min-h-0 w-full min-w-0 flex-col">
               <NavBar/>
