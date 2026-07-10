@@ -1,3 +1,24 @@
+## 1.76.0 (2026-07-10)
+
+### 🚀 Features
+
+- **ai:** usage + cost attribution to an admin-only, tamper-locked database ([#113](https://github.com/eliotlim/OpenBook/pull/113))
+- **db:** generalisable database auto-expiry (TTL) ([#112](https://github.com/eliotlim/OpenBook/pull/112))
+- **ui:** admin-only AI usage viewer + pricing/retention editor ([#115](https://github.com/eliotlim/OpenBook/pull/115))
+
+### 🩹 Fixes
+
+- **ai:** server-only provider API key + write-only settings entry ([#111](https://github.com/eliotlim/OpenBook/pull/111))
+- **ai:** lazily seed the usage DB on first AI use (no phantom page in fresh workspaces) ([#114](https://github.com/eliotlim/OpenBook/pull/114))
+- **e2e:** green main — retarget stale specs + fix update-preferences flake ([#116](https://github.com/eliotlim/OpenBook/pull/116), [#111](https://github.com/eliotlim/OpenBook/issues/111))
+- **ui:** titlebar tabs connect into the page + unify desk tint ([#117](https://github.com/eliotlim/OpenBook/pull/117))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Claude Opus 4.8 (1M context)
+- Eliot Lim @eliotlim
+
 ## 1.75.0 (2026-07-06)
 
 ### 🚀 Features
