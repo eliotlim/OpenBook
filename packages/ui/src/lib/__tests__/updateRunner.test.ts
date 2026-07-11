@@ -12,7 +12,7 @@ function makePlatform(overrides: Partial<UpdatesPlatform> = {}): UpdatesPlatform
   return {
     getAppVersion: async () => '1.69.1',
     checkForUpdate: async () => OK,
-    downloadAndInstall: async () => {},
+    downloadAndInstall: async () => true,
     relaunch: async () => {},
     ...overrides,
   };
@@ -97,23 +97,32 @@ describe('runUpdateCheck', () => {
 
 describe('runDownloadAndInstall', () => {
   it('single-flights: concurrent callers share one download', async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((resolve) => (release = resolve));
+    let release!: (staged: boolean) => void;
+    const gate = new Promise<boolean>((resolve) => (release = resolve));
     const install = vi.fn(() => gate);
     const platform = makePlatform({downloadAndInstall: install});
 
     const a = runDownloadAndInstall(platform);
     const b = runDownloadAndInstall(platform);
-    release();
-    await Promise.all([a, b]);
+    release(true);
+    const [ra, rb] = await Promise.all([a, b]);
     expect(install).toHaveBeenCalledTimes(1);
+    // Every joined caller sees the same staged result.
+    expect(ra).toBe(true);
+    expect(rb).toBe(true);
+  });
+
+  it('propagates the no-op (false) result — a 204 stages nothing', async () => {
+    const install = vi.fn(async () => false);
+    const platform = makePlatform({downloadAndInstall: install});
+    await expect(runDownloadAndInstall(platform)).resolves.toBe(false);
   });
 
   it('propagates a rejection to every joined caller, then allows a fresh run', async () => {
     const install = vi
-      .fn<() => Promise<void>>()
+      .fn<() => Promise<boolean>>()
       .mockRejectedValueOnce(new Error('signature'))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce(true);
     const platform = makePlatform({downloadAndInstall: install});
 
     const a = runDownloadAndInstall(platform);
@@ -121,7 +130,7 @@ describe('runDownloadAndInstall', () => {
     await expect(a).rejects.toThrow('signature');
     await expect(b).rejects.toThrow('signature');
     // After the failure settles, the next call starts a new download.
-    await expect(runDownloadAndInstall(platform)).resolves.toBeUndefined();
+    await expect(runDownloadAndInstall(platform)).resolves.toBe(true);
     expect(install).toHaveBeenCalledTimes(2);
   });
 });

@@ -160,8 +160,12 @@ function useUpdatesPreview(): PlatformLibrary['updates'] | undefined {
       },
       // Install/relaunch are inert in the browser preview — there's no Tauri
       // updater to drive (the real ones only run in the desktop shell) — but
-      // they count their calls so the scheduler e2e can observe them.
-      downloadAndInstall: async () => count('__updateInstallCalls'),
+      // they count their calls so the scheduler e2e can observe them. Report a
+      // staged update (true) so the scheduler's "ready → relaunch" path runs.
+      downloadAndInstall: async () => {
+        count('__updateInstallCalls');
+        return true;
+      },
       relaunch: async () => count('__updateRelaunchCalls'),
     };
   }, [mode]);

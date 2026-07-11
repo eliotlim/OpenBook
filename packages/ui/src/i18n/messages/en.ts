@@ -973,6 +973,10 @@ export const en = {
     downloading: 'Downloading…',
     installing: 'Installing…',
     installError: 'Couldn’t install the update. Try again.',
+    // The signed update channel had nothing to stage even though a check found
+    // a newer version (e.g. no build for this platform/arch yet). We don't
+    // relaunch — that would restart onto the same version — we say this instead.
+    installNoop: 'This update isn’t available for your platform yet. Try again shortly.',
     version: 'Version {version}',
     lastChecked: 'Last checked {when}',
     neverChecked: 'Not checked yet',

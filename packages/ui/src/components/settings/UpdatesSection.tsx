@@ -63,6 +63,10 @@ export function UpdatesSection() {
   // A download / signature-verification / relaunch failure, surfaced inline
   // (assertively — an action the user just took failed) rather than swallowed.
   const [installError, setInstallError] = useState<string | null>(null);
+  // A benign "nothing was staged" note (the signed channel returned a 204 no-op
+  // even though the informational check found a newer version): shown in a muted
+  // tone instead of relaunching onto the same version.
+  const [installNote, setInstallNote] = useState<string | null>(null);
   // The `latestMajor` the most recent successful check reported (recorded by
   // the shared runner) — the durable "a new major exists" surface. The
   // once-per-major toast is a ~7s signal; this line is what a user who missed
@@ -109,6 +113,7 @@ export function UpdatesSection() {
     if (!updates || checking) return; // no double-click; the runner also single-flights
     setChecking(true);
     setInstallError(null); // a fresh check supersedes any stale install failure
+    setInstallNote(null);
     // The shared single-flight runner (same pipeline the background scheduler
     // uses, so manual + background can never double-run) stamps the timestamps:
     // the attempt on every check, the success one only when it completed —
@@ -131,9 +136,19 @@ export function UpdatesSection() {
   const install = useCallback(async () => {
     if (!updates || installPhase) return;
     setInstallError(null);
+    setInstallNote(null);
     setInstallPhase('downloading');
     try {
-      await runDownloadAndInstall(updates);
+      const staged = await runDownloadAndInstall(updates);
+      if (!staged) {
+        // The pinned manifest had nothing to stage (its 204 path) even though
+        // the informational check found a newer version — e.g. no signed build
+        // for this platform/arch yet. Relaunching would just restart onto the
+        // same version, so say why nothing happened instead of restarting.
+        setInstallPhase(null);
+        setInstallNote(t('updates.installNoop'));
+        return;
+      }
       if (anyPageSavePending()) {
         const ok = await confirm({
           title: t('updates.restartConfirmTitle'),
@@ -278,6 +293,12 @@ export function UpdatesSection() {
       {installError && (
         <p role="alert" data-testid="install-error" className="text-sm text-destructive">
           {installError}
+        </p>
+      )}
+
+      {installNote && (
+        <p role="status" data-testid="install-note" className="text-sm text-muted-foreground">
+          {installNote}
         </p>
       )}
 
