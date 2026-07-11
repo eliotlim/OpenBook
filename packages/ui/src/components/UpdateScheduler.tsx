@@ -116,12 +116,17 @@ export default function UpdateScheduler() {
         }
 
         if (action.install !== null) {
+          let staged: boolean;
           try {
-            await runDownloadAndInstall(updates);
+            staged = await runDownloadAndInstall(updates);
           } catch (e) {
             console.debug('OpenBook: background update download failed:', e);
             return;
           }
+          // A 204 no-op stages nothing — suppress the "ready to restart" toast,
+          // whose action would relaunch onto the same version. Only announce a
+          // restart when an update is actually waiting to be applied.
+          if (!staged) return;
           showToast({
             message: action.install === 'security' ? t('updates.securityReadyToast') : t('updates.readyToast'),
             actionLabel: t('updates.restartAction'),

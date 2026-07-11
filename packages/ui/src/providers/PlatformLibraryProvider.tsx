@@ -160,12 +160,14 @@ export interface UpdatesPlatform {
    * Download and stage the newest same-major update through the host's signed
    * update channel (the Tauri updater: pinned manifest endpoint + pinned
    * pubkey — NOT the `checkForUpdate` endpoint, which is informational).
-   * Resolves once the update is staged and a {@link relaunch} will apply it;
-   * resolves as a no-op when the manifest says this build is already current.
-   * Rejects on download / signature-verification failure — callers (the
-   * scheduler, the Settings action) surface that as their own error state.
+   * Resolves `true` once an update is staged and a {@link relaunch} will apply
+   * it; resolves `false` as a no-op when the manifest says this build is
+   * already current (its 204 path) — nothing was staged, so callers MUST NOT
+   * relaunch (it would just restart onto the same version) or claim an update
+   * is ready. Rejects on download / signature-verification failure — callers
+   * (the scheduler, the Settings action) surface that as their own error state.
    */
-  downloadAndInstall(): Promise<void>;
+  downloadAndInstall(): Promise<boolean>;
   /** Relaunch the app, applying any update staged by {@link downloadAndInstall}. */
   relaunch(): Promise<void>;
 }

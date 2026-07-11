@@ -39,7 +39,7 @@ function makePlatform(result: UpdateCheckResult): UpdatesPlatform & {
   relaunched: ReturnType<typeof vi.fn>;
 } {
   const check = vi.fn(async () => result);
-  const install = vi.fn(async () => {});
+  const install = vi.fn(async () => true);
   const relaunched = vi.fn(async () => {});
   return {
     getAppVersion: async () => '1.69.1',
@@ -189,6 +189,17 @@ describe('UpdateScheduler host', () => {
   it('a failed download is silent — no "ready" toast', async () => {
     const platform = makePlatform(PLAIN_UPDATE);
     platform.install.mockRejectedValueOnce(new Error('signature'));
+    mount(platform);
+    await flush();
+    expect(platform.install).toHaveBeenCalledTimes(1);
+    expect(showToastMock).not.toHaveBeenCalled();
+  });
+
+  it('a no-op download (204 → nothing staged) shows no "ready" toast', async () => {
+    const platform = makePlatform(PLAIN_UPDATE);
+    // The informational check found an update, but the signed manifest staged
+    // nothing (already current for this platform) → false. No restart to offer.
+    platform.install.mockResolvedValueOnce(false);
     mount(platform);
     await flush();
     expect(platform.install).toHaveBeenCalledTimes(1);

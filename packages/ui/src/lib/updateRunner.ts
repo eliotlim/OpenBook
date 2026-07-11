@@ -18,7 +18,7 @@ import {setUpdateLastCheckAt, setUpdateLastCheckSuccessAt} from './updatePrefere
 import {setLatestMajorSeen} from './updateScheduler';
 
 let checkInFlight: Promise<UpdateCheckResult> | null = null;
-let installInFlight: Promise<void> | null = null;
+let installInFlight: Promise<boolean> | null = null;
 
 /**
  * Run (or join) the update check. Never rejects — `checkForUpdate` promises
@@ -52,12 +52,15 @@ export function runUpdateCheck(updates: UpdatesPlatform): Promise<UpdateCheckRes
 }
 
 /**
- * Run (or join) the download+stage step. Unlike the check, failures REJECT
- * (per the `downloadAndInstall` contract) — every joined caller sees the same
- * rejection and owns its own surface (the scheduler stays silent, Settings
- * could show an inline error). A later call after settle starts fresh.
+ * Run (or join) the download+stage step. Resolves `true` when an update was
+ * actually staged (a relaunch will apply it) and `false` on the no-op path
+ * (manifest 204 → already current) — callers gate the relaunch / "ready" toast
+ * on that so a no-op never triggers a pointless restart. Unlike the check,
+ * failures REJECT (per the `downloadAndInstall` contract) — every joined caller
+ * sees the same rejection and owns its own surface (the scheduler stays silent,
+ * Settings shows an inline error). A later call after settle starts fresh.
  */
-export function runDownloadAndInstall(updates: UpdatesPlatform): Promise<void> {
+export function runDownloadAndInstall(updates: UpdatesPlatform): Promise<boolean> {
   if (!installInFlight) {
     installInFlight = updates.downloadAndInstall().finally(() => {
       installInFlight = null;

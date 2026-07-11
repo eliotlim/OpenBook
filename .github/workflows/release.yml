@@ -457,6 +457,31 @@ jobs:
           # point at them; without the `.sig` the client rejects the update.
           base="packages/app/src-tauri/target/${{ matrix.target }}/release/bundle"
           shopt -s nullglob
+          # macOS updater archive fix: Tauri names it "<ProductName>.app.tar.gz"
+          # with NO arch or version, so the two macOS legs (aarch64 + x86_64) both
+          # emit `OpenBook.app.tar.gz` and clobber each other on upload
+          # (`gh release upload --clobber`), leaving the release with a single
+          # arbitrary-arch archive. Worse, the account-server manifest selects the
+          # macOS updater asset by an ARCH-SUFFIXED name
+          # (`OpenBook_<ver>_{aarch64,x64}.app.tar.gz` — see lib/updates.ts
+          # updaterCandidates), so an arch-less name matches nothing and every
+          # macOS caller gets 204 "no update". Rename the archive (and its detached
+          # `.sig`) per-arch to the name the manifest expects. Signature-safe: the
+          # `.sig` signs the archive BYTES, not the filename.
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin) mac_arch=aarch64 ;;
+            x86_64-apple-darwin)  mac_arch=x64 ;;
+            *)                    mac_arch= ;;
+          esac
+          if [ -n "$mac_arch" ]; then
+            ver="${{ needs.release.outputs.version }}"
+            for archive in "$base"/macos/*.app.tar.gz; do
+              dest="$base/macos/OpenBook_${ver}_${mac_arch}.app.tar.gz"
+              [ "$archive" = "$dest" ] && continue
+              mv "$archive" "$dest"
+              [ -f "$archive.sig" ] && mv "$archive.sig" "$dest.sig"
+            done
+          fi
           files=(
             "$base"/dmg/*.dmg
             "$base"/macos/*.app.tar.gz
