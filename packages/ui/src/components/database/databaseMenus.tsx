@@ -1537,7 +1537,15 @@ export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = 
           <Plus className="h-3.5 w-3.5" />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 overflow-y-auto">
+      <DropdownMenuContent
+        align="start"
+        className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 overflow-y-auto"
+        // Don't return focus to the "+" trigger on close: picking a layout that
+        // still needs a property auto-opens the View options popover, and the
+        // focus return would land *after* it opened — dismissing it on the spot
+        // (focus-outside). See DatabaseView's add-view handler.
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
         {VIEW_TYPES.map(({value, label, Icon}) => (
           <DropdownMenuItem key={value} aria-label={label} onClick={() => onAdd(value)} className="items-start">
             <Icon className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
@@ -1790,8 +1798,16 @@ export const ViewOptionsMenu: React.FC<{
         </button>
       </PopoverTrigger>
       {/* The panel can outgrow short windows (layout grid + grouping + colour
-          rules + metrics) — scroll inside rather than cutting off the tail. */}
-      <PopoverContent align="end" className="max-h-[min(34rem,80vh)] w-72 space-y-2.5 overflow-y-auto p-3">
+          rules + metrics) — scroll inside rather than cutting off the tail.
+          Focus moving outside must not dismiss it: when it auto-opens right
+          after "Add view", the closing menu's focus restoration lands a beat
+          later and would close it on arrival. Pointer-outside and Escape still
+          dismiss as usual. */}
+      <PopoverContent
+        align="end"
+        className="max-h-[min(34rem,80vh)] w-72 space-y-2.5 overflow-y-auto p-3"
+        onFocusOutside={(e) => e.preventDefault()}
+      >
         <input
           defaultValue={view.name}
           onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== view.name && db.renameView(view.id, e.target.value)}

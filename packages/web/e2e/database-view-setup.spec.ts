@@ -27,6 +27,18 @@ async function addView(page: import('@playwright/test').Page, type: string): Pro
   await expect(page.getByRole('menu')).toHaveCount(0);
 }
 
+/** Add a view whose layout still needs a property, and wait for the View
+ *  options popover to auto-open (add-view auto-config) — the deterministic
+ *  sync point before interacting with the setup card behind it. Waits for the
+ *  popover's own name input: the add-view menu's exit animation keeps its
+ *  popper wrapper around, so a bare wrapper count can pass too early. The
+ *  card click is an outside-pointerdown, so it dismisses the popover on its
+ *  way. */
+async function addUnconfiguredView(page: import('@playwright/test').Page, type: string): Promise<void> {
+  await addView(page, type);
+  await expect(page.getByLabel('View name')).toBeVisible();
+}
+
 /** Close the View-options popover by toggling its trigger, and wait for the
  *  teardown — Escape is unreliable right after a schema save re-renders the
  *  panel, and a lingering popover overlaps later clicks (its Layout grid has
@@ -40,7 +52,7 @@ async function closeViewOptions(page: import('@playwright/test').Page): Promise<
 // view to it, and the dated canvas renders (the click-to-place first run).
 test('timeline setup card: one click creates a Date property and renders the canvas', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
-  await addView(page, 'Timeline');
+  await addUnconfiguredView(page, 'Timeline');
 
   const create = page.getByRole('button', {name: 'Create a Date property and use it'});
   await expect(create).toBeVisible();
@@ -50,6 +62,11 @@ test('timeline setup card: one click creates a Date property and renders the can
   await expect(page.getByText(/click anywhere on the timeline to add one/i)).toBeVisible();
   await expect(page.locator('div[title="Today"]')).toBeVisible();
 
+  // The create click dismissed the auto-opened View options; wait out its
+  // teardown — its Layout grid has its own "Table" button that would collide
+  // with the Table view tab below.
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
+
   // The property genuinely exists — it shows as a Table column.
   await page.getByRole('button', {name: 'Table', exact: true}).click();
   await expect(page.getByRole('columnheader', {name: /Date/})).toBeVisible();
@@ -58,7 +75,7 @@ test('timeline setup card: one click creates a Date property and renders the can
 // Same one-click for the calendar (a plain date property → the month grid).
 test('calendar setup card: one click creates a Date property and renders the month', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
-  await addView(page, 'Calendar');
+  await addUnconfiguredView(page, 'Calendar');
 
   await page.getByRole('button', {name: 'Create a Date property and use it'}).click();
 
@@ -71,7 +88,7 @@ test('calendar setup card: one click creates a Date property and renders the mon
 // coordinates yet it invites setting the new property on a row).
 test('map setup card: one click creates a Location property', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
-  await addView(page, 'Map');
+  await addUnconfiguredView(page, 'Map');
 
   await page.getByRole('button', {name: 'Create a Location property and use it'}).click();
   await expect(page.getByText(/No rows have coordinates yet/)).toBeVisible();
@@ -80,7 +97,7 @@ test('map setup card: one click creates a Location property', {tag: ['@database'
 // Same one-click for the graph (dependency property → the graph view mounts).
 test('graph setup card: one click creates a Dependency property', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
-  await addView(page, 'Graph');
+  await addUnconfiguredView(page, 'Graph');
 
   await page.getByRole('button', {name: 'Create a Dependency property and use it'}).click();
   await expect(page.getByText('No rows yet.')).toBeVisible();
@@ -113,7 +130,7 @@ test('view options sentinel: "+ New date property" creates and wires the start d
   await newDatabase(page);
   // A date-less Timeline auto-opens View options (add-view auto-config), so
   // the Start date select is already on screen — no explicit open click.
-  await addView(page, 'Timeline');
+  await addUnconfiguredView(page, 'Timeline');
 
   await chooseLabel(page, page.getByLabel('Start date'), '+ New date property');
   // A successful sentinel create closes the popover by itself, revealing the
@@ -128,14 +145,16 @@ test('view options sentinel: "+ New date property" creates and wires the start d
 test('view options sentinel: "+ New dependency property" creates and wires dependencies', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   // A dependency-less Graph auto-opens View options (add-view auto-config).
-  await addView(page, 'Graph');
+  await addUnconfiguredView(page, 'Graph');
 
   await chooseLabel(page, page.getByLabel('Dependencies'), '+ New dependency property');
   // The sentinel create closes the popover on its own.
   await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
 
-  // The graph view mounts (no rows yet), and the column exists in the table.
+  // The graph view mounts (no rows yet), and the column exists in the table
+  // (wait out the popover teardown — its Layout "Table" button collides).
   await expect(page.getByText('No rows yet.')).toBeVisible();
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
   await page.getByRole('button', {name: 'Table', exact: true}).click();
   await expect(page.getByRole('columnheader', {name: /Dependencies/})).toBeVisible();
 });
