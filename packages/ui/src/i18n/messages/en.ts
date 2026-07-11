@@ -258,14 +258,18 @@ export const en = {
       hint: 'Invitees aren’t notified automatically. Send them this page’s link — each one opens it by signing in with the email you invited them as.',
       copy: 'Copy link to send',
     },
+    // Inline publish (SHR-3): shown to a manager on an unpublished desktop instead
+    // of a dead local-only link, driving the same publish the Settings toggle does.
+    publish: {
+      hint: 'This link only works on this device. Publish it to get a link you can send to anyone.',
+    },
     linkHints: {
       inherit: 'People with workspace access can open this link.',
       public: 'Anyone with the link can open this page.',
       authenticated: 'Anyone signed in who opens this link can view this page.',
       members: 'Only workspace members who open this link can view this page.',
       restricted: 'Only the people you invite can open this link.',
-      localOnly:
-        'This link only works on this device. Publish this workspace in Settings → Sharing & publishing to get a link you can send.',
+      localOnly: 'This link only works on this device.',
       browserLocal:
         'This link only works in this browser — for anyone else it opens their own workspace, not this page. Publishing happens from the desktop app.',
       publishedAt: 'Links use your published address, {host}.',

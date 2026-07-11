@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useState} from 'react';
 import {Check, Link2, Loader2, Share2, Trash2} from 'lucide-react';
 import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useForwarding, useHud, usePlatformLibrary, useTranslation} from '@/providers';
+import {useForwarding, useHud, useOptionalAccount, usePlatformLibrary, useTranslation} from '@/providers';
 import {
   Dialog,
   DialogContent,
@@ -127,6 +127,80 @@ function granteeOf(grant: PageAcl): {name: string; key: {subject: string} | {ema
   return grant.email
     ? {name: grant.email, key: {email: grant.email}}
     : {name: grant.subject ?? '', key: {subject: grant.subject ?? ''}};
+}
+
+/**
+ * Inline "Publish this device" affordance (SHR-3), shown in the Share dialog when
+ * a manager is on a publish-capable desktop that isn't published yet — so the
+ * copied link would be dead (`tauri://localhost`). Instead of pointing at Settings,
+ * it drives the SAME `useForwarding().enable()` the Settings toggle runs — claim +
+ * dial out — so there's no new exposure, just no detour. Reuses the Settings
+ * section's pieces (claim warning, sign-in handoff, refusal states) inline. Once
+ * the tunnel is online, `publishedHost` flips and the normal copy-link footer takes
+ * over.
+ */
+function InlinePublish() {
+  const {t} = useTranslation();
+  const {enable, busy, claimRefusal, signInPending, error} = useForwarding();
+  const account = useOptionalAccount();
+  const connected = account?.connected ?? false;
+  const remintIdentity = account?.remintIdentity;
+  return (
+    <div className="flex flex-col gap-2 border-t border-border pt-4">
+      <p className="text-xs text-muted-foreground">{t('share.publish.hint')}</p>
+      {/* Forewarn before the first publish — the same irreversible-claim warning
+          as the Settings toggle. Hidden once a refusal explains the real blocker. */}
+      {!claimRefusal && (
+        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
+          {t('forwarding.claimWarning')}
+        </p>
+      )}
+      <Button variant="outline" size="sm" className="self-start" disabled={busy} onClick={() => void enable()}>
+        {busy ? (
+          <>
+            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            {t('forwarding.registering')}
+          </>
+        ) : (
+          <>
+            <Share2 className="mr-1.5 h-4 w-4" />
+            {t('forwarding.toggle')}
+          </>
+        )}
+      </Button>
+      {/* A signed-out publish starts the sign-in handoff and auto-resumes once the
+          account connects (same as the Settings toggle) — say so, don't snap back. */}
+      {!connected && (
+        <p className="text-xs text-muted-foreground">
+          {signInPending ? t('forwarding.signInPending') : t('forwarding.signInHint')}
+        </p>
+      )}
+      {/* Precondition (muted, with a refresh) vs terminal vs genuine failure —
+          mirrors the severity split in the Settings ForwardingSection. */}
+      {claimRefusal === 'unverified' && (
+        <p className="text-xs text-muted-foreground">
+          {t('forwarding.claimRefusedUnverified')}
+          {remintIdentity && (
+            <>
+              {' '}
+              <button
+                type="button"
+                onClick={() => void remintIdentity()}
+                className="font-medium underline underline-offset-2 hover:text-foreground"
+              >
+                {t('forwarding.refreshIdentity')}
+              </button>
+            </>
+          )}
+        </p>
+      )}
+      {claimRefusal === 'issuance-disabled' && (
+        <p className="text-xs text-muted-foreground">{t('forwarding.claimRefusedIssuanceDisabled')}</p>
+      )}
+      {claimRefusal === 'claim-failed' && <p className="text-sm text-destructive">{t('forwarding.claimFailed')}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+    </div>
+  );
 }
 
 /**
@@ -581,40 +655,46 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
               </div>
             )}
 
-            {/* Copy link. The hint tells the truth about where the copied URL
-                reaches: in the standalone web app the link opens the recipient's
-                OWN in-browser workspace, not this page (say so — the worst lie of
-                the batch); on an unpublished desktop it's local-only (say so
-                instead of the per-scope promise); once published it carries the
-                forwarded address, so the per-scope hint applies — plus the
-                address itself. */}
-            <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-              <span className="text-xs text-muted-foreground">
-                {browserLocal ? (
-                  t('share.linkHints.browserLocal')
-                ) : linkIsLocalOnly ? (
-                  t('share.linkHints.localOnly')
-                ) : (
-                  <>
-                    {t(LINK_HINT[scope])}
-                    {publishedHost && <> {t('share.linkHints.publishedAt', {host: publishedHost})}</>}
-                  </>
-                )}
-              </span>
-              <Button variant="outline" size="sm" onClick={() => void copyLink()}>
-                {copied ? (
-                  <>
-                    <Check className="mr-1.5 h-4 w-4" />
-                    {t('share.copied')}
-                  </>
-                ) : (
-                  <>
-                    <Link2 className={cn('mr-1.5 h-4 w-4')} />
-                    {t('share.copyLink')}
-                  </>
-                )}
-              </Button>
-            </div>
+            {/* Copy link — or, for a manager on an unpublished desktop, an inline
+                Publish affordance (SHR-3): a dead local-only link is useless to
+                copy, so drive `enable()` right here instead of pointing at Settings.
+                Everywhere else the hint tells the truth about where the copied URL
+                reaches: in the standalone web app it opens the recipient's OWN
+                in-browser workspace, not this page (the worst lie of the batch); on
+                an unpublished desktop a non-manager (who can't publish) is told it's
+                local-only; once published it carries the forwarded address, so the
+                per-scope hint applies — plus the address itself. */}
+            {!browserLocal && linkIsLocalOnly && canManage ? (
+              <InlinePublish />
+            ) : (
+              <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
+                <span className="text-xs text-muted-foreground">
+                  {browserLocal ? (
+                    t('share.linkHints.browserLocal')
+                  ) : linkIsLocalOnly ? (
+                    t('share.linkHints.localOnly')
+                  ) : (
+                    <>
+                      {t(LINK_HINT[scope])}
+                      {publishedHost && <> {t('share.linkHints.publishedAt', {host: publishedHost})}</>}
+                    </>
+                  )}
+                </span>
+                <Button variant="outline" size="sm" onClick={() => void copyLink()}>
+                  {copied ? (
+                    <>
+                      <Check className="mr-1.5 h-4 w-4" />
+                      {t('share.copied')}
+                    </>
+                  ) : (
+                    <>
+                      <Link2 className={cn('mr-1.5 h-4 w-4')} />
+                      {t('share.copyLink')}
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </DialogContent>

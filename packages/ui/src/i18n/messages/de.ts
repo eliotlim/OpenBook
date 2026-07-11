@@ -190,14 +190,16 @@ export const de: PartialMessages = {
       hint: 'Eingeladene Personen werden nicht automatisch benachrichtigt. Senden Sie ihnen den Link zu dieser Seite – jede Person öffnet sie, indem sie sich mit der eingeladenen E-Mail-Adresse anmeldet.',
       copy: 'Link zum Senden kopieren',
     },
+    publish: {
+      hint: 'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche ihn, um einen Link zu erhalten, den du an alle senden kannst.',
+    },
     linkHints: {
       inherit: 'Personen mit Arbeitsbereich-Zugriff können diesen Link öffnen.',
       public: 'Jede Person mit dem Link kann diese Seite öffnen.',
       authenticated: 'Jede angemeldete Person, die diesen Link öffnet, kann diese Seite ansehen.',
       members: 'Nur Arbeitsbereich-Mitglieder, die diesen Link öffnen, können diese Seite ansehen.',
       restricted: 'Nur die von dir eingeladenen Personen können diesen Link öffnen.',
-      localOnly:
-        'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche diesen Arbeitsbereich unter Einstellungen → Teilen & Veröffentlichen, um einen Link zu erhalten, den du versenden kannst.',
+      localOnly: 'Dieser Link funktioniert nur auf diesem Gerät.',
       browserLocal:
         'Dieser Link funktioniert nur in diesem Browser — bei allen anderen öffnet er deren eigenen Arbeitsbereich, nicht diese Seite. Veröffentlichen geht über die Desktop-App.',
       publishedAt: 'Links verwenden deine veröffentlichte Adresse, {host}.',
