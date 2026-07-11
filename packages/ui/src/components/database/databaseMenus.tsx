@@ -2001,8 +2001,11 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
 function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: DatabaseProperty[]): Partial<DatabaseView> {
   const patch: Partial<DatabaseView> = {type};
   if ((type === 'board' || type === 'bar' || type === 'pie') && !view.groupByPropertyId) {
-    const select = properties.find((p) => p.type === 'select');
-    patch.groupByPropertyId = (select ?? properties[0])?.id;
+    // Mirror defaultView: only a categorical property (select/status/relation)
+    // makes a sensible default grouping; otherwise stay ungrouped (one "All"
+    // group) rather than splintering by an arbitrary text/number column.
+    const categorical = properties.find((p) => p.type === 'select' || p.type === 'status' || p.type === 'relation');
+    if (categorical) patch.groupByPropertyId = categorical.id;
   }
   if ((type === 'calendar' || type === 'timeline') && !view.datePropertyId) {
     patch.datePropertyId = properties.find((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time')?.id;
