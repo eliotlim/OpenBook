@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Check, Link2, Loader2, Share2, Trash2} from 'lucide-react';
 import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
@@ -43,12 +43,14 @@ const LINK_HINT: Record<PageVisibility, TKey> = {
 /** Progressive-disclosure scope tiers (SHR-4). The picker used to show all five
  *  flat scopes — including dormant ones — as if equal choices. Instead surface
  *  the two that carry the everyday decision (`restricted` private vs `public`)
- *  up front, tuck the two power-user scopes behind an "Advanced" reveal, and
- *  hide `members` entirely (it's dormant OSS surface). Whatever a page is
- *  *currently* set to is always offered too (see `scopeOptions`), so a stored
- *  `members`/`authenticated`/`inherit` value still renders and stays settable. */
-const PRIMARY_SCOPES: readonly PageVisibility[] = ['restricted', 'public'];
-const ADVANCED_SCOPES: readonly PageVisibility[] = ['inherit', 'authenticated'];
+ *  up front, keep `inherit` ("Workspace default") primary too so "reset to the
+ *  workspace default" is always reachable, tuck only the genuinely-obscure
+ *  `authenticated` behind a "More access options" reveal, and hide `members`
+ *  entirely (it's dormant OSS surface). Whatever a page is *currently* set to is
+ *  always offered too (see `scopeOptions`), so a stored `members`/`authenticated`
+ *  value still renders and stays settable. */
+const PRIMARY_SCOPES: readonly PageVisibility[] = ['inherit', 'restricted', 'public'];
+const ADVANCED_SCOPES: readonly PageVisibility[] = ['authenticated'];
 
 /**
  * Map a raw client error to a friendly, localised line — the SDK throws
@@ -141,7 +143,7 @@ function granteeOf(grant: PageAcl): {name: string; key: {subject: string} | {ema
  */
 function InlinePublish() {
   const {t} = useTranslation();
-  const {enable, busy, claimRefusal, signInPending, error} = useForwarding();
+  const {enable, enabled, busy, claimRefusal, signInPending, error} = useForwarding();
   const account = useOptionalAccount();
   const connected = account?.connected ?? false;
   const remintIdentity = account?.remintIdentity;
@@ -149,8 +151,11 @@ function InlinePublish() {
     <div className="flex flex-col gap-2 border-t border-border pt-4">
       <p className="text-xs text-muted-foreground">{t('share.publish.hint')}</p>
       {/* Forewarn before the first publish — the same irreversible-claim warning
-          as the Settings toggle. Hidden once a refusal explains the real blocker. */}
-      {!claimRefusal && (
+          as the Settings toggle. Hidden once a refusal explains the real blocker,
+          and once an enable is already in progress (`enabled` but not yet
+          `publishedHost`) so it doesn't redundantly re-show mid-reconnect —
+          matching `SharingPublishingSettings`. */}
+      {!enabled && !claimRefusal && (
         <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
           {t('forwarding.claimWarning')}
         </p>
@@ -237,6 +242,9 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   // only the primary two scopes (+ the current value) show; the "Advanced" reveal
   // adds `inherit`/`authenticated`.
   const [showAdvanced, setShowAdvanced] = useState(false);
+  // The scope Select's trigger, so revealing the extra options can move focus to
+  // it — making it obvious it just gained choices (SHR-4 a11y).
+  const scopeSelectRef = useRef<HTMLButtonElement>(null);
   const [grants, setGrants] = useState<PageAcl[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -441,6 +449,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="share-scope">{t('share.scopeLabel')}</Label>
               <Select
+                ref={scopeSelectRef}
                 id="share-scope"
                 aria-label={t('share.scopeLabel')}
                 value={scope}
@@ -456,11 +465,16 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
               </Select>
               {/* Reveal the power-user scopes on demand (SHR-4). Hidden once
                   expanded, and suppressed for a read-only viewer who can't change
-                  the scope anyway. */}
+                  the scope anyway. Moving focus to the scope Select on reveal makes
+                  it obvious the picker just gained options (a11y) — keyboard users
+                  land on the control they came for, not a now-vanished link. */}
               {!showAdvanced && canManage && (
                 <button
                   type="button"
-                  onClick={() => setShowAdvanced(true)}
+                  onClick={() => {
+                    setShowAdvanced(true);
+                    scopeSelectRef.current?.focus();
+                  }}
                   className="self-start text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
                 >
                   {t('share.scopeAdvanced')}

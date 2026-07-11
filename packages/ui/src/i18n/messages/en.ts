@@ -197,7 +197,7 @@ export const en = {
     unfavorite: 'Remove from favorites',
     rename: 'Rename',
     copyLink: 'Copy link',
-    copyLinkLocalOnly: 'This link only works on this device. Publish this workspace to get a link you can send.',
+    copyLinkLocalOnly: 'This link only works on this device. Publish this workspace to get a link you can share.',
     copyLinkPublish: 'Publish',
     duplicate: 'Duplicate',
     addSubpage: 'Add subpage',
@@ -230,7 +230,7 @@ export const en = {
     enforcementCaveat:
       'People you invite may not be able to open this page through its published book.cloud link yet — that’s rolling out. Direct access is already limited as set here.',
     scopeLabel: 'Who can access',
-    scopeAdvanced: 'Advanced options',
+    scopeAdvanced: 'More access options',
     scope: {
       inherit: 'Workspace default',
       inheritHint: 'Follows the workspace’s default access setting.',
@@ -261,7 +261,7 @@ export const en = {
     // Inline publish (SHR-3): shown to a manager on an unpublished desktop instead
     // of a dead local-only link, driving the same publish the Settings toggle does.
     publish: {
-      hint: 'This link only works on this device. Publish it to get a link you can send to anyone.',
+      hint: 'This link only works on this device. Publish it to get a link you can share.',
     },
     linkHints: {
       inherit: 'People with workspace access can open this link.',
@@ -285,10 +285,10 @@ export const en = {
     // The effective default once the instance is claimed (SHR-6) — what `inherit`
     // resolves to via the root `defaultVisibility`, not the guest gate above.
     effectiveDefault: {
-      public: 'Right now the workspace default makes inherited pages visible to anyone with the link.',
-      authenticated: 'Right now the workspace default limits inherited pages to anyone signed in.',
-      members: 'Right now the workspace default limits inherited pages to workspace members.',
-      restricted: 'Right now the workspace default limits inherited pages to you and people invited to them.',
+      public: 'Right now the workspace default makes pages set to Workspace default visible to anyone with the link.',
+      authenticated: 'Right now the workspace default limits pages set to Workspace default to anyone signed in.',
+      members: 'Right now the workspace default limits pages set to Workspace default to workspace members.',
+      restricted: 'Right now the workspace default limits pages set to Workspace default to you and people invited to them.',
     },
     manageWorkspace: 'Workspace sharing settings',
     manageMembers: 'Manage members',
@@ -1151,11 +1151,11 @@ export const en = {
     copied: 'Copied',
     failed: 'Couldn’t register: {error}',
     partialUnscoped:
-      'Forwarding is on, but your account did not issue a site-scoped owner token, so strict audience isolation stays off (a token minted for a different site is still rejected, and the tunnel works normally).',
+      'Publishing is on, but your account did not issue a site-scoped owner token, so strict audience isolation stays off (a token minted for a different site is still rejected, and the tunnel works normally).',
     ensureRescope:
-      'Forwarding resumed, but this session could not scope your owner token to the site yet. Your existing access is unchanged; sign in again if a request is refused.',
-    bindFailed: 'Forwarding is on, but securing the site audience didn’t finish: {error}',
-    unbindHeld: 'Couldn’t fully relax the audience binding while turning forwarding off: {error}',
+      'Publishing resumed, but this session could not scope your owner token to the site yet. Your existing access is unchanged; sign in again if a request is refused.',
+    bindFailed: 'Publishing is on, but securing the site audience didn’t finish: {error}',
+    unbindHeld: 'Couldn’t fully relax the audience binding while turning publishing off: {error}',
     claimWarning:
       'The first time you turn this on, this device’s books are claimed to your account and made private — only you and members you invite can open them. This can’t be undone.',
     claimRefusedUnverified: 'To publish, your account identity needs to be verified first.',

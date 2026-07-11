@@ -139,7 +139,7 @@ export const de: PartialMessages = {
     openSplit: 'In geteilter Ansicht öffnen',
     rename: 'Umbenennen',
     copyLink: 'Link kopieren',
-    copyLinkLocalOnly: 'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche diesen Arbeitsbereich, um einen versendbaren Link zu erhalten.',
+    copyLinkLocalOnly: 'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche diesen Arbeitsbereich, um einen teilbaren Link zu erhalten.',
     copyLinkPublish: 'Veröffentlichen',
     duplicate: 'Duplizieren',
     sectionPage: 'Seite',
@@ -164,7 +164,7 @@ export const de: PartialMessages = {
     enforcementCaveat:
       'Von dir eingeladene Personen können diese Seite über ihren veröffentlichten book.cloud-Link möglicherweise noch nicht öffnen — das wird gerade ausgerollt. Der direkte Zugriff ist bereits wie hier festgelegt eingeschränkt.',
     scopeLabel: 'Wer hat Zugriff',
-    scopeAdvanced: 'Erweiterte Optionen',
+    scopeAdvanced: 'Weitere Zugriffsoptionen',
     scope: {
       inherit: 'Arbeitsbereich-Standard',
       inheritHint: 'Folgt der Standard-Zugriffseinstellung des Arbeitsbereichs.',
@@ -191,7 +191,7 @@ export const de: PartialMessages = {
       copy: 'Link zum Senden kopieren',
     },
     publish: {
-      hint: 'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche ihn, um einen Link zu erhalten, den du an alle senden kannst.',
+      hint: 'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche ihn, um einen Link zu erhalten, den du teilen kannst.',
     },
     linkHints: {
       inherit: 'Personen mit Arbeitsbereich-Zugriff können diesen Link öffnen.',
@@ -213,10 +213,10 @@ export const de: PartialMessages = {
       off: 'Derzeit beschränkt der Workspace-Standard den Zugriff auf Mitglieder.',
     },
     effectiveDefault: {
-      public: 'Derzeit macht der Workspace-Standard geerbte Seiten für alle mit dem Link sichtbar.',
-      authenticated: 'Derzeit beschränkt der Workspace-Standard geerbte Seiten auf angemeldete Personen.',
-      members: 'Derzeit beschränkt der Workspace-Standard geerbte Seiten auf Workspace-Mitglieder.',
-      restricted: 'Derzeit beschränkt der Workspace-Standard geerbte Seiten auf dich und dazu eingeladene Personen.',
+      public: 'Derzeit macht der Workspace-Standard Seiten mit „Arbeitsbereich-Standard“ für alle mit dem Link sichtbar.',
+      authenticated: 'Derzeit beschränkt der Workspace-Standard Seiten mit „Arbeitsbereich-Standard“ auf angemeldete Personen.',
+      members: 'Derzeit beschränkt der Workspace-Standard Seiten mit „Arbeitsbereich-Standard“ auf Workspace-Mitglieder.',
+      restricted: 'Derzeit beschränkt der Workspace-Standard Seiten mit „Arbeitsbereich-Standard“ auf dich und dazu eingeladene Personen.',
     },
     manageWorkspace: 'Freigabe-Einstellungen des Workspace',
     manageMembers: 'Mitglieder verwalten',
@@ -755,11 +755,11 @@ export const de: PartialMessages = {
     copied: 'Kopiert',
     failed: 'Registrierung fehlgeschlagen: {error}',
     partialUnscoped:
-      'Die Weiterleitung ist aktiv, aber dein Konto hat kein auf die Site begrenztes Owner-Token ausgestellt, daher bleibt die strikte Audience-Isolierung aus (ein für eine andere Site ausgestelltes Token wird weiterhin abgewiesen, und der Tunnel funktioniert normal).',
+      'Die Veröffentlichung ist aktiv, aber dein Konto hat kein auf die Site begrenztes Owner-Token ausgestellt, daher bleibt die strikte Audience-Isolierung aus (ein für eine andere Site ausgestelltes Token wird weiterhin abgewiesen, und der Tunnel funktioniert normal).',
     ensureRescope:
-      'Die Weiterleitung wurde fortgesetzt, aber diese Sitzung konnte dein Owner-Token noch nicht auf die Site begrenzen. Dein bestehender Zugriff bleibt unverändert; melde dich erneut an, falls eine Anfrage abgelehnt wird.',
-    bindFailed: 'Die Weiterleitung ist aktiv, aber das Absichern der Site-Audience wurde nicht abgeschlossen: {error}',
-    unbindHeld: 'Die Audience-Bindung konnte beim Ausschalten der Weiterleitung nicht vollständig gelöst werden: {error}',
+      'Die Veröffentlichung wurde fortgesetzt, aber diese Sitzung konnte dein Owner-Token noch nicht auf die Site begrenzen. Dein bestehender Zugriff bleibt unverändert; melde dich erneut an, falls eine Anfrage abgelehnt wird.',
+    bindFailed: 'Die Veröffentlichung ist aktiv, aber das Absichern der Site-Audience wurde nicht abgeschlossen: {error}',
+    unbindHeld: 'Die Audience-Bindung konnte beim Ausschalten der Veröffentlichung nicht vollständig gelöst werden: {error}',
     claimWarning:
       'Beim ersten Einschalten werden die Bücher dieses Geräts deinem Konto zugeordnet und privat geschaltet — nur du und von dir eingeladene Mitglieder können sie öffnen. Das lässt sich nicht rückgängig machen.',
     claimRefusedUnverified: 'Zum Veröffentlichen muss die Identität deines Kontos zuerst verifiziert werden.',
