@@ -64,8 +64,8 @@ export function TemplateGallery() {
           <DialogTitle>{t('templates.title')}</DialogTitle>
           <DialogDescription>{t('templates.description')}</DialogDescription>
         </DialogHeader>
-        {/* -mx-1 px-1 keeps the focus ring from clipping against the scrollport. */}
-        <div className="-mx-1 max-h-[65vh] space-y-4 overflow-y-auto px-1">
+        {/* -m-1 p-1 keeps the focus ring from clipping against the scrollport (all sides). */}
+        <div className="-m-1 max-h-[65vh] space-y-4 overflow-y-auto p-1">
           {SECTIONS.map(({key, isMember}) => {
             const members = PAGE_TEMPLATES.filter(isMember);
             if (members.length === 0) return null;

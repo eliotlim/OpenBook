@@ -593,7 +593,7 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'grocery-tracker', icon: '🛒', pageName: 'Grocery price tracker', tags: ['interactive', 'slides'], create: createBlockDocPage(GROCERY_BLOCKS)},
   {id: 'task-board', icon: '🗂️', pageName: 'Project task board', tags: ['database'], create: createDatabasePage(TASK_BOARD_SCHEMA, TASK_BOARD_ROWS)},
   {id: 'reading-list', icon: '📚', pageName: 'Reading list', tags: ['database'], create: createDatabasePage(READING_SCHEMA, READING_ROWS)},
-  {id: 'project-intake', icon: '📋', pageName: 'Project intake', tags: ['interactive'], create: createBlockDocPage(PROJECT_INTAKE_BLOCKS)},
+  {id: 'project-intake', icon: '📋', pageName: 'Project intake', tags: ['interactive', 'slides'], create: createBlockDocPage(PROJECT_INTAKE_BLOCKS)},
   {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', tags: ['interactive', 'slides'], create: createBlockDocPage(SAVINGS_BLOCKS)},
   {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', tags: ['database'], create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS)},
   {id: 'field-map', icon: '📍', pageName: 'Field map', tags: ['database'], create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS)},
