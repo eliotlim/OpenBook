@@ -29,7 +29,7 @@ export const ja: PartialMessages = {
       profile: 'プロフィール',
       appearance: '外観',
       customisation: 'カスタマイズ',
-      signin: 'サインインとメール',
+      signin: 'アカウントと同期',
       sharing: '共有と公開',
       connection: '接続',
       members: 'メンバー',
@@ -665,8 +665,8 @@ export const ja: PartialMessages = {
   },
   account: {
     signin: {
-      title: 'サインインとメール',
-      description: 'メールと連携サインイン（Google、GitHub、Apple）はアカウントとともに登場します。まだサインインできる先はありません。',
+      title: 'アカウントと同期',
+      description: 'account.book.pub にサインインすると、設定とワークスペースを複数のデバイス間で同期できます。ローカルファーストが既定のままで、これはオプトインです。',
     },
     switcher: {
       heading: 'アカウント',

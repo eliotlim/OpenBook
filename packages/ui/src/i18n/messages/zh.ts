@@ -29,7 +29,7 @@ export const zh: PartialMessages = {
       profile: '个人资料',
       appearance: '外观',
       customisation: '自定义',
-      signin: '登录与邮箱',
+      signin: '账户与同步',
       sharing: '共享与发布',
       connection: '连接',
       members: '成员',
@@ -662,8 +662,8 @@ export const zh: PartialMessages = {
   },
   account: {
     signin: {
-      title: '登录与邮箱',
-      description: '邮箱和第三方登录（Google、GitHub、Apple）将随账户一起推出。目前还没有可登录的对象。',
+      title: '账户与同步',
+      description: '登录 account.book.pub，即可在多台设备间同步你的偏好和工作区。本地优先仍为默认——此项为可选。',
     },
     switcher: {
       heading: '账户',

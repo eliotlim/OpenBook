@@ -60,7 +60,7 @@ test('account switcher: lists accounts and switches the active one', {tag: ['@sh
 
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
-  await page.getByRole('button', {name: 'Sign-in & email'}).click();
+  await page.getByRole('button', {name: 'Account & sync'}).click();
 
   // Both personas are listed; the seeded account is the active one.
   // The email also renders in the ProfileMenu + SettingsPanel's ProfileChip, so

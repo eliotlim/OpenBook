@@ -29,7 +29,7 @@ export const de: PartialMessages = {
       profile: 'Profil',
       appearance: 'Darstellung',
       customisation: 'Anpassung',
-      signin: 'Anmeldung & E-Mail',
+      signin: 'Konto & Sync',
       sharing: 'Teilen & Veröffentlichen',
       connection: 'Verbindung',
       members: 'Mitglieder',
@@ -665,8 +665,8 @@ export const de: PartialMessages = {
   },
   account: {
     signin: {
-      title: 'Anmeldung & E-Mail',
-      description: 'E-Mail und verbundene Anmeldung (Google, GitHub, Apple) kommen mit den Konten. Es gibt noch nichts, wo man sich anmelden könnte.',
+      title: 'Konto & Sync',
+      description: 'Melde dich bei account.book.pub an, um deine Einstellungen und Arbeitsbereiche geräteübergreifend zu synchronisieren. Local-First bleibt die Voreinstellung — dies ist optional.',
     },
     switcher: {
       heading: 'Konten',

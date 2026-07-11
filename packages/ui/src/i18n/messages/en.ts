@@ -33,7 +33,7 @@ export const en = {
       profile: 'Profile',
       appearance: 'Appearance',
       customisation: 'Customisation',
-      signin: 'Sign-in & email',
+      signin: 'Account & sync',
       connection: 'Connection',
       sharing: 'Sharing & publishing',
       members: 'Members',
