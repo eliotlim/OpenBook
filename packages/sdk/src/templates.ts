@@ -7,18 +7,28 @@ import type {DatabaseSchema} from './database';
  * through the normal data APIs (no server involvement, same as the sample
  * document). Two shapes:
  *
- *  - **Block-doc artifacts** (the five showcases) ship a native block-editor
+ *  - **Block-doc artifacts** (three showcases) ship a native block-editor
  *    JSON projection in `blockdoc: {blocks}`. They lean on the whole editor:
  *    reactive inputs feeding *collapsed* live-code, status lights, info/link/
  *    tooltip cards, charts, progress bars, multi-column layouts, callouts, and
  *    `divider`/`notes` blocks so every page doubles as a slide deck with
  *    speaker notes (see blockeditor/present.ts).
- *  - **Databases** (roadmap, field map) ship a schema, views, and sample rows;
- *    they back the swimlane and map e2e fixtures.
+ *  - **Databases** (task board, reading list, roadmap, field map) ship a
+ *    schema, views, and sample rows; roadmap and field map back the swimlane
+ *    and map e2e fixtures.
  *
  * Ids are stable so the gallery, its i18n keys, and the e2e suite can reference
  * a template without depending on display strings.
  */
+
+/**
+ * What a template demonstrates, surfaced as gallery chips so the reader knows
+ * what a card is before inserting it:
+ *  - `interactive` — reactive inputs feeding live code, charts, status lights.
+ *  - `slides` — divider-cut slides with speaker notes (present-mode ready).
+ *  - `database` — a schema with views and sample rows.
+ */
+export type TemplateTag = 'interactive' | 'slides' | 'database';
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
@@ -27,6 +37,8 @@ export interface PageTemplate {
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
   pageName: string;
+  /** What the template shows off — rendered as chips on the gallery card. */
+  tags: TemplateTag[];
   /** Creates the page (and database, if any) and returns the stored page. */
   create: (client: DataClient, name: string) => Promise<StoredPage>;
 }
@@ -578,13 +590,13 @@ const createDatabasePage =
     };
 
 export const PAGE_TEMPLATES: PageTemplate[] = [
-  {id: 'grocery-tracker', icon: '🛒', pageName: 'Grocery price tracker', create: createBlockDocPage(GROCERY_BLOCKS)},
-  {id: 'task-board', icon: '🗂️', pageName: 'Project task board', create: createDatabasePage(TASK_BOARD_SCHEMA, TASK_BOARD_ROWS)},
-  {id: 'reading-list', icon: '📚', pageName: 'Reading list', create: createDatabasePage(READING_SCHEMA, READING_ROWS)},
-  {id: 'project-intake', icon: '📋', pageName: 'Project intake', create: createBlockDocPage(PROJECT_INTAKE_BLOCKS)},
-  {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', create: createBlockDocPage(SAVINGS_BLOCKS)},
-  {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS)},
-  {id: 'field-map', icon: '📍', pageName: 'Field map', create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS)},
+  {id: 'grocery-tracker', icon: '🛒', pageName: 'Grocery price tracker', tags: ['interactive', 'slides'], create: createBlockDocPage(GROCERY_BLOCKS)},
+  {id: 'task-board', icon: '🗂️', pageName: 'Project task board', tags: ['database'], create: createDatabasePage(TASK_BOARD_SCHEMA, TASK_BOARD_ROWS)},
+  {id: 'reading-list', icon: '📚', pageName: 'Reading list', tags: ['database'], create: createDatabasePage(READING_SCHEMA, READING_ROWS)},
+  {id: 'project-intake', icon: '📋', pageName: 'Project intake', tags: ['interactive'], create: createBlockDocPage(PROJECT_INTAKE_BLOCKS)},
+  {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', tags: ['interactive', 'slides'], create: createBlockDocPage(SAVINGS_BLOCKS)},
+  {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', tags: ['database'], create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS)},
+  {id: 'field-map', icon: '📍', pageName: 'Field map', tags: ['database'], create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS)},
 ];
 
 /** Courtesy numbering (names are not unique): a second instance becomes

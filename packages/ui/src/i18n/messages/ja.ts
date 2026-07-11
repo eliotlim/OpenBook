@@ -507,6 +507,11 @@ export const ja: PartialMessages = {
     title: 'テンプレートから始める',
     description: '構成済みのページ — 選んで自分用に編集できます。',
     creating: '作成中…',
+    tag: {
+      interactive: 'インタラクティブ',
+      slides: 'スライド',
+      database: 'データベース',
+    },
     groceryTracker: {
       name: '食料品の価格トラッカー',
       description: '毎週の買い物かごを店ごとに比較 — ライブチャート、予算ライト、計算はコードブロックに。',

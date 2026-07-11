@@ -10,6 +10,9 @@ import type {TKey} from '@/i18n';
 const keyOf = (id: PageTemplate['id'], field: 'name' | 'description'): TKey =>
   `templates.${id.replace(/-(\w)/g, (_, c: string) => c.toUpperCase())}.${field}` as TKey;
 
+/** i18n key for a template tag chip label (`templates.tag.<tag>`). */
+const tagKey = (tag: PageTemplate['tags'][number]): TKey => `templates.tag.${tag}` as TKey;
+
 /**
  * The template gallery: ready-made pages (documents and databases with sample
  * rows) created client-side through the data APIs. Opened from the sidebar's
@@ -69,6 +72,18 @@ export function TemplateGallery() {
                 <span className="text-xs text-muted-foreground">
                   {busyId === template.id ? t('templates.creating') : t(keyOf(template.id, 'description'))}
                 </span>
+                {template.tags.length > 0 && (
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    {template.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium leading-none text-muted-foreground"
+                      >
+                        {t(tagKey(tag))}
+                      </span>
+                    ))}
+                  </span>
+                )}
               </span>
             </button>
           ))}
