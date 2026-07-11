@@ -3,6 +3,7 @@ import {dependencyGraph, type DatabaseProperty, type DatabaseView as DbView} fro
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import type {UseDatabase} from './useDatabase';
+import {ViewSetupCard} from './ViewSetupCard';
 
 const COL_W = 210;
 const NODE_W = 168;
@@ -24,7 +25,7 @@ const Hint: React.FC<{children: React.ReactNode}> = ({children}) => (
 export const GraphView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
   const depProp = view.dependencyPropertyId ? properties.find((p) => p.id === view.dependencyPropertyId) : undefined;
   if (!depProp) {
-    return <Hint>Add a dependency property and select it in the view options to graph how rows connect.</Hint>;
+    return <ViewSetupCard kind="graph" db={db} view={view} properties={properties} />;
   }
   if (db.visibleRows.length === 0) {
     return <Hint>No rows yet.</Hint>;

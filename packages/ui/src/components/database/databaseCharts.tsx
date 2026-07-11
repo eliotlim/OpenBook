@@ -15,6 +15,7 @@ import {PageIcon} from '@/components/PageIcon';
 import type {UseDatabase} from './useDatabase';
 import {chartColor} from './databaseColors';
 import {useDataScheme} from '@/lib/dataScheme';
+import {ViewSetupCard} from './ViewSetupCard';
 
 /** A short numeric label for a bar/slice value (keeps long sums readable). */
 const fmt = (n: number): string => {
@@ -61,12 +62,6 @@ const measureLabel = (view: DbView, properties: DatabaseProperty[]): string => {
   const prop = properties.find((p) => p.id === agg.propertyId);
   return prop ? `${verb} of ${prop.name}` : verb;
 };
-
-const NeedsGrouping: React.FC = () => (
-  <div className="rounded-md border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-    Pick a property to group by in the view options to chart this data.
-  </div>
-);
 
 const NoData: React.FC = () => (
   <div className="rounded-md border border-border px-4 py-10 text-center text-sm text-muted-foreground">No data to chart.</div>
@@ -145,7 +140,7 @@ export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
   // they decide which bars stay lit while the rest dim.
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   const [hoverSeries, setHoverSeries] = useState<string | null>(null);
-  if (!view.groupByPropertyId) return <NeedsGrouping />;
+  if (!view.groupByPropertyId) return <ViewSetupCard kind="chart" db={db} view={view} properties={properties} />;
 
   const {groups, series} = aggregateMatrix(db.visibleRows, view, properties);
   const stacked = series[0]?.key !== CHART_TOTAL_SERIES;
@@ -284,7 +279,7 @@ export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
   // The slice/legend the pointer is over — drives the slice highlight + readout,
   // and is shared so hovering the legend lights up the matching slice and back.
   const [hoverKey, setHoverKey] = useState<string | null>(null);
-  if (!view.groupByPropertyId) return <NeedsGrouping />;
+  if (!view.groupByPropertyId) return <ViewSetupCard kind="chart" db={db} view={view} properties={properties} />;
 
   const {groups, series} = aggregateMatrix(db.visibleRows, view, properties);
   const stacked = series[0]?.key !== CHART_TOTAL_SERIES;
