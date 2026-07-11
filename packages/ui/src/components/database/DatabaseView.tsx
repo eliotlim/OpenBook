@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, EyeOff, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, X} from 'lucide-react';
+import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, Download, EyeOff, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, Upload, X} from 'lucide-react';
 import {
   buildRowTree,
   dateStart,
@@ -49,9 +49,10 @@ import {showToast} from '@/components/ui/toast';
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
+import {downloadText, safeFilename} from '@/lib/download';
 import {useDatabase, type UseDatabase} from './useDatabase';
-import {cellValue, PropertyValueCell} from './databaseCells';
-import {AddPropertyMenu, AddViewMenu, FieldsMenu, FilterChips, FilterMenu, GroupChips, GroupMenu, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, VIEW_TYPES} from './databaseMenus';
+import {cellValue, PropertyValueCell, rowsToCsv} from './databaseCells';
+import {AddPropertyMenu, AddViewMenu, FieldsMenu, FilterChips, FilterMenu, GroupChips, GroupMenu, importCsvFile, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, VIEW_TYPES} from './databaseMenus';
 import {
   BoardView,
   CalendarView,
@@ -1267,6 +1268,26 @@ const DatabaseContextMenu: React.FC<{
         <ContextMenuItem onSelect={() => void db.addRow()}>
           <Rows3 className="mr-2 h-4 w-4" />
           New row
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        {/* CSV lives here (data-level, whole-database actions) rather than in
+            the per-view View options popover. Export honours the active view's
+            filters/sorts/search (visibleRows), matching what's on screen. */}
+        <ContextMenuItem
+          onSelect={() =>
+            downloadText(
+              `${safeFilename(view.name, 'database')}.csv`,
+              rowsToCsv(db.visibleRows, db.database!.schema.properties, db.database!.schema.properties),
+              'text/csv',
+            )
+          }
+        >
+          <Download className="mr-2 h-4 w-4" />
+          Export CSV
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => importCsvFile(db.importCsv)}>
+          <Upload className="mr-2 h-4 w-4" />
+          Import CSV
         </ContextMenuItem>
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={onConfigureExpiry}>

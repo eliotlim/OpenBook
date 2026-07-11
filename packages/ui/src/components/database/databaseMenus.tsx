@@ -10,7 +10,6 @@ import {
   ChevronDown,
   Columns3,
   Copy,
-  Download,
   Eye,
   EyeOff,
   Filter,
@@ -29,7 +28,6 @@ import {
   Sigma,
   Table2,
   Trash2,
-  Upload,
   Workflow,
   X,
 } from 'lucide-react';
@@ -75,9 +73,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
 import {cn} from '@/lib/utils';
-import {downloadText, safeFilename} from '@/lib/download';
 import {DEFAULT_SWATCH, swatchColor} from './databaseColors';
-import {rowsToCsv} from './databaseCells';
 import {NEW_PROPERTY_VALUE, setupPropertyInput} from './ViewSetupCard';
 import type {NewPropertyInput, UseDatabase} from './useDatabase';
 
@@ -237,8 +233,9 @@ export const VIEW_TYPES: {value: DatabaseViewType; label: string; Icon: React.Co
 export const viewIcon = (type: DatabaseViewType): React.ComponentType<{className?: string}> =>
   VIEW_TYPES.find((v) => v.value === type)?.Icon ?? Table2;
 
-/** Open a file picker and feed the chosen CSV's text to `importCsv`. */
-function importCsvFile(importCsv: (text: string) => Promise<number>): void {
+/** Open a file picker and feed the chosen CSV's text to `importCsv`.
+ *  Used by the database context menu ("Import CSV"). */
+export function importCsvFile(importCsv: (text: string) => Promise<number>): void {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.csv,text/csv';
@@ -2119,20 +2116,6 @@ export const ViewOptionsMenu: React.FC<{
               <ListFilter className="h-3.5 w-3.5" /> Clear filters & sorts
             </button>
           )}
-        </div>
-
-        <div className="flex items-center gap-1 border-t border-border pt-2">
-          <button
-            onClick={() =>
-              downloadText(`${safeFilename(view.name, 'database')}.csv`, rowsToCsv(db.visibleRows, properties, properties), 'text/csv')
-            }
-            className={cn(toolButtonClass, 'flex-1 justify-center')}
-          >
-            <Download className="h-3.5 w-3.5" /> Export CSV
-          </button>
-          <button onClick={() => importCsvFile(db.importCsv)} className={cn(toolButtonClass, 'flex-1 justify-center')}>
-            <Upload className="h-3.5 w-3.5" /> Import CSV
-          </button>
         </div>
 
         <div className="flex items-center gap-1 border-t border-border pt-2">

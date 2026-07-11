@@ -162,7 +162,8 @@ test('column reorder: drag a column header', {tag: ['@database']}, async ({page}
   await expect(page.getByRole('columnheader').nth(1)).toContainText('Notes');
 });
 
-// Exporting a view downloads its rows as CSV.
+// Exporting a view downloads its rows as CSV — from the database context menu
+// (right-click the chrome), where the whole-database data actions live.
 test('export CSV: downloads the view rows', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await page.getByRole('button', {name: 'New row'}).click();
@@ -170,10 +171,12 @@ test('export CSV: downloads the view rows', {tag: ['@database']}, async ({page})
   await title.fill('CsvRow');
   await title.blur();
 
-  await page.getByRole('button', {name: 'View options'}).click();
+  // Right-click the toolbar's row count — database chrome, so the database
+  // context menu opens (cells/rows have their own nested menus).
+  await page.getByText('1 row', {exact: true}).click({button: 'right'});
   const [download] = await Promise.all([
     page.waitForEvent('download'),
-    page.getByRole('button', {name: 'Export CSV'}).click(),
+    page.getByRole('menuitem', {name: 'Export CSV'}).click(),
   ]);
   expect(download.suggestedFilename()).toMatch(/\.csv$/);
   const content = readFileSync((await download.path())!, 'utf8');
@@ -181,14 +184,15 @@ test('export CSV: downloads the view rows', {tag: ['@database']}, async ({page})
   expect(content).toContain('CsvRow');
 });
 
-// Importing a CSV creates rows, mapping columns by name (here the default Notes).
+// Importing a CSV creates rows, mapping columns by name (here the default
+// Notes) — also from the database context menu.
 test('import CSV: creates rows from a file', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
 
-  await page.getByRole('button', {name: 'View options'}).click();
+  await page.getByText('0 rows', {exact: true}).click({button: 'right'});
   const [chooser] = await Promise.all([
     page.waitForEvent('filechooser'),
-    page.getByRole('button', {name: 'Import CSV'}).click(),
+    page.getByRole('menuitem', {name: 'Import CSV'}).click(),
   ]);
   await chooser.setFiles({
     name: 'data.csv',
