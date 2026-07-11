@@ -509,6 +509,10 @@ export const zh: PartialMessages = {
       slides: '幻灯片',
       database: '数据库',
     },
+    section: {
+      documents: '交互式文档',
+      databases: '数据库',
+    },
     groceryTracker: {
       name: '杂货价格追踪',
       description: '把每周购物篮在多家商店比价——实时图表、预算状态灯，计算都藏在代码块里。',

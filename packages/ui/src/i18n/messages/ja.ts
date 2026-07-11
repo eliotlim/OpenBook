@@ -512,6 +512,10 @@ export const ja: PartialMessages = {
       slides: 'スライド',
       database: 'データベース',
     },
+    section: {
+      documents: 'インタラクティブなドキュメント',
+      databases: 'データベース',
+    },
     groceryTracker: {
       name: '食料品の価格トラッカー',
       description: '毎週の買い物かごを店ごとに比較 — ライブチャート、予算ライト、計算はコードブロックに。',

@@ -513,6 +513,10 @@ export const de: PartialMessages = {
       slides: 'Folien',
       database: 'Datenbank',
     },
+    section: {
+      documents: 'Interaktive Dokumente',
+      databases: 'Datenbanken',
+    },
     groceryTracker: {
       name: 'Lebensmittelpreis-Tracker',
       description: 'Einen Wocheneinkauf über mehrere Läden bepreisen — Live-Diagramme, eine Budgetleuchte und die Rechnung im Code-Block.',

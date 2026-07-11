@@ -850,6 +850,10 @@ export const en = {
       slides: 'Slides',
       database: 'Database',
     },
+    section: {
+      documents: 'Interactive documents',
+      databases: 'Databases',
+    },
     groceryTracker: {
       name: 'Grocery price tracker',
       description: 'Price a weekly basket across shops — live charts, a budget light, and the maths tucked in a code block.',
