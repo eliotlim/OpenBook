@@ -1,3 +1,14 @@
+## 1.76.1 (2026-07-11)
+
+### 🩹 Fixes
+
+- **updater:** name macOS updater archives per-arch so the manifest can serve them ([#119](https://github.com/eliotlim/OpenBook/pull/119))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 1.76.0 (2026-07-10)
 
 ### 🚀 Features
