@@ -1273,10 +1273,13 @@ export function defaultDatabaseSchema(): DatabaseSchema {
 export function defaultView(type: DatabaseViewType, name: string, properties: DatabaseProperty[]): DatabaseView {
   const view: DatabaseView = {id: shortId('view'), name, type, filters: [], sorts: []};
   if (type === 'board' || type === 'bar' || type === 'pie') {
-    // Default the grouping to the first select/status property (kanban columns /
-    // chart categories read best off one), falling back to any property.
-    const select = properties.find((p) => p.type === 'select' || p.type === 'status');
-    view.groupByPropertyId = (select ?? properties[0])?.id;
+    // Default the grouping to the first categorical property (select/status/
+    // relation — kanban columns / chart categories read best off one). With no
+    // categorical column, leave the view ungrouped: a board then renders a
+    // single "All" column instead of splintering by an arbitrary text/number
+    // property ({@link groupRowsBy} treats an unset id as one group).
+    const categorical = properties.find((p) => p.type === 'select' || p.type === 'status' || p.type === 'relation');
+    view.groupByPropertyId = categorical?.id;
   }
   if (type === 'calendar' || type === 'timeline') {
     const date = properties.find((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time');

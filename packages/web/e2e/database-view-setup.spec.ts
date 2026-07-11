@@ -1,10 +1,12 @@
-import {test, expect, chooseLabel} from './fixtures';
+import {test, expect, chooseLabel, chooseValue} from './fixtures';
 
 // The view setup cards (OB view-setup UX): adding a Timeline / Calendar / Map /
 // Graph view to a database without the property it lays rows out by used to
-// dead-end on a prose hint. Now a setup card offers the fix itself — one
-// disclosed click creates the typed property AND points the view at it — or an
-// inline picker when a compatible property already exists.
+// dead-end on a prose hint. Now an in-body setup card offers the fix itself —
+// one disclosed click creates the typed property AND points the view at it — or
+// an inline picker when a compatible property already exists. The card is the
+// single first-run surface: adding a view no longer pops View options open over
+// it.
 
 // Per-test workspace reset: each test builds a fresh database (whose default
 // schema has only a Status select + Notes text — no date/location/dependency).
@@ -20,7 +22,9 @@ async function newDatabase(page: import('@playwright/test').Page): Promise<void>
 }
 
 /** Add a view of `type` and wait for the picker menu to fully close (its exit
- *  animation can eat the next click — see database-timeline.spec). */
+ *  animation can eat the next click — see database-timeline.spec). The setup
+ *  card (for layouts still needing a property) renders straight into the view
+ *  body; no View-options popover opens over it. */
 async function addView(page: import('@playwright/test').Page, type: string): Promise<void> {
   await page.getByRole('button', {name: 'Add view'}).click();
   await page.getByRole('menuitem', {name: type}).click();
@@ -36,8 +40,9 @@ async function closeViewOptions(page: import('@playwright/test').Page): Promise<
   await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
 }
 
-// Fresh DB → Add view → Timeline → ONE click creates a Date property, wires the
-// view to it, and the dated canvas renders (the click-to-place first run).
+// Fresh DB → Add view → Timeline → the in-body setup card's ONE click creates a
+// Date property, wires the view to it, and the dated canvas renders (the
+// click-to-place first run).
 test('timeline setup card: one click creates a Date property and renders the canvas', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addView(page, 'Timeline');
@@ -107,15 +112,19 @@ test('chart setup card: picks an existing compatible property inline', {tag: ['@
 });
 
 // The View-options selects carry the same one-step create as a "+ New …
-// property" sentinel: on a date-less DB, Start date offers "+ New date
-// property", which creates the property AND renders the timeline.
+// property" sentinel: on a date-less DB, opening View options on the Timeline
+// offers "+ New date property" on Start date, which creates the property AND
+// renders the timeline.
 test('view options sentinel: "+ New date property" creates and wires the start date', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addView(page, 'Timeline');
 
+  // Open View options explicitly and pick the sentinel on Start date.
   await page.getByRole('button', {name: 'View options'}).click();
   await chooseLabel(page, page.getByLabel('Start date'), '+ New date property');
-  await closeViewOptions(page);
+  // A successful sentinel create closes the popover by itself, revealing the
+  // freshly-configured view — no toggle-to-close dance needed.
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
 
   await expect(page.getByText(/click anywhere on the timeline to add one/i)).toBeVisible();
   await expect(page.locator('div[title="Today"]')).toBeVisible();
@@ -126,12 +135,46 @@ test('view options sentinel: "+ New dependency property" creates and wires depen
   await newDatabase(page);
   await addView(page, 'Graph');
 
+  // Open View options explicitly and pick the dependency sentinel.
   await page.getByRole('button', {name: 'View options'}).click();
   await chooseLabel(page, page.getByLabel('Dependencies'), '+ New dependency property');
-  await closeViewOptions(page);
+  // The sentinel create closes the popover on its own.
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
 
   // The graph view mounts (no rows yet), and the column exists in the table.
   await expect(page.getByText('No rows yet.')).toBeVisible();
   await page.getByRole('button', {name: 'Table', exact: true}).click();
   await expect(page.getByRole('columnheader', {name: /Dependencies/})).toBeVisible();
+});
+
+// Adding a view renders an in-body setup card only when its layout still needs
+// a property picked: a date-less Timeline shows the card (its create action one
+// gesture away), while a config-free Gallery — or a Timeline that found a date
+// property to bind to — renders its live layout straight away. No View-options
+// popover opens on add.
+test('add view setup card: unconfigured layouts show the card, configured ones render', {tag: ['@database']}, async ({page}) => {
+  await newDatabase(page);
+
+  // Gallery needs no property → its layout renders, no setup card, no popover.
+  await addView(page, 'Gallery');
+  await expect(page.getByRole('button', {name: 'New card'})).toBeVisible();
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
+
+  // A date-less Timeline → the in-body setup card offers its create action.
+  await addView(page, 'Timeline');
+  await expect(page.getByRole('button', {name: 'Create a Date property and use it'})).toBeVisible();
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
+
+  // Give the database a date column, back on the table view.
+  await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await page.getByRole('button', {name: 'Add column'}).click();
+  await page.getByPlaceholder('Property name').fill('Due');
+  await chooseValue(page, page.getByLabel('Property type'), 'date');
+  await page.getByRole('button', {name: 'Add property'}).click();
+  await expect(page.getByText('Due', {exact: true})).toBeVisible();
+
+  // A new Timeline now binds to the date on its own → live canvas, no card.
+  await addView(page, 'Timeline');
+  await expect(page.locator('div[title="Today"]')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Create a Date property and use it'})).toHaveCount(0);
 });

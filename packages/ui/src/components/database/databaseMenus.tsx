@@ -10,11 +10,12 @@ import {
   ChevronDown,
   Columns3,
   Copy,
-  Download,
+  Eye,
   EyeOff,
   Filter,
   GanttChartSquare,
   GripVertical,
+  Layers,
   LayoutGrid,
   Link2,
   List,
@@ -27,7 +28,6 @@ import {
   Sigma,
   Table2,
   Trash2,
-  Upload,
   Workflow,
   X,
 } from 'lucide-react';
@@ -63,6 +63,7 @@ import {
   type SummaryType,
 } from '@book.dev/sdk';
 import {useNavigation, useTranslation} from '@/providers';
+import type {TKey} from '@/i18n';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {
   DropdownMenu,
@@ -72,9 +73,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import {IconButton} from '@/components/ui/icon-button';
 import {cn} from '@/lib/utils';
-import {downloadText, safeFilename} from '@/lib/download';
 import {DEFAULT_SWATCH, swatchColor} from './databaseColors';
-import {rowsToCsv} from './databaseCells';
 import {NEW_PROPERTY_VALUE, setupPropertyInput} from './ViewSetupCard';
 import type {NewPropertyInput, UseDatabase} from './useDatabase';
 
@@ -234,8 +233,9 @@ export const VIEW_TYPES: {value: DatabaseViewType; label: string; Icon: React.Co
 export const viewIcon = (type: DatabaseViewType): React.ComponentType<{className?: string}> =>
   VIEW_TYPES.find((v) => v.value === type)?.Icon ?? Table2;
 
-/** Open a file picker and feed the chosen CSV's text to `importCsv`. */
-function importCsvFile(importCsv: (text: string) => Promise<number>): void {
+/** Open a file picker and feed the chosen CSV's text to `importCsv`.
+ *  Used by the database context menu ("Import CSV"). */
+export function importCsvFile(importCsv: (text: string) => Promise<number>): void {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = '.csv,text/csv';
@@ -1499,24 +1499,67 @@ export const SortChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, 
   );
 };
 
-/** The `+` next to the view tabs: add a new view of a chosen layout. */
-export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = ({onAdd}) => (
-  <DropdownMenu>
-    <DropdownMenuTrigger asChild>
-      <button className="flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Add view">
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-    </DropdownMenuTrigger>
-    <DropdownMenuContent align="start" className="w-44">
-      {VIEW_TYPES.map(({value, label, Icon}) => (
-        <DropdownMenuItem key={value} onClick={() => onAdd(value)}>
-          <Icon className="mr-2 h-4 w-4" />
-          {label}
-        </DropdownMenuItem>
-      ))}
-    </DropdownMenuContent>
-  </DropdownMenu>
-);
+/** Per-layout one-liner for the add-view menu (mirrors the slash menu's hints). */
+const VIEW_TYPE_HINT_KEY: Record<DatabaseViewType, TKey> = {
+  table: 'database.addView.hints.table',
+  board: 'database.addView.hints.board',
+  gallery: 'database.addView.hints.gallery',
+  list: 'database.addView.hints.list',
+  calendar: 'database.addView.hints.calendar',
+  timeline: 'database.addView.hints.timeline',
+  map: 'database.addView.hints.map',
+  graph: 'database.addView.hints.graph',
+  bar: 'database.addView.hints.bar',
+  pie: 'database.addView.hints.pie',
+};
+
+/** Layouts that need a property before they can lay rows out (the add-view
+ *  menu annotates these; adding one renders an in-body setup card to fix it). */
+const VIEW_TYPE_NEEDS_KEY: Partial<Record<DatabaseViewType, TKey>> = {
+  calendar: 'database.addView.needs.date',
+  timeline: 'database.addView.needs.date',
+  map: 'database.addView.needs.location',
+  graph: 'database.addView.needs.dependency',
+  bar: 'database.addView.needs.group',
+  pie: 'database.addView.needs.group',
+};
+
+/** The `+` next to the view tabs: add a new view of a chosen layout. Items are
+ *  two lines — the layout name plus a hint (and, for layouts that need a
+ *  property, what they need). The hint is decorative: `aria-label` pins each
+ *  item's accessible name to exactly the layout name. */
+export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = ({onAdd}) => {
+  const {t} = useTranslation();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Add view">
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 overflow-y-auto"
+      >
+        {VIEW_TYPES.map(({value, label, Icon}) => (
+          <DropdownMenuItem key={value} aria-label={label} onClick={() => onAdd(value)} className="items-start">
+            <Icon className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
+            <span className="flex min-w-0 flex-col">
+              <span>{label}</span>
+              {/* Let the requirement note wrap onto its own line rather than share
+                  the hint's truncated line — clipping it away was hiding the most
+                  useful part ("Needs a … property"). */}
+              <span className="text-xs text-muted-foreground">
+                {t(VIEW_TYPE_HINT_KEY[value])}
+                {VIEW_TYPE_NEEDS_KEY[value] && <span className="text-muted-foreground/70"> · {t(VIEW_TYPE_NEEDS_KEY[value])}</span>}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
 
 /**
  * A property picker for a grouping dimension: the shared "Group by" /
@@ -1554,41 +1597,170 @@ const GroupByPicker: React.FC<{
   </label>
 );
 
-/**
- * The active view's settings: rename, switch layout, configure layout-specific
- * options (board/chart grouping, chart aggregation, calendar date, visible
- * columns), duplicate, and delete.
- */
-export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
-  const {t} = useTranslation();
-  const properties = db.database!.schema.properties;
-  /** One-click "+ New … property" sentinel action: create the typed property
-   *  and point this view's `field` at it, atomically (see addPropertyForView). */
-  const createFor = (kind: Parameters<typeof setupPropertyInput>[0], field: Parameters<UseDatabase['addPropertyForView']>[2], opts?: {range?: boolean}): void => {
-    void db.addPropertyForView(view.id, setupPropertyInput(kind, properties, t, opts), field);
-  };
-  const groupable = properties; // any property can group
-  const numericProps = properties.filter((p) => p.type === 'number' || p.type === 'formula' || p.type === 'expr');
-  const dateProps = properties.filter((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time');
-  const aggregate: ChartAggregate = view.aggregate ?? {type: 'count'};
-  const visible = view.visiblePropertyIds && view.visiblePropertyIds.length > 0 ? view.visiblePropertyIds : null;
+/** The view layouts whose rows can be grouped (the ViewOptionsMenu "Group by"
+ *  set — calendars group by day and graphs by edges, so they're excluded). */
+const GROUPABLE_VIEW_TYPES = new Set<DatabaseViewType>(['board', 'bar', 'pie', 'table', 'list', 'gallery', 'map', 'timeline']);
+/** The view layouts with a configurable visible-property set. */
+const FIELDABLE_VIEW_TYPES = new Set<DatabaseViewType>(['table', 'list', 'gallery', 'board', 'calendar', 'timeline', 'map']);
 
+/**
+ * Toolbar "Group" control: the active view's grouping one popover away — a
+ * peer of Filter/Sort rather than a setting buried in View options. Reuses
+ * {@link GroupByPicker} (including its "+ New select property" sentinel, which
+ * closes the popover once the property is created and wired). Boards get the
+ * swimlane sub-group here too, mirroring the View options.
+ */
+export const GroupMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const {t} = useTranslation();
+  const [open, setOpen] = useState(false);
+  if (!GROUPABLE_VIEW_TYPES.has(view.type)) return null;
+  const properties = db.database!.schema.properties;
+  const createFor = (field: 'groupByPropertyId' | 'subGroupByPropertyId'): void => {
+    void db.addPropertyForView(view.id, setupPropertyInput('select', properties, t), field).then((id) => {
+      if (id) setOpen(false);
+    });
+  };
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className={cn(toolButtonClass, view.groupByPropertyId && 'text-foreground')}>
+          <Layers className="h-3.5 w-3.5" />
+          {t('database.toolbar.group')}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 space-y-2.5 p-3">
+        <GroupByPicker
+          label="Group by"
+          value={view.groupByPropertyId}
+          properties={properties}
+          onChange={(id) => void db.updateView(view.id, {groupByPropertyId: id})}
+          onCreate={{label: t('database.setup.newProperty.select'), run: () => createFor('groupByPropertyId')}}
+        />
+        {view.type === 'board' && view.groupByPropertyId && (
+          <GroupByPicker
+            label="Sub-group by"
+            value={view.subGroupByPropertyId}
+            properties={properties.filter((p) => p.id !== view.groupByPropertyId)}
+            onChange={(id) => void db.updateView(view.id, {subGroupByPropertyId: id})}
+            onCreate={{label: t('database.setup.newProperty.select'), run: () => createFor('subGroupByPropertyId')}}
+          />
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+/**
+ * Which properties the current view shows — the checklist shared by the View
+ * options panel and the toolbar {@link FieldsMenu}. An unset
+ * `visiblePropertyIds` means "all".
+ */
+export const PropertyVisibilityList: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const properties = db.database!.schema.properties;
+  const visible = view.visiblePropertyIds && view.visiblePropertyIds.length > 0 ? view.visiblePropertyIds : null;
   const isVisible = (id: string): boolean => (visible ? visible.includes(id) : true);
   const toggleVisible = (id: string): void => {
     const shown = properties.filter((p) => (visible ? visible.includes(p.id) : true)).map((p) => p.id);
     const next = shown.includes(id) ? shown.filter((x) => x !== id) : [...shown, id];
     db.updateView(view.id, {visiblePropertyIds: next});
   };
+  return (
+    <div className="max-h-40 space-y-0.5 overflow-y-auto">
+      {properties.map((p) => (
+        <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-hover">
+          <input type="checkbox" checked={isVisible(p.id)} onChange={() => toggleVisible(p.id)} className="h-3.5 w-3.5 accent-primary" />
+          <span className="truncate">{p.name}</span>
+        </label>
+      ))}
+    </div>
+  );
+};
 
-  const showGroup =
-    view.type === 'board' ||
-    view.type === 'bar' ||
-    view.type === 'pie' ||
-    view.type === 'table' ||
-    view.type === 'list' ||
-    view.type === 'gallery' ||
-    view.type === 'map' ||
-    view.type === 'timeline';
+/**
+ * Toolbar "Fields" control: toggle the view's visible properties without a
+ * trip into View options. Lit up once the view has an explicit property set.
+ */
+export const FieldsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const {t} = useTranslation();
+  if (!FIELDABLE_VIEW_TYPES.has(view.type) || db.database!.schema.properties.length === 0) return null;
+  const customized = Boolean(view.visiblePropertyIds && view.visiblePropertyIds.length > 0);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className={cn(toolButtonClass, customized && 'text-foreground')}>
+          <Eye className="h-3.5 w-3.5" />
+          {t('database.toolbar.fields')}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 space-y-1.5 p-3">
+        <div className={sectionLabel}>Properties</div>
+        <PropertyVisibilityList db={db} view={view} />
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+/**
+ * Active-grouping chip: the view's group-by property as a removable pill, so
+ * the otherwise invisible grouping state reads at a glance and is one click to
+ * drop. Mirrors {@link FilterChips}/{@link SortChips}; clearing it also drops
+ * a board's sub-group (swimlanes make no sense without the primary group).
+ */
+export const GroupChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const {t} = useTranslation();
+  const properties = db.database!.schema.properties;
+  const id = view.groupByPropertyId;
+  // Mirror GroupMenu's gate: switching a grouped board to a non-groupable
+  // layout (calendar/graph) must not leave a stray, inert grouping chip.
+  if (!id || !GROUPABLE_VIEW_TYPES.has(view.type)) return null;
+  const name =
+    id === PARENT_GROUP_ID ? 'Sub-items' : id === TITLE_PROPERTY_ID ? 'Name' : properties.find((p) => p.id === id)?.name ?? 'Property';
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+      <span className="flex items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-2 pr-1 text-xs text-muted-foreground">
+        <Layers className="h-3 w-3 shrink-0" />
+        <span className="max-w-[12rem] truncate" title={name}>
+          {name}
+        </span>
+        <button
+          onClick={() => void db.updateView(view.id, {groupByPropertyId: undefined, subGroupByPropertyId: undefined})}
+          aria-label={t('database.toolbar.removeGrouping')}
+          className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </span>
+    </div>
+  );
+};
+
+/**
+ * The active view's settings: rename, switch layout, configure layout-specific
+ * options (board/chart grouping, chart aggregation, calendar date, visible
+ * columns), duplicate, and delete.
+ */
+export const ViewOptionsMenu: React.FC<{
+  db: UseDatabase;
+  view: DatabaseView;
+}> = ({db, view}) => {
+  const {t} = useTranslation();
+  const [isOpen, setOpen] = useState(false);
+  const properties = db.database!.schema.properties;
+  /** One-click "+ New … property" sentinel action: create the typed property
+   *  and point this view's `field` at it, atomically (see addPropertyForView).
+   *  On success the popover closes to reveal the freshly-configured view (and
+   *  sidesteps Escape being flaky right after the schema-save re-render). */
+  const createFor = (kind: Parameters<typeof setupPropertyInput>[0], field: Parameters<UseDatabase['addPropertyForView']>[2], opts?: {range?: boolean}): void => {
+    void db.addPropertyForView(view.id, setupPropertyInput(kind, properties, t, opts), field).then((id) => {
+      if (id) setOpen(false);
+    });
+  };
+  const groupable = properties; // any property can group
+  const numericProps = properties.filter((p) => p.type === 'number' || p.type === 'formula' || p.type === 'expr');
+  const dateProps = properties.filter((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time');
+  const aggregate: ChartAggregate = view.aggregate ?? {type: 'count'};
+
+  const showGroup = GROUPABLE_VIEW_TYPES.has(view.type);
   // A second grouping dimension: board swimlanes (shown once the primary group is set).
   const showSubGroup = view.type === 'board';
   const showMap = view.type === 'map';
@@ -1609,17 +1781,10 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
     view.type === 'table' ||
     view.type === 'list';
   const colorProps = properties.filter((p) => p.type === 'select' || p.type === 'status');
-  const showColumns =
-    view.type === 'table' ||
-    view.type === 'list' ||
-    view.type === 'gallery' ||
-    view.type === 'board' ||
-    view.type === 'calendar' ||
-    view.type === 'timeline' ||
-    view.type === 'map';
+  const showColumns = FIELDABLE_VIEW_TYPES.has(view.type);
 
   return (
-    <Popover>
+    <Popover open={isOpen} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button className={toolButtonClass} aria-label="View options">
           <Settings2 className="h-3.5 w-3.5" />
@@ -1628,7 +1793,10 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
       </PopoverTrigger>
       {/* The panel can outgrow short windows (layout grid + grouping + colour
           rules + metrics) — scroll inside rather than cutting off the tail. */}
-      <PopoverContent align="end" className="max-h-[min(34rem,80vh)] w-72 space-y-2.5 overflow-y-auto p-3">
+      <PopoverContent
+        align="end"
+        className="max-h-[min(34rem,80vh)] w-72 space-y-2.5 overflow-y-auto p-3"
+      >
         <input
           defaultValue={view.name}
           onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== view.name && db.renameView(view.id, e.target.value)}
@@ -1941,14 +2109,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
         {showColumns && properties.length > 0 && (
           <div>
             <div className={cn(sectionLabel, 'mb-1')}>Properties</div>
-            <div className="max-h-40 space-y-0.5 overflow-y-auto">
-              {properties.map((p) => (
-                <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-hover">
-                  <input type="checkbox" checked={isVisible(p.id)} onChange={() => toggleVisible(p.id)} className="h-3.5 w-3.5 accent-primary" />
-                  <span className="truncate">{p.name}</span>
-                </label>
-              ))}
-            </div>
+            <PropertyVisibilityList db={db} view={view} />
           </div>
         )}
 
@@ -1964,20 +2125,6 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
               <ListFilter className="h-3.5 w-3.5" /> Clear filters & sorts
             </button>
           )}
-        </div>
-
-        <div className="flex items-center gap-1 border-t border-border pt-2">
-          <button
-            onClick={() =>
-              downloadText(`${safeFilename(view.name, 'database')}.csv`, rowsToCsv(db.visibleRows, properties, properties), 'text/csv')
-            }
-            className={cn(toolButtonClass, 'flex-1 justify-center')}
-          >
-            <Download className="h-3.5 w-3.5" /> Export CSV
-          </button>
-          <button onClick={() => importCsvFile(db.importCsv)} className={cn(toolButtonClass, 'flex-1 justify-center')}>
-            <Upload className="h-3.5 w-3.5" /> Import CSV
-          </button>
         </div>
 
         <div className="flex items-center gap-1 border-t border-border pt-2">
@@ -2001,8 +2148,11 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
 function viewTypePatch(type: DatabaseViewType, view: DatabaseView, properties: DatabaseProperty[]): Partial<DatabaseView> {
   const patch: Partial<DatabaseView> = {type};
   if ((type === 'board' || type === 'bar' || type === 'pie') && !view.groupByPropertyId) {
-    const select = properties.find((p) => p.type === 'select');
-    patch.groupByPropertyId = (select ?? properties[0])?.id;
+    // Mirror defaultView: only a categorical property (select/status/relation)
+    // makes a sensible default grouping; otherwise stay ungrouped (one "All"
+    // group) rather than splintering by an arbitrary text/number column.
+    const categorical = properties.find((p) => p.type === 'select' || p.type === 'status' || p.type === 'relation');
+    if (categorical) patch.groupByPropertyId = categorical.id;
   }
   if ((type === 'calendar' || type === 'timeline') && !view.datePropertyId) {
     patch.datePropertyId = properties.find((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time')?.id;

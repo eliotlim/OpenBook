@@ -908,6 +908,31 @@ export const ja: PartialMessages = {
     refresh: '更新',
   },
   database: {
+    toolbar: {
+      group: 'グループ',
+      fields: 'フィールド',
+      removeGrouping: 'グループ化を解除',
+    },
+    addView: {
+      hints: {
+        table: '行と列 — 定番のグリッド',
+        board: 'プロパティでグループ化したカンバン列',
+        gallery: 'グリッドに並ぶビジュアルカード',
+        list: 'コンパクトな1列リスト',
+        calendar: '日付で月のグリッドに配置',
+        timeline: '時間軸に沿ったガントバー',
+        map: '場所プロパティでマーカーを配置',
+        graph: '行同士の依存関係を表示',
+        bar: 'グループごとに集計した棒グラフ',
+        pie: 'グループごとに集計した円グラフ',
+      },
+      needs: {
+        date: '日付プロパティが必要',
+        location: '場所プロパティが必要',
+        dependency: '依存関係プロパティが必要',
+        group: 'グループ化するプロパティが必要',
+      },
+    },
     setup: {
       pickPlaceholder: 'プロパティを選択…',
       timeline: {
@@ -937,14 +962,14 @@ export const ja: PartialMessages = {
       chart: {
         missing: 'チャートはプロパティで行をグループ化しますが、このデータベースにはまだプロパティがありません。作成してチャートを始めましょう。',
         pick: 'チャートはプロパティで行をグループ化します。グループ化に使うプロパティを選んでください。',
-        create: 'セレクトプロパティを作成して使用',
+        create: 'カテゴリプロパティを作成して使用',
         pickLabel: 'チャートのグループ化プロパティ',
       },
       newProperty: {
         date: '+ 新しい日付プロパティ',
         location: '+ 新しい場所プロパティ',
         dependency: '+ 新しい依存関係プロパティ',
-        select: '+ 新しいセレクトプロパティ',
+        select: '+ 新しいカテゴリプロパティ',
       },
       names: {
         date: '日付',

@@ -903,6 +903,31 @@ export const zh: PartialMessages = {
     refresh: '刷新',
   },
   database: {
+    toolbar: {
+      group: '分组',
+      fields: '字段',
+      removeGrouping: '移除分组',
+    },
+    addView: {
+      hints: {
+        table: '行与列 — 经典表格',
+        board: '按属性分组的看板列',
+        gallery: '网格中的可视卡片',
+        list: '紧凑的单列列表',
+        calendar: '按日期放置在月历上',
+        timeline: '沿时间轴的甘特条',
+        map: '按位置属性放置标记',
+        graph: '展示行之间的依赖关系',
+        bar: '按分组聚合的条形图',
+        pie: '按分组聚合的饼图',
+      },
+      needs: {
+        date: '需要日期属性',
+        location: '需要位置属性',
+        dependency: '需要依赖属性',
+        group: '需要用于分组的属性',
+      },
+    },
     setup: {
       pickPlaceholder: '选择属性…',
       timeline: {
@@ -932,14 +957,14 @@ export const zh: PartialMessages = {
       chart: {
         missing: '图表按属性对行分组，但此数据库还没有属性。创建一个即可开始绘图。',
         pick: '图表按属性对行分组。请选择用于分组的属性。',
-        create: '创建单选属性并使用',
+        create: '创建类别属性并使用',
         pickLabel: '图表分组属性',
       },
       newProperty: {
         date: '+ 新建日期属性',
         location: '+ 新建位置属性',
         dependency: '+ 新建依赖属性',
-        select: '+ 新建单选属性',
+        select: '+ 新建类别属性',
       },
       names: {
         date: '日期',

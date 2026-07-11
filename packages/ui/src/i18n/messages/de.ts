@@ -910,6 +910,31 @@ export const de: PartialMessages = {
     refresh: 'Aktualisieren',
   },
   database: {
+    toolbar: {
+      group: 'Gruppieren',
+      fields: 'Felder',
+      removeGrouping: 'Gruppierung entfernen',
+    },
+    addView: {
+      hints: {
+        table: 'Zeilen und Spalten — das klassische Raster',
+        board: 'Kanban-Spalten, gruppiert nach einer Eigenschaft',
+        gallery: 'Visuelle Karten im Raster',
+        list: 'Eine kompakte einspaltige Liste',
+        calendar: 'Zeilen nach Datum im Monatsraster',
+        timeline: 'Gantt-Balken entlang der Zeit',
+        map: 'Marker nach einer Standort-Eigenschaft',
+        graph: 'Abhängigkeiten zwischen Zeilen',
+        bar: 'Zeilen als Balken je Gruppe aggregiert',
+        pie: 'Zeilen als Kreissegmente je Gruppe',
+      },
+      needs: {
+        date: 'Braucht eine Datums-Eigenschaft',
+        location: 'Braucht eine Standort-Eigenschaft',
+        dependency: 'Braucht eine Abhängigkeits-Eigenschaft',
+        group: 'Braucht eine Eigenschaft zum Gruppieren',
+      },
+    },
     setup: {
       pickPlaceholder: 'Eigenschaft wählen…',
       timeline: {
@@ -939,14 +964,14 @@ export const de: PartialMessages = {
       chart: {
         missing: 'Ein Diagramm gruppiert Zeilen nach einer Eigenschaft — diese Datenbank hat noch keine. Erstelle eine, um loszulegen.',
         pick: 'Ein Diagramm gruppiert Zeilen nach einer Eigenschaft. Wähle die Gruppierung.',
-        create: 'Auswahl-Eigenschaft erstellen und verwenden',
+        create: 'Kategorie-Eigenschaft erstellen und verwenden',
         pickLabel: 'Gruppierungs-Eigenschaft des Diagramms',
       },
       newProperty: {
         date: '+ Neue Datums-Eigenschaft',
         location: '+ Neue Standort-Eigenschaft',
         dependency: '+ Neue Abhängigkeits-Eigenschaft',
-        select: '+ Neue Auswahl-Eigenschaft',
+        select: '+ Neue Kategorie-Eigenschaft',
       },
       names: {
         date: 'Datum',

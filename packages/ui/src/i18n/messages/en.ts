@@ -1359,6 +1359,31 @@ export const en = {
     saved: 'Saved',
   },
   database: {
+    toolbar: {
+      group: 'Group',
+      fields: 'Fields',
+      removeGrouping: 'Remove grouping',
+    },
+    addView: {
+      hints: {
+        table: 'Rows and columns — the classic grid',
+        board: 'Kanban columns grouped by a property',
+        gallery: 'Visual cards in a grid',
+        list: 'A compact single-column list',
+        calendar: 'Rows placed on a month grid by date',
+        timeline: 'Gantt-style bars across time',
+        map: 'Markers placed by a location property',
+        graph: 'How rows depend on each other',
+        bar: 'Rows aggregated into bars per group',
+        pie: 'Rows aggregated into slices per group',
+      },
+      needs: {
+        date: 'Needs a date property',
+        location: 'Needs a location property',
+        dependency: 'Needs a dependency property',
+        group: 'Needs a property to group by',
+      },
+    },
     setup: {
       pickPlaceholder: 'Choose a property…',
       timeline: {
@@ -1388,14 +1413,14 @@ export const en = {
       chart: {
         missing: 'A chart groups rows by a property, and this database has no properties yet. Create one to start charting.',
         pick: 'A chart groups rows by a property. Choose the one to group by.',
-        create: 'Create a Select property and use it',
+        create: 'Create a Category property and use it',
         pickLabel: 'Chart group-by property',
       },
       newProperty: {
         date: '+ New date property',
         location: '+ New location property',
         dependency: '+ New dependency property',
-        select: '+ New select property',
+        select: '+ New category property',
       },
       names: {
         date: 'Date',
