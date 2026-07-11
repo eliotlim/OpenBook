@@ -27,6 +27,15 @@ async function addView(page: import('@playwright/test').Page, type: string): Pro
   await expect(page.getByRole('menu')).toHaveCount(0);
 }
 
+/** Close the View-options popover by toggling its trigger, and wait for the
+ *  teardown — Escape is unreliable right after a schema save re-renders the
+ *  panel, and a lingering popover overlaps later clicks (its Layout grid has
+ *  its own "Table" button that collides with the Table view tab). */
+async function closeViewOptions(page: import('@playwright/test').Page): Promise<void> {
+  await page.getByRole('button', {name: 'View options'}).click();
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
+}
+
 // Fresh DB → Add view → Timeline → ONE click creates a Date property, wires the
 // view to it, and the dated canvas renders (the click-to-place first run).
 test('timeline setup card: one click creates a Date property and renders the canvas', {tag: ['@database']}, async ({page}) => {
@@ -87,7 +96,7 @@ test('chart setup card: picks an existing compatible property inline', {tag: ['@
   // the setup card with a compatible property present.
   await page.getByRole('button', {name: 'View options'}).click();
   await chooseLabel(page, page.getByLabel('Group by'), '—');
-  await page.keyboard.press('Escape');
+  await closeViewOptions(page);
 
   // The card offers the picker (not a bare create button); choosing Status
   // wires the view and the chart renders its groups.
@@ -95,4 +104,34 @@ test('chart setup card: picks an existing compatible property inline', {tag: ['@
   await expect(picker).toBeVisible();
   await chooseLabel(page, picker, 'Status');
   await expect(page.getByText('Total 0')).toBeVisible();
+});
+
+// The View-options selects carry the same one-step create as a "+ New …
+// property" sentinel: on a date-less DB, Start date offers "+ New date
+// property", which creates the property AND renders the timeline.
+test('view options sentinel: "+ New date property" creates and wires the start date', {tag: ['@database']}, async ({page}) => {
+  await newDatabase(page);
+  await addView(page, 'Timeline');
+
+  await page.getByRole('button', {name: 'View options'}).click();
+  await chooseLabel(page, page.getByLabel('Start date'), '+ New date property');
+  await closeViewOptions(page);
+
+  await expect(page.getByText(/click anywhere on the timeline to add one/i)).toBeVisible();
+  await expect(page.locator('div[title="Today"]')).toBeVisible();
+});
+
+// The dependency select (timeline/graph) sentinel mints a dependency column.
+test('view options sentinel: "+ New dependency property" creates and wires dependencies', {tag: ['@database']}, async ({page}) => {
+  await newDatabase(page);
+  await addView(page, 'Graph');
+
+  await page.getByRole('button', {name: 'View options'}).click();
+  await chooseLabel(page, page.getByLabel('Dependencies'), '+ New dependency property');
+  await closeViewOptions(page);
+
+  // The graph view mounts (no rows yet), and the column exists in the table.
+  await expect(page.getByText('No rows yet.')).toBeVisible();
+  await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await expect(page.getByRole('columnheader', {name: /Dependencies/})).toBeVisible();
 });
