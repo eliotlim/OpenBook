@@ -246,6 +246,7 @@ export const ja: PartialMessages = {
     aiSearch: 'AIでノートを検索',
     askAssistant: 'アシスタントに質問',
     openSettings: '設定を開く',
+    settingsFor: '設定: {name}',
     current: '現在',
   },
   page: {

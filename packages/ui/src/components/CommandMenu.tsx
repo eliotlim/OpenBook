@@ -43,7 +43,12 @@ export function CommandMenu() {
   }, [open]);
   const searching = search.trim().length > 0;
   const visibleCommands = React.useMemo(
-    () => commands.filter((c) => !isAiFeature(c.id) || featureShown(readFeatureVisibility(c.id), searching)),
+    () =>
+      commands.filter(
+        (c) =>
+          (!isAiFeature(c.id) || featureShown(readFeatureVisibility(c.id), searching)) &&
+          (!c.searchOnly || searching),
+      ),
     [commands, searching],
   );
 

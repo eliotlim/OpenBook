@@ -305,6 +305,7 @@ export const en = {
     aiSearch: 'Search notes with AI',
     askAssistant: 'Ask the assistant',
     openSettings: 'Open settings',
+    settingsFor: 'Settings: {name}',
     openTrash: 'Open trash',
     toggleSidebar: 'Toggle sidebar',
     toggleFullWidth: 'Toggle full width',

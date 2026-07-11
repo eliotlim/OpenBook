@@ -243,6 +243,7 @@ export const zh: PartialMessages = {
     aiSearch: '用 AI 搜索笔记',
     askAssistant: '询问助手',
     openSettings: '打开设置',
+    settingsFor: '设置：{name}',
     current: '当前',
   },
   page: {

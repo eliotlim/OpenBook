@@ -246,6 +246,7 @@ export const de: PartialMessages = {
     aiSearch: 'Notizen mit KI durchsuchen',
     askAssistant: 'Assistent fragen',
     openSettings: 'Einstellungen öffnen',
+    settingsFor: 'Einstellungen: {name}',
     current: 'aktuell',
   },
   page: {

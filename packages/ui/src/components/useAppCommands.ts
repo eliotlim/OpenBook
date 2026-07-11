@@ -30,6 +30,7 @@ import {useData} from '@/data';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
 import {AGENT_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {SETTINGS_TABS, type SettingsTab} from '@/lib/hud';
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
 import {setReviewTarget} from '@/lib/reviewPane';
 import {togglePageFullWidth} from '@/lib/pageFullWidth';
@@ -53,7 +54,22 @@ export interface AppCommand {
   run: () => void;
   /** Greyed out and non-firing (e.g. Back with no history). */
   disabled?: boolean;
+  /** Only surfaced while the user is searching, to keep the default list calm
+   *  (the per-pane "Settings: …" deep links). */
+  searchOnly?: boolean;
 }
+
+/** Extra English search synonyms for settings panes whose id/label wouldn't
+ *  otherwise match a natural query (e.g. "account" → the `signin` pane). */
+const SETTINGS_KEYWORDS: Partial<Record<SettingsTab, string>> = {
+  signin: 'account sync sign in login',
+  connection: 'server remote connect',
+  admin: 'data backups backup export storage',
+  customisation: 'customisation customization shortcuts layout',
+  sharing: 'sharing publishing publish',
+  extensions: 'extensions plugins',
+  ai: 'ai assistant model provider',
+};
 
 /**
  * The single source of truth for app-level commands. The command palette
@@ -320,6 +336,24 @@ export function useAppCommands(): AppCommand[] {
             return draft;
           }),
       },
+      // A "Settings: <pane>" deep link per settings tab, so the palette opens the
+      // right screen directly. Search-only so they don't crowd the default list.
+      ...SETTINGS_TABS.map(
+        (settingsTab): AppCommand => ({
+          id: `settings-${settingsTab}`,
+          group: 'app',
+          title: t('command.settingsFor', {name: t(`settings.tab.${settingsTab}`)}),
+          keywords: `settings preferences ${settingsTab} ${SETTINGS_KEYWORDS[settingsTab] ?? ''}`,
+          icon: SettingsIcon,
+          searchOnly: true,
+          run: () =>
+            setHud((draft) => {
+              draft.settings.open = true;
+              draft.settings.tab = settingsTab;
+              return draft;
+            }),
+        }),
+      ),
       ...pluginCommands().map((cmd) => ({
         id: cmd.id,
         group: 'app' as const,
