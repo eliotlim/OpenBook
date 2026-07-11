@@ -44,6 +44,10 @@ export const de: PartialMessages = {
       account: 'Dein Konto',
     },
   },
+  storage: {
+    remoteUnavailable:
+      'Die Verdichtung betrifft nur die lokale Datenbank – bei Verbindung mit einem Remote-Server ist sie nicht verfügbar.',
+  },
   appearance: {
     title: 'Darstellung',
     colorMode: 'Farbmodus',

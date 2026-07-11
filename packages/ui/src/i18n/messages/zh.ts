@@ -44,6 +44,9 @@ export const zh: PartialMessages = {
       account: '你的账户',
     },
   },
+  storage: {
+    remoteUnavailable: '压缩仅适用于本地数据库——连接到远程服务器时不可用。',
+  },
   appearance: {
     title: '外观',
     colorMode: '颜色模式',

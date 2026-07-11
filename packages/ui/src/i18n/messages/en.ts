@@ -507,6 +507,7 @@ export const en = {
     reclaimed: 'Reclaimed {amount} — database is now {size}.',
     alreadyCompact: 'Already compact — nothing to reclaim ({size}).',
     unavailable: 'Compaction isn’t available for this server.',
+    remoteUnavailable: 'Compaction runs on the local database only — it’s unavailable while connected to a remote server.',
     failed: 'Compaction failed: {error}',
   },
   workspace: {

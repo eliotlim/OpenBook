@@ -44,6 +44,9 @@ export const ja: PartialMessages = {
       account: 'あなたのアカウント',
     },
   },
+  storage: {
+    remoteUnavailable: '圧縮はローカルデータベースのみに適用されます。リモートサーバーに接続中は利用できません。',
+  },
   appearance: {
     title: '外観',
     colorMode: 'カラーモード',
