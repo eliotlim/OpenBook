@@ -2,6 +2,7 @@ import {useCallback, useEffect, useState, type ReactNode} from 'react';
 import {ChevronDown, ChevronRight, Trash2} from 'lucide-react';
 import {providerSettings, type AiConfig, type AiEffort, type AiProvider, type AiProviderSettings, type AiSkill, type AiStatus} from '@book.dev/sdk';
 import {SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
+import AiUsageSettings from '@/components/settings/AiUsageSettings';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {useData} from '@/data';
@@ -395,6 +396,11 @@ export default function AiSettings() {
           </span>
         </div>
       </SettingsSection>
+
+      {/* AI usage attribution + pricing + retention. Renders nothing unless YOU
+          are an instance admin (self-gated + 403-gated); a viewer/guest sees none
+          of it. */}
+      <AiUsageSettings />
     </SettingsScreen>
   );
 }
