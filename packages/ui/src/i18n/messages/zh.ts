@@ -14,7 +14,6 @@ export const zh: PartialMessages = {
   },
   settings: {
     title: '设置',
-    comingSoon: '此设置即将推出。',
     fullscreen: '全屏',
     exitFullscreen: '退出全屏',
     enterFullscreen: '全屏',
@@ -39,6 +38,14 @@ export const zh: PartialMessages = {
       admin: '数据与备份',
       diagnostics: '诊断',
     },
+    scope: {
+      device: '此设备',
+      workspace: '此工作区',
+      account: '你的账户',
+    },
+  },
+  storage: {
+    remoteUnavailable: '压缩仅适用于本地数据库——连接到远程服务器时不可用。',
   },
   appearance: {
     title: '外观',
@@ -243,6 +250,7 @@ export const zh: PartialMessages = {
     aiSearch: '用 AI 搜索笔记',
     askAssistant: '询问助手',
     openSettings: '打开设置',
+    settingsFor: '设置：{name}',
     current: '当前',
   },
   page: {
@@ -631,8 +639,6 @@ export const zh: PartialMessages = {
     title: '自定义与快捷键',
     description: '调整布局并查看键盘快捷键。',
     layout: '布局',
-    fullWidth: '全宽编辑器',
-    fullWidthHint: '使用整个页面宽度，而非居中的列。',
     autoHideSidebar: '自动隐藏侧边栏',
     autoHideSidebarHint: '折叠侧边栏，直到你移到屏幕边缘。',
     shortcuts: '键盘快捷键',

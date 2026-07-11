@@ -18,7 +18,6 @@ export const en = {
   },
   settings: {
     title: 'Settings',
-    comingSoon: 'These settings are coming soon.',
     fullscreen: 'Full screen',
     exitFullscreen: 'Exit full screen',
     enterFullscreen: 'Enter full screen',
@@ -42,6 +41,11 @@ export const en = {
       ai: 'AI',
       admin: 'Data & backups',
       diagnostics: 'Diagnostics',
+    },
+    scope: {
+      device: 'This device',
+      workspace: 'This workspace',
+      account: 'Your account',
     },
   },
   appearance: {
@@ -305,6 +309,7 @@ export const en = {
     aiSearch: 'Search notes with AI',
     askAssistant: 'Ask the assistant',
     openSettings: 'Open settings',
+    settingsFor: 'Settings: {name}',
     openTrash: 'Open trash',
     toggleSidebar: 'Toggle sidebar',
     toggleFullWidth: 'Toggle full width',
@@ -502,6 +507,7 @@ export const en = {
     reclaimed: 'Reclaimed {amount} — database is now {size}.',
     alreadyCompact: 'Already compact — nothing to reclaim ({size}).',
     unavailable: 'Compaction isn’t available for this server.',
+    remoteUnavailable: 'Compaction runs on the local database only — it’s unavailable while connected to a remote server.',
     failed: 'Compaction failed: {error}',
   },
   workspace: {
@@ -1022,8 +1028,6 @@ export const en = {
     title: 'Customisation & shortcuts',
     description: 'Tailor the layout and review keyboard shortcuts.',
     layout: 'Layout',
-    fullWidth: 'Full-width editor',
-    fullWidthHint: 'Use the whole page width instead of a centered column.',
     autoHideSidebar: 'Auto-hide sidebar',
     autoHideSidebarHint: 'Collapse the sidebar until you move to the screen edge.',
     shortcuts: 'Keyboard shortcuts',

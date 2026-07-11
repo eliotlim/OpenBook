@@ -4,6 +4,7 @@ import {MoonIcon, DesktopIcon} from '@radix-ui/react-icons';
 import {ColorMode, useTheme, useTranslation} from '@/providers';
 import {Switch} from '@/components/ui/switch';
 import {AccentPicker, Field, LevelPicker, Segmented} from '@/components/appearance/AppearanceControls';
+import {SettingsScreen} from '@/components/settings/primitives';
 import type {TKey} from '@/i18n';
 
 const MODES: Array<{value: ColorMode; key: TKey; icon: ComponentType<{className?: string}>}> = [
@@ -19,9 +20,7 @@ export default function AppearanceSettings() {
   const {t} = useTranslation();
 
   return (
-    <div className="flex flex-col gap-7">
-      <h3 className="text-lg font-semibold">{t('appearance.title')}</h3>
-
+    <SettingsScreen title={t('appearance.title')} scope="device">
       <Field label={t('appearance.colorMode')}>
         <Segmented
           options={MODES.map(({value, key, icon}) => ({value, label: t(key), icon}))}
@@ -97,6 +96,6 @@ export default function AppearanceSettings() {
           onCheckedChange={(blurOverlays) => setAppearance({blurOverlays})}
         />
       </label>
-    </div>
+    </SettingsScreen>
   );
 }

@@ -14,7 +14,6 @@ export const ja: PartialMessages = {
   },
   settings: {
     title: '設定',
-    comingSoon: 'この設定は近日公開予定です。',
     fullscreen: '全画面',
     exitFullscreen: '全画面を終了',
     enterFullscreen: '全画面',
@@ -39,6 +38,14 @@ export const ja: PartialMessages = {
       admin: 'データとバックアップ',
       diagnostics: '診断',
     },
+    scope: {
+      device: 'このデバイス',
+      workspace: 'このワークスペース',
+      account: 'あなたのアカウント',
+    },
+  },
+  storage: {
+    remoteUnavailable: '圧縮はローカルデータベースのみに適用されます。リモートサーバーに接続中は利用できません。',
   },
   appearance: {
     title: '外観',
@@ -246,6 +253,7 @@ export const ja: PartialMessages = {
     aiSearch: 'AIでノートを検索',
     askAssistant: 'アシスタントに質問',
     openSettings: '設定を開く',
+    settingsFor: '設定: {name}',
     current: '現在',
   },
   page: {
@@ -634,8 +642,6 @@ export const ja: PartialMessages = {
     title: 'カスタマイズとショートカット',
     description: 'レイアウトを調整し、キーボードショートカットを確認します。',
     layout: 'レイアウト',
-    fullWidth: '全幅エディター',
-    fullWidthHint: '中央寄せの列ではなくページ全幅を使用します。',
     autoHideSidebar: 'サイドバーを自動的に隠す',
     autoHideSidebarHint: '画面の端に移動するまでサイドバーを折りたたみます。',
     shortcuts: 'キーボードショートカット',

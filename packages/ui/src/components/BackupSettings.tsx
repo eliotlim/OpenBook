@@ -1,6 +1,7 @@
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   BACKUP_VERSION,
+  getServerUrlOverride,
   parseBookFolder,
   spaceToBookFiles,
   type BackupCadence,
@@ -74,6 +75,11 @@ export default function BackupSettings() {
   const {t} = useTranslation();
   const {setHud} = useHud();
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // Compaction (VACUUM FULL) only applies to the embedded local store; a remote
+  // server answers 409. Gate up front on the connect override so the control
+  // reads as disabled-with-reason instead of failing after a click.
+  const remote = getServerUrlOverride();
 
   const [busy, setBusy] = useState<null | 'export' | 'import' | 'folder' | 'compact'>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -255,11 +261,17 @@ export default function BackupSettings() {
         <h3 className="text-lg font-semibold">{t('storage.heading')}</h3>
         <p className="text-sm text-muted-foreground">{t('storage.intro')}</p>
         <div className="mt-1 flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => void onCompact()} disabled={busy !== null} className="gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => void onCompact()}
+            disabled={busy !== null || !!remote}
+            className="gap-2"
+          >
             <Database className="h-4 w-4" />
             {busy === 'compact' ? t('storage.compacting') : t('storage.compact')}
           </Button>
         </div>
+        {remote && <p className="text-xs text-muted-foreground">{t('storage.remoteUnavailable')}</p>}
       </section>
 
       {bundle && (

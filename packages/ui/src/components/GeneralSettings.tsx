@@ -35,7 +35,7 @@ export default function GeneralSettings() {
   }, [confirm, t]);
 
   return (
-    <SettingsScreen title={t('general.title')} description={t('general.description')}>
+    <SettingsScreen title={t('general.title')} description={t('general.description')} scope="device">
       <SettingsSection title={t('general.languageSection')} description={t('general.languageHint')}>
         <label htmlFor="ob-language" className="sr-only">
           {t('general.language')}

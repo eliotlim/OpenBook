@@ -14,7 +14,6 @@ export const de: PartialMessages = {
   },
   settings: {
     title: 'Einstellungen',
-    comingSoon: 'Diese Einstellungen folgen in Kürze.',
     fullscreen: 'Vollbild',
     exitFullscreen: 'Vollbild verlassen',
     enterFullscreen: 'Vollbild',
@@ -39,6 +38,15 @@ export const de: PartialMessages = {
       admin: 'Daten & Backups',
       diagnostics: 'Diagnose',
     },
+    scope: {
+      device: 'Dieses Gerät',
+      workspace: 'Dieser Arbeitsbereich',
+      account: 'Dein Konto',
+    },
+  },
+  storage: {
+    remoteUnavailable:
+      'Die Verdichtung betrifft nur die lokale Datenbank – bei Verbindung mit einem Remote-Server ist sie nicht verfügbar.',
   },
   appearance: {
     title: 'Darstellung',
@@ -246,6 +254,7 @@ export const de: PartialMessages = {
     aiSearch: 'Notizen mit KI durchsuchen',
     askAssistant: 'Assistent fragen',
     openSettings: 'Einstellungen öffnen',
+    settingsFor: 'Einstellungen: {name}',
     current: 'aktuell',
   },
   page: {
@@ -634,8 +643,6 @@ export const de: PartialMessages = {
     title: 'Anpassung & Tastenkürzel',
     description: 'Layout anpassen und Tastenkürzel ansehen.',
     layout: 'Layout',
-    fullWidth: 'Editor in voller Breite',
-    fullWidthHint: 'Die gesamte Seitenbreite statt einer zentrierten Spalte nutzen.',
     autoHideSidebar: 'Seitenleiste automatisch ausblenden',
     autoHideSidebarHint: 'Die Seitenleiste einklappen, bis du an den Bildschirmrand fährst.',
     shortcuts: 'Tastenkürzel',
