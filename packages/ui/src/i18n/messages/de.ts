@@ -908,6 +908,26 @@ export const de: PartialMessages = {
       fields: 'Felder',
       removeGrouping: 'Gruppierung entfernen',
     },
+    addView: {
+      hints: {
+        table: 'Zeilen und Spalten — das klassische Raster',
+        board: 'Kanban-Spalten, gruppiert nach einer Eigenschaft',
+        gallery: 'Visuelle Karten im Raster',
+        list: 'Eine kompakte einspaltige Liste',
+        calendar: 'Zeilen nach Datum im Monatsraster',
+        timeline: 'Gantt-Balken entlang der Zeit',
+        map: 'Marker nach einer Standort-Eigenschaft',
+        graph: 'Abhängigkeiten zwischen Zeilen',
+        bar: 'Zeilen als Balken je Gruppe aggregiert',
+        pie: 'Zeilen als Kreissegmente je Gruppe',
+      },
+      needs: {
+        date: 'Braucht eine Datums-Eigenschaft',
+        location: 'Braucht eine Standort-Eigenschaft',
+        dependency: 'Braucht eine Abhängigkeits-Eigenschaft',
+        group: 'Braucht eine Eigenschaft zum Gruppieren',
+      },
+    },
     setup: {
       pickPlaceholder: 'Eigenschaft wählen…',
       timeline: {

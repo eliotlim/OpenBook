@@ -902,6 +902,26 @@ export const zh: PartialMessages = {
       fields: '字段',
       removeGrouping: '移除分组',
     },
+    addView: {
+      hints: {
+        table: '行与列 — 经典表格',
+        board: '按属性分组的看板列',
+        gallery: '网格中的可视卡片',
+        list: '紧凑的单列列表',
+        calendar: '按日期放置在月历上',
+        timeline: '沿时间轴的甘特条',
+        map: '按位置属性放置标记',
+        graph: '展示行之间的依赖关系',
+        bar: '按分组聚合的条形图',
+        pie: '按分组聚合的饼图',
+      },
+      needs: {
+        date: '需要日期属性',
+        location: '需要位置属性',
+        dependency: '需要依赖属性',
+        group: '需要用于分组的属性',
+      },
+    },
     setup: {
       pickPlaceholder: '选择属性…',
       timeline: {

@@ -65,6 +65,7 @@ import {
   type SummaryType,
 } from '@book.dev/sdk';
 import {useNavigation, useTranslation} from '@/providers';
+import type {TKey} from '@/i18n';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {
   DropdownMenu,
@@ -1501,24 +1502,61 @@ export const SortChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, 
   );
 };
 
-/** The `+` next to the view tabs: add a new view of a chosen layout. */
-export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = ({onAdd}) => (
-  <DropdownMenu>
-    <DropdownMenuTrigger asChild>
-      <button className="flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Add view">
-        <Plus className="h-3.5 w-3.5" />
-      </button>
-    </DropdownMenuTrigger>
-    <DropdownMenuContent align="start" className="w-44">
-      {VIEW_TYPES.map(({value, label, Icon}) => (
-        <DropdownMenuItem key={value} onClick={() => onAdd(value)}>
-          <Icon className="mr-2 h-4 w-4" />
-          {label}
-        </DropdownMenuItem>
-      ))}
-    </DropdownMenuContent>
-  </DropdownMenu>
-);
+/** Per-layout one-liner for the add-view menu (mirrors the slash menu's hints). */
+const VIEW_TYPE_HINT_KEY: Record<DatabaseViewType, TKey> = {
+  table: 'database.addView.hints.table',
+  board: 'database.addView.hints.board',
+  gallery: 'database.addView.hints.gallery',
+  list: 'database.addView.hints.list',
+  calendar: 'database.addView.hints.calendar',
+  timeline: 'database.addView.hints.timeline',
+  map: 'database.addView.hints.map',
+  graph: 'database.addView.hints.graph',
+  bar: 'database.addView.hints.bar',
+  pie: 'database.addView.hints.pie',
+};
+
+/** Layouts that need a property before they can lay rows out (the add-view
+ *  menu annotates these; adding one auto-opens the View options to fix it). */
+const VIEW_TYPE_NEEDS_KEY: Partial<Record<DatabaseViewType, TKey>> = {
+  calendar: 'database.addView.needs.date',
+  timeline: 'database.addView.needs.date',
+  map: 'database.addView.needs.location',
+  graph: 'database.addView.needs.dependency',
+  bar: 'database.addView.needs.group',
+  pie: 'database.addView.needs.group',
+};
+
+/** The `+` next to the view tabs: add a new view of a chosen layout. Items are
+ *  two lines — the layout name plus a hint (and, for layouts that need a
+ *  property, what they need). The hint is decorative: `aria-label` pins each
+ *  item's accessible name to exactly the layout name. */
+export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = ({onAdd}) => {
+  const {t} = useTranslation();
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button className="flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground" aria-label="Add view">
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 overflow-y-auto">
+        {VIEW_TYPES.map(({value, label, Icon}) => (
+          <DropdownMenuItem key={value} aria-label={label} onClick={() => onAdd(value)} className="items-start">
+            <Icon className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
+            <span className="flex min-w-0 flex-col">
+              <span>{label}</span>
+              <span className="truncate text-xs text-muted-foreground">
+                {t(VIEW_TYPE_HINT_KEY[value])}
+                {VIEW_TYPE_NEEDS_KEY[value] && <span className="text-muted-foreground/70"> · {t(VIEW_TYPE_NEEDS_KEY[value])}</span>}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
 
 /**
  * A property picker for a grouping dimension: the shared "Group by" /

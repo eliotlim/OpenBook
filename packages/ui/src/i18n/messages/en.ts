@@ -1360,6 +1360,26 @@ export const en = {
       fields: 'Fields',
       removeGrouping: 'Remove grouping',
     },
+    addView: {
+      hints: {
+        table: 'Rows and columns — the classic grid',
+        board: 'Kanban columns grouped by a property',
+        gallery: 'Visual cards in a grid',
+        list: 'A compact single-column list',
+        calendar: 'Rows placed on a month grid by date',
+        timeline: 'Gantt-style bars across time',
+        map: 'Markers placed by a location property',
+        graph: 'How rows depend on each other',
+        bar: 'Rows aggregated into bars per group',
+        pie: 'Rows aggregated into slices per group',
+      },
+      needs: {
+        date: 'Needs a date property',
+        location: 'Needs a location property',
+        dependency: 'Needs a dependency property',
+        group: 'Needs a property to group by',
+      },
+    },
     setup: {
       pickPlaceholder: 'Choose a property…',
       timeline: {
