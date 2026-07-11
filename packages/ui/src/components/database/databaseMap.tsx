@@ -16,6 +16,7 @@ import {RowChips, RowContextMenu} from './databaseLayouts';
 import {cachedGeocode, geocodeAddress, locationFromGeocode} from './geocode';
 import type {PlacedMarker} from './databaseMapLeaflet';
 import {useDataScheme} from '@/lib/dataScheme';
+import {ViewSetupCard} from './ViewSetupCard';
 
 // The Leaflet map is a separate chunk: it (and its CSS) only load with a real map
 // view, and never during SSR (Leaflet touches `window` at import time).
@@ -49,7 +50,7 @@ export const MapView: React.FC<{
   const geoProp = view.geoPropertyId ? properties.find((p) => p.id === view.geoPropertyId) : undefined;
 
   if (!geoProp) {
-    return <Hint>Choose a location property in the view options to place rows on a map.</Hint>;
+    return <ViewSetupCard kind="map" db={db} view={view} properties={properties} />;
   }
 
   // Colour each placed row by its group (the same grouping every layout uses).

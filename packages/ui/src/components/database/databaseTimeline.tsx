@@ -17,6 +17,7 @@ import {Select} from '@/components/ui/select';
 import type {UseDatabase} from './useDatabase';
 import {dotStyle, swatchColor} from './databaseColors';
 import {groupCollapsed, groupGlyph, groupHeading, RowChips, RowContextMenu, useRelationGroupTitles} from './databaseLayouts';
+import {ViewSetupCard} from './ViewSetupCard';
 
 const DAY_MS = 86_400_000;
 const ROW_H = 34;
@@ -40,10 +41,6 @@ const startOfToday = (): Date => {
   return new Date(n.getFullYear(), n.getMonth(), n.getDate());
 };
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-const Hint: React.FC<{children: React.ReactNode}> = ({children}) => (
-  <div className="rounded-md border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">{children}</div>
-);
 
 // ── Zoom scales ──────────────────────────────────────────────────────────────
 
@@ -245,7 +242,7 @@ export const TimelineView: React.FC<{
 }> = ({db, view, properties, cardProperties}) => {
   const startProp = view.datePropertyId ? properties.find((p) => p.id === view.datePropertyId) : undefined;
   if (!startProp) {
-    return <Hint>Choose a start date property in the view options to lay rows out on a timeline.</Hint>;
+    return <ViewSetupCard kind="timeline" db={db} view={view} properties={properties} />;
   }
   return <TimelineCanvas db={db} view={view} properties={properties} startProp={startProp} cardProperties={cardProperties} />;
 };

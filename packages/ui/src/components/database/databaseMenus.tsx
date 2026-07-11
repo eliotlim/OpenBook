@@ -62,7 +62,7 @@ import {
   type StoredDatabase,
   type SummaryType,
 } from '@book.dev/sdk';
-import {useNavigation} from '@/providers';
+import {useNavigation, useTranslation} from '@/providers';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {
   DropdownMenu,
@@ -75,6 +75,7 @@ import {cn} from '@/lib/utils';
 import {downloadText, safeFilename} from '@/lib/download';
 import {DEFAULT_SWATCH, swatchColor} from './databaseColors';
 import {rowsToCsv} from './databaseCells';
+import {NEW_PROPERTY_VALUE, setupPropertyInput} from './ViewSetupCard';
 import type {NewPropertyInput, UseDatabase} from './useDatabase';
 
 const PROPERTY_TYPES: {value: DatabasePropertyType; label: string}[] = [
@@ -1527,10 +1528,20 @@ const GroupByPicker: React.FC<{
   value: string | undefined;
   properties: DatabaseProperty[];
   onChange: (id: string | undefined) => void;
-}> = ({label, value, properties, onChange}) => (
+  /** Optional "+ New select property" sentinel: creates the property and groups by it in one step. */
+  onCreate?: {label: string; run: () => void};
+}> = ({label, value, properties, onChange, onCreate}) => (
   <label className="block">
     <span className={sectionLabel}>{label}</span>
-    <Select unstyled value={value ?? ''} onChange={(e) => onChange(e.target.value || undefined)} className={cn(fieldClass, 'mt-1 w-full')}>
+    <Select
+      unstyled
+      value={value ?? ''}
+      onChange={(e) => {
+        if (onCreate && e.target.value === NEW_PROPERTY_VALUE) onCreate.run();
+        else onChange(e.target.value || undefined);
+      }}
+      className={cn(fieldClass, 'mt-1 w-full')}
+    >
       <option value="">—</option>
       <option value={PARENT_GROUP_ID}>Sub-items (parent)</option>
       {properties.map((p) => (
@@ -1538,6 +1549,7 @@ const GroupByPicker: React.FC<{
           {p.name}
         </option>
       ))}
+      {onCreate && <option value={NEW_PROPERTY_VALUE}>{onCreate.label}</option>}
     </Select>
   </label>
 );
@@ -1548,7 +1560,13 @@ const GroupByPicker: React.FC<{
  * columns), duplicate, and delete.
  */
 export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const {t} = useTranslation();
   const properties = db.database!.schema.properties;
+  /** One-click "+ New … property" sentinel action: create the typed property
+   *  and point this view's `field` at it, atomically (see addPropertyForView). */
+  const createFor = (kind: Parameters<typeof setupPropertyInput>[0], field: Parameters<UseDatabase['addPropertyForView']>[2], opts?: {range?: boolean}): void => {
+    void db.addPropertyForView(view.id, setupPropertyInput(kind, properties, t, opts), field);
+  };
   const groupable = properties; // any property can group
   const numericProps = properties.filter((p) => p.type === 'number' || p.type === 'formula' || p.type === 'expr');
   const dateProps = properties.filter((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time');
@@ -1644,6 +1662,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
             value={view.groupByPropertyId}
             properties={groupable}
             onChange={(id) => db.updateView(view.id, {groupByPropertyId: id})}
+            onCreate={{label: t('database.setup.newProperty.select'), run: () => createFor('select', 'groupByPropertyId')}}
           />
         )}
 
@@ -1655,6 +1674,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
             value={view.subGroupByPropertyId}
             properties={groupable.filter((p) => p.id !== view.groupByPropertyId)}
             onChange={(id) => db.updateView(view.id, {subGroupByPropertyId: id})}
+            onCreate={{label: t('database.setup.newProperty.select'), run: () => createFor('select', 'subGroupByPropertyId')}}
           />
         )}
 
@@ -1675,7 +1695,10 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
             <span className={sectionLabel}>Location property</span>
             <Select unstyled
               value={view.geoPropertyId ?? ''}
-              onChange={(e) => db.updateView(view.id, {geoPropertyId: e.target.value || undefined})}
+              onChange={(e) => {
+                if (e.target.value === NEW_PROPERTY_VALUE) createFor('location', 'geoPropertyId');
+                else db.updateView(view.id, {geoPropertyId: e.target.value || undefined});
+              }}
               className={cn(fieldClass, 'mt-1 w-full')}
             >
               <option value="">—</option>
@@ -1684,6 +1707,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                   {p.name}
                 </option>
               ))}
+              <option value={NEW_PROPERTY_VALUE}>{t('database.setup.newProperty.location')}</option>
             </Select>
           </label>
         )}
@@ -1795,7 +1819,12 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
             <span className={sectionLabel}>{showTimeline ? 'Start date' : 'Date property'}</span>
             <Select unstyled
               value={view.datePropertyId ?? ''}
-              onChange={(e) => db.updateView(view.id, {datePropertyId: e.target.value || undefined})}
+              onChange={(e) => {
+                // A timeline's created date is a start→end range (bars get width
+                // and edge-resize out of the box); a calendar's is a plain day.
+                if (e.target.value === NEW_PROPERTY_VALUE) createFor('date', 'datePropertyId', {range: showTimeline});
+                else db.updateView(view.id, {datePropertyId: e.target.value || undefined});
+              }}
               className={cn(fieldClass, 'mt-1 w-full')}
             >
               <option value="">—</option>
@@ -1804,6 +1833,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                   {p.name}
                 </option>
               ))}
+              <option value={NEW_PROPERTY_VALUE}>{t('database.setup.newProperty.date')}</option>
             </Select>
           </label>
         )}
@@ -1813,7 +1843,10 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
             <span className={sectionLabel}>End date</span>
             <Select unstyled
               value={view.endDatePropertyId ?? ''}
-              onChange={(e) => db.updateView(view.id, {endDatePropertyId: e.target.value || undefined})}
+              onChange={(e) => {
+                if (e.target.value === NEW_PROPERTY_VALUE) createFor('endDate', 'endDatePropertyId');
+                else db.updateView(view.id, {endDatePropertyId: e.target.value || undefined});
+              }}
               className={cn(fieldClass, 'mt-1 w-full')}
             >
               <option value="">Same as start (or range end)</option>
@@ -1824,6 +1857,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                     {p.name}
                   </option>
                 ))}
+              <option value={NEW_PROPERTY_VALUE}>{t('database.setup.newProperty.date')}</option>
             </Select>
           </label>
         )}
@@ -1833,7 +1867,10 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
             <span className={sectionLabel}>Dependencies</span>
             <Select unstyled
               value={view.dependencyPropertyId ?? ''}
-              onChange={(e) => db.updateView(view.id, {dependencyPropertyId: e.target.value || undefined})}
+              onChange={(e) => {
+                if (e.target.value === NEW_PROPERTY_VALUE) createFor('dependency', 'dependencyPropertyId');
+                else db.updateView(view.id, {dependencyPropertyId: e.target.value || undefined});
+              }}
               className={cn(fieldClass, 'mt-1 w-full')}
             >
               <option value="">—</option>
@@ -1842,6 +1879,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
                   {p.name}
                 </option>
               ))}
+              <option value={NEW_PROPERTY_VALUE}>{t('database.setup.newProperty.dependency')}</option>
             </Select>
           </label>
         )}

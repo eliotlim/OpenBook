@@ -902,4 +902,52 @@ export const de: PartialMessages = {
     noBacklinks: 'Noch keine Backlinks',
     refresh: 'Aktualisieren',
   },
+  database: {
+    setup: {
+      pickPlaceholder: 'Eigenschaft wählen…',
+      timeline: {
+        missing: 'Eine Timeline ordnet Zeilen nach Datum an — diese Datenbank hat noch keine Datums-Eigenschaft. Erstelle eine, um Einträge zu platzieren.',
+        pick: 'Eine Timeline ordnet Zeilen nach Datum an. Wähle die Datums-Eigenschaft für die Platzierung.',
+        create: 'Datums-Eigenschaft erstellen und verwenden',
+        pickLabel: 'Datums-Eigenschaft der Timeline',
+      },
+      calendar: {
+        missing: 'Ein Kalender platziert Zeilen nach Datum — diese Datenbank hat noch keine Datums-Eigenschaft. Erstelle eine, um Einträge zu platzieren.',
+        pick: 'Ein Kalender platziert Zeilen nach Datum. Wähle die Datums-Eigenschaft für die Platzierung.',
+        create: 'Datums-Eigenschaft erstellen und verwenden',
+        pickLabel: 'Datums-Eigenschaft des Kalenders',
+      },
+      map: {
+        missing: 'Eine Karte platziert Zeilen über eine Standort-Eigenschaft — diese Datenbank hat noch keine. Erstelle eine, um Einträge zu platzieren.',
+        pick: 'Eine Karte platziert Zeilen über eine Standort-Eigenschaft. Wähle die passende aus.',
+        create: 'Standort-Eigenschaft erstellen und verwenden',
+        pickLabel: 'Standort-Eigenschaft der Karte',
+      },
+      graph: {
+        missing: 'Der Graph zeigt, wie Zeilen voneinander abhängen — diese Datenbank hat noch keine Abhängigkeits-Eigenschaft. Erstelle eine, um Zeilen zu verknüpfen.',
+        pick: 'Der Graph zeigt, wie Zeilen voneinander abhängen. Wähle die Abhängigkeits-Eigenschaft.',
+        create: 'Abhängigkeits-Eigenschaft erstellen und verwenden',
+        pickLabel: 'Abhängigkeits-Eigenschaft des Graphen',
+      },
+      chart: {
+        missing: 'Ein Diagramm gruppiert Zeilen nach einer Eigenschaft — diese Datenbank hat noch keine. Erstelle eine, um loszulegen.',
+        pick: 'Ein Diagramm gruppiert Zeilen nach einer Eigenschaft. Wähle die Gruppierung.',
+        create: 'Auswahl-Eigenschaft erstellen und verwenden',
+        pickLabel: 'Gruppierungs-Eigenschaft des Diagramms',
+      },
+      newProperty: {
+        date: '+ Neue Datums-Eigenschaft',
+        location: '+ Neue Standort-Eigenschaft',
+        dependency: '+ Neue Abhängigkeits-Eigenschaft',
+        select: '+ Neue Auswahl-Eigenschaft',
+      },
+      names: {
+        date: 'Datum',
+        endDate: 'Enddatum',
+        location: 'Standort',
+        dependency: 'Abhängigkeiten',
+        category: 'Kategorie',
+      },
+    },
+  },
 };

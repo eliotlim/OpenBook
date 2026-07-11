@@ -36,6 +36,7 @@ import type {UseDatabase} from './useDatabase';
 import {cellValue, formatCellValue, SelectChip} from './databaseCells';
 import {dotStyle, swatchColor} from './databaseColors';
 import {RowHoverCard} from './DatabaseCard';
+import {ViewSetupCard} from './ViewSetupCard';
 
 // ── Group headings ───────────────────────────────────────────────────────────
 // A group's key is a page id when grouping by **parent item** or by a **relation**
@@ -1020,11 +1021,7 @@ export const CalendarView: React.FC<{
   };
 
   if (!dateProp) {
-    return (
-      <div className="rounded-md border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-        Choose a date property in the view options to lay rows out on a calendar.
-      </div>
-    );
+    return <ViewSetupCard kind="calendar" db={db} view={view} properties={properties} />;
   }
 
   // Bucket rows by their day key.

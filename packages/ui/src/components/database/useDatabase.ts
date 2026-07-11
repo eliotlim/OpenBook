@@ -53,6 +53,16 @@ export interface NewPropertyInput {
   description?: string;
 }
 
+/** The view fields that name a property id — the slots the one-click
+ *  "create a property and use it here" setup path can fill. */
+export type ViewPropertyField =
+  | 'datePropertyId'
+  | 'endDatePropertyId'
+  | 'geoPropertyId'
+  | 'dependencyPropertyId'
+  | 'groupByPropertyId'
+  | 'subGroupByPropertyId';
+
 /** Fields editable on an existing property (any subset). */
 export interface PropertyPatch {
   name?: string;
@@ -126,6 +136,9 @@ export interface UseDatabase {
 
   // Schema mutations — properties
   addProperty: (input: NewPropertyInput) => Promise<void>;
+  /** Create a property and point `viewId`'s `field` at it, in one atomic schema
+   *  write (the view-setup "create it and use it" path). Returns the new id. */
+  addPropertyForView: (viewId: string, input: NewPropertyInput, field: ViewPropertyField) => Promise<string | undefined>;
   /** Clone a property (its full config) into a new column just after it. */
   duplicateProperty: (propertyId: string) => Promise<void>;
   updateProperty: (propertyId: string, patch: PropertyPatch) => Promise<void>;
@@ -598,35 +611,25 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
   const addProperty = useCallback(
     async (input: NewPropertyInput): Promise<void> => {
       if (!database) return;
-      const property: DatabaseProperty = {
-        id: shortId('prop'),
-        name: input.name.trim() || 'Property',
-        type: input.type,
-      };
-      if (input.type === 'select' || input.type === 'multi_select') {
-        property.options = (input.options ?? [])
-          .map((label) => label.trim())
-          .filter(Boolean)
-          .map((label, i) => ({id: shortId('opt'), label, color: SELECT_COLORS[i % SELECT_COLORS.length]}));
-      }
-      if (input.type === 'expr') property.cellName = input.cellName?.trim() || input.name.trim();
-      if (input.type === 'formula') property.formula = input.formula?.trim() ?? '';
-      if (input.type === 'status') property.options = defaultStatusOptions();
-      if (input.type === 'rollup') {
-        // Default to counting whatever the first relation/dependency points at.
-        const rel = database.schema.properties.find((p) => p.type === 'relation' || p.type === 'dependency');
-        property.rollup = {relationPropertyId: rel?.id ?? '', targetPropertyId: TITLE_PROPERTY_ID, function: 'count'};
-      }
-      if (input.type === 'relation') {
-        if (input.relationDatabaseId) property.relationDatabaseId = input.relationDatabaseId;
-        const card = input.relationCardinality ?? 'n:n';
-        property.relationCardinality = card;
-        if (relationSides(card).forwardSingle) property.relationSingle = true;
-      }
-      if (input.numberFormat) property.numberFormat = input.numberFormat;
-      if (input.dateRange) property.dateRange = true;
-      if (input.description) property.description = input.description;
+      const property = buildProperty(input, database.schema.properties);
       await saveSchema({...database.schema, properties: [...database.schema.properties, property]});
+    },
+    [database, saveSchema],
+  );
+
+  const addPropertyForView = useCallback(
+    async (viewId: string, input: NewPropertyInput, field: ViewPropertyField): Promise<string | undefined> => {
+      if (!database) return undefined;
+      const property = buildProperty(input, database.schema.properties);
+      // One atomic write: creating the property and pointing the view at it as
+      // two sequential saves would have the second spread a stale schema closure
+      // and drop the first's property.
+      await saveSchema({
+        ...database.schema,
+        properties: [...database.schema.properties, property],
+        views: database.schema.views.map((v) => (v.id === viewId ? {...v, [field]: property.id} : v)),
+      });
+      return property.id;
     },
     [database, saveSchema],
   );
@@ -955,6 +958,7 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     addRowFromTemplate,
     deleteTemplate,
     addProperty,
+    addPropertyForView,
     duplicateProperty,
     updateProperty,
     moveProperty,
@@ -975,6 +979,41 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     renameDatabase,
     saveSchema,
   };
+}
+
+/** Materialise a {@link NewPropertyInput} into a stored property, applying the
+ *  per-type defaults (select options, status buckets, rollup target, …).
+ *  `existing` seeds type-specific defaults (e.g. the rollup's relation). */
+function buildProperty(input: NewPropertyInput, existing: DatabaseProperty[]): DatabaseProperty {
+  const property: DatabaseProperty = {
+    id: shortId('prop'),
+    name: input.name.trim() || 'Property',
+    type: input.type,
+  };
+  if (input.type === 'select' || input.type === 'multi_select') {
+    property.options = (input.options ?? [])
+      .map((label) => label.trim())
+      .filter(Boolean)
+      .map((label, i) => ({id: shortId('opt'), label, color: SELECT_COLORS[i % SELECT_COLORS.length]}));
+  }
+  if (input.type === 'expr') property.cellName = input.cellName?.trim() || input.name.trim();
+  if (input.type === 'formula') property.formula = input.formula?.trim() ?? '';
+  if (input.type === 'status') property.options = defaultStatusOptions();
+  if (input.type === 'rollup') {
+    // Default to counting whatever the first relation/dependency points at.
+    const rel = existing.find((p) => p.type === 'relation' || p.type === 'dependency');
+    property.rollup = {relationPropertyId: rel?.id ?? '', targetPropertyId: TITLE_PROPERTY_ID, function: 'count'};
+  }
+  if (input.type === 'relation') {
+    if (input.relationDatabaseId) property.relationDatabaseId = input.relationDatabaseId;
+    const card = input.relationCardinality ?? 'n:n';
+    property.relationCardinality = card;
+    if (relationSides(card).forwardSingle) property.relationSingle = true;
+  }
+  if (input.numberFormat) property.numberFormat = input.numberFormat;
+  if (input.dateRange) property.dateRange = true;
+  if (input.description) property.description = input.description;
+  return property;
 }
 
 /** Does any of a row's columns (title included) contain the search needle? */

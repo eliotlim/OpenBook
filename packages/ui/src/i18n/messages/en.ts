@@ -1354,6 +1354,54 @@ export const en = {
     saveRetention: 'Save retention',
     saved: 'Saved',
   },
+  database: {
+    setup: {
+      pickPlaceholder: 'Choose a property…',
+      timeline: {
+        missing: 'A timeline lays rows out by date, and this database has no date property yet. Create one to start placing items.',
+        pick: 'A timeline lays rows out by date. Choose the date property to place items by.',
+        create: 'Create a Date property and use it',
+        pickLabel: 'Timeline date property',
+      },
+      calendar: {
+        missing: 'A calendar places rows by date, and this database has no date property yet. Create one to start placing items.',
+        pick: 'A calendar places rows by date. Choose the date property to place items by.',
+        create: 'Create a Date property and use it',
+        pickLabel: 'Calendar date property',
+      },
+      map: {
+        missing: 'A map places rows by a location property, and this database has none yet. Create one to start placing items.',
+        pick: 'A map places rows by a location property. Choose the one to place items by.',
+        create: 'Create a Location property and use it',
+        pickLabel: 'Map location property',
+      },
+      graph: {
+        missing: 'The graph draws how rows depend on each other, and this database has no dependency property yet. Create one to start linking rows.',
+        pick: 'The graph draws how rows depend on each other. Choose the dependency property to link rows by.',
+        create: 'Create a Dependency property and use it',
+        pickLabel: 'Graph dependency property',
+      },
+      chart: {
+        missing: 'A chart groups rows by a property, and this database has no properties yet. Create one to start charting.',
+        pick: 'A chart groups rows by a property. Choose the one to group by.',
+        create: 'Create a Select property and use it',
+        pickLabel: 'Chart group-by property',
+      },
+      newProperty: {
+        date: '+ New date property',
+        location: '+ New location property',
+        dependency: '+ New dependency property',
+        select: '+ New select property',
+      },
+      names: {
+        date: 'Date',
+        endDate: 'End date',
+        location: 'Location',
+        dependency: 'Dependencies',
+        category: 'Category',
+      },
+    },
+  },
 } as const;
 
 export type Messages = typeof en;

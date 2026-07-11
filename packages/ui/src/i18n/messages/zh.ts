@@ -896,4 +896,52 @@ export const zh: PartialMessages = {
     noBacklinks: '还没有反向链接',
     refresh: '刷新',
   },
+  database: {
+    setup: {
+      pickPlaceholder: '选择属性…',
+      timeline: {
+        missing: '时间线按日期属性排列行，但此数据库还没有日期属性。创建一个即可开始放置条目。',
+        pick: '时间线按日期属性排列行。请选择要使用的日期属性。',
+        create: '创建日期属性并使用',
+        pickLabel: '时间线日期属性',
+      },
+      calendar: {
+        missing: '日历按日期属性放置行，但此数据库还没有日期属性。创建一个即可开始放置条目。',
+        pick: '日历按日期属性放置行。请选择要使用的日期属性。',
+        create: '创建日期属性并使用',
+        pickLabel: '日历日期属性',
+      },
+      map: {
+        missing: '地图通过位置属性放置行，但此数据库还没有位置属性。创建一个即可开始放置条目。',
+        pick: '地图通过位置属性放置行。请选择要使用的属性。',
+        create: '创建位置属性并使用',
+        pickLabel: '地图位置属性',
+      },
+      graph: {
+        missing: '关系图展示行之间的依赖关系，但此数据库还没有依赖属性。创建一个即可开始关联行。',
+        pick: '关系图展示行之间的依赖关系。请选择要使用的依赖属性。',
+        create: '创建依赖属性并使用',
+        pickLabel: '关系图依赖属性',
+      },
+      chart: {
+        missing: '图表按属性对行分组，但此数据库还没有属性。创建一个即可开始绘图。',
+        pick: '图表按属性对行分组。请选择用于分组的属性。',
+        create: '创建单选属性并使用',
+        pickLabel: '图表分组属性',
+      },
+      newProperty: {
+        date: '+ 新建日期属性',
+        location: '+ 新建位置属性',
+        dependency: '+ 新建依赖属性',
+        select: '+ 新建单选属性',
+      },
+      names: {
+        date: '日期',
+        endDate: '结束日期',
+        location: '位置',
+        dependency: '依赖',
+        category: '类别',
+      },
+    },
+  },
 };
