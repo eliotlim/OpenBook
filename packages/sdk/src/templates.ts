@@ -416,7 +416,7 @@ const PITCH_DECK_BLOCKS = [
       },
     ],
   },
-  {id: 'pd-notes-3', type: 'notes', text: [{t: 'The money moment: drag Services up until the light drops to amber, then pull Subscriptions back past 60% and watch it recover. The maths is a one-line code block above the columns — open it if anyone asks.'}]},
+  {id: 'pd-notes-3', type: 'notes', text: [{t: 'The money moment: drag Services up until the light drops to amber, then pull Subscriptions back up until recurring clears 60% and watch it recover. The maths is a one-line code block above the columns — open it if anyone asks.'}]},
   {id: 'pd-div-3', type: 'divider'},
 
   // Slide 4 — the quote

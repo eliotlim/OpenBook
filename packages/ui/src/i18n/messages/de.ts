@@ -551,7 +551,7 @@ export const de: PartialMessages = {
     },
     compoundGrowth: {
       name: 'Zinseszins-Wachstum',
-      description: 'Das klassische Beispieldokument als frische Kopie — ein Monats-Regler speist vier Zinseszins-Kurven in ein Live-Diagramm.',
+      description: 'Beobachten Sie, wie 1 £ bei 3/5/7/10 % Zinseszins wächst, während Sie einen Monats-Regler ziehen — das klassische Beispieldokument als frische Kopie.',
     },
   },
   blocks: {

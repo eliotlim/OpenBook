@@ -888,7 +888,7 @@ export const en = {
     },
     compoundGrowth: {
       name: 'Compound growth',
-      description: 'The classic sample, as a fresh copy — a months slider feeds four compound-growth curves on a live chart.',
+      description: 'Watch £1 compound at 3/5/7/10% as you drag a months slider — the classic sample, as a fresh copy.',
     },
   },
   blocks: {

@@ -550,7 +550,7 @@ export const ja: PartialMessages = {
     },
     compoundGrowth: {
       name: '複利成長',
-      description: 'おなじみのサンプル文書を新しいコピーで — 月数スライダーが4本の複利曲線をライブチャートに描きます。',
+      description: '月数スライダーを動かすと、1ポンドが3/5/7/10%で複利成長する様子をライブ表示 — おなじみのサンプル文書を新しいコピーで。',
     },
   },
   blocks: {

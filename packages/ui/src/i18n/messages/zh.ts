@@ -547,7 +547,7 @@ export const zh: PartialMessages = {
     },
     compoundGrowth: {
       name: '复利增长',
-      description: '经典示例文档的全新副本——月数滑块驱动实时图表上的四条复利曲线。',
+      description: '拖动月数滑块，实时观看 1 英镑以 3/5/7/10% 复利增长——经典示例文档的全新副本。',
     },
   },
   blocks: {
