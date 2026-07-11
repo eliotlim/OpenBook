@@ -161,8 +161,10 @@ export interface UseDatabase {
 
   // Schema mutations — views
   updateView: (viewId: string, patch: Partial<DatabaseView>) => Promise<void>;
-  /** Add a view of a given type and switch to it. */
-  addView: (type: DatabaseViewType, name?: string) => Promise<void>;
+  /** Add a view of a given type and switch to it. Returns the created view
+   *  (with its layout defaults filled in) so callers can inspect what config
+   *  is still missing — e.g. to auto-open the View options. */
+  addView: (type: DatabaseViewType, name?: string) => Promise<DatabaseView | undefined>;
   renameView: (viewId: string, name: string) => Promise<void>;
   duplicateView: (viewId: string) => Promise<void>;
   deleteView: (viewId: string) => Promise<void>;
@@ -870,13 +872,14 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
   );
 
   const addView = useCallback(
-    async (type: DatabaseViewType, name?: string): Promise<void> => {
-      if (!database) return;
+    async (type: DatabaseViewType, name?: string): Promise<DatabaseView | undefined> => {
+      if (!database) return undefined;
       const count = database.schema.views.filter((v) => v.type === type).length;
       const label = name?.trim() || `${VIEW_TYPE_LABEL[type]}${count > 0 ? ` ${count + 1}` : ''}`;
       const view = defaultView(type, label, database.schema.properties);
       await saveSchema({...database.schema, views: [...database.schema.views, view]});
       setActiveViewId(view.id);
+      return view;
     },
     [database, saveSchema, setActiveViewId],
   );

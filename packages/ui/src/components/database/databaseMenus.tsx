@@ -1557,10 +1557,20 @@ const GroupByPicker: React.FC<{
 /**
  * The active view's settings: rename, switch layout, configure layout-specific
  * options (board/chart grouping, chart aggregation, calendar date, visible
- * columns), duplicate, and delete.
+ * columns), duplicate, and delete. The popover can be controlled (`open` +
+ * `onOpenChange`) so adding a view whose layout still needs a property can
+ * pop it open on the spot (see DatabaseView's add-view handler).
  */
-export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+export const ViewOptionsMenu: React.FC<{
+  db: UseDatabase;
+  view: DatabaseView;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}> = ({db, view, open, onOpenChange}) => {
   const {t} = useTranslation();
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = open ?? internalOpen;
+  const setOpen = onOpenChange ?? setInternalOpen;
   const properties = db.database!.schema.properties;
   /** One-click "+ New … property" sentinel action: create the typed property
    *  and point this view's `field` at it, atomically (see addPropertyForView). */
@@ -1619,7 +1629,7 @@ export const ViewOptionsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = 
     view.type === 'map';
 
   return (
-    <Popover>
+    <Popover open={isOpen} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button className={toolButtonClass} aria-label="View options">
           <Settings2 className="h-3.5 w-3.5" />

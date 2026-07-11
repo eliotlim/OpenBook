@@ -13,6 +13,7 @@ import {
   type DatabaseProperty,
   type DatabaseRow,
   type DatabaseView as DbView,
+  type DatabaseViewType,
   type FilterOperator,
   type SummaryType,
 } from '@book.dev/sdk';
@@ -1079,11 +1080,46 @@ const NewRowMenu: React.FC<{db: UseDatabase}> = ({db}) => {
   );
 };
 
-const Toolbar: React.FC<{db: UseDatabase; view: DbView; renamingId: string | null; setRenamingId: (id: string | null) => void}> = ({
+/**
+ * Does a freshly-added view still need a property picked before its layout can
+ * lay rows out? True for a timeline/calendar with no start date, a map with no
+ * location, a graph with no dependency, and a chart with nothing to group by —
+ * the cases where {@link defaultView} found no compatible property to default
+ * to. Used to auto-open the View options right after "Add view".
+ */
+function viewNeedsSetup(view: DbView): boolean {
+  switch (view.type) {
+  case 'timeline':
+  case 'calendar':
+    return !view.datePropertyId;
+  case 'map':
+    return !view.geoPropertyId;
+  case 'graph':
+    return !view.dependencyPropertyId;
+  case 'bar':
+  case 'pie':
+    return !view.groupByPropertyId;
+  default:
+    return false;
+  }
+}
+
+const Toolbar: React.FC<{
+  db: UseDatabase;
+  view: DbView;
+  renamingId: string | null;
+  setRenamingId: (id: string | null) => void;
+  onAddView: (type: DatabaseViewType) => void;
+  viewOptionsOpen: boolean;
+  setViewOptionsOpen: (open: boolean) => void;
+}> = ({
   db,
   view,
   renamingId,
   setRenamingId,
+  onAddView,
+  viewOptionsOpen,
+  setViewOptionsOpen,
 }) => {
   const [dragView, setDragView] = useState<string | null>(null);
   const [overView, setOverView] = useState<string | null>(null);
@@ -1149,14 +1185,14 @@ const Toolbar: React.FC<{db: UseDatabase; view: DbView; renamingId: string | nul
             </button>
           );
         })}
-        <AddViewMenu onAdd={(type) => void db.addView(type)} />
+        <AddViewMenu onAdd={onAddView} />
       </div>
       <div className="flex flex-wrap items-center gap-1">
         <NewRowMenu db={db} />
         <SearchBox db={db} />
         <FilterMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
         <SortMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
-        <ViewOptionsMenu db={db} view={view} />
+        <ViewOptionsMenu db={db} view={view} open={viewOptionsOpen} onOpenChange={setViewOptionsOpen} />
         <span className="px-1 text-xs text-muted-foreground/70">
           {db.visibleRows.length === db.rows.length
             ? `${db.visibleRows.length} row${db.visibleRows.length === 1 ? '' : 's'}`
@@ -1186,8 +1222,9 @@ const DatabaseContextMenu: React.FC<{
   db: UseDatabase;
   onRenameView: () => void;
   onConfigureExpiry: () => void;
+  onAddView: (type: DatabaseViewType) => void;
   children: React.ReactNode;
-}> = ({db, onRenameView, onConfigureExpiry, children}) => {
+}> = ({db, onRenameView, onConfigureExpiry, onAddView, children}) => {
   const view = db.activeView!;
   const canDeleteView = (db.database?.schema.views.length ?? 0) > 1;
   return (
@@ -1217,7 +1254,7 @@ const DatabaseContextMenu: React.FC<{
           </ContextMenuSubTrigger>
           <ContextMenuSubContent className="w-44">
             {VIEW_TYPES.map(({value, label, Icon}) => (
-              <ContextMenuItem key={value} onSelect={() => void db.addView(value)}>
+              <ContextMenuItem key={value} onSelect={() => onAddView(value)}>
                 <Icon className="mr-2 h-4 w-4" />
                 {label}
               </ContextMenuItem>
@@ -1360,6 +1397,15 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
   const db = useDatabase(pageId, databaseIdHint);
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
   const [expiryOpen, setExpiryOpen] = useState(false);
+  const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
+  // Add a view; when its layout still needs a property picked (fresh DB with
+  // no date/location/dependency/group-by column), open View options on it so
+  // the first-run config is one gesture away instead of hidden.
+  const addView = (type: DatabaseViewType): void => {
+    void db.addView(type).then((added) => {
+      if (added && viewNeedsSetup(added)) setViewOptionsOpen(true);
+    });
+  };
   if (!db.database || !db.activeView) return null;
 
   const schema = db.database.schema.properties;
@@ -1380,6 +1426,7 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
         db={db}
         onRenameView={() => setRenamingViewId(view.id)}
         onConfigureExpiry={() => setExpiryOpen(true)}
+        onAddView={addView}
       >
         <div className={cn(inline ? 'rounded-lg border border-border p-3' : 'mt-6 border-t border-border pt-5')}>
           {inline && (
@@ -1390,7 +1437,15 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
               className="mb-2 w-full bg-transparent text-base font-semibold outline-hidden placeholder:text-muted-foreground/40"
             />
           )}
-          <Toolbar db={db} view={view} renamingId={renamingViewId} setRenamingId={setRenamingViewId} />
+          <Toolbar
+            db={db}
+            view={view}
+            renamingId={renamingViewId}
+            setRenamingId={setRenamingViewId}
+            onAddView={addView}
+            viewOptionsOpen={viewOptionsOpen}
+            setViewOptionsOpen={setViewOptionsOpen}
+          />
           <div className="flex flex-wrap items-center gap-x-3">
             <FilterChips db={db} view={view} />
             <SortChips db={db} view={view} />

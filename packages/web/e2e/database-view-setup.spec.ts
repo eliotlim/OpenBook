@@ -1,4 +1,4 @@
-import {test, expect, chooseLabel} from './fixtures';
+import {test, expect, chooseLabel, chooseValue} from './fixtures';
 
 // The view setup cards (OB view-setup UX): adding a Timeline / Calendar / Map /
 // Graph view to a database without the property it lays rows out by used to
@@ -111,9 +111,10 @@ test('chart setup card: picks an existing compatible property inline', {tag: ['@
 // property", which creates the property AND renders the timeline.
 test('view options sentinel: "+ New date property" creates and wires the start date', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
+  // A date-less Timeline auto-opens View options (add-view auto-config), so
+  // the Start date select is already on screen — no explicit open click.
   await addView(page, 'Timeline');
 
-  await page.getByRole('button', {name: 'View options'}).click();
   await chooseLabel(page, page.getByLabel('Start date'), '+ New date property');
   await closeViewOptions(page);
 
@@ -124,9 +125,9 @@ test('view options sentinel: "+ New date property" creates and wires the start d
 // The dependency select (timeline/graph) sentinel mints a dependency column.
 test('view options sentinel: "+ New dependency property" creates and wires dependencies', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
+  // A dependency-less Graph auto-opens View options (add-view auto-config).
   await addView(page, 'Graph');
 
-  await page.getByRole('button', {name: 'View options'}).click();
   await chooseLabel(page, page.getByLabel('Dependencies'), '+ New dependency property');
   await closeViewOptions(page);
 
@@ -134,4 +135,35 @@ test('view options sentinel: "+ New dependency property" creates and wires depen
   await expect(page.getByText('No rows yet.')).toBeVisible();
   await page.getByRole('button', {name: 'Table', exact: true}).click();
   await expect(page.getByRole('columnheader', {name: /Dependencies/})).toBeVisible();
+});
+
+// Adding a view auto-opens View options only when its layout still needs a
+// property picked: a date-less Timeline pops the panel open (its Start date
+// is one gesture away), while a config-free Gallery — or a Timeline that
+// found a date property to bind to — opens quietly.
+test('add view auto-config: opens View options only for unconfigured layouts', {tag: ['@database']}, async ({page}) => {
+  await newDatabase(page);
+
+  // Gallery needs no property → no popover.
+  await addView(page, 'Gallery');
+  await expect(page.getByRole('button', {name: 'New card'})).toBeVisible();
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
+
+  // A date-less Timeline → View options opens on its Start date config.
+  await addView(page, 'Timeline');
+  await expect(page.getByLabel('Start date')).toBeVisible();
+  await closeViewOptions(page);
+
+  // Give the database a date column, back on the table view.
+  await page.getByRole('button', {name: 'Table', exact: true}).click();
+  await page.getByRole('button', {name: 'Add column'}).click();
+  await page.getByPlaceholder('Property name').fill('Due');
+  await chooseValue(page, page.getByLabel('Property type'), 'date');
+  await page.getByRole('button', {name: 'Add property'}).click();
+  await expect(page.getByText('Due', {exact: true})).toBeVisible();
+
+  // A new Timeline now binds to the date on its own → no popover, live canvas.
+  await addView(page, 'Timeline');
+  await expect(page.locator('div[title="Today"]')).toBeVisible();
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
 });
