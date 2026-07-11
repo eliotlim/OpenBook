@@ -36,7 +36,7 @@ export const zh: PartialMessages = {
       extensions: '扩展',
 
       ai: 'AI',
-      admin: '备份与数据',
+      admin: '数据与备份',
       diagnostics: '诊断',
     },
   },
@@ -826,8 +826,8 @@ export const zh: PartialMessages = {
     refresh: '刷新',
   },
   admin: {
-    title: '备份与数据',
-    description: '备份、恢复以及工作区维护。',
+    title: '数据与备份',
+    description: '备份、恢复和导出你的工作区数据。',
     dangerZone: '危险区域',
     dangerZoneHint: '这些操作会影响本设备的本地数据，而非你的页面。',
     resetPrefs: '重置偏好与布局',

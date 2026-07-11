@@ -40,7 +40,7 @@ export const en = {
       extensions: 'Extensions',
 
       ai: 'AI',
-      admin: 'Backups & data',
+      admin: 'Data & backups',
       diagnostics: 'Diagnostics',
     },
   },
@@ -1313,8 +1313,8 @@ export const en = {
     unverified: 'unverified identity',
   },
   admin: {
-    title: 'Backups & data',
-    description: 'Backup, restore, and workspace maintenance.',
+    title: 'Data & backups',
+    description: 'Back up, restore, and export your workspace data.',
     dangerZone: 'Danger zone',
     dangerZoneHint: 'These actions affect this device’s local data, not your pages.',
     resetPrefs: 'Reset preferences & layout',

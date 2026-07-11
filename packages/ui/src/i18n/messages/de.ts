@@ -36,7 +36,7 @@ export const de: PartialMessages = {
       extensions: 'Erweiterungen',
 
       ai: 'KI',
-      admin: 'Backups & Daten',
+      admin: 'Daten & Backups',
       diagnostics: 'Diagnose',
     },
   },
@@ -832,8 +832,8 @@ export const de: PartialMessages = {
     refresh: 'Aktualisieren',
   },
   admin: {
-    title: 'Backups & Daten',
-    description: 'Sicherung, Wiederherstellung und Wartung des Arbeitsbereichs.',
+    title: 'Daten & Backups',
+    description: 'Deinen Arbeitsbereich sichern, wiederherstellen und exportieren.',
     dangerZone: 'Gefahrenzone',
     dangerZoneHint: 'Diese Aktionen betreffen die lokalen Daten dieses Geräts, nicht deine Seiten.',
     resetPrefs: 'Einstellungen & Layout zurücksetzen',

@@ -36,7 +36,7 @@ export const ja: PartialMessages = {
       extensions: '拡張機能',
 
       ai: 'AI',
-      admin: 'バックアップとデータ',
+      admin: 'データとバックアップ',
       diagnostics: '診断',
     },
   },
@@ -831,8 +831,8 @@ export const ja: PartialMessages = {
     refresh: '更新',
   },
   admin: {
-    title: 'バックアップとデータ',
-    description: 'バックアップ、復元、ワークスペースのメンテナンス。',
+    title: 'データとバックアップ',
+    description: 'ワークスペースのデータをバックアップ・復元・エクスポートします。',
     dangerZone: '危険ゾーン',
     dangerZoneHint: 'これらの操作はこのデバイスのローカルデータに影響します。ページには影響しません。',
     resetPrefs: '設定とレイアウトをリセット',
