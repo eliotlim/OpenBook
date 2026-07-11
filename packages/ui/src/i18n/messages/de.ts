@@ -731,13 +731,13 @@ export const de: PartialMessages = {
     saveError: 'Zugriff konnte nicht aktualisiert werden — {error}',
   },
   forwarding: {
-    title: 'Ins Web weiterleiten',
+    title: 'Im Web veröffentlichen',
     description:
       'Sichere dir eine private ✦.book.cloud-Adresse, die die Bücher dieses Geräts in jedem Browser öffnet — nichts zu hosten, nichts im Netzwerk freizugeben.',
-    toggle: 'Dieses Gerät weiterleiten',
+    toggle: 'Dieses Gerät veröffentlichen',
     signInHint: 'Melde dich zuerst bei deinem Konto an, um eine Adresse zu sichern.',
-    signInPending: 'Schließe die Anmeldung bei deinem Konto ab — die Weiterleitung wird danach automatisch eingeschaltet.',
-    resumedToast: 'Weiterleitung ist aktiv — deine Adresse ist {host}.',
+    signInPending: 'Schließe die Anmeldung bei deinem Konto ab — die Veröffentlichung wird danach automatisch eingeschaltet.',
+    resumedToast: 'Veröffentlichung ist aktiv — deine Adresse ist {host}.',
     signIn: 'Anmelden',
     registering: 'Verbinden…',
     address: 'Deine Adresse',
