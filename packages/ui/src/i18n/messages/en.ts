@@ -18,7 +18,6 @@ export const en = {
   },
   settings: {
     title: 'Settings',
-    comingSoon: 'These settings are coming soon.',
     fullscreen: 'Full screen',
     exitFullscreen: 'Exit full screen',
     enterFullscreen: 'Enter full screen',
@@ -1028,8 +1027,6 @@ export const en = {
     title: 'Customisation & shortcuts',
     description: 'Tailor the layout and review keyboard shortcuts.',
     layout: 'Layout',
-    fullWidth: 'Full-width editor',
-    fullWidthHint: 'Use the whole page width instead of a centered column.',
     autoHideSidebar: 'Auto-hide sidebar',
     autoHideSidebarHint: 'Collapse the sidebar until you move to the screen edge.',
     shortcuts: 'Keyboard shortcuts',

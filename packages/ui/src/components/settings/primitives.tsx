@@ -1,4 +1,4 @@
-import {type ComponentType, type ReactNode} from 'react';
+import {type ReactNode} from 'react';
 import {Switch} from '@/components/ui/switch';
 import {useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
@@ -132,33 +132,5 @@ export function SettingsToggle({
       </span>
       <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} />
     </label>
-  );
-}
-
-/**
- * A placeholder for a sub-screen whose backend doesn't exist yet (the app is
- * local-first — no accounts / payments / integrations). A calm, centered icon +
- * copy, with an optional call to action, rather than a broken-looking empty tab.
- */
-export function SettingsStub({
-  icon: Icon,
-  title,
-  description,
-  action,
-}: {
-  icon: ComponentType<{className?: string}>;
-  title: string;
-  description: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="flex min-h-[320px] flex-col items-center justify-center gap-3 text-center">
-      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Icon className="h-6 w-6" />
-      </span>
-      <h3 className="text-lg font-semibold">{title}</h3>
-      <p className="max-w-sm text-sm text-muted-foreground">{description}</p>
-      {action && <div className="mt-1">{action}</div>}
-    </div>
   );
 }

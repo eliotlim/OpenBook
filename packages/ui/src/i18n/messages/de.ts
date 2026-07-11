@@ -14,7 +14,6 @@ export const de: PartialMessages = {
   },
   settings: {
     title: 'Einstellungen',
-    comingSoon: 'Diese Einstellungen folgen in Kürze.',
     fullscreen: 'Vollbild',
     exitFullscreen: 'Vollbild verlassen',
     enterFullscreen: 'Vollbild',
@@ -640,8 +639,6 @@ export const de: PartialMessages = {
     title: 'Anpassung & Tastenkürzel',
     description: 'Layout anpassen und Tastenkürzel ansehen.',
     layout: 'Layout',
-    fullWidth: 'Editor in voller Breite',
-    fullWidthHint: 'Die gesamte Seitenbreite statt einer zentrierten Spalte nutzen.',
     autoHideSidebar: 'Seitenleiste automatisch ausblenden',
     autoHideSidebarHint: 'Die Seitenleiste einklappen, bis du an den Bildschirmrand fährst.',
     shortcuts: 'Tastenkürzel',

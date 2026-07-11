@@ -14,7 +14,6 @@ export const zh: PartialMessages = {
   },
   settings: {
     title: '设置',
-    comingSoon: '此设置即将推出。',
     fullscreen: '全屏',
     exitFullscreen: '退出全屏',
     enterFullscreen: '全屏',
@@ -637,8 +636,6 @@ export const zh: PartialMessages = {
     title: '自定义与快捷键',
     description: '调整布局并查看键盘快捷键。',
     layout: '布局',
-    fullWidth: '全宽编辑器',
-    fullWidthHint: '使用整个页面宽度，而非居中的列。',
     autoHideSidebar: '自动隐藏侧边栏',
     autoHideSidebarHint: '折叠侧边栏，直到你移到屏幕边缘。',
     shortcuts: '键盘快捷键',
