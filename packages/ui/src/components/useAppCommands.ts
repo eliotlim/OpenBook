@@ -144,7 +144,7 @@ export function useAppCommands(): AppCommand[] {
         id: 'new-from-template',
         group: 'create',
         title: t('command.newFromTemplate'),
-        keywords: 'template gallery starter tasks roadmap reading meeting planner create',
+        keywords: 'template gallery starter tasks roadmap reading grocery savings intake create',
         icon: LayoutTemplate,
         run: () => setHud((draft) => {draft.templates.open = true; return draft;}),
       },
