@@ -8,7 +8,6 @@ import {Select} from '@/components/ui/select';
 import {useData} from '@/data';
 import {useConfirm, usePreferences, useTranslation} from '@/providers';
 import {AI_FEATURES, type FeatureVisibility} from '@/lib/aiFeatures';
-import {registerAiProviderFocus} from '@/lib/aiSettingsNav';
 import {cn} from '@/lib/utils';
 
 const fieldClass =
@@ -51,8 +50,8 @@ export default function AiSettings() {
   const [busy, setBusy] = useState(false);
   const [indexing, setIndexing] = useState(false);
   const [skills, setSkills] = useState<AiSkill[]>([]);
-  // Which provider accordions are expanded. The nav rail's sub-items expand and
-  // scroll to one via the aiSettingsNav bridge.
+  // Which provider accordions are expanded. The default provider's opens
+  // automatically once the config loads (see below).
   const [openProviders, setOpenProviders] = useState<Record<string, boolean>>({});
 
   const refresh = useCallback(async () => {
@@ -85,17 +84,6 @@ export default function AiSettings() {
       setOpenProviders((o) => (draft.provider in o ? o : {...o, [draft.provider]: true}));
     }
   }, [draft]);
-
-  // Let the settings nav's per-provider sub-items expand + scroll to a provider.
-  useEffect(() => {
-    registerAiProviderFocus((p) => {
-      setOpenProviders((o) => ({...o, [p]: true}));
-      requestAnimationFrame(() => {
-        document.getElementById(`ai-section-${p}`)?.scrollIntoView({behavior: 'smooth', block: 'start'});
-      });
-    });
-    return () => registerAiProviderFocus(null);
-  }, []);
 
   // Poll while a model download is in flight.
   useEffect(() => {
@@ -502,8 +490,8 @@ function SkillsEditor({
   );
 }
 
-/** A collapsible per-provider settings panel. `id` is the scroll anchor the
- *  settings nav's provider sub-items target (`ai-section-<provider>`). */
+/** A collapsible per-provider settings panel. `id` (`ai-section-<provider>`) is
+ *  a stable scroll anchor for the section. */
 function ProviderAccordion({
   id,
   title,
