@@ -1355,6 +1355,11 @@ export const en = {
     saved: 'Saved',
   },
   database: {
+    toolbar: {
+      group: 'Group',
+      fields: 'Fields',
+      removeGrouping: 'Remove grouping',
+    },
     setup: {
       pickPlaceholder: 'Choose a property…',
       timeline: {

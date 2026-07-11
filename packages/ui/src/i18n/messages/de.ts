@@ -903,6 +903,11 @@ export const de: PartialMessages = {
     refresh: 'Aktualisieren',
   },
   database: {
+    toolbar: {
+      group: 'Gruppieren',
+      fields: 'Felder',
+      removeGrouping: 'Gruppierung entfernen',
+    },
     setup: {
       pickPlaceholder: 'Eigenschaft wählen…',
       timeline: {

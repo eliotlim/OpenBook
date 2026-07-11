@@ -11,10 +11,12 @@ import {
   Columns3,
   Copy,
   Download,
+  Eye,
   EyeOff,
   Filter,
   GanttChartSquare,
   GripVertical,
+  Layers,
   LayoutGrid,
   Link2,
   List,
@@ -1554,6 +1556,141 @@ const GroupByPicker: React.FC<{
   </label>
 );
 
+/** The view layouts whose rows can be grouped (the ViewOptionsMenu "Group by"
+ *  set — calendars group by day and graphs by edges, so they're excluded). */
+const GROUPABLE_VIEW_TYPES = new Set<DatabaseViewType>(['board', 'bar', 'pie', 'table', 'list', 'gallery', 'map', 'timeline']);
+/** The view layouts with a configurable visible-property set. */
+const FIELDABLE_VIEW_TYPES = new Set<DatabaseViewType>(['table', 'list', 'gallery', 'board', 'calendar', 'timeline', 'map']);
+
+/**
+ * Toolbar "Group" control: the active view's grouping one popover away — a
+ * peer of Filter/Sort rather than a setting buried in View options. Reuses
+ * {@link GroupByPicker} (including its "+ New select property" sentinel, which
+ * closes the popover once the property is created and wired). Boards get the
+ * swimlane sub-group here too, mirroring the View options.
+ */
+export const GroupMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const {t} = useTranslation();
+  const [open, setOpen] = useState(false);
+  if (!GROUPABLE_VIEW_TYPES.has(view.type)) return null;
+  const properties = db.database!.schema.properties;
+  const createFor = (field: 'groupByPropertyId' | 'subGroupByPropertyId'): void => {
+    void db.addPropertyForView(view.id, setupPropertyInput('select', properties, t), field).then((id) => {
+      if (id) setOpen(false);
+    });
+  };
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button className={cn(toolButtonClass, view.groupByPropertyId && 'text-foreground')}>
+          <Layers className="h-3.5 w-3.5" />
+          {t('database.toolbar.group')}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-72 space-y-2.5 p-3">
+        <GroupByPicker
+          label="Group by"
+          value={view.groupByPropertyId}
+          properties={properties}
+          onChange={(id) => void db.updateView(view.id, {groupByPropertyId: id})}
+          onCreate={{label: t('database.setup.newProperty.select'), run: () => createFor('groupByPropertyId')}}
+        />
+        {view.type === 'board' && view.groupByPropertyId && (
+          <GroupByPicker
+            label="Sub-group by"
+            value={view.subGroupByPropertyId}
+            properties={properties.filter((p) => p.id !== view.groupByPropertyId)}
+            onChange={(id) => void db.updateView(view.id, {subGroupByPropertyId: id})}
+            onCreate={{label: t('database.setup.newProperty.select'), run: () => createFor('subGroupByPropertyId')}}
+          />
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+/**
+ * Which properties the current view shows — the checklist shared by the View
+ * options panel and the toolbar {@link FieldsMenu}. An unset
+ * `visiblePropertyIds` means "all".
+ */
+export const PropertyVisibilityList: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const properties = db.database!.schema.properties;
+  const visible = view.visiblePropertyIds && view.visiblePropertyIds.length > 0 ? view.visiblePropertyIds : null;
+  const isVisible = (id: string): boolean => (visible ? visible.includes(id) : true);
+  const toggleVisible = (id: string): void => {
+    const shown = properties.filter((p) => (visible ? visible.includes(p.id) : true)).map((p) => p.id);
+    const next = shown.includes(id) ? shown.filter((x) => x !== id) : [...shown, id];
+    db.updateView(view.id, {visiblePropertyIds: next});
+  };
+  return (
+    <div className="max-h-40 space-y-0.5 overflow-y-auto">
+      {properties.map((p) => (
+        <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-hover">
+          <input type="checkbox" checked={isVisible(p.id)} onChange={() => toggleVisible(p.id)} className="h-3.5 w-3.5 accent-primary" />
+          <span className="truncate">{p.name}</span>
+        </label>
+      ))}
+    </div>
+  );
+};
+
+/**
+ * Toolbar "Fields" control: toggle the view's visible properties without a
+ * trip into View options. Lit up once the view has an explicit property set.
+ */
+export const FieldsMenu: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const {t} = useTranslation();
+  if (!FIELDABLE_VIEW_TYPES.has(view.type) || db.database!.schema.properties.length === 0) return null;
+  const customized = Boolean(view.visiblePropertyIds && view.visiblePropertyIds.length > 0);
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className={cn(toolButtonClass, customized && 'text-foreground')}>
+          <Eye className="h-3.5 w-3.5" />
+          {t('database.toolbar.fields')}
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 space-y-1.5 p-3">
+        <div className={sectionLabel}>Properties</div>
+        <PropertyVisibilityList db={db} view={view} />
+      </PopoverContent>
+    </Popover>
+  );
+};
+
+/**
+ * Active-grouping chip: the view's group-by property as a removable pill, so
+ * the otherwise invisible grouping state reads at a glance and is one click to
+ * drop. Mirrors {@link FilterChips}/{@link SortChips}; clearing it also drops
+ * a board's sub-group (swimlanes make no sense without the primary group).
+ */
+export const GroupChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db, view}) => {
+  const {t} = useTranslation();
+  const properties = db.database!.schema.properties;
+  const id = view.groupByPropertyId;
+  if (!id) return null;
+  const name =
+    id === PARENT_GROUP_ID ? 'Sub-items' : id === TITLE_PROPERTY_ID ? 'Name' : properties.find((p) => p.id === id)?.name ?? 'Property';
+  return (
+    <div className="mb-2 flex flex-wrap items-center gap-1.5">
+      <span className="flex items-center gap-1 rounded-full border border-border bg-muted/50 py-0.5 pl-2 pr-1 text-xs text-muted-foreground">
+        <Layers className="h-3 w-3 shrink-0" />
+        <span className="max-w-[12rem] truncate" title={name}>
+          {name}
+        </span>
+        <button
+          onClick={() => void db.updateView(view.id, {groupByPropertyId: undefined, subGroupByPropertyId: undefined})}
+          aria-label={t('database.toolbar.removeGrouping')}
+          className="rounded-full p-0.5 text-muted-foreground/70 transition-colors hover:bg-hover hover:text-foreground"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </span>
+    </div>
+  );
+};
+
 /**
  * The active view's settings: rename, switch layout, configure layout-specific
  * options (board/chart grouping, chart aggregation, calendar date, visible
@@ -1581,24 +1718,8 @@ export const ViewOptionsMenu: React.FC<{
   const numericProps = properties.filter((p) => p.type === 'number' || p.type === 'formula' || p.type === 'expr');
   const dateProps = properties.filter((p) => p.type === 'date' || p.type === 'created_time' || p.type === 'last_edited_time');
   const aggregate: ChartAggregate = view.aggregate ?? {type: 'count'};
-  const visible = view.visiblePropertyIds && view.visiblePropertyIds.length > 0 ? view.visiblePropertyIds : null;
 
-  const isVisible = (id: string): boolean => (visible ? visible.includes(id) : true);
-  const toggleVisible = (id: string): void => {
-    const shown = properties.filter((p) => (visible ? visible.includes(p.id) : true)).map((p) => p.id);
-    const next = shown.includes(id) ? shown.filter((x) => x !== id) : [...shown, id];
-    db.updateView(view.id, {visiblePropertyIds: next});
-  };
-
-  const showGroup =
-    view.type === 'board' ||
-    view.type === 'bar' ||
-    view.type === 'pie' ||
-    view.type === 'table' ||
-    view.type === 'list' ||
-    view.type === 'gallery' ||
-    view.type === 'map' ||
-    view.type === 'timeline';
+  const showGroup = GROUPABLE_VIEW_TYPES.has(view.type);
   // A second grouping dimension: board swimlanes (shown once the primary group is set).
   const showSubGroup = view.type === 'board';
   const showMap = view.type === 'map';
@@ -1619,14 +1740,7 @@ export const ViewOptionsMenu: React.FC<{
     view.type === 'table' ||
     view.type === 'list';
   const colorProps = properties.filter((p) => p.type === 'select' || p.type === 'status');
-  const showColumns =
-    view.type === 'table' ||
-    view.type === 'list' ||
-    view.type === 'gallery' ||
-    view.type === 'board' ||
-    view.type === 'calendar' ||
-    view.type === 'timeline' ||
-    view.type === 'map';
+  const showColumns = FIELDABLE_VIEW_TYPES.has(view.type);
 
   return (
     <Popover open={isOpen} onOpenChange={setOpen}>
@@ -1951,14 +2065,7 @@ export const ViewOptionsMenu: React.FC<{
         {showColumns && properties.length > 0 && (
           <div>
             <div className={cn(sectionLabel, 'mb-1')}>Properties</div>
-            <div className="max-h-40 space-y-0.5 overflow-y-auto">
-              {properties.map((p) => (
-                <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm hover:bg-hover">
-                  <input type="checkbox" checked={isVisible(p.id)} onChange={() => toggleVisible(p.id)} className="h-3.5 w-3.5 accent-primary" />
-                  <span className="truncate">{p.name}</span>
-                </label>
-              ))}
-            </div>
+            <PropertyVisibilityList db={db} view={view} />
           </div>
         )}
 

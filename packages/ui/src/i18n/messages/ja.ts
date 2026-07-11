@@ -902,6 +902,11 @@ export const ja: PartialMessages = {
     refresh: '更新',
   },
   database: {
+    toolbar: {
+      group: 'グループ',
+      fields: 'フィールド',
+      removeGrouping: 'グループ化を解除',
+    },
     setup: {
       pickPlaceholder: 'プロパティを選択…',
       timeline: {

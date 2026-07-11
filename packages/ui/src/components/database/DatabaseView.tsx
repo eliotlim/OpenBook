@@ -51,7 +51,7 @@ import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {cellValue, PropertyValueCell} from './databaseCells';
-import {AddPropertyMenu, AddViewMenu, FilterChips, FilterMenu, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, VIEW_TYPES} from './databaseMenus';
+import {AddPropertyMenu, AddViewMenu, FieldsMenu, FilterChips, FilterMenu, GroupChips, GroupMenu, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, VIEW_TYPES} from './databaseMenus';
 import {
   BoardView,
   CalendarView,
@@ -1192,6 +1192,8 @@ const Toolbar: React.FC<{
         <SearchBox db={db} />
         <FilterMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
         <SortMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
+        <GroupMenu db={db} view={view} />
+        <FieldsMenu db={db} view={view} />
         <ViewOptionsMenu db={db} view={view} open={viewOptionsOpen} onOpenChange={setViewOptionsOpen} />
         <span className="px-1 text-xs text-muted-foreground/70">
           {db.visibleRows.length === db.rows.length
@@ -1449,6 +1451,7 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
           <div className="flex flex-wrap items-center gap-x-3">
             <FilterChips db={db} view={view} />
             <SortChips db={db} view={view} />
+            <GroupChips db={db} view={view} />
           </div>
           <MetricsBar db={db} view={view} />
           <ViewBody db={db} view={view} columns={columns} schema={schema} />

@@ -795,6 +795,31 @@ test('collapse all groups: folds and unfolds every group', {tag: ['@database']},
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(1);
 });
 
+// The toolbar's Group and Fields controls (peers of Filter/Sort): grouping a
+// table happens straight from the toolbar, the active grouping reads as a
+// removable chip, and Fields toggles column visibility without View options.
+test('toolbar group + fields: group via toolbar, chip clears, fields hide a column', {tag: ['@database']}, async ({page}) => {
+  await newDatabase(page);
+  await page.getByRole('button', {name: 'New row'}).click();
+
+  // Group the table by Status straight from the toolbar Group button.
+  await page.getByRole('button', {name: 'Group', exact: true}).click();
+  await chooseLabel(page, page.getByLabel('Group by'), 'Status');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', {name: 'Collapse all'})).toBeVisible();
+
+  // The grouping chip shows the property; its × clears the grouping again.
+  await page.getByRole('button', {name: 'Remove grouping'}).click();
+  await expect(page.getByRole('button', {name: 'Collapse all'})).toHaveCount(0);
+
+  // Fields toggles a column's visibility from the toolbar.
+  await expect(page.getByRole('columnheader', {name: /Notes/})).toBeVisible();
+  await page.getByRole('button', {name: 'Fields', exact: true}).click();
+  await page.getByRole('checkbox', {name: 'Notes'}).click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('columnheader', {name: /Notes/})).toHaveCount(0);
+});
+
 // "Insert below" from the row menu adds a row right after the chosen one.
 test('insert row below: positions the new row after the source', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);

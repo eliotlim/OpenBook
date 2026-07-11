@@ -897,6 +897,11 @@ export const zh: PartialMessages = {
     refresh: '刷新',
   },
   database: {
+    toolbar: {
+      group: '分组',
+      fields: '字段',
+      removeGrouping: '移除分组',
+    },
     setup: {
       pickPlaceholder: '选择属性…',
       timeline: {
