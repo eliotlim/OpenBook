@@ -1,6 +1,6 @@
 import {test, expect, takeSnapshot} from './fixtures';
 
-test('settings: grouped sections and admin danger zone', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
+test('settings: grouped sections and reset danger zone', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
 
@@ -15,9 +15,12 @@ test('settings: grouped sections and admin danger zone', {tag: ['@shell', '@visu
   await expect(page.getByRole('button', {name: 'Sign up'})).toHaveCount(0);
   await expect(page.getByRole('button', {name: 'Integrations'})).toHaveCount(0);
 
-  // Admin carries backup + a guarded danger zone.
-  await page.getByRole('button', {name: 'Backups & data'}).click();
+  // Data & backups carries backup + restore.
+  await page.getByRole('button', {name: 'Data & backups'}).click();
   await expect(page.getByText('Backup & restore')).toBeVisible();
+
+  // The guarded reset danger zone now lives on the General screen.
+  await page.getByRole('button', {name: 'General'}).click();
   await expect(page.getByText('Danger zone')).toBeVisible();
   await expect(page.getByRole('button', {name: 'Reset', exact: true})).toBeVisible();
 });

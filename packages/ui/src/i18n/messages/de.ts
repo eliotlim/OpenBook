@@ -29,14 +29,14 @@ export const de: PartialMessages = {
       profile: 'Profil',
       appearance: 'Darstellung',
       customisation: 'Anpassung',
-      signin: 'Anmeldung & E-Mail',
+      signin: 'Konto & Sync',
       sharing: 'Teilen & Veröffentlichen',
       connection: 'Verbindung',
       members: 'Mitglieder',
       extensions: 'Erweiterungen',
 
       ai: 'KI',
-      admin: 'Backups & Daten',
+      admin: 'Daten & Backups',
       diagnostics: 'Diagnose',
     },
   },
@@ -665,8 +665,8 @@ export const de: PartialMessages = {
   },
   account: {
     signin: {
-      title: 'Anmeldung & E-Mail',
-      description: 'E-Mail und verbundene Anmeldung (Google, GitHub, Apple) kommen mit den Konten. Es gibt noch nichts, wo man sich anmelden könnte.',
+      title: 'Konto & Sync',
+      description: 'Melde dich bei account.book.pub an, um deine Einstellungen und Arbeitsbereiche geräteübergreifend zu synchronisieren. Local-First bleibt die Voreinstellung — dies ist optional.',
     },
     switcher: {
       heading: 'Konten',
@@ -832,8 +832,8 @@ export const de: PartialMessages = {
     refresh: 'Aktualisieren',
   },
   admin: {
-    title: 'Backups & Daten',
-    description: 'Sicherung, Wiederherstellung und Wartung des Arbeitsbereichs.',
+    title: 'Daten & Backups',
+    description: 'Deinen Arbeitsbereich sichern, wiederherstellen und exportieren.',
     dangerZone: 'Gefahrenzone',
     dangerZoneHint: 'Diese Aktionen betreffen die lokalen Daten dieses Geräts, nicht deine Seiten.',
     resetPrefs: 'Einstellungen & Layout zurücksetzen',

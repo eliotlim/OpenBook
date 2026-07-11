@@ -11,7 +11,7 @@ import {cn} from '@/lib/utils';
 /**
  * The admin-only AI usage surface (C2): a recent-usage viewer with totals, an
  * editable per-model pricing table (drives the `cost_usd` snapshot), and the
- * usage database's retention window. Embedded in the Admin ("Backups & data")
+ * usage database's retention window. Embedded at the foot of the AI settings
  * tab and RENDERS NOTHING for a non-admin — the whole surface is gated on the
  * effective instance role AND re-gated by a 403 from the admin-only endpoints
  * (the MembersSettings hide-not-break pattern), so a viewer / guest sees none of

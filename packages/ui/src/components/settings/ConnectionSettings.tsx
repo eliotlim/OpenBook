@@ -26,7 +26,6 @@ export default function ConnectionSettings() {
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [remoteUrl, setRemoteUrl] = useState(connected ?? '');
   const [remoteToken, setRemoteToken] = useState(getServerTokenOverride() ?? '');
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
@@ -40,18 +39,6 @@ export default function ConnectionSettings() {
   useEffect(() => {
     refresh();
   }, [refresh]);
-
-  const runControl = useCallback(async (fn: () => Promise<ServerInfo>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      setInfo(await fn());
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }, []);
 
   // An https page (e.g. app.book.pub) can't reach a plain http:// LAN server —
   // the browser blocks it as mixed content before CORS is even considered. Warn
@@ -74,8 +61,6 @@ export default function ConnectionSettings() {
     setServerTokenOverride(null);
     if (typeof window !== 'undefined') window.location.reload();
   }, []);
-
-  const localManaged = info?.managed ?? false;
 
   return (
     <SettingsScreen title={t('connection.title')} description={t('connection.description')}>
@@ -137,31 +122,6 @@ export default function ConnectionSettings() {
               {t('connection.running')} <code>{info.lanAddress}</code>.
             </p>
           )}
-        </SettingsSection>
-      )}
-
-      {serverControls?.chooseBookDir && localManaged && (
-        <SettingsSection title={t('connection.bookFiles')}>
-          <p className="text-sm text-muted-foreground">{t('connection.bookFilesDescription')}</p>
-          <SettingsField label={t('connection.bookFolder')} className="max-w-lg">
-            <code className="block truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
-              {info?.bookDir ?? '—'}
-            </code>
-          </SettingsField>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => void runControl(() => serverControls.chooseBookDir!())}
-            >
-              {t('connection.changeFolder')}
-            </Button>
-            {serverControls.revealBookDir && (
-              <Button variant="ghost" disabled={busy} onClick={() => void serverControls.revealBookDir!()}>
-                {t('connection.reveal')}
-              </Button>
-            )}
-          </div>
         </SettingsSection>
       )}
 

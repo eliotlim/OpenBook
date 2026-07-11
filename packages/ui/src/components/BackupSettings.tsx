@@ -6,6 +6,7 @@ import {
   type BackupCadence,
   type BackupConfig,
   type BackupStatus,
+  type ServerInfo,
   type SpaceBackup,
 } from '@book.dev/sdk';
 import {CalendarClock, Database, Download, FileUp, FolderDown, FolderUp, Upload} from 'lucide-react';
@@ -21,6 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import {useData} from '@/data';
 import {useConfirm, useHud, useNavigation, usePlatformLibrary, useTranslation} from '@/providers';
+import {SettingsField} from '@/components/settings/primitives';
 import {writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
 import {ICON_PROPERTY_ID} from '@book.dev/sdk';
 import {downloadText} from '@/lib/download';
@@ -245,6 +247,8 @@ export default function BackupSettings() {
         </div>
       </section>
 
+      <BookFilesSection />
+
       <ScheduledBackupsSection />
 
       <section className="flex flex-col gap-2 border-t border-border pt-6">
@@ -282,6 +286,68 @@ export default function BackupSettings() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The book-files folder (desktop, local managed server only): show where the
+ * durable on-disk book mirror lives and let the user relocate or reveal it.
+ * Hidden on the web and when connected to a remote server — only the always-on
+ * local managed server exposes `chooseBookDir`.
+ */
+function BookFilesSection() {
+  const {serverControls} = usePlatformLibrary();
+  const {t} = useTranslation();
+  const [info, setInfo] = useState<ServerInfo | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = useCallback(() => {
+    if (!serverControls) return;
+    serverControls
+      .info()
+      .then(setInfo)
+      .catch(() => {
+        /* the folder row simply stays hidden if info is unavailable */
+      });
+  }, [serverControls]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const runControl = useCallback(async (fn: () => Promise<ServerInfo>) => {
+    setBusy(true);
+    try {
+      setInfo(await fn());
+    } catch {
+      /* a cancelled folder picker (or a transient error) leaves the row as-is */
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  if (!serverControls?.chooseBookDir || !info?.managed) return null;
+
+  return (
+    <section className="flex flex-col gap-2 border-t border-border pt-6">
+      <h3 className="text-lg font-semibold">{t('connection.bookFiles')}</h3>
+      <p className="text-sm text-muted-foreground">{t('connection.bookFilesDescription')}</p>
+      <SettingsField label={t('connection.bookFolder')} className="max-w-lg">
+        <code className="block truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+          {info?.bookDir ?? '—'}
+        </code>
+      </SettingsField>
+      <div className="flex gap-2">
+        <Button variant="outline" disabled={busy} onClick={() => void runControl(() => serverControls.chooseBookDir!())}>
+          {t('connection.changeFolder')}
+        </Button>
+        {serverControls.revealBookDir && (
+          <Button variant="ghost" disabled={busy} onClick={() => void serverControls.revealBookDir!()}>
+            {t('connection.reveal')}
+          </Button>
+        )}
+      </div>
+    </section>
   );
 }
 

@@ -29,14 +29,14 @@ export const zh: PartialMessages = {
       profile: '个人资料',
       appearance: '外观',
       customisation: '自定义',
-      signin: '登录与邮箱',
+      signin: '账户与同步',
       sharing: '共享与发布',
       connection: '连接',
       members: '成员',
       extensions: '扩展',
 
       ai: 'AI',
-      admin: '备份与数据',
+      admin: '数据与备份',
       diagnostics: '诊断',
     },
   },
@@ -662,8 +662,8 @@ export const zh: PartialMessages = {
   },
   account: {
     signin: {
-      title: '登录与邮箱',
-      description: '邮箱和第三方登录（Google、GitHub、Apple）将随账户一起推出。目前还没有可登录的对象。',
+      title: '账户与同步',
+      description: '登录 account.book.pub，即可在多台设备间同步你的偏好和工作区。本地优先仍为默认——此项为可选。',
     },
     switcher: {
       heading: '账户',
@@ -826,8 +826,8 @@ export const zh: PartialMessages = {
     refresh: '刷新',
   },
   admin: {
-    title: '备份与数据',
-    description: '备份、恢复以及工作区维护。',
+    title: '数据与备份',
+    description: '备份、恢复和导出你的工作区数据。',
     dangerZone: '危险区域',
     dangerZoneHint: '这些操作会影响本设备的本地数据，而非你的页面。',
     resetPrefs: '重置偏好与布局',

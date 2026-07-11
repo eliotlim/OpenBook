@@ -29,14 +29,14 @@ export const ja: PartialMessages = {
       profile: 'プロフィール',
       appearance: '外観',
       customisation: 'カスタマイズ',
-      signin: 'サインインとメール',
+      signin: 'アカウントと同期',
       sharing: '共有と公開',
       connection: '接続',
       members: 'メンバー',
       extensions: '拡張機能',
 
       ai: 'AI',
-      admin: 'バックアップとデータ',
+      admin: 'データとバックアップ',
       diagnostics: '診断',
     },
   },
@@ -665,8 +665,8 @@ export const ja: PartialMessages = {
   },
   account: {
     signin: {
-      title: 'サインインとメール',
-      description: 'メールと連携サインイン（Google、GitHub、Apple）はアカウントとともに登場します。まだサインインできる先はありません。',
+      title: 'アカウントと同期',
+      description: 'account.book.pub にサインインすると、設定とワークスペースを複数のデバイス間で同期できます。ローカルファーストが既定のままで、これはオプトインです。',
     },
     switcher: {
       heading: 'アカウント',
@@ -831,8 +831,8 @@ export const ja: PartialMessages = {
     refresh: '更新',
   },
   admin: {
-    title: 'バックアップとデータ',
-    description: 'バックアップ、復元、ワークスペースのメンテナンス。',
+    title: 'データとバックアップ',
+    description: 'ワークスペースのデータをバックアップ・復元・エクスポートします。',
     dangerZone: '危険ゾーン',
     dangerZoneHint: 'これらの操作はこのデバイスのローカルデータに影響します。ページには影響しません。',
     resetPrefs: '設定とレイアウトをリセット',
