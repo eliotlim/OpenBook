@@ -958,7 +958,7 @@ export const zh: PartialMessages = {
         date: '+ 新建日期属性',
         location: '+ 新建位置属性',
         dependency: '+ 新建依赖属性',
-        select: '+ 新建单选属性',
+        select: '+ 新建类别属性',
       },
       names: {
         date: '日期',

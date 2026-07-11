@@ -963,7 +963,7 @@ export const ja: PartialMessages = {
         date: '+ 新しい日付プロパティ',
         location: '+ 新しい場所プロパティ',
         dependency: '+ 新しい依存関係プロパティ',
-        select: '+ 新しいセレクトプロパティ',
+        select: '+ 新しいカテゴリプロパティ',
       },
       names: {
         date: '日付',

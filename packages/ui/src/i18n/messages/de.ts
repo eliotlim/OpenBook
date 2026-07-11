@@ -964,7 +964,7 @@ export const de: PartialMessages = {
         date: '+ Neue Datums-Eigenschaft',
         location: '+ Neue Standort-Eigenschaft',
         dependency: '+ Neue Abhängigkeits-Eigenschaft',
-        select: '+ Neue Auswahl-Eigenschaft',
+        select: '+ Neue Kategorie-Eigenschaft',
       },
       names: {
         date: 'Datum',

@@ -1546,7 +1546,10 @@ export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = 
             <Icon className="mr-2 mt-0.5 h-4 w-4 shrink-0" />
             <span className="flex min-w-0 flex-col">
               <span>{label}</span>
-              <span className="truncate text-xs text-muted-foreground">
+              {/* Let the requirement note wrap onto its own line rather than share
+                  the hint's truncated line — clipping it away was hiding the most
+                  useful part ("Needs a … property"). */}
+              <span className="text-xs text-muted-foreground">
                 {t(VIEW_TYPE_HINT_KEY[value])}
                 {VIEW_TYPE_NEEDS_KEY[value] && <span className="text-muted-foreground/70"> · {t(VIEW_TYPE_NEEDS_KEY[value])}</span>}
               </span>
@@ -1707,7 +1710,9 @@ export const GroupChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db,
   const {t} = useTranslation();
   const properties = db.database!.schema.properties;
   const id = view.groupByPropertyId;
-  if (!id) return null;
+  // Mirror GroupMenu's gate: switching a grouped board to a non-groupable
+  // layout (calendar/graph) must not leave a stray, inert grouping chip.
+  if (!id || !GROUPABLE_VIEW_TYPES.has(view.type)) return null;
   const name =
     id === PARENT_GROUP_ID ? 'Sub-items' : id === TITLE_PROPERTY_ID ? 'Name' : properties.find((p) => p.id === id)?.name ?? 'Property';
   return (

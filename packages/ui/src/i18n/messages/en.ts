@@ -1416,7 +1416,7 @@ export const en = {
         date: '+ New date property',
         location: '+ New location property',
         dependency: '+ New dependency property',
-        select: '+ New select property',
+        select: '+ New category property',
       },
       names: {
         date: 'Date',
