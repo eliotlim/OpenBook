@@ -59,9 +59,10 @@ test('project task board: a kanban database grouped by status', {tag: ['@shell']
   await pick(page, 'task-board');
 
   await expect(page.getByLabel('Page title')).toHaveValue(/^Project task board/);
-  // Opens on the board with the status columns; a table view backs it.
+  // Opens on the board with the status columns; table + calendar views back it.
   await expect(page.getByRole('button', {name: 'Board', exact: true})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Table', exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Calendar', exact: true})).toBeVisible();
   await expect(page.getByText('In progress', {exact: true})).toBeVisible();
   await expect(page.locator('[data-col-key]').filter({hasText: 'Backlog'}).first()).toBeVisible();
 

@@ -144,6 +144,9 @@ describe('project task board (database)', () => {
     const board = schema.views.find((v) => v.type === 'board')!;
     expect(board.groupByPropertyId).toBe('p_status');
     expect(schema.views.some((v) => v.type === 'table')).toBe(true);
+    // A calendar view lays the tasks out on a month grid by their due date.
+    const calendar = schema.views.find((v) => v.type === 'calendar')!;
+    expect(calendar.datePropertyId).toBe('p_due');
 
     const template = PAGE_TEMPLATES.find((t) => t.id === 'task-board') as PageTemplate;
     const client = stubClient([]);

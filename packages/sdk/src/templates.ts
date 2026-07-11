@@ -465,9 +465,11 @@ const TASK_BOARD_SCHEMA: DatabaseSchema = {
     {id: 'p_effort', name: 'Effort', type: 'number', numberDisplay: 'bar', numberTarget: 8},
   ],
   views: [
-    // Board first → the page opens as a kanban grouped by status; a table backs it.
+    // Board first → the page opens as a kanban grouped by status; a table backs
+    // it, and a calendar lays the same tasks out on a month grid by due date.
     {id: 'v_board', name: 'Board', type: 'board', filters: [], sorts: [], groupByPropertyId: 'p_status'},
     {id: 'v_table', name: 'Table', type: 'table', filters: [], sorts: []},
+    {id: 'v_calendar', name: 'Calendar', type: 'calendar', filters: [], sorts: [], datePropertyId: 'p_due'},
   ],
 };
 
