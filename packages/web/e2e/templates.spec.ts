@@ -1,11 +1,11 @@
 import {test, expect, takeSnapshot} from './fixtures';
 import {} from './seed';
 
-// The template gallery: ready-made pages created client-side. Five are rich
+// The template gallery: ready-made pages created client-side. Three are rich
 // block-doc "artifacts" — reactive inputs feeding collapsed live-code, status
 // lights, charts, cards, multi-column layouts, callouts, and divider/notes
-// blocks so each doubles as a slide deck. Two are database fixtures (roadmap,
-// field map) exercised by the swimlane and map specs. These tests drive the
+// blocks so each doubles as a slide deck. Four are database fixtures; roadmap
+// and field map back the swimlane and map specs. These tests drive the
 // gallery as a user would: open it, pick a card, land on the created page.
 
 async function hydrated(page: import('@playwright/test').Page): Promise<void> {

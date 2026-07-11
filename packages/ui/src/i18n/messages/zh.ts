@@ -504,6 +504,15 @@ export const zh: PartialMessages = {
     title: '从模板开始',
     description: '结构合理的现成页面 — 选一个，改成你的。',
     creating: '创建中…',
+    tag: {
+      interactive: '交互',
+      slides: '幻灯片',
+      database: '数据库',
+    },
+    section: {
+      documents: '交互式文档',
+      databases: '数据库',
+    },
     groceryTracker: {
       name: '杂货价格追踪',
       description: '把每周购物篮在多家商店比价——实时图表、预算状态灯，计算都藏在代码块里。',

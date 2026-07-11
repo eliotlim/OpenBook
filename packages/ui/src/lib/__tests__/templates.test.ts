@@ -74,7 +74,7 @@ describe('PAGE_TEMPLATES', () => {
     for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
   });
 
-  it('builds block-doc artifacts for the five showcases and databases for the two fixtures', async () => {
+  it('builds block-doc artifacts for the three showcases and databases for the four fixtures', async () => {
     for (const t of PAGE_TEMPLATES) {
       const client = stubClient([]);
       await t.create(client, t.pageName);

@@ -845,6 +845,15 @@ export const en = {
     title: 'Start with a template',
     description: 'Ready-made pages with sensible structure — pick one and make it yours.',
     creating: 'Creating…',
+    tag: {
+      interactive: 'Interactive',
+      slides: 'Slides',
+      database: 'Database',
+    },
+    section: {
+      documents: 'Interactive documents',
+      databases: 'Databases',
+    },
     groceryTracker: {
       name: 'Grocery price tracker',
       description: 'Price a weekly basket across shops — live charts, a budget light, and the maths tucked in a code block.',
