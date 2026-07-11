@@ -162,6 +162,7 @@ export const zh: PartialMessages = {
     enforcementCaveat:
       '你邀请的人可能还无法通过已发布的 book.cloud 链接打开此页面——此功能正在逐步推出。直接访问已按此处的设置受到限制。',
     scopeLabel: '谁可以访问',
+    scopeAdvanced: '高级选项',
     scope: {
       inherit: '工作区默认',
       inheritHint: '沿用工作区的默认访问设置。',

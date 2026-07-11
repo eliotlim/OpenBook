@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import {Check, Link2, Loader2, Share2, Trash2} from 'lucide-react';
 import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
@@ -39,6 +39,16 @@ const LINK_HINT: Record<PageVisibility, TKey> = {
   members: 'share.linkHints.members',
   restricted: 'share.linkHints.restricted',
 };
+
+/** Progressive-disclosure scope tiers (SHR-4). The picker used to show all five
+ *  flat scopes — including dormant ones — as if equal choices. Instead surface
+ *  the two that carry the everyday decision (`restricted` private vs `public`)
+ *  up front, tuck the two power-user scopes behind an "Advanced" reveal, and
+ *  hide `members` entirely (it's dormant OSS surface). Whatever a page is
+ *  *currently* set to is always offered too (see `scopeOptions`), so a stored
+ *  `members`/`authenticated`/`inherit` value still renders and stays settable. */
+const PRIMARY_SCOPES: readonly PageVisibility[] = ['restricted', 'public'];
+const ADVANCED_SCOPES: readonly PageVisibility[] = ['inherit', 'authenticated'];
 
 /**
  * Map a raw client error to a friendly, localised line — the SDK throws
@@ -149,6 +159,10 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
 
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<PageVisibility>('inherit');
+  // Progressive disclosure for the scope picker (SHR-4): collapsed by default so
+  // only the primary two scopes (+ the current value) show; the "Advanced" reveal
+  // adds `inherit`/`authenticated`.
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [grants, setGrants] = useState<PageAcl[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -181,6 +195,17 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   // read-only viewer gets a 403 — degrade to scope-only rather than erroring
   // the whole dialog they were just granted access to).
   const [aclReadable, setAclReadable] = useState(true);
+
+  // The scopes offered in the picker (SHR-4): the primary two, plus the advanced
+  // two once revealed, plus whatever this page is *currently* set to — so a stored
+  // value (including the otherwise-hidden `members`) always renders and stays
+  // selectable. Ordered by the canonical escalating-privacy order.
+  const scopeOptions = useMemo<PageVisibility[]>(() => {
+    const shown = new Set<PageVisibility>(PRIMARY_SCOPES);
+    if (showAdvanced) ADVANCED_SCOPES.forEach((v) => shown.add(v));
+    shown.add(scope);
+    return PAGE_VISIBILITIES.filter((v) => shown.has(v));
+  }, [showAdvanced, scope]);
 
   // Load the page's current scope + grants whenever the dialog opens.
   const refresh = useCallback(async () => {
@@ -344,12 +369,24 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                 wrapperClassName="w-full"
                 onChange={(e) => void changeScope(e.target.value as PageVisibility)}
               >
-                {PAGE_VISIBILITIES.map((v) => (
+                {scopeOptions.map((v) => (
                   <option key={v} value={v}>
                     {t(SCOPE_LABEL[v].label)}
                   </option>
                 ))}
               </Select>
+              {/* Reveal the power-user scopes on demand (SHR-4). Hidden once
+                  expanded, and suppressed for a read-only viewer who can't change
+                  the scope anyway. */}
+              {!showAdvanced && canManage && (
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced(true)}
+                  className="self-start text-xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground"
+                >
+                  {t('share.scopeAdvanced')}
+                </button>
+              )}
               <p className="text-xs text-muted-foreground">{t(SCOPE_LABEL[scope].hint)}</p>
               {/* What "Workspace default" resolves to right now, so `inherit`
                   is never a mystery box (the effective-access summary). */}

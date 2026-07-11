@@ -230,6 +230,7 @@ export const en = {
     enforcementCaveat:
       'People you invite may not be able to open this page through its published book.cloud link yet — that’s rolling out. Direct access is already limited as set here.',
     scopeLabel: 'Who can access',
+    scopeAdvanced: 'Advanced options',
     scope: {
       inherit: 'Workspace default',
       inheritHint: 'Follows the workspace’s default access setting.',

@@ -164,6 +164,7 @@ export const de: PartialMessages = {
     enforcementCaveat:
       'Von dir eingeladene Personen können diese Seite über ihren veröffentlichten book.cloud-Link möglicherweise noch nicht öffnen — das wird gerade ausgerollt. Der direkte Zugriff ist bereits wie hier festgelegt eingeschränkt.',
     scopeLabel: 'Wer hat Zugriff',
+    scopeAdvanced: 'Erweiterte Optionen',
     scope: {
       inherit: 'Arbeitsbereich-Standard',
       inheritHint: 'Folgt der Standard-Zugriffseinstellung des Arbeitsbereichs.',

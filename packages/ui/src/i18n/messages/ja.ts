@@ -163,6 +163,7 @@ export const ja: PartialMessages = {
     enforcementCaveat:
       '招待した人は、公開された book.cloud リンクからこのページをまだ開けない場合があります — 現在順次対応中です。直接アクセスはここで設定したとおりすでに制限されています。',
     scopeLabel: 'アクセスできる人',
+    scopeAdvanced: '詳細オプション',
     scope: {
       inherit: 'ワークスペースの既定',
       inheritHint: 'ワークスペースの既定のアクセス設定に従います。',
