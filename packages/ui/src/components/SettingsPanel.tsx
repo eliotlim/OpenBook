@@ -5,7 +5,7 @@ import {
   ExitFullScreenIcon,
   PersonIcon,
   MixerHorizontalIcon,
-  EnvelopeClosedIcon,
+  UpdateIcon,
 } from '@radix-ui/react-icons';
 import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, LifebuoyIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, UserGroupIcon, WrenchIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
@@ -32,7 +32,7 @@ const TAB_META: Record<SettingsTab, {labelKey: TKey; icon: ComponentType<{classN
   profile: {labelKey: 'settings.tab.profile', icon: PersonIcon},
   appearance: {labelKey: 'settings.tab.appearance', icon: PaintBrushIcon},
   customisation: {labelKey: 'settings.tab.customisation', icon: MixerHorizontalIcon},
-  signin: {labelKey: 'settings.tab.signin', icon: EnvelopeClosedIcon},
+  signin: {labelKey: 'settings.tab.signin', icon: UpdateIcon},
   connection: {labelKey: 'settings.tab.connection', icon: ServerStackIcon},
   sharing: {labelKey: 'settings.tab.sharing', icon: GlobeAltIcon},
   members: {labelKey: 'settings.tab.members', icon: UserGroupIcon},
