@@ -1514,7 +1514,7 @@ const VIEW_TYPE_HINT_KEY: Record<DatabaseViewType, TKey> = {
 };
 
 /** Layouts that need a property before they can lay rows out (the add-view
- *  menu annotates these; adding one auto-opens the View options to fix it). */
+ *  menu annotates these; adding one renders an in-body setup card to fix it). */
 const VIEW_TYPE_NEEDS_KEY: Partial<Record<DatabaseViewType, TKey>> = {
   calendar: 'database.addView.needs.date',
   timeline: 'database.addView.needs.date',
@@ -1540,11 +1540,6 @@ export const AddViewMenu: React.FC<{onAdd: (type: DatabaseViewType) => void}> = 
       <DropdownMenuContent
         align="start"
         className="max-h-[var(--radix-dropdown-menu-content-available-height)] w-64 overflow-y-auto"
-        // Don't return focus to the "+" trigger on close: picking a layout that
-        // still needs a property auto-opens the View options popover, and the
-        // focus return would land *after* it opened — dismissing it on the spot
-        // (focus-outside). See DatabaseView's add-view handler.
-        onCloseAutoFocus={(e) => e.preventDefault()}
       >
         {VIEW_TYPES.map(({value, label, Icon}) => (
           <DropdownMenuItem key={value} aria-label={label} onClick={() => onAdd(value)} className="items-start">
@@ -1737,20 +1732,14 @@ export const GroupChips: React.FC<{db: UseDatabase; view: DatabaseView}> = ({db,
 /**
  * The active view's settings: rename, switch layout, configure layout-specific
  * options (board/chart grouping, chart aggregation, calendar date, visible
- * columns), duplicate, and delete. The popover can be controlled (`open` +
- * `onOpenChange`) so adding a view whose layout still needs a property can
- * pop it open on the spot (see DatabaseView's add-view handler).
+ * columns), duplicate, and delete.
  */
 export const ViewOptionsMenu: React.FC<{
   db: UseDatabase;
   view: DatabaseView;
-  open?: boolean;
-  onOpenChange?: (open: boolean) => void;
-}> = ({db, view, open, onOpenChange}) => {
+}> = ({db, view}) => {
   const {t} = useTranslation();
-  const [internalOpen, setInternalOpen] = useState(false);
-  const isOpen = open ?? internalOpen;
-  const setOpen = onOpenChange ?? setInternalOpen;
+  const [isOpen, setOpen] = useState(false);
   const properties = db.database!.schema.properties;
   /** One-click "+ New … property" sentinel action: create the typed property
    *  and point this view's `field` at it, atomically (see addPropertyForView).
@@ -1798,15 +1787,10 @@ export const ViewOptionsMenu: React.FC<{
         </button>
       </PopoverTrigger>
       {/* The panel can outgrow short windows (layout grid + grouping + colour
-          rules + metrics) — scroll inside rather than cutting off the tail.
-          Focus moving outside must not dismiss it: when it auto-opens right
-          after "Add view", the closing menu's focus restoration lands a beat
-          later and would close it on arrival. Pointer-outside and Escape still
-          dismiss as usual. */}
+          rules + metrics) — scroll inside rather than cutting off the tail. */}
       <PopoverContent
         align="end"
         className="max-h-[min(34rem,80vh)] w-72 space-y-2.5 overflow-y-auto p-3"
-        onFocusOutside={(e) => e.preventDefault()}
       >
         <input
           defaultValue={view.name}

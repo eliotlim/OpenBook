@@ -1081,46 +1081,18 @@ const NewRowMenu: React.FC<{db: UseDatabase}> = ({db}) => {
   );
 };
 
-/**
- * Does a freshly-added view still need a property picked before its layout can
- * lay rows out? True for a timeline/calendar with no start date, a map with no
- * location, a graph with no dependency, and a chart with nothing to group by —
- * the cases where {@link defaultView} found no compatible property to default
- * to. Used to auto-open the View options right after "Add view".
- */
-function viewNeedsSetup(view: DbView): boolean {
-  switch (view.type) {
-  case 'timeline':
-  case 'calendar':
-    return !view.datePropertyId;
-  case 'map':
-    return !view.geoPropertyId;
-  case 'graph':
-    return !view.dependencyPropertyId;
-  case 'bar':
-  case 'pie':
-    return !view.groupByPropertyId;
-  default:
-    return false;
-  }
-}
-
 const Toolbar: React.FC<{
   db: UseDatabase;
   view: DbView;
   renamingId: string | null;
   setRenamingId: (id: string | null) => void;
   onAddView: (type: DatabaseViewType) => void;
-  viewOptionsOpen: boolean;
-  setViewOptionsOpen: (open: boolean) => void;
 }> = ({
   db,
   view,
   renamingId,
   setRenamingId,
   onAddView,
-  viewOptionsOpen,
-  setViewOptionsOpen,
 }) => {
   const [dragView, setDragView] = useState<string | null>(null);
   const [overView, setOverView] = useState<string | null>(null);
@@ -1195,7 +1167,7 @@ const Toolbar: React.FC<{
         <SortMenu database={db.database!} view={view} onChange={(patch) => void db.updateView(view.id, patch)} />
         <GroupMenu db={db} view={view} />
         <FieldsMenu db={db} view={view} />
-        <ViewOptionsMenu db={db} view={view} open={viewOptionsOpen} onOpenChange={setViewOptionsOpen} />
+        <ViewOptionsMenu db={db} view={view} />
         <span className="px-1 text-xs text-muted-foreground/70">
           {db.visibleRows.length === db.rows.length
             ? `${db.visibleRows.length} row${db.visibleRows.length === 1 ? '' : 's'}`
@@ -1420,14 +1392,11 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
   const db = useDatabase(pageId, databaseIdHint);
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
   const [expiryOpen, setExpiryOpen] = useState(false);
-  const [viewOptionsOpen, setViewOptionsOpen] = useState(false);
-  // Add a view; when its layout still needs a property picked (fresh DB with
-  // no date/location/dependency/group-by column), open View options on it so
-  // the first-run config is one gesture away instead of hidden.
+  // Add a view. When its layout still needs a property picked (fresh DB with no
+  // date/location/dependency/group-by column), the in-body ViewSetupCard offers
+  // the one-click fix — no need to pop View options open over it.
   const addView = (type: DatabaseViewType): void => {
-    void db.addView(type).then((added) => {
-      if (added && viewNeedsSetup(added)) setViewOptionsOpen(true);
-    });
+    void db.addView(type);
   };
   if (!db.database || !db.activeView) return null;
 
@@ -1466,8 +1435,6 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
             renamingId={renamingViewId}
             setRenamingId={setRenamingViewId}
             onAddView={addView}
-            viewOptionsOpen={viewOptionsOpen}
-            setViewOptionsOpen={setViewOptionsOpen}
           />
           <div className="flex flex-wrap items-center gap-x-3">
             <FilterChips db={db} view={view} />
