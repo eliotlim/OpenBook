@@ -882,6 +882,10 @@ export const en = {
       name: 'Field map',
       description: 'Offices and partners pinned on a map, coloured by region — with a table view.',
     },
+    pitchDeck: {
+      name: 'Pitch deck',
+      description: 'Five present-ready slides with speaker notes — including a live revenue-mix donut you drag mid-pitch.',
+    },
   },
   blocks: {
     subpagePage: 'Page',

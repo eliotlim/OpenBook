@@ -544,6 +544,10 @@ export const ja: PartialMessages = {
       name: '拠点マップ',
       description: 'オフィスやパートナーを地図にピン留めし、地域ごとに色分け — テーブルビュー付き。',
     },
+    pitchDeck: {
+      name: 'ピッチデッキ',
+      description: '発表者ノート付きの5枚のスライド — プレゼン中に動かせるライブな収益構成ドーナツチャート入り。',
+    },
   },
   blocks: {
     subpagePage: 'ページ',

@@ -541,6 +541,10 @@ export const zh: PartialMessages = {
       name: '据点地图',
       description: '把办公室与合作伙伴标在地图上，按区域着色——并提供表格视图。',
     },
+    pitchDeck: {
+      name: '路演幻灯片',
+      description: '五张可直接演示的幻灯片，附演讲者备注——包括一张路演时可实时拖动的收入构成环形图。',
+    },
   },
   blocks: {
     subpagePage: '页面',

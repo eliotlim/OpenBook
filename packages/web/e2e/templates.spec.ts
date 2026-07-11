@@ -27,7 +27,7 @@ test('gallery: lists every template with names and descriptions', {tag: ['@shell
   await hydrated(page);
   await openGallery(page);
 
-  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map']) {
+  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck']) {
     await expect(page.getByRole('button', {name: new RegExp(name)})).toBeVisible();
   }
   await takeSnapshot(page, testInfo); // visual: the template gallery
@@ -115,6 +115,34 @@ test('savings & investing: sliders steer a live compounding projection', {tag: [
   // Stretch the horizon → the narration tracks it.
   await page.getByLabel('years value').fill('30');
   await expect(page.locator('.obe-code-out', {hasText: 'After 30 years'}).first()).toBeVisible();
+});
+
+test('pitch deck: a five-slide deck with a live donut and speaker notes in the presenter view', {tag: ['@shell']}, async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'pitch-deck');
+
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Pitch deck/);
+  // The showcase chart: a donut (a kind no other template uses), fed by sliders.
+  await expect(page.locator('.obe-kit-chart[data-chart-kind="donut"]')).toBeVisible();
+  // Recurring share 62% ≥ the 60% bar → the light starts green.
+  await expect(page.locator('.obe-kit-status')).toHaveAttribute('data-status', 'ok');
+
+  // Present it (presenter view avoids the OS fullscreen request in headless).
+  await page.getByRole('button', {name: 'Page actions'}).click();
+  await page.getByRole('menuitem', {name: 'Present'}).click();
+  await page.getByRole('menuitem', {name: 'Presenter view'}).click();
+
+  const present = page.locator('.ob-present');
+  await expect(present).toBeVisible();
+  // Five slides, opening on the title slide…
+  await expect(present.locator('.ob-present-counter')).toHaveText('1 / 5');
+  await expect(present.locator('.ob-present-stage').getByRole('heading', {name: 'Brightloop'})).toBeVisible();
+  // …whose speaker note shows in the presenter notes panel, not on the stage.
+  await expect(present.locator('.ob-present-notes-panel').getByText(/Thirty seconds, tops/)).toBeVisible();
+  await expect(present.locator('.ob-present-stage').getByText(/Thirty seconds, tops/)).toHaveCount(0);
+
+  await page.keyboard.press('Escape');
+  await expect(present).toHaveCount(0);
 });
 
 test('instantiating a template twice suffixes the page and row names (names are unique)', {tag: ['@shell']}, async ({page}) => {

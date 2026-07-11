@@ -545,6 +545,10 @@ export const de: PartialMessages = {
       name: 'Standortkarte',
       description: 'Büros und Partner auf einer Karte, nach Region eingefärbt — mit Tabellenansicht.',
     },
+    pitchDeck: {
+      name: 'Pitch-Deck',
+      description: 'Fünf präsentationsfertige Folien mit Sprechernotizen — inklusive Live-Umsatz-Donut zum Ziehen während des Pitches.',
+    },
   },
   blocks: {
     subpagePage: 'Seite',

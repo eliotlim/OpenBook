@@ -7,7 +7,7 @@ import type {DatabaseSchema} from './database';
  * through the normal data APIs (no server involvement, same as the sample
  * document). Two shapes:
  *
- *  - **Block-doc artifacts** (three showcases) ship a native block-editor
+ *  - **Block-doc artifacts** (the showcases) ship a native block-editor
  *    JSON projection in `blockdoc: {blocks}`. They lean on the whole editor:
  *    reactive inputs feeding *collapsed* live-code, status lights, info/link/
  *    tooltip cards, charts, progress bars, multi-column layouts, callouts, and
@@ -32,7 +32,7 @@ export type TemplateTag = 'interactive' | 'slides' | 'database';
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
-  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map';
+  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck';
   /** Emoji shown on the gallery card and applied to the created page. */
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
@@ -364,6 +364,73 @@ const SAVINGS_BLOCKS = [
   {id: 's-notes-4', type: 'notes', text: [{t: 'One ask to close on: automate the monthly contribution so the plan happens without willpower.'}]},
 ];
 
+// ── 📽️ Pitch deck ────────────────────────────────────────────────────────────
+// A present-first showcase: five slides (title · agenda · a live revenue-mix
+// donut · a quote · the ask), each with a speaker `notes` block, so the ⋯ →
+// Present flow lands on a real deck. The donut slide is the interactive core:
+// three sliders feed the chart and a recurring-revenue status light.
+const PITCH_DECK_BLOCKS = [
+  // Slide 1 — title
+  {id: 'pd-h1', type: 'heading', text: [{t: 'Brightloop'}], props: {level: 1}},
+  {id: 'pd-tag', type: 'paragraph', text: [{t: 'The pitch as a '}, {t: 'live document', a: {b: true}}, {t: ' — the numbers on slide 3 recompute while you talk.'}]},
+  {id: 'pd-call', type: 'callout', text: [{t: 'Open the ⋯ menu → Present to run this as a deck.'}], props: {variant: 'info'}},
+  {id: 'pd-notes-1', type: 'notes', text: [{t: 'Thirty seconds, tops: who you are, what Brightloop is, why the room should care. Land the tagline, then advance — the deck itself makes the “live document” point on slide 3.'}]},
+  {id: 'pd-div-1', type: 'divider'},
+
+  // Slide 2 — agenda
+  {id: 'pd-h2', type: 'heading', text: [{t: 'Agenda'}], props: {level: 2}},
+  {id: 'pd-ag1', type: 'list', text: [{t: 'The problem — decks go stale the moment they’re exported.'}], props: {kind: 'number'}},
+  {id: 'pd-ag2', type: 'list', text: [{t: 'The product — one page that is both the model and the deck.'}], props: {kind: 'number'}},
+  {id: 'pd-ag3', type: 'list', text: [{t: 'Revenue mix — live, draggable, no screenshots.'}], props: {kind: 'number'}},
+  {id: 'pd-ag4', type: 'list', text: [{t: 'What early users say.'}], props: {kind: 'number'}},
+  {id: 'pd-ag5', type: 'list', text: [{t: 'The ask.'}], props: {kind: 'number'}},
+  {id: 'pd-notes-2', type: 'notes', text: [{t: 'Signpost, don’t read: five stops, four minutes. Flag that slide 3 is interactive so nobody mistakes the demo for a rehearsed video.'}]},
+  {id: 'pd-div-2', type: 'divider'},
+
+  // Slide 3 — the live donut
+  {id: 'pd-h3', type: 'heading', text: [{t: 'Revenue mix — live'}], props: {level: 2}},
+  {id: 'pd-recurring', type: 'code', text: [{t: 'Math.round(subs / (subs + services + partners) * 100)'}], props: {live: true, name: 'recurring', language: 'js', collapsed: true}},
+  {
+    id: 'pd-cols',
+    type: 'columns',
+    children: [
+      {
+        id: 'pd-col-l',
+        type: 'column',
+        props: {span: 5},
+        children: [
+          {id: 'pd-subs', type: 'slider', props: {name: 'subs', label: 'Subscriptions (£k/yr)', value: 62, min: 0, max: 200}},
+          {id: 'pd-services', type: 'slider', props: {name: 'services', label: 'Services (£k/yr)', value: 26, min: 0, max: 200}},
+          {id: 'pd-partners', type: 'slider', props: {name: 'partners', label: 'Partnerships (£k/yr)', value: 12, min: 0, max: 200}},
+        ],
+      },
+      {
+        id: 'pd-col-r',
+        type: 'column',
+        props: {span: 7},
+        children: [
+          {id: 'pd-donut', type: 'kitchart', props: {kind: 'donut', title: 'Revenue by stream (£k/yr)', labels: 'Subscriptions, Services, Partnerships', source: '[subs, services, partners]'}},
+          {id: 'pd-status', type: 'statuslight', props: {label: 'Recurring revenue ≥ 60%', source: 'recurring', okAt: 60, warnAt: 45}},
+        ],
+      },
+    ],
+  },
+  {id: 'pd-notes-3', type: 'notes', text: [{t: 'The money moment: drag Services up until the light drops to amber, then pull Subscriptions back past 60% and watch it recover. The maths is a one-line code block above the columns — open it if anyone asks.'}]},
+  {id: 'pd-div-3', type: 'divider'},
+
+  // Slide 4 — the quote
+  {id: 'pd-h4', type: 'heading', text: [{t: 'What early users say'}], props: {level: 2}},
+  {id: 'pd-quote', type: 'quote', text: [{t: 'We pitched with the model itself — when the room asked “what if churn doubles?”, we dragged a slider instead of promising a follow-up.'}]},
+  {id: 'pd-notes-4', type: 'notes', text: [{t: 'Pause after reading the quote — let it sit. If pressed for attribution, it’s a composite of three design-partner calls; offer intros rather than names.'}]},
+  {id: 'pd-div-4', type: 'divider'},
+
+  // Slide 5 — the ask
+  {id: 'pd-h5', type: 'heading', text: [{t: 'The ask'}], props: {level: 2}},
+  {id: 'pd-ask', type: 'paragraph', text: [{t: 'We’re raising '}, {t: '£1.2M', a: {b: true}}, {t: ' to take Brightloop from private beta to launch: two engineers, one designer, and twelve months of runway.'}]},
+  {id: 'pd-call2', type: 'callout', text: [{t: 'Make it yours: duplicate this page, swap in your numbers, and pitch with live charts instead of screenshots.'}], props: {variant: 'success'}},
+  {id: 'pd-notes-5', type: 'notes', text: [{t: 'Close with the concrete next step: a 30-minute working session in the live model this week. Stop talking after the ask.'}]},
+];
+
 // ════════════════════════════════════════════════════════════════════════════
 // Databases (the task board, reading list, and the swimlane + map e2e fixtures)
 // ════════════════════════════════════════════════════════════════════════════
@@ -597,6 +664,7 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', tags: ['interactive', 'slides'], create: createBlockDocPage(SAVINGS_BLOCKS)},
   {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', tags: ['database'], create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS)},
   {id: 'field-map', icon: '📍', pageName: 'Field map', tags: ['database'], create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS)},
+  {id: 'pitch-deck', icon: '📽️', pageName: 'Pitch deck', tags: ['interactive', 'slides'], create: createBlockDocPage(PITCH_DECK_BLOCKS)},
 ];
 
 /** Courtesy numbering (names are not unique): a second instance becomes

@@ -29,7 +29,7 @@ function stubClient(existing: string[]): DataClient {
   } as unknown as DataClient;
 }
 
-const BLOCK_DOC_IDS = ['grocery-tracker', 'project-intake', 'savings-planner'] as const;
+const BLOCK_DOC_IDS = ['grocery-tracker', 'project-intake', 'savings-planner', 'pitch-deck'] as const;
 const DATABASE_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map'] as const;
 
 /** Run a template against a stub and return the schema it created (database templates). */
@@ -65,16 +65,16 @@ function allBlocks(doc: ReturnType<typeof decodeSnapshot>): BlockMap[] {
 }
 
 describe('PAGE_TEMPLATES', () => {
-  it('has seven templates with unique ids, names, and icons', () => {
+  it('has eight templates with unique ids, names, and icons', () => {
     const ids = PAGE_TEMPLATES.map((t) => t.id);
     const names = PAGE_TEMPLATES.map((t) => t.pageName);
-    expect(PAGE_TEMPLATES).toHaveLength(7);
+    expect(PAGE_TEMPLATES).toHaveLength(8);
     expect(new Set(ids)).toEqual(new Set([...BLOCK_DOC_IDS, ...DATABASE_IDS]));
     expect(new Set(names).size).toBe(PAGE_TEMPLATES.length);
     for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
   });
 
-  it('builds block-doc artifacts for the three showcases and databases for the four fixtures', async () => {
+  it('builds block-doc artifacts for the showcases and databases for the four fixtures', async () => {
     for (const t of PAGE_TEMPLATES) {
       const client = stubClient([]);
       await t.create(client, t.pageName);
@@ -193,6 +193,33 @@ describe('savings & investing', () => {
     expect(scope.final as number).toBeGreaterThan(0);
     expect(String(scope.headline)).toContain('After 20 years');
     expect(scope.months).toBe(4.4); // 8000 / 1800
+  });
+});
+
+describe('pitch deck', () => {
+  it('is a five-slide deck with a note per slide and a live donut driven by the sliders', async () => {
+    const doc = await docOf('pitch-deck');
+    const roots = [...rootBlocks(doc)];
+    const topTypes = roots.map((b) => blockType(b));
+    // Five slides = four top-level dividers, and speaker notes on every slide.
+    expect(topTypes.filter((t) => t === 'divider').length).toBe(4);
+    expect(topTypes.filter((t) => t === 'notes').length).toBe(5);
+    // The first callout teaches the ⋯ → Present entry point.
+    const callouts = allBlocks(doc).filter((b) => blockType(b) === 'callout');
+    expect(callouts.length).toBeGreaterThanOrEqual(2);
+
+    // The showcase chart kind: a donut (not used by any other template).
+    const donut = allBlocks(doc).find((b) => (blockType(b) as string) === 'kitchart')!;
+    expect(blockProp<string>(donut, 'kind')).toBe('donut');
+
+    // Sliders → recurring-revenue share: 62 / (62 + 26 + 12) = 62%.
+    const {scope} = computeScope(doc);
+    expect(scope.recurring).toBe(62);
+  });
+
+  it('tags itself interactive + slides', () => {
+    const template = PAGE_TEMPLATES.find((t) => t.id === 'pitch-deck') as PageTemplate;
+    expect(template.tags).toEqual(['interactive', 'slides']);
   });
 });
 
