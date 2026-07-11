@@ -138,6 +138,8 @@ export const ja: PartialMessages = {
     openSplit: '分割ビューで開く',
     rename: '名前を変更',
     copyLink: 'リンクをコピー',
+    copyLinkLocalOnly: 'このリンクはこのデバイスでのみ機能します。他の人に送れるリンクを取得するには、このワークスペースを公開してください。',
+    copyLinkPublish: '公開',
     duplicate: '複製',
     sectionPage: 'ページ',
     block: {

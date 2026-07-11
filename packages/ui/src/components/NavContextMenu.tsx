@@ -36,7 +36,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import {useHud, useNavigation, useTranslation} from '@/providers';
-import {copyPageLink} from '@/lib/pageActions';
+import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {togglePageFullWidth, usePageFullWidth} from '@/lib/pageFullWidth';
 import {isFavorite, toggleFavorite} from '@/lib/favorites';
 import {formatShortcut, SHORTCUTS} from '@/lib/shortcuts';
@@ -69,6 +69,7 @@ export default function NavContextMenu({pageId}: {pageId?: string | null} = {}) 
   const {setHud} = useHud();
   const {openInNew, openInSplit, currentPageId: focusedPageId} = useNavigation();
   const {t} = useTranslation();
+  const copyLink = useCopyPageLink();
   const currentPageId = pageId !== undefined ? pageId : focusedPageId;
   const isHome = currentPageId === HOME_PAGE_ID;
   const fav = !!currentPageId && !isHome && isFavorite(currentPageId);
@@ -173,7 +174,7 @@ export default function NavContextMenu({pageId}: {pageId?: string | null} = {}) 
         </DropdownMenuItem>
         <DropdownMenuItem
           disabled={!currentPageId}
-          onClick={() => currentPageId && void copyPageLink(currentPageId)}
+          onClick={() => currentPageId && copyLink(currentPageId)}
         >
           <Link2 className="mr-2 h-4 w-4" />
           {t('menu.copyLink')}

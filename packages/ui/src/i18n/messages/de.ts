@@ -139,6 +139,8 @@ export const de: PartialMessages = {
     openSplit: 'In geteilter Ansicht öffnen',
     rename: 'Umbenennen',
     copyLink: 'Link kopieren',
+    copyLinkLocalOnly: 'Dieser Link funktioniert nur auf diesem Gerät. Veröffentliche diesen Arbeitsbereich, um einen versendbaren Link zu erhalten.',
+    copyLinkPublish: 'Veröffentlichen',
     duplicate: 'Duplizieren',
     sectionPage: 'Seite',
     block: {

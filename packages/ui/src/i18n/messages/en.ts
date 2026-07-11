@@ -197,6 +197,8 @@ export const en = {
     unfavorite: 'Remove from favorites',
     rename: 'Rename',
     copyLink: 'Copy link',
+    copyLinkLocalOnly: 'This link only works on this device. Publish this workspace to get a link you can send.',
+    copyLinkPublish: 'Publish',
     duplicate: 'Duplicate',
     addSubpage: 'Add subpage',
     addDatabase: 'Add database',

@@ -138,6 +138,8 @@ export const zh: PartialMessages = {
     openSplit: '在拆分视图中打开',
     rename: '重命名',
     copyLink: '复制链接',
+    copyLinkLocalOnly: '此链接仅在本设备上有效。发布此工作区即可获得可分享的链接。',
+    copyLinkPublish: '发布',
     duplicate: '创建副本',
     sectionPage: '页面',
     block: {

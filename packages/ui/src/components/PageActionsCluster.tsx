@@ -4,7 +4,7 @@ import {useTranslation} from '@/providers';
 import {IconButton} from '@/components/ui/icon-button';
 import NavContextMenu from '@/components/NavContextMenu';
 import ShareDialog, {useSharingCapability} from '@/components/ShareDialog';
-import {copyPageLink} from '@/lib/pageActions';
+import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
 import {pageSaveStatus, pageSaveStatusVersion, subscribePageSaveStatus} from '@/lib/pageSaveStatus';
 import {FLOW_PANE_ID, HOME_PAGE_ID} from '@/lib/homePage';
@@ -43,6 +43,9 @@ export default function PageActionsCluster({pageId}: {pageId: string | null}) {
   // The Share control shows whenever the server supports sharing — a
   // non-manager gets the read-only "who can access" view instead of nothing.
   const sharing = useSharingCapability();
+  // Guards the desktop dead-link case (SHR-1): copy on an unpublished desktop
+  // toasts + points at publishing rather than silently copying a dead link.
+  const copyLink = useCopyPageLink();
 
   return (
     <div className="flex items-center gap-0.5">
@@ -58,7 +61,7 @@ export default function PageActionsCluster({pageId}: {pageId: string | null}) {
       <IconButton
         size="sm"
         disabled={!actionable}
-        onClick={() => targetPageId && void copyPageLink(targetPageId)}
+        onClick={() => targetPageId && copyLink(targetPageId)}
         aria-label={t('menu.copyLink')}
         title={t('menu.copyLink')}
       >

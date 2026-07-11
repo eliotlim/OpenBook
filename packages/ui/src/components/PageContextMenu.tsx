@@ -21,7 +21,8 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
-import {copyPageLink, requestMovePage, requestRenamePage} from '@/lib/pageActions';
+import {requestMovePage, requestRenamePage} from '@/lib/pageActions';
+import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {isFavorite, toggleFavorite} from '@/lib/favorites';
 
 /**
@@ -33,6 +34,7 @@ export function PageMenuItems({pageId}: {pageId: string}) {
   const confirm = useConfirm();
   const {preferences} = usePreferences();
   const {t} = useTranslation();
+  const copyLink = useCopyPageLink();
 
   const onDelete = useCallback(async () => {
     // Skip the confirm when the user has turned it off in General settings.
@@ -82,7 +84,7 @@ export function PageMenuItems({pageId}: {pageId: string}) {
         <Pencil className="mr-2 h-4 w-4" />
         {t('menu.rename')}
       </ContextMenuItem>
-      <ContextMenuItem onSelect={() => void copyPageLink(pageId)}>
+      <ContextMenuItem onSelect={() => copyLink(pageId)}>
         <Link2 className="mr-2 h-4 w-4" />
         {t('menu.copyLink')}
       </ContextMenuItem>
