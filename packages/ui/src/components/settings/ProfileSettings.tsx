@@ -33,7 +33,7 @@ export default function ProfileSettings() {
   const {name: shownName, profile: shownProfile} = useSelfIdentity();
 
   return (
-    <SettingsScreen title={t('profile.title')} description={t('profile.description')}>
+    <SettingsScreen title={t('profile.title')} description={t('profile.description')} scope="account">
       <SettingsSection title={t('profile.identity')}>
         {/* The avatar: initials by default (derived from the name), or an
             emoji, or an uploaded image — pick one, reset any time. */}

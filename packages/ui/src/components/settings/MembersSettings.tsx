@@ -251,7 +251,7 @@ export default function MembersSettings() {
   }, [info, t]);
 
   return (
-    <SettingsScreen title={t('members.title')} description={t('members.description')}>
+    <SettingsScreen title={t('members.title')} description={t('members.description')} scope="workspace">
       {unavailable ? (
         <p className="text-sm text-muted-foreground">{t('members.unavailable')}</p>
       ) : canManage === null ? (

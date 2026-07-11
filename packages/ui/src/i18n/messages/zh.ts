@@ -39,6 +39,11 @@ export const zh: PartialMessages = {
       admin: '数据与备份',
       diagnostics: '诊断',
     },
+    scope: {
+      device: '此设备',
+      workspace: '此工作区',
+      account: '你的账户',
+    },
   },
   appearance: {
     title: '外观',

@@ -18,7 +18,7 @@ export default function AccountSettings() {
   const {status, accounts, error, signIn, submitCode, cancel} = useAccount();
 
   return (
-    <SettingsScreen title={t('account.signin.title')} description={t('account.signin.description')}>
+    <SettingsScreen title={t('account.signin.title')} description={t('account.signin.description')} scope="account">
       {accounts.length === 0 ? (
         <SettingsSection>
           {status === 'connecting' ? (

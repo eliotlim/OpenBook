@@ -43,6 +43,11 @@ export const en = {
       admin: 'Data & backups',
       diagnostics: 'Diagnostics',
     },
+    scope: {
+      device: 'This device',
+      workspace: 'This workspace',
+      account: 'Your account',
+    },
   },
   appearance: {
     title: 'Appearance',

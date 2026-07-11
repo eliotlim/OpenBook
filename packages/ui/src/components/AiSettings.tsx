@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useState, type ReactNode} from 'react';
 import {ChevronDown, ChevronRight, Trash2} from 'lucide-react';
 import {providerSettings, type AiConfig, type AiEffort, type AiProvider, type AiProviderSettings, type AiSkill, type AiStatus} from '@book.dev/sdk';
-import {SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
+import {ScopeChip, SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
 import AiUsageSettings from '@/components/settings/AiUsageSettings';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
@@ -105,7 +105,7 @@ export default function AiSettings() {
 
   if (!draft) {
     return (
-      <SettingsScreen title={t('settings.tab.ai')}>
+      <SettingsScreen title={t('settings.tab.ai')} scope="workspace">
         <p className="text-sm text-muted-foreground">…</p>
       </SettingsScreen>
     );
@@ -276,7 +276,7 @@ export default function AiSettings() {
   };
 
   return (
-    <SettingsScreen title={t('settings.tab.ai')} description={t('ai.description')}>
+    <SettingsScreen title={t('settings.tab.ai')} description={t('ai.description')} scope="workspace">
       <SettingsSection title={t('ai.defaultEngine')} description={t('ai.defaultEngineHint')}>
         <div className="flex flex-col gap-1.5" role="radiogroup" aria-label={t('ai.providerLabel')}>
           {providers.map((p) => (
@@ -341,6 +341,9 @@ export default function AiSettings() {
       )}
 
       <SettingsSection title={t('ai.features')} description={t('ai.featuresHint')}>
+        {/* Feature visibility is stored locally, so it's a per-device exception
+            to this otherwise workspace-scoped screen. */}
+        <ScopeChip scope="device" />
         <div className="flex flex-col gap-2">
           {AI_FEATURES.map((f) => (
             <div key={f.id} className="flex items-center justify-between gap-4">

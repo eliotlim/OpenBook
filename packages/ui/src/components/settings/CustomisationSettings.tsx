@@ -58,7 +58,7 @@ export default function CustomisationSettings() {
   ];
 
   return (
-    <SettingsScreen title={t('customisation.title')} description={t('customisation.description')}>
+    <SettingsScreen title={t('customisation.title')} description={t('customisation.description')} scope="device">
       <SettingsSection title={t('customisation.layout')}>
         {/* Full width is now a per-page choice (page "…" menu / ⌘. / the page's
             customise pane), so it's no longer a global switch here. */}

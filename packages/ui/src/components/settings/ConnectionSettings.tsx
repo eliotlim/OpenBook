@@ -63,7 +63,7 @@ export default function ConnectionSettings() {
   }, []);
 
   return (
-    <SettingsScreen title={t('connection.title')} description={t('connection.description')}>
+    <SettingsScreen title={t('connection.title')} description={t('connection.description')} scope="device">
       <SettingsSection title={t('connection.server')}>
         <p className="text-sm text-muted-foreground">
           {connected ? (

@@ -306,7 +306,7 @@ export default function DiagnosticsSettings() {
   const {t} = useTranslation();
   const {remintIdentity, identityIssuance} = useAccount();
   return (
-    <SettingsScreen title={t('diagnostics.title')} description={t('diagnostics.description')}>
+    <SettingsScreen title={t('diagnostics.title')} description={t('diagnostics.description')} scope="device">
       <DiagnosticsBody issuance={identityIssuance} onRefreshIdentity={remintIdentity} />
     </SettingsScreen>
   );

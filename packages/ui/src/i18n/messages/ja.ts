@@ -39,6 +39,11 @@ export const ja: PartialMessages = {
       admin: 'データとバックアップ',
       diagnostics: '診断',
     },
+    scope: {
+      device: 'このデバイス',
+      workspace: 'このワークスペース',
+      account: 'あなたのアカウント',
+    },
   },
   appearance: {
     title: '外観',

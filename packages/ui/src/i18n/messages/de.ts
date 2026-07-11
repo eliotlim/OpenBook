@@ -39,6 +39,11 @@ export const de: PartialMessages = {
       admin: 'Daten & Backups',
       diagnostics: 'Diagnose',
     },
+    scope: {
+      device: 'Dieses Gerät',
+      workspace: 'Dieser Arbeitsbereich',
+      account: 'Dein Konto',
+    },
   },
   appearance: {
     title: 'Darstellung',

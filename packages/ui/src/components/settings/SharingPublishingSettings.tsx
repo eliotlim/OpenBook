@@ -261,6 +261,7 @@ export default function SharingPublishingSettings() {
     <SettingsScreen
       title={t('sharingScreen.title')}
       description={t(browserLocal ? 'sharingScreen.webDescription' : 'sharingScreen.description')}
+      scope="workspace"
     >
       {browserLocal && <BrowserLocalPointerSection />}
       <ForwardingSection />

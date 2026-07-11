@@ -1,6 +1,34 @@
 import {type ComponentType, type ReactNode} from 'react';
 import {Switch} from '@/components/ui/switch';
+import {useTranslation} from '@/providers';
+import type {TKey} from '@/i18n';
 import {cn} from '@/lib/utils';
+
+/** Where a setting takes effect: only this browser/device, the whole workspace
+ *  (server-side, shared by everyone), or your account across devices. */
+export type SettingsScope = 'device' | 'workspace' | 'account';
+
+const SCOPE_LABEL: Record<SettingsScope, TKey> = {
+  device: 'settings.scope.device',
+  workspace: 'settings.scope.workspace',
+  account: 'settings.scope.account',
+};
+
+/** A small muted pill naming where a setting applies (device / workspace /
+ *  account). Used under a screen title, and inline to flag an exception. */
+export function ScopeChip({scope, className}: {scope: SettingsScope; className?: string}) {
+  const {t} = useTranslation();
+  return (
+    <span
+      className={cn(
+        'inline-flex w-fit items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground',
+        className,
+      )}
+    >
+      {t(SCOPE_LABEL[scope])}
+    </span>
+  );
+}
 
 /**
  * Shared layout for a settings sub-screen: a title, an optional lead paragraph,
@@ -10,16 +38,20 @@ import {cn} from '@/lib/utils';
 export function SettingsScreen({
   title,
   description,
+  scope,
   children,
 }: {
   title: string;
   description?: string;
+  /** Renders a muted scope chip under the title. */
+  scope?: SettingsScope;
   children: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-7">
       <div className="flex flex-col gap-1">
         <h3 className="text-lg font-semibold">{title}</h3>
+        {scope && <ScopeChip scope={scope} className="mt-1" />}
         {description && <p className="text-sm text-muted-foreground">{description}</p>}
       </div>
       {children}
