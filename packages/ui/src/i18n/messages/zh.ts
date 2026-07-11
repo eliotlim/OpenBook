@@ -206,6 +206,12 @@ export const zh: PartialMessages = {
       read: '当前工作区默认设置允许所有可访问者查看。',
       off: '当前工作区默认设置仅允许成员访问。',
     },
+    effectiveDefault: {
+      public: '当前工作区默认设置让继承的页面对所有持有链接的人可见。',
+      authenticated: '当前工作区默认设置将继承的页面限制为已登录的人。',
+      members: '当前工作区默认设置将继承的页面限制为工作区成员。',
+      restricted: '当前工作区默认设置将继承的页面限制为你和受邀者。',
+    },
     manageWorkspace: '工作区共享设置',
     manageMembers: '管理成员',
     error: {

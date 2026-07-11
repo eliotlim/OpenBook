@@ -177,9 +177,13 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   //   • `'claimed'`: scopes are enforced on direct access; the forwarded-link
   //     caveat below applies (Parker #1).
   const [claimStatus, setClaimStatus] = useState<'loading' | 'claimed' | 'unclaimed'>('loading');
-  // The workspace guest gate — what `inherit` actually resolves to right now.
-  // `null` until the instance lookup lands (the line simply stays hidden).
+  // The workspace guest gate — what `inherit` resolves to on an *unclaimed*
+  // instance (rule-0 short-circuit). `null` until the instance lookup lands.
   const [guestAccess, setGuestAccess] = useState<GuestAccess | null>(null);
+  // The root default scope `inherit` resolves to once *claimed* (SHR-6). `null`
+  // until the lookup lands, or on a pre-SHR-6 server that doesn't report it — in
+  // which case the summary falls back to the guest-gate line below.
+  const [defaultVisibility, setDefaultVisibility] = useState<Exclude<PageVisibility, 'inherit'> | null>(null);
 
   const [invitee, setInvitee] = useState('');
   const [level, setLevel] = useState<AclLevel>('read');
@@ -252,6 +256,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
         if (!live) return;
         setClaimStatus(info.ownerSubject ? 'claimed' : 'unclaimed');
         setGuestAccess(info.guestAccess);
+        setDefaultVisibility(info.defaultVisibility ?? null);
       })
       .catch(() => {
         /* leave both disclosures hidden (stay 'loading') — the dialog still works */
@@ -388,11 +393,20 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                 </button>
               )}
               <p className="text-xs text-muted-foreground">{t(SCOPE_LABEL[scope].hint)}</p>
-              {/* What "Workspace default" resolves to right now, so `inherit`
-                  is never a mystery box (the effective-access summary). */}
-              {scope === 'inherit' && guestAccess !== null && (
-                <p className="text-xs text-muted-foreground">{t(`share.effective.${guestAccess}`)}</p>
-              )}
+              {/* What "Workspace default" resolves to right now, so `inherit` is
+                  never a mystery box (SHR-6). On a CLAIMED instance that's the root
+                  `defaultVisibility` (e.g. members only); only on an unclaimed one
+                  does the legacy guest gate govern — reading the guest gate for a
+                  claimed instance was the bug. Falls back to the guest-gate line
+                  when a pre-SHR-6 server doesn't report the default. */}
+              {scope === 'inherit' &&
+                (claimStatus === 'claimed' && defaultVisibility !== null ? (
+                  <p className="text-xs text-muted-foreground">
+                    {t(`share.effectiveDefault.${defaultVisibility}`)}
+                  </p>
+                ) : guestAccess !== null ? (
+                  <p className="text-xs text-muted-foreground">{t(`share.effective.${guestAccess}`)}</p>
+                ) : null)}
               {/* The origin already enforces every scope for forwarded requests
                   too (a non-grantee 404s — fail-safe, never a leak). The real gap
                   is that a legitimate grantee can't yet *open* a restricted page

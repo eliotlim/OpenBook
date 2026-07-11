@@ -278,6 +278,14 @@ export const en = {
       read: 'Right now the workspace default lets anyone who can reach it view.',
       off: 'Right now the workspace default limits access to members.',
     },
+    // The effective default once the instance is claimed (SHR-6) — what `inherit`
+    // resolves to via the root `defaultVisibility`, not the guest gate above.
+    effectiveDefault: {
+      public: 'Right now the workspace default makes inherited pages visible to anyone with the link.',
+      authenticated: 'Right now the workspace default limits inherited pages to anyone signed in.',
+      members: 'Right now the workspace default limits inherited pages to workspace members.',
+      restricted: 'Right now the workspace default limits inherited pages to you and people invited to them.',
+    },
     manageWorkspace: 'Workspace sharing settings',
     manageMembers: 'Manage members',
     error: {

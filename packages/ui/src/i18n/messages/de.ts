@@ -210,6 +210,12 @@ export const de: PartialMessages = {
       read: 'Derzeit erlaubt der Workspace-Standard allen mit Zugang das Ansehen.',
       off: 'Derzeit beschränkt der Workspace-Standard den Zugriff auf Mitglieder.',
     },
+    effectiveDefault: {
+      public: 'Derzeit macht der Workspace-Standard geerbte Seiten für alle mit dem Link sichtbar.',
+      authenticated: 'Derzeit beschränkt der Workspace-Standard geerbte Seiten auf angemeldete Personen.',
+      members: 'Derzeit beschränkt der Workspace-Standard geerbte Seiten auf Workspace-Mitglieder.',
+      restricted: 'Derzeit beschränkt der Workspace-Standard geerbte Seiten auf dich und dazu eingeladene Personen.',
+    },
     manageWorkspace: 'Freigabe-Einstellungen des Workspace',
     manageMembers: 'Mitglieder verwalten',
     error: {

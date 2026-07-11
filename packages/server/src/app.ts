@@ -907,6 +907,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience ?? null,
       requireAudience: config.requireAudience ?? false,
+      // What `visibility='inherit'` resolves to at the root once claimed — so a
+      // client can show the TRUE effective default behind "Workspace default"
+      // (SHR-6), not just the unclaimed-only guest gate. Never `inherit`.
+      defaultVisibility: config.defaultVisibility ?? null,
       you: principal,
       // The hatch grants owner authority regardless of `you`, so it must read as
       // `owner` here too — otherwise a drifted `ownerSubject` sinks the local owner
