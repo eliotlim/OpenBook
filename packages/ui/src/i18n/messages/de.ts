@@ -957,7 +957,7 @@ export const de: PartialMessages = {
       chart: {
         missing: 'Ein Diagramm gruppiert Zeilen nach einer Eigenschaft — diese Datenbank hat noch keine. Erstelle eine, um loszulegen.',
         pick: 'Ein Diagramm gruppiert Zeilen nach einer Eigenschaft. Wähle die Gruppierung.',
-        create: 'Auswahl-Eigenschaft erstellen und verwenden',
+        create: 'Kategorie-Eigenschaft erstellen und verwenden',
         pickLabel: 'Gruppierungs-Eigenschaft des Diagramms',
       },
       newProperty: {

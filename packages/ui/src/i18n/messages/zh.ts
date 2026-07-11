@@ -951,7 +951,7 @@ export const zh: PartialMessages = {
       chart: {
         missing: '图表按属性对行分组，但此数据库还没有属性。创建一个即可开始绘图。',
         pick: '图表按属性对行分组。请选择用于分组的属性。',
-        create: '创建单选属性并使用',
+        create: '创建类别属性并使用',
         pickLabel: '图表分组属性',
       },
       newProperty: {

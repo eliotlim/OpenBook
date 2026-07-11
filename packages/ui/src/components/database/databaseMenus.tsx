@@ -1745,9 +1745,13 @@ export const ViewOptionsMenu: React.FC<{
   const setOpen = onOpenChange ?? setInternalOpen;
   const properties = db.database!.schema.properties;
   /** One-click "+ New … property" sentinel action: create the typed property
-   *  and point this view's `field` at it, atomically (see addPropertyForView). */
+   *  and point this view's `field` at it, atomically (see addPropertyForView).
+   *  On success the popover closes to reveal the freshly-configured view (and
+   *  sidesteps Escape being flaky right after the schema-save re-render). */
   const createFor = (kind: Parameters<typeof setupPropertyInput>[0], field: Parameters<UseDatabase['addPropertyForView']>[2], opts?: {range?: boolean}): void => {
-    void db.addPropertyForView(view.id, setupPropertyInput(kind, properties, t, opts), field);
+    void db.addPropertyForView(view.id, setupPropertyInput(kind, properties, t, opts), field).then((id) => {
+      if (id) setOpen(false);
+    });
   };
   const groupable = properties; // any property can group
   const numericProps = properties.filter((p) => p.type === 'number' || p.type === 'formula' || p.type === 'expr');

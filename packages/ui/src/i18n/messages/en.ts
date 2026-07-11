@@ -1409,7 +1409,7 @@ export const en = {
       chart: {
         missing: 'A chart groups rows by a property, and this database has no properties yet. Create one to start charting.',
         pick: 'A chart groups rows by a property. Choose the one to group by.',
-        create: 'Create a Select property and use it',
+        create: 'Create a Category property and use it',
         pickLabel: 'Chart group-by property',
       },
       newProperty: {

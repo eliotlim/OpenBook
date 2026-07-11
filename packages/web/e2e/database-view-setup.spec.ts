@@ -116,7 +116,9 @@ test('view options sentinel: "+ New date property" creates and wires the start d
   await addView(page, 'Timeline');
 
   await chooseLabel(page, page.getByLabel('Start date'), '+ New date property');
-  await closeViewOptions(page);
+  // A successful sentinel create closes the popover by itself, revealing the
+  // freshly-configured view — no toggle-to-close dance needed.
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
 
   await expect(page.getByText(/click anywhere on the timeline to add one/i)).toBeVisible();
   await expect(page.locator('div[title="Today"]')).toBeVisible();
@@ -129,7 +131,8 @@ test('view options sentinel: "+ New dependency property" creates and wires depen
   await addView(page, 'Graph');
 
   await chooseLabel(page, page.getByLabel('Dependencies'), '+ New dependency property');
-  await closeViewOptions(page);
+  // The sentinel create closes the popover on its own.
+  await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
 
   // The graph view mounts (no rows yet), and the column exists in the table.
   await expect(page.getByText('No rows yet.')).toBeVisible();
