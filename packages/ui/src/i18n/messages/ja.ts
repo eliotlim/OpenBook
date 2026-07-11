@@ -548,6 +548,10 @@ export const ja: PartialMessages = {
       name: 'ピッチデッキ',
       description: '発表者ノート付きの5枚のスライド — プレゼン中に動かせるライブな収益構成ドーナツチャート入り。',
     },
+    compoundGrowth: {
+      name: '複利成長',
+      description: 'おなじみのサンプル文書を新しいコピーで — 月数スライダーが4本の複利曲線をライブチャートに描きます。',
+    },
   },
   blocks: {
     subpagePage: 'ページ',

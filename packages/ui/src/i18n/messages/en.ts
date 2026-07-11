@@ -886,6 +886,10 @@ export const en = {
       name: 'Pitch deck',
       description: 'Five present-ready slides with speaker notes — including a live revenue-mix donut you drag mid-pitch.',
     },
+    compoundGrowth: {
+      name: 'Compound growth',
+      description: 'The classic sample, as a fresh copy — a months slider feeds four compound-growth curves on a live chart.',
+    },
   },
   blocks: {
     subpagePage: 'Page',

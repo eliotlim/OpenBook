@@ -1,6 +1,7 @@
 import type {DataClient} from './client';
 import type {PageSnapshot, StoredPage} from './types';
 import type {DatabaseSchema} from './database';
+import {buildSampleDocument} from './sampleDocument';
 
 /**
  * The built-in **template gallery**: ready-made pages instantiated client-side
@@ -32,7 +33,7 @@ export type TemplateTag = 'interactive' | 'slides' | 'database';
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
-  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck';
+  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth';
   /** Emoji shown on the gallery card and applied to the created page. */
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
@@ -667,6 +668,11 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', tags: ['database'], create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS)},
   {id: 'field-map', icon: '📍', pageName: 'Field map', tags: ['database'], create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS)},
   {id: 'pitch-deck', icon: '📽️', pageName: 'Pitch deck', tags: ['interactive', 'slides'], create: createBlockDocPage(PITCH_DECK_BLOCKS)},
+  // The classic sample document, folded into the gallery. Unlike the Home
+  // starter's open-or-create (which targets the canonical sample name and never
+  // overwrites), the gallery card always mints a FRESH copy under its own
+  // display name — the two entry points never race or shadow each other.
+  {id: 'compound-growth', icon: '📈', pageName: 'Compound growth', tags: ['interactive'], create: (client, name) => client.savePage({...buildSampleDocument(), name})},
 ];
 
 /** Courtesy numbering (names are not unique): a second instance becomes

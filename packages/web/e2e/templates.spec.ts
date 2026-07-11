@@ -27,7 +27,7 @@ test('gallery: lists every template with names and descriptions', {tag: ['@shell
   await hydrated(page);
   await openGallery(page);
 
-  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck']) {
+  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck', 'Compound growth']) {
     await expect(page.getByRole('button', {name: new RegExp(name)})).toBeVisible();
   }
   await takeSnapshot(page, testInfo); // visual: the template gallery
@@ -144,6 +144,20 @@ test('pitch deck: a five-slide deck with a live donut and speaker notes in the p
 
   await page.keyboard.press('Escape');
   await expect(present).toHaveCount(0);
+});
+
+test('compound growth: the sample document as a fresh gallery copy', {tag: ['@shell']}, async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'compound-growth');
+
+  // A fresh copy under the gallery's own name (not the Home starter's
+  // "Compound Growth (sample)" — that open-or-create entry point is separate).
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Compound growth/);
+  // The months slider feeds four compound-growth curves on one live chart.
+  const chart = page.locator('.obe-kit-chart[data-chart-kind="line"]');
+  await expect(chart).toBeVisible();
+  await expect(chart.locator('svg polyline')).toHaveCount(4);
+  await expect(chart.locator('.obe-chart-legend text', {hasText: '10%'})).toBeVisible();
 });
 
 test('instantiating a template twice suffixes the page and row names (names are unique)', {tag: ['@shell']}, async ({page}) => {

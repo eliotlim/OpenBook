@@ -549,6 +549,10 @@ export const de: PartialMessages = {
       name: 'Pitch-Deck',
       description: 'Fünf präsentationsfertige Folien mit Sprechernotizen — inklusive Live-Umsatz-Donut zum Ziehen während des Pitches.',
     },
+    compoundGrowth: {
+      name: 'Zinseszins-Wachstum',
+      description: 'Das klassische Beispieldokument als frische Kopie — ein Monats-Regler speist vier Zinseszins-Kurven in ein Live-Diagramm.',
+    },
   },
   blocks: {
     subpagePage: 'Seite',

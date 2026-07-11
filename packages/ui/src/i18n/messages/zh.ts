@@ -545,6 +545,10 @@ export const zh: PartialMessages = {
       name: '路演幻灯片',
       description: '五张可直接演示的幻灯片，附演讲者备注——包括一张路演时可实时拖动的收入构成环形图。',
     },
+    compoundGrowth: {
+      name: '复利增长',
+      description: '经典示例文档的全新副本——月数滑块驱动实时图表上的四条复利曲线。',
+    },
   },
   blocks: {
     subpagePage: '页面',

@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from 'vitest';
-import {PAGE_TEMPLATES, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
+import {PAGE_TEMPLATES, SAMPLE_DOCUMENT_NAME, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
 import type {DatabaseSchema, DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
 import {decodeSnapshot, rootBlocks, walkBlocks, blockProp, blockType, type BlockDocSnapshot, type BlockMap} from '@/blockeditor/model';
 import {computeScope, evalExpr} from '@/blockeditor/kit/scope';
@@ -29,7 +29,11 @@ function stubClient(existing: string[]): DataClient {
   } as unknown as DataClient;
 }
 
-const BLOCK_DOC_IDS = ['grocery-tracker', 'project-intake', 'savings-planner', 'pitch-deck'] as const;
+/** Block-doc showcases shaped as slide decks (tagged `slides`): divider-cut
+ *  slides, speaker notes, and the full visual kit. */
+const SLIDE_DECK_IDS = ['grocery-tracker', 'project-intake', 'savings-planner', 'pitch-deck'] as const;
+/** Every block-doc template (the decks plus the single-page sample doc). */
+const BLOCK_DOC_IDS = [...SLIDE_DECK_IDS, 'compound-growth'] as const;
 const DATABASE_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map'] as const;
 
 /** Run a template against a stub and return the schema it created (database templates). */
@@ -65,10 +69,10 @@ function allBlocks(doc: ReturnType<typeof decodeSnapshot>): BlockMap[] {
 }
 
 describe('PAGE_TEMPLATES', () => {
-  it('has eight templates with unique ids, names, and icons', () => {
+  it('has nine templates with unique ids, names, and icons', () => {
     const ids = PAGE_TEMPLATES.map((t) => t.id);
     const names = PAGE_TEMPLATES.map((t) => t.pageName);
-    expect(PAGE_TEMPLATES).toHaveLength(8);
+    expect(PAGE_TEMPLATES).toHaveLength(9);
     expect(new Set(ids)).toEqual(new Set([...BLOCK_DOC_IDS, ...DATABASE_IDS]));
     expect(new Set(names).size).toBe(PAGE_TEMPLATES.length);
     for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
@@ -90,29 +94,38 @@ describe('PAGE_TEMPLATES', () => {
 });
 
 describe('block-doc artifacts', () => {
-  it('every showcase is slide-able (dividers), has speaker notes, and hides its code by default', async () => {
-    for (const id of BLOCK_DOC_IDS) {
+  it('every slide deck is slide-able (dividers) and has speaker notes', async () => {
+    for (const id of SLIDE_DECK_IDS) {
       const doc = await docOf(id);
       const roots = [...rootBlocks(doc)];
       const topTypes = roots.map((b) => blockType(b));
       expect(topTypes.filter((t) => t === 'divider').length, `${id}: dividers`).toBeGreaterThanOrEqual(1);
       expect(topTypes.filter((t) => t === 'notes').length, `${id}: notes`).toBeGreaterThanOrEqual(2);
+    }
+  });
 
-      const code = allBlocks(doc).filter((b) => blockType(b) === 'code' && blockProp<boolean>(b, 'live'));
+  it('every block doc has live code, hidden by default', async () => {
+    for (const id of BLOCK_DOC_IDS) {
+      const code = allBlocks(await docOf(id)).filter((b) => blockType(b) === 'code' && blockProp<boolean>(b, 'live'));
       expect(code.length, `${id}: live code`).toBeGreaterThanOrEqual(1);
       // The brief: interactive code is present but hidden by default.
       for (const c of code) expect(blockProp<boolean>(c, 'collapsed'), `${id}: collapsed code`).toBe(true);
     }
   });
 
-  it('every showcase carries the visual kit (charts, status lights, columns, callouts)', async () => {
-    for (const id of BLOCK_DOC_IDS) {
+  it('every slide deck carries the visual kit (charts, status lights, columns, callouts)', async () => {
+    for (const id of SLIDE_DECK_IDS) {
       const types = new Set(allBlocks(await docOf(id)).map((b) => blockType(b) as string));
       expect(types.has('kitchart'), `${id}: chart`).toBe(true);
       expect(types.has('statuslight'), `${id}: status light`).toBe(true);
       expect(types.has('columns'), `${id}: columns`).toBe(true);
       expect(types.has('callout'), `${id}: callout`).toBe(true);
     }
+  });
+
+  it('the slide decks are exactly the templates tagged `slides`', () => {
+    const tagged = PAGE_TEMPLATES.filter((t) => t.tags.includes('slides')).map((t) => t.id);
+    expect(new Set(tagged)).toEqual(new Set(SLIDE_DECK_IDS));
   });
 
   it('every reactive expression evaluates without error', async () => {
@@ -223,6 +236,29 @@ describe('pitch deck', () => {
   it('tags itself interactive + slides', () => {
     const template = PAGE_TEMPLATES.find((t) => t.id === 'pitch-deck') as PageTemplate;
     expect(template.tags).toEqual(['interactive', 'slides']);
+  });
+});
+
+describe('compound growth (the sample document, in the gallery)', () => {
+  it('mints a fresh copy of the sample under its own name', async () => {
+    const template = PAGE_TEMPLATES.find((t) => t.id === 'compound-growth') as PageTemplate;
+    expect(template.tags).toEqual(['interactive']);
+    // The gallery name must NOT be the canonical sample name: the Home
+    // starter's idempotent open-or-create targets that name, and the gallery
+    // must never shadow it (nor vice versa).
+    expect(template.pageName).not.toBe(SAMPLE_DOCUMENT_NAME);
+
+    // Always a fresh page (a plain save — no open-or-create probing).
+    const client = stubClient([template.pageName]);
+    await template.create(client, `${template.pageName} 2`);
+    expect(client.savePage).toHaveBeenCalledWith(expect.objectContaining({name: `${template.pageName} 2`}));
+  });
+
+  it('drives four growth curves off the months slider', async () => {
+    const {scope} = computeScope(await docOf('compound-growth'));
+    const growth = scope.growth as Record<string, number[]>;
+    expect(Object.keys(growth)).toEqual(['3%', '5%', '7%', '10%']);
+    for (const curve of Object.values(growth)) expect(curve).toHaveLength(120); // months default
   });
 });
 
