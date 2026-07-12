@@ -40,7 +40,7 @@ export interface SiteBundle {
   pages: SitePage[];
   /**
    * The LOSSLESS source bundle — the raw {@link StoredPage}/{@link StoredDatabase}
-   * records gathered during the crawl, in the `openbook.space.json` shape. This
+   * records gathered during the crawl, in the `openbook.library.json` shape. This
    * is what the site export embeds as its source island (nesting + properties +
    * databases survive, which the flattened {@link SitePage}s don't carry). The
    * root uses the live in-memory snapshot so unsaved edits export faithfully.

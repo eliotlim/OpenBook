@@ -291,6 +291,7 @@ export {
   libraryIslandScript,
   readLibraryIsland,
   SPACE_BUNDLE_FILE,
+  LEGACY_SPACE_BUNDLE_FILE,
   type BookFolderFile,
   type LibrarySnapshot,
   type LibraryToBookFilesOptions,

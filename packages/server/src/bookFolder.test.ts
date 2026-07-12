@@ -7,6 +7,7 @@ import {
   libraryToBookFiles,
   parseBookFolder,
   SPACE_BUNDLE_FILE,
+  LEGACY_SPACE_BUNDLE_FILE,
   BOOK_RUNTIME_FILE,
   type PageSnapshot,
 } from '@book.dev/sdk';
@@ -55,6 +56,39 @@ describe('libraryToBookFiles — folder serialisation', () => {
     for (const f of htmlFiles) expect(f.path.startsWith('trip-plans--')).toBe(true);
     expect(htmlFiles.some((f) => f.contents.includes('pack sunscreen'))).toBe(true);
     expect(files.some((f) => f.path === SPACE_BUNDLE_FILE)).toBe(true);
+  });
+
+  it('writes the NEW sidecar filename (openbook.library.json), never the legacy name', async () => {
+    await client.savePage({name: 'Trip Plans', data: snap('pack sunscreen')});
+    const files = libraryToBookFiles(await client.exportLibrary());
+    expect(SPACE_BUNDLE_FILE).toBe('openbook.library.json');
+    expect(files.some((f) => f.path === SPACE_BUNDLE_FILE)).toBe(true);
+    // The pre-LIB-4 filename is never emitted by the writer.
+    expect(files.some((f) => f.path === LEGACY_SPACE_BUNDLE_FILE)).toBe(false);
+  });
+
+  it('dual-read: re-imports a folder whose sidecar uses the LEGACY openbook.space.json name', async () => {
+    const root = await client.savePage({name: 'Alpha', data: snap('alpha')});
+    await client.setPageProperties(root.id, {sys_icon: '📘'});
+    const host = await client.savePage({name: 'Board', data: snap('')});
+    const db = await client.createDatabase({pageId: host.id, name: 'Board'});
+    await client.createRow(db.id, {name: 'Row 1'});
+
+    const original = await client.exportLibrary();
+    // Simulate a folder exported BEFORE the rename: rename the sidecar back to
+    // the legacy filename, leaving its lossless contents untouched.
+    const files = libraryToBookFiles(original).map((f) =>
+      f.path === SPACE_BUNDLE_FILE ? {...f, path: LEGACY_SPACE_BUNDLE_FILE} : f,
+    );
+    expect(files.some((f) => f.path === LEGACY_SPACE_BUNDLE_FILE)).toBe(true);
+    expect(files.some((f) => f.path === SPACE_BUNDLE_FILE)).toBe(false);
+
+    const parsed = parseBookFolder(files);
+    expect(parsed).not.toBeNull();
+    // Still the lossless path (databases + properties survive), not the HTML fallback.
+    expect(parsed!.pages.map((p) => p.id).sort()).toEqual(original.pages.map((p) => p.id).sort());
+    expect(parsed!.databases.map((d) => d.id)).toEqual(original.databases.map((d) => d.id));
+    expect(parsed!.pages.find((p) => p.id === root.id)?.properties.sys_icon).toBe('📘');
   });
 
   it('round-trips through the lossless bundle (parent + properties survive)', async () => {
