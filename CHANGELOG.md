@@ -1,3 +1,16 @@
+## 1.76.2 (2026-07-12)
+
+### 🚀 Features
+
+- **database:** actionable view setup cards + new-property sentinels ([#121](https://github.com/eliotlim/OpenBook/pull/121))
+- **database:** view creation & customisation polish ([#123](https://github.com/eliotlim/OpenBook/pull/123))
+- **settings:** command-palette deep links + scope chips + cleanup ([#122](https://github.com/eliotlim/OpenBook/pull/122))
+- **templates:** gallery badges + section grouping ([#124](https://github.com/eliotlim/OpenBook/pull/124))
+
+### ❤️ Thank You
+
+- Eliot Lim @eliotlim
+
 ## 1.76.1 (2026-07-11)
 
 ### 🩹 Fixes
