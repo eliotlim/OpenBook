@@ -531,10 +531,12 @@ export const zh: PartialMessages = {
     taskBoard: {
       name: '项目任务看板',
       description: '带状态、优先级、负责人和工作量的任务——按状态分组的看板，外加表格视图。',
+      guidance: '此模板演示任务数据库：“Status”属性决定看板的列，同一批行同时支撑表格和日历视图。试一试：把卡片拖到另一列、切换视图，或右键点击视图导出 CSV。',
     },
     readingList: {
       name: '阅读清单',
       description: '按书架分组的书籍画廊——含作者与星级评分，并提供表格视图。',
+      guidance: '每个书架是一个画廊分组，同一批书也会出现在表格视图中。试一试：给一本书评分、把书移到另一个书架，或添加自己的书。',
     },
     projectIntake: {
       name: '项目受理',
@@ -547,10 +549,12 @@ export const zh: PartialMessages = {
     roadmap: {
       name: '产品路线图',
       description: '在时间线和看板中规划事项，二者都按领域分成泳道。',
+      guidance: '此模板演示泳道：时间线的分带和看板的泳道都按“Area”划分。试一试：拖动条形改期、折叠一条泳道，或把卡片在阶段之间移动。',
     },
     fieldMap: {
       name: '据点地图',
       description: '把办公室与合作伙伴标在地图上，按区域着色——并提供表格视图。',
+      guidance: '此模板演示地图数据库：带位置的行显示为按区域着色的图钉，只有地址的行则等候在“未定位”中。试一试：点击一个图钉、为未定位的行做地理编码，或切换到表格视图。',
     },
     pitchDeck: {
       name: '路演幻灯片',
@@ -567,6 +571,7 @@ export const zh: PartialMessages = {
     productHq: {
       name: '产品总部',
       description: '两个互联数据库——“计划”与“任务”——通过双向关联相连、汇总完成度，并在时间线上呈现依赖关系。',
+      guidance: '此模板演示两个互联的数据库：每个计划都与子页面“Tasks”中的任务相关联，“Progress”和“Task count”两列会汇总这些任务。试一试：在子页面勾选一个任务并观察汇总变化，或打开任务时间线查看依赖箭头。',
     },
   },
   blocks: {

@@ -1296,7 +1296,8 @@ function metricLabel(metric: DatabaseMetric, properties: DatabaseProperty[]): st
 const MetricCard: React.FC<{db: UseDatabase; view: DatabaseView; metric: DatabaseMetric}> = ({db, view, metric}) => {
   const properties = db.database!.schema.properties;
   const prop = metric.propertyId === TITLE_PROPERTY_ID ? TITLE_PROPERTY_ID : properties.find((p) => p.id === metric.propertyId);
-  const value = prop ? summarizeColumn(db.visibleRows, prop, metric.type, properties) : '—';
+  // Metrics over a cross-database rollup fold real foreign rows (matches the cells).
+  const value = prop ? summarizeColumn(db.visibleRows, prop, metric.type, db.rollupProperties, db.rollupRows) : '—';
   // Parse the formatted value back to a number for the optional progress bar
   // (tolerates thousands separators, currency symbols and a trailing %).
   const numeric = Number(value.replace(/[^0-9.-]/g, ''));

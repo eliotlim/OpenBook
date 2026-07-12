@@ -30,7 +30,9 @@ const FieldRow: React.FC<{
       <div className="min-w-0 flex-1">
         <PropertyValueCell
           property={property}
-          value={cellValue(row, property, db.rollupProperties, db.rollupRows)}
+          // A cross-database rollup is unknowable until its foreign rows load —
+          // render the empty placeholder instead of flashing a wrong 0.
+          value={db.pendingRollups.has(property.id) ? undefined : cellValue(row, property, db.rollupProperties, db.rollupRows)}
           exprValue={row.exports[property.cellName ?? property.name]}
           onChange={(value) => void db.setRowProperty(pageId, property.id, value)}
           onAddOption={(label) => db.addSelectOption(property.id, label)}

@@ -875,10 +875,15 @@ export const en = {
     taskBoard: {
       name: 'Project task board',
       description: 'Tasks with status, priority, owner and effort — a kanban board grouped by status, plus a table.',
+      // The `guidance` strings label the standardized "how to use this" callout
+      // each of these templates opens with; the English text mirrors the SDK's
+      // canonical defaults (templates.ts GUIDANCE) exactly.
+      guidance: 'This template shows a task database: the Status property drives the kanban columns, and the same rows back the Table and Calendar views. Try it: drag a card to another column, switch views, or right-click the view to export CSV.',
     },
     readingList: {
       name: 'Reading list',
       description: 'A gallery of books grouped by shelf, with authors and star ratings — plus a table view.',
+      guidance: 'Each shelf is a gallery group, and the same books also list in a Table view. Try it: rate a book, move one to another shelf, or add your own.',
     },
     projectIntake: {
       name: 'Project intake',
@@ -891,10 +896,12 @@ export const en = {
     roadmap: {
       name: 'Product roadmap',
       description: 'Initiatives on a timeline and a board, both split into swimlanes by area.',
+      guidance: 'This template shows swimlanes: the Timeline bands and the Board lanes both split by Area. Try it: drag a bar to reschedule, collapse a lane, or move a card between stages.',
     },
     fieldMap: {
       name: 'Field map',
       description: 'Offices and partners pinned on a map, coloured by region — with a table view.',
+      guidance: 'This template shows a map database: rows with a location render as region-coloured pins, and the address-only row waits under Unplaced. Try it: click a pin, geocode the unplaced row, or switch to the Table view.',
     },
     pitchDeck: {
       name: 'Pitch deck',
@@ -911,6 +918,7 @@ export const en = {
     productHq: {
       name: 'Product HQ',
       description: 'Two linked databases — Initiatives and Tasks — with a two-way relation, % done rolled up, and dependencies on a timeline.',
+      guidance: 'This template shows two linked databases: each initiative relates to tasks on the Tasks sub-page, and the Progress and Task count columns roll those tasks up. Try it: tick a task done on the sub-page and watch the rollup move, or open the Tasks timeline for the dependency arrows.',
     },
   },
   blocks: {

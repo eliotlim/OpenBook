@@ -565,6 +565,66 @@ describe('rowsToCsv', () => {
   });
 });
 
+describe('cross-database rollup resolution (resolveRows)', () => {
+  // The Product-HQ shape: an Initiatives database whose relation points at a
+  // Tasks database, with rollups folding the FOREIGN rows. The display path
+  // resolves those against rollupRows/rollupProperties (own + foreign); the
+  // export / filter / sort / summary paths must resolve identically.
+  const rel: DatabaseProperty = {id: 'p_rel', name: 'Tasks', type: 'relation', relationDatabaseId: 'db-tasks'};
+  const count: DatabaseProperty = {id: 'p_cnt', name: 'Task count', type: 'rollup', rollup: {relationPropertyId: 'p_rel', targetPropertyId: TITLE_PROPERTY_ID, function: 'count'}};
+  const pct: DatabaseProperty = {id: 'p_pct', name: 'Progress', type: 'rollup', rollup: {relationPropertyId: 'p_rel', targetPropertyId: 'p_done', function: 'percent_checked'}};
+  const foreignDone: DatabaseProperty = {id: 'p_done', name: 'Done', type: 'checkbox'};
+  const own = [rel, count, pct];
+  const resolveProps = [...own, foreignDone]; // own first — the useDatabase.rollupProperties shape
+
+  const ownRows = [
+    row({id: 'i1', name: 'Onboarding', properties: {p_rel: ['t1', 't2']}}),
+    row({id: 'i2', name: 'Billing', properties: {p_rel: ['t3']}}),
+  ];
+  const foreignRows = [
+    row({id: 't1', name: 'Checklist', properties: {p_done: true}}),
+    row({id: 't2', name: 'Tour', properties: {p_done: false}}),
+    row({id: 't3', name: 'Invoices', properties: {p_done: true}}),
+  ];
+  const resolveRows = [...ownRows, ...foreignRows]; // the useDatabase.rollupRows shape
+
+  it('rowsToCsv exports the on-screen rollup values, not "—"', () => {
+    const lines = rowsToCsv(ownRows, own, resolveProps, resolveRows).split('\n');
+    expect(lines[0]).toBe('Name,Tasks,Task count,Progress');
+    expect(lines[1]).toContain('Onboarding');
+    expect(lines[1]).toContain('2'); // count folds the two linked foreign rows
+    expect(lines[1]).toContain('50%'); // 1 of 2 done
+    expect(lines[2]).toContain('100%'); // 1 of 1 done
+    // Without the resolution set the foreign lookup is empty — the regression
+    // shape: count 0 and a blank Progress cell (the exported "—").
+    const bare = rowsToCsv(ownRows, own, own).split('\n');
+    expect(bare[1]).toMatch(/,0,$/);
+  });
+
+  it('applyView filters and sorts on a cross-database rollup', () => {
+    const filterView: DatabaseView = {
+      id: 'v', name: 'V', type: 'table', sorts: [],
+      filters: [{id: 'f', propertyId: 'p_pct', operator: 'lt', value: 100}],
+    };
+    expect(applyView(ownRows, filterView, resolveProps, resolveRows).map((r) => r.id)).toEqual(['i1']);
+
+    const sortView: DatabaseView = {
+      id: 'v', name: 'V', type: 'table', filters: [],
+      sorts: [{propertyId: 'p_pct', direction: 'desc'}],
+    };
+    expect(applyView(ownRows, sortView, resolveProps, resolveRows).map((r) => r.id)).toEqual(['i2', 'i1']);
+    // Default (no resolveRows): both resolve 0% — original order retained.
+    expect(applyView(ownRows, sortView, resolveProps).map((r) => r.id)).toEqual(['i1', 'i2']);
+  });
+
+  it('summarizeColumn folds a cross-database rollup over real foreign rows', () => {
+    expect(summarizeColumn(ownRows, count, 'sum', resolveProps, resolveRows)).toBe('3');
+    expect(summarizeColumn(ownRows, pct, 'avg', resolveProps, resolveRows)).toBe('75');
+    // Same-database default unchanged: resolveRows falls back to `rows`.
+    expect(summarizeColumn(ownRows, count, 'sum', resolveProps)).toBe('0');
+  });
+});
+
 describe('removeProperty (reference scrubbing)', () => {
   const schema = {
     properties: [

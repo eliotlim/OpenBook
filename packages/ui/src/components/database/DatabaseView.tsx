@@ -372,8 +372,10 @@ const ColumnContextMenu: React.FC<{db: UseDatabase; view: DbView; property: Data
   );
 };
 
-const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: RowTreeInfo; selection?: {selected: boolean; onToggle: () => void}}> = ({db, columns, schema, row, drag, tree, selection}) => {
-  const accent = db.activeView ? rowColor(row, db.activeView, schema, db.rows) : undefined;
+const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: RowTreeInfo; selection?: {selected: boolean; onToggle: () => void}}> = ({db, columns, row, drag, tree, selection}) => {
+  // Colour rules resolve against the rollup rows/properties so a rule on a
+  // cross-database rollup matches the value the cells display.
+  const accent = db.activeView ? rowColor(row, db.activeView, db.rollupProperties, db.rollupRows) : undefined;
   const hasDependency = columns.some((c) => c.type === 'dependency');
   const rowOptions = hasDependency
     ? db.rows.filter((r) => r.id !== row.id).map((r) => ({id: r.id, label: r.name?.trim() || 'Untitled', icon: readPageIcon(r.id)}))
@@ -469,7 +471,9 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
         </div>
       </td>
       {columns.map((property) => {
-        const value = cellValue(row, property, db.rollupProperties, db.rollupRows);
+        // A cross-database rollup is unknowable until its foreign rows load —
+        // show the empty placeholder instead of flashing a wrong 0/—.
+        const value = db.pendingRollups.has(property.id) ? undefined : cellValue(row, property, db.rollupProperties, db.rollupRows);
         return (
           <td key={property.id} className="border-l border-border/70 align-middle">
             <CellContextMenu db={db} view={db.activeView} row={row} property={property} value={value}>
@@ -531,18 +535,20 @@ const NewRowRow: React.FC<{colSpan: number; onClick: () => void; label?: string}
  * shows each group's own sum/average/count.
  */
 const GroupSummaryRow: React.FC<{
+  db: UseDatabase;
   columns: DatabaseProperty[];
-  schema: DatabaseProperty[];
   rows: DatabaseRow[];
   summaryOf: (key: string) => SummaryType;
-}> = ({columns, schema, rows, summaryOf}) => (
+}> = ({db, columns, rows, summaryOf}) => (
+  // Summaries resolve against the rollup rows/properties (cross-database
+  // rollups fold real foreign rows), same as the cells above them.
   <tr className="bg-muted/10 text-xs text-muted-foreground/80">
     <td className="px-2 py-1 align-middle tabular-nums">
-      {summarizeColumn(rows, TITLE_PROPERTY_ID, summaryOf(TITLE_PROPERTY_ID), schema)}
+      {summarizeColumn(rows, TITLE_PROPERTY_ID, summaryOf(TITLE_PROPERTY_ID), db.rollupProperties, db.rollupRows)}
     </td>
     {columns.map((property) => (
       <td key={property.id} className="border-l border-border/60 px-2 py-1 align-middle tabular-nums">
-        {summarizeColumn(rows, property, summaryOf(property.id), schema)}
+        {summarizeColumn(rows, property, summaryOf(property.id), db.rollupProperties, db.rollupRows)}
       </td>
     ))}
     <td className="border-l border-border/60" />
@@ -830,7 +836,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                     />
                   )}
                   {!isCollapsed && hasSummaries && (
-                    <GroupSummaryRow columns={columns} schema={schema} rows={group.rows} summaryOf={summaryOf} />
+                    <GroupSummaryRow db={db} columns={columns} rows={group.rows} summaryOf={summaryOf} />
                   )}
                 </tbody>
               );
@@ -857,7 +863,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
               <td className="sticky left-0 z-10 border-r border-border bg-card align-middle">
                 <SummaryPicker
                   current={summaryOf(TITLE_PROPERTY_ID)}
-                  display={summarizeColumn(db.visibleRows, TITLE_PROPERTY_ID, summaryOf(TITLE_PROPERTY_ID), schema)}
+                  display={summarizeColumn(db.visibleRows, TITLE_PROPERTY_ID, summaryOf(TITLE_PROPERTY_ID), db.rollupProperties, db.rollupRows)}
                   onChange={(t) => setSummary(TITLE_PROPERTY_ID, t)}
                 />
               </td>
@@ -865,7 +871,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                 <td key={property.id} className="border-l border-border/60 align-middle">
                   <SummaryPicker
                     current={summaryOf(property.id)}
-                    display={summarizeColumn(db.visibleRows, property, summaryOf(property.id), schema)}
+                    display={summarizeColumn(db.visibleRows, property, summaryOf(property.id), db.rollupProperties, db.rollupRows)}
                     onChange={(t) => setSummary(property.id, t)}
                   />
                 </td>
@@ -881,7 +887,7 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
 
 /** One list-view row: icon, title, property chips, and the row menu. */
 const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: DatabaseRow}> = ({db, columns, row}) => {
-  const accent = db.activeView ? rowColor(row, db.activeView, db.database?.schema.properties ?? [], db.rows) : undefined;
+  const accent = db.activeView ? rowColor(row, db.activeView, db.rollupProperties, db.rollupRows) : undefined;
   return (
     <RowContextMenu db={db} rowId={row.id}>
       <div
@@ -892,7 +898,7 @@ const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: Data
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <PageIcon value={readPageIcon(row.id)} className="shrink-0 text-base leading-none" />
           <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-          <RowChips row={row} properties={columns} rows={db.rollupRows} labelled />
+          <RowChips row={row} properties={columns} rows={db.rollupRows} resolveProperties={db.rollupProperties} pending={db.pendingRollups} labelled />
         </div>
         <div onClick={(e) => e.stopPropagation()}>
           <RowMenu
@@ -1244,12 +1250,14 @@ const DatabaseContextMenu: React.FC<{
         <ContextMenuSeparator />
         {/* CSV lives here (data-level, whole-database actions) rather than in
             the per-view View options popover. Export honours the active view's
-            filters/sorts/search (visibleRows), matching what's on screen. */}
+            filters/sorts/search (visibleRows), matching what's on screen —
+            including cross-database rollups, which resolve against the same
+            rollup rows/properties the cells display. */}
         <ContextMenuItem
           onSelect={() =>
             downloadText(
               `${safeFilename(view.name, 'database')}.csv`,
-              rowsToCsv(db.visibleRows, db.database!.schema.properties, db.database!.schema.properties),
+              rowsToCsv(db.visibleRows, db.database!.schema.properties, db.rollupProperties, db.rollupRows),
               'text/csv',
             )
           }

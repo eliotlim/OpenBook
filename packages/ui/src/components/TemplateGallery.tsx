@@ -7,7 +7,7 @@ import {writePageIcon} from '@/lib/pageIcon';
 import type {TKey} from '@/i18n';
 
 /** Template ids are kebab-case; i18n keys are camelCase under `templates.`. */
-const keyOf = (id: PageTemplate['id'], field: 'name' | 'description'): TKey =>
+const keyOf = (id: PageTemplate['id'], field: 'name' | 'description' | 'guidance'): TKey =>
   `templates.${id.replace(/-(\w)/g, (_, c: string) => c.toUpperCase())}.${field}` as TKey;
 
 /** i18n key for a template tag chip label (`templates.tag.<tag>`). */
@@ -46,7 +46,13 @@ export function TemplateGallery() {
     if (busyId) return;
     setBusyId(template.id);
     try {
-      const page = await instantiateTemplate(client, template);
+      // Templates with a guidance callout get the user's locale text; the SDK's
+      // canonical English is only the fallback for non-gallery instantiation.
+      const page = await instantiateTemplate(
+        client,
+        template,
+        template.guidance === undefined ? undefined : {guidance: t(keyOf(template.id, 'guidance'))},
+      );
       writePageIcon(page.id, template.icon);
       selectPage(page.id);
       setOpen(false);
