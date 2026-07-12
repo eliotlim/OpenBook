@@ -184,24 +184,24 @@ async function exerciseBackup(client: HttpDataClient, mode: string): Promise<voi
   const parent = await client.savePage({name: `bk-parent-${mode}`, data: sampleSnapshot(1)});
   const child = await client.savePage({name: `bk-child-${mode}`, data: sampleSnapshot(2), parentId: parent.id});
 
-  const bundle = await client.exportSpace();
+  const bundle = await client.exportLibrary();
   check('export includes live pages with data', bundle.pages.some((p) => p.id === parent.id && p.data.values.length > 0));
   check('export includes nested pages', bundle.pages.some((p) => p.id === child.id && p.parentId === parent.id));
 
   // Copy-import the parent + child: new ids, names suffixed on clash, nesting kept.
   const subtree = bundle.pages.filter((p) => p.id === parent.id || p.id === child.id);
-  const copied = await client.importSpace({pages: subtree, databases: [], mode: 'copy'});
+  const copied = await client.importLibrary({pages: subtree, databases: [], mode: 'copy'});
   check('copy import creates new pages', copied.created === 2 && copied.overwritten === 0);
   check('copy import suffixes clashing names', copied.renamed === 2);
 
-  const afterCopy = await client.exportSpace();
+  const afterCopy = await client.exportLibrary();
   const importedParent = afterCopy.pages.find((p) => p.name === `bk-parent-${mode} (imported)`);
   const importedChild = afterCopy.pages.find((p) => p.name === `bk-child-${mode} (imported)`);
   check('copy import: parent copied under a fresh id', !!importedParent && importedParent.id !== parent.id);
   check('copy import: nesting preserved', !!importedChild && importedChild.parentId === importedParent?.id);
 
   // Overwrite-import the original parent (same id) with a new name → replace in place.
-  const overwritten = await client.importSpace({
+  const overwritten = await client.importLibrary({
     pages: [{...parent, name: `bk-parent-${mode}-edited`}],
     databases: [],
     mode: 'overwrite',
