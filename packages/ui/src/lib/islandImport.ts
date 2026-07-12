@@ -18,7 +18,7 @@
  *    copy gets a fresh CRDT identity; the JSON block projection is the
  *    structural source and round-trips ids/types/props/order losslessly.
  *  - a **space island** (`toHtmlSite` exports) lands through the copy-mode
- *    bundle path (`importSpace`, the same path the book-folder restore uses):
+ *    bundle path (`importLibrary`, the same path the book-folder restore uses):
  *    the server re-keys every page/database id, rewrites internal links and
  *    parent/row relationships, so nesting + databases arrive intact — again as
  *    a copy that never clobbers existing pages.
@@ -42,20 +42,20 @@ import {
   ICON_PROPERTY_ID,
   importDoc,
   readIsland,
-  readSpaceIsland,
+  readLibraryIsland,
   type AssetBytes,
   type BookPageRecord,
   type ImportedBlock,
   type ImportWriteClient,
   type PageSnapshot,
-  type SpaceIsland,
+  type LibraryIsland,
   type StoredPage,
 } from '@book.dev/sdk';
 
 /** What an island scan found in an HTML file (discriminated by island kind). */
 export type HtmlIsland =
   | {kind: 'page'; record: BookPageRecord}
-  | {kind: 'space'; island: SpaceIsland};
+  | {kind: 'space'; island: LibraryIsland};
 
 /** The client surface an island import drives (a real DataClient satisfies it). */
 export type IslandImportClient = ImportWriteClient & {
@@ -76,7 +76,7 @@ export type IslandImportClient = ImportWriteClient & {
  * fresh id anyway.
  */
 export function detectHtmlIsland(html: string): HtmlIsland | null {
-  const space = readSpaceIsland(html);
+  const space = readLibraryIsland(html);
   if (space) return {kind: 'space', island: space};
   const page = readIsland<Partial<BookPageRecord>>(html);
   if (page && page.data && typeof page.data === 'object') {
@@ -212,7 +212,7 @@ function pageRecordAsStoredPage(record: BookPageRecord): StoredPage {
  * byte map. Returns the landed page ids (for the "view imported" jump) plus
  * asset stats. Id semantics: ALWAYS a copy — the page-island path creates a
  * fresh page via `importDoc`, the space-island path re-keys everything via
- * `importSpace({mode: 'copy'})` — so importing an export back into its source
+ * `importLibrary({mode: 'copy'})` — so importing an export back into its source
  * space duplicates rather than overwrites.
  */
 export async function runIslandImport(
@@ -249,7 +249,7 @@ export async function runIslandImport(
       // Not block-editor shaped (legacy EditorJS island): land the RAW snapshot
       // through the copy-mode bundle so nothing is projected away.
       const page = pageRecordAsStoredPage(record);
-      const imported = await client.importSpace({pages: [page], databases: [], mode: 'copy'});
+      const imported = await client.importLibrary({pages: [page], databases: [], mode: 'copy'});
       pageIds = Object.values(imported.idMap);
     }
     const only = pageIds[0];
@@ -263,7 +263,7 @@ export async function runIslandImport(
     }
     // The book-folder restore path: server-side re-key + link rewrite keeps
     // nesting, mentions, and database membership intact — as a copy.
-    const imported = await client.importSpace({pages: space.pages, databases: space.databases, mode: 'copy'});
+    const imported = await client.importLibrary({pages: space.pages, databases: space.databases, mode: 'copy'});
     const idMap = imported.idMap;
     pageIds = Object.values(idMap);
     landedIdOf = (id) => idMap[id];

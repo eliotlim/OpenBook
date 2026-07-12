@@ -4,17 +4,17 @@ import {useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
 import {cn} from '@/lib/utils';
 
-/** Where a setting takes effect: only this browser/device, the whole workspace
+/** Where a setting takes effect: only this browser/device, the whole library
  *  (server-side, shared by everyone), or your account across devices. */
-export type SettingsScope = 'device' | 'workspace' | 'account';
+export type SettingsScope = 'device' | 'library' | 'account';
 
 const SCOPE_LABEL: Record<SettingsScope, TKey> = {
   device: 'settings.scope.device',
-  workspace: 'settings.scope.workspace',
+  library: 'settings.scope.library',
   account: 'settings.scope.account',
 };
 
-/** A small muted pill naming where a setting applies (device / workspace /
+/** A small muted pill naming where a setting applies (device / library /
  *  account). Used under a screen title, and inline to flag an exception. */
 export function ScopeChip({scope, className}: {scope: SettingsScope; className?: string}) {
   const {t} = useTranslation();

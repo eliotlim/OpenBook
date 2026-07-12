@@ -41,7 +41,7 @@ export function buildTree(pages: PageMeta[]): TreeDataItem[] {
   return roots;
 }
 
-export default function WorkspaceNavigationTree() {
+export default function LibraryNavigationTree() {
   const {pages, currentPageId, selectPageInPane, createPage, createDatabasePage, createSubpage, movePage} = useNavigation();
   // Sidebar navigation always drives the primary (left) pane — the split pane
   // only follows its own links or an explicit "open in split".

@@ -21,7 +21,7 @@ export const ja: PartialMessages = {
     section: {
       preferences: '環境設定',
       account: 'アカウント',
-      workspace: 'ライブラリ',
+      library: 'ライブラリ',
     },
     tab: {
       general: '一般',
@@ -39,7 +39,7 @@ export const ja: PartialMessages = {
     },
     scope: {
       device: 'このデバイス',
-      workspace: 'このライブラリ',
+      library: 'このライブラリ',
       account: 'あなたのアカウント',
     },
   },
@@ -220,7 +220,7 @@ export const ja: PartialMessages = {
       members: '現在のライブラリ既定では、「ライブラリの既定」に設定されたページはライブラリのメンバーのみに制限されます。',
       restricted: '現在のライブラリ既定では、「ライブラリの既定」に設定されたページはあなたと招待した人のみに制限されます。',
     },
-    manageWorkspace: 'ライブラリの共有設定',
+    manageLibrary: 'ライブラリの共有設定',
     manageMembers: 'メンバーを管理',
     error: {
       network: 'サーバーに接続できませんでした。接続を確認して、もう一度お試しください。',
@@ -361,9 +361,9 @@ export const ja: PartialMessages = {
       confirmOverwrite: '上書き',
     },
   },
-  workspace: {
-    workspaces: 'ライブラリ',
-    addWorkspace: 'ライブラリを追加…',
+  library: {
+    libraries: 'ライブラリ',
+    addLibrary: 'ライブラリを追加…',
     addTitle: 'ライブラリを追加',
     addDescription: '別の OpenBook サーバーに接続します。切り替えるとこのデバイスはそのサーバーを参照します。',
     icon: 'アイコン',
@@ -374,7 +374,7 @@ export const ja: PartialMessages = {
     addButton: 'ライブラリを追加',
     urlRequired: 'このライブラリのサーバー URL を入力してください。',
     urlInvalid: '有効な URL ではないようです。',
-    removeWorkspace: '{name} を削除',
+    removeLibrary: '{name} を削除',
     thisDevice: 'このデバイス',
   },
   ai: {

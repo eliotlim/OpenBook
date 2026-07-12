@@ -6,7 +6,7 @@
  * - {@link IslandPageJson}: the canonical single-page island a `.book.html`
  *   file embeds (`packages/sdk/src/bookfile.ts` — `{version,id,name,icon,
  *   updatedAt,data}` where `data` is a `PageSnapshot` carrying `blockdoc`).
- * - {@link SpaceBundleJson}: the whole-space `openbook.space.json` bundle
+ * - {@link LibraryBundleJson}: the whole-space `openbook.space.json` bundle
  *   (`packages/sdk/src/bookFolder.ts` — `{pages,databases}`), for site
  *   exports; the viewer adds minimal hash-based page navigation over it.
  */
@@ -39,7 +39,7 @@ export interface IslandPageJson {
 }
 
 /** A page inside the space bundle (`StoredPage`, read structurally). */
-export interface SpaceBundlePage {
+export interface LibraryBundlePage {
   id: string;
   name?: string | null;
   parentId?: string | null;
@@ -50,13 +50,13 @@ export interface SpaceBundlePage {
 }
 
 /** The whole-space `openbook.space.json` bundle shape. */
-export interface SpaceBundleJson {
-  pages: SpaceBundlePage[];
+export interface LibraryBundleJson {
+  pages: LibraryBundlePage[];
   /** Databases are carried for losslessness but not rendered by the viewer (yet). */
   databases?: unknown[];
 }
 
-export type ViewerSource = IslandPageJson | SpaceBundleJson;
+export type ViewerSource = IslandPageJson | LibraryBundleJson;
 
 /**
  * One asset's bytes in the mount payload — the same entry shape as the export

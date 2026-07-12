@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {remapBundle, type SpaceBackup, type StoredDatabase, type StoredPage} from '@book.dev/sdk';
+import {remapBundle, type LibraryBackup, type StoredDatabase, type StoredPage} from '@book.dev/sdk';
 import {bundleRoots, closure, overwriteCount, parseBackup} from '../backupBundle';
 
 const page = (id: string, over: Partial<StoredPage> = {}): StoredPage => ({
@@ -25,7 +25,7 @@ const db = (id: string, pageId: string): StoredDatabase => ({
   updatedAt: '2026-01-01T00:00:00.000Z',
 });
 
-const backup = (pages: StoredPage[], databases: StoredDatabase[] = []): SpaceBackup => ({
+const backup = (pages: StoredPage[], databases: StoredDatabase[] = []): LibraryBackup => ({
   version: 1,
   exportedAt: '2026-01-01',
   pages,

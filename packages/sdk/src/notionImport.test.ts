@@ -248,7 +248,7 @@ describe('notionExportToImportedDoc → importDoc bundle', () => {
       setPageProperties: () => Promise.reject(new Error('not used')),
       createDatabase: () => Promise.reject(new Error('not used')),
       createRow: () => Promise.reject(new Error('not used')),
-      importSpace: (req) => {
+      importLibrary: (req) => {
         captured = {pages: req.pages, databases: req.databases};
         return Promise.resolve({created: req.pages.length, overwritten: 0, renamed: 0, idMap: {}});
       },

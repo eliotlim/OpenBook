@@ -5,7 +5,7 @@ import {HOME_PAGE_ID} from '@/lib/homePage';
 import {readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
-import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
+import LibrarySelectMenu from '@/components/LibrarySelectMenu';
 import SideNavToggle from '@/components/SideNavToggle';
 import BackForwardCluster from '@/components/BackForwardCluster';
 
@@ -43,7 +43,7 @@ export default function TitlebarTabs() {
           back/forward. Interactive, so not drag regions. */}
       <div className="flex shrink-0 items-center gap-0.5 pr-1">
         <SideNavToggle className="h-7 px-2" />
-        <WorkspaceSelectMenu variant="titlebar" />
+        <LibrarySelectMenu variant="titlebar" />
         <BackForwardCluster />
       </div>
 

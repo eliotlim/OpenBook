@@ -286,7 +286,7 @@ export interface BookHtmlOptions {
    * Reference the folder's shared viewer runtime (`_openbook/viewer.js`) so the
    * file, opened directly in a browser, hydrates into the interactive locked
    * viewer. Pass true ONLY when the writer also ships the bundle into the folder
-   * (sdk `spaceToBookFiles({runtime})` / server `BookMirror` with `runtimeBundle`)
+   * (sdk `libraryToBookFiles({runtime})` / server `BookMirror` with `runtimeBundle`)
    * — a reference without the bundle degrades gracefully (static article), but
    * writers keep the invariant anyway. Emitters MUST agree on this flag for the
    * SDK/server byte-compatibility contract to hold.

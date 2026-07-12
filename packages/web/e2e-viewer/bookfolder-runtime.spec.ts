@@ -6,13 +6,13 @@ import {expect, test, type Page} from '@playwright/test';
 // Import the sdk by SOURCE path: the package ships ESM-only exports, which the
 // CJS transpile Playwright runs specs under cannot require; the TS source
 // compiles fine either way (same trick the bundle path below uses for ui).
-import {spaceToBookFiles, type SpaceSnapshot} from '../../sdk/src/bookFolder';
+import {libraryToBookFiles, type LibrarySnapshot} from '../../sdk/src/bookFolder';
 import {BOOK_RUNTIME_FILE} from '../../sdk/src/bookfile';
 import type {StoredPage} from '../../sdk/src/types';
 
 /**
  * The sync/export FOLDER end of the viewer story (owner decision 2026-07-04):
- * a folder written by `spaceToBookFiles({runtime})` (byte-compatible with the
+ * a folder written by `libraryToBookFiles({runtime})` (byte-compatible with the
  * server BookMirror) carries ONE `_openbook/viewer.js` and N `.book.html` files
  * that reference it relatively. Opening a page straight from `file://` must
  * hydrate into the interactive locked viewer with zero network; deleting
@@ -45,7 +45,7 @@ const page = (over: Partial<StoredPage> & {id: string; name: string}, blocks: un
   ...over,
 });
 
-const space: SpaceSnapshot = {
+const space: LibrarySnapshot = {
   pages: [
     page({id: 'fx-folder-root', name: 'Folder fixture'}, [
       {id: 'h1', type: 'heading', props: {level: 1}, text: [{t: 'Folder fixture'}]},
@@ -91,7 +91,7 @@ test.beforeAll(() => {
     throw new Error(`Viewer bundle missing at ${BUNDLE} — run: pnpm --filter @book.dev/ui run build:viewer`);
   }
   const runtime = readFileSync(BUNDLE, 'utf8');
-  const files = spaceToBookFiles(space, {runtime});
+  const files = libraryToBookFiles(space, {runtime});
 
   // The advertised folder shape: one .book.html per page + ONE runtime copy.
   const htmlFiles = files.filter((f) => f.path.endsWith('.html'));

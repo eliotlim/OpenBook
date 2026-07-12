@@ -5,7 +5,7 @@ import {KitPageLockContext} from '@/blockeditor/kit/lock';
 import {SandboxCspContext} from '@/components/SandboxedHtml';
 import {EXPORT_ARTIFACT_CSP} from '@/lib/srcdoc';
 import {DataSchemeProvider, readGlobalDataScheme} from '@/lib/dataScheme';
-import type {SpaceBundleJson, SpaceBundlePage, ViewerPage, ViewerSource} from './types';
+import type {LibraryBundleJson, LibraryBundlePage, ViewerPage, ViewerSource} from './types';
 
 /**
  * The viewer's React shell: locked-but-interactive rendering of one page (a
@@ -21,7 +21,7 @@ import type {SpaceBundleJson, SpaceBundlePage, ViewerPage, ViewerSource} from '.
  * makes sliders/charts live), but nothing is ever persisted anywhere.
  */
 
-const pageIcon = (page: SpaceBundlePage): string | null => {
+const pageIcon = (page: LibraryBundlePage): string | null => {
   const icon = page.properties?.sys_icon;
   return typeof icon === 'string' ? icon : null;
 };
@@ -29,7 +29,7 @@ const pageIcon = (page: SpaceBundlePage): string | null => {
 /** Normalise either source shape to a flat page list. */
 export function pagesOf(source: ViewerSource): ViewerPage[] {
   if ('pages' in source && Array.isArray(source.pages)) {
-    return (source as SpaceBundleJson).pages
+    return (source as LibraryBundleJson).pages
       .filter((p) => p && typeof p.id === 'string')
       .map((p) => ({id: p.id, name: p.name ?? null, icon: pageIcon(p), data: p.data ?? {}}));
   }

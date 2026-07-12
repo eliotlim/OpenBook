@@ -868,12 +868,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // restricted/members page in one request, and conversely the read-shaped export
   // must never 403 the machine owner just because their account identity lapsed
   // (the post-upgrade "Export failed: you do not have write access" lockout).
-  app.get(API.exportSpace, async (c) => {
+  app.get(API.exportLibrary, async (c) => {
     await requireInstanceAdmin(c, store);
     return c.json(await store.exportAll());
   });
 
-  app.post(API.importSpace, async (c) => {
+  app.post(API.importLibrary, async (c) => {
     // Wholesale overwrite/inject of pages + databases — instance administration
     // only, same gate (and rationale) as the export above.
     await requireInstanceAdmin(c, store);

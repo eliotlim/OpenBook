@@ -9,7 +9,7 @@ import {
   I18nProvider,
   PreferencesProvider,
   ThemeProvider,
-  WorkspaceProvider,
+  LibraryProvider,
 } from '@book.dev/ui';
 
 
@@ -26,13 +26,13 @@ export default function App({Component, pageProps}: AppProps) {
         <ThemeProvider>
           <I18nProvider>
             <PreferencesProvider>
-              <WorkspaceProvider>
+              <LibraryProvider>
                 <AccountProvider>
                   <HudProvider>
                     <Component {...pageProps} />
                   </HudProvider>
                 </AccountProvider>
-              </WorkspaceProvider>
+              </LibraryProvider>
             </PreferencesProvider>
           </I18nProvider>
         </ThemeProvider>

@@ -4,10 +4,10 @@
  * full set of pages + databases to send to the server (so a selected page always
  * brings its subtree, its hosted database, and that database's rows).
  */
-import {BACKUP_VERSION, type SpaceBackup, type StoredDatabase, type StoredPage} from '@book.dev/sdk';
+import {BACKUP_VERSION, type LibraryBackup, type StoredDatabase, type StoredPage} from '@book.dev/sdk';
 
-export function parseBackup(text: string): SpaceBackup {
-  const parsed = JSON.parse(text) as Partial<SpaceBackup>;
+export function parseBackup(text: string): LibraryBackup {
+  const parsed = JSON.parse(text) as Partial<LibraryBackup>;
   if (!parsed || !Array.isArray(parsed.pages) || !Array.isArray(parsed.databases)) {
     throw new Error('Not an OpenBook backup file.');
   }
@@ -27,7 +27,7 @@ export function parseBackup(text: string): SpaceBackup {
  * The pages to show in the restore checklist: top-level documents — not database
  * rows, and not nested under another page that's also in the bundle.
  */
-export function bundleRoots(bundle: SpaceBackup): StoredPage[] {
+export function bundleRoots(bundle: LibraryBackup): StoredPage[] {
   const ids = new Set(bundle.pages.map((p) => p.id));
   return bundle.pages.filter((p) => !p.databaseId && (!p.parentId || !ids.has(p.parentId)));
 }
@@ -36,7 +36,7 @@ export function bundleRoots(bundle: SpaceBackup): StoredPage[] {
  * Expand selected root ids into the closure to import: each selected page plus
  * its descendants, the databases those pages host, and those databases' rows.
  */
-export function closure(bundle: SpaceBackup, rootIds: Iterable<string>): {pages: StoredPage[]; databases: StoredDatabase[]} {
+export function closure(bundle: LibraryBackup, rootIds: Iterable<string>): {pages: StoredPage[]; databases: StoredDatabase[]} {
   const byId = new Map(bundle.pages.map((p) => [p.id, p]));
   const childrenByParent = new Map<string, StoredPage[]>();
   const rowsByDb = new Map<string, StoredPage[]>();

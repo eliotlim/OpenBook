@@ -740,7 +740,7 @@ function recorder(): Recorder {
     setPageProperties: (id, properties) => Promise.resolve(stored(id, {properties})),
     createDatabase: () => Promise.reject(new Error('not used in these round-trips')),
     createRow: () => Promise.reject(new Error('not used in these round-trips')),
-    importSpace: (req) => {
+    importLibrary: (req) => {
       imports.push(req);
       const idMap: Record<string, string> = {};
       for (const p of req.pages) idMap[p.id] = `srv_${p.id}`;

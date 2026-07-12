@@ -6,7 +6,7 @@ import {islandScript, readIsland} from './island';
 /**
  * Whole-space → folder-of-files serialisation, shared by every "dump my books
  * to a folder" surface: the desktop's native folder export and the web app's
- * File System Access export both call {@link spaceToBookFiles}, and the layout
+ * File System Access export both call {@link libraryToBookFiles}, and the layout
  * is byte-compatible with the server's on-disk {@link BookMirror} (OB-134) so a
  * folder written by one can be re-imported by the other.
  *
@@ -24,8 +24,8 @@ export interface BookFolderFile {
   contents: string;
 }
 
-/** Everything in a space, as returned by `DataClient.exportSpace`. */
-export interface SpaceSnapshot {
+/** Everything in a space, as returned by `DataClient.exportLibrary`. */
+export interface LibrarySnapshot {
   pages: StoredPage[];
   databases: StoredDatabase[];
 }
@@ -35,28 +35,28 @@ export const SPACE_BUNDLE_FILE = 'openbook.space.json';
 
 /**
  * The whole-space **source-island** payload embedded in a standalone *site* HTML
- * export: the full {@link SpaceSnapshot} (pages + databases + nesting via each
+ * export: the full {@link LibrarySnapshot} (pages + databases + nesting via each
  * page's `parentId`/`databaseId`) plus the root id shown first. Same structure as
  * {@link SPACE_BUNDLE_FILE}, so a site export re-imports with structure intact.
  */
-export interface SpaceIsland {
+export interface LibraryIsland {
   version: 1;
   rootId: string;
-  space: SpaceSnapshot;
+  space: LibrarySnapshot;
 }
 
 /** Wrap a whole-space bundle as its source-island `<script>` (versioned, escaped). */
-export function spaceIslandScript(
+export function libraryIslandScript(
   rootId: string,
-  space: SpaceSnapshot,
+  space: LibrarySnapshot,
   opts: {attrs?: string; indent?: string} = {},
 ): string {
   return islandScript({version: 1, rootId, space}, opts);
 }
 
 /** Read a site export's space island back, or `null` when absent/corrupt. */
-export function readSpaceIsland(html: string): SpaceIsland | null {
-  const parsed = readIsland<Partial<SpaceIsland>>(html);
+export function readLibraryIsland(html: string): LibraryIsland | null {
+  const parsed = readIsland<Partial<LibraryIsland>>(html);
   if (!parsed || !parsed.space || !Array.isArray(parsed.space.pages)) return null;
   return {
     version: 1,
@@ -96,8 +96,8 @@ function rootOf(
   return root;
 }
 
-/** Options for {@link spaceToBookFiles}. */
-export interface SpaceToBookFilesOptions {
+/** Options for {@link libraryToBookFiles}. */
+export interface LibraryToBookFilesOptions {
   /** Include the lossless {@link SPACE_BUNDLE_FILE} sidecar. Default true. */
   includeBundle?: boolean;
   /**
@@ -116,9 +116,9 @@ export interface SpaceToBookFilesOptions {
  * Serialise a space to its on-disk files. By default includes the lossless
  * {@link SPACE_BUNDLE_FILE}; pass `includeBundle: false` for the human-readable
  * HTML files only. Pass `runtime` (the viewer bundle source) to make the folder
- * self-hydrating — see {@link SpaceToBookFilesOptions.runtime}.
+ * self-hydrating — see {@link LibraryToBookFilesOptions.runtime}.
  */
-export function spaceToBookFiles(snapshot: SpaceSnapshot, opts: SpaceToBookFilesOptions = {}): BookFolderFile[] {
+export function libraryToBookFiles(snapshot: LibrarySnapshot, opts: LibraryToBookFilesOptions = {}): BookFolderFile[] {
   const {pages, databases} = snapshot;
   const byId = new Map(pages.map((p) => [p.id, p]));
   const dbHost = new Map(databases.map((d) => [d.id, d.pageId]));
@@ -154,11 +154,11 @@ export function spaceToBookFiles(snapshot: SpaceSnapshot, opts: SpaceToBookFiles
  * a human-readable folder can recover). Returns `null` if nothing parseable was
  * found, so the caller can surface "not an OpenBook folder".
  */
-export function parseBookFolder(files: BookFolderFile[]): SpaceSnapshot | null {
+export function parseBookFolder(files: BookFolderFile[]): LibrarySnapshot | null {
   const bundle = files.find((f) => f.path === SPACE_BUNDLE_FILE || f.path.endsWith(`/${SPACE_BUNDLE_FILE}`));
   if (bundle) {
     try {
-      const parsed = JSON.parse(bundle.contents) as Partial<SpaceSnapshot>;
+      const parsed = JSON.parse(bundle.contents) as Partial<LibrarySnapshot>;
       if (Array.isArray(parsed.pages)) {
         return {pages: parsed.pages, databases: Array.isArray(parsed.databases) ? parsed.databases : []};
       }

@@ -19,7 +19,7 @@ vi.mock('@/providers', async (importOriginal) => {
 // P0-4 (sharing audit 2026-07-03): the standalone web app's workspace is an
 // in-browser PGlite store — nothing outside the browser can reach it, yet the
 // sharing surfaces used to render as if fully wired. The host now declares
-// `browserLocalWorkspace` on the platform library and every surface annotates
+// `browserLocalLibrary` on the platform library and every surface annotates
 // itself honestly (kept functional, not hidden-and-broken). These tests pin
 // both sides: the disclosures under the flag, and the unchanged default.
 
@@ -55,7 +55,7 @@ afterEach(() => cleanup());
 
 describe('ShareDialog on a browser-local workspace', () => {
   it('discloses that no one else can reach the workspace and where the link really goes', async () => {
-    wrap(<ShareDialog pageId="p1" />, {browserLocalWorkspace: true});
+    wrap(<ShareDialog pageId="p1" />, {browserLocalLibrary: true});
     fireEvent.click(screen.getByRole('button', {name: 'Share'}));
 
     expect(await screen.findByText(/This library lives only in this browser/)).toBeTruthy();
@@ -79,7 +79,7 @@ describe('ShareDialog on a browser-local workspace', () => {
 
 describe('Sharing & publishing settings on a browser-local workspace', () => {
   it('replaces the publish promise with a desktop-app pointer', async () => {
-    wrap(<SharingPublishingSettings />, {browserLocalWorkspace: true});
+    wrap(<SharingPublishingSettings />, {browserLocalLibrary: true});
 
     expect(await screen.findByText('Publish to the web')).toBeTruthy();
     expect(screen.getByText(/isn’t hosted anywhere/)).toBeTruthy();
@@ -99,7 +99,7 @@ describe('Sharing & publishing settings on a browser-local workspace', () => {
 
 describe('People section (roster) on a browser-local workspace', () => {
   it('discloses that invited people cannot reach the workspace yet', async () => {
-    wrap(<PeopleSection />, {browserLocalWorkspace: true});
+    wrap(<PeopleSection />, {browserLocalLibrary: true});
 
     expect(await screen.findByText(/people you add here can’t open it yet/)).toBeTruthy();
     // Still functional: the invite form renders for a manager.

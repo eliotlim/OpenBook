@@ -7,7 +7,7 @@ export default function AdminSettings() {
   const {t} = useTranslation();
 
   return (
-    <SettingsScreen title={t('admin.title')} description={t('admin.description')} scope="workspace">
+    <SettingsScreen title={t('admin.title')} description={t('admin.description')} scope="library">
       <BackupSettings />
     </SettingsScreen>
   );

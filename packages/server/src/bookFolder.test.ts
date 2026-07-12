@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {
-  spaceToBookFiles,
+  libraryToBookFiles,
   parseBookFolder,
   SPACE_BUNDLE_FILE,
   BOOK_RUNTIME_FILE,
@@ -42,12 +42,12 @@ afterEach(async () => {
   rmSync(dbDir, {recursive: true, force: true});
 });
 
-describe('spaceToBookFiles — folder serialisation', () => {
+describe('libraryToBookFiles — folder serialisation', () => {
   it('lays out one HTML file per page plus a lossless bundle', async () => {
     const root = await client.savePage({name: 'Trip Plans', data: snap('pack sunscreen')});
     await client.savePage({name: 'Day One', data: snap('hike'), parentId: root.id});
 
-    const files = spaceToBookFiles(await client.exportSpace());
+    const files = libraryToBookFiles(await client.exportLibrary());
 
     const htmlFiles = files.filter((f) => f.path.endsWith('.html'));
     expect(htmlFiles).toHaveLength(2);
@@ -64,8 +64,8 @@ describe('spaceToBookFiles — folder serialisation', () => {
     const db = await client.createDatabase({pageId: host.id, name: 'Board'});
     await client.createRow(db.id, {name: 'Row 1'});
 
-    const original = await client.exportSpace();
-    const files = spaceToBookFiles(original);
+    const original = await client.exportLibrary();
+    const files = libraryToBookFiles(original);
     const parsed = parseBookFolder(files);
 
     expect(parsed).not.toBeNull();
@@ -77,7 +77,7 @@ describe('spaceToBookFiles — folder serialisation', () => {
 
   it('falls back to the HTML files when the bundle is absent (flat pages)', async () => {
     await client.savePage({name: 'Solo', data: snap('just me')});
-    const files = spaceToBookFiles(await client.exportSpace()).filter((f) => f.path !== SPACE_BUNDLE_FILE);
+    const files = libraryToBookFiles(await client.exportLibrary()).filter((f) => f.path !== SPACE_BUNDLE_FILE);
 
     const parsed = parseBookFolder(files);
     expect(parsed?.pages.some((p) => p.name === 'Solo')).toBe(true);
@@ -89,14 +89,14 @@ describe('spaceToBookFiles — folder serialisation', () => {
   });
 });
 
-describe('spaceToBookFiles — folder-level viewer runtime (_openbook/viewer.js)', () => {
+describe('libraryToBookFiles — folder-level viewer runtime (_openbook/viewer.js)', () => {
   const RUNTIME = 'var OpenBookViewer = {mount: function () {}}; /* stub bundle */';
 
   it('emits ONE runtime copy per folder and a relative reference in every page file', async () => {
     const root = await client.savePage({name: 'Trip Plans', data: snap('pack sunscreen')});
     await client.savePage({name: 'Day One', data: snap('hike'), parentId: root.id});
 
-    const files = spaceToBookFiles(await client.exportSpace(), {runtime: RUNTIME});
+    const files = libraryToBookFiles(await client.exportLibrary(), {runtime: RUNTIME});
 
     // Exactly one bundle, at the folder root — never vendored per-file.
     const bundles = files.filter((f) => f.path === BOOK_RUNTIME_FILE);
@@ -114,9 +114,9 @@ describe('spaceToBookFiles — folder-level viewer runtime (_openbook/viewer.js)
 
   it('emits NO reference when the runtime is unavailable (graceful static, current bytes)', async () => {
     await client.savePage({name: 'Solo', data: snap('just me')});
-    const space = await client.exportSpace();
-    const without = spaceToBookFiles(space);
-    const empty = spaceToBookFiles(space, {runtime: ''});
+    const space = await client.exportLibrary();
+    const without = libraryToBookFiles(space);
+    const empty = libraryToBookFiles(space, {runtime: ''});
     expect(without.some((f) => f.path === BOOK_RUNTIME_FILE)).toBe(false);
     for (const f of without) expect(f.contents).not.toContain('_openbook');
     // An empty runtime string is "unavailable" too — byte-identical output.
@@ -127,8 +127,8 @@ describe('spaceToBookFiles — folder-level viewer runtime (_openbook/viewer.js)
     const root = await client.savePage({name: 'Alpha', data: snap('alpha')});
     await client.setPageProperties(root.id, {sys_icon: '📘'});
 
-    const original = await client.exportSpace();
-    const files = spaceToBookFiles(original, {runtime: RUNTIME});
+    const original = await client.exportLibrary();
+    const files = libraryToBookFiles(original, {runtime: RUNTIME});
     // Both through the lossless bundle and the HTML-only fallback.
     const parsed = parseBookFolder(files);
     expect(parsed!.pages.map((p) => p.id).sort()).toEqual(original.pages.map((p) => p.id).sort());
@@ -138,10 +138,10 @@ describe('spaceToBookFiles — folder-level viewer runtime (_openbook/viewer.js)
   });
 });
 
-describe('spaceToBookFiles — byte-compatible with the server BookMirror (OB-134)', () => {
+describe('libraryToBookFiles — byte-compatible with the server BookMirror (OB-134)', () => {
   it('a web/desktop export imports cleanly through the server mirror', async () => {
     await client.savePage({name: 'Field Notes', data: snap('observed a heron')});
-    const files = spaceToBookFiles(await client.exportSpace());
+    const files = libraryToBookFiles(await client.exportLibrary());
 
     // Write the exported HTML files to disk in their relative layout.
     for (const f of files) {
@@ -172,7 +172,7 @@ describe('spaceToBookFiles — byte-compatible with the server BookMirror (OB-13
   it('a runtime-carrying export imports cleanly too (the runtime is never a page)', async () => {
     const RUNTIME = 'var OpenBookViewer = {}; /* stub */';
     await client.savePage({name: 'Field Notes', data: snap('observed a heron')});
-    const files = spaceToBookFiles(await client.exportSpace(), {runtime: RUNTIME});
+    const files = libraryToBookFiles(await client.exportLibrary(), {runtime: RUNTIME});
 
     for (const f of files) {
       if (!f.path.endsWith('.html') && f.path !== BOOK_RUNTIME_FILE) continue;
@@ -201,7 +201,7 @@ describe('spaceToBookFiles — byte-compatible with the server BookMirror (OB-13
 
   it('the SDK writer and the mirror emit BYTE-IDENTICAL files when both carry the runtime', async () => {
     // The byte-compatibility contract, extended to the runtime era: for the same
-    // page content, spaceToBookFiles({runtime}) and a BookMirror({runtimeBundle})
+    // page content, libraryToBookFiles({runtime}) and a BookMirror({runtimeBundle})
     // must produce the exact same page bytes (so either side re-imports the
     // other's folder as its own writes) AND the exact same bundle bytes.
     const RUNTIME = 'var OpenBookViewer = {mount: function () {}}; /* stub bundle */';
@@ -214,7 +214,7 @@ describe('spaceToBookFiles — byte-compatible with the server BookMirror (OB-13
       await mirror.flush();
 
       const {pages, databases} = await store.exportAll();
-      const sdkFiles = spaceToBookFiles({pages, databases}, {runtime: RUNTIME});
+      const sdkFiles = libraryToBookFiles({pages, databases}, {runtime: RUNTIME});
       const sdkHtml = sdkFiles.filter((f) => f.path.endsWith('.html'));
       expect(sdkHtml).toHaveLength(1);
       const onDisk = await readFile(join(outDir, sdkHtml[0].path), 'utf8');

@@ -2,7 +2,7 @@ import {readdir, readFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import {BACKUP_CADENCE_MS, type SpaceBackup} from '@book.dev/sdk';
+import {BACKUP_CADENCE_MS, type LibraryBackup} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
@@ -51,7 +51,7 @@ describe('BackupScheduler', () => {
     const res = await scheduler().runNow('daily');
     expect(res).toBeTruthy();
     expect(await listSnapshots('daily')).toHaveLength(1);
-    const parsed = JSON.parse(await readFile(join(backupDir, 'daily', res!.file), 'utf8')) as SpaceBackup;
+    const parsed = JSON.parse(await readFile(join(backupDir, 'daily', res!.file), 'utf8')) as LibraryBackup;
     expect(parsed.version).toBeGreaterThanOrEqual(1);
     expect(parsed.pages.some((p) => p.name === `bk-${seq}`)).toBe(true);
   });
@@ -93,10 +93,10 @@ describe('BackupScheduler', () => {
     await store.upsertPage({name: `rt-${seq}`, data: snapshot()});
     const res = await scheduler().runNow('daily');
     expect(res).toBeTruthy();
-    const parsed = JSON.parse(await readFile(join(backupDir, 'daily', res!.file), 'utf8')) as SpaceBackup;
+    const parsed = JSON.parse(await readFile(join(backupDir, 'daily', res!.file), 'utf8')) as LibraryBackup;
 
     // Restore the scheduled bundle into a fresh instance via the same import path
-    // the app's "Restore backup" uses — the canonical SpaceBackup JSON.
+    // the app's "Restore backup" uses — the canonical LibraryBackup JSON.
     const restoreDir = join(tmpdir(), `ob-backup-restore-${process.pid}-${seq}`);
     const restored = new PageStore(await PgliteDb.create(restoreDir));
     await restored.migrate();

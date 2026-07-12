@@ -5,10 +5,10 @@ import {
   islandScript,
   readIsland,
   readIslandRaw,
-  spaceIslandScript,
-  readSpaceIsland,
+  libraryIslandScript,
+  readLibraryIsland,
   type PageSnapshot,
-  type SpaceSnapshot,
+  type LibrarySnapshot,
 } from '@book.dev/sdk';
 
 /**
@@ -50,7 +50,7 @@ describe('encodeIsland / islandScript / readIsland', () => {
 
 describe('space island (site export)', () => {
   const snap = (text: string): PageSnapshot => ({editorjs: {blocks: [{id: 'a', type: 'paragraph', data: {text}}]}, values: [], names: []});
-  const space: SpaceSnapshot = {
+  const space: LibrarySnapshot = {
     pages: [
       {id: 'root', name: 'Root', data: snap('root'), hostedDatabaseId: 'db', databaseId: null, parentId: null, properties: {}, deletedAt: null, createdAt: '', updatedAt: ''},
       {id: 'kid', name: 'Kid', data: snap('kid'), hostedDatabaseId: null, databaseId: null, parentId: 'root', properties: {}, deletedAt: null, createdAt: '', updatedAt: ''},
@@ -59,8 +59,8 @@ describe('space island (site export)', () => {
   };
 
   it('round-trips the whole space bundle (pages + databases + nesting)', () => {
-    const html = `<html><body>${spaceIslandScript('root', space)}</body></html>`;
-    const parsed = readSpaceIsland(html)!;
+    const html = `<html><body>${libraryIslandScript('root', space)}</body></html>`;
+    const parsed = readLibraryIsland(html)!;
     expect(parsed).not.toBeNull();
     expect(parsed.rootId).toBe('root');
     expect(parsed.space).toEqual(space);
@@ -69,6 +69,6 @@ describe('space island (site export)', () => {
 
   it('returns null when the island is not a space bundle', () => {
     const pageIsland = islandScript({version: 1, id: 'x', data: {}});
-    expect(readSpaceIsland(pageIsland)).toBeNull();
+    expect(readLibraryIsland(pageIsland)).toBeNull();
   });
 });

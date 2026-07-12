@@ -126,7 +126,7 @@ export function PeopleSection() {
   // The standalone web app's in-browser workspace (P0-4): the roster stays
   // fully editable (it persists with the data), but no one else can reach this
   // workspace, so an invitation here can't let anyone in yet — say so.
-  const browserLocal = usePlatformCapabilities().browserLocalWorkspace === true;
+  const browserLocal = usePlatformCapabilities().browserLocalLibrary === true;
   // The forwarded root address, known only while the workspace is published
   // (P0-2). Inviting a member sends no email, so when there's a reachable
   // address we hand the owner that link to deliver by hand.
@@ -151,7 +151,7 @@ export function PeopleSection() {
   const sectionRef = useRef<HTMLElement>(null);
 
   const [deliverCopied, setDeliverCopied] = useState(false);
-  const copyWorkspaceLink = useCallback(async () => {
+  const copyLibraryLink = useCallback(async () => {
     if (publishedHost && (await copyText(`https://${publishedHost}`))) {
       setDeliverCopied(true);
       window.setTimeout(() => setDeliverCopied(false), 1500);
@@ -355,7 +355,7 @@ export function PeopleSection() {
                 {!browserLocal && publishedHost && members?.some((m) => m.status === 'invited') && (
                   <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted/40 px-3 py-2.5">
                     <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t('members.deliver.hint')}</p>
-                    <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copyWorkspaceLink()}>
+                    <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copyLibraryLink()}>
                       {deliverCopied ? (
                         <>
                           <Check className="mr-1.5 h-4 w-4" />

@@ -7,7 +7,7 @@ import {
   type BackupCadence,
   type BackupConfig,
   type BackupStatus,
-  type SpaceBackup,
+  type LibraryBackup,
 } from '@book.dev/sdk';
 import type {PageStore} from './store';
 
@@ -19,7 +19,7 @@ import type {PageStore} from './store';
  *
  * Reuses the server's periodic-job shape (a single low-frequency `setInterval`,
  * `unref`'d so it never holds the process open) and the atomic write-then-rename
- * the book mirror uses. Snapshots are the canonical {@link SpaceBackup} JSON the
+ * the book mirror uses. Snapshots are the canonical {@link LibraryBackup} JSON the
  * existing import already restores. Embedded/desktop + headless server only —
  * the in-webview store has no filesystem, so backups are reported unavailable
  * there.
@@ -129,7 +129,7 @@ export class BackupScheduler implements BackupController {
 
   private async writeBackup(cadence: BackupCadence, dir: string): Promise<string> {
     const {pages, databases} = await this.store.exportAll();
-    const backup: SpaceBackup = {version: BACKUP_VERSION, exportedAt: this.nowIso(), pages, databases};
+    const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: this.nowIso(), pages, databases};
     const cadenceDir = join(dir, cadence);
     await mkdir(cadenceDir, {recursive: true});
     const name = `openbook-backup-${fileStamp(this.nowIso())}.openbook.json`;

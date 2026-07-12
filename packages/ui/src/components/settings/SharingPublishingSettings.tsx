@@ -270,12 +270,12 @@ export default function SharingPublishingSettings() {
   const {t} = useTranslation();
   // The in-browser (PGlite) workspace: no publish affordance exists here and
   // no one else can reach the data, so the intro must not promise publishing.
-  const browserLocal = usePlatformCapabilities().browserLocalWorkspace === true;
+  const browserLocal = usePlatformCapabilities().browserLocalLibrary === true;
   return (
     <SettingsScreen
       title={t('sharingScreen.title')}
       description={t(browserLocal ? 'sharingScreen.webDescription' : 'sharingScreen.description')}
-      scope="workspace"
+      scope="library"
     >
       {browserLocal && <BrowserLocalPointerSection />}
       <ForwardingSection />

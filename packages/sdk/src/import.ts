@@ -14,7 +14,7 @@
  *
  *  - **Strategy B — {@link writeViaBundle}** maps the whole IR into a backup
  *    bundle (`{pages, databases}` native records) and hands it to
- *    `importSpace(…, mode:'copy')`. That inherits — for free — the server's
+ *    `importLibrary(…, mode:'copy')`. That inherits — for free — the server's
  *    id-remap, `@`-mention link-rewrite, name de-dup, and idempotent-replay
  *    machinery (`remapBundle` / `importBundle`), plus the Restore dialog on the
  *    UI side. Best for a multi-page / database tree.
@@ -275,7 +275,7 @@ export function chooseStrategy(doc: ImportedDoc): ImportStrategy {
 /** The slice of {@link DataClient} the import writers use (a real client satisfies it). */
 export type ImportWriteClient = Pick<
   DataClient,
-  'savePage' | 'setPageProperties' | 'createDatabase' | 'createRow' | 'importSpace'
+  'savePage' | 'setPageProperties' | 'createDatabase' | 'createRow' | 'importLibrary'
 >;
 
 /** Options shared by both writers. */
@@ -492,7 +492,7 @@ export function buildImportBundle(
 
 /**
  * **Strategy B.** Build the copy-mode bundle ({@link buildImportBundle}) and
- * hand it to `importSpace`, inheriting the server's id-remap, link-rewrite,
+ * hand it to `importLibrary`, inheriting the server's id-remap, link-rewrite,
  * name-dedup, and idempotent-replay handling. Surfaces the server's
  * {@link ImportResult} (and its `idMap` as the new page ids).
  */
@@ -503,7 +503,7 @@ export async function writeViaBundle(
 ): Promise<ImportWriteResult> {
   const {pages, databases} = buildImportBundle(doc, opts);
   const req: ImportRequest = {pages, databases, mode: 'copy'};
-  const importResult = await client.importSpace(req);
+  const importResult = await client.importLibrary(req);
   // Map the bundle pages that carry an image placeholder to their server-assigned
   // ids (via the id-map) so the post-import rehydration pass revisits only those.
   const placeholderPageIds: string[] = [];

@@ -14,7 +14,7 @@ import type {StoredDatabase} from './database';
 
 export const BACKUP_VERSION = 1;
 
-export interface SpaceBackup {
+export interface LibraryBackup {
   version: number;
   exportedAt: string;
   pages: StoredPage[];

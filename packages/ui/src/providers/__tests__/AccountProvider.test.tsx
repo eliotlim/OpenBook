@@ -5,7 +5,7 @@ import {decodeIdentity, getIdentityCredential, setForwardingAudience, setIdentit
 import {AccountProvider, useAccount} from '../AccountProvider';
 import {PlatformCapabilitiesProvider, type AccountSecretStore, type PlatformCapabilities} from '../PlatformCapabilitiesProvider';
 import {PreferencesProvider} from '../PreferencesProvider';
-import {WorkspaceProvider} from '../WorkspaceProvider';
+import {LibraryProvider} from '../LibraryProvider';
 
 // ── A fake account.book.pub, keyed by device token. Each token resolves to a
 //    distinct identity (issuer#sub + persona email), so the provider can label
@@ -98,9 +98,9 @@ function makeWrapper(platform: PlatformCapabilities = {}) {
   const Wrapper = ({children}: {children: React.ReactNode}) => (
     <PlatformCapabilitiesProvider value={platform}>
       <PreferencesProvider>
-        <WorkspaceProvider>
+        <LibraryProvider>
           <AccountProvider>{children}</AccountProvider>
-        </WorkspaceProvider>
+        </LibraryProvider>
       </PreferencesProvider>
     </PlatformCapabilitiesProvider>
   );

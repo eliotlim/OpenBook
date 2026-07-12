@@ -16,7 +16,7 @@ import {
   PlatformCapabilitiesProvider,
   PreferencesProvider,
   ThemeProvider,
-  WorkspaceProvider,
+  LibraryProvider,
   type PlatformCapabilities,
   type WindowControls,
 } from '@book.dev/ui';
@@ -195,7 +195,7 @@ function App() {
             {client && (
               <DataProvider client={client}>
                 <NavigationProvider>
-                  <WorkspaceProvider>
+                  <LibraryProvider>
                     <AccountProvider>
                       <ForwardingProvider>
                         <HudProvider>
@@ -205,7 +205,7 @@ function App() {
                         </HudProvider>
                       </ForwardingProvider>
                     </AccountProvider>
-                  </WorkspaceProvider>
+                  </LibraryProvider>
                 </NavigationProvider>
               </DataProvider>
             )}

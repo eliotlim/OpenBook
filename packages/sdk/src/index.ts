@@ -286,15 +286,15 @@ export {
   type PageIsland,
 } from './bookfile';
 export {
-  spaceToBookFiles,
+  libraryToBookFiles,
   parseBookFolder,
-  spaceIslandScript,
-  readSpaceIsland,
+  libraryIslandScript,
+  readLibraryIsland,
   SPACE_BUNDLE_FILE,
   type BookFolderFile,
-  type SpaceSnapshot,
-  type SpaceToBookFilesOptions,
-  type SpaceIsland,
+  type LibrarySnapshot,
+  type LibraryToBookFilesOptions,
+  type LibraryIsland,
 } from './bookFolder';
 export {
   canonicalDigest,
@@ -379,7 +379,7 @@ export {
   BACKUP_CADENCE_MS,
   DEFAULT_BACKUP_CONFIG,
   remapBundle,
-  type SpaceBackup,
+  type LibraryBackup,
   type ImportMode,
   type ImportRequest,
   type ImportResult,

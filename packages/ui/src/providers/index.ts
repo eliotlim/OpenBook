@@ -8,4 +8,4 @@ export * from './PlatformCapabilitiesProvider';
 export * from './PreferencesProvider';
 export * from './ThemeProvider';
 export * from './useSelfIdentity';
-export * from './WorkspaceProvider';
+export * from './LibraryProvider';

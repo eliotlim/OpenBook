@@ -126,7 +126,7 @@ function mockClient() {
     createRow: async () => {
       throw new Error('unused');
     },
-    importSpace: async () => {
+    importLibrary: async () => {
       throw new Error('unused — a single artifact page uses the create strategy');
     },
     putAsset: async (bytes: Uint8Array, mime: string, pageId: string) => {

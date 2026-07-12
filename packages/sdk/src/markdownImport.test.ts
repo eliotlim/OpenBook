@@ -259,7 +259,7 @@ function fakeClient(): {client: ImportWriteClient; pages: PageInput[]} {
     setPageProperties: (id, properties) => Promise.resolve(stored(id, {properties})),
     createDatabase: () => Promise.reject(new Error('not used')),
     createRow: () => Promise.reject(new Error('not used')),
-    importSpace: () => Promise.reject(new Error('not used')),
+    importLibrary: () => Promise.reject(new Error('not used')),
   };
   return {client, pages};
 }
