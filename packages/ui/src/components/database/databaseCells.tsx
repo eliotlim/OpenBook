@@ -222,12 +222,15 @@ function csvValue(row: DatabaseRow, property: DatabaseProperty, properties: Data
 }
 
 /** Serialise rows to CSV — a header of "Name" + column names, then a row each.
- *  Values are flattened and RFC-4180-escaped. Pure (shared by the export action). */
-export function rowsToCsv(rows: DatabaseRow[], columns: DatabaseProperty[], properties: DatabaseProperty[]): string {
+ *  Values are flattened and RFC-4180-escaped. Pure (shared by the export action).
+ *  `resolveRows` is the set derived values (rollups, dependency names) resolve
+ *  against — pass the display path's rollup rows/properties so a cross-database
+ *  rollup exports the value that's on screen, not "—"; defaults to `rows`. */
+export function rowsToCsv(rows: DatabaseRow[], columns: DatabaseProperty[], properties: DatabaseProperty[], resolveRows: DatabaseRow[] = rows): string {
   const esc = (s: string): string => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
   const lines = [['Name', ...columns.map((c) => c.name)].map(esc).join(',')];
   for (const row of rows) {
-    const cells = [row.name ?? '', ...columns.map((c) => csvValue(row, c, properties, rows))];
+    const cells = [row.name ?? '', ...columns.map((c) => csvValue(row, c, properties, resolveRows))];
     lines.push(cells.map(esc).join(','));
   }
   return lines.join('\n');

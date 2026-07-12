@@ -119,16 +119,30 @@ export function useRelationGroupTitles(...props: Array<DatabaseProperty | undefi
 /**
  * Compact, read-only chips summarising a row's property values. Shared by the
  * list, gallery, and board layouts so a row reads the same wherever it appears.
+ * `resolveProperties` is the full set derived values resolve against (pass
+ * `db.rollupProperties` so a rollup finds its relation/target even when those
+ * columns aren't shown as chips); `pending` suppresses cross-database rollup
+ * chips until their foreign rows load (no 0-flash).
  */
-export const RowChips: React.FC<{row: DatabaseRow; properties: DatabaseProperty[]; rows?: DatabaseRow[]; labelled?: boolean}> = ({
+export const RowChips: React.FC<{
+  row: DatabaseRow;
+  properties: DatabaseProperty[];
+  rows?: DatabaseRow[];
+  resolveProperties?: DatabaseProperty[];
+  pending?: ReadonlySet<string>;
+  labelled?: boolean;
+}> = ({
   row,
   properties,
   rows,
+  resolveProperties,
+  pending,
   labelled,
 }) => (
   <div className="flex min-w-0 flex-wrap items-center gap-1">
     {properties.map((property) => {
-      const value = cellValue(row, property, properties, rows);
+      if (property.type === 'rollup' && pending?.has(property.id)) return null;
+      const value = cellValue(row, property, resolveProperties ?? properties, rows);
       if (property.type === 'select' || property.type === 'status') {
         const option = property.options?.find((o) => o.id === value);
         return option ? <SelectChip key={property.id} option={option} /> : null;
@@ -273,7 +287,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
 
   const card = (row: DatabaseRow): React.ReactNode => {
     const cover = view.coverPropertyId ? coverImageUrl(row.properties[view.coverPropertyId]) : null;
-    const accent = rowColor(row, view, schema, db.rows);
+    const accent = rowColor(row, view, db.rollupProperties, db.rollupRows);
     return (
       <RowContextMenu key={row.id} db={db} rowId={row.id}>
         <button
@@ -284,7 +298,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
           <CardCover src={cover} heightClass={GALLERY_COVER[size]} icon={readPageIcon(row.id)} />
           <div className="flex flex-col gap-2 px-3 pb-3">
             <div className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</div>
-            <RowChips row={row} properties={cardProps} rows={db.rollupRows} />
+            <RowChips row={row} properties={cardProps} rows={db.rollupRows} resolveProperties={db.rollupProperties} pending={db.pendingRollups} />
           </div>
         </button>
       </RowContextMenu>
@@ -350,7 +364,9 @@ const BoardColumnFooter: React.FC<{db: UseDatabase; view: DbView; properties: Da
   const summary = view.boardSummary ?? (numeric ? {propertyId: numeric.id, type: 'sum' as SummaryType} : {propertyId: TITLE_PROPERTY_ID, type: 'count_all' as SummaryType});
   const prop = summary.propertyId === TITLE_PROPERTY_ID ? TITLE_PROPERTY_ID : properties.find((p) => p.id === summary.propertyId);
   if (!prop) return null;
-  const value = summarizeColumn(rows, prop, summary.type, properties);
+  // Resolve against the rollup rows/properties so a footer over a
+  // cross-database rollup folds real foreign rows (matches the cells).
+  const value = summarizeColumn(rows, prop, summary.type, db.rollupProperties, db.rollupRows);
   const calc = BOARD_CALCS.find((c) => c.value === summary.type)?.label ?? summary.type;
   const label = summary.propertyId === TITLE_PROPERTY_ID ? 'Count' : `${calc} · ${(prop as DatabaseProperty).name}`;
   const update = (patch: Partial<typeof summary>): void => void db.updateView(view.id, {boardSummary: {...summary, ...patch}});
@@ -429,7 +445,7 @@ const BoardColumnCards: React.FC<{
   <>
     <div className="flex flex-col gap-2">
       {rows.map((row) => {
-        const accent = rowColor(row, view, properties, db.rows);
+        const accent = rowColor(row, view, db.rollupProperties, db.rollupRows);
         return (
           <RowContextMenu key={row.id} db={db} rowId={row.id}>
             <div
@@ -454,7 +470,7 @@ const BoardColumnCards: React.FC<{
                 <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
                 <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
               </div>
-              <RowChips row={row} properties={cardProps} rows={db.rollupRows} />
+              <RowChips row={row} properties={cardProps} rows={db.rollupRows} resolveProperties={db.rollupProperties} pending={db.pendingRollups} />
             </div>
           </RowContextMenu>
         );
@@ -1113,7 +1129,7 @@ export const CalendarView: React.FC<{
               )}
               <div className="flex flex-col gap-0.5">
                 {rows.map((row) => {
-                  const accent = rowColor(row, view, properties, db.rows);
+                  const accent = rowColor(row, view, db.rollupProperties, db.rollupRows);
                   return (
                     <RowContextMenu key={row.id} db={db} rowId={row.id}>
                       <button
@@ -1133,7 +1149,7 @@ export const CalendarView: React.FC<{
                           <PageIcon value={readPageIcon(row.id)} className="shrink-0 leading-none" />
                           <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
                         </span>
-                        {tileProps.length > 0 && <RowChips row={row} properties={tileProps} rows={db.rollupRows} />}
+                        {tileProps.length > 0 && <RowChips row={row} properties={tileProps} rows={db.rollupRows} resolveProperties={db.rollupProperties} pending={db.pendingRollups} />}
                       </button>
                     </RowContextMenu>
                   );

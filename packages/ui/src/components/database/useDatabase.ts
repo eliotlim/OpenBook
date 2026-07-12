@@ -106,6 +106,13 @@ export interface UseDatabase {
    * related database's schema, not this one's.
    */
   rollupProperties: DatabaseProperty[];
+  /**
+   * Ids of cross-database `rollup` properties whose foreign rows haven't
+   * loaded yet. Their computed value is meaningless in that window (a `count`
+   * reads 0), so cells render the empty placeholder instead of a wrong number
+   * until the referenced database's rows arrive.
+   */
+  pendingRollups: ReadonlySet<string>;
   /** Rows after the active view's filters + sorts + the quick-search query. */
   visibleRows: DatabaseRow[];
   activeView: DatabaseView | null;
@@ -275,6 +282,10 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
   // resolve from `rows` alone; this stays empty for them.
   const [foreignRows, setForeignRows] = useState<DatabaseRow[]>([]);
   const [foreignProps, setForeignProps] = useState<DatabaseProperty[]>([]);
+  // Which foreign databases have delivered their rows (seed fetch or live
+  // push). Until a rollup's foreign database is in here its value is unknown —
+  // a `count` would flash 0 — so the cells suppress it (see pendingRollups).
+  const [foreignLoaded, setForeignLoaded] = useState<ReadonlySet<string>>(new Set());
   const foreignDbIds = useMemo(() => {
     if (!database) return '';
     const ids = new Set<string>();
@@ -291,16 +302,19 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     if (!foreignDbIds) {
       setForeignRows([]);
       setForeignProps([]);
+      setForeignLoaded(new Set());
       return;
     }
     const dbIds = foreignDbIds.split(',');
     let cancelled = false;
     const rowsByDb = new Map<string, DatabaseRow[]>();
     const propsByDb = new Map<string, DatabaseProperty[]>();
+    setForeignLoaded(new Set());
     const apply = (dbId: string, next: DatabaseRow[]): void => {
       if (cancelled) return;
       rowsByDb.set(dbId, next);
       setForeignRows(dbIds.flatMap((id) => rowsByDb.get(id) ?? []));
+      setForeignLoaded(new Set(rowsByDb.keys()));
     };
     const unsubscribes = dbIds.map((dbId) => {
       void client
@@ -331,6 +345,20 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     const own = database?.schema.properties ?? [];
     return foreignProps.length > 0 ? [...own, ...foreignProps] : own;
   }, [database, foreignProps]);
+  // Cross-database rollup properties whose foreign rows haven't arrived yet:
+  // their value is unknown (a `count` would read 0), so cells render the empty
+  // placeholder instead until the referenced database loads.
+  const pendingRollups = useMemo<ReadonlySet<string>>(() => {
+    const pending = new Set<string>();
+    if (!database || !foreignDbIds) return pending;
+    for (const p of database.schema.properties) {
+      if (p.type !== 'rollup' || !p.rollup) continue;
+      const rel = database.schema.properties.find((q) => q.id === p.rollup?.relationPropertyId);
+      const target = rel?.type === 'relation' ? rel.relationDatabaseId : undefined;
+      if (target && target !== database.id && !foreignLoaded.has(target)) pending.add(p.id);
+    }
+    return pending;
+  }, [database, foreignDbIds, foreignLoaded]);
 
   // Auto-assign sequential numbers to unassigned `unique_id` cells. Convergent:
   // each assignment optimistically updates `rows`, so the next pass sees the new
@@ -384,11 +412,14 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
 
   const visibleRows = useMemo<DatabaseRow[]>(() => {
     if (!database || !activeView) return rows;
-    const viewed = applyView(rows, activeView, database.schema.properties);
+    // Resolve derived values (cross-database rollups) against the same
+    // rows/properties the cells display, so filters and sorts on a rollup see
+    // the on-screen value rather than an empty foreign lookup.
+    const viewed = applyView(rows, activeView, rollupProperties, rollupRows);
     const query = search.trim().toLowerCase();
     if (!query) return viewed;
-    return viewed.filter((row) => rowMatchesSearch(row, query, database.schema.properties));
-  }, [rows, database, activeView, search]);
+    return viewed.filter((row) => rowMatchesSearch(row, query, database.schema.properties, rollupProperties, rollupRows));
+  }, [rows, database, activeView, search, rollupProperties, rollupRows]);
 
   // Persist a schema edit and adopt the returned database.
   const saveSchema = useCallback(
@@ -1021,6 +1052,7 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     rows,
     rollupRows,
     rollupProperties,
+    pendingRollups,
     visibleRows,
     activeView,
     setActiveViewId,
@@ -1102,8 +1134,17 @@ function buildProperty(input: NewPropertyInput, existing: DatabaseProperty[]): D
   return property;
 }
 
-/** Does any of a row's columns (title included) contain the search needle? */
-function rowMatchesSearch(row: DatabaseRow, needle: string, properties: DatabaseProperty[]): boolean {
+/** Does any of a row's columns (title included) contain the search needle?
+ *  Iterates the OWN `properties` only; `resolveProperties`/`resolveRows` are
+ *  the (possibly foreign-extended) sets derived values resolve against, so a
+ *  cross-database rollup's on-screen value is searchable too. */
+function rowMatchesSearch(
+  row: DatabaseRow,
+  needle: string,
+  properties: DatabaseProperty[],
+  resolveProperties: DatabaseProperty[] = properties,
+  resolveRows?: DatabaseRow[],
+): boolean {
   if ((row.name ?? '').toLowerCase().includes(needle)) return true;
   for (const property of properties) {
     let text = '';
@@ -1113,7 +1154,7 @@ function rowMatchesSearch(row: DatabaseRow, needle: string, properties: Database
       const ids = Array.isArray(row.properties[property.id]) ? (row.properties[property.id] as string[]) : [];
       text = (property.options ?? []).filter((o) => ids.includes(o.id)).map((o) => o.label).join(' ');
     } else {
-      const v = rowValue(row, property, properties);
+      const v = rowValue(row, property, resolveProperties, resolveRows);
       if (v instanceof FormulaError) text = '';
       else if (Array.isArray(v)) text = v.map(String).join(' ');
       else if (v != null) text = String(v);

@@ -1209,7 +1209,11 @@ export function rowMatchesCondition(
   return matchesFilter(condition.operator, rowValue(row, prop, properties, rows), condition.value);
 }
 
-export function applyView(rows: DatabaseRow[], view: DatabaseView, properties: DatabaseProperty[]): DatabaseRow[] {
+export function applyView(rows: DatabaseRow[], view: DatabaseView, properties: DatabaseProperty[], resolveRows: DatabaseRow[] = rows): DatabaseRow[] {
+  // `resolveRows` is the set derived values resolve against — pass rows PLUS
+  // the foreign databases' rows (and their properties in `properties`) so a
+  // filter/sort on a cross-database rollup sees real related rows; it defaults
+  // to `rows` for the plain same-database case.
   const root = viewFilterRoot(view);
   const evalNode = (node: FilterNode, row: DatabaseRow): boolean => {
     if (isFilterGroup(node)) {
@@ -1219,7 +1223,7 @@ export function applyView(rows: DatabaseRow[], view: DatabaseView, properties: D
     }
     const prop = propertyById(properties, node.propertyId);
     if (!prop) return true;
-    return matchesFilter(node.operator, rowValue(row, prop, properties, rows), node.value);
+    return matchesFilter(node.operator, rowValue(row, prop, properties, resolveRows), node.value);
   };
   const filtered = rows.filter((row) => evalNode(root, row));
 
@@ -1233,7 +1237,7 @@ export function applyView(rows: DatabaseRow[], view: DatabaseView, properties: D
       for (const sort of sorts) {
         const prop = propertyById(properties, sort.propertyId);
         if (!prop) continue;
-        const cmp = compareValues(rowValue(a.row, prop, properties, rows), rowValue(b.row, prop, properties, rows));
+        const cmp = compareValues(rowValue(a.row, prop, properties, resolveRows), rowValue(b.row, prop, properties, resolveRows));
         if (cmp !== 0) return sort.direction === 'desc' ? -cmp : cmp;
       }
       return a.index - b.index;
@@ -1748,11 +1752,14 @@ export function summarizeColumn(
   property: DatabaseProperty | typeof TITLE_PROPERTY_ID,
   type: SummaryType,
   properties: DatabaseProperty[],
+  // The set derived values resolve against — include foreign rows/properties
+  // so a summary over a cross-database rollup folds real related rows.
+  resolveRows: DatabaseRow[] = rows,
 ): string {
   if (type === 'none') return '';
   if (type === 'count_all') return String(rows.length);
 
-  const values = rows.map((r) => rowValue(r, property, properties, rows));
+  const values = rows.map((r) => rowValue(r, property, properties, resolveRows));
   const filled = values.filter((v) => !isEmpty(v));
   const total = rows.length || 1;
 
