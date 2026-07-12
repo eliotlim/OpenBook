@@ -5,13 +5,15 @@ import {Button} from '@/components/ui/button';
 import {Switch} from '@/components/ui/switch';
 import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
 import {SharingSection} from '@/components/settings/SharingSettings';
+import {PeopleSection} from '@/components/settings/MembersSettings';
 
 /**
- * The "Sharing & publishing" settings screen: every control that decides who
- * can reach this workspace, in one place —
- *   • publish to the web (`✦.book.pub` forwarding, desktop),
- *   • the workspace guest gate (the default page-access level),
- *   • publish on the local network (the LAN listener + token).
+ * The one Sharing tab — every control that decides who can reach this workspace,
+ * in one place (SHR-5 merged the former Members tab in as the People section):
+ *   • Publish to the web (`✦.book.cloud` forwarding, desktop),
+ *   • Default access (the workspace guest gate),
+ *   • People (the member roster: invite, roles, status),
+ *   • Advanced — local network (the LAN listener + token).
  * Server *plumbing* (which server, remote URL, tokens) stays in Connection —
  * splitting policy from plumbing is the point (IA review, 2026-07).
  */
@@ -266,6 +268,7 @@ export default function SharingPublishingSettings() {
       {browserLocal && <BrowserLocalPointerSection />}
       <ForwardingSection />
       <SharingSection />
+      <PeopleSection />
       <LanPublishSection />
     </SettingsScreen>
   );

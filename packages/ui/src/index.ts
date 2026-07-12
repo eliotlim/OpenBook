@@ -5,7 +5,14 @@ export * from './data';
 export * from './layouts';
 export * from './providers';
 export * from './screens';
-export {SETTINGS_TABS, isSettingsTab} from './lib/hud';
+export {
+  SETTINGS_TABS,
+  isSettingsTab,
+  isTabParam,
+  normalizeTab,
+  SETTINGS_SECTION_PEOPLE,
+  SETTINGS_ALIAS_SECTIONS,
+} from './lib/hud';
 export type {HudProps, SettingsTab, SettingsMode} from './lib/hud';
 // The account update-check client + response mapping, consumed by the desktop
 // shell's `platform.updates` implementation (and the update scheduler).

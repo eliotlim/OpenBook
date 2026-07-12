@@ -61,18 +61,21 @@ export function SettingsScreen({
 
 /** A labelled group within a screen — an optional heading + hint, then content. */
 export function SettingsSection({
+  id,
   title,
   description,
   children,
   className,
 }: {
+  /** A DOM id, so a deep-link can scroll straight to this group. */
+  id?: string;
   title?: string;
   description?: string;
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <section className={cn('flex flex-col gap-2', className)}>
+    <section id={id} className={cn('flex flex-col gap-2', className)}>
       {title && <h4 className="text-sm font-semibold">{title}</h4>}
       {description && <p className="text-sm text-muted-foreground">{description}</p>}
       {children}

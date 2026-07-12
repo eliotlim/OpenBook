@@ -1,6 +1,6 @@
 import {useEffect, useRef} from 'react';
 import {useRouter} from 'next/router';
-import {isSettingsTab, useHud, type HudProps} from '@book.dev/ui';
+import {isTabParam, normalizeTab, useHud, SETTINGS_ALIAS_SECTIONS, type HudProps} from '@book.dev/ui';
 
 // Settings state lives in the URL as `?settings=<tab>` so it can be shared,
 // bookmarked, and restored on reload. Presence of the param means "open"; its
@@ -38,7 +38,15 @@ export default function SettingsDeepLink() {
     if (!router.isReady) return;
     setHud((draft: HudProps) => {
       draft.settings.open = param !== undefined;
-      if (isSettingsTab(param)) draft.settings.tab = param;
+      // Resolve a real tab or a legacy alias (`members` → the Sharing tab); an
+      // unrecognised value leaves the current tab alone. When the alias also
+      // names an in-tab group (`members` → People), carry that scroll hint —
+      // never null it here, so a plain-tab param can't clobber a pending one.
+      if (isTabParam(param)) {
+        draft.settings.tab = normalizeTab(param);
+        const section = param !== undefined ? SETTINGS_ALIAS_SECTIONS[param] : undefined;
+        if (section) draft.settings.section = section;
+      }
       return draft;
     });
   }, [router.isReady, param, setHud]);

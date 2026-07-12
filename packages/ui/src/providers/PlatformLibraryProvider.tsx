@@ -195,8 +195,8 @@ export interface PlatformLibrary {
    * Declared by hosts whose workspace lives only in this browser profile — the
    * standalone web app's embedded PGlite store (P0-4 sharing audit). Nothing
    * outside this browser can reach that workspace and the build has no publish
-   * affordance, so the sharing surfaces (Share dialog, Members, Sharing &
-   * publishing) stay functional but say honestly that these settings can't
+   * affordance, so the sharing surfaces (Share dialog, the Sharing tab and its
+   * People roster) stay functional but say honestly that these settings can't
    * reach anyone until a workspace is published from the desktop app. Leave
    * unset on desktop, on forwarded `<prefix>.book.cloud` sites and on
    * remote-server connections — those all reach a real shared instance.

@@ -31,7 +31,6 @@ export const ja: PartialMessages = {
       signin: 'アカウントと同期',
       sharing: '共有と公開',
       connection: '接続',
-      members: 'メンバー',
       extensions: '拡張機能',
 
       ai: 'AI',

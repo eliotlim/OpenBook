@@ -31,7 +31,6 @@ export const zh: PartialMessages = {
       signin: '账户与同步',
       sharing: '共享与发布',
       connection: '连接',
-      members: '成员',
       extensions: '扩展',
 
       ai: 'AI',

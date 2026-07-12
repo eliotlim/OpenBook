@@ -2,7 +2,7 @@ import {describe, it, expect, afterEach, vi} from 'vitest';
 import {render, screen, cleanup} from '@testing-library/react';
 import type {DataClient, Member} from '@book.dev/sdk';
 import {guestPrincipal} from '@book.dev/sdk';
-import MembersSettings from '../settings/MembersSettings';
+import {PeopleSection} from '../settings/MembersSettings';
 import {DataProvider} from '@/data/DataProvider';
 import {ConfirmProvider, I18nProvider} from '@/providers';
 
@@ -24,7 +24,7 @@ const wrap = (client: Partial<DataClient>) =>
     <I18nProvider>
       <ConfirmProvider>
         <DataProvider client={client as DataClient}>
-          <MembersSettings />
+          <PeopleSection />
         </DataProvider>
       </ConfirmProvider>
     </I18nProvider>,
@@ -47,7 +47,7 @@ afterEach(() => {
   mockPublishedHost = null;
 });
 
-describe('MembersSettings (roster)', () => {
+describe('PeopleSection (roster)', () => {
   it('lists members and shows the invite controls to a manager', async () => {
     const client: Partial<DataClient> = {
       getInstanceInfo: async () => ({

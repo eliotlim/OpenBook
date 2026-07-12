@@ -78,8 +78,9 @@ test('web sharing surfaces disclose the in-browser workspace honestly', {tag: ['
   await expect(page.getByText(/isn’t hosted anywhere/)).toBeVisible();
   await expect(page.getByText('Guests & access')).toBeVisible();
 
-  // Members: the roster stays usable but says invitees can't reach it yet.
-  await page.getByRole('button', {name: 'Members'}).click();
+  // People: the roster (now a section of the same Sharing tab, SHR-5) stays
+  // usable but says invitees can't reach it yet.
+  await expect(page.getByRole('heading', {name: 'People'})).toBeVisible();
   await expect(page.getByText(/people you add here can’t open it yet/)).toBeVisible();
   await expect(page.getByLabel('Invite a member')).toBeVisible();
 });

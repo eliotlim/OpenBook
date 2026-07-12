@@ -17,6 +17,7 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Select} from '@/components/ui/select';
 import {copyPageLink} from '@/lib/pageActions';
+import {SETTINGS_SECTION_PEOPLE} from '@/lib/hud';
 import {cn} from '@/lib/utils';
 import type {TKey} from '@/i18n';
 
@@ -214,7 +215,7 @@ function InlinePublish() {
  * people read/edit access by email or handle, all against the OB-191 per-page
  * API (`setPageVisibility`, `sharePage`/`listPageAcl`/`unsharePage`); it also
  * shows the *effective* workspace default behind `inherit` and links out to
- * the workspace-level surfaces (Sharing & publishing, Members). A non-manager
+ * the workspace-level Sharing tab (its top, and its People roster section). A non-manager
  * (`canManage: false`) gets the same dialog read-only. Rendered from the
  * page-actions cluster.
  */
@@ -632,10 +633,10 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
               </div>
             )}
 
-            {/* Workspace-level surfaces this dialog summarizes: the guest gate /
-                publishing live in Settings → Sharing & publishing, the roster in
-                Settings → Members. Managers get one-click paths so "who can see
-                this?" never requires knowing which of four surfaces applies. */}
+            {/* Workspace-level surfaces this dialog summarizes, all now on the one
+                Sharing tab (SHR-5): the guest gate / publishing at its top, the
+                member roster in its People section. Managers get one-click paths so
+                "who can see this?" never requires knowing which surface applies. */}
             {canManage && (
               <div className="flex items-center gap-4 border-t border-border pt-3 text-xs">
                 <button
@@ -646,6 +647,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                     setHud((draft) => {
                       draft.settings.open = true;
                       draft.settings.tab = 'sharing';
+                      draft.settings.section = null;
                       return draft;
                     });
                   }}
@@ -659,7 +661,8 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                     setOpen(false);
                     setHud((draft) => {
                       draft.settings.open = true;
-                      draft.settings.tab = 'members';
+                      draft.settings.tab = 'sharing';
+                      draft.settings.section = SETTINGS_SECTION_PEOPLE;
                       return draft;
                     });
                   }}

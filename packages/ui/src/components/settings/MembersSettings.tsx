@@ -2,19 +2,21 @@ import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
 import {Check, Link2, Loader2, Trash2, UserPlus} from 'lucide-react';
 import type {InstanceInfo, Member, MemberRole, MemberStatus, Principal} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useConfirm, useForwarding, usePlatformLibrary, useTranslation} from '@/providers';
+import {useConfirm, useForwarding, useHud, usePlatformLibrary, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {IconButton} from '@/components/ui/icon-button';
 import {Select} from '@/components/ui/select';
-import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
+import {SettingsSection} from '@/components/settings/primitives';
+import {SETTINGS_SECTION_PEOPLE} from '@/lib/hud';
 import {copyText} from '@/lib/pageActions';
 import {cn} from '@/lib/utils';
 import type {TKey} from '@/i18n';
 
 /**
- * The instance member roster (OB-204). Lists who has a role on this workspace,
- * and — for a manager (loopback owner / admin / claimed owner, or any writer on a
+ * The instance member roster (OB-204), rendered as the **People** section of the
+ * merged Sharing tab (SHR-5). Lists who has a role on this workspace, and — for a
+ * manager (loopback owner / admin / claimed owner, or any writer on a
  * still-unclaimed instance) — lets them invite by email or handle, change a
  * member's role, and remove access. All driven by the OB-191 roster API
  * (`listMembers`/`inviteMember`/`updateMember`/`removeMember`).
@@ -116,10 +118,11 @@ function GuardTip({reason, children}: {reason?: string; children: ReactNode}) {
   );
 }
 
-export default function MembersSettings() {
+export function PeopleSection() {
   const client = useData();
   const {t} = useTranslation();
   const confirm = useConfirm();
+  const {hud, setHud} = useHud();
   // The standalone web app's in-browser workspace (P0-4): the roster stays
   // fully editable (it persists with the data), but no one else can reach this
   // workspace, so an invitation here can't let anyone in yet — say so.
@@ -187,6 +190,18 @@ export default function MembersSettings() {
     void refresh();
   }, [refresh]);
 
+  // Deep-link landing (SHR-5): a "manage members" link / `?settings=members`
+  // opens the Sharing tab and asks (via the transient `settings.section` hint)
+  // to reveal the roster. Scroll this group into view, then clear the one-shot.
+  useEffect(() => {
+    if (hud.settings.section !== SETTINGS_SECTION_PEOPLE) return;
+    document.getElementById(SETTINGS_SECTION_PEOPLE)?.scrollIntoView({behavior: 'smooth', block: 'start'});
+    setHud((draft) => {
+      draft.settings.section = null;
+      return draft;
+    });
+  }, [hud.settings.section, setHud]);
+
   const submitInvite = useCallback(async () => {
     const value = invitee.trim();
     if (!value || inviting) return;
@@ -251,7 +266,7 @@ export default function MembersSettings() {
   }, [info, t]);
 
   return (
-    <SettingsScreen title={t('members.title')} description={t('members.description')} scope="workspace">
+    <SettingsSection id={SETTINGS_SECTION_PEOPLE} title={t('members.title')} description={t('members.description')}>
       {unavailable ? (
         <p className="text-sm text-muted-foreground">{t('members.unavailable')}</p>
       ) : canManage === null ? (
@@ -437,6 +452,6 @@ export default function MembersSettings() {
           )}
         </>
       )}
-    </SettingsScreen>
+    </SettingsSection>
   );
 }
