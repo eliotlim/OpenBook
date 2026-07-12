@@ -1,6 +1,6 @@
 import {unzlibSync} from 'fflate';
 import {describe, expect, it, vi} from 'vitest';
-import {PAGE_TEMPLATES, SAMPLE_DOCUMENT_NAME, coverImageUrl, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
+import {buildSampleDocument, PAGE_TEMPLATES, SAMPLE_DOCUMENT_NAME, coverImageUrl, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
 import type {DatabaseSchema, DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
 import {decodeSnapshot, rootBlocks, walkBlocks, blockProp, blockType, type BlockDocSnapshot, type BlockMap} from '@/blockeditor/model';
 import {computeScope, evalExpr, setNamedNumber} from '@/blockeditor/kit/scope';
@@ -534,6 +534,69 @@ describe('product hq (two linked databases)', () => {
   });
 });
 
+describe('guidance callouts (the standardized "how to use this" lead block)', () => {
+  /** The guided templates: the database fixtures + the sample-document copy —
+   *  the ones without strong in-doc guidance of their own. */
+  const GUIDED_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map', 'product-hq', 'compound-growth'] as const;
+
+  type SavedDoc = {editor?: string; blockdoc?: {blocks: Array<Record<string, unknown>>}};
+  type CalloutBlock = {type?: string; props?: {variant?: string}; text?: Array<{t?: string}>};
+
+  /** The template's HOST page snapshot (its first savePage call). */
+  async function hostDocOf(id: PageTemplate['id'], guidance?: string): Promise<SavedDoc> {
+    const template = PAGE_TEMPLATES.find((t) => t.id === id) as PageTemplate;
+    const client = stubClient([]);
+    await template.create(client, template.pageName, guidance);
+    return ((client.savePage as ReturnType<typeof vi.fn>).mock.calls[0][0] as {data: SavedDoc}).data;
+  }
+
+  it('every guided template leads with one consistent info callout', async () => {
+    for (const id of GUIDED_IDS) {
+      const data = await hostDocOf(id);
+      expect(data.editor, `${id}: host page is a block-doc`).toBe('blocks');
+      const first = data.blockdoc?.blocks[0] as CalloutBlock | undefined;
+      expect(first?.type, `${id}: first block`).toBe('callout');
+      expect(first?.props?.variant, `${id}: variant`).toBe('info');
+      // Consistent shape: what it demonstrates, then how to try it — and the
+      // baked-in English default is exactly the text the template advertises
+      // (the gallery swaps in the user's locale via the same field).
+      const text = (first?.text ?? []).map((r) => r.t ?? '').join('');
+      expect(text, `${id}: demonstrates`).toContain('This template shows');
+      expect(text, `${id}: how to try it`).toContain('Try it:');
+      expect(text, `${id}: matches template.guidance`).toBe(PAGE_TEMPLATES.find((t) => t.id === id)?.guidance);
+    }
+  });
+
+  it('a localized override replaces the callout text (the gallery path)', async () => {
+    const data = await hostDocOf('task-board', 'Lokalisierter Hinweis');
+    const first = data.blockdoc?.blocks[0] as CalloutBlock;
+    expect((first.text ?? []).map((r) => r.t).join('')).toBe('Lokalisierter Hinweis');
+  });
+
+  it('product-hq guides the Initiatives page only — the Tasks sub-page stays bare', async () => {
+    const template = PAGE_TEMPLATES.find((t) => t.id === 'product-hq') as PageTemplate;
+    const client = stubClient([]);
+    await template.create(client, template.pageName);
+    const calls = (client.savePage as ReturnType<typeof vi.fn>).mock.calls;
+    expect(calls).toHaveLength(2);
+    expect((calls[1][0] as {data: SavedDoc}).data.blockdoc).toBeUndefined();
+  });
+
+  it('compound-growth prepends the callout to a copy — the canonical sample stays untouched', async () => {
+    const gallery = await hostDocOf('compound-growth');
+    expect((gallery.blockdoc?.blocks[1] as {id?: string}).id).toBe('sample-intro'); // the sample follows intact
+    const sample = buildSampleDocument().data as SavedDoc;
+    expect((sample.blockdoc?.blocks[0] as {id?: string}).id).toBe('sample-intro'); // no callout on the seeder path
+  });
+
+  it('templates that already open with strong in-doc guidance carry none', () => {
+    for (const t of PAGE_TEMPLATES) {
+      const guided = (GUIDED_IDS as readonly string[]).includes(t.id);
+      expect(t.guidance !== undefined, t.id).toBe(guided);
+    }
+  });
+});
+
 describe('instantiateTemplate', () => {
   const grocery = PAGE_TEMPLATES.find((t) => t.id === 'grocery-tracker') as PageTemplate;
 
@@ -547,5 +610,15 @@ describe('instantiateTemplate', () => {
     const client = stubClient(['Grocery price tracker', 'Grocery price tracker 2']);
     await instantiateTemplate(client, grocery);
     expect(client.savePage).toHaveBeenCalledWith(expect.objectContaining({name: 'Grocery price tracker 3'}));
+  });
+
+  it('threads a localized guidance text through to create', async () => {
+    const taskBoard = PAGE_TEMPLATES.find((t) => t.id === 'task-board') as PageTemplate;
+    const client = stubClient([]);
+    await instantiateTemplate(client, taskBoard, {guidance: 'Übersetzter Hinweis'});
+    const data = ((client.savePage as ReturnType<typeof vi.fn>).mock.calls[0][0] as {
+      data: {blockdoc?: {blocks: Array<{text?: Array<{t?: string}>}>}};
+    }).data;
+    expect((data.blockdoc?.blocks[0].text ?? []).map((r) => r.t).join('')).toBe('Übersetzter Hinweis');
   });
 });

@@ -41,8 +41,19 @@ export interface PageTemplate {
   pageName: string;
   /** What the template shows off — rendered as chips on the gallery card. */
   tags: TemplateTag[];
-  /** Creates the page (and database, if any) and returns the stored page. */
-  create: (client: DataClient, name: string) => Promise<StoredPage>;
+  /**
+   * Canonical (English) text of the leading "how to use this" callout, for
+   * templates that don't already open with strong in-doc guidance (the
+   * database fixtures and the sample-document copy). The gallery passes a
+   * localized override through {@link instantiateTemplate}; `create` bakes
+   * this English text in by default. Templates whose documents already guide
+   * (grocery, pitch deck, team status, …) leave it unset.
+   */
+  guidance?: string;
+  /** Creates the page (and database, if any) and returns the stored page.
+   *  `guidance` overrides the template's canonical guidance-callout text
+   *  (ignored by templates that define none). */
+  create: (client: DataClient, name: string, guidance?: string) => Promise<StoredPage>;
 }
 
 const emptySnapshot = (blocks: object[]): PageSnapshot => ({
@@ -50,6 +61,44 @@ const emptySnapshot = (blocks: object[]): PageSnapshot => ({
   values: [],
   names: [],
 });
+
+// ── The standardized "how to use this" guidance callout ─────────────────────
+//
+// Templates that don't open with strong in-doc guidance (the database fixtures
+// and the sample-document copy) lead with one consistent `info` callout: what
+// the template demonstrates, then how to try it. The English text below is the
+// canonical default; the gallery passes a localized override at instantiation
+// (the ui package's `templates.<id>.guidance` i18n keys mirror these strings).
+
+const GUIDANCE = {
+  taskBoard:
+    'This template shows a task database: the Status property drives the kanban columns, and the same rows back the Table and Calendar views. Try it: drag a card to another column, switch views, or right-click the view to export CSV.',
+  readingList:
+    'This template shows a gallery database: books grouped by shelf with covers, authors and star ratings, plus a Table view of the same rows. Try it: rate a book, move one to another shelf, or add your own.',
+  roadmap:
+    'This template shows swimlanes: the Timeline bands and the Board lanes both split by Area. Try it: drag a bar to reschedule, collapse a lane, or move a card between stages.',
+  fieldMap:
+    'This template shows a map database: rows with a location render as region-coloured pins, and the address-only row waits under the unplaced affordance. Try it: click a pin, geocode the unplaced row, or switch to the Table view.',
+  productHq:
+    'This template shows two linked databases: each initiative relates to tasks on the Tasks sub-page, and the Progress and Task count columns roll those tasks up. Try it: tick a task done on the sub-page and watch the rollup move, or open the Tasks timeline for the dependency arrows.',
+  compoundGrowth:
+    'This template shows a reactive document: the months slider feeds a live code block that plots four compound-growth curves. Try it: drag the slider, expand the collapsed code to change the maths, or present and export the page.',
+} as const;
+
+/** The guidance callout as a block-doc block (ids are stable per template). */
+const guidanceCallout = (id: string, text: string): object => ({
+  id,
+  type: 'callout',
+  text: [{t: text}],
+  props: {variant: 'info'},
+});
+
+/** A host-page snapshot: empty, or a single leading guidance callout rendered
+ *  (block-doc) above the hosted database view. */
+const guidanceSnapshot = (guide?: {id: string; text: string}): PageSnapshot =>
+  guide
+    ? {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: {blocks: [guidanceCallout(guide.id, guide.text)]}}
+    : emptySnapshot([]);
 
 /** A local `YYYY-MM-DD` day string offset by `days` from today. */
 const day = (days: number): string => {
@@ -784,14 +833,16 @@ const productHqTasksSchema = (initiativesDbId: string): DatabaseSchema => ({
 
 /** Build the two databases, then seed rows across both so the relation, the
  *  rollups, and the dependency arrows all render non-empty out of the box. */
-const createProductHq = async (client: DataClient, name: string): Promise<StoredPage> => {
+const createProductHq = async (client: DataClient, name: string, guidance: string = GUIDANCE.productHq): Promise<StoredPage> => {
   // Pre-minted ids let each schema reference the OTHER database with no
   // second-pass schema update (createDatabase honours a client-supplied id).
   const initiativesDbId = globalThis.crypto.randomUUID();
   const tasksDbId = globalThis.crypto.randomUUID();
   const tasksName = `${name} Tasks`;
 
-  const page = await client.savePage({name, data: emptySnapshot([])});
+  // The guidance callout leads the Initiatives host page; the Tasks sub-page
+  // stays bare (it's reached from the guided page).
+  const page = await client.savePage({name, data: guidanceSnapshot({id: 'hq-guide', text: guidance})});
   const tasksPage = await client.savePage({name: tasksName, data: emptySnapshot([]), parentId: page.id});
   await client.createDatabase({id: initiativesDbId, pageId: page.id, name, schema: productHqInitiativesSchema(tasksDbId)});
   await client.createDatabase({id: tasksDbId, pageId: tasksPage.id, name: tasksName, schema: productHqTasksSchema(initiativesDbId)});
@@ -831,11 +882,13 @@ const createBlockDocPage =
 
 /** Create a database template: host page + database + sample rows. Names are
  *  not unique, so a plain create always lands; the retry ladder below survives
- *  transient failures (untitled as a last resort). */
+ *  transient failures (untitled as a last resort). `guide` (id + canonical
+ *  English text) puts the standardized guidance callout on the host page —
+ *  where a database template's doc surface renders, above the view. */
 const createDatabasePage =
-  (schema: DatabaseSchema, rows: {name: string; properties: Record<string, unknown>}[]) =>
-    async (client: DataClient, name: string): Promise<StoredPage> => {
-      const page = await client.savePage({name, data: emptySnapshot([])});
+  (schema: DatabaseSchema, rows: {name: string; properties: Record<string, unknown>}[], guide?: {id: string; text: string}) =>
+    async (client: DataClient, name: string, guidance?: string): Promise<StoredPage> => {
+      const page = await client.savePage({name, data: guidanceSnapshot(guide && {id: guide.id, text: guidance ?? guide.text})});
       const db = await client.createDatabase({pageId: page.id, name, schema});
       for (const row of rows) {
         let rowName: string | null = row.name;
@@ -855,22 +908,34 @@ const createDatabasePage =
       return page;
     };
 
+/** The sample document with the guidance callout prepended (a fresh copy each
+ *  call — never mutates the seeder's canonical blocks). */
+const createCompoundGrowth = (client: DataClient, name: string, guidance: string = GUIDANCE.compoundGrowth): Promise<StoredPage> => {
+  const input = buildSampleDocument();
+  const blockdoc = (input.data as PageSnapshot).blockdoc as {blocks: object[]};
+  const data: PageSnapshot = {
+    ...(input.data as PageSnapshot),
+    blockdoc: {blocks: [guidanceCallout('cg-guide', guidance), ...blockdoc.blocks]},
+  };
+  return client.savePage({...input, name, data});
+};
+
 export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'grocery-tracker', icon: '🛒', pageName: 'Grocery price tracker', tags: ['interactive', 'slides'], create: createBlockDocPage(GROCERY_BLOCKS)},
-  {id: 'task-board', icon: '🗂️', pageName: 'Project task board', tags: ['database'], create: createDatabasePage(TASK_BOARD_SCHEMA, TASK_BOARD_ROWS)},
-  {id: 'reading-list', icon: '📚', pageName: 'Reading list', tags: ['database'], create: createDatabasePage(READING_SCHEMA, READING_ROWS)},
+  {id: 'task-board', icon: '🗂️', pageName: 'Project task board', tags: ['database'], guidance: GUIDANCE.taskBoard, create: createDatabasePage(TASK_BOARD_SCHEMA, TASK_BOARD_ROWS, {id: 'tb-guide', text: GUIDANCE.taskBoard})},
+  {id: 'reading-list', icon: '📚', pageName: 'Reading list', tags: ['database'], guidance: GUIDANCE.readingList, create: createDatabasePage(READING_SCHEMA, READING_ROWS, {id: 'rl-guide', text: GUIDANCE.readingList})},
   {id: 'project-intake', icon: '📋', pageName: 'Project intake', tags: ['interactive', 'slides'], create: createBlockDocPage(PROJECT_INTAKE_BLOCKS)},
   {id: 'savings-planner', icon: '💰', pageName: 'Savings & investing', tags: ['interactive', 'slides'], create: createBlockDocPage(SAVINGS_BLOCKS)},
-  {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', tags: ['database'], create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS)},
-  {id: 'field-map', icon: '📍', pageName: 'Field map', tags: ['database'], create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS)},
+  {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', tags: ['database'], guidance: GUIDANCE.roadmap, create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS, {id: 'rm-guide', text: GUIDANCE.roadmap})},
+  {id: 'field-map', icon: '📍', pageName: 'Field map', tags: ['database'], guidance: GUIDANCE.fieldMap, create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS, {id: 'fm-guide', text: GUIDANCE.fieldMap})},
   {id: 'pitch-deck', icon: '📽️', pageName: 'Pitch deck', tags: ['interactive', 'slides'], create: createBlockDocPage(PITCH_DECK_BLOCKS)},
   {id: 'team-status', icon: '🚦', pageName: 'Team status dashboard', tags: ['interactive'], create: createBlockDocPage(TEAM_STATUS_BLOCKS)},
-  {id: 'product-hq', icon: '🎯', pageName: 'Product HQ', tags: ['database'], create: createProductHq},
+  {id: 'product-hq', icon: '🎯', pageName: 'Product HQ', tags: ['database'], guidance: GUIDANCE.productHq, create: createProductHq},
   // The classic sample document, folded into the gallery. Unlike the Home
   // starter's open-or-create (which targets the canonical sample name and never
   // overwrites), the gallery card always mints a FRESH copy under its own
   // display name — the two entry points never race or shadow each other.
-  {id: 'compound-growth', icon: '📈', pageName: 'Compound growth', tags: ['interactive'], create: (client, name) => client.savePage({...buildSampleDocument(), name})},
+  {id: 'compound-growth', icon: '📈', pageName: 'Compound growth', tags: ['interactive'], guidance: GUIDANCE.compoundGrowth, create: createCompoundGrowth},
 ];
 
 /** Courtesy numbering (names are not unique): a second instance becomes
@@ -887,13 +952,15 @@ async function availableName(client: DataClient, base: string): Promise<string> 
 /**
  * Instantiate a template: pick a distinct display name (courtesy numbering —
  * duplicates are allowed but unhelpful for ready-made pages) and build the page
- * through the client, retrying transient failures.
+ * through the client, retrying transient failures. `opts.guidance` localizes
+ * the leading guidance callout of templates that carry one (the gallery passes
+ * the user's locale text; absent, the canonical English default applies).
  */
-export async function instantiateTemplate(client: DataClient, template: PageTemplate): Promise<StoredPage> {
+export async function instantiateTemplate(client: DataClient, template: PageTemplate, opts?: {guidance?: string}): Promise<StoredPage> {
   let name = await availableName(client, template.pageName);
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await template.create(client, name);
+      return await template.create(client, name, opts?.guidance);
     } catch (err) {
       // A concurrent create can win the name between the check and the save;
       // step the suffix and retry a few times before giving up.

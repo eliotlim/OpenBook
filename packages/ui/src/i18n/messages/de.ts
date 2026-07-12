@@ -534,10 +534,12 @@ export const de: PartialMessages = {
     taskBoard: {
       name: 'Projekt-Aufgabenboard',
       description: 'Aufgaben mit Status, Priorität, Verantwortlichem und Aufwand — ein Kanban-Board nach Status, plus Tabelle.',
+      guidance: 'Diese Vorlage zeigt eine Aufgaben-Datenbank: Die Status-Eigenschaft bestimmt die Kanban-Spalten, und dieselben Zeilen speisen die Tabellen- und die Kalenderansicht. Zum Ausprobieren: Ziehen Sie eine Karte in eine andere Spalte, wechseln Sie die Ansicht oder exportieren Sie per Rechtsklick auf die Ansicht CSV.',
     },
     readingList: {
       name: 'Leseliste',
       description: 'Eine Galerie von Büchern nach Regal, mit Autoren und Sternebewertungen — plus Tabellenansicht.',
+      guidance: 'Diese Vorlage zeigt eine Galerie-Datenbank: Bücher nach Regal gruppiert, mit Covern, Autoren und Sternebewertungen, plus einer Tabellenansicht derselben Zeilen. Zum Ausprobieren: Bewerten Sie ein Buch, verschieben Sie eines in ein anderes Regal oder fügen Sie eigene hinzu.',
     },
     projectIntake: {
       name: 'Projektaufnahme',
@@ -550,10 +552,12 @@ export const de: PartialMessages = {
     roadmap: {
       name: 'Produkt-Roadmap',
       description: 'Vorhaben auf Timeline und Board, beide nach Bereich in Swimlanes aufgeteilt.',
+      guidance: 'Diese Vorlage zeigt Swimlanes: Die Timeline-Bänder und die Board-Bahnen teilen sich beide nach Bereich auf. Zum Ausprobieren: Ziehen Sie einen Balken zum Umplanen, klappen Sie eine Bahn ein oder verschieben Sie eine Karte zwischen den Phasen.',
     },
     fieldMap: {
       name: 'Standortkarte',
       description: 'Büros und Partner auf einer Karte, nach Region eingefärbt — mit Tabellenansicht.',
+      guidance: 'Diese Vorlage zeigt eine Karten-Datenbank: Zeilen mit Standort erscheinen als nach Region eingefärbte Pins, und die Zeile mit bloßer Adresse wartet unter „Unplatziert“. Zum Ausprobieren: Klicken Sie einen Pin an, geokodieren Sie die unplatzierte Zeile oder wechseln Sie zur Tabellenansicht.',
     },
     pitchDeck: {
       name: 'Pitch-Deck',
@@ -562,6 +566,7 @@ export const de: PartialMessages = {
     compoundGrowth: {
       name: 'Zinseszins-Wachstum',
       description: 'Beobachten Sie, wie 1 £ bei 3/5/7/10 % Zinseszins wächst, während Sie einen Monats-Regler ziehen — das klassische Beispieldokument als frische Kopie.',
+      guidance: 'Diese Vorlage zeigt ein reaktives Dokument: Der Monats-Regler speist einen Live-Code-Block, der vier Zinseszins-Kurven zeichnet. Zum Ausprobieren: Ziehen Sie den Regler, klappen Sie den Code auf und ändern Sie die Rechnung, oder präsentieren und exportieren Sie die Seite.',
     },
     teamStatus: {
       name: 'Team-Status-Dashboard',
@@ -570,6 +575,7 @@ export const de: PartialMessages = {
     productHq: {
       name: 'Produkt-HQ',
       description: 'Zwei verknüpfte Datenbanken — Vorhaben und Aufgaben — mit beidseitiger Relation, aufgerolltem Fertig-Anteil und Abhängigkeiten auf einer Timeline.',
+      guidance: 'Diese Vorlage zeigt zwei verknüpfte Datenbanken: Jedes Vorhaben ist mit Aufgaben auf der Unterseite „Tasks“ verknüpft, und die Spalten „Progress“ und „Task count“ rollen diese Aufgaben auf. Zum Ausprobieren: Haken Sie auf der Unterseite eine Aufgabe ab und sehen Sie den Rollup wandern, oder öffnen Sie die Aufgaben-Timeline für die Abhängigkeitspfeile.',
     },
   },
   blocks: {
