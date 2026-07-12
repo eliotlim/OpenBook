@@ -7,7 +7,7 @@ import {
   MixerHorizontalIcon,
   UpdateIcon,
 } from '@radix-ui/react-icons';
-import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, LifebuoyIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, UserGroupIcon, WrenchIcon} from '@heroicons/react/24/outline';
+import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, LifebuoyIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, WrenchIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
 import AppearanceSettings from '@/components/AppearanceSettings';
 import GeneralSettings from '@/components/GeneralSettings';
@@ -18,7 +18,6 @@ import {ProfileAvatar} from '@/components/ProfileAvatar';
 import CustomisationSettings from '@/components/settings/CustomisationSettings';
 import ConnectionSettings from '@/components/settings/ConnectionSettings';
 import SharingPublishingSettings from '@/components/settings/SharingPublishingSettings';
-import MembersSettings from '@/components/settings/MembersSettings';
 import AdminSettings from '@/components/settings/AdminSettings';
 import AccountSettings from '@/components/settings/AccountSettings';
 import DiagnosticsSettings from '@/components/settings/DiagnosticsSettings';
@@ -35,7 +34,6 @@ const TAB_META: Record<SettingsTab, {labelKey: TKey; icon: ComponentType<{classN
   signin: {labelKey: 'settings.tab.signin', icon: UpdateIcon},
   connection: {labelKey: 'settings.tab.connection', icon: ServerStackIcon},
   sharing: {labelKey: 'settings.tab.sharing', icon: GlobeAltIcon},
-  members: {labelKey: 'settings.tab.members', icon: UserGroupIcon},
   extensions: {labelKey: 'settings.tab.extensions', icon: PuzzlePieceIcon},
   ai: {labelKey: 'settings.tab.ai', icon: CpuChipIcon},
   admin: {labelKey: 'settings.tab.admin', icon: ArchiveBoxIcon},
@@ -57,7 +55,6 @@ const PANELS: Record<SettingsTab, ComponentType> = {
   signin: AccountSettings,
   connection: ConnectionSettings,
   sharing: SharingPublishingSettings,
-  members: MembersSettings,
   extensions: ExtensionsSettings,
   admin: AdminSettings,
   diagnostics: DiagnosticsSettings,

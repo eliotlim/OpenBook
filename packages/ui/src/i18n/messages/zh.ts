@@ -31,7 +31,6 @@ export const zh: PartialMessages = {
       signin: '账户与同步',
       sharing: '共享与发布',
       connection: '连接',
-      members: '成员',
       extensions: '扩展',
 
       ai: 'AI',
@@ -873,7 +872,7 @@ export const zh: PartialMessages = {
     resetConfirmButton: '重置',
   },
   members: {
-    title: '成员',
+    title: '用户',
     description: '在此工作区拥有角色的人员。可通过邮箱或句柄邀请、更改管理权限并移除访问权限。',
     browserLocalNotice:
       '此工作区仅存在于此浏览器中——其他人无法访问它，因此你在此添加的人暂时无法打开它。要与他人共享，请通过 OpenBook 桌面应用发布工作区。',

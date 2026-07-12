@@ -31,7 +31,6 @@ export const de: PartialMessages = {
       signin: 'Konto & Sync',
       sharing: 'Teilen & Veröffentlichen',
       connection: 'Verbindung',
-      members: 'Mitglieder',
       extensions: 'Erweiterungen',
 
       ai: 'KI',
@@ -879,7 +878,7 @@ export const de: PartialMessages = {
     resetConfirmButton: 'Zurücksetzen',
   },
   members: {
-    title: 'Mitglieder',
+    title: 'Personen',
     description: 'Personen mit einer Rolle in diesem Arbeitsbereich. Lade per E-Mail oder Handle ein, ändere die Verwaltung und entferne Zugriff.',
     browserLocalNotice:
       'Dieser Arbeitsbereich existiert nur in diesem Browser — niemand sonst kann ihn erreichen, daher können hier hinzugefügte Personen ihn noch nicht öffnen. Um mit anderen zu teilen, veröffentliche einen Arbeitsbereich über die OpenBook-Desktop-App.',

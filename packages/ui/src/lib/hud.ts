@@ -4,7 +4,7 @@
 export const SETTINGS_SECTIONS = [
   {id: 'preferences', tabs: ['general', 'appearance', 'customisation']},
   {id: 'account', tabs: ['profile', 'signin']},
-  {id: 'workspace', tabs: ['connection', 'sharing', 'members', 'extensions', 'ai', 'admin', 'diagnostics']},
+  {id: 'workspace', tabs: ['connection', 'sharing', 'extensions', 'ai', 'admin', 'diagnostics']},
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];
@@ -26,16 +26,37 @@ export type PresentMode = 'fullscreen' | 'presenter';
 export const isSettingsTab = (value: unknown): value is SettingsTab =>
   typeof value === 'string' && (SETTINGS_TABS as readonly string[]).includes(value);
 
-/** Sub-screens that were renamed when the flat tabs became grouped sections,
- *  plus the retired "coming soon" stubs (signup/support/integrations) mapped
- *  to their nearest real screen. */
+/** Sub-screens that were renamed/merged when the flat tabs became grouped
+ *  sections, plus the retired "coming soon" stubs (signup/support/integrations)
+ *  mapped to their nearest real screen. `members` folded into the Sharing tab
+ *  (SHR-5) — its roster is now the People section there. */
 const LEGACY_TAB_MAP: Record<string, SettingsTab> = {
   server: 'connection',
   backup: 'admin',
   signup: 'signin',
   support: 'profile',
   integrations: 'extensions',
+  members: 'sharing',
 };
+
+/**
+ * In-tab scroll anchors carried transiently in `hud.settings.section`, so a
+ * deep-link can land on a specific group *within* a merged tab. Doubles as the
+ * DOM id of that group's container. Currently just the People roster, reached
+ * from ShareDialog's "manage members" link and the legacy `?settings=members`.
+ */
+export const SETTINGS_SECTION_PEOPLE = 'settings-people';
+
+/** Legacy tab params that should also scroll to a group inside the merged tab
+ *  they resolve to (e.g. `members` → the Sharing tab's People section). */
+export const SETTINGS_ALIAS_SECTIONS: Record<string, string> = {
+  members: SETTINGS_SECTION_PEOPLE,
+};
+
+/** Whether a persisted/URL param names a real tab or a known legacy alias — so
+ *  a stray value leaves the current tab alone instead of resetting it. */
+export const isTabParam = (value: unknown): boolean =>
+  isSettingsTab(value) || (typeof value === 'string' && value in LEGACY_TAB_MAP);
 
 /**
  * Resolve a persisted tab id to a current one: map renamed legacy ids
@@ -59,6 +80,10 @@ export interface HudProps {
     mode: SettingsMode;
     /** The currently selected settings panel. */
     tab: SettingsTab;
+    /** A transient in-tab scroll target (e.g. {@link SETTINGS_SECTION_PEOPLE}):
+     *  a deep-link sets it, the target section scrolls itself into view and
+     *  clears it. Never persisted or restored. */
+    section?: string | null;
   };
   present: {
     open: boolean;
@@ -96,6 +121,7 @@ export const HudDefault: HudProps = {
     open: false,
     mode: 'modal',
     tab: DEFAULT_SETTINGS_TAB,
+    section: null,
   },
   present: {
     open: false,
@@ -135,8 +161,9 @@ export const loadHudStorage = (): HudProps => {
   const settings = {...HudDefault.settings, ...stored.settings};
   return {
     commandPalette: {...HudDefault.commandPalette, ...stored.commandPalette},
-    // Resolve a possibly-legacy persisted tab to a current one.
-    settings: {...settings, tab: normalizeTab(settings.tab)},
+    // Resolve a possibly-legacy persisted tab to a current one; never restore a
+    // stale in-tab scroll target (it's a one-shot nav hint, not a preference).
+    settings: {...settings, tab: normalizeTab(settings.tab), section: null},
     sideNav: {...HudDefault.sideNav, ...stored.sideNav},
     // Never restore transient overlays open (the trash, the template gallery).
     trash: {open: false},
@@ -154,7 +181,7 @@ export const saveHudStorage = (hud: HudProps) => {
   // re-opens settings.
   const persisted: HudProps = {
     ...hud,
-    settings: {...hud.settings, open: false},
+    settings: {...hud.settings, open: false, section: null},
     trash: {open: false},
     templates: {open: false},
     importer: {open: false},

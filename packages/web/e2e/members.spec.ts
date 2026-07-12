@@ -1,9 +1,10 @@
 import {test, expect, takeSnapshot, chooseValue} from './fixtures';
 import {SERVER} from './seed';
 
-// The instance Members roster (OB-204): open Settings → Workspace → Members,
-// invite someone by email, and change their role — all driving the OB-191 roster
-// API (`listMembers` / `inviteMember` / `updateMember`).
+// The instance member roster (OB-204), now the People section of the merged
+// Sharing tab (SHR-5): open Settings → Workspace → Sharing & publishing, invite
+// someone by email, and change their role — all driving the OB-191 roster API
+// (`listMembers` / `inviteMember` / `updateMember`).
 //
 // The worker's data server is a fresh, unclaimed instance with the default
 // `guestAccess: 'write'`, so the (anonymous) browser passes the `requireCreate`
@@ -13,8 +14,9 @@ import {SERVER} from './seed';
 async function openMembers(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
   await page.getByRole('button', {name: 'Settings'}).first().click();
-  await page.getByRole('button', {name: 'Members'}).click();
-  await expect(page.getByRole('heading', {name: 'Members'})).toBeVisible();
+  await page.getByRole('button', {name: 'Sharing & publishing'}).click();
+  // The roster lives in the "People" section of the Sharing tab.
+  await expect(page.getByRole('heading', {name: 'People'})).toBeVisible();
 }
 
 test('members: list, invite by email, and change a role', {tag: ['@sharing', '@visual']}, async ({page, request}, testInfo) => {
@@ -23,7 +25,7 @@ test('members: list, invite by email, and change a role', {tag: ['@sharing', '@v
   // A fresh instance starts with an empty roster + the invite affordance.
   await expect(page.getByText('No members yet.', {exact: false})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Invite', exact: true})).toBeVisible();
-  await takeSnapshot(page, testInfo); // visual: the Members roster surface
+  await takeSnapshot(page, testInfo); // visual: the Sharing tab's People roster
 
   // 1. Invite a person by email → persisted via inviteMember, then listed as an
   //    invited viewer (email personas default to `invited`).

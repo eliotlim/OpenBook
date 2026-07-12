@@ -1,4 +1,4 @@
-import {type ReactNode} from 'react';
+import {type ReactNode, type Ref} from 'react';
 import {Switch} from '@/components/ui/switch';
 import {useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
@@ -61,19 +61,43 @@ export function SettingsScreen({
 
 /** A labelled group within a screen — an optional heading + hint, then content. */
 export function SettingsSection({
+  id,
   title,
   description,
+  subdued,
+  tabIndex,
+  sectionRef,
   children,
   className,
 }: {
+  /** A DOM id, so a deep-link can scroll straight to this group. */
+  id?: string;
   title?: string;
   description?: string;
+  /** Render as a nested subsection: the label becomes a lighter caption (`<h5>`)
+   *  so it reads *under* the parent section's `<h4>` instead of as its peer. Keeps
+   *  the heading outline honest when sections nest (SHR-5 People → Invite/roster). */
+  subdued?: boolean;
+  /** Makes the section focusable (`tabIndex={-1}`) so a deep-link can move focus
+   *  here for keyboard / screen-reader users, not just scroll the viewport. */
+  tabIndex?: number;
+  sectionRef?: Ref<HTMLElement>;
   children: ReactNode;
   className?: string;
 }) {
   return (
-    <section className={cn('flex flex-col gap-2', className)}>
-      {title && <h4 className="text-sm font-semibold">{title}</h4>}
+    <section
+      id={id}
+      ref={sectionRef}
+      tabIndex={tabIndex}
+      className={cn('flex flex-col gap-2 focus:outline-none', className)}
+    >
+      {title &&
+        (subdued ? (
+          <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{title}</h5>
+        ) : (
+          <h4 className="text-sm font-semibold">{title}</h4>
+        ))}
       {description && <p className="text-sm text-muted-foreground">{description}</p>}
       {children}
     </section>

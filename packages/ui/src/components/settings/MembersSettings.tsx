@@ -1,20 +1,22 @@
-import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {Check, Link2, Loader2, Trash2, UserPlus} from 'lucide-react';
 import type {InstanceInfo, Member, MemberRole, MemberStatus, Principal} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useConfirm, useForwarding, usePlatformLibrary, useTranslation} from '@/providers';
+import {useConfirm, useForwarding, useHud, usePlatformLibrary, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {IconButton} from '@/components/ui/icon-button';
 import {Select} from '@/components/ui/select';
-import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
+import {SettingsSection} from '@/components/settings/primitives';
+import {SETTINGS_SECTION_PEOPLE} from '@/lib/hud';
 import {copyText} from '@/lib/pageActions';
 import {cn} from '@/lib/utils';
 import type {TKey} from '@/i18n';
 
 /**
- * The instance member roster (OB-204). Lists who has a role on this workspace,
- * and — for a manager (loopback owner / admin / claimed owner, or any writer on a
+ * The instance member roster (OB-204), rendered as the **People** section of the
+ * merged Sharing tab (SHR-5). Lists who has a role on this workspace, and — for a
+ * manager (loopback owner / admin / claimed owner, or any writer on a
  * still-unclaimed instance) — lets them invite by email or handle, change a
  * member's role, and remove access. All driven by the OB-191 roster API
  * (`listMembers`/`inviteMember`/`updateMember`/`removeMember`).
@@ -116,10 +118,11 @@ function GuardTip({reason, children}: {reason?: string; children: ReactNode}) {
   );
 }
 
-export default function MembersSettings() {
+export function PeopleSection() {
   const client = useData();
   const {t} = useTranslation();
   const confirm = useConfirm();
+  const {hud, setHud} = useHud();
   // The standalone web app's in-browser workspace (P0-4): the roster stays
   // fully editable (it persists with the data), but no one else can reach this
   // workspace, so an invitation here can't let anyone in yet — say so.
@@ -143,6 +146,9 @@ export default function MembersSettings() {
   // Which row is mid-mutation (role change / remove), to disable just that row.
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // The People region itself, so a deep-link can move focus here (not just scroll).
+  const sectionRef = useRef<HTMLElement>(null);
 
   const [deliverCopied, setDeliverCopied] = useState(false);
   const copyWorkspaceLink = useCallback(async () => {
@@ -186,6 +192,23 @@ export default function MembersSettings() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // Deep-link landing (SHR-5): a "manage members" link / `?settings=members`
+  // opens the Sharing tab and asks (via the transient `settings.section` hint)
+  // to reveal the roster. Scroll this group into view AND move focus here so the
+  // deep-link takes keyboard / screen-reader users along too — then clear the
+  // one-shot (so a normal, non-deep-link render never steals focus).
+  useEffect(() => {
+    if (hud.settings.section !== SETTINGS_SECTION_PEOPLE) return;
+    const el = sectionRef.current ?? document.getElementById(SETTINGS_SECTION_PEOPLE);
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    el?.scrollIntoView({behavior: reduce ? 'auto' : 'smooth', block: 'start'});
+    el?.focus({preventScroll: true});
+    setHud((draft) => {
+      draft.settings.section = null;
+      return draft;
+    });
+  }, [hud.settings.section, setHud]);
 
   const submitInvite = useCallback(async () => {
     const value = invitee.trim();
@@ -251,7 +274,13 @@ export default function MembersSettings() {
   }, [info, t]);
 
   return (
-    <SettingsScreen title={t('members.title')} description={t('members.description')} scope="workspace">
+    <SettingsSection
+      id={SETTINGS_SECTION_PEOPLE}
+      sectionRef={sectionRef}
+      tabIndex={-1}
+      title={t('members.title')}
+      description={t('members.description')}
+    >
       {unavailable ? (
         <p className="text-sm text-muted-foreground">{t('members.unavailable')}</p>
       ) : canManage === null ? (
@@ -279,7 +308,7 @@ export default function MembersSettings() {
           ) : (
             <>
               {/* Invite */}
-              <SettingsSection title={t('members.inviteLabel')} description={t('members.inviteHint')}>
+              <SettingsSection subdued title={t('members.inviteLabel')} description={t('members.inviteHint')}>
                 <div className="flex items-start gap-2">
                   <Input
                     id="member-invitee"
@@ -344,7 +373,7 @@ export default function MembersSettings() {
               </SettingsSection>
 
               {/* Roster */}
-              <SettingsSection title={t('members.listLabel')}>
+              <SettingsSection subdued title={t('members.listLabel')}>
                 {loadError ? (
                   <div className="flex flex-col items-start gap-2">
                     <p className="text-sm text-destructive">{t('members.loadError', {error: loadError})}</p>
@@ -437,6 +466,6 @@ export default function MembersSettings() {
           )}
         </>
       )}
-    </SettingsScreen>
+    </SettingsSection>
   );
 }

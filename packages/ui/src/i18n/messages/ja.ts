@@ -31,7 +31,6 @@ export const ja: PartialMessages = {
       signin: 'アカウントと同期',
       sharing: '共有と公開',
       connection: '接続',
-      members: 'メンバー',
       extensions: '拡張機能',
 
       ai: 'AI',
@@ -877,7 +876,7 @@ export const ja: PartialMessages = {
     resetConfirmButton: 'リセット',
   },
   members: {
-    title: 'メンバー',
+    title: 'ユーザー',
     description: 'このワークスペースで役割を持つ人。メールまたはハンドルで招待し、管理権限を変更したり、アクセスを削除したりできます。',
     browserLocalNotice:
       'このワークスペースはこのブラウザ内にのみ存在し、他の人はアクセスできないため、ここで追加した人はまだ開けません。他の人と共有するには、OpenBook デスクトップアプリからワークスペースを公開してください。',

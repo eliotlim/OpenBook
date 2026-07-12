@@ -3,7 +3,7 @@ import {render, screen, cleanup, fireEvent} from '@testing-library/react';
 import type {DataClient} from '@book.dev/sdk';
 import {guestPrincipal} from '@book.dev/sdk';
 import ShareDialog from '../ShareDialog';
-import MembersSettings from '../settings/MembersSettings';
+import {PeopleSection} from '../settings/MembersSettings';
 import SharingPublishingSettings from '../settings/SharingPublishingSettings';
 import {DataProvider} from '@/data/DataProvider';
 import {ConfirmProvider, I18nProvider, PlatformLibraryProvider, type PlatformLibrary} from '@/providers';
@@ -97,9 +97,9 @@ describe('Sharing & publishing settings on a browser-local workspace', () => {
   });
 });
 
-describe('Members settings on a browser-local workspace', () => {
+describe('People section (roster) on a browser-local workspace', () => {
   it('discloses that invited people cannot reach the workspace yet', async () => {
-    wrap(<MembersSettings />, {browserLocalWorkspace: true});
+    wrap(<PeopleSection />, {browserLocalWorkspace: true});
 
     expect(await screen.findByText(/people you add here can’t open it yet/)).toBeTruthy();
     // Still functional: the invite form renders for a manager.
@@ -107,7 +107,7 @@ describe('Members settings on a browser-local workspace', () => {
   });
 
   it('shows no disclosure without the flag', async () => {
-    wrap(<MembersSettings />);
+    wrap(<PeopleSection />);
 
     expect(await screen.findByLabelText('Invite a member')).toBeTruthy();
     expect(screen.queryByText(/people you add here can’t open it yet/)).toBeNull();

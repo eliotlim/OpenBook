@@ -35,7 +35,6 @@ export const en = {
       signin: 'Account & sync',
       connection: 'Connection',
       sharing: 'Sharing & publishing',
-      members: 'Members',
       extensions: 'Extensions',
 
       ai: 'AI',
@@ -1295,7 +1294,8 @@ export const en = {
     saveError: 'Couldn’t update access — {error}',
   },
   members: {
-    title: 'Members',
+    // The roster is now the "People" section of the merged Sharing tab (SHR-5).
+    title: 'People',
     description: 'People with a role on this workspace. Invite by email or handle, change who can manage, and remove access.',
     browserLocalNotice:
       'This workspace lives only in this browser — no one else can reach it, so people you add here can’t open it yet. To share with others, publish a workspace from the OpenBook desktop app.',
