@@ -61,6 +61,6 @@ describe('SharingSection (guest access)', () => {
       setInstancePolicy: async () => ({guestAccess: 'read', trustedIssuers: []}),
     };
     wrap(client);
-    expect(await screen.findByText('Only the workspace owner can change this.')).toBeTruthy();
+    expect(await screen.findByText('Only the library owner can change this.')).toBeTruthy();
   });
 });

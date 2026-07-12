@@ -101,13 +101,13 @@ describe('PeopleSection (roster)', () => {
     mockPublishedHost = null;
     wrap(client);
     expect(await screen.findByText('rae@example.com')).toBeTruthy();
-    expect(screen.queryByText('Copy workspace link')).toBeNull();
+    expect(screen.queryByText('Copy library link')).toBeNull();
     cleanup();
 
     // Published + an invited member awaiting first sign-in: surface it.
     mockPublishedHost = 'rae.book.cloud';
     wrap(client);
-    expect(await screen.findByText('Copy workspace link')).toBeTruthy();
+    expect(await screen.findByText('Copy library link')).toBeTruthy();
   });
 
   it('hides the delivery help when published but no one is awaiting sign-in', async () => {
@@ -124,7 +124,7 @@ describe('PeopleSection (roster)', () => {
     };
     wrap(client);
     expect(await screen.findByText('rae@example.com')).toBeTruthy();
-    expect(screen.queryByText('Copy workspace link')).toBeNull();
+    expect(screen.queryByText('Copy library link')).toBeNull();
   });
 
   it('degrades to an unavailable note when the server has no instance endpoint', async () => {

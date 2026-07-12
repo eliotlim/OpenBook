@@ -116,7 +116,7 @@ describe('DiagnosticsBody', () => {
     wrap(client);
     expect(await screen.findByText('Ownership mismatch')).toBeTruthy();
     expect(screen.queryByText('Repair ownership')).toBeNull();
-    expect(screen.getByText('Repair is only possible on the workspace’s own device, from this app.')).toBeTruthy();
+    expect(screen.getByText('Repair is only possible on the library’s own device, from this app.')).toBeTruthy();
   });
 
   it('cancelling the confirm leaves ownership untouched', async () => {

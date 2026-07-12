@@ -39,7 +39,7 @@ export default function BreadcrumbCluster() {
     <nav className="flex min-w-0 items-center text-sm" aria-label="Breadcrumb">
       <span className="hidden min-w-0 max-w-[180px] items-center gap-1.5 rounded px-1.5 py-0.5 text-foreground/75 sm:flex">
         <span className="shrink-0 text-[0.95em] leading-none">{workspace?.icon ?? '🗂️'}</span>
-        <span className="truncate">{workspace?.name ?? 'Workspace'}</span>
+        <span className="truncate">{workspace?.name ?? 'Library'}</span>
       </span>
       {chain.map((id, index) => {
         const last = index === chain.length - 1;
