@@ -454,7 +454,7 @@ const TEAM_STATUS_BLOCKS = [
       {id: 'td-g-note', type: 'paragraph', text: [{t: 'This panel is locked — this very sentence can’t be edited in place — yet every control below still works.'}]},
       {id: 'td-oncall', type: 'toggle', props: {name: 'onCall', label: 'On-call rotation active', value: true}},
       {id: 'td-focus', type: 'dropdown', props: {name: 'focus', label: 'Focus this week', value: 'shipping', opts: [{label: 'Shipping'}, {label: 'Stability'}, {label: 'Growth'}]}},
-      {id: 'td-kudos', type: 'number', props: {name: 'kudos', label: 'Kudos given', value: 3, min: 0, max: 99, step: 1}},
+      {id: 'td-kudos', type: 'number', props: {name: 'kudos', label: 'Kudos given', value: 2, min: 0, max: 99, step: 1}},
       {id: 'td-give', type: 'actionbutton', props: {btnlabel: 'Give kudos', action: 'increment', target: 'kudos', amount: 1}},
       // Inputs inside a named group publish namespaced — pulse.kudos.value —
       // which is exactly what this formula (and the light below) read.

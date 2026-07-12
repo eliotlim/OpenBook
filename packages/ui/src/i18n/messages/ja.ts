@@ -569,7 +569,7 @@ export const ja: PartialMessages = {
     },
     productHq: {
       name: 'プロダクトHQ',
-      description: '施策とタスクを2つの連結データベースで — 双方向リレーション、完了率のロールアップ、タイムライン上の依存関係。',
+      description: '2つの連結データベース — 施策とタスク — を双方向リレーションでつなぎ、完了率をロールアップし、依存関係をタイムラインに表示。',
     },
   },
   blocks: {

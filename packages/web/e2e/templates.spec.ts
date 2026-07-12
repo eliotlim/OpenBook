@@ -177,14 +177,17 @@ test('team status dashboard: a locked, synced panel stays live while its text fr
   // steps the counter, and the formula + toggle both feed the morale readout.
   const toggle = group.getByRole('switch');
   await expect(toggle).toBeEnabled();
-  await expect(group.locator('.obe-formula-out')).toHaveText('35'); // 3 kudos × 10 + on-call 5
+  await expect(group.locator('.obe-formula-out')).toHaveText('25'); // 2 kudos × 10 + on-call 5
+  // The momentum light reads the (namespaced) kudos count: it loads amber —
+  // 2 is below ok-at 3 but at/above warn-at 1.
+  await expect(group.locator('.obe-kit-status')).toHaveAttribute('data-status', 'warn');
   await group.getByRole('button', {name: 'Give kudos'}).click();
-  await expect(page.getByLabel('kudos value')).toHaveValue('4');
-  await expect(group.locator('.obe-formula-out')).toHaveText('45');
-  await toggle.click(); // still operable under the lock
-  await expect(group.locator('.obe-formula-out')).toHaveText('40');
-  // The momentum light reads the (namespaced) kudos count: 4 ≥ ok-at 3.
+  await expect(page.getByLabel('kudos value')).toHaveValue('3');
+  await expect(group.locator('.obe-formula-out')).toHaveText('35');
+  // …and the Give-kudos click flips it green: 3 ≥ ok-at 3.
   await expect(group.locator('.obe-kit-status')).toHaveAttribute('data-status', 'ok');
+  await toggle.click(); // still operable under the lock
+  await expect(group.locator('.obe-formula-out')).toHaveText('30');
 
   // The funnel chart (a kind no other template uses) and the tabs container.
   await expect(page.locator('.obe-kit-chart[data-chart-kind="funnel"]')).toBeVisible();

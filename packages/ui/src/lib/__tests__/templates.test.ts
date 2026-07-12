@@ -268,15 +268,16 @@ describe('team status dashboard', () => {
     const doc = await docOf('team-status');
     const {scope} = computeScope(doc);
     const pulse = scope.pulse as Record<string, {value: unknown}>;
-    expect(pulse.kudos.value).toBe(3);
+    expect(pulse.kudos.value).toBe(2);
     expect(pulse.onCall.value).toBe(true);
     expect(pulse.focus.value).toBe('shipping');
-    expect(scope.morale).toBe(35); // 3 kudos × 10 + on-call 5
+    expect(scope.morale).toBe(25); // 2 kudos × 10 + on-call 5
 
     // The action button's increment path: bump the counter it targets and the
-    // formula tracks it (what the e2e drives through the real button).
+    // formula tracks it (what the e2e drives through the real button — the
+    // click that flips the Momentum light from amber to green).
     setNamedNumber(doc, 'kudos', (v) => v + 1);
-    expect(computeScope(doc).scope.morale).toBe(45);
+    expect(computeScope(doc).scope.morale).toBe(35);
   });
 
   it('tags itself interactive only (a dashboard, not a deck)', () => {

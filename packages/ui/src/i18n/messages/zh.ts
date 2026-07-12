@@ -567,7 +567,7 @@ export const zh: PartialMessages = {
     },
     productHq: {
       name: '产品总部',
-      description: '把“计划”和“任务”做成两个互联数据库——双向关联、汇总完成度，并在时间线上呈现依赖关系。',
+      description: '两个互联数据库——“计划”与“任务”——通过双向关联相连、汇总完成度，并在时间线上呈现依赖关系。',
     },
   },
   blocks: {

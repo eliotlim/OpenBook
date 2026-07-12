@@ -570,7 +570,7 @@ export const de: PartialMessages = {
     },
     productHq: {
       name: 'Produkt-HQ',
-      description: 'Vorhaben und Aufgaben als zwei verknüpfte Datenbanken — beidseitige Relation, aufgerollter Fertig-Anteil und Abhängigkeiten auf einer Timeline.',
+      description: 'Zwei verknüpfte Datenbanken — Vorhaben und Aufgaben — mit beidseitiger Relation, aufgerolltem Fertig-Anteil und Abhängigkeiten auf einer Timeline.',
     },
   },
   blocks: {

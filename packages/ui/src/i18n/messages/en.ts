@@ -911,7 +911,7 @@ export const en = {
     },
     productHq: {
       name: 'Product HQ',
-      description: 'Initiatives and Tasks as two linked databases — a two-way relation, % done rolled up, and dependencies on a timeline.',
+      description: 'Two linked databases — Initiatives and Tasks — with a two-way relation, % done rolled up, and dependencies on a timeline.',
     },
   },
   blocks: {
