@@ -539,7 +539,7 @@ export const de: PartialMessages = {
     readingList: {
       name: 'Leseliste',
       description: 'Eine Galerie von Büchern nach Regal, mit Autoren und Sternebewertungen — plus Tabellenansicht.',
-      guidance: 'Diese Vorlage zeigt eine Galerie-Datenbank: Bücher nach Regal gruppiert, mit Covern, Autoren und Sternebewertungen, plus einer Tabellenansicht derselben Zeilen. Zum Ausprobieren: Bewerten Sie ein Buch, verschieben Sie eines in ein anderes Regal oder fügen Sie eigene hinzu.',
+      guidance: 'Jedes Regal ist eine Galeriegruppe, und dieselben Bücher erscheinen auch in einer Tabellenansicht. Zum Ausprobieren: Bewerten Sie ein Buch, verschieben Sie eines in ein anderes Regal oder fügen Sie eigene hinzu.',
     },
     projectIntake: {
       name: 'Projektaufnahme',
@@ -566,7 +566,6 @@ export const de: PartialMessages = {
     compoundGrowth: {
       name: 'Zinseszins-Wachstum',
       description: 'Beobachten Sie, wie 1 £ bei 3/5/7/10 % Zinseszins wächst, während Sie einen Monats-Regler ziehen — das klassische Beispieldokument als frische Kopie.',
-      guidance: 'Diese Vorlage zeigt ein reaktives Dokument: Der Monats-Regler speist einen Live-Code-Block, der vier Zinseszins-Kurven zeichnet. Zum Ausprobieren: Ziehen Sie den Regler, klappen Sie den Code auf und ändern Sie die Rechnung, oder präsentieren und exportieren Sie die Seite.',
     },
     teamStatus: {
       name: 'Team-Status-Dashboard',

@@ -535,9 +535,10 @@ describe('product hq (two linked databases)', () => {
 });
 
 describe('guidance callouts (the standardized "how to use this" lead block)', () => {
-  /** The guided templates: the database fixtures + the sample-document copy —
-   *  the ones without strong in-doc guidance of their own. */
-  const GUIDED_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map', 'product-hq', 'compound-growth'] as const;
+  /** The guided templates: the five database fixtures — the ones without strong
+   *  in-doc guidance of their own. (The sample-document copy self-guides via its
+   *  own intro paragraph, so it carries no standardized callout.) */
+  const GUIDED_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map', 'product-hq'] as const;
 
   type SavedDoc = {editor?: string; blockdoc?: {blocks: Array<Record<string, unknown>>}};
   type CalloutBlock = {type?: string; props?: {variant?: string}; text?: Array<{t?: string}>};
@@ -557,12 +558,15 @@ describe('guidance callouts (the standardized "how to use this" lead block)', ()
       const first = data.blockdoc?.blocks[0] as CalloutBlock | undefined;
       expect(first?.type, `${id}: first block`).toBe('callout');
       expect(first?.props?.variant, `${id}: variant`).toBe('info');
-      // Consistent shape: what it demonstrates, then how to try it — and the
-      // baked-in English default is exactly the text the template advertises
-      // (the gallery swaps in the user's locale via the same field).
+      // Consistent shape: a description of what it demonstrates, THEN how to
+      // try it — and the baked-in English default is exactly the text the
+      // template advertises (the gallery swaps in the user's locale via the
+      // same field). The lead phrasing varies per template (reading-list leads
+      // on its gallery grouping, not a generic "This template shows…"), so we
+      // assert the shape — a description ahead of the "Try it:" cue — not a
+      // fixed opener.
       const text = (first?.text ?? []).map((r) => r.t ?? '').join('');
-      expect(text, `${id}: demonstrates`).toContain('This template shows');
-      expect(text, `${id}: how to try it`).toContain('Try it:');
+      expect(text.indexOf('Try it:'), `${id}: a description precedes the "Try it:" cue`).toBeGreaterThan(0);
       expect(text, `${id}: matches template.guidance`).toBe(PAGE_TEMPLATES.find((t) => t.id === id)?.guidance);
     }
   });
@@ -582,11 +586,14 @@ describe('guidance callouts (the standardized "how to use this" lead block)', ()
     expect((calls[1][0] as {data: SavedDoc}).data.blockdoc).toBeUndefined();
   });
 
-  it('compound-growth prepends the callout to a copy — the canonical sample stays untouched', async () => {
+  it('compound-growth copies the sample verbatim — its own intro is the guide, no extra callout', async () => {
+    // The sample already opens with its own intro paragraph, so the gallery copy
+    // gets NO standardized callout prepended (that would double-guide): its first
+    // block is `sample-intro`, exactly as the canonical seeder path produces.
     const gallery = await hostDocOf('compound-growth');
-    expect((gallery.blockdoc?.blocks[1] as {id?: string}).id).toBe('sample-intro'); // the sample follows intact
+    expect((gallery.blockdoc?.blocks[0] as {id?: string}).id).toBe('sample-intro');
     const sample = buildSampleDocument().data as SavedDoc;
-    expect((sample.blockdoc?.blocks[0] as {id?: string}).id).toBe('sample-intro'); // no callout on the seeder path
+    expect((sample.blockdoc?.blocks[0] as {id?: string}).id).toBe('sample-intro');
   });
 
   it('templates that already open with strong in-doc guidance carry none', () => {

@@ -883,7 +883,7 @@ export const en = {
     readingList: {
       name: 'Reading list',
       description: 'A gallery of books grouped by shelf, with authors and star ratings — plus a table view.',
-      guidance: 'This template shows a gallery database: books grouped by shelf with covers, authors and star ratings, plus a Table view of the same rows. Try it: rate a book, move one to another shelf, or add your own.',
+      guidance: 'Each shelf is a gallery group, and the same books also list in a Table view. Try it: rate a book, move one to another shelf, or add your own.',
     },
     projectIntake: {
       name: 'Project intake',
@@ -901,7 +901,7 @@ export const en = {
     fieldMap: {
       name: 'Field map',
       description: 'Offices and partners pinned on a map, coloured by region — with a table view.',
-      guidance: 'This template shows a map database: rows with a location render as region-coloured pins, and the address-only row waits under the unplaced affordance. Try it: click a pin, geocode the unplaced row, or switch to the Table view.',
+      guidance: 'This template shows a map database: rows with a location render as region-coloured pins, and the address-only row waits under Unplaced. Try it: click a pin, geocode the unplaced row, or switch to the Table view.',
     },
     pitchDeck: {
       name: 'Pitch deck',
@@ -910,7 +910,6 @@ export const en = {
     compoundGrowth: {
       name: 'Compound growth',
       description: 'Watch £1 compound at 3/5/7/10% as you drag a months slider — the classic sample, as a fresh copy.',
-      guidance: 'This template shows a reactive document: the months slider feeds a live code block that plots four compound-growth curves. Try it: drag the slider, expand the collapsed code to change the maths, or present and export the page.',
     },
     teamStatus: {
       name: 'Team status dashboard',

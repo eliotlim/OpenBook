@@ -536,7 +536,7 @@ export const zh: PartialMessages = {
     readingList: {
       name: '阅读清单',
       description: '按书架分组的书籍画廊——含作者与星级评分，并提供表格视图。',
-      guidance: '此模板演示画廊数据库：书籍按书架分组，带封面、作者和星级评分，并提供同一批行的表格视图。试一试：给一本书评分、把书移到另一个书架，或添加自己的书。',
+      guidance: '每个书架是一个画廊分组，同一批书也会出现在表格视图中。试一试：给一本书评分、把书移到另一个书架，或添加自己的书。',
     },
     projectIntake: {
       name: '项目受理',
@@ -563,7 +563,6 @@ export const zh: PartialMessages = {
     compoundGrowth: {
       name: '复利增长',
       description: '拖动月数滑块，实时观看 1 英镑以 3/5/7/10% 复利增长——经典示例文档的全新副本。',
-      guidance: '此模板演示响应式文档：月数滑块驱动一个实时代码块，绘制四条复利增长曲线。试一试：拖动滑块、展开折叠的代码修改算式，或演示并导出此页。',
     },
     teamStatus: {
       name: '团队状态仪表盘',
