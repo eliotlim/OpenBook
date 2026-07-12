@@ -1,7 +1,7 @@
 import React, {createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
 import {ForwardingClient, setForwardingAudience, type SiteVisibility, type TunnelStatus} from '@book.dev/sdk';
 import {useAccount} from './AccountProvider';
-import {usePlatformLibrary} from './PlatformLibraryProvider';
+import {usePlatformCapabilities} from './PlatformCapabilitiesProvider';
 import {
   ensureClaimedForForwarding,
   ensureForwardingAudience,
@@ -132,7 +132,7 @@ const writeEnabled = (on: boolean): void => {
 };
 
 export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
-  const {forwarding} = usePlatformLibrary();
+  const {forwarding} = usePlatformCapabilities();
   const {connected, token, accountUrl, status: accountStatus, signIn, remintIdentity, identityIssuance} =
     useAccount();
   const data = useData();

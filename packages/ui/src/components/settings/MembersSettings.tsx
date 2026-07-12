@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useRef, useState, type ReactNode} from 
 import {Check, Link2, Loader2, Trash2, UserPlus} from 'lucide-react';
 import type {InstanceInfo, Member, MemberRole, MemberStatus, Principal} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useConfirm, useForwarding, useHud, usePlatformLibrary, useTranslation} from '@/providers';
+import {useConfirm, useForwarding, useHud, usePlatformCapabilities, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {IconButton} from '@/components/ui/icon-button';
@@ -126,7 +126,7 @@ export function PeopleSection() {
   // The standalone web app's in-browser workspace (P0-4): the roster stays
   // fully editable (it persists with the data), but no one else can reach this
   // workspace, so an invitation here can't let anyone in yet — say so.
-  const browserLocal = usePlatformLibrary().browserLocalWorkspace === true;
+  const browserLocal = usePlatformCapabilities().browserLocalWorkspace === true;
   // The forwarded root address, known only while the workspace is published
   // (P0-2). Inviting a member sends no email, so when there's a reachable
   // address we hand the owner that link to deliver by hand.

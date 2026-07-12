@@ -2,7 +2,7 @@ import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {Check, Link2, Loader2, Share2, Trash2} from 'lucide-react';
 import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useForwarding, useHud, useOptionalAccount, usePlatformLibrary, useTranslation} from '@/providers';
+import {useForwarding, useHud, useOptionalAccount, usePlatformCapabilities, useTranslation} from '@/providers';
 import {
   Dialog,
   DialogContent,
@@ -236,7 +236,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   // this browser profile, so nothing set here can reach another person and a
   // copied link opens the *recipient's own* workspace, not this page. The dialog
   // stays functional (settings persist) but must say so.
-  const browserLocal = usePlatformLibrary().browserLocalWorkspace === true;
+  const browserLocal = usePlatformCapabilities().browserLocalWorkspace === true;
 
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<PageVisibility>('inherit');

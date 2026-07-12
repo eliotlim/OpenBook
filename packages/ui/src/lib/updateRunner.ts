@@ -13,7 +13,7 @@
  * (what the Settings section shows as "Last checked").
  */
 
-import type {UpdateCheckResult, UpdatesPlatform} from '../providers/PlatformLibraryProvider';
+import type {UpdateCheckResult, UpdatesPlatform} from '../providers/PlatformCapabilitiesProvider';
 import {setUpdateLastCheckAt, setUpdateLastCheckSuccessAt} from './updatePreferences';
 import {setLatestMajorSeen} from './updateScheduler';
 

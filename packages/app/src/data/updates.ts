@@ -1,5 +1,5 @@
 /**
- * The desktop implementation of `PlatformLibrary.updates` (OB-342): version
+ * The desktop implementation of `PlatformCapabilities.updates` (OB-342): version
  * surface + update check + download/relaunch, wrapping the Tauri v2 updater.
  *
  * Config-vs-JS asymmetry (intentional, security-relevant): there are TWO

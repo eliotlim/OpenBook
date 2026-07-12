@@ -1,6 +1,6 @@
 import {useCallback} from 'react';
 import {Switch} from '@/components/ui/switch';
-import {useForwarding, useOptionalAccount, usePlatformLibrary, useTranslation} from '@/providers';
+import {useForwarding, useOptionalAccount, usePlatformCapabilities, useTranslation} from '@/providers';
 
 /**
  * "Published address: Private / Public" (SHR-8). The published *.book.cloud address
@@ -67,7 +67,7 @@ export function SiteVisibilityControl() {
 function NonBinarySiteVisibilityRow({visibility}: {visibility: 'authenticated' | 'members'}) {
   const {t} = useTranslation();
   const account = useOptionalAccount();
-  const platform = usePlatformLibrary();
+  const platform = usePlatformCapabilities();
   const dashboardUrl = account?.accountUrl ? `${account.accountUrl}/dashboard` : null;
 
   const openDashboard = useCallback(() => {

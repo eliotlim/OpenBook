@@ -19,7 +19,7 @@ import {t as bareT} from '@/i18n';
 import {pagePathLabel} from '@/lib/pagePath';
 import {removeFavorite} from '@/lib/favorites';
 import {showToast} from '@/components/ui/toast';
-import {usePlatformLibrary, type NewViewTarget} from './PlatformLibraryProvider';
+import {usePlatformCapabilities, type NewViewTarget} from './PlatformCapabilitiesProvider';
 import * as W from './windowModel';
 import type {Pane, PaneId, WindowState} from './windowModel';
 
@@ -164,7 +164,7 @@ const readLastPage = (): string | null => {
 
 export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({children}) => {
   const client = useData();
-  const platform = usePlatformLibrary();
+  const platform = usePlatformCapabilities();
   const [pages, setPages] = useState<PageMeta[]>([]);
   const [win, setWin] = useState<WindowState | null>(null);
   const [titleHints, setTitleHints] = useState<Record<string, string>>({});

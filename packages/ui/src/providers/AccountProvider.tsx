@@ -8,7 +8,7 @@ import {
   resolveAccountUrl,
   setIdentityToken,
 } from '@book.dev/sdk';
-import {usePlatformLibrary, type AccountSecretStore} from './PlatformLibraryProvider';
+import {usePlatformCapabilities, type AccountSecretStore} from './PlatformCapabilitiesProvider';
 import {usePreferences, mergePreferences, type Preferences, type DeepPartial} from './PreferencesProvider';
 import {useWorkspace, type Workspace} from './WorkspaceProvider';
 import {t} from '@/i18n';
@@ -380,7 +380,7 @@ function dataServerAudience(): string | undefined {
 }
 
 export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}) => {
-  const {account: platform} = usePlatformLibrary();
+  const {account: platform} = usePlatformCapabilities();
   const {preferences, update: updatePreferences} = usePreferences();
   const {workspaces, replaceWorkspaces} = useWorkspace();
 

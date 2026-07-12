@@ -181,7 +181,7 @@ export interface UpdatesPlatform {
  * check); the web shell leaves these undefined and the UI falls back to browser
  * behaviour (and hides desktop-only surfaces like the updates section).
  */
-export interface PlatformLibrary {
+export interface PlatformCapabilities {
   serverControls?: ServerControls;
   bookFolder?: BookFolderPlatform;
   forwarding?: ForwardingPlatform;
@@ -216,11 +216,11 @@ export interface PlatformLibrary {
   forwardedHost?: string;
 }
 
-const PlatformLibraryContext = createContext<PlatformLibrary>({});
+const PlatformCapabilitiesContext = createContext<PlatformCapabilities>({});
 
-export const usePlatformLibrary = (): PlatformLibrary => useContext(PlatformLibraryContext);
+export const usePlatformCapabilities = (): PlatformCapabilities => useContext(PlatformCapabilitiesContext);
 
-export const PlatformLibraryProvider: React.FC<PropsWithChildren<{value?: PlatformLibrary}>> = ({
+export const PlatformCapabilitiesProvider: React.FC<PropsWithChildren<{value?: PlatformCapabilities}>> = ({
   value = {},
   children,
-}) => <PlatformLibraryContext.Provider value={value}>{children}</PlatformLibraryContext.Provider>;
+}) => <PlatformCapabilitiesContext.Provider value={value}>{children}</PlatformCapabilitiesContext.Provider>;

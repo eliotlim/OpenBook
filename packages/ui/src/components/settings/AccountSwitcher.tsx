@@ -5,7 +5,7 @@ import {Button} from '@/components/ui/button';
 import {SettingsSection} from '@/components/settings/primitives';
 import {initialsOf, monogramHue} from '@/components/ProfileAvatar';
 import {cn} from '@/lib/utils';
-import {useAccount, useConfirm, usePlatformLibrary, useTranslation, type AccountStatus, type ConnectedAccount} from '@/providers';
+import {useAccount, useConfirm, usePlatformCapabilities, useTranslation, type AccountStatus, type ConnectedAccount} from '@/providers';
 
 /**
  * The multi-account switcher (OB-206): lists every connected account, marks the
@@ -34,7 +34,7 @@ export default function AccountSwitcher() {
     signOut,
     syncNow,
   } = useAccount();
-  const platform = usePlatformLibrary();
+  const platform = usePlatformCapabilities();
   const confirm = useConfirm();
 
   // Removing forgets the account on THIS device only (its token + entry), so it

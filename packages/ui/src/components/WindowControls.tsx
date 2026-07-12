@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react';
 import {Copy, Minus, Square, X} from 'lucide-react';
-import {usePlatformLibrary} from '@/providers';
+import {usePlatformCapabilities} from '@/providers';
 import {cn} from '@/lib/utils';
 
 /**
@@ -9,7 +9,7 @@ import {cn} from '@/lib/utils';
  * strip. Renders nothing on macOS / the web, which keep their native controls.
  */
 export default function WindowControls() {
-  const {windowControls} = usePlatformLibrary();
+  const {windowControls} = usePlatformCapabilities();
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {

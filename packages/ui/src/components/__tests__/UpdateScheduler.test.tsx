@@ -1,7 +1,7 @@
 import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import {render, cleanup, act} from '@testing-library/react';
-import type {UpdateCheckResult, UpdatesPlatform, PlatformLibrary} from '../../providers/PlatformLibraryProvider';
-import {PlatformLibraryProvider} from '../../providers/PlatformLibraryProvider';
+import type {UpdateCheckResult, UpdatesPlatform, PlatformCapabilities} from '../../providers/PlatformCapabilitiesProvider';
+import {PlatformCapabilitiesProvider} from '../../providers/PlatformCapabilitiesProvider';
 import {ConfirmProvider} from '../../providers/ConfirmProvider';
 import {UPDATE_PREFERENCE_KEYS} from '../../lib/updatePreferences';
 import {LATEST_MAJOR_SEEN_KEY, MAJOR_ANNOUNCED_KEY} from '../../lib/updateScheduler';
@@ -53,13 +53,13 @@ function makePlatform(result: UpdateCheckResult): UpdatesPlatform & {
 }
 
 function mount(updates: UpdatesPlatform | undefined) {
-  const platform: PlatformLibrary = updates ? {updates} : {};
+  const platform: PlatformCapabilities = updates ? {updates} : {};
   return render(
-    <PlatformLibraryProvider value={platform}>
+    <PlatformCapabilitiesProvider value={platform}>
       <ConfirmProvider>
         <UpdateScheduler />
       </ConfirmProvider>
-    </PlatformLibraryProvider>,
+    </PlatformCapabilitiesProvider>,
   );
 }
 

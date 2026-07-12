@@ -1,5 +1,5 @@
 import {describe, it, expect, beforeEach, vi} from 'vitest';
-import type {UpdateCheckResult, UpdatesPlatform} from '../../providers/PlatformLibraryProvider';
+import type {UpdateCheckResult, UpdatesPlatform} from '../../providers/PlatformCapabilitiesProvider';
 import {UPDATE_PREFERENCE_KEYS} from '../updatePreferences';
 import {LATEST_MAJOR_SEEN_KEY} from '../updateScheduler';
 import {resetUpdateRunnerForTests, runDownloadAndInstall, runUpdateCheck} from '../updateRunner';

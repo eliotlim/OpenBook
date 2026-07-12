@@ -32,8 +32,8 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock('../AccountProvider', () => ({useAccount: () => h.account}));
-vi.mock('../PlatformLibraryProvider', () => ({
-  usePlatformLibrary: () => ({forwarding: {keyStore: {load: async () => null}, localFetch: vi.fn()}}),
+vi.mock('../PlatformCapabilitiesProvider', () => ({
+  usePlatformCapabilities: () => ({forwarding: {keyStore: {load: async () => null}, localFetch: vi.fn()}}),
 }));
 vi.mock('@/data/DataProvider', () => ({
   useData: () => ({setInstancePolicy: vi.fn(), getInstanceInfo: vi.fn()}),

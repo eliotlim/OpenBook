@@ -13,11 +13,11 @@ import {
   HudProvider,
   I18nProvider,
   NavigationProvider,
-  PlatformLibraryProvider,
+  PlatformCapabilitiesProvider,
   PreferencesProvider,
   ThemeProvider,
   WorkspaceProvider,
-  type PlatformLibrary,
+  type PlatformCapabilities,
   type WindowControls,
 } from '@book.dev/ui';
 import type {BookFolderFile, DataClient, ServerInfo} from '@book.dev/sdk';
@@ -102,7 +102,7 @@ function parseAuthCallback(raw: string): {token: string; state: string} | null {
 
 // Expose the Tauri-managed local server + in-window tabs + window controls +
 // the account.book.pub deep-link sign-in.
-const platform: PlatformLibrary = {
+const platform: PlatformCapabilities = {
   serverControls: {
     info: () => invoke<ServerInfo>('server_info'),
     // Publish on the LAN: the local server *also* binds 0.0.0.0 + requires the
@@ -191,7 +191,7 @@ function App() {
     <ThemeProvider>
       <I18nProvider>
         <PreferencesProvider>
-          <PlatformLibraryProvider value={platform}>
+          <PlatformCapabilitiesProvider value={platform}>
             {client && (
               <DataProvider client={client}>
                 <NavigationProvider>
@@ -209,7 +209,7 @@ function App() {
                 </NavigationProvider>
               </DataProvider>
             )}
-          </PlatformLibraryProvider>
+          </PlatformCapabilitiesProvider>
         </PreferencesProvider>
       </I18nProvider>
     </ThemeProvider>
