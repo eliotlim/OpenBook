@@ -58,9 +58,9 @@ describe('ShareDialog on a browser-local workspace', () => {
     wrap(<ShareDialog pageId="p1" />, {browserLocalWorkspace: true});
     fireEvent.click(screen.getByRole('button', {name: 'Share'}));
 
-    expect(await screen.findByText(/This workspace lives only in this browser/)).toBeTruthy();
+    expect(await screen.findByText(/This library lives only in this browser/)).toBeTruthy();
     // The copy-link hint tells the truth: a recipient opens THEIR workspace.
-    expect(await screen.findByText(/opens their own workspace, not this page/)).toBeTruthy();
+    expect(await screen.findByText(/opens their own library, not this page/)).toBeTruthy();
     // The unclaimed-instance disclosure presupposes reachability — superseded.
     expect(screen.queryByText(/Sharing takes effect once you claim this instance/)).toBeNull();
     // Still functional, not hidden: the scope picker and invite field render.
@@ -73,7 +73,7 @@ describe('ShareDialog on a browser-local workspace', () => {
     fireEvent.click(screen.getByRole('button', {name: 'Share'}));
 
     expect(await screen.findByText(/Sharing takes effect once you claim this instance/)).toBeTruthy();
-    expect(screen.queryByText(/This workspace lives only in this browser/)).toBeNull();
+    expect(screen.queryByText(/This library lives only in this browser/)).toBeNull();
   });
 });
 

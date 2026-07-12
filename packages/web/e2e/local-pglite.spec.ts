@@ -59,11 +59,11 @@ test('web sharing surfaces disclose the in-browser workspace honestly', {tag: ['
 
   // Share dialog: the browser-local disclosure replaces the unclaimed-instance
   // one, and the copy-link hint admits the link opens the recipient's OWN
-  // workspace. The controls stay functional (scope picker + invite field).
+  // library. The controls stay functional (scope picker + invite field).
   await page.getByRole('button', {name: 'Share', exact: true}).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByText(/This workspace lives only in this browser/)).toBeVisible();
-  await expect(dialog.getByText(/opens their own workspace, not this page/)).toBeVisible();
+  await expect(dialog.getByText(/This library lives only in this browser/)).toBeVisible();
+  await expect(dialog.getByText(/opens their own library, not this page/)).toBeVisible();
   await expect(dialog.getByText(/Sharing takes effect once you claim/)).toHaveCount(0);
   await expect(dialog.locator('#share-scope')).toBeVisible();
   await page.keyboard.press('Escape');

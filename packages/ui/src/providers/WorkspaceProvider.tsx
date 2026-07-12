@@ -48,7 +48,7 @@ const WORKSPACES_KEY = 'openbook.workspaces';
 const LOCAL_WORKSPACE: Workspace = {
   id: 'local',
   icon: '🏡',
-  name: 'My Workspace',
+  name: 'My Library',
   serverUrl: null,
 };
 

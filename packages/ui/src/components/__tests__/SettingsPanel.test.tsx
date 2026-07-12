@@ -27,7 +27,7 @@ describe('SettingsPanel', () => {
     renderPanel('general');
     expect(screen.getByText('Preferences')).toBeTruthy();
     expect(screen.getByText('Account')).toBeTruthy();
-    expect(screen.getByText('Workspace')).toBeTruthy();
+    expect(screen.getByText('Library')).toBeTruthy();
   });
 
   it('renders the active panel (General) and its sections', () => {
