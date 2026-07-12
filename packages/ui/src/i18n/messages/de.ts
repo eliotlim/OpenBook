@@ -163,9 +163,9 @@ export const de: PartialMessages = {
     enforcementCaveat:
       'Von dir eingeladene Personen können diese Seite über ihren veröffentlichten book.cloud-Link möglicherweise noch nicht öffnen — das wird gerade ausgerollt. Der direkte Zugriff ist bereits wie hier festgelegt eingeschränkt.',
     siteRestrictedNotice:
-      'Diese Seite ist auf „Jeder mit dem Link“ eingestellt, aber deine veröffentlichte Adresse ist privat — nicht angemeldete Personen werden abgewiesen. Stelle die Adresse auf öffentlich, damit jeder mit dem Link sie öffnen kann.',
-    makeSitePublic: 'Adresse öffentlich machen',
-    siteGlobalHint: 'Gilt für deine gesamte veröffentlichte Adresse, nicht nur für diese Seite.',
+      'Diese Seite ist auf „Jeder mit dem Link“ eingestellt, aber der öffentliche Zugriff ist aus — schalte ihn ein, damit nicht angemeldete Besucher sie öffnen können.',
+    makeSitePublic: 'Öffentlichen Zugriff aktivieren',
+    siteGlobalHint: 'Gilt für deine gesamte Bibliothek, nicht nur für diese Seite.',
     scopeLabel: 'Wer hat Zugriff',
     scopeAdvanced: 'Weitere Zugriffsoptionen',
     scope: {
@@ -802,17 +802,17 @@ export const de: PartialMessages = {
       offline: 'Offline',
     },
     visibility: {
-      label: 'Veröffentlichte Adresse',
+      label: 'Öffentlicher Zugriff',
       public: 'Öffentlich',
       private: 'Privat',
       authenticated: 'Alle Angemeldeten',
       members: 'Mitglieder',
-      publicHint: 'Jeder mit dem Link kann diese Adresse öffnen, auch nicht angemeldete Personen.',
-      privateHint: 'Nur du und von dir eingeladene Personen können diese Adresse öffnen — nicht angemeldete Besucher werden abgewiesen.',
-      authenticatedHint: 'Jede angemeldete Person kann diese Adresse öffnen.',
-      membersHint: 'Mitglieder des Arbeitsbereichs können diese Adresse öffnen.',
+      publicHint: 'Jeder mit dem Link kann diese Bibliothek sehen, auch ohne Anmeldung.',
+      privateHint: 'Nur Mitglieder und Gäste des Arbeitsbereichs können diese Bibliothek sehen.',
+      authenticatedHint: 'Jede angemeldete Person kann diese Bibliothek sehen.',
+      membersHint: 'Nur Mitglieder des Arbeitsbereichs können diese Bibliothek sehen.',
       manageOnWeb: 'Im Web verwalten',
-      error: 'Die veröffentlichte Adresse konnte nicht aktualisiert werden. Versuche es erneut.',
+      error: 'Öffentlicher Zugriff konnte nicht aktualisiert werden. Versuche es erneut.',
     },
   },
   diagnostics: {

@@ -229,11 +229,11 @@ export const en = {
     enforcementCaveat:
       'People you invite may not be able to open this page through its published book.cloud link yet — that’s rolling out. Direct access is already limited as set here.',
     siteRestrictedNotice:
-      'This page is set to “Anyone with the link”, but your published address is Private — so people who aren’t signed in are turned away. Make the address Public so anyone with the link can open it.',
-    makeSitePublic: 'Make address Public',
+      'This page is set to anyone-with-the-link, but public access is off — turn it on so signed-out visitors can open it.',
+    makeSitePublic: 'Enable Public Access',
     // The address scope is workspace-global — shown here per-page, but it governs
     // every published page, so say so plainly to avoid a per-page misread.
-    siteGlobalHint: 'Applies to your whole published address, not just this page.',
+    siteGlobalHint: 'Applies to your whole library, not just this page.',
     scopeLabel: 'Who can access',
     scopeAdvanced: 'More access options',
     scope: {
@@ -1201,20 +1201,20 @@ export const en = {
     // Address-level audience scope (SHR-8): the published *.book.cloud address is
     // Private by default; only a Public address opens for people who aren’t signed in.
     visibility: {
-      label: 'Published address',
+      label: 'Public access',
       public: 'Public',
       private: 'Private',
       authenticated: 'Anyone signed in',
       members: 'Members',
-      publicHint: 'Anyone with the link can open this address, including people who aren’t signed in.',
-      privateHint: 'Only you and people you invite can open this address — signed-out visitors are turned away.',
+      publicHint: 'Anyone with the link can see this library, even when not signed in.',
+      privateHint: 'Only workspace members and guests can see this library.',
       // Honest, read-only rows for the two in-between account scopes this desktop
       // control doesn’t set (but the account/edge honor distinctly) — never mislabel
       // them as “Private”, which would under-state who can already read.
-      authenticatedHint: 'Anyone signed in can open this address.',
-      membersHint: 'Workspace members can open this address.',
+      authenticatedHint: 'Anyone signed in can see this library.',
+      membersHint: 'Only workspace members can see this library.',
       manageOnWeb: 'Manage on the web',
-      error: 'Couldn’t update the published address. Try again.',
+      error: 'Couldn’t update public access. Try again.',
     },
   },
   diagnostics: {
