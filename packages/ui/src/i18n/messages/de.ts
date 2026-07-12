@@ -556,6 +556,14 @@ export const de: PartialMessages = {
       name: 'Standortkarte',
       description: 'Büros und Partner auf einer Karte, nach Region eingefärbt — mit Tabellenansicht.',
     },
+    pitchDeck: {
+      name: 'Pitch-Deck',
+      description: 'Fünf präsentationsfertige Folien mit Sprechernotizen — inklusive Live-Umsatz-Donut zum Ziehen während des Pitches.',
+    },
+    compoundGrowth: {
+      name: 'Zinseszins-Wachstum',
+      description: 'Beobachten Sie, wie 1 £ bei 3/5/7/10 % Zinseszins wächst, während Sie einen Monats-Regler ziehen — das klassische Beispieldokument als frische Kopie.',
+    },
   },
   blocks: {
     subpagePage: 'Seite',

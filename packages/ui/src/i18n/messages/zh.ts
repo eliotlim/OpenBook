@@ -553,6 +553,14 @@ export const zh: PartialMessages = {
       name: '据点地图',
       description: '把办公室与合作伙伴标在地图上，按区域着色——并提供表格视图。',
     },
+    pitchDeck: {
+      name: '路演幻灯片',
+      description: '五张可直接演示的幻灯片，附演讲者备注——包括一张路演时可实时拖动的收入构成环形图。',
+    },
+    compoundGrowth: {
+      name: '复利增长',
+      description: '拖动月数滑块，实时观看 1 英镑以 3/5/7/10% 复利增长——经典示例文档的全新副本。',
+    },
   },
   blocks: {
     subpagePage: '页面',

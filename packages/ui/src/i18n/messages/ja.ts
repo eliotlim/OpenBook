@@ -555,6 +555,14 @@ export const ja: PartialMessages = {
       name: '拠点マップ',
       description: 'オフィスやパートナーを地図にピン留めし、地域ごとに色分け — テーブルビュー付き。',
     },
+    pitchDeck: {
+      name: 'ピッチデッキ',
+      description: '発表者ノート付きの5枚のスライド — プレゼン中に動かせるライブな収益構成ドーナツチャート入り。',
+    },
+    compoundGrowth: {
+      name: '複利成長',
+      description: '月数スライダーを動かすと、1ポンドが3/5/7/10%で複利成長する様子をライブ表示 — おなじみのサンプル文書を新しいコピーで。',
+    },
   },
   blocks: {
     subpagePage: 'ページ',

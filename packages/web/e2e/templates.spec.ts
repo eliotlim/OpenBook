@@ -27,7 +27,7 @@ test('gallery: lists every template with names and descriptions', {tag: ['@shell
   await hydrated(page);
   await openGallery(page);
 
-  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map']) {
+  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck', 'Compound growth']) {
     await expect(page.getByRole('button', {name: new RegExp(name)})).toBeVisible();
   }
   await takeSnapshot(page, testInfo); // visual: the template gallery
@@ -59,9 +59,10 @@ test('project task board: a kanban database grouped by status', {tag: ['@shell']
   await pick(page, 'task-board');
 
   await expect(page.getByLabel('Page title')).toHaveValue(/^Project task board/);
-  // Opens on the board with the status columns; a table view backs it.
+  // Opens on the board with the status columns; table + calendar views back it.
   await expect(page.getByRole('button', {name: 'Board', exact: true})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Table', exact: true})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Calendar', exact: true})).toBeVisible();
   await expect(page.getByText('In progress', {exact: true})).toBeVisible();
   await expect(page.locator('[data-col-key]').filter({hasText: 'Backlog'}).first()).toBeVisible();
 
@@ -115,6 +116,48 @@ test('savings & investing: sliders steer a live compounding projection', {tag: [
   // Stretch the horizon → the narration tracks it.
   await page.getByLabel('years value').fill('30');
   await expect(page.locator('.obe-code-out', {hasText: 'After 30 years'}).first()).toBeVisible();
+});
+
+test('pitch deck: a five-slide deck with a live donut and speaker notes in the presenter view', {tag: ['@shell']}, async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'pitch-deck');
+
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Pitch deck/);
+  // The showcase chart: a donut (a kind no other template uses), fed by sliders.
+  await expect(page.locator('.obe-kit-chart[data-chart-kind="donut"]')).toBeVisible();
+  // Recurring share 62% ≥ the 60% bar → the light starts green.
+  await expect(page.locator('.obe-kit-status')).toHaveAttribute('data-status', 'ok');
+
+  // Present it (presenter view avoids the OS fullscreen request in headless).
+  await page.getByRole('button', {name: 'Page actions'}).click();
+  await page.getByRole('menuitem', {name: 'Present'}).click();
+  await page.getByRole('menuitem', {name: 'Presenter view'}).click();
+
+  const present = page.locator('.ob-present');
+  await expect(present).toBeVisible();
+  // Five slides, opening on the title slide…
+  await expect(present.locator('.ob-present-counter')).toHaveText('1 / 5');
+  await expect(present.locator('.ob-present-stage').getByRole('heading', {name: 'Brightloop'})).toBeVisible();
+  // …whose speaker note shows in the presenter notes panel, not on the stage.
+  await expect(present.locator('.ob-present-notes-panel').getByText(/Thirty seconds, tops/)).toBeVisible();
+  await expect(present.locator('.ob-present-stage').getByText(/Thirty seconds, tops/)).toHaveCount(0);
+
+  await page.keyboard.press('Escape');
+  await expect(present).toHaveCount(0);
+});
+
+test('compound growth: the sample document as a fresh gallery copy', {tag: ['@shell']}, async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'compound-growth');
+
+  // A fresh copy under the gallery's own name (not the Home starter's
+  // "Compound Growth (sample)" — that open-or-create entry point is separate).
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Compound growth/);
+  // The months slider feeds four compound-growth curves on one live chart.
+  const chart = page.locator('.obe-kit-chart[data-chart-kind="line"]');
+  await expect(chart).toBeVisible();
+  await expect(chart.locator('svg polyline')).toHaveCount(4);
+  await expect(chart.locator('.obe-chart-legend text', {hasText: '10%'})).toBeVisible();
 });
 
 test('instantiating a template twice suffixes the page and row names (names are unique)', {tag: ['@shell']}, async ({page}) => {

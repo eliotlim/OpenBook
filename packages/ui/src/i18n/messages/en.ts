@@ -897,6 +897,14 @@ export const en = {
       name: 'Field map',
       description: 'Offices and partners pinned on a map, coloured by region — with a table view.',
     },
+    pitchDeck: {
+      name: 'Pitch deck',
+      description: 'Five present-ready slides with speaker notes — including a live revenue-mix donut you drag mid-pitch.',
+    },
+    compoundGrowth: {
+      name: 'Compound growth',
+      description: 'Watch £1 compound at 3/5/7/10% as you drag a months slider — the classic sample, as a fresh copy.',
+    },
   },
   blocks: {
     subpagePage: 'Page',
