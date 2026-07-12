@@ -27,7 +27,7 @@ test('gallery: lists every template with names and descriptions', {tag: ['@shell
   await hydrated(page);
   await openGallery(page);
 
-  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck', 'Compound growth', 'Team status dashboard']) {
+  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck', 'Compound growth', 'Team status dashboard', 'Product HQ']) {
     await expect(page.getByRole('button', {name: new RegExp(name)})).toBeVisible();
   }
   await takeSnapshot(page, testInfo); // visual: the template gallery
@@ -191,6 +191,33 @@ test('team status dashboard: a locked, synced panel stays live while its text fr
   await expect(page.getByRole('tab')).toHaveCount(2);
   await page.getByRole('tab', {name: 'Next week'}).click();
   await expect(page.getByText('Rotate the on-call')).toBeVisible();
+});
+
+test('product hq: two databases linked by a relation, rolled up, and chained on a timeline', {tag: ['@shell']}, async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'product-hq');
+
+  // Lands on the Initiatives table. The relation chips resolve TASK titles
+  // from the other database…
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Product HQ/);
+  const table = page.getByRole('table');
+  await expect(table.getByText('Ship onboarding checklist')).toBeVisible();
+  await expect(table.getByText('Migrate legacy invoices')).toBeVisible();
+  // …and the rollups fold the linked tasks: % done per initiative (1 of 2
+  // onboarding tasks; 0 of 2 performance; 1 of 1 billing).
+  await expect(table.getByText('50%', {exact: true})).toBeVisible();
+  await expect(table.getByText('0%', {exact: true})).toBeVisible();
+  await expect(table.getByText('100%', {exact: true})).toBeVisible();
+
+  // The Tasks database is a sub-page; it opens on a timeline whose dependency
+  // property draws the two seeded blocked-by arrows.
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByPlaceholder(/Search pages or run a command/).fill('Product HQ Tasks');
+  await page.getByRole('option', {name: /Product HQ Tasks/}).first().click();
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Product HQ.*Tasks/);
+  await expect(page.getByRole('button', {name: 'Timeline', exact: true})).toBeVisible();
+  await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(5);
+  await expect(page.locator('svg path[marker-end]')).toHaveCount(2);
 });
 
 test('instantiating a template twice suffixes the page and row names (names are unique)', {tag: ['@shell']}, async ({page}) => {

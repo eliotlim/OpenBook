@@ -909,6 +909,10 @@ export const en = {
       name: 'Team status dashboard',
       description: 'A locked panel whose controls stay live and sync across pages, a delivery funnel, and the week’s rituals in tabs.',
     },
+    productHq: {
+      name: 'Product HQ',
+      description: 'Initiatives and Tasks as two linked databases — a two-way relation, % done rolled up, and dependencies on a timeline.',
+    },
   },
   blocks: {
     subpagePage: 'Page',

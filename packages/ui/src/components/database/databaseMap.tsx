@@ -209,7 +209,7 @@ const UnplacedRows: React.FC<{
                 <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
                 {chipProps.length > 0 && (
                   <span className="ml-1 min-w-0 flex-1 overflow-hidden">
-                    <RowChips row={row} properties={chipProps} rows={db.rows} />
+                    <RowChips row={row} properties={chipProps} rows={db.rollupRows} />
                   </span>
                 )}
               </button>

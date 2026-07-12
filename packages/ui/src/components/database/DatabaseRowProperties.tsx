@@ -15,10 +15,9 @@ const FieldRow: React.FC<{
   property: DatabaseProperty;
   db: UseDatabase;
   pageId: string;
-  schema: DatabaseProperty[];
   rowOptions: {id: string; label: string; icon?: string}[];
   dim?: boolean;
-}> = ({property, db, pageId, schema, rowOptions, dim}) => {
+}> = ({property, db, pageId, rowOptions, dim}) => {
   const row = db.rows.find((r) => r.id === pageId);
   if (!row) return null;
   return (
@@ -31,7 +30,7 @@ const FieldRow: React.FC<{
       <div className="min-w-0 flex-1">
         <PropertyValueCell
           property={property}
-          value={cellValue(row, property, schema, db.rows)}
+          value={cellValue(row, property, db.rollupProperties, db.rollupRows)}
           exprValue={row.exports[property.cellName ?? property.name]}
           onChange={(value) => void db.setRowProperty(pageId, property.id, value)}
           onAddOption={(label) => db.addSelectOption(property.id, label)}
@@ -169,7 +168,7 @@ export const DatabaseRowProperties: React.FC<{pageId: string; databaseId: string
     });
 
   const field = (p: DatabaseProperty, dim?: boolean) => (
-    <FieldRow key={p.id} property={p} db={db} pageId={pageId} schema={schema} rowOptions={rowOptions} dim={dim} />
+    <FieldRow key={p.id} property={p} db={db} pageId={pageId} rowOptions={rowOptions} dim={dim} />
   );
 
   return (

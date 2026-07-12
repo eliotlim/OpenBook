@@ -568,6 +568,10 @@ export const de: PartialMessages = {
       name: 'Team-Status-Dashboard',
       description: 'Ein gesperrtes Panel, dessen Regler bedienbar bleiben und seitenübergreifend synchronisieren, ein Liefer-Funnel und die Rituale der Woche in Tabs.',
     },
+    productHq: {
+      name: 'Produkt-HQ',
+      description: 'Vorhaben und Aufgaben als zwei verknüpfte Datenbanken — beidseitige Relation, aufgerollter Fertig-Anteil und Abhängigkeiten auf einer Timeline.',
+    },
   },
   blocks: {
     subpagePage: 'Seite',

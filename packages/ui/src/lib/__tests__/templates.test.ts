@@ -19,13 +19,17 @@ const page = (over: Partial<StoredPage> = {}): StoredPage =>
     ...over,
   }) as StoredPage;
 
-/** A client stub: page list + create fns the templates exercise. */
+/** A client stub: page list + create/update fns the templates exercise. */
 function stubClient(existing: string[]): DataClient {
+  let seq = 0;
   return {
     listPages: vi.fn(async () => existing.map((name, i) => ({id: `p${i}`, name}) as PageMeta)),
     savePage: vi.fn(async (input: {name?: string | null}) => page({name: input.name ?? null})),
-    createDatabase: vi.fn(async () => ({id: 'db-1', pageId: 'pg-1', name: 'X', schema: {properties: [], views: []}})),
-    createRow: vi.fn(async () => page()),
+    createDatabase: vi.fn(async (input: {id?: string}) => ({id: input.id ?? 'db-1', pageId: 'pg-1', name: 'X', schema: {properties: [], views: []}})),
+    // Distinct ids per row, so seeded cross-row links (relations/dependencies)
+    // are tellable-apart in assertions.
+    createRow: vi.fn(async () => page({id: `row-${(seq += 1)}`})),
+    updateRow: vi.fn(async () => ({id: 'row-0', name: null, properties: {}, exports: {}})),
   } as unknown as DataClient;
 }
 
@@ -34,7 +38,7 @@ function stubClient(existing: string[]): DataClient {
 const SLIDE_DECK_IDS = ['grocery-tracker', 'project-intake', 'savings-planner', 'pitch-deck'] as const;
 /** Every block-doc template (the decks plus the single-page dashboards). */
 const BLOCK_DOC_IDS = [...SLIDE_DECK_IDS, 'compound-growth', 'team-status'] as const;
-const DATABASE_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map'] as const;
+const DATABASE_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map', 'product-hq'] as const;
 
 /** Run a template against a stub and return the schema it created (database templates). */
 async function schemaOf(id: PageTemplate['id']): Promise<DatabaseSchema> {
@@ -69,10 +73,10 @@ function allBlocks(doc: ReturnType<typeof decodeSnapshot>): BlockMap[] {
 }
 
 describe('PAGE_TEMPLATES', () => {
-  it('has ten templates with unique ids, names, and icons', () => {
+  it('has eleven templates with unique ids, names, and icons', () => {
     const ids = PAGE_TEMPLATES.map((t) => t.id);
     const names = PAGE_TEMPLATES.map((t) => t.pageName);
-    expect(PAGE_TEMPLATES).toHaveLength(10);
+    expect(PAGE_TEMPLATES).toHaveLength(11);
     expect(new Set(ids)).toEqual(new Set([...BLOCK_DOC_IDS, ...DATABASE_IDS]));
     expect(new Set(names).size).toBe(PAGE_TEMPLATES.length);
     for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
@@ -340,6 +344,81 @@ describe('field-map (database fixture)', () => {
     const unplaced = rows.filter((r) => !r.properties.p_place && r.properties.p_address);
     expect(placed.length).toBeGreaterThanOrEqual(7);
     expect(unplaced.length).toBe(1); // exercises the geocode affordance
+  });
+});
+
+describe('product hq (two linked databases)', () => {
+  const template = PAGE_TEMPLATES.find((t) => t.id === 'product-hq') as PageTemplate;
+
+  it('builds Initiatives + Tasks linked 1:n both ways, with rollups and a dependency timeline', async () => {
+    const client = stubClient([]);
+    await template.create(client, template.pageName);
+
+    const dbs = (client.createDatabase as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => c[0] as {id: string; schema: DatabaseSchema},
+    );
+    expect(dbs).toHaveLength(2);
+    const [initiatives, tasks] = dbs;
+
+    // The 1:n relation pair: forward `Tasks` on Initiatives, reverse (single)
+    // `Initiative` on Tasks — each referencing the OTHER pre-minted database id.
+    const forward = initiatives.schema.properties.find((p) => p.id === 'p_tasks')!;
+    expect(forward.type).toBe('relation');
+    expect(forward.relationDatabaseId).toBe(tasks.id);
+    expect(forward.relationCardinality).toBe('1:n');
+    expect(forward.reversePropertyId).toBe('p_initiative');
+    const reverse = tasks.schema.properties.find((p) => p.id === 'p_initiative')!;
+    expect(reverse.type).toBe('relation');
+    expect(reverse.relationDatabaseId).toBe(initiatives.id);
+    expect(reverse.relationSingle).toBe(true);
+    expect(reverse.reversePropertyId).toBe('p_tasks');
+
+    // Rollups on Initiatives fold the linked tasks: % done + task count.
+    const progress = initiatives.schema.properties.find((p) => p.id === 'p_progress')!;
+    expect(progress.type).toBe('rollup');
+    expect(progress.rollup).toEqual({relationPropertyId: 'p_tasks', targetPropertyId: 'p_done', function: 'percent_checked'});
+    const count = initiatives.schema.properties.find((p) => p.id === 'p_count')!;
+    expect(count.rollup?.function).toBe('count');
+
+    // Tasks open on a timeline whose bars come from `When` and whose arrows
+    // come from the `Blocked by` dependency property.
+    expect(tasks.schema.views[0].type).toBe('timeline');
+    const timeline = tasks.schema.views[0];
+    expect(timeline.datePropertyId).toBe('p_when');
+    expect(timeline.dependencyPropertyId).toBe('p_blockedby');
+    expect(tasks.schema.properties.find((p) => p.id === 'p_blockedby')!.type).toBe('dependency');
+  });
+
+  it('seeds both sides of the relation and a dependency chain', async () => {
+    const client = stubClient([]);
+    await template.create(client, template.pageName);
+
+    const rows = (client.createRow as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => ({dbId: c[0] as string, input: c[1] as {name: string | null; properties: Record<string, unknown>}}),
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(8); // 3 initiatives + 5 tasks
+    // Every task links back to exactly one initiative (the single reverse side)…
+    const tasks = rows.filter((r) => r.input.properties.p_initiative !== undefined);
+    expect(tasks).toHaveLength(5);
+    for (const t of tasks) expect(t.input.properties.p_initiative).toHaveLength(1);
+    // …some tasks are chained by the dependency, and some are done (so the
+    // percent_checked rollup lands strictly between 0 and 100 somewhere).
+    expect(tasks.filter((t) => Array.isArray(t.input.properties.p_blockedby)).length).toBeGreaterThanOrEqual(2);
+    expect(tasks.filter((t) => t.input.properties.p_done === true).length).toBeGreaterThanOrEqual(1);
+    expect(tasks.filter((t) => t.input.properties.p_done === false).length).toBeGreaterThanOrEqual(1);
+
+    // The reverse side is written explicitly (seeding can't rely on the
+    // cell-edit mirror): each initiative is patched with its task ids.
+    const patches = (client.updateRow as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => c[2] as {properties: Record<string, unknown>},
+    );
+    expect(patches).toHaveLength(3);
+    const linkedBack = patches.flatMap((p) => p.properties.p_tasks as string[]);
+    expect(new Set(linkedBack).size).toBe(5); // every task appears exactly once
+  });
+
+  it('tags itself database', () => {
+    expect(template.tags).toEqual(['database']);
   });
 });
 

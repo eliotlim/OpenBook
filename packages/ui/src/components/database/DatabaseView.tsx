@@ -469,7 +469,7 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
         </div>
       </td>
       {columns.map((property) => {
-        const value = cellValue(row, property, schema, db.rows);
+        const value = cellValue(row, property, db.rollupProperties, db.rollupRows);
         return (
           <td key={property.id} className="border-l border-border/70 align-middle">
             <CellContextMenu db={db} view={db.activeView} row={row} property={property} value={value}>
@@ -892,7 +892,7 @@ const ListRow: React.FC<{db: UseDatabase; columns: DatabaseProperty[]; row: Data
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <PageIcon value={readPageIcon(row.id)} className="shrink-0 text-base leading-none" />
           <span className="shrink-0 truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
-          <RowChips row={row} properties={columns} rows={db.rows} labelled />
+          <RowChips row={row} properties={columns} rows={db.rollupRows} labelled />
         </div>
         <div onClick={(e) => e.stopPropagation()}>
           <RowMenu

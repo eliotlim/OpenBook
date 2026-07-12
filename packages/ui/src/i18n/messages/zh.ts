@@ -565,6 +565,10 @@ export const zh: PartialMessages = {
       name: '团队状态仪表盘',
       description: '锁定后控件仍可操作、并跨页面同步的控制面板，外加交付漏斗图和按标签页整理的每周例行事项。',
     },
+    productHq: {
+      name: '产品总部',
+      description: '把“计划”和“任务”做成两个互联数据库——双向关联、汇总完成度，并在时间线上呈现依赖关系。',
+    },
   },
   blocks: {
     subpagePage: '页面',

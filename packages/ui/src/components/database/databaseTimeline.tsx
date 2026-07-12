@@ -742,7 +742,7 @@ const TimelineCanvas: React.FC<{
                           </span>
                           {railProps.length > 0 && (
                             <span className="flex h-[18px] items-center overflow-hidden">
-                              <RowChips row={row} properties={railProps} rows={db.rows} />
+                              <RowChips row={row} properties={railProps} rows={db.rollupRows} />
                             </span>
                           )}
                         </button>

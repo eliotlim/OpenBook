@@ -567,6 +567,10 @@ export const ja: PartialMessages = {
       name: 'チーム・ステータスダッシュボード',
       description: 'ロックしても操作でき、ページ間で同期するコントロールパネル、デリバリーのファネルチャート、タブに整理した週のルーティン。',
     },
+    productHq: {
+      name: 'プロダクトHQ',
+      description: '施策とタスクを2つの連結データベースで — 双方向リレーション、完了率のロールアップ、タイムライン上の依存関係。',
+    },
   },
   blocks: {
     subpagePage: 'ページ',
