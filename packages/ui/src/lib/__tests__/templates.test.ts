@@ -2,7 +2,7 @@ import {describe, expect, it, vi} from 'vitest';
 import {PAGE_TEMPLATES, SAMPLE_DOCUMENT_NAME, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
 import type {DatabaseSchema, DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
 import {decodeSnapshot, rootBlocks, walkBlocks, blockProp, blockType, type BlockDocSnapshot, type BlockMap} from '@/blockeditor/model';
-import {computeScope, evalExpr} from '@/blockeditor/kit/scope';
+import {computeScope, evalExpr, setNamedNumber} from '@/blockeditor/kit/scope';
 
 const page = (over: Partial<StoredPage> = {}): StoredPage =>
   ({
@@ -32,8 +32,8 @@ function stubClient(existing: string[]): DataClient {
 /** Block-doc showcases shaped as slide decks (tagged `slides`): divider-cut
  *  slides, speaker notes, and the full visual kit. */
 const SLIDE_DECK_IDS = ['grocery-tracker', 'project-intake', 'savings-planner', 'pitch-deck'] as const;
-/** Every block-doc template (the decks plus the single-page sample doc). */
-const BLOCK_DOC_IDS = [...SLIDE_DECK_IDS, 'compound-growth'] as const;
+/** Every block-doc template (the decks plus the single-page dashboards). */
+const BLOCK_DOC_IDS = [...SLIDE_DECK_IDS, 'compound-growth', 'team-status'] as const;
 const DATABASE_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map'] as const;
 
 /** Run a template against a stub and return the schema it created (database templates). */
@@ -69,10 +69,10 @@ function allBlocks(doc: ReturnType<typeof decodeSnapshot>): BlockMap[] {
 }
 
 describe('PAGE_TEMPLATES', () => {
-  it('has nine templates with unique ids, names, and icons', () => {
+  it('has ten templates with unique ids, names, and icons', () => {
     const ids = PAGE_TEMPLATES.map((t) => t.id);
     const names = PAGE_TEMPLATES.map((t) => t.pageName);
-    expect(PAGE_TEMPLATES).toHaveLength(9);
+    expect(PAGE_TEMPLATES).toHaveLength(10);
     expect(new Set(ids)).toEqual(new Set([...BLOCK_DOC_IDS, ...DATABASE_IDS]));
     expect(new Set(names).size).toBe(PAGE_TEMPLATES.length);
     for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
@@ -236,6 +236,48 @@ describe('pitch deck', () => {
   it('tags itself interactive + slides', () => {
     const template = PAGE_TEMPLATES.find((t) => t.id === 'pitch-deck') as PageTemplate;
     expect(template.tags).toEqual(['interactive', 'slides']);
+  });
+});
+
+describe('team status dashboard', () => {
+  it('locks a synced group of live controls, with a funnel chart and a tabs container', async () => {
+    const doc = await docOf('team-status');
+    const blocks = allBlocks(doc);
+
+    // The locked group carries the cross-page sync key noted in the copy.
+    const group = blocks.find((b) => blockType(b) === 'group')!;
+    expect(blockProp<boolean>(group, 'locked')).toBe(true);
+    expect(blockProp<string>(group, 'sync')).toBe('team-pulse');
+
+    // The kit breadth: toggle + dropdown + counter + button + formula + light
+    // in the group, a tabs container, and a funnel chart (a kind no other
+    // template uses).
+    const types = new Set(blocks.map((b) => blockType(b) as string));
+    for (const t of ['toggle', 'dropdown', 'number', 'actionbutton', 'formula', 'statuslight', 'tabs', 'tab']) {
+      expect(types.has(t), `team-status: ${t}`).toBe(true);
+    }
+    const chart = blocks.find((b) => (blockType(b) as string) === 'kitchart')!;
+    expect(blockProp<string>(chart, 'kind')).toBe('funnel');
+  });
+
+  it('publishes the Pulse inputs namespaced, and the kudos button feeds the formula', async () => {
+    const doc = await docOf('team-status');
+    const {scope} = computeScope(doc);
+    const pulse = scope.pulse as Record<string, {value: unknown}>;
+    expect(pulse.kudos.value).toBe(3);
+    expect(pulse.onCall.value).toBe(true);
+    expect(pulse.focus.value).toBe('shipping');
+    expect(scope.morale).toBe(35); // 3 kudos × 10 + on-call 5
+
+    // The action button's increment path: bump the counter it targets and the
+    // formula tracks it (what the e2e drives through the real button).
+    setNamedNumber(doc, 'kudos', (v) => v + 1);
+    expect(computeScope(doc).scope.morale).toBe(45);
+  });
+
+  it('tags itself interactive only (a dashboard, not a deck)', () => {
+    const template = PAGE_TEMPLATES.find((t) => t.id === 'team-status') as PageTemplate;
+    expect(template.tags).toEqual(['interactive']);
   });
 });
 

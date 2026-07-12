@@ -905,6 +905,10 @@ export const en = {
       name: 'Compound growth',
       description: 'Watch £1 compound at 3/5/7/10% as you drag a months slider — the classic sample, as a fresh copy.',
     },
+    teamStatus: {
+      name: 'Team status dashboard',
+      description: 'A locked panel whose controls stay live and sync across pages, a delivery funnel, and the week’s rituals in tabs.',
+    },
   },
   blocks: {
     subpagePage: 'Page',

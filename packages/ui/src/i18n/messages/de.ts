@@ -564,6 +564,10 @@ export const de: PartialMessages = {
       name: 'Zinseszins-Wachstum',
       description: 'Beobachten Sie, wie 1 £ bei 3/5/7/10 % Zinseszins wächst, während Sie einen Monats-Regler ziehen — das klassische Beispieldokument als frische Kopie.',
     },
+    teamStatus: {
+      name: 'Team-Status-Dashboard',
+      description: 'Ein gesperrtes Panel, dessen Regler bedienbar bleiben und seitenübergreifend synchronisieren, ein Liefer-Funnel und die Rituale der Woche in Tabs.',
+    },
   },
   blocks: {
     subpagePage: 'Seite',

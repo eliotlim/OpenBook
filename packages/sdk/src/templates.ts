@@ -33,7 +33,7 @@ export type TemplateTag = 'interactive' | 'slides' | 'database';
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
-  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth';
+  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth' | 'team-status' | 'product-hq';
   /** Emoji shown on the gallery card and applied to the created page. */
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
@@ -432,6 +432,93 @@ const PITCH_DECK_BLOCKS = [
   {id: 'pd-notes-5', type: 'notes', text: [{t: 'Close with the concrete next step: a 30-minute working session in the live model this week. Stop talking after the ask.'}]},
 ];
 
+// ── 🚦 Team status dashboard ─────────────────────────────────────────────────
+// The kit-breadth showcase, as a single-page dashboard (no slides): a **locked
+// group** whose controls stay live for readers (toggle, dropdown, a kudos
+// counter driven by an action button, a formula and a status light reading it),
+// a **funnel** chart (a kind no other template uses), a **tabs** container, and
+// a cross-page **sync** key — the same Pulse group pasted on another page stays
+// in lockstep under `team-pulse`.
+const TEAM_STATUS_BLOCKS = [
+  {id: 'td-tag', type: 'paragraph', text: [{t: 'One page the whole team reads: a '}, {t: 'locked', a: {b: true}}, {t: ' Pulse panel whose controls stay live, a delivery funnel, and the week’s rituals in tabs.'}]},
+  {id: 'td-call', type: 'callout', text: [{t: 'The Pulse group is locked (the 🔒 in its header): its text and layout are frozen, but readers keep every control. It also syncs across pages under the sync key “team-pulse” — paste the same group on another page and the two stay in lockstep.'}], props: {variant: 'info'}},
+
+  // The locked, synced control panel.
+  {id: 'td-h2', type: 'heading', text: [{t: 'Team pulse'}], props: {level: 2}},
+  {
+    id: 'td-group',
+    type: 'group',
+    props: {name: 'Pulse', locked: true, sync: 'team-pulse'},
+    children: [
+      {id: 'td-g-note', type: 'paragraph', text: [{t: 'This panel is locked — this very sentence can’t be edited in place — yet every control below still works.'}]},
+      {id: 'td-oncall', type: 'toggle', props: {name: 'onCall', label: 'On-call rotation active', value: true}},
+      {id: 'td-focus', type: 'dropdown', props: {name: 'focus', label: 'Focus this week', value: 'shipping', opts: [{label: 'Shipping'}, {label: 'Stability'}, {label: 'Growth'}]}},
+      {id: 'td-kudos', type: 'number', props: {name: 'kudos', label: 'Kudos given', value: 3, min: 0, max: 99, step: 1}},
+      {id: 'td-give', type: 'actionbutton', props: {btnlabel: 'Give kudos', action: 'increment', target: 'kudos', amount: 1}},
+      // Inputs inside a named group publish namespaced — pulse.kudos.value —
+      // which is exactly what this formula (and the light below) read.
+      {id: 'td-score', type: 'formula', props: {name: 'morale', source: 'pulse.kudos.value * 10 + (pulse.onCall.value ? 5 : 0)'}},
+      {id: 'td-light', type: 'statuslight', props: {label: 'Momentum', source: 'pulse.kudos.value', okAt: 3, warnAt: 1}},
+    ],
+  },
+
+  // The delivery funnel: a chart kind no other template exercises.
+  {id: 'td-h3', type: 'heading', text: [{t: 'Delivery pipeline'}], props: {level: 2}},
+  {id: 'td-pipe', type: 'code', text: [{t: '({Ideas: 24, Building: 12, "In review": 7, Shipped: shipped})'}], props: {live: true, name: 'pipeline', language: 'js', collapsed: true}},
+  {
+    id: 'td-cols',
+    type: 'columns',
+    children: [
+      {
+        id: 'td-col-l',
+        type: 'column',
+        props: {span: 5},
+        children: [
+          {id: 'td-shipped', type: 'number', props: {name: 'shipped', label: 'Shipped this quarter', value: 5, min: 0, max: 50, step: 1}},
+          {id: 'td-tip', type: 'tooltipcard', props: {term: 'Funnel', tip: 'Each stage narrows: ideas → building → review → shipped. Step the shipped count and the funnel redraws.'}},
+        ],
+      },
+      {
+        id: 'td-col-r',
+        type: 'column',
+        props: {span: 7},
+        children: [
+          {id: 'td-funnel', type: 'kitchart', props: {kind: 'funnel', title: 'Ideas → Shipped', source: 'pipeline'}},
+        ],
+      },
+    ],
+  },
+
+  // The week's rituals, in a tabs container.
+  {id: 'td-h4', type: 'heading', text: [{t: 'Rituals'}], props: {level: 2}},
+  {
+    id: 'td-tabs',
+    type: 'tabs',
+    props: {name: 'Rituals', active: 0},
+    children: [
+      {
+        id: 'td-tab-week',
+        type: 'tab',
+        props: {label: 'This week'},
+        children: [
+          {id: 'td-t1', type: 'todo', text: [{t: 'Monday kick-off — pick the focus in the Pulse panel'}], props: {checked: true}},
+          {id: 'td-t2', type: 'todo', text: [{t: 'Thursday demo — show, don’t tell'}], props: {checked: false}},
+        ],
+      },
+      {
+        id: 'td-tab-next',
+        type: 'tab',
+        props: {label: 'Next week'},
+        children: [
+          {id: 'td-n1', type: 'list', text: [{t: 'Rotate the on-call — flip the Pulse toggle'}], props: {kind: 'bullet'}},
+          {id: 'td-n2', type: 'list', text: [{t: 'Reset the kudos counter at retro'}], props: {kind: 'bullet'}},
+        ],
+      },
+    ],
+  },
+  {id: 'td-call2', type: 'callout', text: [{t: 'Make it yours: rename the Pulse group, change its sync key, and unlock it (the 🔓 in the group header) to re-arrange the controls.'}], props: {variant: 'success'}},
+];
+
 // ════════════════════════════════════════════════════════════════════════════
 // Databases (the task board, reading list, and the swimlane + map e2e fixtures)
 // ════════════════════════════════════════════════════════════════════════════
@@ -668,6 +755,7 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', tags: ['database'], create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS)},
   {id: 'field-map', icon: '📍', pageName: 'Field map', tags: ['database'], create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS)},
   {id: 'pitch-deck', icon: '📽️', pageName: 'Pitch deck', tags: ['interactive', 'slides'], create: createBlockDocPage(PITCH_DECK_BLOCKS)},
+  {id: 'team-status', icon: '🚦', pageName: 'Team status dashboard', tags: ['interactive'], create: createBlockDocPage(TEAM_STATUS_BLOCKS)},
   // The classic sample document, folded into the gallery. Unlike the Home
   // starter's open-or-create (which targets the canonical sample name and never
   // overwrites), the gallery card always mints a FRESH copy under its own

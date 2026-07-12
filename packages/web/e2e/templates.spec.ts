@@ -27,7 +27,7 @@ test('gallery: lists every template with names and descriptions', {tag: ['@shell
   await hydrated(page);
   await openGallery(page);
 
-  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck', 'Compound growth']) {
+  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck', 'Compound growth', 'Team status dashboard']) {
     await expect(page.getByRole('button', {name: new RegExp(name)})).toBeVisible();
   }
   await takeSnapshot(page, testInfo); // visual: the template gallery
@@ -158,6 +158,39 @@ test('compound growth: the sample document as a fresh gallery copy', {tag: ['@sh
   await expect(chart).toBeVisible();
   await expect(chart.locator('svg polyline')).toHaveCount(4);
   await expect(chart.locator('.obe-chart-legend text', {hasText: '10%'})).toBeVisible();
+});
+
+test('team status dashboard: a locked, synced panel stays live while its text freezes', {tag: ['@shell']}, async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'team-status');
+
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Team status dashboard/);
+
+  // The Pulse group is locked: its text is frozen (contenteditable off) even
+  // though the page around it stays editable…
+  const group = page.locator('.obe-group-locked');
+  await expect(group).toBeVisible();
+  await expect(group.locator('[data-block-text="td-g-note"]')).toHaveAttribute('contenteditable', 'false');
+  await expect(page.locator('[data-block-text="td-tag"]')).toHaveAttribute('contenteditable', 'true');
+
+  // …but its controls stay live (the interactive exemption): the kudos button
+  // steps the counter, and the formula + toggle both feed the morale readout.
+  const toggle = group.getByRole('switch');
+  await expect(toggle).toBeEnabled();
+  await expect(group.locator('.obe-formula-out')).toHaveText('35'); // 3 kudos × 10 + on-call 5
+  await group.getByRole('button', {name: 'Give kudos'}).click();
+  await expect(page.getByLabel('kudos value')).toHaveValue('4');
+  await expect(group.locator('.obe-formula-out')).toHaveText('45');
+  await toggle.click(); // still operable under the lock
+  await expect(group.locator('.obe-formula-out')).toHaveText('40');
+  // The momentum light reads the (namespaced) kudos count: 4 ≥ ok-at 3.
+  await expect(group.locator('.obe-kit-status')).toHaveAttribute('data-status', 'ok');
+
+  // The funnel chart (a kind no other template uses) and the tabs container.
+  await expect(page.locator('.obe-kit-chart[data-chart-kind="funnel"]')).toBeVisible();
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  await page.getByRole('tab', {name: 'Next week'}).click();
+  await expect(page.getByText('Rotate the on-call')).toBeVisible();
 });
 
 test('instantiating a template twice suffixes the page and row names (names are unique)', {tag: ['@shell']}, async ({page}) => {
