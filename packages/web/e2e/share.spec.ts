@@ -54,3 +54,51 @@ test('share: set the page scope and grant a person view access', {tag: ['@sharin
     .poll(async () => (await (await request.get(`${SERVER}/api/pages/${id}/acl`)).json()).length)
     .toBe(0);
 });
+
+// SHR-4 progressive disclosure: the scope picker surfaces only the everyday
+// scopes (Workspace default / public / restricted) up front and tucks the
+// obscure `authenticated` behind a "More access options" reveal, hiding the
+// dormant `members` scope entirely. The reveal moves focus onto the picker so a
+// keyboard user lands on the control that just gained options, and a scope
+// chosen from behind the reveal persists and rehydrates on reopen.
+test('share: the scope picker progressively discloses advanced scopes', {tag: ['@sharing']}, async ({page, request}, testInfo) => {
+  const id = await newPage(request, `Share Scope E2E ${testInfo.workerIndex}`);
+  await openShare(page, id);
+  const dialog = page.getByRole('dialog');
+
+  const option = (v: string) => page.locator(`[role="option"][data-value="${v}"]`);
+
+  // Collapsed: the three primary scopes are offered; `authenticated`/`members`
+  // are not.
+  await page.locator('#share-scope').click();
+  await expect(option('inherit')).toBeVisible();
+  await expect(option('public')).toBeVisible();
+  await expect(option('restricted')).toBeVisible();
+  await expect(option('authenticated')).toHaveCount(0);
+  await expect(option('members')).toHaveCount(0);
+  await page.keyboard.press('Escape'); // dismiss the listbox
+  await expect(page.locator('[role="option"]')).toHaveCount(0);
+
+  // The reveal exposes `authenticated` and shifts focus onto the scope Select.
+  await dialog.getByRole('button', {name: 'More access options'}).click();
+  await expect(page.locator('#share-scope')).toBeFocused();
+  await page.locator('#share-scope').click();
+  await expect(option('authenticated')).toBeVisible();
+
+  // Select the newly-revealed scope → it persists via setPageVisibility.
+  await option('authenticated').click({force: true});
+  await expect(page.locator('[role="option"]')).toHaveCount(0);
+  await expect(page.locator('#share-scope')).toHaveAttribute('data-value', 'authenticated');
+  await expect
+    .poll(async () => (await (await request.get(`${SERVER}/api/pages/${id}/visibility`)).json()).visibility)
+    .toBe('authenticated');
+
+  // Round-trip: reopen the dialog — the stored advanced scope rehydrates and is
+  // still shown even though it lives behind the reveal (the current value is
+  // always offered).
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await page.getByRole('button', {name: 'Share', exact: true}).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await expect(page.locator('#share-scope')).toHaveAttribute('data-value', 'authenticated');
+});

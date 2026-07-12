@@ -138,6 +138,8 @@ export const zh: PartialMessages = {
     openSplit: '在拆分视图中打开',
     rename: '重命名',
     copyLink: '复制链接',
+    copyLinkLocalOnly: '此链接仅在本设备上有效。发布此工作区即可获得可分享的链接。',
+    copyLinkPublish: '发布',
     duplicate: '创建副本',
     sectionPage: '页面',
     block: {
@@ -160,6 +162,7 @@ export const zh: PartialMessages = {
     enforcementCaveat:
       '你邀请的人可能还无法通过已发布的 book.cloud 链接打开此页面——此功能正在逐步推出。直接访问已按此处的设置受到限制。',
     scopeLabel: '谁可以访问',
+    scopeAdvanced: '更多访问选项',
     scope: {
       inherit: '工作区默认',
       inheritHint: '沿用工作区的默认访问设置。',
@@ -185,13 +188,16 @@ export const zh: PartialMessages = {
       hint: '受邀者不会自动收到通知。请将此页面的链接发送给他们——每个人都需用受邀时的邮箱登录后才能打开。',
       copy: '复制要发送的链接',
     },
+    publish: {
+      hint: '此链接仅在本设备上有效。发布后即可获得可分享的链接。',
+    },
     linkHints: {
       inherit: '拥有工作区访问权限的人可以打开此链接。',
       public: '任何获得链接的人都可以打开此页面。',
       authenticated: '任何已登录的人打开此链接即可查看此页面。',
       members: '只有打开此链接的工作区成员才能查看此页面。',
       restricted: '只有你邀请的人才能打开此链接。',
-      localOnly: '此链接仅在本设备上有效。请在“设置 → 共享与发布”中发布此工作区，以获得可发送的链接。',
+      localOnly: '此链接仅在本设备上有效。',
       browserLocal: '此链接仅在此浏览器中有效——其他人打开时看到的是他们自己的工作区，而不是此页面。发布需通过桌面应用进行。',
       publishedAt: '链接使用你的发布地址 {host}。',
     },
@@ -202,6 +208,12 @@ export const zh: PartialMessages = {
       write: '当前工作区默认设置允许所有可访问者查看和编辑。',
       read: '当前工作区默认设置允许所有可访问者查看。',
       off: '当前工作区默认设置仅允许成员访问。',
+    },
+    effectiveDefault: {
+      public: '当前工作区默认设置让设为“工作区默认”的页面对所有持有链接的人可见。',
+      authenticated: '当前工作区默认设置将设为“工作区默认”的页面限制为已登录的人。',
+      members: '当前工作区默认设置将设为“工作区默认”的页面限制为工作区成员。',
+      restricted: '当前工作区默认设置将设为“工作区默认”的页面限制为你和受邀者。',
     },
     manageWorkspace: '工作区共享设置',
     manageMembers: '管理成员',
@@ -735,18 +747,18 @@ export const zh: PartialMessages = {
   },
   forwarding: {
     partialUnscoped:
-      '转发已开启，但你的账户未签发限定到本站点的所有者令牌，因此严格的受众隔离仍处于关闭状态（为其他站点签发的令牌仍会被拒绝，隧道可正常使用）。',
+      '发布已开启，但你的账户未签发限定到本站点的所有者令牌，因此严格的受众隔离仍处于关闭状态（为其他站点签发的令牌仍会被拒绝，隧道可正常使用）。',
     ensureRescope:
-      '转发已恢复，但本次会话尚无法将你的所有者令牌限定到该站点。你现有的访问不受影响；若请求被拒绝，请重新登录。',
-    bindFailed: '转发已开启，但未能完成站点受众的加固：{error}',
-    unbindHeld: '关闭转发时未能完全解除受众绑定：{error}',
-    title: '转发到网络',
+      '发布已恢复，但本次会话尚无法将你的所有者令牌限定到该站点。你现有的访问不受影响；若请求被拒绝，请重新登录。',
+    bindFailed: '发布已开启，但未能完成站点受众的加固：{error}',
+    unbindHeld: '关闭发布时未能完全解除受众绑定：{error}',
+    title: '发布到网络',
     description:
       '获取一个私有的 ✦.book.cloud 地址，即可在任意浏览器中打开本设备的图书 —— 无需托管，也无需在网络中暴露。',
-    toggle: '转发本设备',
+    toggle: '发布本设备',
     signInHint: '请先登录你的账户以获取地址。',
-    signInPending: '请完成账户登录 —— 登录后转发将自动开启。',
-    resumedToast: '转发已开启 —— 你的地址是 {host}。',
+    signInPending: '请完成账户登录 —— 登录后发布将自动开启。',
+    resumedToast: '发布已开启 —— 你的地址是 {host}。',
     signIn: '登录',
     registering: '连接中…',
     address: '你的地址',

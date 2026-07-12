@@ -197,6 +197,8 @@ export const en = {
     unfavorite: 'Remove from favorites',
     rename: 'Rename',
     copyLink: 'Copy link',
+    copyLinkLocalOnly: 'This link only works on this device. Publish this workspace to get a link you can share.',
+    copyLinkPublish: 'Publish',
     duplicate: 'Duplicate',
     addSubpage: 'Add subpage',
     addDatabase: 'Add database',
@@ -228,6 +230,7 @@ export const en = {
     enforcementCaveat:
       'People you invite may not be able to open this page through its published book.cloud link yet — that’s rolling out. Direct access is already limited as set here.',
     scopeLabel: 'Who can access',
+    scopeAdvanced: 'More access options',
     scope: {
       inherit: 'Workspace default',
       inheritHint: 'Follows the workspace’s default access setting.',
@@ -255,14 +258,18 @@ export const en = {
       hint: 'Invitees aren’t notified automatically. Send them this page’s link — each one opens it by signing in with the email you invited them as.',
       copy: 'Copy link to send',
     },
+    // Inline publish (SHR-3): shown to a manager on an unpublished desktop instead
+    // of a dead local-only link, driving the same publish the Settings toggle does.
+    publish: {
+      hint: 'This link only works on this device. Publish it to get a link you can share.',
+    },
     linkHints: {
       inherit: 'People with workspace access can open this link.',
       public: 'Anyone with the link can open this page.',
       authenticated: 'Anyone signed in who opens this link can view this page.',
       members: 'Only workspace members who open this link can view this page.',
       restricted: 'Only the people you invite can open this link.',
-      localOnly:
-        'This link only works on this device. Publish this workspace in Settings → Sharing & publishing to get a link you can send.',
+      localOnly: 'This link only works on this device.',
       browserLocal:
         'This link only works in this browser — for anyone else it opens their own workspace, not this page. Publishing happens from the desktop app.',
       publishedAt: 'Links use your published address, {host}.',
@@ -274,6 +281,14 @@ export const en = {
       write: 'Right now the workspace default lets anyone who can reach it view and edit.',
       read: 'Right now the workspace default lets anyone who can reach it view.',
       off: 'Right now the workspace default limits access to members.',
+    },
+    // The effective default once the instance is claimed (SHR-6) — what `inherit`
+    // resolves to via the root `defaultVisibility`, not the guest gate above.
+    effectiveDefault: {
+      public: 'Right now the workspace default makes pages set to Workspace default visible to anyone with the link.',
+      authenticated: 'Right now the workspace default limits pages set to Workspace default to anyone signed in.',
+      members: 'Right now the workspace default limits pages set to Workspace default to workspace members.',
+      restricted: 'Right now the workspace default limits pages set to Workspace default to you and people invited to them.',
     },
     manageWorkspace: 'Workspace sharing settings',
     manageMembers: 'Manage members',
@@ -1131,12 +1146,12 @@ export const en = {
       'This workspace runs entirely in your browser and isn’t hosted anywhere, so no one else can open it — links to it show other people their own workspace instead. To publish your books at a private ✦.book.cloud address or share them on your network, use the OpenBook desktop app.',
   },
   forwarding: {
-    title: 'Forward to the web',
+    title: 'Publish to the web',
     description: 'Claim a private ✦.book.cloud address that opens this device’s books in any browser — nothing to host, nothing to expose on your network.',
-    toggle: 'Forward this device',
+    toggle: 'Publish this device',
     signInHint: 'Sign in to your account first to claim an address.',
-    signInPending: 'Finish signing in to your account — forwarding will turn on automatically once you’re signed in.',
-    resumedToast: 'Forwarding is on — your address is {host}.',
+    signInPending: 'Finish signing in to your account — publishing will turn on automatically once you’re signed in.',
+    resumedToast: 'Publishing is on — your address is {host}.',
     signIn: 'Sign in',
     registering: 'Connecting…',
     address: 'Your address',
@@ -1145,11 +1160,11 @@ export const en = {
     copied: 'Copied',
     failed: 'Couldn’t register: {error}',
     partialUnscoped:
-      'Forwarding is on, but your account did not issue a site-scoped owner token, so strict audience isolation stays off (a token minted for a different site is still rejected, and the tunnel works normally).',
+      'Publishing is on, but your account did not issue a site-scoped owner token, so strict audience isolation stays off (a token minted for a different site is still rejected, and the tunnel works normally).',
     ensureRescope:
-      'Forwarding resumed, but this session could not scope your owner token to the site yet. Your existing access is unchanged; sign in again if a request is refused.',
-    bindFailed: 'Forwarding is on, but securing the site audience didn’t finish: {error}',
-    unbindHeld: 'Couldn’t fully relax the audience binding while turning forwarding off: {error}',
+      'Publishing resumed, but this session could not scope your owner token to the site yet. Your existing access is unchanged; sign in again if a request is refused.',
+    bindFailed: 'Publishing is on, but securing the site audience didn’t finish: {error}',
+    unbindHeld: 'Couldn’t fully relax the audience binding while turning publishing off: {error}',
     claimWarning:
       'The first time you turn this on, this device’s books are claimed to your account and made private — only you and members you invite can open them. This can’t be undone.',
     claimRefusedUnverified: 'To publish, your account identity needs to be verified first.',
@@ -1242,7 +1257,7 @@ export const en = {
     start: 'Start',
     stop: 'Stop',
     refresh: 'Refresh',
-    publish: 'Share on the network',
+    publish: 'Share on local network (advanced)',
     publishDescription: 'Spin up a shareable server so other devices on your network can open this workspace.',
     publishToggle: 'Share this workspace on the LAN',
     publishWarning: 'No login: anyone who can reach the address below — with the access token — can read and edit this workspace. Only enable on networks you trust.',
