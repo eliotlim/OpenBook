@@ -21,7 +21,7 @@ export const zh: PartialMessages = {
     section: {
       preferences: '偏好设置',
       account: '账户',
-      workspace: '资料库',
+      library: '资料库',
     },
     tab: {
       general: '通用',
@@ -39,7 +39,7 @@ export const zh: PartialMessages = {
     },
     scope: {
       device: '此设备',
-      workspace: '此资料库',
+      library: '此资料库',
       account: '你的账户',
     },
   },
@@ -218,7 +218,7 @@ export const zh: PartialMessages = {
       members: '当前资料库默认设置将设为“资料库默认”的页面限制为资料库成员。',
       restricted: '当前资料库默认设置将设为“资料库默认”的页面限制为你和受邀者。',
     },
-    manageWorkspace: '资料库共享设置',
+    manageLibrary: '资料库共享设置',
     manageMembers: '管理成员',
     error: {
       network: '无法连接服务器。请检查你的网络连接后重试。',
@@ -359,9 +359,9 @@ export const zh: PartialMessages = {
       confirmOverwrite: '覆盖',
     },
   },
-  workspace: {
-    workspaces: '资料库',
-    addWorkspace: '添加资料库…',
+  library: {
+    libraries: '资料库',
+    addLibrary: '添加资料库…',
     addTitle: '添加资料库',
     addDescription: '连接到另一个 OpenBook 服务器。切换后本设备将指向该服务器。',
     icon: '图标',
@@ -372,7 +372,7 @@ export const zh: PartialMessages = {
     addButton: '添加资料库',
     urlRequired: '请输入此资料库的服务器 URL。',
     urlInvalid: '这看起来不是有效的 URL。',
-    removeWorkspace: '移除 {name}',
+    removeLibrary: '移除 {name}',
     thisDevice: '本设备',
   },
   ai: {

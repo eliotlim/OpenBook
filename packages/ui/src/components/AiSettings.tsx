@@ -105,7 +105,7 @@ export default function AiSettings() {
 
   if (!draft) {
     return (
-      <SettingsScreen title={t('settings.tab.ai')} scope="workspace">
+      <SettingsScreen title={t('settings.tab.ai')} scope="library">
         <p className="text-sm text-muted-foreground">…</p>
       </SettingsScreen>
     );
@@ -276,7 +276,7 @@ export default function AiSettings() {
   };
 
   return (
-    <SettingsScreen title={t('settings.tab.ai')} description={t('ai.description')} scope="workspace">
+    <SettingsScreen title={t('settings.tab.ai')} description={t('ai.description')} scope="library">
       <SettingsSection title={t('ai.defaultEngine')} description={t('ai.defaultEngineHint')}>
         <div className="flex flex-col gap-1.5" role="radiogroup" aria-label={t('ai.providerLabel')}>
           {providers.map((p) => (

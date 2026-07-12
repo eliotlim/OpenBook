@@ -6,7 +6,7 @@ import {MAX_ASSET_BYTES} from '../../blockeditor/imageBlock';
 import {SANDBOX_FLAGS} from '../../lib/srcdoc';
 import {mount} from '../index'; // also registers the reactive + kit blocks
 import {ViewerApp} from '../ViewerApp';
-import type {IslandPageJson, SpaceBundleJson, ViewerHandle} from '../types';
+import type {IslandPageJson, LibraryBundleJson, ViewerHandle} from '../types';
 
 // Direct createRoot renders (the mount() test) run outside RTL's act wrapper.
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?: boolean}).IS_REACT_ACT_ENVIRONMENT = true;
@@ -57,7 +57,7 @@ describe('viewer', () => {
   });
 
   it('renders a space bundle with page navigation', () => {
-    const bundle: SpaceBundleJson = {
+    const bundle: LibraryBundleJson = {
       pages: [
         {id: 'a', name: 'Alpha', data: {editor: 'blocks', blockdoc: {v: 1, blocks: [{id: 'ap', type: 'paragraph', text: [{t: 'alpha body'}]}]}}},
         {id: 'b', name: 'Beta', data: {editor: 'blocks', blockdoc: {v: 1, blocks: [{id: 'bp', type: 'paragraph', text: [{t: 'beta body'}]}]}}},

@@ -11,7 +11,7 @@ import {
   type DatabaseRow,
   type DatabaseSchema,
   type PageSnapshot,
-  type SpaceSnapshot,
+  type LibrarySnapshot,
   type StoredDatabase,
   type StoredPage,
 } from '@book.dev/sdk';
@@ -45,7 +45,7 @@ export interface SiteBundle {
    * databases survive, which the flattened {@link SitePage}s don't carry). The
    * root uses the live in-memory snapshot so unsaved edits export faithfully.
    */
-  space: SpaceSnapshot;
+  space: LibrarySnapshot;
 }
 
 /** A safety cap so a densely linked workspace can't produce a runaway file. */
@@ -135,7 +135,7 @@ export async function gatherSite(
 
   // Root first, so it is the page shown when the file opens.
   const ordered = [pages.get(rootId)!, ...[...pages.values()].filter((p) => p.id !== rootId)].filter(Boolean);
-  const space: SpaceSnapshot = {pages: [...spacePages.values()], databases: [...spaceDatabases.values()]};
+  const space: LibrarySnapshot = {pages: [...spacePages.values()], databases: [...spaceDatabases.values()]};
   return {rootId, pages: ordered, space};
 }
 

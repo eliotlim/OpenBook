@@ -113,12 +113,12 @@ describe('LocalDataClient — export / import round-trip', () => {
     const db = await client.createDatabase({pageId: host.id, name: 'Board'});
     await client.createRow(db.id, {name: 'Row 1'});
 
-    const dump = await client.exportSpace();
+    const dump = await client.exportLibrary();
     expect(dump.pages.map((p) => p.id)).toContain(a.id);
     expect(dump.databases.map((d) => d.id)).toContain(db.id);
 
     // Import as a copy into the same space: new ids minted, nothing clobbered.
-    const result = await client.importSpace({pages: dump.pages, databases: dump.databases, mode: 'copy'});
+    const result = await client.importLibrary({pages: dump.pages, databases: dump.databases, mode: 'copy'});
     expect(result.created).toBeGreaterThan(0);
     expect(Object.keys(result.idMap).length).toBeGreaterThan(0);
   });

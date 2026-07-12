@@ -1,6 +1,6 @@
 import {describe, it, expect} from 'vitest';
 import type {PageMeta} from '@book.dev/sdk';
-import {buildTree} from '../WorkspaceNavigationTree';
+import {buildTree} from '../LibraryNavigationTree';
 import {writePageIcon} from '@/lib/pageIcon';
 
 const page = (id: string, name: string | null, parentId: string | null = null): PageMeta => ({

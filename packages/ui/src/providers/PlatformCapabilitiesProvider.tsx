@@ -201,7 +201,7 @@ export interface PlatformCapabilities {
    * unset on desktop, on forwarded `<prefix>.book.cloud` sites and on
    * remote-server connections — those all reach a real shared instance.
    */
-  browserLocalWorkspace?: boolean;
+  browserLocalLibrary?: boolean;
   /**
    * The host of a forwarded `<prefix>.book.cloud` site, when the app is being
    * served *through* the tunnel (the edge tagged the app-shell request with the

@@ -21,7 +21,7 @@ import {
 } from './importAssets';
 import type {PageInput, PageSnapshot, StoredPage} from './types';
 
-// ── An in-memory store fake (savePage/getPage/putAsset/getAsset/importSpace) ──
+// ── An in-memory store fake (savePage/getPage/putAsset/getAsset/importLibrary) ──
 
 const emptyData = (): PageSnapshot => ({editorjs: {blocks: []}, values: [], names: []});
 const blocksSnapshot = (blocks: ImportedBlock[]): PageSnapshot => ({
@@ -94,7 +94,7 @@ function makeStore() {
       pages.set(id, page);
       return page;
     },
-    async importSpace(req: {pages: StoredPage[]}): Promise<{created: number; overwritten: number; renamed: number; idMap: Record<string, string>}> {
+    async importLibrary(req: {pages: StoredPage[]}): Promise<{created: number; overwritten: number; renamed: number; idMap: Record<string, string>}> {
       const idMap: Record<string, string> = {};
       for (const p of req.pages) {
         const newId = `srv_${p.id}`;

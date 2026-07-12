@@ -3,11 +3,11 @@ import HomeButton from '@/components/HomeButton';
 import {useHud, useNavigation} from '@/providers';
 import ProfileMenu from '@/components/ProfileMenu';
 import TrashDialog from '@/components/TrashDialog';
-import WorkspaceSelectMenu from '@/components/WorkspaceSelectMenu';
+import LibrarySelectMenu from '@/components/LibrarySelectMenu';
 import SettingsButton from '@/components/SettingsButton';
 import FavoritesNav from '@/components/FavoritesNav';
 import {SuggestedNav} from '@/components/SidebarSections';
-import WorkspaceNavigationTree from '@/components/WorkspaceNavigationTree';
+import LibraryNavigationTree from '@/components/LibraryNavigationTree';
 import CommandToggle from '@/components/CommandToggle';
 import OnboardingNudge from '@/components/OnboardingNudge';
 
@@ -20,7 +20,7 @@ export default function SideNav() {
       <div className="flex h-full flex-col">
         {!inWindowTabs && (
           <div className="px-2 pt-2">
-            <WorkspaceSelectMenu />
+            <LibrarySelectMenu />
           </div>
         )}
         <div className="flex flex-col gap-0.5 px-2 pb-1.5 pt-1">
@@ -38,7 +38,7 @@ export default function SideNav() {
           <SuggestedNav />
         </div>
         <div className="mt-1 min-h-0 flex-1 overflow-hidden border-t border-border/40">
-          <WorkspaceNavigationTree />
+          <LibraryNavigationTree />
         </div>
         <OnboardingNudge />
         <div className="flex items-center border-t border-border/60 px-2 py-1.5">

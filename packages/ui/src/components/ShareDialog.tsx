@@ -236,7 +236,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   // this browser profile, so nothing set here can reach another person and a
   // copied link opens the *recipient's own* workspace, not this page. The dialog
   // stays functional (settings persist) but must say so.
-  const browserLocal = usePlatformCapabilities().browserLocalWorkspace === true;
+  const browserLocal = usePlatformCapabilities().browserLocalLibrary === true;
 
   const [open, setOpen] = useState(false);
   const [scope, setScope] = useState<PageVisibility>('inherit');
@@ -696,7 +696,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                     });
                   }}
                 >
-                  {t('share.manageWorkspace')}
+                  {t('share.manageLibrary')}
                 </button>
                 <button
                   type="button"

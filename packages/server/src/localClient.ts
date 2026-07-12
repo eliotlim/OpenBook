@@ -161,11 +161,11 @@ export class LocalDataClient implements DataClient {
     return true;
   }
 
-  exportSpace(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
+  exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
     return this.store.exportAll();
   }
 
-  async importSpace(req: ImportRequest): Promise<ImportResult> {
+  async importLibrary(req: ImportRequest): Promise<ImportResult> {
     const result = await this.store.importBundle(req);
     await this.broadcastList();
     return result;

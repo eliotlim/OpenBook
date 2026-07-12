@@ -3,12 +3,12 @@ import {
   BACKUP_VERSION,
   getServerUrlOverride,
   parseBookFolder,
-  spaceToBookFiles,
+  libraryToBookFiles,
   type BackupCadence,
   type BackupConfig,
   type BackupStatus,
   type ServerInfo,
-  type SpaceBackup,
+  type LibraryBackup,
 } from '@book.dev/sdk';
 import {CalendarClock, Database, Download, FileUp, FolderDown, FolderUp, Upload} from 'lucide-react';
 import {Button} from '@/components/ui/button';
@@ -43,7 +43,7 @@ const displayName = (name: string | null): string => (name && name.trim() ? name
  * vendor bundle (`build:viewer` runs before the lib build, so a packaged ui
  * always has it). When it can't be resolved (e.g. a dev/test context that never
  * built the viewer), the export gracefully degrades to the plain static files —
- * `spaceToBookFiles` emits no reference without a runtime.
+ * `libraryToBookFiles` emits no reference without a runtime.
  */
 async function loadFolderRuntime(): Promise<string | undefined> {
   try {
@@ -83,13 +83,13 @@ export default function BackupSettings() {
 
   const [busy, setBusy] = useState<null | 'export' | 'import' | 'folder' | 'compact'>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [bundle, setBundle] = useState<SpaceBackup | null>(null);
+  const [bundle, setBundle] = useState<LibraryBackup | null>(null);
 
   const onExport = useCallback(async () => {
     setBusy('export');
     setStatus(null);
     try {
-      const {pages, databases} = await client.exportSpace();
+      const {pages, databases} = await client.exportLibrary();
       // Icons travel in `page.properties` now, but keep the legacy `icons` map in
       // the bundle too so older importers still restore them.
       const icons: Record<string, string> = {};
@@ -97,7 +97,7 @@ export default function BackupSettings() {
         const ic = p.properties?.[ICON_PROPERTY_ID];
         if (typeof ic === 'string' && ic) icons[p.id] = ic;
       }
-      const backup: SpaceBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons};
+      const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons};
       downloadText(`openbook-backup-${new Date().toISOString().slice(0, 10)}.openbook.json`, JSON.stringify(backup), 'application/json');
       setStatus(t('backup.exported', {count: pages.length}));
     } catch (e) {
@@ -123,7 +123,7 @@ export default function BackupSettings() {
     setBusy('folder');
     setStatus(null);
     try {
-      const files = spaceToBookFiles(await client.exportSpace(), {runtime: await loadFolderRuntime()});
+      const files = libraryToBookFiles(await client.exportLibrary(), {runtime: await loadFolderRuntime()});
       const name = `openbook-${new Date().toISOString().slice(0, 10)}`;
       const result = platform.bookFolder?.export
         ? await platform.bookFolder.export(files)
@@ -284,7 +284,7 @@ export default function BackupSettings() {
             void reload();
           }}
           run={async (req) => {
-            const result = await client.importSpace(req);
+            const result = await client.importLibrary(req);
             // Carry over page icons to the imported ids.
             for (const [oldId, newId] of Object.entries(result.idMap)) {
               const ic = bundle.icons?.[oldId];
@@ -292,7 +292,7 @@ export default function BackupSettings() {
             }
             return result;
           }}
-          existingIds={async () => new Set((await client.exportSpace()).pages.map((p) => p.id))}
+          existingIds={async () => new Set((await client.exportLibrary()).pages.map((p) => p.id))}
           confirm={confirm}
           setBusy={setBusy}
         />
@@ -499,10 +499,10 @@ function RestoreDialog({
   confirm,
   setBusy,
 }: {
-  bundle: SpaceBackup;
+  bundle: LibraryBackup;
   onClose: () => void;
   onDone: (summary: string) => void;
-  run: (req: Parameters<ReturnType<typeof useData>['importSpace']>[0]) => ReturnType<ReturnType<typeof useData>['importSpace']>;
+  run: (req: Parameters<ReturnType<typeof useData>['importLibrary']>[0]) => ReturnType<ReturnType<typeof useData>['importLibrary']>;
   existingIds: () => Promise<Set<string>>;
   confirm: ReturnType<typeof useConfirm>;
   setBusy: (b: null | 'import') => void;

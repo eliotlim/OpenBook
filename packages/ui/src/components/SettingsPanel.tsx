@@ -43,7 +43,7 @@ const TAB_META: Record<SettingsTab, {labelKey: TKey; icon: ComponentType<{classN
 const SECTION_LABEL: Record<(typeof SETTINGS_SECTIONS)[number]['id'], TKey> = {
   preferences: 'settings.section.preferences',
   account: 'settings.section.account',
-  workspace: 'settings.section.workspace',
+  workspace: 'settings.section.library',
 };
 
 const PANELS: Record<SettingsTab, ComponentType> = {

@@ -1,6 +1,6 @@
 import {describe, it, expect} from 'vitest';
 import type {PageSnapshot, DatabaseSchema} from '@book.dev/sdk';
-import {readIsland, readSpaceIsland, OPENBOOK_ISLAND_MARKER} from '@book.dev/sdk';
+import {readIsland, readLibraryIsland, OPENBOOK_ISLAND_MARKER} from '@book.dev/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
 import {toHtml, toSlideDeck} from '../toHtml';
 import {toHtmlSite} from '../toHtml';
@@ -87,7 +87,7 @@ describe('site export island', () => {
   it('embeds one island parsing to a space bundle listing every page + database', () => {
     const html = toHtmlSite(bundle);
     expect(islandCount(html)).toBe(1);
-    const parsed = readSpaceIsland(html)!;
+    const parsed = readLibraryIsland(html)!;
     expect(parsed).not.toBeNull();
     expect(parsed.rootId).toBe('root');
     expect(parsed.space.pages.map((p) => p.id).sort()).toEqual(['child', 'root']);

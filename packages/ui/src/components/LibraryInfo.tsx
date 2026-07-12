@@ -1,7 +1,7 @@
 import {GlobeIcon} from '@radix-ui/react-icons';
 import {t} from '@/i18n';
 
-export interface WorkspaceInfoProps {
+export interface LibraryInfoProps {
   name: string,
   url: string,
   icon?: string,
@@ -11,7 +11,7 @@ export interface WorkspaceInfoProps {
 // the local/default server ("This device"); otherwise show the host (or the
 // decoded path for file:// URLs), falling back to the raw value if unparseable.
 function describeLocation(raw: string): string {
-  if (!raw.trim()) return t('workspace.thisDevice');
+  if (!raw.trim()) return t('library.thisDevice');
   try {
     const url = new URL(raw);
     switch (url.protocol) {
@@ -25,7 +25,7 @@ function describeLocation(raw: string): string {
   }
 }
 
-export default function WorkspaceInfo( props: WorkspaceInfoProps) {
+export default function LibraryInfo(props: LibraryInfoProps) {
   const location = describeLocation(props.url);
   // A workspace named after its own server URL (the auto-name for a plain
   // remote connection) would render the same string twice — drop the subtitle.

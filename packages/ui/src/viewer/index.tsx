@@ -36,8 +36,8 @@ import './viewer.css';
 
 export type {
   IslandPageJson,
-  SpaceBundleJson,
-  SpaceBundlePage,
+  LibraryBundleJson,
+  LibraryBundlePage,
   ViewerAssetEntry,
   ViewerHandle,
   ViewerMountOptions,

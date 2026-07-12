@@ -18,25 +18,25 @@ import {
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
-import WorkspaceInfo from '@/components/WorkspaceInfo';
+import LibraryInfo from '@/components/LibraryInfo';
 import {IconPicker} from '@/components/IconPicker';
 import {ChevronUpDownIcon, PlusIcon} from '@heroicons/react/24/outline';
 import {CheckIcon, GlobeIcon} from '@radix-ui/react-icons';
 import {Trash2} from 'lucide-react';
-import {usePlatformCapabilities, useTranslation, useWorkspace, workspaceHostLabel} from '@/providers';
+import {usePlatformCapabilities, useTranslation, useLibrary, libraryHostLabel} from '@/providers';
 
 /**
- * The workspace switcher. `variant` controls the trigger only:
+ * The library switcher. `variant` controls the trigger only:
  *  - `sidebar` (default) — the full-width, two-line button at the top of the
  *    sidebar (web);
  *  - `titlebar` — a compact icon + name button for the desktop titlebar.
- * The dropdown contents (workspace list + "add a workspace") are identical.
+ * The dropdown contents (library list + "add a library") are identical.
  */
-export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 'sidebar' | 'titlebar'}) {
-  const {workspaces, workspace, selectWorkspace, addWorkspace, removeWorkspace} = useWorkspace();
+export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sidebar' | 'titlebar'}) {
+  const {libraries, library, selectLibrary, addLibrary, removeLibrary} = useLibrary();
   const {t} = useTranslation();
   // On a forwarded `<prefix>.book.cloud` site the app talks to the owner's
-  // instance same-origin, so the local/default workspace (no server override)
+  // instance same-origin, so the local/default library (no server override)
   // has no host to name itself after — label it with the site host instead of
   // the generic "My Workspace".
   const {forwardedHost} = usePlatformCapabilities();
@@ -66,17 +66,17 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
   const submitAdd = () => {
     const url = serverUrl.trim();
     if (!url) {
-      setError(t('workspace.urlRequired'));
+      setError(t('library.urlRequired'));
       return;
     }
     try {
       // Validate the URL shape early so a typo doesn't silently fail on connect.
       new URL(url);
     } catch {
-      setError(t('workspace.urlInvalid'));
+      setError(t('library.urlInvalid'));
       return;
     }
-    addWorkspace({name, serverUrl: url, icon});
+    addLibrary({name, serverUrl: url, icon});
     closeAdd();
   };
 
@@ -86,35 +86,35 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
         <DropdownMenuTrigger asChild>
           {variant === 'titlebar' ? (
             <Button variant="ghost" className="flex h-7 max-w-[200px] items-center gap-1.5 px-2">
-              {workspace.icon ? (
-                <span className="shrink-0 text-base leading-none">{workspace.icon}</span>
+              {library.icon ? (
+                <span className="shrink-0 text-base leading-none">{library.icon}</span>
               ) : (
                 <GlobeIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
               )}
-              <span className="truncate text-sm font-medium">{nameFor(workspace)}</span>
+              <span className="truncate text-sm font-medium">{nameFor(library)}</span>
               <ChevronUpDownIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             </Button>
           ) : (
             <Button variant="ghost" className="flex h-12 w-full justify-start gap-1 px-2">
-              <WorkspaceInfo
-                icon={workspace.icon}
-                name={nameFor(workspace)}
-                url={isForwardedLocal(workspace) ? forwardedHost! : workspace.serverUrl ?? ''}
+              <LibraryInfo
+                icon={library.icon}
+                name={nameFor(library)}
+                url={isForwardedLocal(library) ? forwardedHost! : library.serverUrl ?? ''}
               />
               <ChevronUpDownIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
             </Button>
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72">
-          <DropdownMenuLabel>{t('workspace.workspaces')}</DropdownMenuLabel>
+          <DropdownMenuLabel>{t('library.libraries')}</DropdownMenuLabel>
           <DropdownMenuSeparator />
-          {workspaces.map((ws) => {
-            const active = ws.id === workspace.id;
-            const canRemove = !active && workspaces.length > 1;
+          {libraries.map((ws) => {
+            const active = ws.id === library.id;
+            const canRemove = !active && libraries.length > 1;
             return (
               <DropdownMenuItem
                 key={ws.id}
-                onSelect={() => selectWorkspace(ws.id)}
+                onSelect={() => selectLibrary(ws.id)}
                 className="group flex items-center gap-2"
               >
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center text-lg leading-none">
@@ -124,7 +124,7 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
                   <span className="truncate text-sm">{nameFor(ws)}</span>
                   {!isForwardedLocal(ws) && (
                     <span className="truncate text-xs text-muted-foreground">
-                      {workspaceHostLabel(ws.serverUrl)}
+                      {libraryHostLabel(ws.serverUrl)}
                     </span>
                   )}
                 </span>
@@ -132,14 +132,14 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
                 {canRemove && (
                   <button
                     type="button"
-                    aria-label={t('workspace.removeWorkspace', {name: ws.name})}
+                    aria-label={t('library.removeLibrary', {name: ws.name})}
                     title={t('common.remove')}
                     className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-hover hover:text-destructive group-hover:flex"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      removeWorkspace(ws.id);
+                      removeLibrary(ws.id);
                     }}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -157,7 +157,7 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
             }}
           >
             <PlusIcon className="mr-2 h-4 w-4" />
-            {t('workspace.addWorkspace')}
+            {t('library.addLibrary')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -165,38 +165,38 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
       <Dialog open={addOpen} onOpenChange={(open) => (open ? setAddOpen(true) : closeAdd())}>
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
-            <DialogTitle>{t('workspace.addTitle')}</DialogTitle>
-            <DialogDescription>{t('workspace.addDescription')}</DialogDescription>
+            <DialogTitle>{t('library.addTitle')}</DialogTitle>
+            <DialogDescription>{t('library.addDescription')}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-1">
             <div className="flex gap-3">
               <div className="flex w-16 flex-col gap-1.5">
-                <Label htmlFor="ws-icon">{t('workspace.icon')}</Label>
+                <Label htmlFor="ws-icon">{t('library.icon')}</Label>
                 <IconPicker
                   id="ws-icon"
                   value={icon}
                   onPick={setIcon}
                   fallback="📓"
-                  ariaLabel={t('workspace.icon')}
+                  ariaLabel={t('library.icon')}
                   className="flex h-9 items-center justify-center rounded-md border border-input bg-transparent text-lg transition-colors hover:bg-hover"
                 />
               </div>
               <div className="flex flex-1 flex-col gap-1.5">
-                <Label htmlFor="ws-name">{t('workspace.name')}</Label>
+                <Label htmlFor="ws-name">{t('library.name')}</Label>
                 <Input
                   id="ws-name"
                   value={name}
-                  placeholder={t('workspace.namePlaceholder')}
+                  placeholder={t('library.namePlaceholder')}
                   onChange={(e) => setName(e.target.value)}
                 />
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ws-url">{t('workspace.serverUrl')}</Label>
+              <Label htmlFor="ws-url">{t('library.serverUrl')}</Label>
               <Input
                 id="ws-url"
                 value={serverUrl}
-                placeholder={t('workspace.urlPlaceholder')}
+                placeholder={t('library.urlPlaceholder')}
                 onChange={(e) => {
                   setServerUrl(e.target.value);
                   setError(null);
@@ -210,7 +210,7 @@ export default function WorkspaceSelectMenu({variant = 'sidebar'}: {variant?: 's
             <Button variant="ghost" onClick={closeAdd}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={submitAdd}>{t('workspace.addButton')}</Button>
+            <Button onClick={submitAdd}>{t('library.addButton')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

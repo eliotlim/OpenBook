@@ -23,7 +23,7 @@
  *   navigable via the viewer's hash nav (or the legacy router on fallback).
  */
 import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '@book.dev/sdk';
-import {assetsIslandScript, isSafeHref, pageIslandScript, spaceIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
+import {assetsIslandScript, isSafeHref, pageIslandScript, libraryIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
 import {DATA_COLOR_SCHEMES, DATA_PALETTE, DATA_STROKE, DEFAULT_DATA_COLOR_SCHEME, hexAlpha, isDataColorToken, statusColor, type DataColorScheme} from '@book.dev/sdk';
 import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
 import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
@@ -1011,7 +1011,7 @@ export function toHtmlSite(
   // One island carries the WHOLE space bundle (pages + databases + nesting), the
   // `openbook.space.json` structure, so a site export re-imports with structure
   // intact. The visible sections are a render; this is the authoritative source.
-  const island = spaceIslandScript(bundle.rootId, bundle.space);
+  const island = libraryIslandScript(bundle.rootId, bundle.space);
   // Hydrate through the viewer (its `#page=` hash nav replaces the legacy
   // router) only when the viewer can faithfully render the WHOLE bundle: every
   // page a block-doc, and no databases anywhere (the viewer has no database

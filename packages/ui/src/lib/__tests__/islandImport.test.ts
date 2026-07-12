@@ -76,7 +76,7 @@ function mockClient() {
     createRow: async () => {
       throw new Error('unused in these tests');
     },
-    importSpace: async (req: ImportRequest): Promise<ImportResult> => {
+    importLibrary: async (req: ImportRequest): Promise<ImportResult> => {
       importRequests.push(req);
       const idMap: Record<string, string> = {};
       req.pages.forEach((p, i) => {

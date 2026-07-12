@@ -119,9 +119,9 @@ export interface DataClient {
    */
   deletePage(id: string): Promise<boolean>;
   /** Export the whole space: every live page (full data) + every database. */
-  exportSpace(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}>;
+  exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}>;
   /** Restore a (client-selected) set of pages/databases; see {@link ImportRequest}. */
-  importSpace(req: ImportRequest): Promise<ImportResult>;
+  importLibrary(req: ImportRequest): Promise<ImportResult>;
   /** List the trash (most-recently-deleted first). */
   listTrash(): Promise<PageMeta[]>;
   /** Restore a trashed page, or `null` if it isn't in the trash. */
@@ -846,12 +846,12 @@ export class HttpDataClient implements DataClient {
     return true;
   }
 
-  async exportSpace(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
-    return this.request<{pages: StoredPage[]; databases: StoredDatabase[]}>('GET', API.exportSpace);
+  async exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
+    return this.request<{pages: StoredPage[]; databases: StoredDatabase[]}>('GET', API.exportLibrary);
   }
 
-  async importSpace(req: ImportRequest): Promise<ImportResult> {
-    return this.request<ImportResult>('POST', API.importSpace, req);
+  async importLibrary(req: ImportRequest): Promise<ImportResult> {
+    return this.request<ImportResult>('POST', API.importLibrary, req);
   }
 
   async listTrash(): Promise<PageMeta[]> {

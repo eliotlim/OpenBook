@@ -10,7 +10,7 @@ import {
 } from '@book.dev/sdk';
 import {usePlatformCapabilities, type AccountSecretStore} from './PlatformCapabilitiesProvider';
 import {usePreferences, mergePreferences, type Preferences, type DeepPartial} from './PreferencesProvider';
-import {useWorkspace, type Workspace} from './WorkspaceProvider';
+import {useLibrary, type Library} from './LibraryProvider';
 import {t} from '@/i18n';
 
 /**
@@ -360,7 +360,9 @@ function clearPendingState(): void {
 /** The blob mirrored to account.book.pub. */
 interface SyncBlob {
   preferences: Preferences;
-  workspaces: Workspace[];
+  // `workspaces` is the account-sync wire key (shared with the account service);
+  // keep the key name even though the value is the library list.
+  workspaces: Library[];
 }
 
 /**
@@ -382,7 +384,7 @@ function dataServerAudience(): string | undefined {
 export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}) => {
   const {account: platform} = usePlatformCapabilities();
   const {preferences, update: updatePreferences} = usePreferences();
-  const {workspaces, replaceWorkspaces} = useWorkspace();
+  const {libraries, replaceLibraries} = useLibrary();
 
   const [status, setStatus] = useState<AccountStatus>('disconnected');
   const [token, setToken] = useState<string | null>(null);
@@ -418,8 +420,8 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
   const activatingDepth = useRef(0);
 
   // Latest preferences/workspaces, read inside async callbacks without re-binding.
-  const blobRef = useRef<SyncBlob>({preferences, workspaces});
-  blobRef.current = {preferences, workspaces};
+  const blobRef = useRef<SyncBlob>({preferences, workspaces: libraries});
+  blobRef.current = {preferences, workspaces: libraries};
   const currentBlob = useCallback((): SyncBlob => ({preferences: blobRef.current.preferences, workspaces: blobRef.current.workspaces}), []);
 
   // ── The account index (metadata) + active id, mirrored to localStorage. ──────
@@ -453,11 +455,11 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       // shape they normalize to, so the caller can record it as the sync baseline
       // (ER-9). The debounced push compares JSON.stringify of the LOCAL state, which
       // adopt re-keys through updatePreferences (always {profile,general,features}
-      // merged over current) + replaceWorkspaces (filters, guarantees a local
+      // merged over current) + replaceLibraries (filters, guarantees a local
       // workspace, may synth one with a RANDOM id) — so the raw server blob rarely
       // byte-matches it. blobRef still holds the pre-adopt values here (the setStates
       // below land on the next render), so derive the post-adopt blob from the same
-      // merge helper, and capture replaceWorkspaces' exact (non-deterministic) output
+      // merge helper, and capture replaceLibraries' exact (non-deterministic) output
       // from its return value rather than recomputing it.
       let preferences = blobRef.current.preferences;
       if (settings.preferences && typeof settings.preferences === 'object') {
@@ -467,11 +469,11 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       }
       let workspaces = blobRef.current.workspaces;
       if (Array.isArray(settings.workspaces)) {
-        workspaces = replaceWorkspaces(settings.workspaces as Workspace[]);
+        workspaces = replaceLibraries(settings.workspaces as Library[]);
       }
       return {preferences, workspaces};
     },
-    [updatePreferences, replaceWorkspaces],
+    [updatePreferences, replaceLibraries],
   );
 
   /** Pull-then-reconcile. With `seedFromLocal` (the genuine FIRST account only) an
@@ -851,7 +853,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     // would upload A's blob under B's token (OB-194 switch-race). The reconcile
     // records the new account's synced baseline; the next real edit pushes cleanly.
     if (activatingDepth.current > 0) return;
-    const blob: SyncBlob = {preferences, workspaces};
+    const blob: SyncBlob = {preferences, workspaces: libraries};
     const json = JSON.stringify(blob);
     if (json === lastSyncedBlob.current) return;
     const id = setTimeout(() => {
@@ -876,7 +878,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
         });
     }, 1200);
     return () => clearTimeout(id);
-  }, [token, preferences, workspaces, client, patchRow]);
+  }, [token, preferences, libraries, client, patchRow]);
 
   const signIn = useCallback(() => {
     const state = rand();

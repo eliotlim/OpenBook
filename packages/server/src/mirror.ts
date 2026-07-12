@@ -656,7 +656,7 @@ export class BookMirror {
     const abs = join(this.dir, rel);
     // The runtime reference tracks bundle presence (byte-constant block, so this
     // adds NO per-write variance — see the SDK/server byte-compat contract:
-    // spaceToBookFiles({runtime}) renders the identical bytes).
+    // libraryToBookFiles({runtime}) renders the identical bytes).
     const html = pageToBookHtml(
       {id: page.id, name: page.name, icon: pageIcon(page), updatedAt: page.updatedAt, data: page.data},
       {runtimeRef: this.runtimeBundle !== null},

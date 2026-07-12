@@ -74,7 +74,7 @@ export default function ExtensionsSettings() {
   );
 
   return (
-    <SettingsScreen title={t('settings.tab.extensions')} description={t('extensions.description')} scope="workspace">
+    <SettingsScreen title={t('settings.tab.extensions')} description={t('extensions.description')} scope="library">
       <SettingsSection>
         <div className="flex items-center gap-3">
           <input

@@ -25,7 +25,7 @@ export const en = {
     section: {
       preferences: 'Preferences',
       account: 'Account',
-      workspace: 'Library',
+      library: 'Library',
     },
     tab: {
       general: 'General',
@@ -43,7 +43,7 @@ export const en = {
     },
     scope: {
       device: 'This device',
-      workspace: 'This library',
+      library: 'This library',
       account: 'Your account',
     },
   },
@@ -295,7 +295,7 @@ export const en = {
       members: 'Right now the library default limits pages set to Library default to library members.',
       restricted: 'Right now the library default limits pages set to Library default to you and people invited to them.',
     },
-    manageWorkspace: 'Library sharing settings',
+    manageLibrary: 'Library sharing settings',
     manageMembers: 'Manage members',
     error: {
       network: 'Couldn’t reach the server. Check your connection and try again.',
@@ -530,9 +530,9 @@ export const en = {
     remoteUnavailable: 'Compaction runs on the local database only — it’s unavailable while connected to a remote server.',
     failed: 'Compaction failed: {error}',
   },
-  workspace: {
-    workspaces: 'Libraries',
-    addWorkspace: 'Add a library…',
+  library: {
+    libraries: 'Libraries',
+    addLibrary: 'Add a library…',
     addTitle: 'Add a library',
     addDescription: 'Connect to another OpenBook server. Switching to it re-points this device at that server.',
     icon: 'Icon',
@@ -543,7 +543,7 @@ export const en = {
     addButton: 'Add library',
     urlRequired: 'Enter the server URL for this library.',
     urlInvalid: 'That doesn’t look like a valid URL.',
-    removeWorkspace: 'Remove {name}',
+    removeLibrary: 'Remove {name}',
     thisDevice: 'This device',
   },
   ai: {

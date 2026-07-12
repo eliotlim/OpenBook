@@ -11,7 +11,7 @@
  * viewer, behaves like the in-app locked page — so these blocks deliberately
  * mirror the app's known-good reactive shapes (see sdk sampleDocument).
  */
-import type {PageSnapshot, SpaceSnapshot} from '@book.dev/sdk';
+import type {PageSnapshot, LibrarySnapshot} from '@book.dev/sdk';
 import {createDoc, encodeSnapshot, type NewBlock} from '../../blockeditor/model';
 import {projectSnapshotForExport} from '../../blockeditor/exportBlocks';
 import {emptyExportAssets, type ExportAssets} from '../exportAssets';
@@ -150,7 +150,7 @@ export function paritySiteBundle(): SiteBundle {
     id, name, data, hostedDatabaseId: null, databaseId: null, parentId,
     properties: {}, deletedAt: null, createdAt: '2026-07-04T00:00:00.000Z', updatedAt: '2026-07-04T00:00:00.000Z',
   });
-  const space: SpaceSnapshot = {
+  const space: LibrarySnapshot = {
     pages: [record('fx-root', 'Parity fixture', rootRaw, null), record('fx-two', 'Second page', secondRaw, 'fx-root')],
     databases: [],
   };

@@ -133,7 +133,7 @@ PageSnapshot = {
 ```
 
 - **Nesting**: a page's `parentId` builds the sidebar tree (`buildTree` in
-  `WorkspaceNavigationTree.tsx`). `upsertPage` writes `parent_id` only on insert,
+  `LibraryNavigationTree.tsx`). `upsertPage` writes `parent_id` only on insert,
   so a content save never detaches a page from its parent.
 - **Databases**: a database is owned 1:1 by a host page. Its **rows are pages**
   tagged with `database_id` (excluded from the sidebar list, listed via the
@@ -338,7 +338,7 @@ Two ways for a model to *act on* the workspace, sharing one tool contract
 - **Providers** (`packages/ui/src/providers/`): `DataProvider` (the client),
   `NavigationProvider` (page list, current window/tabs/panes, create/delete/rename),
   `HudProvider` (view state incl. `viewMode.fullWidth`, sidebar), `ThemeProvider`,
-  `WorkspaceProvider`, and `ConfirmProvider` (promise-based confirm dialog).
+  `LibraryProvider`, and `ConfirmProvider` (promise-based confirm dialog).
 - **`windowModel.ts`** — pure tab/split-pane navigation model (history, reconcile);
   unit-tested.
 - **Template gallery** (`components/TemplateGallery.tsx` over `sdk/templates.ts`):
@@ -350,7 +350,7 @@ Two ways for a model to *act on* the workspace, sharing one tool contract
   `dropdown-menu`, `context-menu`, `tree`, `skeleton`, `button`, etc. Tailwind v4
   tokens live in `index.css`.
 - **`DefaultLayout`** composes the titlebar, sidebar (`SideNav` →
-  `WorkspaceNavigationTree`), and the `DocumentArea` (one or two `PageDocument`
+  `LibraryNavigationTree`), and the `DocumentArea` (one or two `PageDocument`
   panes). It also mounts the `ConfirmProvider`, the toast stack, and the
   Move-to dialog.
 - **First run**: an empty workspace lands on **Home** (`HOME_PAGE_ID`), whose

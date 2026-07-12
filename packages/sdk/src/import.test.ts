@@ -133,7 +133,7 @@ function fakeClient(seedNames: string[] = []): {client: ImportWriteClient; calls
       calls.rows.push({databaseId, input});
       return Promise.resolve(page(`row_${++n}`, {name, databaseId, parentId: input.parentId ?? null}));
     },
-    importSpace: (req) => {
+    importLibrary: (req) => {
       calls.imports.push(req);
       const idMap: Record<string, string> = {};
       for (const p of req.pages) idMap[p.id] = `new_${p.id}`;

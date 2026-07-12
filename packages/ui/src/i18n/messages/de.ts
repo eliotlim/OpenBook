@@ -21,7 +21,7 @@ export const de: PartialMessages = {
     section: {
       preferences: 'Präferenzen',
       account: 'Konto',
-      workspace: 'Bibliothek',
+      library: 'Bibliothek',
     },
     tab: {
       general: 'Allgemein',
@@ -39,7 +39,7 @@ export const de: PartialMessages = {
     },
     scope: {
       device: 'Dieses Gerät',
-      workspace: 'Diese Bibliothek',
+      library: 'Diese Bibliothek',
       account: 'Dein Konto',
     },
   },
@@ -221,7 +221,7 @@ export const de: PartialMessages = {
       members: 'Derzeit beschränkt der Bibliotheks-Standard Seiten mit „Bibliotheks-Standard“ auf Bibliotheks-Mitglieder.',
       restricted: 'Derzeit beschränkt der Bibliotheks-Standard Seiten mit „Bibliotheks-Standard“ auf dich und dazu eingeladene Personen.',
     },
-    manageWorkspace: 'Freigabe-Einstellungen der Bibliothek',
+    manageLibrary: 'Freigabe-Einstellungen der Bibliothek',
     manageMembers: 'Mitglieder verwalten',
     error: {
       network: 'Server nicht erreichbar. Prüfe deine Verbindung und versuche es erneut.',
@@ -362,9 +362,9 @@ export const de: PartialMessages = {
       confirmOverwrite: 'Überschreiben',
     },
   },
-  workspace: {
-    workspaces: 'Bibliotheken',
-    addWorkspace: 'Bibliothek hinzufügen…',
+  library: {
+    libraries: 'Bibliotheken',
+    addLibrary: 'Bibliothek hinzufügen…',
     addTitle: 'Bibliothek hinzufügen',
     addDescription: 'Mit einem anderen OpenBook-Server verbinden. Beim Wechsel zeigt dieses Gerät auf jenen Server.',
     icon: 'Symbol',
@@ -375,7 +375,7 @@ export const de: PartialMessages = {
     addButton: 'Bibliothek hinzufügen',
     urlRequired: 'Gib die Server-URL für diese Bibliothek ein.',
     urlInvalid: 'Das sieht nicht nach einer gültigen URL aus.',
-    removeWorkspace: '{name} entfernen',
+    removeLibrary: '{name} entfernen',
     thisDevice: 'Dieses Gerät',
   },
   ai: {

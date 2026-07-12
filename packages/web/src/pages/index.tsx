@@ -201,7 +201,7 @@ export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSid
   // host so the workspace switcher names the connection after it (P-fwd), rather
   // than the generic local default.
   const platform = useMemo<PlatformCapabilities | undefined>(() => {
-    const base = browserLocal ? {...shellPreview, browserLocalWorkspace: true} : shellPreview;
+    const base = browserLocal ? {...shellPreview, browserLocalLibrary: true} : shellPreview;
     const withHost = forwardedHost ? {...(base ?? {}), forwardedHost} : base;
     if (!updatesPreview) return withHost;
     return {...(withHost ?? {}), updates: updatesPreview};
