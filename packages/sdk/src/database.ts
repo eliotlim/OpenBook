@@ -695,7 +695,9 @@ export function projectExports(snapshot: Pick<PageSnapshot, 'values' | 'names'>)
  */
 export function isImageUrl(url: string): boolean {
   const u = url.trim();
-  return /^data:image\//i.test(u) || /\.(png|jpe?g|gif|webp|avif|svg|bmp)(\?.*)?$/i.test(u);
+  // Inline `data:` covers are raster (PNG, never SVG — matching the store's
+  // image allowlist); exclude the `svg` subtype so an inline SVG can't ride in.
+  return /^data:image\/(?!svg)/i.test(u) || /\.(png|jpe?g|gif|webp|avif|svg|bmp)(\?.*)?$/i.test(u);
 }
 
 /** The first image URL in a `files`/`url` cell value (a string or string[]), or null. */

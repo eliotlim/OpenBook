@@ -88,6 +88,11 @@ test('reading list: a shelf-grouped gallery database', {tag: ['@shell']}, async 
   const covers = page.locator('img[src^="data:image/png"]');
   await expect(covers.first()).toBeVisible();
   expect(await covers.count()).toBeGreaterThanOrEqual(3);
+  // …and the first cover actually DECODES: naturalWidth stays 0 on a corrupt
+  // PNG, so this reddens the suite where a bare toBeVisible() would false-green.
+  await expect
+    .poll(async () => covers.first().evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBeGreaterThan(0);
 
   // The table view lists every seeded book with its author column.
   await page.getByRole('button', {name: 'Table', exact: true}).click();

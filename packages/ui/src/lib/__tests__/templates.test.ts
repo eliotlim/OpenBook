@@ -1,3 +1,4 @@
+import {unzlibSync} from 'fflate';
 import {describe, expect, it, vi} from 'vitest';
 import {PAGE_TEMPLATES, SAMPLE_DOCUMENT_NAME, coverImageUrl, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
 import type {DatabaseSchema, DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
@@ -70,6 +71,73 @@ async function docOf(id: PageTemplate['id']) {
 /** Every block in the doc (depth-first, including nested), as a flat list. */
 function allBlocks(doc: ReturnType<typeof decodeSnapshot>): BlockMap[] {
   return [...walkBlocks(rootBlocks(doc))].map((w) => w.block);
+}
+
+const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
+
+/** Adler-32 over a byte array — the checksum a zlib stream stores in its last
+ *  four bytes, recomputed so we can prove the inflated IDAT matches it. */
+function adler32(data: Uint8Array): number {
+  let a = 1;
+  let b = 0;
+  const MOD = 65521;
+  for (let i = 0; i < data.length; i++) {
+    a = (a + data[i]) % MOD;
+    b = (b + a) % MOD;
+  }
+  return ((b << 16) | a) >>> 0;
+}
+
+/**
+ * Decode a `data:image/png;base64,…` cover far enough to prove it isn't corrupt.
+ * The real defect (a mangled teal cover) had a valid signature AND an IEND — only
+ * its IDAT zlib stream was bad — so a `toBeVisible()` (and even a signature+IEND
+ * check) sails straight past it. The guard that actually catches it: inflate the
+ * IDAT and confirm (a) it yields the exact raw-scanline byte count the IHDR
+ * implies, and (b) its recomputed Adler-32 matches the checksum the zlib stream
+ * trailer stores. Returns the inflated byte length so callers can assert size.
+ */
+function decodeSeededPng(dataUri: string): number {
+  const b64 = dataUri.replace(/^data:image\/png;base64,/, '');
+  const bin = atob(b64);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  const dv = new DataView(buf.buffer);
+  expect([...buf.subarray(0, 8)], 'PNG signature').toEqual(PNG_SIGNATURE);
+
+  const idat: Uint8Array[] = [];
+  let width = 0;
+  let height = 0;
+  let sawIend = false;
+  let off = 8;
+  while (off + 8 <= buf.length) {
+    const len = dv.getUint32(off);
+    const type = String.fromCharCode(buf[off + 4], buf[off + 5], buf[off + 6], buf[off + 7]);
+    if (type === 'IHDR') {
+      width = dv.getUint32(off + 8);
+      height = dv.getUint32(off + 12);
+    }
+    if (type === 'IDAT') idat.push(buf.subarray(off + 8, off + 8 + len));
+    if (type === 'IEND') sawIend = true;
+    off += 12 + len;
+  }
+  expect(sawIend, 'IEND chunk').toBe(true);
+  expect(idat.length, 'IDAT chunk(s)').toBeGreaterThan(0);
+
+  const zlibStream = new Uint8Array(idat.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of idat) {
+    zlibStream.set(p, o);
+    o += p.length;
+  }
+  const inflated = unzlibSync(zlibStream);
+  // Exact raw-scanline size: (w*3 + 1 filter byte) per row, for 8-bit RGB.
+  expect(inflated.length, 'inflated scanline bytes').toBe(height * (width * 3 + 1));
+  // …and the stored Adler-32 (last four bytes of the zlib stream) must match the
+  // recomputed one — a corrupt stream decompresses to a mismatching checksum.
+  const storedAdler = new DataView(zlibStream.buffer, zlibStream.byteOffset + zlibStream.length - 4, 4).getUint32(0) >>> 0;
+  expect(adler32(inflated), 'IDAT Adler-32').toBe(storedAdler);
+  return inflated.length;
 }
 
 describe('PAGE_TEMPLATES', () => {
@@ -208,6 +276,24 @@ describe('reading list (database)', () => {
     // A cover lands in each of the three shelves, so no group is cover-less.
     const shelves = new Set(covered.map((r) => r.properties.p_shelf));
     expect(shelves).toEqual(new Set(['opt_toread', 'opt_reading', 'opt_done']));
+  });
+
+  it('every seeded cover is a decodable PNG (IDAT inflates — no silent corruption)', async () => {
+    const template = PAGE_TEMPLATES.find((t) => t.id === 'reading-list') as PageTemplate;
+    const client = stubClient([]);
+    await template.create(client, template.pageName);
+    const covers = (client.createRow as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => (c[1] as {properties: Record<string, unknown>}).properties.p_cover)
+      .filter((v): v is string[] => Array.isArray(v))
+      .map((urls) => urls[0]);
+    expect(covers.length).toBeGreaterThanOrEqual(3); // one per shelf
+    // Each cover must base64-decode to a valid PNG whose IDAT zlib-decompresses
+    // (a bad Adler-32 throws) — the guard that would have caught the corrupt
+    // teal cover a plain `toBeVisible()` sailed straight past.
+    for (const uri of covers) {
+      const decoded = decodeSeededPng(uri);
+      expect(decoded, `decoded scanline bytes for ${uri.slice(0, 40)}…`).toBeGreaterThan(1000);
+    }
   });
 });
 
