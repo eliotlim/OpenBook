@@ -7,7 +7,7 @@ import {UpdatesSection} from '@/components/settings/UpdatesSection';
 import type {Locale} from '@/i18n';
 
 // localStorage keys that hold appearance / language / layout / behavior — but
-// NOT workspace connections (`openbook.workspaces`), page icons
+// NOT library connections (`openbook.libraries`), page icons
 // (`openbook.icon.*`), or any server-side pages. Verified against the providers
 // that own them (ThemeProvider, I18nProvider, HudProvider, PreferencesProvider).
 const RESETTABLE_KEYS = ['hud', 'theme', 'openbook.theme', 'openbook.locale', 'openbook.preferences'];

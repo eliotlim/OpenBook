@@ -43,8 +43,11 @@ export interface LibraryContext {
   replaceLibraries: (list: Library[]) => Library[];
 }
 
-// Persisted storage key — a wire format shared with account sync; keep the value.
-const LIBRARIES_KEY = 'openbook.workspaces';
+// Persisted storage key for the library/server list.
+export const LIBRARIES_KEY = 'openbook.libraries';
+// Pre-rename storage key. Read once on init for a one-time migration into
+// {@link LIBRARIES_KEY}, then removed. Used only by that migration.
+export const LEGACY_LIBRARIES_KEY = 'openbook.workspaces';
 
 const LOCAL_LIBRARY: Library = {
   id: 'local',
@@ -74,11 +77,24 @@ const readLibraries = (): Library[] => {
   if (typeof localStorage === 'undefined') return [LOCAL_LIBRARY];
   let list: Library[] = [LOCAL_LIBRARY];
   try {
-    const raw = localStorage.getItem(LIBRARIES_KEY);
+    let raw = localStorage.getItem(LIBRARIES_KEY);
+    if (raw === null) {
+      // One-time migration: the current key is absent, so adopt any list saved
+      // under the pre-rename key, re-persist it under the new key, and drop the
+      // old one so this runs exactly once. A present current key always wins —
+      // the legacy key is ignored (no clobber).
+      const legacy = localStorage.getItem(LEGACY_LIBRARIES_KEY);
+      if (legacy !== null) {
+        raw = legacy;
+        localStorage.setItem(LIBRARIES_KEY, legacy);
+        localStorage.removeItem(LEGACY_LIBRARIES_KEY);
+      }
+    }
     const parsed = raw ? (JSON.parse(raw) as Library[]) : null;
     if (Array.isArray(parsed) && parsed.length > 0) list = parsed;
   } catch {
-    // Corrupt storage; fall back to the default local library.
+    // Corrupt storage (incl. a malformed migrated value); fall back to the
+    // default local library.
   }
   // Always keep a local library present so there's a way back to the default.
   if (!list.some((l) => l.serverUrl === null)) list = [LOCAL_LIBRARY, ...list];
