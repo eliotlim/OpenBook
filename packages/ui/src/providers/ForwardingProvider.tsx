@@ -1,5 +1,5 @@
 import React, {createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState} from 'react';
-import {ForwardingClient, setForwardingAudience, type TunnelStatus} from '@book.dev/sdk';
+import {ForwardingClient, setForwardingAudience, type SiteVisibility, type TunnelStatus} from '@book.dev/sdk';
 import {useAccount} from './AccountProvider';
 import {usePlatformLibrary} from './PlatformLibraryProvider';
 import {
@@ -54,6 +54,24 @@ interface ForwardingContextValue {
    * both the share-link origin registry and the Share dialog's link hint.
    */
   publishedHost: string | null;
+  /**
+   * The published site's real audience scope, read from the account (`SiteView.visibility`)
+   * once the tunnel is online — `null` until loaded or when not published. A fresh
+   * site is `restricted` by default, and the edge serves ONLY `public` anonymously, so
+   * a page set "public" on a non-`public` address is still bounced for anyone not
+   * signed in. Surfacing the REAL scope lets the UI say so honestly instead of implying
+   * "anyone with the link" works when it doesn't.
+   */
+  siteVisibility: SiteVisibility | null;
+  /** A {@link setSiteVisibility} PATCH is in flight. */
+  siteVisibilityBusy: boolean;
+  /**
+   * Set the published site's audience scope via the existing account route
+   * (`PATCH /api/sites/:id`, owner-only + whitelist-validated server-side). A no-op
+   * when not published. The desktop only ever runs this on the owner's own device
+   * under their device bearer token, so it can't widen anyone else's exposure.
+   */
+  setSiteVisibility: (v: SiteVisibility) => Promise<void>;
   busy: boolean;
   error: string | null;
   /**
@@ -93,6 +111,9 @@ const DEFAULT: ForwardingContextValue = {
   status: 'idle',
   host: null,
   publishedHost: null,
+  siteVisibility: null,
+  siteVisibilityBusy: false,
+  setSiteVisibility: async () => undefined,
   busy: false,
   error: null,
   audienceNotice: null,
@@ -131,6 +152,8 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   const [error, setError] = useState<string | null>(null);
   const [audienceNotice, setAudienceNotice] = useState<{code: AudienceNoticeCode; detail?: string} | null>(null);
   const [claimRefusal, setClaimRefusal] = useState<'unverified' | 'issuance-disabled' | 'claim-failed' | null>(null);
+  const [siteVisibility, setSiteVis] = useState<SiteVisibility | null>(null);
+  const [siteVisibilityBusy, setSiteVisBusy] = useState(false);
   const [signInPending, setSignInPending] = useState(false);
   // The auto-resume (P1-6) can complete with Settings closed / off-screen, so flag
   // the resume so we can announce it with a toast once the address is live.
@@ -257,6 +280,47 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
     return () => setShareLinkOrigin(null);
   }, [publishedHost]);
 
+  // Reflect the REAL published-site visibility from the account while online. A
+  // fresh site defaults to `restricted`, and the edge serves ONLY `public`
+  // anonymously — so a page set "public" on a restricted address is still bounced
+  // for anyone not signed in. Reading the true scope here lets the Share dialog /
+  // Sharing tab say so honestly (and offer the one-flip fix) instead of implying
+  // "anyone with the link" works. Cleared the moment we're not published.
+  useEffect(() => {
+    const client = clientRef.current;
+    if (!publishedHost || !client) {
+      setSiteVis(null);
+      return;
+    }
+    let live = true;
+    client
+      .getSiteVisibility()
+      .then((v) => live && setSiteVis(v))
+      .catch(() => undefined); // a read failure just leaves the control unshown; no false claim
+    return () => {
+      live = false;
+    };
+  }, [publishedHost]);
+
+  // Flip the published site's audience scope through the EXISTING owner-only account
+  // route. This never changes an access DEFAULT and only ever runs on the owner's own
+  // device (their device bearer token), so it can't widen anyone else's exposure — the
+  // account still whitelist-validates + enforces ownership server-side.
+  const setSiteVisibility = useCallback(async (v: SiteVisibility) => {
+    const client = clientRef.current;
+    if (!client) return;
+    setSiteVisBusy(true);
+    try {
+      setSiteVis(await client.setSiteVisibility(v));
+    } catch {
+      // Leave the shown value as the last-known server truth (never optimistic) and
+      // tell the owner it didn't stick, so the UI can't imply a change that didn't land.
+      showToast({message: t('forwarding.visibility.error')});
+    } finally {
+      setSiteVisBusy(false);
+    }
+  }, []);
+
   const enable = useCallback(async () => {
     if (!connected || !token) {
       // Can't claim an address without an account — start the sign-in handoff and
@@ -340,8 +404,16 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   }, [audienceDeps]);
 
   const value = useMemo<ForwardingContextValue>(
-    () => ({supported, enabled, status, host, publishedHost, busy, error, audienceNotice, claimRefusal, signInPending, enable, disable}),
-    [supported, enabled, status, host, publishedHost, busy, error, audienceNotice, claimRefusal, signInPending, enable, disable],
+    () => ({
+      supported, enabled, status, host, publishedHost,
+      siteVisibility, siteVisibilityBusy, setSiteVisibility,
+      busy, error, audienceNotice, claimRefusal, signInPending, enable, disable,
+    }),
+    [
+      supported, enabled, status, host, publishedHost,
+      siteVisibility, siteVisibilityBusy, setSiteVisibility,
+      busy, error, audienceNotice, claimRefusal, signInPending, enable, disable,
+    ],
   );
 
   return <ForwardingContext.Provider value={value}>{children}</ForwardingContext.Provider>;

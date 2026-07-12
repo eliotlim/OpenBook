@@ -17,7 +17,7 @@ import type {TKey} from '@/i18n';
  * The instance member roster (OB-204), rendered as the **People** section of the
  * merged Sharing tab (SHR-5). Lists who has a role on this workspace, and — for a
  * manager (loopback owner / admin / claimed owner, or any writer on a
- * still-unclaimed instance) — lets them invite by email or handle, change a
+ * still-unclaimed instance) — lets them invite by email, change a
  * member's role, and remove access. All driven by the OB-191 roster API
  * (`listMembers`/`inviteMember`/`updateMember`/`removeMember`).
  *

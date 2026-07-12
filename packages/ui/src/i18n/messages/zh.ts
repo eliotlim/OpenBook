@@ -160,6 +160,10 @@ export const zh: PartialMessages = {
       '此工作区仅存在于此浏览器中——其他人无法访问它，因此这些设置暂时不会对任何人生效。要与他人共享，请通过 OpenBook 桌面应用发布工作区。',
     enforcementCaveat:
       '你邀请的人可能还无法通过已发布的 book.cloud 链接打开此页面——此功能正在逐步推出。直接访问已按此处的设置受到限制。',
+    siteRestrictedNotice:
+      '此页面已设为“任何拥有链接的人”，但公开访问已关闭——请开启它，让未登录的访客也能打开。',
+    makeSitePublic: '启用公开访问',
+    siteGlobalHint: '此设置适用于你的整个书库，而不仅是此页面。',
     scopeLabel: '谁可以访问',
     scopeAdvanced: '更多访问选项',
     scope: {
@@ -175,7 +179,7 @@ export const zh: PartialMessages = {
       restrictedHint: '将访问权限限制为你和下面邀请的人。',
     },
     addLabel: '邀请他人',
-    addPlaceholder: 'name@example.com 或 iss#sub',
+    addPlaceholder: 'name@example.com',
     levelLabel: '访问权限',
     levelRead: '可查看',
     levelWrite: '可编辑',
@@ -798,6 +802,19 @@ export const zh: PartialMessages = {
       connecting: '连接中',
       offline: '离线',
     },
+    visibility: {
+      label: '公开访问',
+      public: '公开',
+      private: '私密',
+      authenticated: '所有已登录的人',
+      members: '成员',
+      publicHint: '任何拥有链接的人都能查看此书库，即使未登录。',
+      privateHint: '只有工作区成员和访客才能查看此书库。',
+      authenticatedHint: '任何已登录的人都能查看此书库。',
+      membersHint: '只有工作区成员才能查看此书库。',
+      manageOnWeb: '在网页端管理',
+      error: '无法更新公开访问。请重试。',
+    },
   },
   diagnostics: {
     title: '诊断',
@@ -886,7 +903,7 @@ export const zh: PartialMessages = {
   },
   members: {
     title: '用户',
-    description: '在此工作区拥有角色的人员。可通过邮箱或句柄邀请、更改管理权限并移除访问权限。',
+    description: '在此工作区拥有角色的人员。可通过邮箱邀请、更改管理权限并移除访问权限。',
     browserLocalNotice:
       '此工作区仅存在于此浏览器中——其他人无法访问它，因此你在此添加的人暂时无法打开它。要与他人共享，请通过 OpenBook 桌面应用发布工作区。',
     youUser: '你已登录为 {name}。',
@@ -903,8 +920,8 @@ export const zh: PartialMessages = {
     lockedRemoveOwner: '无法移除所有者',
     lockedRemoveSelf: '无法移除你自己',
     inviteLabel: '邀请成员',
-    inviteHint: '输入邮箱地址或句柄（iss#sub）。邮箱邀请将在对方首次登录时生效。',
-    invitePlaceholder: 'name@example.com 或 iss#sub',
+    inviteHint: '输入邮箱地址。邮箱邀请将在对方首次登录时生效。',
+    invitePlaceholder: 'name@example.com',
     inviteRole: '邀请的角色',
     invite: '邀请',
     inviteError: '无法邀请 — {error}',

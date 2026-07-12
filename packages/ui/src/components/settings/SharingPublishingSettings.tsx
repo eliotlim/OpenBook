@@ -6,6 +6,8 @@ import {Switch} from '@/components/ui/switch';
 import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
 import {SharingSection} from '@/components/settings/SharingSettings';
 import {PeopleSection} from '@/components/settings/MembersSettings';
+import {SiteVisibilityControl} from '@/components/SiteVisibilityControl';
+import {useSharingCapability} from '@/components/ShareDialog';
 
 /**
  * The one Sharing tab — every control that decides who can reach this workspace,
@@ -41,6 +43,10 @@ function ForwardingSection() {
   const {supported, enabled, status, host, busy, error, audienceNotice, claimRefusal, signInPending, enable, disable} =
     useForwarding();
   const {connected, remintIdentity} = useAccount();
+  // Defense-in-depth owner guard for the address-scope control, matching the
+  // ShareDialog gating: `publishedHost` already implies this device is the owner,
+  // but gate the exposure control explicitly on manage capability too (Quinn F6).
+  const {canManage} = useSharingCapability();
   const {t} = useTranslation();
   const [copied, setCopied] = useState(false);
 
@@ -120,6 +126,12 @@ function ForwardingSection() {
           <p className="mt-1 text-xs text-muted-foreground">{t('forwarding.addressHint')}</p>
         </SettingsField>
       )}
+      {/* Address-level audience scope (SHR-8): the published address is Private by
+          default, and a page's own "public" scope can't override that — the edge
+          only serves a Public address anonymously. Let the owner flip it here (and
+          the Share dialog surfaces the same control + an actionable notice when a
+          page is public but the address isn't). Renders only while online + owned. */}
+      {canManage && <SiteVisibilityControl />}
       {error && <p className="text-sm text-destructive">{error}</p>}
       {/* Severity-aware, like `claimRefusal` above: `partialUnscoped`/`ensureRescope`
           are benign partial outcomes (the tunnel is up, nothing is broken — only the

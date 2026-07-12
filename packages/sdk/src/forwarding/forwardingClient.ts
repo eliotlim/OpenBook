@@ -24,6 +24,25 @@ export interface SiteIdentity {
   privateKey: string;
 }
 
+/**
+ * The published site's audience scope, mirrored from the account's
+ * `@book.dev/forwarding` `SiteVisibility` (the single source of truth on the
+ * server). The edge honors ONLY `public` as anonymous-readable; the other three
+ * all require a signed-in principal (fail-closed). A fresh site defaults to
+ * `restricted` on the account — so "anyone with the link" needs an explicit flip
+ * to `public`, which is exactly what {@link ForwardingClient.setSiteVisibility}
+ * drives through the existing `PATCH /api/sites/:id` route.
+ */
+export type SiteVisibility = 'public' | 'authenticated' | 'members' | 'restricted';
+
+/** Every {@link SiteVisibility}, matching the account's `SITE_VISIBILITIES`. */
+export const SITE_VISIBILITIES: readonly SiteVisibility[] = [
+  'public',
+  'authenticated',
+  'members',
+  'restricted',
+];
+
 /** Where the site identity (incl. private key) is persisted. The desktop backs
  *  this with the OS keychain; tests can use MemoryKeyStore. */
 export interface KeyStore {
@@ -104,11 +123,16 @@ export class ForwardingClient {
     return this.opts.region ?? 'sin1';
   }
 
-  private async api<T>(path: string, body: unknown): Promise<T> {
+  /**
+   * One authorized account-API round-trip. Threads the device bearer token, folds
+   * the server's `{error}` JSON into a {@link ForwardingApiError} on non-OK, and is
+   * method-agnostic so the site-visibility GET/PATCH share the same error surface as
+   * the POST provisioning flow (the {@link api} shorthand keeps the POST callers terse).
+   */
+  private async request<T>(path: string, init: RequestInit): Promise<T> {
     const res = await this.fetchImpl(`${this.opts.accountUrl.replace(/\/$/, '')}${path}`, {
-      method: 'POST',
-      headers: {authorization: `Bearer ${this.opts.authToken}`, 'content-type': 'application/json'},
-      body: JSON.stringify(body),
+      ...init,
+      headers: {authorization: `Bearer ${this.opts.authToken}`, ...init.headers},
     });
     if (!res.ok) {
       let detail: string | undefined;
@@ -121,6 +145,55 @@ export class ForwardingClient {
       throw new ForwardingApiError(path, res.status, detail);
     }
     return (await res.json()) as T;
+  }
+
+  private api<T>(path: string, body: unknown): Promise<T> {
+    return this.request<T>(path, {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** Resolve the registered site id without provisioning: the in-memory identity if
+   *  the tunnel is up, else the persisted key's — throwing if no site exists yet
+   *  (visibility is only meaningful for a site that's been registered). */
+  private async requireSiteId(): Promise<string> {
+    const id = this.identity ?? (await this.opts.keyStore.load());
+    if (!id) throw new Error('no site registered — enable publishing first');
+    return id.siteId;
+  }
+
+  /**
+   * Read the published site's current audience scope from the account
+   * (`GET /api/sites/:id`). The account is the source of truth — the desktop UI
+   * reflects THIS, never a locally-assumed default, so it can honestly tell the
+   * owner whether their address is Public or Private.
+   */
+  async getSiteVisibility(): Promise<SiteVisibility> {
+    const siteId = await this.requireSiteId();
+    const data = await this.request<{site: {visibility: SiteVisibility} | null}>(
+      `/api/sites/${encodeURIComponent(siteId)}`,
+      {method: 'GET'},
+    );
+    if (!data.site) throw new ForwardingApiError(`/api/sites/${siteId}`, 404, 'site not found');
+    return data.site.visibility;
+  }
+
+  /**
+   * Set the published site's audience scope via the EXISTING free-tier route
+   * (`PATCH /api/sites/:id`, body `{visibility}`). The account whitelist-validates
+   * the value and enforces owner-only server-side (a non-owner 404s); this client
+   * only ever runs on the owner's device under their device bearer token. Returns
+   * the persisted scope so the caller reflects the server's truth, not the request.
+   */
+  async setSiteVisibility(visibility: SiteVisibility): Promise<SiteVisibility> {
+    const siteId = await this.requireSiteId();
+    const data = await this.request<{site: {visibility: SiteVisibility}}>(
+      `/api/sites/${encodeURIComponent(siteId)}`,
+      {method: 'PATCH', headers: {'content-type': 'application/json'}, body: JSON.stringify({visibility})},
+    );
+    return data.site.visibility;
   }
 
   /** Reattach to our existing site (if we hold its key), else provision a new one. */

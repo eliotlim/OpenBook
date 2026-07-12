@@ -228,6 +228,12 @@ export const en = {
       'This workspace lives only in this browser — no one else can reach it, so these settings can’t take effect for anyone else yet. To share with others, publish a workspace from the OpenBook desktop app.',
     enforcementCaveat:
       'People you invite may not be able to open this page through its published book.cloud link yet — that’s rolling out. Direct access is already limited as set here.',
+    siteRestrictedNotice:
+      'This page is set to anyone-with-the-link, but public access is off — turn it on so signed-out visitors can open it.',
+    makeSitePublic: 'Enable Public Access',
+    // The address scope is workspace-global — shown here per-page, but it governs
+    // every published page, so say so plainly to avoid a per-page misread.
+    siteGlobalHint: 'Applies to your whole library, not just this page.',
     scopeLabel: 'Who can access',
     scopeAdvanced: 'More access options',
     scope: {
@@ -243,7 +249,7 @@ export const en = {
       restrictedHint: 'Limits access to you and the people you invite below.',
     },
     addLabel: 'Invite people',
-    addPlaceholder: 'name@example.com or iss#sub',
+    addPlaceholder: 'name@example.com',
     levelLabel: 'Access level',
     levelRead: 'Can view',
     levelWrite: 'Can edit',
@@ -1200,6 +1206,24 @@ export const en = {
       connecting: 'Connecting',
       offline: 'Offline',
     },
+    // Address-level audience scope (SHR-8): the published *.book.cloud address is
+    // Private by default; only a Public address opens for people who aren’t signed in.
+    visibility: {
+      label: 'Public access',
+      public: 'Public',
+      private: 'Private',
+      authenticated: 'Anyone signed in',
+      members: 'Members',
+      publicHint: 'Anyone with the link can see this library, even when not signed in.',
+      privateHint: 'Only workspace members and guests can see this library.',
+      // Honest, read-only rows for the two in-between account scopes this desktop
+      // control doesn’t set (but the account/edge honor distinctly) — never mislabel
+      // them as “Private”, which would under-state who can already read.
+      authenticatedHint: 'Anyone signed in can see this library.',
+      membersHint: 'Only workspace members can see this library.',
+      manageOnWeb: 'Manage on the web',
+      error: 'Couldn’t update public access. Try again.',
+    },
   },
   diagnostics: {
     title: 'Diagnostics',
@@ -1312,7 +1336,7 @@ export const en = {
   members: {
     // The roster is now the "People" section of the merged Sharing tab (SHR-5).
     title: 'People',
-    description: 'People with a role on this workspace. Invite by email or handle, change who can manage, and remove access.',
+    description: 'People with a role on this workspace. Invite by email, change who can manage, and remove access.',
     browserLocalNotice:
       'This workspace lives only in this browser — no one else can reach it, so people you add here can’t open it yet. To share with others, publish a workspace from the OpenBook desktop app.',
     youUser: 'You’re signed in as {name}.',
@@ -1329,8 +1353,8 @@ export const en = {
     lockedRemoveOwner: 'You can’t remove the owner',
     lockedRemoveSelf: 'You can’t remove yourself',
     inviteLabel: 'Invite a member',
-    inviteHint: 'Enter an email address or a handle (iss#sub). An email invite is claimed when that person first signs in.',
-    invitePlaceholder: 'name@example.com or iss#sub',
+    inviteHint: 'Enter an email address. An email invite is claimed when that person first signs in.',
+    invitePlaceholder: 'name@example.com',
     inviteRole: 'Role for the invite',
     invite: 'Invite',
     inviteError: 'Couldn’t invite — {error}',
