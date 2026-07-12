@@ -686,9 +686,16 @@ export function projectExports(snapshot: Pick<PageSnapshot, 'values' | 'names'>)
   return out;
 }
 
-/** True when a URL looks like an image (by extension), for thumbnail rendering. */
+/**
+ * True when a URL renders as an image, for thumbnail / gallery-cover rendering:
+ * an `image/*` `data:` URL (inline bytes an `<img src>` shows directly), or a URL
+ * whose extension names a known image type. Display-only — a `data:` URL in an
+ * `<img>` never executes script, and this is separate from the asset store's
+ * upload allowlist (which excludes `svg+xml`; see the server's `ASSET_IMAGE_MIMES`).
+ */
 export function isImageUrl(url: string): boolean {
-  return /\.(png|jpe?g|gif|webp|avif|svg|bmp)(\?.*)?$/i.test(url.trim());
+  const u = url.trim();
+  return /^data:image\//i.test(u) || /\.(png|jpe?g|gif|webp|avif|svg|bmp)(\?.*)?$/i.test(u);
 }
 
 /** The first image URL in a `files`/`url` cell value (a string or string[]), or null. */

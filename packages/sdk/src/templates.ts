@@ -574,6 +574,23 @@ const TASK_BOARD_ROWS = [
 
 // ── 📚 Reading list ──────────────────────────────────────────────────────────
 // A shelf-grouped gallery of books, with authors and star ratings; a table backs it.
+//
+// Covers (so the gallery renders real cards, not empty slots): tiny (<300 B) raster
+// PNGs, inlined as `data:` URLs on the `files`-typed `p_cover` cells. Deliberately
+// NOT routed through the content-addressed asset store — the `files` property and
+// the gallery cover render a URL string straight into `<img src>` with no
+// asset-resolution seam, so a store `assetId` wouldn't load there, and this seeds
+// identically on both transports (web PGlite + desktop IPC) with no upload call.
+// PNG, never SVG — honouring the store's image allowlist even though nothing is
+// stored (an `<img src="data:image/png…">` executes no script). One per shelf so
+// each gallery group leads with a cover.
+const COVER_TEAL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAB4CAIAAADqjOKhAAAAqUlEQVR42u3bsQkAIAxFQQdxBqdxGre1F2ews7AXJB68Ba4LfJJyrbvSWvgSMDAwMDAwMDAwMDAwMDAB7nOEDxgYGBgYGBgYGBgYGBgYGBgYGBgY+B2w5QEYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGPg++IXXKmBgYGBg4F/BLi1gYGBgYGBgYGBgYGDgkC1MLWJ6eykqCgAAAABJRU5ErkJggg==';
+const COVER_ORANGE =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAB4CAIAAADqjOKhAAAAsElEQVR42u3bMQ3AMAxFQQMJhCIJkiIqomIIhUDI2i1D90qWe9IjcJulL8fV2+4+j/IFMDAwMDAwMDAwMDAwMPALvOYoHzAwMDAwMDAwMDAwMDAwMDAwMDAwcB6w5QEYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGPh7cIbXKmBgYGBg4L+CXVrAwMDAwMDAwMDAwMDAJXsAV8JJFP0NEUwAAAAASUVORK5CYII=';
+const COVER_BLUE =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAB4CAIAAADqjOKhAAAAr0lEQVR42u3bsQ2AMAxFQQ+SESgyBzMwDYOmzQap6VLQI1nmpLfAdZa+HK1fu+O8yxfAwMDAwMDAwMDAwMDAwC/wmKt8wMDAwMDAwMDAwMDAwMDAwMDAwMDAecCWB2BgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBgYGBg4O/BGV6rgIGBgYGB/wp2aQEDAwMDAwMDAwMDAwOX7AH/nrpv1KFe+AAAAABJRU5ErkJggg==';
+
 const READING_SCHEMA: DatabaseSchema = {
   properties: [
     {
@@ -597,11 +614,11 @@ const READING_SCHEMA: DatabaseSchema = {
 };
 
 const READING_ROWS = [
-  {name: 'The Design of Everyday Things', properties: {p_shelf: 'opt_reading', p_author: 'Don Norman', p_rating: 4}},
+  {name: 'The Design of Everyday Things', properties: {p_shelf: 'opt_reading', p_author: 'Don Norman', p_rating: 4, p_cover: [COVER_ORANGE]}},
   {name: 'Project Hail Mary', properties: {p_shelf: 'opt_reading', p_author: 'Andy Weir', p_rating: 5}},
-  {name: 'Thinking, Fast and Slow', properties: {p_shelf: 'opt_toread', p_author: 'Daniel Kahneman'}},
+  {name: 'Thinking, Fast and Slow', properties: {p_shelf: 'opt_toread', p_author: 'Daniel Kahneman', p_cover: [COVER_TEAL]}},
   {name: 'Designing Data-Intensive Applications', properties: {p_shelf: 'opt_toread', p_author: 'Martin Kleppmann'}},
-  {name: 'The Pragmatic Programmer', properties: {p_shelf: 'opt_done', p_author: 'Hunt & Thomas', p_rating: 5}},
+  {name: 'The Pragmatic Programmer', properties: {p_shelf: 'opt_done', p_author: 'Hunt & Thomas', p_rating: 5, p_cover: [COVER_BLUE]}},
   {name: 'Deep Work', properties: {p_shelf: 'opt_done', p_author: 'Cal Newport', p_rating: 4}},
 ];
 

@@ -82,6 +82,13 @@ test('reading list: a shelf-grouped gallery database', {tag: ['@shell']}, async 
   await expect(page.getByRole('button', {name: 'Gallery', exact: true})).toBeVisible();
   await expect(page.getByRole('button', {name: 'Table', exact: true})).toBeVisible();
 
+  // The gallery renders seeded book covers (inline PNGs on the files-typed cover
+  // property) — real cards, not empty cover slots. At least the three seeded
+  // covers load as <img> (one per shelf).
+  const covers = page.locator('img[src^="data:image/png"]');
+  await expect(covers.first()).toBeVisible();
+  expect(await covers.count()).toBeGreaterThanOrEqual(3);
+
   // The table view lists every seeded book with its author column.
   await page.getByRole('button', {name: 'Table', exact: true}).click();
   await expect(page.getByRole('columnheader', {name: /Author/})).toBeVisible();

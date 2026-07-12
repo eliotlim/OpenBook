@@ -1,5 +1,5 @@
 import {describe, expect, it, vi} from 'vitest';
-import {PAGE_TEMPLATES, SAMPLE_DOCUMENT_NAME, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
+import {PAGE_TEMPLATES, SAMPLE_DOCUMENT_NAME, coverImageUrl, instantiateTemplate, type PageTemplate} from '@book.dev/sdk';
 import type {DatabaseSchema, DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
 import {decodeSnapshot, rootBlocks, walkBlocks, blockProp, blockType, type BlockDocSnapshot, type BlockMap} from '@/blockeditor/model';
 import {computeScope, evalExpr, setNamedNumber} from '@/blockeditor/kit/scope';
@@ -179,10 +179,35 @@ describe('reading list (database)', () => {
     const shelf = schema.properties.find((p) => p.id === 'p_shelf')!;
     expect(shelf.type).toBe('select');
     expect(schema.properties.some((p) => p.type === 'rating')).toBe(true);
+    const cover = schema.properties.find((p) => p.id === 'p_cover')!;
+    expect(cover.type).toBe('files'); // the gallery cover renders a files-cell URL
     const gallery = schema.views.find((v) => v.type === 'gallery')!;
     expect(gallery.groupByPropertyId).toBe('p_shelf');
     expect(gallery.coverPropertyId).toBe('p_cover');
     expect(schema.views.some((v) => v.type === 'table')).toBe(true);
+  });
+
+  it('seeds inline image covers so the gallery renders real cards (one per shelf)', async () => {
+    const template = PAGE_TEMPLATES.find((t) => t.id === 'reading-list') as PageTemplate;
+    const client = stubClient([]);
+    await template.create(client, template.pageName);
+    const rows = (client.createRow as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => c[1] as {properties: Record<string, unknown>},
+    );
+    // Some rows carry covers, some don't (the placeholder path stays exercised).
+    const covered = rows.filter((r) => Array.isArray(r.properties.p_cover));
+    expect(covered.length).toBeGreaterThanOrEqual(2);
+    // Every seeded cover is a loadable inline PNG (never SVG, never a store id) so
+    // coverImageUrl resolves it straight into <img src> on both transports.
+    for (const r of covered) {
+      const urls = r.properties.p_cover as string[];
+      expect(urls.length).toBe(1);
+      expect(urls[0]).toMatch(/^data:image\/png;base64,/);
+      expect(coverImageUrl(urls)).toBe(urls[0]);
+    }
+    // A cover lands in each of the three shelves, so no group is cover-less.
+    const shelves = new Set(covered.map((r) => r.properties.p_shelf));
+    expect(shelves).toEqual(new Set(['opt_toread', 'opt_reading', 'opt_done']));
   });
 });
 

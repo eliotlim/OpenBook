@@ -637,15 +637,19 @@ describe('parseCsv', () => {
 });
 
 describe('files & media helpers', () => {
-  it('isImageUrl detects images by extension (with query strings)', () => {
+  it('isImageUrl detects images by extension (with query strings) and inline data URLs', () => {
     expect(isImageUrl('https://x.com/a.png')).toBe(true);
     expect(isImageUrl('https://x.com/a.JPG?v=2')).toBe(true);
     expect(isImageUrl('https://x.com/doc.pdf')).toBe(false);
     expect(isImageUrl('https://x.com/no-ext')).toBe(false);
+    // Inline raster bytes (how the reading-list template seeds its covers).
+    expect(isImageUrl('data:image/png;base64,iVBORw0KGgo=')).toBe(true);
+    expect(isImageUrl('data:text/plain;base64,aGk=')).toBe(false);
   });
-  it('coverImageUrl falls back to extension-less http URLs (CDN images)', () => {
+  it('coverImageUrl falls back to extension-less http URLs (CDN images) and takes data-URL covers', () => {
     expect(coverImageUrl(['https://picsum.photos/seed/a/400'])).toBe('https://picsum.photos/seed/a/400');
     expect(coverImageUrl(['https://x.com/doc.pdf', 'https://x.com/pic.webp'])).toBe('https://x.com/pic.webp');
+    expect(coverImageUrl(['data:image/png;base64,iVBORw0KGgo='])).toBe('data:image/png;base64,iVBORw0KGgo=');
     expect(coverImageUrl('not a url')).toBe(null);
     expect(coverImageUrl(undefined)).toBe(null);
   });
