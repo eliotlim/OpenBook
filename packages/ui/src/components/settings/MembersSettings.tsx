@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState, type ReactNode} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, type ReactNode} from 'react';
 import {Check, Link2, Loader2, Trash2, UserPlus} from 'lucide-react';
 import type {InstanceInfo, Member, MemberRole, MemberStatus, Principal} from '@book.dev/sdk';
 import {useData} from '@/data';
@@ -147,6 +147,9 @@ export function PeopleSection() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // The People region itself, so a deep-link can move focus here (not just scroll).
+  const sectionRef = useRef<HTMLElement>(null);
+
   const [deliverCopied, setDeliverCopied] = useState(false);
   const copyWorkspaceLink = useCallback(async () => {
     if (publishedHost && (await copyText(`https://${publishedHost}`))) {
@@ -192,10 +195,15 @@ export function PeopleSection() {
 
   // Deep-link landing (SHR-5): a "manage members" link / `?settings=members`
   // opens the Sharing tab and asks (via the transient `settings.section` hint)
-  // to reveal the roster. Scroll this group into view, then clear the one-shot.
+  // to reveal the roster. Scroll this group into view AND move focus here so the
+  // deep-link takes keyboard / screen-reader users along too — then clear the
+  // one-shot (so a normal, non-deep-link render never steals focus).
   useEffect(() => {
     if (hud.settings.section !== SETTINGS_SECTION_PEOPLE) return;
-    document.getElementById(SETTINGS_SECTION_PEOPLE)?.scrollIntoView({behavior: 'smooth', block: 'start'});
+    const el = sectionRef.current ?? document.getElementById(SETTINGS_SECTION_PEOPLE);
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    el?.scrollIntoView({behavior: reduce ? 'auto' : 'smooth', block: 'start'});
+    el?.focus({preventScroll: true});
     setHud((draft) => {
       draft.settings.section = null;
       return draft;
@@ -266,7 +274,13 @@ export function PeopleSection() {
   }, [info, t]);
 
   return (
-    <SettingsSection id={SETTINGS_SECTION_PEOPLE} title={t('members.title')} description={t('members.description')}>
+    <SettingsSection
+      id={SETTINGS_SECTION_PEOPLE}
+      sectionRef={sectionRef}
+      tabIndex={-1}
+      title={t('members.title')}
+      description={t('members.description')}
+    >
       {unavailable ? (
         <p className="text-sm text-muted-foreground">{t('members.unavailable')}</p>
       ) : canManage === null ? (
@@ -294,7 +308,7 @@ export function PeopleSection() {
           ) : (
             <>
               {/* Invite */}
-              <SettingsSection title={t('members.inviteLabel')} description={t('members.inviteHint')}>
+              <SettingsSection subdued title={t('members.inviteLabel')} description={t('members.inviteHint')}>
                 <div className="flex items-start gap-2">
                   <Input
                     id="member-invitee"
@@ -359,7 +373,7 @@ export function PeopleSection() {
               </SettingsSection>
 
               {/* Roster */}
-              <SettingsSection title={t('members.listLabel')}>
+              <SettingsSection subdued title={t('members.listLabel')}>
                 {loadError ? (
                   <div className="flex flex-col items-start gap-2">
                     <p className="text-sm text-destructive">{t('members.loadError', {error: loadError})}</p>
