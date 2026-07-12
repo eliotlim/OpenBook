@@ -638,7 +638,10 @@ const VIEWER_BOOT = `
   try { island = JSON.parse(tag.textContent); } catch (e) { /* corrupt island */ }
   if (!island) return; // keep the static render
   var source = null, pageRef;
-  if (island.space && island.space.pages) { source = island.space; pageRef = island.rootId || undefined; }
+  // Dual-read the whole-space bundle key: new exports carry it under 'library'
+  // (LIB-4), already-published files under the legacy 'space' key.
+  var bundle = island.library || island.space;
+  if (bundle && bundle.pages) { source = bundle; pageRef = island.rootId || undefined; }
   else if (island.data && island.data.blockdoc) { source = island; }
   if (!source) return; // legacy snapshot: the static body IS the render
   var main = document.querySelector('main');
@@ -1009,7 +1012,7 @@ export function toHtmlSite(
 
   const rootTitle = byId.get(bundle.rootId)?.title ?? 'Export';
   // One island carries the WHOLE space bundle (pages + databases + nesting), the
-  // `openbook.space.json` structure, so a site export re-imports with structure
+  // `openbook.library.json` structure, so a site export re-imports with structure
   // intact. The visible sections are a render; this is the authoritative source.
   const island = libraryIslandScript(bundle.rootId, bundle.space);
   // Hydrate through the viewer (its `#page=` hash nav replaces the legacy

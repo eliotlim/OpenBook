@@ -30,8 +30,21 @@ export interface LibrarySnapshot {
   databases: StoredDatabase[];
 }
 
-/** Lossless structured sidecar, parsed back by {@link parseBookFolder}. */
-export const SPACE_BUNDLE_FILE = 'openbook.space.json';
+/**
+ * Lossless structured sidecar filename that NEW exports write, parsed back by
+ * {@link parseBookFolder}. Renamed from the legacy `openbook.space.json`
+ * (LIB-4): the writer emits only this, while the reader also accepts
+ * {@link LEGACY_SPACE_BUNDLE_FILE} so folders exported before the rename still
+ * re-import losslessly.
+ */
+export const SPACE_BUNDLE_FILE = 'openbook.library.json';
+
+/**
+ * The pre-LIB-4 sidecar filename. READ-ONLY back-compat: {@link parseBookFolder}
+ * falls back to it so already-exported book folders keep importing. The writer
+ * never emits it.
+ */
+export const LEGACY_SPACE_BUNDLE_FILE = 'openbook.space.json';
 
 /**
  * The whole-space **source-island** payload embedded in a standalone *site* HTML
@@ -45,25 +58,45 @@ export interface LibraryIsland {
   space: LibrarySnapshot;
 }
 
+/**
+ * The serialized island wire shape. NEW exports carry the bundle under the
+ * `library` key (LIB-4); `space` is the legacy key {@link readLibraryIsland}
+ * still reads so already-published `.book.html` / site bundles round-trip.
+ */
+interface LibraryIslandWire {
+  version?: number;
+  rootId?: string;
+  /** Current key (LIB-4+). */
+  library?: Partial<LibrarySnapshot>;
+  /** @deprecated legacy key (pre-LIB-4). Read-only fallback — never written. */
+  space?: Partial<LibrarySnapshot>;
+}
+
 /** Wrap a whole-space bundle as its source-island `<script>` (versioned, escaped). */
 export function libraryIslandScript(
   rootId: string,
   space: LibrarySnapshot,
   opts: {attrs?: string; indent?: string} = {},
 ): string {
-  return islandScript({version: 1, rootId, space}, opts);
+  // Writer emits ONLY the new `library` key; the reader dual-reads for back-compat.
+  return islandScript({version: 1, rootId, library: space}, opts);
 }
 
-/** Read a site export's space island back, or `null` when absent/corrupt. */
+/**
+ * Read a site export's space island back, or `null` when absent/corrupt.
+ * Dual-read: prefer the new `library` key, fall back to the legacy `space` key
+ * so bundles published before LIB-4 still import.
+ */
 export function readLibraryIsland(html: string): LibraryIsland | null {
-  const parsed = readIsland<Partial<LibraryIsland>>(html);
-  if (!parsed || !parsed.space || !Array.isArray(parsed.space.pages)) return null;
+  const parsed = readIsland<LibraryIslandWire>(html);
+  const bundle = parsed?.library ?? parsed?.space;
+  if (!bundle || !Array.isArray(bundle.pages)) return null;
   return {
     version: 1,
-    rootId: parsed.rootId ?? '',
+    rootId: parsed?.rootId ?? '',
     space: {
-      pages: parsed.space.pages,
-      databases: Array.isArray(parsed.space.databases) ? parsed.space.databases : [],
+      pages: bundle.pages,
+      databases: Array.isArray(bundle.databases) ? bundle.databases : [],
     },
   };
 }
@@ -147,15 +180,23 @@ export function libraryToBookFiles(snapshot: LibrarySnapshot, opts: LibraryToBoo
   return files;
 }
 
+/** Match a sidecar file by basename — the new name first, then the legacy one. */
+const isSpaceBundleFile = (path: string): boolean =>
+  path === SPACE_BUNDLE_FILE ||
+  path.endsWith(`/${SPACE_BUNDLE_FILE}`) ||
+  path === LEGACY_SPACE_BUNDLE_FILE ||
+  path.endsWith(`/${LEGACY_SPACE_BUNDLE_FILE}`);
+
 /**
- * Reconstruct a space from a folder's files. Prefers the lossless
- * {@link SPACE_BUNDLE_FILE} when present; otherwise falls back to parsing the
- * `.html` files into a flat list of pages (no databases, no nesting — the most
- * a human-readable folder can recover). Returns `null` if nothing parseable was
- * found, so the caller can surface "not an OpenBook folder".
+ * Reconstruct a space from a folder's files. Prefers the lossless structured
+ * sidecar ({@link SPACE_BUNDLE_FILE}, or the legacy {@link LEGACY_SPACE_BUNDLE_FILE}
+ * for folders exported before LIB-4) when present; otherwise falls back to
+ * parsing the `.html` files into a flat list of pages (no databases, no nesting
+ * — the most a human-readable folder can recover). Returns `null` if nothing
+ * parseable was found, so the caller can surface "not an OpenBook folder".
  */
 export function parseBookFolder(files: BookFolderFile[]): LibrarySnapshot | null {
-  const bundle = files.find((f) => f.path === SPACE_BUNDLE_FILE || f.path.endsWith(`/${SPACE_BUNDLE_FILE}`));
+  const bundle = files.find((f) => isSpaceBundleFile(f.path));
   if (bundle) {
     try {
       const parsed = JSON.parse(bundle.contents) as Partial<LibrarySnapshot>;

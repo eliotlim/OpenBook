@@ -67,6 +67,31 @@ describe('space island (site export)', () => {
     expect(parsed.space.pages.find((p) => p.id === 'kid')?.parentId).toBe('root');
   });
 
+  it('writes the NEW `library` island key (LIB-4), never the legacy `space` key', () => {
+    // The wire payload is what already-published readers key off, so assert the
+    // serialized JSON directly (readIslandRaw is still `<\/`-escaped, JSON.parse
+    // unescapes it).
+    const html = `<html><body>${libraryIslandScript('root', space)}</body></html>`;
+    const payload = JSON.parse(readIslandRaw(html)!) as Record<string, unknown>;
+    expect(payload.library).toBeDefined();
+    expect(payload.space).toBeUndefined();
+    expect(payload.rootId).toBe('root');
+  });
+
+  it('dual-read: still imports a legacy island that carries the old `space` key', () => {
+    // A pre-LIB-4 export embedded `{version, rootId, space}` — the exact shape the
+    // old writer produced. Build that fixture with the generic islandScript and
+    // prove the current reader recovers it.
+    const legacyHtml = `<html><body>${islandScript({version: 1, rootId: 'root', space})}</body></html>`;
+    expect(legacyHtml).toContain('"space"');
+    expect(legacyHtml).not.toContain('"library"');
+    const parsed = readLibraryIsland(legacyHtml)!;
+    expect(parsed).not.toBeNull();
+    expect(parsed.rootId).toBe('root');
+    expect(parsed.space).toEqual(space);
+    expect(parsed.space.pages.find((p) => p.id === 'kid')?.parentId).toBe('root');
+  });
+
   it('returns null when the island is not a space bundle', () => {
     const pageIsland = islandScript({version: 1, id: 'x', data: {}});
     expect(readLibraryIsland(pageIsland)).toBeNull();

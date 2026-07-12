@@ -75,7 +75,7 @@ export interface AccountPlatform {
 
 /**
  * How the host reads/writes an on-disk book folder (the human-readable
- * `<book>/<page>.html` layout, lossless `openbook.space.json` sidecar). The
+ * `<book>/<page>.html` layout, lossless `openbook.library.json` sidecar). The
  * desktop supplies a native dialog + filesystem implementation; the web shell
  * leaves this undefined and the UI falls back to the File System Access API
  * (with a zip download/upload fallback for browsers that lack it).
