@@ -284,7 +284,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
           <CardCover src={cover} heightClass={GALLERY_COVER[size]} icon={readPageIcon(row.id)} />
           <div className="flex flex-col gap-2 px-3 pb-3">
             <div className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</div>
-            <RowChips row={row} properties={cardProps} rows={db.rows} />
+            <RowChips row={row} properties={cardProps} rows={db.rollupRows} />
           </div>
         </button>
       </RowContextMenu>
@@ -454,7 +454,7 @@ const BoardColumnCards: React.FC<{
                 <span className="truncate text-sm font-medium">{row.name?.trim() || 'Untitled'}</span>
                 <PanelRightOpen className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/0 transition group-hover:text-muted-foreground/60" />
               </div>
-              <RowChips row={row} properties={cardProps} rows={db.rows} />
+              <RowChips row={row} properties={cardProps} rows={db.rollupRows} />
             </div>
           </RowContextMenu>
         );
@@ -1133,7 +1133,7 @@ export const CalendarView: React.FC<{
                           <PageIcon value={readPageIcon(row.id)} className="shrink-0 leading-none" />
                           <span className="truncate">{row.name?.trim() || 'Untitled'}</span>
                         </span>
-                        {tileProps.length > 0 && <RowChips row={row} properties={tileProps} rows={db.rows} />}
+                        {tileProps.length > 0 && <RowChips row={row} properties={tileProps} rows={db.rollupRows} />}
                       </button>
                     </RowContextMenu>
                   );

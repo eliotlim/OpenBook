@@ -27,7 +27,7 @@ test('gallery: lists every template with names and descriptions', {tag: ['@shell
   await hydrated(page);
   await openGallery(page);
 
-  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck', 'Compound growth']) {
+  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck', 'Compound growth', 'Team status dashboard', 'Product HQ']) {
     await expect(page.getByRole('button', {name: new RegExp(name)})).toBeVisible();
   }
   await takeSnapshot(page, testInfo); // visual: the template gallery
@@ -158,6 +158,69 @@ test('compound growth: the sample document as a fresh gallery copy', {tag: ['@sh
   await expect(chart).toBeVisible();
   await expect(chart.locator('svg polyline')).toHaveCount(4);
   await expect(chart.locator('.obe-chart-legend text', {hasText: '10%'})).toBeVisible();
+});
+
+test('team status dashboard: a locked, synced panel stays live while its text freezes', {tag: ['@shell']}, async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'team-status');
+
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Team status dashboard/);
+
+  // The Pulse group is locked: its text is frozen (contenteditable off) even
+  // though the page around it stays editable…
+  const group = page.locator('.obe-group-locked');
+  await expect(group).toBeVisible();
+  await expect(group.locator('[data-block-text="td-g-note"]')).toHaveAttribute('contenteditable', 'false');
+  await expect(page.locator('[data-block-text="td-tag"]')).toHaveAttribute('contenteditable', 'true');
+
+  // …but its controls stay live (the interactive exemption): the kudos button
+  // steps the counter, and the formula + toggle both feed the morale readout.
+  const toggle = group.getByRole('switch');
+  await expect(toggle).toBeEnabled();
+  await expect(group.locator('.obe-formula-out')).toHaveText('25'); // 2 kudos × 10 + on-call 5
+  // The momentum light reads the (namespaced) kudos count: it loads amber —
+  // 2 is below ok-at 3 but at/above warn-at 1.
+  await expect(group.locator('.obe-kit-status')).toHaveAttribute('data-status', 'warn');
+  await group.getByRole('button', {name: 'Give kudos'}).click();
+  await expect(page.getByLabel('kudos value')).toHaveValue('3');
+  await expect(group.locator('.obe-formula-out')).toHaveText('35');
+  // …and the Give-kudos click flips it green: 3 ≥ ok-at 3.
+  await expect(group.locator('.obe-kit-status')).toHaveAttribute('data-status', 'ok');
+  await toggle.click(); // still operable under the lock
+  await expect(group.locator('.obe-formula-out')).toHaveText('30');
+
+  // The funnel chart (a kind no other template uses) and the tabs container.
+  await expect(page.locator('.obe-kit-chart[data-chart-kind="funnel"]')).toBeVisible();
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  await page.getByRole('tab', {name: 'Next week'}).click();
+  await expect(page.getByText('Rotate the on-call')).toBeVisible();
+});
+
+test('product hq: two databases linked by a relation, rolled up, and chained on a timeline', {tag: ['@shell']}, async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'product-hq');
+
+  // Lands on the Initiatives table. The relation chips resolve TASK titles
+  // from the other database…
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Product HQ/);
+  const table = page.getByRole('table');
+  await expect(table.getByText('Ship onboarding checklist')).toBeVisible();
+  await expect(table.getByText('Migrate legacy invoices')).toBeVisible();
+  // …and the rollups fold the linked tasks: % done per initiative (1 of 2
+  // onboarding tasks; 0 of 2 performance; 1 of 1 billing).
+  await expect(table.getByText('50%', {exact: true})).toBeVisible();
+  await expect(table.getByText('0%', {exact: true})).toBeVisible();
+  await expect(table.getByText('100%', {exact: true})).toBeVisible();
+
+  // The Tasks database is a sub-page; it opens on a timeline whose dependency
+  // property draws the two seeded blocked-by arrows.
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByPlaceholder(/Search pages or run a command/).fill('Product HQ Tasks');
+  await page.getByRole('option', {name: /Product HQ Tasks/}).first().click();
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Product HQ.*Tasks/);
+  await expect(page.getByRole('button', {name: 'Timeline', exact: true})).toBeVisible();
+  await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(5);
+  await expect(page.locator('svg path[marker-end]')).toHaveCount(2);
 });
 
 test('instantiating a template twice suffixes the page and row names (names are unique)', {tag: ['@shell']}, async ({page}) => {

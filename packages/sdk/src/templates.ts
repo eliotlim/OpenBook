@@ -1,6 +1,7 @@
 import type {DataClient} from './client';
 import type {PageSnapshot, StoredPage} from './types';
 import type {DatabaseSchema} from './database';
+import {TITLE_PROPERTY_ID} from './database';
 import {buildSampleDocument} from './sampleDocument';
 
 /**
@@ -33,7 +34,7 @@ export type TemplateTag = 'interactive' | 'slides' | 'database';
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
-  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth';
+  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth' | 'team-status' | 'product-hq';
   /** Emoji shown on the gallery card and applied to the created page. */
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
@@ -432,6 +433,93 @@ const PITCH_DECK_BLOCKS = [
   {id: 'pd-notes-5', type: 'notes', text: [{t: 'Close with the concrete next step: a 30-minute working session in the live model this week. Stop talking after the ask.'}]},
 ];
 
+// ── 🚦 Team status dashboard ─────────────────────────────────────────────────
+// The kit-breadth showcase, as a single-page dashboard (no slides): a **locked
+// group** whose controls stay live for readers (toggle, dropdown, a kudos
+// counter driven by an action button, a formula and a status light reading it),
+// a **funnel** chart (a kind no other template uses), a **tabs** container, and
+// a cross-page **sync** key — the same Pulse group pasted on another page stays
+// in lockstep under `team-pulse`.
+const TEAM_STATUS_BLOCKS = [
+  {id: 'td-tag', type: 'paragraph', text: [{t: 'One page the whole team reads: a '}, {t: 'locked', a: {b: true}}, {t: ' Pulse panel whose controls stay live, a delivery funnel, and the week’s rituals in tabs.'}]},
+  {id: 'td-call', type: 'callout', text: [{t: 'The Pulse group is locked (the 🔒 in its header): its text and layout are frozen, but readers keep every control. It also syncs across pages under the sync key “team-pulse” — paste the same group on another page and the two stay in lockstep.'}], props: {variant: 'info'}},
+
+  // The locked, synced control panel.
+  {id: 'td-h2', type: 'heading', text: [{t: 'Team pulse'}], props: {level: 2}},
+  {
+    id: 'td-group',
+    type: 'group',
+    props: {name: 'Pulse', locked: true, sync: 'team-pulse'},
+    children: [
+      {id: 'td-g-note', type: 'paragraph', text: [{t: 'This panel is locked — this very sentence can’t be edited in place — yet every control below still works.'}]},
+      {id: 'td-oncall', type: 'toggle', props: {name: 'onCall', label: 'On-call rotation active', value: true}},
+      {id: 'td-focus', type: 'dropdown', props: {name: 'focus', label: 'Focus this week', value: 'shipping', opts: [{label: 'Shipping'}, {label: 'Stability'}, {label: 'Growth'}]}},
+      {id: 'td-kudos', type: 'number', props: {name: 'kudos', label: 'Kudos given', value: 2, min: 0, max: 99, step: 1}},
+      {id: 'td-give', type: 'actionbutton', props: {btnlabel: 'Give kudos', action: 'increment', target: 'kudos', amount: 1}},
+      // Inputs inside a named group publish namespaced — pulse.kudos.value —
+      // which is exactly what this formula (and the light below) read.
+      {id: 'td-score', type: 'formula', props: {name: 'morale', source: 'pulse.kudos.value * 10 + (pulse.onCall.value ? 5 : 0)'}},
+      {id: 'td-light', type: 'statuslight', props: {label: 'Momentum', source: 'pulse.kudos.value', okAt: 3, warnAt: 1}},
+    ],
+  },
+
+  // The delivery funnel: a chart kind no other template exercises.
+  {id: 'td-h3', type: 'heading', text: [{t: 'Delivery pipeline'}], props: {level: 2}},
+  {id: 'td-pipe', type: 'code', text: [{t: '({Ideas: 24, Building: 12, "In review": 7, Shipped: shipped})'}], props: {live: true, name: 'pipeline', language: 'js', collapsed: true}},
+  {
+    id: 'td-cols',
+    type: 'columns',
+    children: [
+      {
+        id: 'td-col-l',
+        type: 'column',
+        props: {span: 5},
+        children: [
+          {id: 'td-shipped', type: 'number', props: {name: 'shipped', label: 'Shipped this quarter', value: 5, min: 0, max: 50, step: 1}},
+          {id: 'td-tip', type: 'tooltipcard', props: {term: 'Funnel', tip: 'Each stage narrows: ideas → building → review → shipped. Step the shipped count and the funnel redraws.'}},
+        ],
+      },
+      {
+        id: 'td-col-r',
+        type: 'column',
+        props: {span: 7},
+        children: [
+          {id: 'td-funnel', type: 'kitchart', props: {kind: 'funnel', title: 'Ideas → Shipped', source: 'pipeline'}},
+        ],
+      },
+    ],
+  },
+
+  // The week's rituals, in a tabs container.
+  {id: 'td-h4', type: 'heading', text: [{t: 'Rituals'}], props: {level: 2}},
+  {
+    id: 'td-tabs',
+    type: 'tabs',
+    props: {name: 'Rituals', active: 0},
+    children: [
+      {
+        id: 'td-tab-week',
+        type: 'tab',
+        props: {label: 'This week'},
+        children: [
+          {id: 'td-t1', type: 'todo', text: [{t: 'Monday kick-off — pick the focus in the Pulse panel'}], props: {checked: true}},
+          {id: 'td-t2', type: 'todo', text: [{t: 'Thursday demo — show, don’t tell'}], props: {checked: false}},
+        ],
+      },
+      {
+        id: 'td-tab-next',
+        type: 'tab',
+        props: {label: 'Next week'},
+        children: [
+          {id: 'td-n1', type: 'list', text: [{t: 'Rotate the on-call — flip the Pulse toggle'}], props: {kind: 'bullet'}},
+          {id: 'td-n2', type: 'list', text: [{t: 'Reset the kudos counter at retro'}], props: {kind: 'bullet'}},
+        ],
+      },
+    ],
+  },
+  {id: 'td-call2', type: 'callout', text: [{t: 'Make it yours: rename the Pulse group, change its sync key, and unlock it (the 🔓 in the group header) to re-arrange the controls.'}], props: {variant: 'success'}},
+];
+
 // ════════════════════════════════════════════════════════════════════════════
 // Databases (the task board, reading list, and the swimlane + map e2e fixtures)
 // ════════════════════════════════════════════════════════════════════════════
@@ -625,6 +713,97 @@ const FIELD_MAP_ROWS = [
   {name: 'Sydney partner', properties: {p_region: 'opt_apac', p_kind: 'opt_partner', p_headcount: 15, p_address: 'Circular Quay, Sydney', p_place: {lat: -33.8610, lng: 151.2100, label: 'Sydney partner'}}},
 ];
 
+// ── 🎯 Product HQ ────────────────────────────────────────────────────────────
+// Two databases wired together: Initiatives (the page you land on) and Tasks
+// (a sub-page). A 1:n relation links them BOTH ways (forward `Tasks` column +
+// reverse `Initiative` column), two rollups on Initiatives fold the linked
+// tasks (% done + task count), and a `dependency` property chains the tasks —
+// surfaced as arrows on the Tasks page's timeline view.
+
+/** Initiatives: status + the forward 1:n relation to Tasks + two rollups over it. */
+const productHqInitiativesSchema = (tasksDbId: string): DatabaseSchema => ({
+  properties: [
+    {
+      id: 'p_status',
+      name: 'Status',
+      type: 'status',
+      options: [
+        {id: 'opt_next', label: 'Up next', color: 'gray', group: 'todo'},
+        {id: 'opt_track', label: 'On track', color: 'blue', group: 'in_progress'},
+        {id: 'opt_risk', label: 'At risk', color: 'red', group: 'in_progress'},
+        {id: 'opt_shipped', label: 'Shipped', color: 'green', group: 'complete'},
+      ],
+    },
+    // The forward side of the two-way link: one initiative → many tasks.
+    {id: 'p_tasks', name: 'Tasks', type: 'relation', relationDatabaseId: tasksDbId, relationCardinality: '1:n', reversePropertyId: 'p_initiative'},
+    // Rollups fold the linked tasks: how done, and how many.
+    {id: 'p_progress', name: 'Progress', type: 'rollup', rollup: {relationPropertyId: 'p_tasks', targetPropertyId: 'p_done', function: 'percent_checked'}},
+    {id: 'p_count', name: 'Task count', type: 'rollup', rollup: {relationPropertyId: 'p_tasks', targetPropertyId: TITLE_PROPERTY_ID, function: 'count'}},
+  ],
+  views: [
+    // The table leads (relation chips + rollups in one glance); a board backs it.
+    {id: 'v_table', name: 'Table', type: 'table', filters: [], sorts: []},
+    {id: 'v_board', name: 'Board', type: 'board', filters: [], sorts: [], groupByPropertyId: 'p_status'},
+  ],
+});
+
+/** Tasks: the reverse (single) side of the relation, a Done checkbox the
+ *  rollup folds, a date range, and the dependency chain the timeline draws. */
+const productHqTasksSchema = (initiativesDbId: string): DatabaseSchema => ({
+  properties: [
+    {id: 'p_initiative', name: 'Initiative', type: 'relation', relationDatabaseId: initiativesDbId, relationSingle: true, reversePropertyId: 'p_tasks'},
+    {id: 'p_owner', name: 'Owner', type: 'text'},
+    {id: 'p_done', name: 'Done', type: 'checkbox'},
+    {id: 'p_when', name: 'When', type: 'date', dateRange: true},
+    {id: 'p_blockedby', name: 'Blocked by', type: 'dependency'},
+  ],
+  views: [
+    // Timeline first: bars from the `When` range, dependency arrows from
+    // `Blocked by` (predecessor end → dependent start).
+    {id: 'v_timeline', name: 'Timeline', type: 'timeline', filters: [], sorts: [], datePropertyId: 'p_when', dependencyPropertyId: 'p_blockedby'},
+    {id: 'v_table', name: 'Table', type: 'table', filters: [], sorts: []},
+  ],
+});
+
+/** Build the two databases, then seed rows across both so the relation, the
+ *  rollups, and the dependency arrows all render non-empty out of the box. */
+const createProductHq = async (client: DataClient, name: string): Promise<StoredPage> => {
+  // Pre-minted ids let each schema reference the OTHER database with no
+  // second-pass schema update (createDatabase honours a client-supplied id).
+  const initiativesDbId = globalThis.crypto.randomUUID();
+  const tasksDbId = globalThis.crypto.randomUUID();
+  const tasksName = `${name} Tasks`;
+
+  const page = await client.savePage({name, data: emptySnapshot([])});
+  const tasksPage = await client.savePage({name: tasksName, data: emptySnapshot([]), parentId: page.id});
+  await client.createDatabase({id: initiativesDbId, pageId: page.id, name, schema: productHqInitiativesSchema(tasksDbId)});
+  await client.createDatabase({id: tasksDbId, pageId: tasksPage.id, name: tasksName, schema: productHqTasksSchema(initiativesDbId)});
+
+  const seedRow = async (dbId: string, rowName: string, properties: Record<string, unknown>): Promise<string> =>
+    (await client.createRow(dbId, {name: rowName, properties})).id;
+
+  // Initiatives first (the tasks link back to them)…
+  const revamp = await seedRow(initiativesDbId, 'Onboarding revamp', {p_status: 'opt_track'});
+  const perf = await seedRow(initiativesDbId, 'Performance push', {p_status: 'opt_risk'});
+  const billing = await seedRow(initiativesDbId, 'Billing v2', {p_status: 'opt_shipped'});
+
+  // …then the tasks: linked 1:n, dated for the timeline, chained by `Blocked by`.
+  const t1 = await seedRow(tasksDbId, 'Ship onboarding checklist', {p_initiative: [revamp], p_owner: 'Ada', p_done: true, p_when: {start: day(-10), end: day(-3)}});
+  const t2 = await seedRow(tasksDbId, 'Guided first-run tour', {p_initiative: [revamp], p_owner: 'Lin', p_done: false, p_when: {start: day(-2), end: day(6)}, p_blockedby: [t1]});
+  const t3 = await seedRow(tasksDbId, 'Profile the hot paths', {p_initiative: [perf], p_owner: 'Sam', p_done: false, p_when: {start: day(1), end: day(5)}});
+  const t4 = await seedRow(tasksDbId, 'Cache the page list', {p_initiative: [perf], p_owner: 'Sam', p_done: false, p_when: {start: day(6), end: day(12)}, p_blockedby: [t3]});
+  const t5 = await seedRow(tasksDbId, 'Migrate legacy invoices', {p_initiative: [billing], p_owner: 'Lin', p_done: true, p_when: {start: day(-20), end: day(-12)}});
+
+  // Mirror the reverse side of the two-way link. Seeding writes both sides
+  // explicitly — the live mirror only runs on relation-cell edits. (updateRow
+  // replaces the whole properties bag, so re-send the status too.)
+  await client.updateRow(initiativesDbId, revamp, {properties: {p_status: 'opt_track', p_tasks: [t1, t2]}});
+  await client.updateRow(initiativesDbId, perf, {properties: {p_status: 'opt_risk', p_tasks: [t3, t4]}});
+  await client.updateRow(initiativesDbId, billing, {properties: {p_status: 'opt_shipped', p_tasks: [t5]}});
+
+  return page;
+};
+
 // ── The gallery ──────────────────────────────────────────────────────────────
 
 /** Create a block-editor template page from a JSON block projection. */
@@ -668,6 +847,8 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'roadmap', icon: '🗺️', pageName: 'Product roadmap', tags: ['database'], create: createDatabasePage(ROADMAP_SCHEMA, ROADMAP_ROWS)},
   {id: 'field-map', icon: '📍', pageName: 'Field map', tags: ['database'], create: createDatabasePage(FIELD_MAP_SCHEMA, FIELD_MAP_ROWS)},
   {id: 'pitch-deck', icon: '📽️', pageName: 'Pitch deck', tags: ['interactive', 'slides'], create: createBlockDocPage(PITCH_DECK_BLOCKS)},
+  {id: 'team-status', icon: '🚦', pageName: 'Team status dashboard', tags: ['interactive'], create: createBlockDocPage(TEAM_STATUS_BLOCKS)},
+  {id: 'product-hq', icon: '🎯', pageName: 'Product HQ', tags: ['database'], create: createProductHq},
   // The classic sample document, folded into the gallery. Unlike the Home
   // starter's open-or-create (which targets the canonical sample name and never
   // overwrites), the gallery card always mints a FRESH copy under its own

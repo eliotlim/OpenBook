@@ -560,6 +560,14 @@ export const zh: PartialMessages = {
       name: '复利增长',
       description: '拖动月数滑块，实时观看 1 英镑以 3/5/7/10% 复利增长——经典示例文档的全新副本。',
     },
+    teamStatus: {
+      name: '团队状态仪表盘',
+      description: '锁定后控件仍可操作、并跨页面同步的控制面板，外加交付漏斗图和按标签页整理的每周例行事项。',
+    },
+    productHq: {
+      name: '产品总部',
+      description: '两个互联数据库——“计划”与“任务”——通过双向关联相连、汇总完成度，并在时间线上呈现依赖关系。',
+    },
   },
   blocks: {
     subpagePage: '页面',

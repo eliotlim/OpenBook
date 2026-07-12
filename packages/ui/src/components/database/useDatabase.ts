@@ -91,6 +91,21 @@ export interface UseDatabase {
   loading: boolean;
   /** All rows (unfiltered), in manual order. */
   rows: DatabaseRow[];
+  /**
+   * {@link rows} plus the rows of any OTHER database a rollup folds (a rollup
+   * whose relation property targets another database). Pass THIS set when
+   * resolving cell values for display, so a cross-database rollup aggregates
+   * real rows instead of an empty lookup; same-database resolution is
+   * unaffected (row ids are globally unique).
+   */
+  rollupRows: DatabaseRow[];
+  /**
+   * The schema's properties plus the foreign databases' (own first, so any
+   * collision resolves locally) — the property list to resolve rollup cells
+   * against, since a cross-database rollup's TARGET property is defined on the
+   * related database's schema, not this one's.
+   */
+  rollupProperties: DatabaseProperty[];
   /** Rows after the active view's filters + sorts + the quick-search query. */
   visibleRows: DatabaseRow[];
   activeView: DatabaseView | null;
@@ -250,6 +265,72 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
       unsubscribe();
     };
   }, [client, database]);
+
+  // Rows AND property definitions of OTHER databases this schema's rollups fold
+  // (a rollup whose relation property targets another database): `computeRollup`
+  // resolves both the related row ids and the rollup's TARGET property, so a
+  // cross-database rollup needs the foreign rows plus the foreign schema. Rows
+  // are kept live like `rows` — checking a related row off in ITS database
+  // updates the rollup here. Same-database rollups (e.g. over a `dependency`)
+  // resolve from `rows` alone; this stays empty for them.
+  const [foreignRows, setForeignRows] = useState<DatabaseRow[]>([]);
+  const [foreignProps, setForeignProps] = useState<DatabaseProperty[]>([]);
+  const foreignDbIds = useMemo(() => {
+    if (!database) return '';
+    const ids = new Set<string>();
+    for (const p of database.schema.properties) {
+      if (p.type !== 'rollup' || !p.rollup) continue;
+      const rel = database.schema.properties.find((q) => q.id === p.rollup?.relationPropertyId);
+      if (rel?.type === 'relation' && rel.relationDatabaseId && rel.relationDatabaseId !== database.id) {
+        ids.add(rel.relationDatabaseId);
+      }
+    }
+    return [...ids].sort().join(','); // a stable key, so the effect runs once per set
+  }, [database]);
+  useEffect(() => {
+    if (!foreignDbIds) {
+      setForeignRows([]);
+      setForeignProps([]);
+      return;
+    }
+    const dbIds = foreignDbIds.split(',');
+    let cancelled = false;
+    const rowsByDb = new Map<string, DatabaseRow[]>();
+    const propsByDb = new Map<string, DatabaseProperty[]>();
+    const apply = (dbId: string, next: DatabaseRow[]): void => {
+      if (cancelled) return;
+      rowsByDb.set(dbId, next);
+      setForeignRows(dbIds.flatMap((id) => rowsByDb.get(id) ?? []));
+    };
+    const unsubscribes = dbIds.map((dbId) => {
+      void client
+        .getDatabase(dbId)
+        .then((db) => {
+          if (cancelled || !db) return;
+          propsByDb.set(dbId, db.schema.properties);
+          setForeignProps(dbIds.flatMap((id) => propsByDb.get(id) ?? []));
+        })
+        .catch(() => undefined);
+      void client
+        .listRows(dbId)
+        .then((initial) => {
+          // A live push may have landed first — never clobber it with the seed.
+          if (!rowsByDb.has(dbId)) apply(dbId, initial);
+        })
+        .catch(() => undefined);
+      return client.subscribeRows(dbId, (next) => apply(dbId, next));
+    });
+    return () => {
+      cancelled = true;
+      unsubscribes.forEach((off) => off());
+    };
+  }, [client, foreignDbIds]);
+  const rollupRows = useMemo(() => (foreignRows.length > 0 ? [...rows, ...foreignRows] : rows), [rows, foreignRows]);
+  // Own properties FIRST, so a name/id collision always resolves locally.
+  const rollupProperties = useMemo(() => {
+    const own = database?.schema.properties ?? [];
+    return foreignProps.length > 0 ? [...own, ...foreignProps] : own;
+  }, [database, foreignProps]);
 
   // Auto-assign sequential numbers to unassigned `unique_id` cells. Convergent:
   // each assignment optimistically updates `rows`, so the next pass sees the new
@@ -938,6 +1019,8 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
     database,
     loading,
     rows,
+    rollupRows,
+    rollupProperties,
     visibleRows,
     activeView,
     setActiveViewId,
