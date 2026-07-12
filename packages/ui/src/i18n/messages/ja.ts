@@ -161,6 +161,8 @@ export const ja: PartialMessages = {
       'このワークスペースはこのブラウザ内にのみ存在し、他の人はアクセスできないため、これらの設定はまだ誰にも影響しません。他の人と共有するには、OpenBook デスクトップアプリからワークスペースを公開してください。',
     enforcementCaveat:
       '招待した人は、公開された book.cloud リンクからこのページをまだ開けない場合があります — 現在順次対応中です。直接アクセスはここで設定したとおりすでに制限されています。',
+    siteRestrictedNotice:
+      'このページは「リンクを知っている全員」に設定されていますが、公開アドレスが「非公開」のため、サインインしていない人は開けません。下でアドレスを「公開」にすると、リンクを知っている全員が開けるようになります。',
     scopeLabel: 'アクセスできる人',
     scopeAdvanced: 'その他のアクセスオプション',
     scope: {
@@ -176,7 +178,7 @@ export const ja: PartialMessages = {
       restrictedHint: 'アクセスをあなたと下で招待した人に制限します。',
     },
     addLabel: '人を招待',
-    addPlaceholder: 'name@example.com または iss#sub',
+    addPlaceholder: 'name@example.com',
     levelLabel: 'アクセス権限',
     levelRead: '閲覧可能',
     levelWrite: '編集可能',
@@ -796,6 +798,14 @@ export const ja: PartialMessages = {
       connecting: '接続中',
       offline: 'オフライン',
     },
+    visibility: {
+      label: '公開アドレス',
+      public: '公開',
+      private: '非公開',
+      publicHint: 'リンクを知っている全員が、サインインしていなくてもこのアドレスを開けます。',
+      privateHint: 'あなたと招待した人だけがこのアドレスを開けます。サインインしていない訪問者は開けません。',
+      error: '公開アドレスを更新できませんでした。もう一度お試しください。',
+    },
   },
   diagnostics: {
     title: '診断',
@@ -885,7 +895,7 @@ export const ja: PartialMessages = {
   },
   members: {
     title: 'ユーザー',
-    description: 'このワークスペースで役割を持つ人。メールまたはハンドルで招待し、管理権限を変更したり、アクセスを削除したりできます。',
+    description: 'このワークスペースで役割を持つ人。メールで招待し、管理権限を変更したり、アクセスを削除したりできます。',
     browserLocalNotice:
       'このワークスペースはこのブラウザ内にのみ存在し、他の人はアクセスできないため、ここで追加した人はまだ開けません。他の人と共有するには、OpenBook デスクトップアプリからワークスペースを公開してください。',
     youUser: '{name} としてサインインしています。',
@@ -902,8 +912,8 @@ export const ja: PartialMessages = {
     lockedRemoveOwner: 'オーナーは削除できません',
     lockedRemoveSelf: '自分自身は削除できません',
     inviteLabel: 'メンバーを招待',
-    inviteHint: 'メールアドレスまたはハンドル（iss#sub）を入力します。メール招待は、その人が初めてサインインしたときに引き継がれます。',
-    invitePlaceholder: 'name@example.com または iss#sub',
+    inviteHint: 'メールアドレスを入力します。メール招待は、その人が初めてサインインしたときに引き継がれます。',
+    invitePlaceholder: 'name@example.com',
     inviteRole: '招待の役割',
     invite: '招待',
     inviteError: '招待できませんでした — {error}',

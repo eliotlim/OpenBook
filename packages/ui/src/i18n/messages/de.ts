@@ -162,6 +162,8 @@ export const de: PartialMessages = {
       'Dieser Arbeitsbereich existiert nur in diesem Browser — niemand sonst kann ihn erreichen, daher wirken sich diese Einstellungen noch auf niemanden aus. Um mit anderen zu teilen, veröffentliche einen Arbeitsbereich über die OpenBook-Desktop-App.',
     enforcementCaveat:
       'Von dir eingeladene Personen können diese Seite über ihren veröffentlichten book.cloud-Link möglicherweise noch nicht öffnen — das wird gerade ausgerollt. Der direkte Zugriff ist bereits wie hier festgelegt eingeschränkt.',
+    siteRestrictedNotice:
+      'Diese Seite ist auf „Jeder mit dem Link“ eingestellt, aber deine veröffentlichte Adresse ist privat — nicht angemeldete Personen werden abgewiesen. Stelle die Adresse unten auf öffentlich, damit jeder mit dem Link sie öffnen kann.',
     scopeLabel: 'Wer hat Zugriff',
     scopeAdvanced: 'Weitere Zugriffsoptionen',
     scope: {
@@ -177,7 +179,7 @@ export const de: PartialMessages = {
       restrictedHint: 'Beschränkt den Zugriff auf dich und die unten eingeladenen Personen.',
     },
     addLabel: 'Personen einladen',
-    addPlaceholder: 'name@example.com oder iss#sub',
+    addPlaceholder: 'name@example.com',
     levelLabel: 'Zugriffsebene',
     levelRead: 'Kann ansehen',
     levelWrite: 'Kann bearbeiten',
@@ -797,6 +799,14 @@ export const de: PartialMessages = {
       connecting: 'Verbinden',
       offline: 'Offline',
     },
+    visibility: {
+      label: 'Veröffentlichte Adresse',
+      public: 'Öffentlich',
+      private: 'Privat',
+      publicHint: 'Jeder mit dem Link kann diese Adresse öffnen, auch nicht angemeldete Personen.',
+      privateHint: 'Nur du und von dir eingeladene Personen können diese Adresse öffnen — nicht angemeldete Besucher werden abgewiesen.',
+      error: 'Die veröffentlichte Adresse konnte nicht aktualisiert werden. Versuche es erneut.',
+    },
   },
   diagnostics: {
     title: 'Diagnose',
@@ -887,7 +897,7 @@ export const de: PartialMessages = {
   },
   members: {
     title: 'Personen',
-    description: 'Personen mit einer Rolle in diesem Arbeitsbereich. Lade per E-Mail oder Handle ein, ändere die Verwaltung und entferne Zugriff.',
+    description: 'Personen mit einer Rolle in diesem Arbeitsbereich. Lade per E-Mail ein, ändere die Verwaltung und entferne Zugriff.',
     browserLocalNotice:
       'Dieser Arbeitsbereich existiert nur in diesem Browser — niemand sonst kann ihn erreichen, daher können hier hinzugefügte Personen ihn noch nicht öffnen. Um mit anderen zu teilen, veröffentliche einen Arbeitsbereich über die OpenBook-Desktop-App.',
     youUser: 'Du bist angemeldet als {name}.',
@@ -904,8 +914,8 @@ export const de: PartialMessages = {
     lockedRemoveOwner: 'Den Eigentümer kannst du nicht entfernen',
     lockedRemoveSelf: 'Dich selbst kannst du nicht entfernen',
     inviteLabel: 'Mitglied einladen',
-    inviteHint: 'Gib eine E-Mail-Adresse oder ein Handle (iss#sub) ein. Eine E-Mail-Einladung wird bei der ersten Anmeldung übernommen.',
-    invitePlaceholder: 'name@example.com oder iss#sub',
+    inviteHint: 'Gib eine E-Mail-Adresse ein. Eine E-Mail-Einladung wird bei der ersten Anmeldung übernommen.',
+    invitePlaceholder: 'name@example.com',
     inviteRole: 'Rolle für die Einladung',
     invite: 'Einladen',
     inviteError: 'Einladung fehlgeschlagen — {error}',

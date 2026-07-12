@@ -55,6 +55,12 @@ vi.mock('@book.dev/sdk', () => ({
       this.onStatus?.('online');
       return {host: 'abc.book.cloud'};
     }
+    async getSiteVisibility() {
+      return 'restricted' as const; // account default; the load effect reads this once online
+    }
+    async setSiteVisibility(v: 'public' | 'restricted') {
+      return v;
+    }
     stop() {}
   },
 }));

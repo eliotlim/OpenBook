@@ -140,3 +140,78 @@ describe('ForwardingClient.mintAttach — single retry on a burnt challenge', ()
     expect(calls['/api/sites/attach-ticket']).toBeUndefined();
   });
 });
+
+/** A method + path aware account fake for the site-visibility GET/PATCH contract. */
+function fakeSiteApi(initial: string) {
+  let visibility = initial;
+  const seen: Array<{method: string; body: Record<string, unknown>}> = [];
+  const fetchImpl: FetchLike = async (_input, init) => {
+    const method = (init?.method ?? 'GET').toUpperCase();
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+    seen.push({method, body});
+    if (method === 'GET') return new Response(JSON.stringify({site: {id: 'site-1', visibility}}), {status: 200});
+    if (method === 'PATCH') {
+      const next = body.visibility;
+      if (typeof next !== 'string' || !['public', 'authenticated', 'members', 'restricted'].includes(next)) {
+        return new Response(JSON.stringify({error: 'visibility must be one of: …'}), {status: 400});
+      }
+      visibility = next;
+      return new Response(JSON.stringify({site: {id: 'site-1', visibility}}), {status: 200});
+    }
+    return new Response(JSON.stringify({error: 'not found'}), {status: 404});
+  };
+  return {fetchImpl, seen, get visibility() { return visibility; }};
+}
+
+function makeClientWith(fetchImpl: FetchLike, keyStore: MemoryKeyStore): ForwardingClient {
+  return new ForwardingClient({accountUrl: ACCOUNT, authToken: 'device-tok', keyStore, localOrigin: 'http://127.0.0.1:1', fetchImpl});
+}
+
+describe('ForwardingClient site visibility', () => {
+  it('reads the account’s current site visibility (GET /api/sites/:id)', async () => {
+    const store = new MemoryKeyStore();
+    await store.save(await makeIdentity());
+    const api = fakeSiteApi('restricted');
+
+    const v = await makeClientWith(api.fetchImpl, store).getSiteVisibility();
+
+    expect(v).toBe('restricted'); // reflects the server, never a local assumption
+    expect(api.seen).toEqual([{method: 'GET', body: {}}]);
+  });
+
+  it('sets visibility via PATCH and returns the persisted scope', async () => {
+    const store = new MemoryKeyStore();
+    await store.save(await makeIdentity());
+    const api = fakeSiteApi('restricted');
+
+    const client = makeClientWith(api.fetchImpl, store);
+    const next = await client.setSiteVisibility('public');
+
+    expect(next).toBe('public');
+    expect(api.visibility).toBe('public');
+    expect(api.seen[api.seen.length - 1]).toEqual({method: 'PATCH', body: {visibility: 'public'}});
+  });
+
+  it('surfaces the account’s 400 for an unknown scope (whitelist stays server-side)', async () => {
+    const store = new MemoryKeyStore();
+    await store.save(await makeIdentity());
+    const api = fakeSiteApi('restricted');
+
+    const err = await makeClientWith(api.fetchImpl, store)
+      .setSiteVisibility('bogus' as never)
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ForwardingApiError);
+    expect((err as ForwardingApiError).status).toBe(400);
+  });
+
+  it('refuses to read visibility before any site is registered (no accidental provision)', async () => {
+    const api = fakeSiteApi('restricted');
+    const err = await makeClientWith(api.fetchImpl, new MemoryKeyStore())
+      .getSiteVisibility()
+      .catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(api.seen).toEqual([]); // never hit the network
+  });
+});

@@ -17,6 +17,7 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Select} from '@/components/ui/select';
 import {copyPageLink} from '@/lib/pageActions';
+import {SiteVisibilityControl} from '@/components/SiteVisibilityControl';
 import {SETTINGS_SECTION_PEOPLE} from '@/lib/hud';
 import {cn} from '@/lib/utils';
 import type {TKey} from '@/i18n';
@@ -212,7 +213,7 @@ function InlinePublish() {
 /**
  * The per-page Share dialog (OB-203) — the hub for "who can access this page".
  * A manager sets the page's audience-scope visibility and grants individual
- * people read/edit access by email or handle, all against the OB-191 per-page
+ * people read/edit access by email, all against the OB-191 per-page
  * API (`setPageVisibility`, `sharePage`/`listPageAcl`/`unsharePage`); it also
  * shows the *effective* workspace default behind `inherit` and links out to
  * the workspace-level Sharing tab (its top, and its People roster section). A non-manager
@@ -229,7 +230,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   // UNLESS the workspace is published, in which case `pageLinkUrl` emits the
   // forwarded host (`publishedHost` is the same predicate that drives the
   // share-link origin registration in ForwardingProvider).
-  const {supported: canPublish, publishedHost} = useForwarding();
+  const {supported: canPublish, publishedHost, siteVisibility} = useForwarding();
   const linkIsLocalOnly = canPublish && !publishedHost;
   // The standalone web app's in-browser store (P0-4): the workspace lives only in
   // this browser profile, so nothing set here can reach another person and a
@@ -510,6 +511,28 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                 </p>
               )}
             </div>
+
+            {/* Published-address audience scope (SHR-8). The *.book.cloud address
+                carries its OWN scope on the account — Private (`restricted`) by
+                default — and the edge serves ONLY a Public address anonymously. So a
+                page set "Anyone with the link" is STILL bounced for signed-out
+                visitors until the ADDRESS is Public too. Rather than silently imply
+                the link works, call out the mismatch and offer the one flip that
+                fixes it, right beside the address toggle. Owner-only + only while
+                this device is actually publishing (`publishedHost`). */}
+            {canManage && publishedHost && siteVisibility && (
+              <div className="flex flex-col gap-2">
+                {scope === 'public' && siteVisibility !== 'public' && (
+                  <p
+                    aria-live="polite"
+                    className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground"
+                  >
+                    {t('share.siteRestrictedNotice')}
+                  </p>
+                )}
+                <SiteVisibilityControl />
+              </div>
+            )}
 
             {/* Add a person (managers only — read-only viewers still see the roster below) */}
             {canManage && (

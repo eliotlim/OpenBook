@@ -228,6 +228,8 @@ export const en = {
       'This workspace lives only in this browser — no one else can reach it, so these settings can’t take effect for anyone else yet. To share with others, publish a workspace from the OpenBook desktop app.',
     enforcementCaveat:
       'People you invite may not be able to open this page through its published book.cloud link yet — that’s rolling out. Direct access is already limited as set here.',
+    siteRestrictedNotice:
+      'This page is set to “Anyone with the link”, but your published address is Private — so people who aren’t signed in are turned away. Make the address Public below for anyone with the link to open it.',
     scopeLabel: 'Who can access',
     scopeAdvanced: 'More access options',
     scope: {
@@ -243,7 +245,7 @@ export const en = {
       restrictedHint: 'Limits access to you and the people you invite below.',
     },
     addLabel: 'Invite people',
-    addPlaceholder: 'name@example.com or iss#sub',
+    addPlaceholder: 'name@example.com',
     levelLabel: 'Access level',
     levelRead: 'Can view',
     levelWrite: 'Can edit',
@@ -1192,6 +1194,16 @@ export const en = {
       connecting: 'Connecting',
       offline: 'Offline',
     },
+    // Address-level audience scope (SHR-8): the published *.book.cloud address is
+    // Private by default; only a Public address opens for people who aren’t signed in.
+    visibility: {
+      label: 'Published address',
+      public: 'Public',
+      private: 'Private',
+      publicHint: 'Anyone with the link can open this address, including people who aren’t signed in.',
+      privateHint: 'Only you and people you invite can open this address — signed-out visitors are turned away.',
+      error: 'Couldn’t update the published address. Try again.',
+    },
   },
   diagnostics: {
     title: 'Diagnostics',
@@ -1304,7 +1316,7 @@ export const en = {
   members: {
     // The roster is now the "People" section of the merged Sharing tab (SHR-5).
     title: 'People',
-    description: 'People with a role on this workspace. Invite by email or handle, change who can manage, and remove access.',
+    description: 'People with a role on this workspace. Invite by email, change who can manage, and remove access.',
     browserLocalNotice:
       'This workspace lives only in this browser — no one else can reach it, so people you add here can’t open it yet. To share with others, publish a workspace from the OpenBook desktop app.',
     youUser: 'You’re signed in as {name}.',
@@ -1321,8 +1333,8 @@ export const en = {
     lockedRemoveOwner: 'You can’t remove the owner',
     lockedRemoveSelf: 'You can’t remove yourself',
     inviteLabel: 'Invite a member',
-    inviteHint: 'Enter an email address or a handle (iss#sub). An email invite is claimed when that person first signs in.',
-    invitePlaceholder: 'name@example.com or iss#sub',
+    inviteHint: 'Enter an email address. An email invite is claimed when that person first signs in.',
+    invitePlaceholder: 'name@example.com',
     inviteRole: 'Role for the invite',
     invite: 'Invite',
     inviteError: 'Couldn’t invite — {error}',
