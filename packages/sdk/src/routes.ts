@@ -188,12 +188,18 @@ export const API = {
    */
   pageVisibility: (id: string): string => `/api/pages/${encodeURIComponent(id)}/visibility`,
 
-  // ── Managed workspace: instance ↔ workspace roster sync — OB-199 ─────────────
+  // ── Managed library: instance ↔ library roster sync — OB-199 / LIB-5 ─────────
   /**
    * On-demand roster sync of a managed instance: `GET` reports the binding +
-   * last-sync status; `POST` pulls the bound workspace roster from the account and
+   * last-sync status; `POST` pulls the bound library roster from the account and
    * reconciles it into the local roster (managed rows only). Instance-writer
    * (owner/admin/loopback) only. The same sync also runs periodically.
+   */
+  librarySync: '/api/library/sync',
+  /**
+   * Legacy alias of {@link librarySync} (LIB-5 renamed `/api/workspace/sync` →
+   * `/api/library/sync`). Kept live so a not-yet-updated caller still resolves;
+   * both paths hit the same handler. Retire only in the last, reversible phase.
    */
   workspaceSync: '/api/workspace/sync',
 

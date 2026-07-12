@@ -22,11 +22,18 @@ export {mintSiteKeypair, signWithSiteKey, verifyWithSiteKey, type SiteKeypair} f
 export {
   signRosterAssertion,
   verifyRosterAssertion,
+  isAcceptedRosterVersion,
   ROSTER_ASSERTION_VERSION,
+  ROSTER_ASSERTION_V2,
+  ACCEPTED_ROSTER_VERSIONS,
   ROSTER_ASSERTION_SKEW_MS,
+  type RosterAssertionVersion,
   type RosterAssertionPayload,
+  type RosterAssertionV1Payload,
+  type RosterAssertionV2Payload,
   type SignRosterAssertionInput,
   type VerifyRosterAssertionInput,
+  type VerifiedRosterAssertion,
 } from './rosterAssertion';
 export {
   buildAttachMessage,

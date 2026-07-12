@@ -73,41 +73,42 @@ export interface InstanceConfig {
    */
   emailAuthority?: string;
   /**
-   * When this instance is a MANAGED workspace (OB-199), the account workspace it
-   * is bound to. Set, the periodic roster sync projects that workspace's roster
-   * (admins / viewers + the workspace owner) into the local `members` table so
+   * When this instance is a MANAGED library (OB-199), the account library it
+   * is bound to. Set, the periodic roster sync projects that library's roster
+   * (admins / viewers + the library owner) into the local `members` table so
    * `members`-scope + admin/viewer roles resolve for direct (non-edge) access too.
    * Unset ⇒ a standalone instance; the sync is inert. Additive — absence is the
    * pre-OB-199 single-instance behaviour. Holds non-secret COORDINATES only; the
    * credential the instance presents to read the roster is supplied out-of-band
-   * (never persisted in policy). See {@link WorkspaceBinding}.
+   * (never persisted in policy). See {@link LibraryBinding}.
    */
-  workspaceBinding?: WorkspaceBinding;
+  libraryBinding?: LibraryBinding;
 }
 
 /**
- * Binds a managed instance to an account workspace (OB-199). Non-secret
- * coordinates only — the roster-read credential is injected at runtime, never
- * stored here. Set by the owner (via the instance-policy route) or learned during
- * the forwarding/claim flow.
+ * Binds a managed instance to an account library (OB-199; LIB-5 renamed from
+ * `WorkspaceBinding`). Non-secret coordinates only — the roster-read credential is
+ * injected at runtime, never stored here. Set by the owner (via the instance-policy
+ * route) or learned during the forwarding/claim flow.
  */
-export interface WorkspaceBinding {
-  /** The account workspace id this instance serves. */
-  workspaceId: string;
+export interface LibraryBinding {
+  /** The account library id this instance serves (renamed from `workspaceId`; SAME id value). */
+  libraryId: string;
   /**
-   * Base URL of the account that owns the workspace (where the roster lives).
+   * Base URL of the account that owns the library (where the roster lives).
    * Defaults to the instance `emailAuthority` (account.book.pub) when omitted.
    */
   accountBaseUrl?: string;
 }
 
 /**
- * One entry of the account workspace roster (OB-197 contract), as consumed by the
- * OB-199 sync. Identifies a member by a bound `subject` (`iss#sub`) and/or a
- * persona `email`, with the workspace role. The account is the producer; the
- * instance only reads this shape (it never writes the account).
+ * One entry of the account library roster (OB-197 contract; LIB-5 renamed from
+ * `WorkspaceRosterEntry`), as consumed by the OB-199 sync. Identifies a member by a
+ * bound `subject` (`iss#sub`) and/or a persona `email`, with the library role. The
+ * account is the producer; the instance only reads this shape (it never writes the
+ * account).
  */
-export interface WorkspaceRosterEntry {
+export interface LibraryRosterEntry {
   /** Bound `iss#sub` of the member, when the account exposes it. */
   subject?: string;
   /** Persona email (any case; lowercased on sync). */
@@ -116,17 +117,18 @@ export interface WorkspaceRosterEntry {
 }
 
 /**
- * The account workspace roster returned by `GET /api/workspaces/:id/members`
- * (OB-197), as consumed by the OB-199 sync. `ownerSubject` is the workspace
- * owner's bound subject (`iss#sub`) — admitted as an admin even when it differs
- * from the instance's own site owner (OB-198 F2), so the workspace owner is never
- * locked out of a workspace they own.
+ * The account library roster returned by `GET /api/libraries/:id/roster`
+ * (OB-197; LIB-5 renamed from `WorkspaceRoster`), as consumed by the OB-199 sync.
+ * `ownerSubject` is the library owner's bound subject (`iss#sub`) — admitted as an
+ * admin even when it differs from the instance's own site owner (OB-198 F2), so the
+ * library owner is never locked out of a library they own.
  */
-export interface WorkspaceRoster {
-  workspaceId: string;
-  /** Bound `iss#sub` of the workspace owner (admitted as admin). */
+export interface LibraryRoster {
+  /** The account library id (renamed from `workspaceId`; SAME id value). */
+  libraryId: string;
+  /** Bound `iss#sub` of the library owner (admitted as admin). */
   ownerSubject?: string;
-  members: WorkspaceRosterEntry[];
+  members: LibraryRosterEntry[];
 }
 
 export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {

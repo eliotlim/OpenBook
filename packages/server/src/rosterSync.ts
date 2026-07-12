@@ -1,11 +1,12 @@
 /**
- * Managed-workspace roster sync (OB-199) — the instance side of "bind instance ↔
- * workspace". When an instance is bound to an account workspace
- * ({@link InstanceConfig.workspaceBinding}), this pulls that workspace's roster
- * from the account (`GET /api/workspaces/:id/roster`, the OB-197 contract) and
- * reconciles it into the local `members` table, so the `members`-scope +
- * admin/viewer roles resolve for DIRECT (non-edge) access too and the binding is
- * coherent with what the edge admits (OB-198).
+ * Managed-library roster sync (OB-199; LIB-5 wire rename) — the instance side of
+ * "bind instance ↔ library". When an instance is bound to an account library
+ * ({@link InstanceConfig.libraryBinding}), this pulls that library's roster from
+ * the account (`GET /api/libraries/:id/roster`, the OB-197 contract, with a legacy
+ * `GET /api/workspaces/:id/roster` fallback) and reconciles it into the local
+ * `members` table, so the `members`-scope + admin/viewer roles resolve for DIRECT
+ * (non-edge) access too and the binding is coherent with what the edge admits
+ * (OB-198).
  *
  * Shape mirrors {@link BackupScheduler}: a single low-frequency `setInterval`
  * (`unref`'d so it never holds the process open) plus an on-demand `syncNow()`.
@@ -14,9 +15,9 @@
  * Three invariants:
  *  - **Managed vs local coexist.** Only `source='managed'` rows are written or
  *    removed; the OB-191 local-invite path is never touched. {@link PageStore.syncManagedRoster}.
- *  - **Owner reconcile (OB-198 F2).** The bound workspace's owner is admitted as
+ *  - **Owner reconcile (OB-198 F2).** The bound library's owner is admitted as
  *    an admin even when it differs from the instance's own site owner, so the
- *    workspace owner is never locked out — and the sync never creates, demotes, or
+ *    library owner is never locked out — and the sync never creates, demotes, or
  *    removes a row for the instance's own `ownerSubject` (who already has full
  *    access via the owner short-circuit in `authorize()`).
  *  - **Fail-safe.** A fetch failure keeps the last-good roster (never drops it,
@@ -27,25 +28,25 @@
 import {
   DEFAULT_ACCOUNT_URL,
   type InstanceConfig,
+  type LibraryRoster,
+  type LibraryRosterEntry,
   type MemberRole,
-  type WorkspaceRoster,
-  type WorkspaceRosterEntry,
 } from '@book.dev/sdk';
 import type {ManagedMemberInput, PageStore, RosterSyncResult} from './store';
 
 /**
- * Reads the bound workspace's roster from the account. Injected so the auth
+ * Reads the bound library's roster from the account. Injected so the auth
  * mechanism (the instance's forwarding/site credential, or a device identity) and
  * the transport are wired by the host, and so tests mock the account. Resolves the
  * roster on success; THROWS on any failure (non-OK / network) so the syncer keeps
  * the last-good roster. A successful-but-EMPTY roster is NOT a failure — it
  * legitimately removes all managed rows.
  */
-export type RosterFetcher = (binding: ResolvedBinding, signal?: AbortSignal) => Promise<WorkspaceRoster>;
+export type RosterFetcher = (binding: ResolvedBinding, signal?: AbortSignal) => Promise<LibraryRoster>;
 
 /**
  * Mints a fresh per-instance roster assertion (the `Authorization: Bearer <…>`
- * value) for the bound workspace. INJECTED by the host so the actual signing
+ * value) for the bound library. INJECTED by the host so the actual signing
  * happens in the layer that holds the site private key (the desktop OS keychain),
  * and the raw key never enters the data-server. The data-server only ever sees the
  * resulting opaque bearer string.
@@ -58,11 +59,11 @@ export type RosterFetcher = (binding: ResolvedBinding, signal?: AbortSignal) => 
  * roster retained, `lastError` recorded) — it never falls back to an
  * unauthenticated request.
  */
-export type RosterAssertionProvider = (workspaceId: string) => Promise<string | null> | string | null;
+export type RosterAssertionProvider = (libraryId: string) => Promise<string | null> | string | null;
 
 /** A binding with its account base URL resolved (never null). */
 export interface ResolvedBinding {
-  workspaceId: string;
+  libraryId: string;
   accountBaseUrl: string;
 }
 
@@ -72,11 +73,11 @@ export interface RosterController {
   syncNow(): Promise<RosterSyncResult | null>;
 }
 
-/** Binding + last-sync observability (the `GET /api/workspace/sync` shape). */
+/** Binding + last-sync observability (the `GET /api/library/sync` shape). */
 export interface RosterSyncStatus {
-  /** Whether a workspace binding is configured (the sync is otherwise inert). */
+  /** Whether a library binding is configured (the sync is otherwise inert). */
   bound: boolean;
-  workspaceId: string | null;
+  libraryId: string | null;
   accountBaseUrl: string | null;
   /** ISO time of the last SUCCESSFUL reconcile, or null. */
   lastSyncAt: string | null;
@@ -94,7 +95,7 @@ export interface RosterSyncerOptions {
   /**
    * Abort a single roster fetch after this many ms (Quinn #1). A *hung* (not
    * refused) account endpoint must not block the on-demand `POST
-   * /api/workspace/sync` — nor coalesce every periodic tick onto one stuck run —
+   * /api/library/sync` — nor coalesce every periodic tick onto one stuck run —
    * for the whole interval. On timeout the fetch aborts → the normal fetch-failure
    * path (last-good retained, `lastError` recorded). Default 15s.
    */
@@ -158,7 +159,7 @@ export class RosterSyncer implements RosterController {
     const binding = resolveBinding(await this.store.getInstanceConfig());
     return {
       bound: binding !== null,
-      workspaceId: binding?.workspaceId ?? null,
+      libraryId: binding?.libraryId ?? null,
       accountBaseUrl: binding?.accountBaseUrl ?? null,
       lastSyncAt: this.lastSyncAt,
       lastResult: this.lastResult,
@@ -187,7 +188,7 @@ export class RosterSyncer implements RosterController {
     const binding = resolveBinding(config);
     if (!binding) return null; // not a managed instance — inert
 
-    let roster: WorkspaceRoster;
+    let roster: LibraryRoster;
     // Bound the fetch (Quinn #1): a hung endpoint must abort, not block the run for
     // the whole interval. `unref` so the timer never holds the process open.
     const controller = new AbortController();
@@ -200,7 +201,7 @@ export class RosterSyncer implements RosterController {
       // FAIL-SAFE: keep the last-good roster, never widen access. Record + log. A
       // timeout aborts into this same path (a normal fetch failure).
       this.lastError = err instanceof Error ? err.message : String(err);
-      this.log(`OpenBook workspace roster sync failed (keeping last-good roster): ${this.lastError}`);
+      this.log(`OpenBook library roster sync failed (keeping last-good roster): ${this.lastError}`);
       throw err;
     } finally {
       clearTimeout(timeout);
@@ -215,7 +216,7 @@ export class RosterSyncer implements RosterController {
       // recorded too — the transaction rolls back so the roster stays intact, but
       // an unrecorded throw would leave `lastError`/status stale.
       this.lastError = err instanceof Error ? err.message : String(err);
-      this.log(`OpenBook workspace roster reconcile failed (roster intact): ${this.lastError}`);
+      this.log(`OpenBook library roster reconcile failed (roster intact): ${this.lastError}`);
       throw err;
     }
     this.lastSyncAt = new Date(this.now()).toISOString();
@@ -228,10 +229,10 @@ export class RosterSyncer implements RosterController {
 /** Resolve a binding's account base URL (binding override → emailAuthority →
  *  account.book.pub), or `null` when the instance isn't bound. */
 export function resolveBinding(config: InstanceConfig): ResolvedBinding | null {
-  const binding = config.workspaceBinding;
-  if (!binding?.workspaceId) return null;
+  const binding = config.libraryBinding;
+  if (!binding?.libraryId) return null;
   const accountBaseUrl = (binding.accountBaseUrl ?? config.emailAuthority ?? DEFAULT_ACCOUNT_URL).replace(/\/+$/, '');
-  return {workspaceId: binding.workspaceId, accountBaseUrl};
+  return {libraryId: binding.libraryId, accountBaseUrl};
 }
 
 /** Pick the higher-privilege role (admin ≻ viewer). */
@@ -240,9 +241,9 @@ function higherRole(a: MemberRole | undefined, b: MemberRole): MemberRole {
 }
 
 /**
- * Project an account {@link WorkspaceRoster} onto the desired managed-member set:
+ * Project an account {@link LibraryRoster} onto the desired managed-member set:
  * dedupe by identity (subject preferred, then email; admin wins), admit the
- * workspace owner as admin (OB-198 F2), and EXCLUDE the instance's own site owner
+ * library owner as admin (OB-198 F2), and EXCLUDE the instance's own site owner
  * — the sync must never create/demote/remove a row for `ownerSubject`, who is
  * already admitted by the owner short-circuit. The pinned email-authority issuer
  * (B1) stamps every entry.
@@ -260,7 +261,7 @@ function higherRole(a: MemberRole | undefined, b: MemberRole): MemberRole {
  * (`resolveMemberRole` ignores non-`active` rows) and the owner keeps full access
  * via the owner short-circuit regardless.
  */
-export function resolveDesiredRoster(roster: WorkspaceRoster, config: InstanceConfig): ManagedMemberInput[] {
+export function resolveDesiredRoster(roster: LibraryRoster, config: InstanceConfig): ManagedMemberInput[] {
   const issuer = config.emailAuthority ?? DEFAULT_ACCOUNT_URL;
   const siteOwner = config.ownerSubject;
   const bySubject = new Map<string, ManagedMemberInput>();
@@ -295,7 +296,7 @@ export function resolveDesiredRoster(roster: WorkspaceRoster, config: InstanceCo
     add(m.subject ?? null, m.email ?? null, m.role);
   }
 
-  // OB-198 F2: admit the workspace owner as admin even when it differs from the
+  // OB-198 F2: admit the library owner as admin even when it differs from the
   // site owner. (Same-as-site-owner is filtered out by `add` — they're already in.)
   if (roster.ownerSubject) add(roster.ownerSubject, null, 'admin');
 
@@ -310,39 +311,52 @@ function normEmail(email: string | null | undefined): string | null {
 }
 
 /**
- * The default HTTP roster fetcher. Reads `GET <account>/api/workspaces/:id/roster`
- * and presents a fresh per-instance roster assertion (minted by the injected
- * {@link RosterAssertionProvider}) as a `Bearer` token.
+ * The default HTTP roster fetcher. Reads `GET <account>/api/libraries/:id/roster`
+ * — with a fallback to the legacy `GET <account>/api/workspaces/:id/roster` alias
+ * so a not-yet-migrated account (pre-LIB-5, serving only the old path) still
+ * resolves — and presents a fresh per-instance roster assertion (minted by the
+ * injected {@link RosterAssertionProvider}) as a `Bearer` token.
  *
  * The account endpoint authenticates the INSTANCE/SITE (not an end user) and
- * authorizes it to read its bound workspace's roster: the assertion is an Ed25519
+ * authorizes it to read its bound library's roster: the assertion is an Ed25519
  * signature by the site's private key, verified against the Site row's registered
  * public key (see `signRosterAssertion` in `@book.dev/sdk`). The signing happens in
- * the keychain-holding layer (the provider), so the raw key never reaches here.
+ * the keychain-holding layer (the provider), so the raw key never reaches here. The
+ * SAME bearer is presented on both attempts (one library id, one freshness window).
  *
  * With no provider (today's default) the request is unauthenticated — inert until
- * an instance is bound + the desktop keychain wiring lands. Throws on any non-OK /
- * network error, AND on a malformed-but-200 body (Sasha INFO-1), so the syncer
- * keeps last-good and records the failure; a provider that throws routes through
- * the same fail-safe (it never downgrades to an unauthenticated request).
+ * an instance is bound + the desktop keychain wiring lands. Throws when BOTH paths
+ * fail (non-OK / network), AND on a malformed-but-200 body (Sasha INFO-1), so the
+ * syncer keeps last-good and records the failure; a provider that throws routes
+ * through the same fail-safe (it never downgrades to an unauthenticated request).
  */
 export function httpRosterFetcher(opts: {
   fetchImpl?: typeof fetch;
   /**
-   * Mints a fresh signed roster assertion for the workspace (the keychain layer).
+   * Mints a fresh signed roster assertion for the library (the keychain layer).
    * Absent / returns null ⇒ no auth header. A throw → fail-safe (last-good kept).
    */
   assertionProvider?: RosterAssertionProvider;
 } = {}): RosterFetcher {
   const fetchImpl = opts.fetchImpl ?? fetch;
   return async (binding, signal) => {
-    const url = `${binding.accountBaseUrl}/api/workspaces/${encodeURIComponent(binding.workspaceId)}/roster`;
-    const token = await opts.assertionProvider?.(binding.workspaceId);
+    const token = await opts.assertionProvider?.(binding.libraryId);
     const headers: Record<string, string> = {Accept: 'application/json'};
     if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetchImpl(url, {headers, signal});
+    const id = encodeURIComponent(binding.libraryId);
+    // Prefer the new `/api/libraries` path; fall back to the legacy `/api/workspaces`
+    // alias so a pre-LIB-5 account (which only serves the old path) still resolves.
+    const primary = `${binding.accountBaseUrl}/api/libraries/${id}/roster`;
+    const legacy = `${binding.accountBaseUrl}/api/workspaces/${id}/roster`;
+    let res = await fetchImpl(primary, {headers, signal});
     if (!res.ok) {
-      throw new Error(`account roster fetch ${res.status} for workspace ${binding.workspaceId}`);
+      const fallback = await fetchImpl(legacy, {headers, signal});
+      if (fallback.ok) res = fallback;
+      else {
+        throw new Error(
+          `account roster fetch failed for library ${binding.libraryId} (libraries ${res.status}, workspaces ${fallback.status})`,
+        );
+      }
     }
     // Validate the shape HERE (Sasha INFO-1) rather than blind-casting: a
     // malformed-but-200 body (e.g. `members` missing / not an array) would
@@ -350,39 +364,41 @@ export function httpRosterFetcher(opts: {
     // fetch try/catch, so the failure wouldn't be recorded. Throwing in the
     // fetcher routes it through the fail-safe path (last-good kept, `lastError`
     // set). Still no mutation.
-    return parseWorkspaceRoster(await res.json(), binding.workspaceId);
+    return parseLibraryRoster(await res.json(), binding.libraryId);
   };
 }
 
 /**
- * Validate an account roster response into a {@link WorkspaceRoster}, throwing on a
+ * Validate an account roster response into a {@link LibraryRoster}, throwing on a
  * malformed shape (Sasha INFO-1). Defensive against an unvalidated 200 from the
- * (cross-repo) account endpoint; never mutates and never widens access.
+ * (cross-repo) account endpoint; never mutates and never widens access. Reads the
+ * library id from `libraryId ?? workspaceId` so it accepts both the new (LIB-5) and
+ * the legacy response body during the transition.
  */
-export function parseWorkspaceRoster(data: unknown, workspaceId: string): WorkspaceRoster {
+export function parseLibraryRoster(data: unknown, libraryId: string): LibraryRoster {
   if (typeof data !== 'object' || data === null) {
-    throw new Error(`account roster for workspace ${workspaceId} is not an object`);
+    throw new Error(`account roster for library ${libraryId} is not an object`);
   }
   const obj = data as Record<string, unknown>;
   if (!Array.isArray(obj.members)) {
-    throw new Error(`account roster for workspace ${workspaceId} has no members array`);
+    throw new Error(`account roster for library ${libraryId} has no members array`);
   }
   if (obj.ownerSubject !== undefined && typeof obj.ownerSubject !== 'string') {
-    throw new Error(`account roster for workspace ${workspaceId} has a malformed ownerSubject`);
+    throw new Error(`account roster for library ${libraryId} has a malformed ownerSubject`);
   }
-  const members: WorkspaceRosterEntry[] = obj.members.map((m, i) => {
+  const members: LibraryRosterEntry[] = obj.members.map((m, i) => {
     if (typeof m !== 'object' || m === null) {
-      throw new Error(`account roster for workspace ${workspaceId} member ${i} is not an object`);
+      throw new Error(`account roster for library ${libraryId} member ${i} is not an object`);
     }
     const entry = m as Record<string, unknown>;
     if (entry.role !== 'admin' && entry.role !== 'viewer') {
-      throw new Error(`account roster for workspace ${workspaceId} member ${i} has an invalid role`);
+      throw new Error(`account roster for library ${libraryId} member ${i} has an invalid role`);
     }
     if (entry.subject !== undefined && typeof entry.subject !== 'string') {
-      throw new Error(`account roster for workspace ${workspaceId} member ${i} has a malformed subject`);
+      throw new Error(`account roster for library ${libraryId} member ${i} has a malformed subject`);
     }
     if (entry.email !== undefined && typeof entry.email !== 'string') {
-      throw new Error(`account roster for workspace ${workspaceId} member ${i} has a malformed email`);
+      throw new Error(`account roster for library ${libraryId} member ${i} has a malformed email`);
     }
     return {
       ...(entry.subject !== undefined ? {subject: entry.subject as string} : {}),
@@ -390,8 +406,11 @@ export function parseWorkspaceRoster(data: unknown, workspaceId: string): Worksp
       role: entry.role,
     };
   });
+  // Accept both the new (`libraryId`) and legacy (`workspaceId`) response key.
+  const responseId =
+    typeof obj.libraryId === 'string' ? obj.libraryId : typeof obj.workspaceId === 'string' ? obj.workspaceId : libraryId;
   return {
-    workspaceId: typeof obj.workspaceId === 'string' ? obj.workspaceId : workspaceId,
+    libraryId: responseId,
     ...(typeof obj.ownerSubject === 'string' ? {ownerSubject: obj.ownerSubject} : {}),
     members,
   };
