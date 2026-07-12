@@ -7,7 +7,7 @@ import {
   isMixedContentBlocked,
   type ServerInfo,
 } from '@book.dev/sdk';
-import {usePlatformLibrary, useTranslation} from '@/providers';
+import {usePlatformCapabilities, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
@@ -19,7 +19,7 @@ import {SettingsScreen, SettingsSection, SettingsField} from '@/components/setti
  * so the data client re-initializes against the new target.
  */
 export default function ConnectionSettings() {
-  const {serverControls} = usePlatformLibrary();
+  const {serverControls} = usePlatformCapabilities();
   const {t} = useTranslation();
   const connected = getServerUrlOverride();
 

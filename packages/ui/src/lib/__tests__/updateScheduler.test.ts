@@ -1,5 +1,5 @@
 import {describe, it, expect, beforeEach} from 'vitest';
-import type {UpdateCheckResult} from '../../providers/PlatformLibraryProvider';
+import type {UpdateCheckResult} from '../../providers/PlatformCapabilitiesProvider';
 import type {UpdateCadence} from '../updatePreferences';
 import {
   CADENCE_BASE_MS,

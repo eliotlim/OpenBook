@@ -2,7 +2,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {Download, Loader2, RefreshCw} from 'lucide-react';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
-import {useConfirm, usePlatformLibrary, useTranslation} from '@/providers';
+import {useConfirm, usePlatformCapabilities, useTranslation} from '@/providers';
 import type {UpdateCheckResult} from '@/providers';
 import {SettingsSection, SettingsField, SettingsToggle} from '@/components/settings/primitives';
 import {anyPageSavePending} from '@/lib/pageSaveStatus';
@@ -40,7 +40,7 @@ type Tone = 'ok' | 'available' | 'error';
  * "Check for updates" runs a one-off check regardless of cadence.
  */
 export function UpdatesSection() {
-  const platform = usePlatformLibrary();
+  const platform = usePlatformCapabilities();
   const {t} = useTranslation();
   const confirm = useConfirm();
   const updates = platform.updates;

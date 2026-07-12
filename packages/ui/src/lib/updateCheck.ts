@@ -21,7 +21,7 @@
  */
 
 import {resolveAccountUrl} from '@book.dev/sdk';
-import type {UpdateCheckResult, UpdateSecurityInfo} from '../providers/PlatformLibraryProvider';
+import type {UpdateCheckResult, UpdateSecurityInfo} from '../providers/PlatformCapabilitiesProvider';
 
 /** What the caller knows about the running build. */
 export interface UpdateCheckParams {

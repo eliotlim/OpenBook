@@ -19,7 +19,7 @@
  * decision here mirrors that (a newer major is a toast, not a download).
  */
 
-import type {UpdateCheckResult} from '../providers/PlatformLibraryProvider';
+import type {UpdateCheckResult} from '../providers/PlatformCapabilitiesProvider';
 import {compareSemver, semverMajor} from './updateCheck';
 import type {UpdateCadence} from './updatePreferences';
 

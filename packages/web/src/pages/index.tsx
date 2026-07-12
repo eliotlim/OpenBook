@@ -7,8 +7,8 @@ import {
   DefaultLayout,
   DocumentArea,
   NavigationProvider,
-  PlatformLibraryProvider,
-  type PlatformLibrary,
+  PlatformCapabilitiesProvider,
+  type PlatformCapabilities,
 } from '@book.dev/ui';
 import SettingsDeepLink from '@/components/SettingsDeepLink';
 
@@ -80,7 +80,7 @@ function useWebClient(forwardedPrefix: string | null): {client: DataClient | nul
  * the desktop titlebar (which `inWindowTabs` otherwise hides on the web). Read
  * after mount so the initial render still matches the server-rendered HTML.
  */
-function useDesktopShellPreview(): PlatformLibrary | undefined {
+function useDesktopShellPreview(): PlatformCapabilities | undefined {
   const [desktop, setDesktop] = useState(false);
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('shell') !== 'desktop') return;
@@ -99,7 +99,7 @@ function useDesktopShellPreview(): PlatformLibrary | undefined {
       root.style.removeProperty('--ob-inset-top');
     };
   }, []);
-  return useMemo<PlatformLibrary | undefined>(
+  return useMemo<PlatformCapabilities | undefined>(
     () =>
       desktop
         ? {tabs: {inWindow: true, openWindow: (id) => void window.open(`?page=${encodeURIComponent(id)}`, '_blank')}}
@@ -119,12 +119,12 @@ function useDesktopShellPreview(): PlatformLibrary | undefined {
  * initial render still matches the server-rendered HTML. Never active without
  * the query flag, so production stays update-free on the web.
  */
-function useUpdatesPreview(): PlatformLibrary['updates'] | undefined {
+function useUpdatesPreview(): PlatformCapabilities['updates'] | undefined {
   const [mode, setMode] = useState<string | null>(null);
   useEffect(() => {
     setMode(new URLSearchParams(window.location.search).get('updates'));
   }, []);
-  return useMemo<PlatformLibrary['updates']>(() => {
+  return useMemo<PlatformCapabilities['updates']>(() => {
     if (!mode) return undefined;
     // e2e observability: the scheduler's background activity has no DOM of its
     // own, so the mock counts its calls on `window` for the specs to assert on
@@ -200,7 +200,7 @@ export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSid
   // is still browser-local, so the truth flag stays. On a forwarded site pass the
   // host so the workspace switcher names the connection after it (P-fwd), rather
   // than the generic local default.
-  const platform = useMemo<PlatformLibrary | undefined>(() => {
+  const platform = useMemo<PlatformCapabilities | undefined>(() => {
     const base = browserLocal ? {...shellPreview, browserLocalWorkspace: true} : shellPreview;
     const withHost = forwardedHost ? {...(base ?? {}), forwardedHost} : base;
     if (!updatesPreview) return withHost;
@@ -217,7 +217,7 @@ export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSid
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
         <link rel="icon" href="/favicon.ico" />
       </Head>
-      <PlatformLibraryProvider value={platform}>
+      <PlatformCapabilitiesProvider value={platform}>
         {client && (
           <DataProvider client={client}>
             <NavigationProvider>
@@ -228,7 +228,7 @@ export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSid
             </NavigationProvider>
           </DataProvider>
         )}
-      </PlatformLibraryProvider>
+      </PlatformCapabilitiesProvider>
     </>
   );
 }

@@ -1,6 +1,6 @@
 import {useCallback, useEffect, useState} from 'react';
 import type {ServerInfo} from '@book.dev/sdk';
-import {useAccount, useForwarding, usePlatformLibrary, useTranslation, type ForwardingStatus} from '@/providers';
+import {useAccount, useForwarding, usePlatformCapabilities, useTranslation, type ForwardingStatus} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Switch} from '@/components/ui/switch';
 import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
@@ -158,7 +158,7 @@ function ForwardingSection() {
  * network directly, no relay involved.
  */
 function LanPublishSection() {
-  const {serverControls} = usePlatformLibrary();
+  const {serverControls} = usePlatformCapabilities();
   const {t} = useTranslation();
 
   const [info, setInfo] = useState<ServerInfo | null>(null);
@@ -270,7 +270,7 @@ export default function SharingPublishingSettings() {
   const {t} = useTranslation();
   // The in-browser (PGlite) workspace: no publish affordance exists here and
   // no one else can reach the data, so the intro must not promise publishing.
-  const browserLocal = usePlatformLibrary().browserLocalWorkspace === true;
+  const browserLocal = usePlatformCapabilities().browserLocalWorkspace === true;
   return (
     <SettingsScreen
       title={t('sharingScreen.title')}

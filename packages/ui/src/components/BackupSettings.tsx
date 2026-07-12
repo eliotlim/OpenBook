@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {useData} from '@/data';
-import {useConfirm, useHud, useNavigation, usePlatformLibrary, useTranslation} from '@/providers';
+import {useConfirm, useHud, useNavigation, usePlatformCapabilities, useTranslation} from '@/providers';
 import {SettingsField} from '@/components/settings/primitives';
 import {writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
 import {ICON_PROPERTY_ID} from '@book.dev/sdk';
@@ -69,7 +69,7 @@ function formatBytes(bytes: number): string {
 /** Backup & restore the whole workspace, from the Settings panel. */
 export default function BackupSettings() {
   const client = useData();
-  const platform = usePlatformLibrary();
+  const platform = usePlatformCapabilities();
   const {reload} = useNavigation();
   const confirm = useConfirm();
   const {t} = useTranslation();
@@ -308,7 +308,7 @@ export default function BackupSettings() {
  * local managed server exposes `chooseBookDir`.
  */
 function BookFilesSection() {
-  const {serverControls} = usePlatformLibrary();
+  const {serverControls} = usePlatformCapabilities();
   const {t} = useTranslation();
   const [info, setInfo] = useState<ServerInfo | null>(null);
   const [busy, setBusy] = useState(false);

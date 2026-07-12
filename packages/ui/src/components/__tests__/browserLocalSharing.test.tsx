@@ -6,7 +6,7 @@ import ShareDialog from '../ShareDialog';
 import {PeopleSection} from '../settings/MembersSettings';
 import SharingPublishingSettings from '../settings/SharingPublishingSettings';
 import {DataProvider} from '@/data/DataProvider';
-import {ConfirmProvider, I18nProvider, PlatformLibraryProvider, type PlatformLibrary} from '@/providers';
+import {ConfirmProvider, I18nProvider, PlatformCapabilitiesProvider, type PlatformCapabilities} from '@/providers';
 
 // `ForwardingSection` calls `useAccount()` unconditionally (before its
 // `!supported` early-return), and the real AccountProvider drags in the whole
@@ -40,14 +40,14 @@ const client: Partial<DataClient> = {
   listMembers: async () => [],
 };
 
-const wrap = (ui: React.ReactElement, platform: PlatformLibrary = {}) =>
+const wrap = (ui: React.ReactElement, platform: PlatformCapabilities = {}) =>
   render(
     <I18nProvider>
-      <PlatformLibraryProvider value={platform}>
+      <PlatformCapabilitiesProvider value={platform}>
         <ConfirmProvider>
           <DataProvider client={client as DataClient}>{ui}</DataProvider>
         </ConfirmProvider>
-      </PlatformLibraryProvider>
+      </PlatformCapabilitiesProvider>
     </I18nProvider>,
   );
 

@@ -12,7 +12,7 @@ import {
   setAnnouncedMajor,
 } from '@/lib/updateScheduler';
 import {useConfirm} from '@/providers/ConfirmProvider';
-import {usePlatformLibrary} from '@/providers/PlatformLibraryProvider';
+import {usePlatformCapabilities} from '@/providers/PlatformCapabilitiesProvider';
 
 /**
  * The background update scheduler (desktop only — inert without
@@ -35,7 +35,7 @@ import {usePlatformLibrary} from '@/providers/PlatformLibraryProvider';
  * restart proceeds without ceremony.
  */
 export default function UpdateScheduler() {
-  const {updates} = usePlatformLibrary();
+  const {updates} = usePlatformCapabilities();
   const confirm = useConfirm();
 
   // The interval closure must see the *current* confirm (ConfirmProvider hands

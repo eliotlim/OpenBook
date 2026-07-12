@@ -3,7 +3,7 @@ import {describe, it, expect, beforeEach, afterEach, vi} from 'vitest';
 import {renderHook, act, waitFor, cleanup} from '@testing-library/react';
 import {decodeIdentity, getIdentityCredential, setForwardingAudience, setIdentityToken} from '@book.dev/sdk';
 import {AccountProvider, useAccount} from '../AccountProvider';
-import {PlatformLibraryProvider, type AccountSecretStore, type PlatformLibrary} from '../PlatformLibraryProvider';
+import {PlatformCapabilitiesProvider, type AccountSecretStore, type PlatformCapabilities} from '../PlatformCapabilitiesProvider';
 import {PreferencesProvider} from '../PreferencesProvider';
 import {WorkspaceProvider} from '../WorkspaceProvider';
 
@@ -94,21 +94,21 @@ const tokenKey = (id: string): string => `openbook.account.token.${id}`;
 const readIndex = (): Array<{id: string; email: string | null; subject: string | null}> =>
   JSON.parse(localStorage.getItem('openbook.accounts') ?? '[]');
 
-function makeWrapper(platform: PlatformLibrary = {}) {
+function makeWrapper(platform: PlatformCapabilities = {}) {
   const Wrapper = ({children}: {children: React.ReactNode}) => (
-    <PlatformLibraryProvider value={platform}>
+    <PlatformCapabilitiesProvider value={platform}>
       <PreferencesProvider>
         <WorkspaceProvider>
           <AccountProvider>{children}</AccountProvider>
         </WorkspaceProvider>
       </PreferencesProvider>
-    </PlatformLibraryProvider>
+    </PlatformCapabilitiesProvider>
   );
   Wrapper.displayName = 'TestAccountWrapper';
   return Wrapper;
 }
 
-function renderAccount(platform?: PlatformLibrary) {
+function renderAccount(platform?: PlatformCapabilities) {
   return renderHook(() => useAccount(), {wrapper: makeWrapper(platform)});
 }
 
