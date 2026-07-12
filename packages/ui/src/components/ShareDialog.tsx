@@ -230,7 +230,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   // UNLESS the workspace is published, in which case `pageLinkUrl` emits the
   // forwarded host (`publishedHost` is the same predicate that drives the
   // share-link origin registration in ForwardingProvider).
-  const {supported: canPublish, publishedHost, siteVisibility} = useForwarding();
+  const {supported: canPublish, publishedHost, siteVisibility, siteVisibilityBusy, setSiteVisibility} = useForwarding();
   const linkIsLocalOnly = canPublish && !publishedHost;
   // The standalone web app's in-browser store (P0-4): the workspace lives only in
   // this browser profile, so nothing set here can reach another person and a
@@ -407,6 +407,12 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
     }
   }, [pageId]);
 
+  // The scope that ACTUALLY governs at the edge: `inherit` defers to the resolved
+  // workspace default (SHR-6), so an inherited-public page hits the same
+  // site-visibility mismatch as an explicitly-public one — the notice must cover
+  // both (Quinn). `null` until the default resolves, in which case it can't fire.
+  const effectiveScope = scope === 'inherit' ? defaultVisibility : scope;
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -522,15 +528,30 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                 this device is actually publishing (`publishedHost`). */}
             {canManage && publishedHost && siteVisibility && (
               <div className="flex flex-col gap-2">
-                {scope === 'public' && siteVisibility !== 'public' && (
-                  <p
+                {effectiveScope === 'public' && siteVisibility !== 'public' && (
+                  <div
                     aria-live="polite"
-                    className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground"
+                    className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2"
                   >
-                    {t('share.siteRestrictedNotice')}
-                  </p>
+                    {/* A "your link is silently bounced" warning must not read
+                        low-priority — full-contrast body (not muted) on the caution
+                        surface, with the one-click fix right here (Devon F5). */}
+                    <p className="text-xs text-foreground">{t('share.siteRestrictedNotice')}</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="self-start"
+                      disabled={siteVisibilityBusy}
+                      onClick={() => void setSiteVisibility('public')}
+                    >
+                      {t('share.makeSitePublic')}
+                    </Button>
+                  </div>
                 )}
                 <SiteVisibilityControl />
+                {/* The address scope is workspace-global, not per-page — say so here,
+                    in a per-page dialog, so it isn't misread as this page only (Devon F4). */}
+                <p className="text-xs text-muted-foreground">{t('share.siteGlobalHint')}</p>
               </div>
             )}
 

@@ -161,7 +161,9 @@ export const zh: PartialMessages = {
     enforcementCaveat:
       '你邀请的人可能还无法通过已发布的 book.cloud 链接打开此页面——此功能正在逐步推出。直接访问已按此处的设置受到限制。',
     siteRestrictedNotice:
-      '此页面已设为“任何拥有链接的人”，但你的已发布地址为私密——未登录的人会被拒之门外。请在下方将地址设为公开，任何拥有链接的人才能打开它。',
+      '此页面已设为“任何拥有链接的人”，但你的已发布地址为私密——未登录的人会被拒之门外。请将地址设为公开，任何拥有链接的人才能打开它。',
+    makeSitePublic: '将地址设为公开',
+    siteGlobalHint: '此设置适用于你的整个已发布地址，而不仅是此页面。',
     scopeLabel: '谁可以访问',
     scopeAdvanced: '更多访问选项',
     scope: {
@@ -799,8 +801,13 @@ export const zh: PartialMessages = {
       label: '已发布地址',
       public: '公开',
       private: '私密',
+      authenticated: '所有已登录的人',
+      members: '成员',
       publicHint: '任何拥有链接的人都能打开此地址，包括未登录的人。',
       privateHint: '只有你和你邀请的人才能打开此地址——未登录的访客会被拒之门外。',
+      authenticatedHint: '任何已登录的人都能打开此地址。',
+      membersHint: '工作区成员可以打开此地址。',
+      manageOnWeb: '在网页端管理',
       error: '无法更新已发布地址。请重试。',
     },
   },

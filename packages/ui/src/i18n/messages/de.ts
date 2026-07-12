@@ -163,7 +163,9 @@ export const de: PartialMessages = {
     enforcementCaveat:
       'Von dir eingeladene Personen können diese Seite über ihren veröffentlichten book.cloud-Link möglicherweise noch nicht öffnen — das wird gerade ausgerollt. Der direkte Zugriff ist bereits wie hier festgelegt eingeschränkt.',
     siteRestrictedNotice:
-      'Diese Seite ist auf „Jeder mit dem Link“ eingestellt, aber deine veröffentlichte Adresse ist privat — nicht angemeldete Personen werden abgewiesen. Stelle die Adresse unten auf öffentlich, damit jeder mit dem Link sie öffnen kann.',
+      'Diese Seite ist auf „Jeder mit dem Link“ eingestellt, aber deine veröffentlichte Adresse ist privat — nicht angemeldete Personen werden abgewiesen. Stelle die Adresse auf öffentlich, damit jeder mit dem Link sie öffnen kann.',
+    makeSitePublic: 'Adresse öffentlich machen',
+    siteGlobalHint: 'Gilt für deine gesamte veröffentlichte Adresse, nicht nur für diese Seite.',
     scopeLabel: 'Wer hat Zugriff',
     scopeAdvanced: 'Weitere Zugriffsoptionen',
     scope: {
@@ -803,8 +805,13 @@ export const de: PartialMessages = {
       label: 'Veröffentlichte Adresse',
       public: 'Öffentlich',
       private: 'Privat',
+      authenticated: 'Alle Angemeldeten',
+      members: 'Mitglieder',
       publicHint: 'Jeder mit dem Link kann diese Adresse öffnen, auch nicht angemeldete Personen.',
       privateHint: 'Nur du und von dir eingeladene Personen können diese Adresse öffnen — nicht angemeldete Besucher werden abgewiesen.',
+      authenticatedHint: 'Jede angemeldete Person kann diese Adresse öffnen.',
+      membersHint: 'Mitglieder des Arbeitsbereichs können diese Adresse öffnen.',
+      manageOnWeb: 'Im Web verwalten',
       error: 'Die veröffentlichte Adresse konnte nicht aktualisiert werden. Versuche es erneut.',
     },
   },
