@@ -1,6 +1,6 @@
 /**
- * Kind-faithful kit-chart drawing (line, area, bar, pie, donut, scatter, funnel)
- * as pure SVG — no charting library. The geometry mirrors the editor's
+ * Kind-faithful kit-chart drawing (line, area, bar, pie, donut, scatter, funnel,
+ * kpi, heatmap, combo) as pure SVG — no charting library. The geometry mirrors the editor's
  * `chartMath`, so an exported chart looks like the one in the window.
  *
  * The drawing lives as a JS **source string** ({@link KIT_CHART_JS}) so it has a
@@ -23,6 +23,16 @@ function kitLabelled(v,labels){ if(v&&typeof v==="object"&&!Array.isArray(v)){ c
 function kitExtent(vals){ if(!vals.length) return {min:0,max:1}; let min=Math.min.apply(null,vals.concat([0])), max=Math.max.apply(null,vals); if(min===max){min-=1;max+=1;} return {min,max}; }
 function kitScale(v,d,r0,r1){ return r0+((v-d.min)/(d.max-d.min))*(r1-r0); }
 function kitTicks(d){ const span=d.max-d.min, step0=Math.pow(10,Math.floor(Math.log10(span/3))); const step=[step0,step0*2,step0*5,step0*10].find(s=>span/s<=4)||step0*10; const out=[]; for(let v=Math.ceil(d.min/step)*step; v<=d.max+1e-9; v+=step) out.push(Math.round(v*1e6)/1e6); return out; }
+function kitFmt(n){ return Number.isInteger(n)? n.toLocaleString() : n.toLocaleString(undefined,{maximumFractionDigits:2}); }
+function kitFin(x){ return typeof x==="number"&&isFinite(x)?x:undefined; }
+function kitKpi(v){ var n=kitFin(v); if(n!==undefined) return {value:n};
+  if(Array.isArray(v)&&v.every(function(x){return kitFin(x)!==undefined;})) return v.length?{value:v.reduce(function(a,b){return a+b;},0)}:null;
+  if(v&&typeof v==="object"&&!Array.isArray(v)){ var t=kitFin(v.target); if(t===undefined) t=kitFin(v.goal); var m=kitFin(v.value); if(m===undefined) m=kitFin(v.current); if(m===undefined) m=kitFin(v.total);
+    if(m!==undefined) return {value:m,target:t};
+    var ks=Object.keys(v).filter(function(k){return kitFin(v[k])!==undefined&&k!=="target"&&k!=="goal";}); if(ks.length) return {value:ks.reduce(function(a,k){return a+v[k];},0),target:t}; }
+  var s=kitSeries(v); if(s.length&&s[0].values.length) return {value:s[0].values.reduce(function(a,b){return a+b;},0)}; return null; }
+function kitGrid(v,labels){ var series=kitSeries(v); var nCols=series.reduce(function(m,s){return Math.max(m,s.values.length);},0); var cols=[]; for(var c=0;c<nCols;c++) cols.push(labels[c]||("#"+(c+1))); var rows=series.map(function(s){return s.name;}); var cells=series.map(function(s){return cols.map(function(_,c){return s.values[c];});}); return {rows:rows,cols:cols,cells:cells}; }
+function kitGridVals(g){ var out=[]; g.cells.forEach(function(row){row.forEach(function(x){if(typeof x==="number") out.push(x);});}); return out; }
 function drawKit(v,kind,labels){
   labels = labels || [];
   const W=660,H=300,PAD=34,P=KIT_PALETTE;
@@ -49,6 +59,43 @@ function drawKit(v,kind,labels){
     const series=kitSeries(v); if(!series.length) return '';
     const d=kitExtent(series.flatMap(s=>s.values)), n=Math.max.apply(null,series.map(s=>s.values.length)), groupW=(W-PAD*2)/n, barW=Math.max(groupW*0.7/series.length,2), zero=kitScale(Math.max(d.min,0),d,H-PAD,PAD);
     body=grid(d)+series.map((s,si)=>s.values.map((val,i)=>{ const y=kitScale(val,d,H-PAD,PAD), x=PAD+i*groupW+groupW*0.15+si*barW; return '<rect x="'+x+'" y="'+Math.min(y,zero)+'" width="'+(barW-1)+'" height="'+Math.max(Math.abs(zero-y),1)+'" rx="2" fill="'+P[si%P.length]+'"/>'; }).join('')).join('')+labels.slice(0,n).map((l,i)=>'<text x="'+(PAD+i*groupW+groupW/2)+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.55">'+kitEsc(l)+'</text>').join('');
+  } else if(kind==='kpi'){
+    const kpi=kitKpi(v); if(!kpi) return '';
+    const pct=(kpi.target>0)?Math.max(0,Math.min(100,Math.round(kpi.value/kpi.target*100))):null;
+    const cap=labels[0]||''; let s='';
+    if(cap) s+='<text x="'+(W/2)+'" y="76" text-anchor="middle" font-size="14" font-weight="600" letter-spacing="0.6" fill="currentColor" opacity="0.6">'+kitEsc(String(cap).toUpperCase())+'</text>';
+    s+='<text x="'+(W/2)+'" y="'+(pct!==null?160:172)+'" text-anchor="middle" font-size="76" font-weight="650" fill="currentColor">'+kitFmt(kpi.value)+'</text>';
+    if(pct!==null){ const bw=W*0.5, bx=(W-bw)/2, by=232;
+      s+='<text x="'+(W/2)+'" y="208" text-anchor="middle" font-size="16" fill="currentColor" opacity="0.6">'+pct+'% of '+kitFmt(kpi.target)+'</text>';
+      s+='<rect x="'+bx+'" y="'+by+'" width="'+bw+'" height="9" rx="4.5" fill="currentColor" opacity="0.14"/>';
+      s+='<rect x="'+bx+'" y="'+by+'" width="'+(bw*pct/100)+'" height="9" rx="4.5" fill="'+P[0]+'"/>'; }
+    body=s;
+  } else if(kind==='heatmap'){
+    const g=kitGrid(v,labels), flat=kitGridVals(g); if(!g.rows.length||!g.cols.length||!flat.length) return '';
+    const mn=Math.min.apply(null,flat), mx=Math.max.apply(null,flat);
+    const showRow=g.rows.some(function(r){return r!=="";});
+    const gutter=showRow?70:PAD, gy=14, gx=gutter, gw=W-gutter-PAD, gh=H-gy-22, cw=gw/g.cols.length, ch=gh/g.rows.length;
+    const intensity=function(x){return mx===mn?0.55:0.14+0.82*((x-mn)/(mx-mn));};
+    let s='';
+    g.rows.forEach(function(rn,r){ g.cols.forEach(function(cl,c){ const x=gx+c*cw, y=gy+r*ch, val=g.cells[r][c];
+      if(typeof val!=="number"){ s+='<rect x="'+(x+1)+'" y="'+(y+1)+'" width="'+(cw-2)+'" height="'+(ch-2)+'" rx="3" fill="currentColor" opacity="0.06"/>'; return; }
+      const iv=intensity(val);
+      s+='<rect x="'+(x+1)+'" y="'+(y+1)+'" width="'+(cw-2)+'" height="'+(ch-2)+'" rx="3" fill="'+P[0]+'" fill-opacity="'+iv+'"/>';
+      // Ink by intensity, not theme: a near-opaque pale cell washes out the
+      // exported foreground in a dark-theme export, so pin a dark ink above 0.6.
+      if(cw>34&&ch>18){ const ink=iv>0.6?'fill="#233246"':'fill="currentColor" opacity="0.85"'; s+='<text x="'+(x+cw/2)+'" y="'+(y+ch/2+4)+'" text-anchor="middle" font-size="11" '+ink+'>'+kitFmt(val)+'</text>'; } }); });
+    if(showRow) g.rows.forEach(function(rn,r){ if(rn) s+='<text x="'+(gutter-8)+'" y="'+(gy+r*ch+ch/2+3)+'" text-anchor="end" font-size="11" fill="currentColor" opacity="0.6">'+kitEsc(rn)+'</text>'; });
+    g.cols.forEach(function(cl,c){ s+='<text x="'+(gx+c*cw+cw/2)+'" y="'+(H-7)+'" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.55">'+kitEsc(cl)+'</text>'; });
+    body=s;
+  } else if(kind==='combo'){
+    const g=kitGrid(v,labels), flat=kitGridVals(g); if(!g.rows.length||!g.cols.length||!flat.length) return '';
+    const d=kitExtent(flat), n=g.cols.length, groupW=(W-PAD*2)/n, zero=kitScale(Math.max(d.min,0),d,H-PAD,PAD), barW=Math.max(groupW*0.5,2);
+    const px=function(c){return PAD+c*groupW+groupW/2;};
+    let s=grid(d);
+    g.cells[0].forEach(function(val,c){ if(typeof val!=="number") return; const y=kitScale(val,d,H-PAD,PAD), x=PAD+c*groupW+(groupW-barW)/2; s+='<rect x="'+x+'" y="'+Math.min(y,zero)+'" width="'+barW+'" height="'+Math.max(Math.abs(zero-y),1)+'" rx="2" fill="'+P[0]+'"/>'; });
+    for(let r=1;r<g.rows.length;r++){ const color=P[r%P.length]; const pts=g.cells[r].map(function(val,c){return typeof val==="number"?(px(c)+','+kitScale(val,d,H-PAD,PAD)):null;}).filter(Boolean).join(' '); if(pts) s+='<polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="2" stroke-linejoin="round"/>'; }
+    s+=g.cols.map(function(l,c){return '<text x="'+px(c)+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.55">'+kitEsc(l)+'</text>';}).join('');
+    body=s;
   } else { // line / area
     const series=kitSeries(v); if(!series.length) return '';
     const d=kitExtent(series.flatMap(s=>s.values)), base=kitScale(Math.max(d.min,0),d,H-PAD,PAD);
@@ -58,9 +105,11 @@ function drawKit(v,kind,labels){
       return (kind==='area'?'<polygon points="'+first+','+base+' '+pts+' '+last+','+base+'" fill="'+P[i%P.length]+'" opacity="0.15"/>':'')+'<polyline points="'+pts+'" fill="none" stroke="'+P[i%P.length]+'" stroke-width="2" stroke-linejoin="round"/>';
     }).join('')+labels.slice(0,n).map((l,i)=>'<text x="'+(n===1?W/2:PAD+(i/(n-1))*(W-PAD*2))+'" y="'+(H-8)+'" font-size="10" text-anchor="middle" fill="currentColor" opacity="0.55">'+kitEsc(l)+'</text>').join('');
   }
-  if(kind!=='pie'&&kind!=='donut'&&kind!=='funnel'&&kind!=='scatter'){
+  if(kind!=='pie'&&kind!=='donut'&&kind!=='funnel'&&kind!=='scatter'&&kind!=='kpi'&&kind!=='heatmap'){
     const named=kitSeries(v).filter(s=>s.name);
-    if(named.length>1) body+=named.map((s,i)=>'<g transform="translate('+(W-PAD-90)+','+(16+i*18)+')"><rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/><text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+kitEsc(s.name)+'</text></g>').join('');
+    // Line series (line/area everywhere; combo's overlaid series beyond the bar)
+    // get a rule glyph, not a square, so the legend matches the mark it stands for.
+    if(named.length>1) body+=named.map((s,i)=>{ const isLine=kind==='line'||kind==='area'||(kind==='combo'&&i>0); const g=isLine?'<line x1="0" y1="5" x2="12" y2="5" stroke="'+P[i%P.length]+'" stroke-width="2" stroke-linecap="round"/>':'<rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/>'; return '<g transform="translate('+(W-PAD-90)+','+(16+i*18)+')">'+g+'<text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+kitEsc(s.name)+'</text></g>'; }).join('');
   }
   return '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">'+body+'</svg>';
 }

@@ -2366,6 +2366,21 @@ a.obe-mention {
 .obe-chart-msg { fill: hsl(var(--muted-foreground) / 0.8); font-size: 12px; text-anchor: middle; }
 .obe-chart-funnel-label { fill: hsl(var(--background)); font-size: 11px; font-weight: 600; text-anchor: middle; pointer-events: none; }
 
+/* KPI / number tile (DASH-5) — the MetricCard look rendered in SVG. */
+.obe-chart-kpi-caption { fill: hsl(var(--muted-foreground)); font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-anchor: middle; text-transform: uppercase; }
+.obe-chart-kpi-value { fill: hsl(var(--foreground)); font-size: 60px; font-weight: 650; text-anchor: middle; font-variant-numeric: tabular-nums; }
+.obe-chart-kpi-sub { fill: hsl(var(--muted-foreground)); font-size: 15px; text-anchor: middle; font-variant-numeric: tabular-nums; }
+.obe-chart-kpi-track { fill: hsl(var(--muted)); }
+
+/* Heatmap (DASH-5) — cell labels + axis labels; cells recolour via fill-opacity. */
+.obe-chart-heat-label { fill: hsl(var(--foreground) / 0.85); font-size: 11px; text-anchor: middle; pointer-events: none; font-variant-numeric: tabular-nums; }
+/* High-intensity cells are a near-opaque pale fill in BOTH themes, so the theme
+   foreground ink washes out on them in dark mode — pin a dark ink that contrasts
+   the pale fill regardless of theme. */
+.obe-chart-heat-label-strong { fill: #233246; }
+.obe-chart-heat-rowlabel { fill: hsl(var(--muted-foreground)); font-size: 11px; text-anchor: end; }
+.obe-chart-heat-empty { fill: hsl(var(--muted-foreground) / 0.08); }
+
 /* ── Chart interactivity (DASH-2): hover tooltip, highlight, context menu ──── */
 .obe-chart-plot { position: relative; }
 /* Each datum's <g> wrapper. Highlight is shared: the active mark brightens, the

@@ -49,6 +49,8 @@ const KINDS: Array<{kind: string; props: Record<string, unknown>; firstLabel: st
   {kind: 'donut', props: {source: '{Apples: 3, Pears: 5}'}, firstLabel: 'Apples', firstValue: '3'},
   {kind: 'scatter', props: {source: '[{x: 1, y: 2}, {x: 3, y: 4}]'}, firstLabel: '(1, 2)', firstValue: '2'},
   {kind: 'funnel', props: {source: '[10, 6, 3]', labels: 'Visit, Signup, Pay'}, firstLabel: 'Visit', firstValue: '10'},
+  {kind: 'heatmap', props: {source: '{a: [1, 2], b: [3, 4]}', labels: 'X, Y'}, firstLabel: 'a · X', firstValue: '1'},
+  {kind: 'combo', props: {source: '{Sales: [3, 1, 4], Trend: [2, 2, 2]}', labels: 'A, B, C'}, firstLabel: 'Sales · A', firstValue: '3'},
 ];
 
 describe('fmtChartValue', () => {
@@ -88,6 +90,36 @@ describe('interactive marks — every registered kind', () => {
       expect(container.querySelector('.obe-chart-tooltip')).toBeNull();
     });
   }
+});
+
+describe('KPI / number tile', () => {
+  it('reduces a scalar to one focusable figure mark', () => {
+    const {container} = renderChart({kind: 'kpi', source: '42', labels: 'Revenue'});
+    const found = marks(container);
+    expect(found.length).toBe(1);
+    expect(found[0].getAttribute('aria-label')).toBe('Revenue: 42');
+    expect(container.querySelector('.obe-chart-kpi-value')?.textContent).toBe('42');
+    expect(container.querySelector('.obe-chart-kpi-caption')?.textContent).toBe('Revenue');
+  });
+
+  it('sums a series and shows no progress bar without a target', () => {
+    const {container} = renderChart({kind: 'kpi', source: '[10, 20, 30]'});
+    expect(container.querySelector('.obe-chart-kpi-value')?.textContent).toBe('60');
+    expect(container.querySelector('.obe-chart-kpi-track')).toBeNull();
+  });
+
+  it('renders a target readout + progress bar from a {value, target} object', () => {
+    const {container} = renderChart({kind: 'kpi', source: '{value: 82, target: 100}'});
+    expect(container.querySelector('.obe-chart-kpi-value')?.textContent).toBe('82');
+    expect(container.querySelector('.obe-chart-kpi-sub')?.textContent).toBe('82% of 100');
+    expect(container.querySelector('.obe-chart-kpi-track')).toBeTruthy();
+  });
+
+  it('shows the placeholder when there is nothing numeric to reduce', () => {
+    const {container} = renderChart({kind: 'kpi', source: '{}'});
+    expect(container.querySelector('.obe-chart-kpi-value')).toBeNull();
+    expect(container.querySelector('.obe-chart-msg')).toBeTruthy();
+  });
 });
 
 describe('context menu', () => {
@@ -148,4 +180,36 @@ describe('additive render contract — no interactions', () => {
       expect(container.querySelectorAll('.obe-chart-dot').length).toBe(3);
     });
   }
+
+  it('heatmap: no interaction wrappers, cells still draw', () => {
+    const args: ChartRenderArgs = {value: {a: [1, 2], b: [3, 4]}, labels: ['X', 'Y'], palette: PALETTE};
+    const {container} = render(<svg>{getChartKind('heatmap')!.render(args)}</svg>);
+    expect(container.querySelectorAll('.obe-chart-mark').length).toBe(0);
+    // 4 cell rects, each with a fill-opacity intensity.
+    expect(container.querySelectorAll('rect[fill-opacity]').length).toBe(4);
+    // Values 4 and 3 clear the intensity threshold → the strong (fixed-dark) ink;
+    // 1 and 2 keep the theme foreground. Proves the theme-agnostic label contrast.
+    expect(container.querySelectorAll('.obe-chart-heat-label').length).toBe(4);
+    expect(container.querySelectorAll('.obe-chart-heat-label-strong').length).toBe(2);
+  });
+
+  it('combo: no interaction wrappers, bars + line still draw, legend glyphs match', () => {
+    const args: ChartRenderArgs = {value: {Sales: [3, 1, 4], Trend: [2, 2, 2]}, labels: ['A', 'B', 'C'], palette: PALETTE};
+    const {container} = render(<svg>{getChartKind('combo')!.render(args)}</svg>);
+    expect(container.querySelectorAll('.obe-chart-mark').length).toBe(0);
+    expect(container.querySelectorAll('rect').length).toBeGreaterThanOrEqual(3); // bars
+    expect(container.querySelectorAll('polyline').length).toBe(1); // the trend line
+    // Legend: the bar series (Sales) keeps a square swatch, the line series
+    // (Trend) gets a rule glyph — one of each inside the legend group.
+    const legend = container.querySelector('.obe-chart-legend')!;
+    expect(legend.querySelectorAll('rect').length).toBe(1);
+    expect(legend.querySelectorAll('.obe-chart-legend-line').length).toBe(1);
+  });
+
+  it('kpi: no interaction wrapper, the figure still renders', () => {
+    const args: ChartRenderArgs = {value: {value: 82, target: 100}, labels: ['Revenue'], palette: PALETTE};
+    const {container} = render(<svg>{getChartKind('kpi')!.render(args)}</svg>);
+    expect(container.querySelectorAll('.obe-chart-mark').length).toBe(0);
+    expect(container.querySelector('.obe-chart-kpi-value')?.textContent).toBe('82');
+  });
 });
