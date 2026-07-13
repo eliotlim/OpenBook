@@ -441,6 +441,15 @@
    the titlebar is the cover's top; no left inset while the sidebar is pinned, so
    the page binds straight into it). The two pages meet at a central seam, not a
    gap. (Present mode keeps its own neutral `--desk` backdrop.) */
+/* Desktop shell: paint the whole app root with the cover tint (`--sheet-1`, the
+   same value `.ob-desk` uses) so the tint runs continuously into the desk and no
+   white `body` leaks behind the overlay-titlebar glass / traffic-lights or at the
+   window edges. Scoped to the desktop in-window-titlebar shell via `data-titlebar`
+   (set on the root by DefaultLayout); the web root stays transparent, so the web
+   framing on the cover is unchanged. Tracks `--sheet-1` exactly, in both themes. */
+.ob-app-root[data-titlebar='true'] {
+  background-color: hsl(var(--sheet-1));
+}
 .ob-desk {
   background-color: hsl(var(--sheet-1));
   gap: 0;

@@ -50,7 +50,14 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
   }, [currentPageId]);
   return (
     <ConfirmProvider>
-      <div className="flex h-screen flex-col">
+      {/* App root fills the viewport. On the desktop in-window-titlebar shell it
+          carries the cover tint (`--sheet-1`, painted via `.ob-app-root[data-titlebar]`
+          in index.css) so any region NOT covered by a page sheet — behind the
+          overlay-titlebar glass / traffic-lights and at the window edges — shows
+          the cover tint instead of the white `body`, keeping the notebook-cover
+          feel continuous. Web leaves `data-titlebar` unset, so the root stays
+          transparent and the web framing is unchanged. */}
+      <div className="ob-app-root flex h-screen flex-col" data-titlebar={inWindowTabs}>
         {/* The titlebar strip (desktop): the in-window tab bar, plus frameless
             window controls on the right (Windows/Linux). Its height comes from
             `--ob-titlebar-height`, which the desktop shell sets; it is unset (0)
