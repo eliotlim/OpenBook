@@ -168,7 +168,7 @@ export function useAppCommands(): AppCommand[] {
         id: 'ask-assistant',
         group: 'navigation',
         title: t('command.askAssistant'),
-        keywords: 'ai assistant agent chat ask help workspace',
+        keywords: 'ai assistant agent chat ask help library',
         icon: Bot,
         run: () => openInSplit(AGENT_PANE_ID),
       },
