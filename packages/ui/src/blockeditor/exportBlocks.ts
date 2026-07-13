@@ -624,12 +624,26 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
         // is the readout — no `title = value` line), and a chart block draws it.
         // Exported charts stay LIVE: moving a slider recomputes the cell and the
         // plot redraws; the seeded value renders the static export + first paint.
-        sink.push({id: b.id, type: 'expr', data: {name: String(b.props?.title ?? 'chart'), source: tokenize(String(b.props?.source ?? '')), hidden: true}});
+        //
+        // A DATABASE-bound chart (DASH-3) has no reactive expression — its data
+        // is the aggregated series the live block snapshotted to `dbSnapshot`. Bake
+        // that series in as a constant literal so both the static render and the
+        // runtime's recompute show the last-known data; its labels are the groups
+        // (from the snapshot), not the manual `labels` prop.
+        const dbBound = b.props?.sourceMode === 'database';
+        const snap = dbBound ? (b.props?.dbSnapshot as {value?: unknown; labels?: unknown} | undefined) : undefined;
+        const exprSource = dbBound ? JSON.stringify(snap?.value ?? []) : String(b.props?.source ?? '');
+        const chartLabels = dbBound
+          ? Array.isArray(snap?.labels)
+            ? (snap!.labels as unknown[]).map(String).join(', ')
+            : ''
+          : String(b.props?.labels ?? '');
+        sink.push({id: b.id, type: 'expr', data: {name: String(b.props?.title ?? 'chart'), source: tokenize(exprSource), hidden: true}});
         pushCell(b.id);
         sink.push({
           id: `${b.id}-plot`,
           type: 'chart',
-          data: {refCellIds: [b.id], kind: String(b.props?.kind ?? 'line'), title: String(b.props?.title ?? ''), labels: String(b.props?.labels ?? '')},
+          data: {refCellIds: [b.id], kind: String(b.props?.kind ?? 'line'), title: String(b.props?.title ?? ''), labels: chartLabels},
         });
         i += 1;
         break;

@@ -1,4 +1,5 @@
-import React from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
+import {aggregateRows, PARENT_GROUP_ID, type ChartAggregate, type DatabaseProperty, type DatabaseRow, type DatabaseView} from '@book.dev/sdk';
 import {Select} from '@/components/ui/select';
 import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
@@ -9,6 +10,9 @@ import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionField
 import {KitSettings} from './KitSettings';
 import {extent, funnelRows, linePoints, paletteFor, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
 import {useDataScheme} from '@/lib/dataScheme';
+import {useOptionalData} from '@/data';
+import {useNavigation} from '@/providers';
+import {cn} from '@/lib/utils';
 
 /**
  * The kit's chart block: one block, many kinds (line, area, bar, pie, donut,
@@ -318,6 +322,188 @@ registerChartKind({
 /** Kind strings of the currently-registered kinds (re-exported by the kit). */
 export const CHART_KINDS: readonly string[] = chartKinds().map((d) => d.kind);
 
+// ── Data source: reactive expression (default) OR a database binding ─────────
+//
+// A chart's `source` is EITHER an expression over the page's inputs (the
+// original, unchanged path — `sourceMode` absent or `'expr'`) OR a database
+// binding (`sourceMode === 'database'`): group a database's rows by a property
+// and fold a measure, reusing the SDK aggregate pipeline the DB chart-views use.
+// The render contract stays source-agnostic — both paths produce `{value,
+// labels}`; the kind's `render` never learns where the data came from.
+
+/** Aggregation types offered by a database-bound chart (mirrors the DB views). */
+const DB_AGG_TYPES: readonly ChartAggregate['type'][] = ['count', 'sum', 'avg', 'min', 'max'];
+/** Property types a numeric measure (`sum`/`avg`/`min`/`max`) can fold. */
+const NUMERIC_PROP_TYPES = new Set(['number', 'formula', 'expr']);
+
+/** A chart's database data source. `groupBy` is a property id or the parent
+ *  sentinel; `aggProp` is the numeric property folded by non-`count` measures. */
+export interface ChartDbBinding {
+  dbId: string;
+  groupBy: string;
+  aggType: ChartAggregate['type'];
+  aggProp?: string;
+}
+
+/** One series of a chart: values with an aligned label per point/slice. */
+interface ChartSeriesData {
+  value: number[];
+  labels: string[];
+}
+
+/** Read the block's database binding, or null when it isn't in database mode. */
+export const readDbBinding = (block: BlockMap): ChartDbBinding | null => {
+  if (blockProp<string>(block, 'sourceMode') !== 'database') return null;
+  return {
+    dbId: blockProp<string>(block, 'dbId') ?? '',
+    groupBy: blockProp<string>(block, 'dbGroupBy') ?? '',
+    aggType: blockProp<ChartAggregate['type']>(block, 'dbAggType') ?? 'count',
+    aggProp: blockProp<string>(block, 'dbAggProp') || undefined,
+  };
+};
+
+/**
+ * Fold a database's rows into a single labelled series via the SDK
+ * {@link aggregateRows} pipeline — one datum per group of `groupBy`, its height
+ * the `aggType` measure (count, or sum/avg/min/max of `aggProp`). A minimal
+ * view carrying only the fields `aggregateRows` reads drives it, so the kit
+ * chart and the database bar/pie views share one aggregation.
+ */
+export function aggregateDbSeries(rows: DatabaseRow[], properties: DatabaseProperty[], binding: ChartDbBinding): ChartSeriesData {
+  const view = {
+    groupByPropertyId: binding.groupBy || undefined,
+    aggregate: {type: binding.aggType, propertyId: binding.aggProp},
+  } as DatabaseView;
+  const data = aggregateRows(rows, view, properties);
+  return {value: data.map((d) => d.value), labels: data.map((d) => d.label)};
+}
+
+/**
+ * Resolve a database binding's rows to a `{value, labels}` series, live. Seeds
+ * from {@link DataClient.listRows} and re-aggregates on {@link
+ * DataClient.subscribeRows} row edits (the same reactivity the DB chart-views
+ * ride). Returns `client: null` outside a `<DataProvider>` (the viewer/export
+ * bundle) so the caller falls back to the exported snapshot instead of a blank.
+ */
+function useDbChartSeries(binding: ChartDbBinding | null): {series: ChartSeriesData | null; client: ReturnType<typeof useOptionalData>} {
+  const client = useOptionalData();
+  const dbId = binding?.dbId ?? '';
+  const [rows, setRows] = useState<DatabaseRow[]>([]);
+  const [properties, setProperties] = useState<DatabaseProperty[]>([]);
+  useEffect(() => {
+    if (!client || !dbId) {
+      setRows([]);
+      setProperties([]);
+      return;
+    }
+    let cancelled = false;
+    void client.getDatabase(dbId).then((db) => {
+      if (!cancelled) setProperties(db?.schema.properties ?? []);
+    });
+    void client.listRows(dbId).then((initial) => {
+      if (!cancelled) setRows(initial);
+    });
+    const unsubscribe = client.subscribeRows(dbId, (next) => setRows(next));
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [client, dbId]);
+  const groupBy = binding?.groupBy ?? '';
+  const aggType = binding?.aggType ?? 'count';
+  const aggProp = binding?.aggProp;
+  const series = useMemo(() => {
+    if (!client || !dbId || !groupBy) return null;
+    return aggregateDbSeries(rows, properties, {dbId, groupBy, aggType, aggProp});
+  }, [client, rows, properties, dbId, groupBy, aggType, aggProp]);
+  return {series, client};
+}
+
+/**
+ * The database-source config: a database picker, a group-by property, and a
+ * measure (count / sum / avg / min / max of a numeric property). Rendered inside
+ * the ⚙ popover — which only mounts within the app's providers — so its
+ * {@link useNavigation}/{@link useOptionalData} reads never run in the
+ * provider-less viewer.
+ */
+const selectClass = 'w-full rounded-md border border-border bg-card px-2 py-1 text-sm';
+
+const ChartDbConfig: React.FC<{block: BlockMap; setProp: (key: string, value: unknown) => void; readOnly: boolean}> = ({block, setProp, readOnly}) => {
+  const {pages} = useNavigation();
+  const client = useOptionalData();
+  const dbId = blockProp<string>(block, 'dbId') ?? '';
+  const groupBy = blockProp<string>(block, 'dbGroupBy') ?? '';
+  const aggType = blockProp<ChartAggregate['type']>(block, 'dbAggType') ?? 'count';
+  const aggProp = blockProp<string>(block, 'dbAggProp') ?? '';
+  const [properties, setProperties] = useState<DatabaseProperty[]>([]);
+  useEffect(() => {
+    if (!client || !dbId) {
+      setProperties([]);
+      return;
+    }
+    let cancelled = false;
+    void client.getDatabase(dbId).then((db) => {
+      if (!cancelled) setProperties(db?.schema.properties ?? []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, dbId]);
+  const databases = pages.filter((p) => p.hostedDatabaseId);
+  const numericProps = properties.filter((p) => NUMERIC_PROP_TYPES.has(p.type));
+
+  return (
+    <>
+      <ConfigField label="Database" hint="Aggregate a database's rows.">
+        <Select unstyled className={selectClass} value={dbId} disabled={readOnly} aria-label="Database" onChange={(e) => setProp('dbId', e.target.value)}>
+          <option value="">Choose a database…</option>
+          {databases.map((p) => (
+            <option key={p.hostedDatabaseId!} value={p.hostedDatabaseId!}>
+              {p.name?.trim() || 'Untitled'}
+            </option>
+          ))}
+        </Select>
+      </ConfigField>
+      {dbId && (
+        <ConfigField label="Group by" hint="One bar/slice per value.">
+          <Select unstyled className={selectClass} value={groupBy} disabled={readOnly} aria-label="Group by" onChange={(e) => setProp('dbGroupBy', e.target.value)}>
+            <option value="">Choose a property…</option>
+            <option value={PARENT_GROUP_ID}>Sub-items (parent)</option>
+            {properties.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </Select>
+        </ConfigField>
+      )}
+      {dbId && (
+        <ConfigField label="Measure" hint="How each group is folded.">
+          <div className="flex gap-1">
+            <Select unstyled className={selectClass} value={aggType} disabled={readOnly} aria-label="Measure" onChange={(e) => setProp('dbAggType', e.target.value)}>
+              {DB_AGG_TYPES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </Select>
+            {aggType !== 'count' && (
+              <Select unstyled className={selectClass} value={aggProp} disabled={readOnly} aria-label="Measure property" onChange={(e) => setProp('dbAggProp', e.target.value || undefined)}>
+                <option value="">—</option>
+                {numericProps.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </div>
+        </ConfigField>
+      )}
+    </>
+  );
+};
+
 const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const kind = (blockProp<string>(block, 'kind') as ChartKind) ?? 'line';
   const source = blockProp<string>(block, 'source') ?? '';
@@ -332,7 +518,41 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   // rendering: present mode hides it via the :placeholder-shown CSS instead.
   const pageLocked = useKitPageLock();
   const chromeEditable = !editor.readOnly && !pageLocked;
-  const {value, error} = evalExpr(source, computeScope(editor.doc).scope);
+  const dbBinding = readDbBinding(block);
+  const {series: dbSeries, client: dataClient} = useDbChartSeries(dbBinding);
+
+  // Resolve the plotted data from whichever source is active. Expression mode is
+  // the original path (evaluated over the page's inputs). Database mode reads the
+  // live aggregated series in the app, or the exported snapshot in the viewer
+  // (no data client there) so a bound chart still renders its last-known data.
+  let value: unknown;
+  let error: string | undefined;
+  let effectiveLabels = labels;
+  if (dbBinding) {
+    if (dataClient) {
+      value = dbSeries?.value;
+      effectiveLabels = dbSeries?.labels ?? [];
+    } else {
+      const snap = blockProp<ChartSeriesData>(block, 'dbSnapshot');
+      value = snap?.value;
+      effectiveLabels = snap?.labels ?? [];
+    }
+  } else {
+    const evaluated = evalExpr(source, computeScope(editor.doc).scope);
+    value = evaluated.value;
+    error = evaluated.error;
+  }
+
+  // Persist the resolved DB series so static exports (which can't reach a data
+  // client) render the last-known data rather than a blank chart. Guarded by an
+  // equality check so an unchanged series never re-writes the doc.
+  useEffect(() => {
+    if (!dataClient || editor.readOnly || !dbSeries) return;
+    const prev = blockProp<ChartSeriesData>(block, 'dbSnapshot');
+    if (prev && JSON.stringify(prev.value) === JSON.stringify(dbSeries.value) && JSON.stringify(prev.labels) === JSON.stringify(dbSeries.labels)) return;
+    setProp(editor, block, 'dbSnapshot', {value: dbSeries.value, labels: dbSeries.labels});
+  }, [dataClient, dbSeries, editor, block]);
+
   // Concrete-hex series fills for the active data-colour scheme (OB-379): the SVG
   // `fill=` attribute can't read a CSS var, so resolve the palette here — it
   // recolours live when the scheme switches.
@@ -343,14 +563,20 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const body = (() => {
     if (error) return <text className="obe-chart-msg" x={W / 2} y={H / 2}>⚠ {error}</text>;
     const hasData = def.hasData ?? hasPlottable;
-    if (value === undefined || !hasData(value, labels)) {
+    if (value === undefined || !hasData(value, effectiveLabels)) {
       return (
         <text className="obe-chart-msg" x={W / 2} y={H / 2}>
-          {source.trim() ? 'no plottable data' : 'configure data ⚙ — e.g. [3, 1, 4, 1, 5] or {a: [1,2], b: [3,4]}'}
+          {dbBinding
+            ? dbBinding.dbId && dbBinding.groupBy
+              ? 'no rows to chart'
+              : 'configure a database ⚙ — pick a database and a group-by'
+            : source.trim()
+              ? 'no plottable data'
+              : 'configure data ⚙ — e.g. [3, 1, 4, 1, 5] or {a: [1,2], b: [3,4]}'}
         </text>
       );
     }
-    return def.render({value, labels, palette});
+    return def.render({value, labels: effectiveLabels, palette});
   })();
 
   return (
@@ -398,21 +624,49 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               ))}
             </Select>
           </ConfigField>
-          <ConfigField label="Data" hint="An expression over the page's inputs.">
-            <ConfigInput
-              mono
-              value={source}
-              readOnly={editor.readOnly}
-              spellCheck={false}
-              aria-label="Chart data expression"
-              placeholder="[x, x*2, x*3]  ·  {a: [1,2,3], b: [2,4,6]}"
-              onChange={(e) => setProp(editor, block, 'source', e.target.value)}
-            />
-            <ScopeHints editor={editor} onPick={(name) => setProp(editor, block, 'source', appendVar(source, name))} />
+          <ConfigField label="Source">
+            <div className="flex gap-1 rounded-md border border-border bg-card p-0.5" role="group" aria-label="Chart data source">
+              {([['expr', 'Reactive inputs'], ['database', 'Database']] as const).map(([mode, lbl]) => {
+                const active = (mode === 'database') === !!dbBinding;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    disabled={editor.readOnly}
+                    aria-pressed={active}
+                    onClick={() => setProp(editor, block, 'sourceMode', mode)}
+                    className={cn(
+                      'flex-1 cursor-pointer rounded px-2 py-1 text-xs transition-colors',
+                      active ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {lbl}
+                  </button>
+                );
+              })}
+            </div>
           </ConfigField>
-          <ConfigField label="Labels" hint="Comma-separated, one per point.">
-            <ConfigInput value={blockProp<string>(block, 'labels') ?? ''} readOnly={editor.readOnly} aria-label="Labels (comma-separated)" placeholder="A, B, C" onChange={(e) => setProp(editor, block, 'labels', e.target.value)} />
-          </ConfigField>
+          {dbBinding ? (
+            <ChartDbConfig block={block} setProp={(key, v) => setProp(editor, block, key, v)} readOnly={editor.readOnly} />
+          ) : (
+            <>
+              <ConfigField label="Data" hint="An expression over the page's inputs.">
+                <ConfigInput
+                  mono
+                  value={source}
+                  readOnly={editor.readOnly}
+                  spellCheck={false}
+                  aria-label="Chart data expression"
+                  placeholder="[x, x*2, x*3]  ·  {a: [1,2,3], b: [2,4,6]}"
+                  onChange={(e) => setProp(editor, block, 'source', e.target.value)}
+                />
+                <ScopeHints editor={editor} onPick={(name) => setProp(editor, block, 'source', appendVar(source, name))} />
+              </ConfigField>
+              <ConfigField label="Labels" hint="Comma-separated, one per point.">
+                <ConfigInput value={blockProp<string>(block, 'labels') ?? ''} readOnly={editor.readOnly} aria-label="Labels (comma-separated)" placeholder="A, B, C" onChange={(e) => setProp(editor, block, 'labels', e.target.value)} />
+              </ConfigField>
+            </>
+          )}
           {def.configFields?.({block, editor, setProp: (key, v) => setProp(editor, block, key, v)})}
         </div>
       </KitSettings>

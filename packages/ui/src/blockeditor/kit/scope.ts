@@ -356,6 +356,13 @@ export function computeExportCells(doc: Y.Doc): Map<string, ExportCell> {
     } else if (type === 'formula' || (type === 'code' && Boolean(blockProp<boolean>(block, 'live')))) {
       const r = results.get(id);
       cells.set(id, {value: r?.error ? undefined : r?.value});
+    } else if (type === 'kitchart' && blockProp<string>(block, 'sourceMode') === 'database') {
+      // A database-bound chart's data can't be recomputed from the doc alone (it
+      // needs the data client, absent in a static export). The live block writes
+      // its resolved series to `dbSnapshot` for exactly this — export the
+      // last-known values so the chart renders rather than blanking.
+      const snap = blockProp<{value?: unknown}>(block, 'dbSnapshot');
+      cells.set(id, {value: snap?.value});
     } else if (type === 'kitchart' || type === 'progressbar') {
       cells.set(id, {value: evalExpr(blockProp<string>(block, 'source') ?? '', scope).value});
     } else if (type === 'statuslight') {

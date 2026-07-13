@@ -3,6 +3,7 @@
 export {
   DataProvider,
   useData,
+  useOptionalData,
   usePagePersistence,
   useCurrentPageId,
   getOrCreateCurrentPageId,
