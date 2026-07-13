@@ -291,11 +291,15 @@ export type AgentChatEvent =
   | {type: 'tool'; name: string; args: Record<string, unknown>}
   | {type: 'tool_result'; name: string; result: string}
   /**
-   * The agent is asking to apply its edits DIRECTLY (without the review pane).
-   * The UI shows an allow/keep-reviewing prompt; granting it makes subsequent
-   * edits in this conversation apply immediately (see {@link apply}).
+   * The agent is asking for a sticky, per-conversation permission. `kind`
+   * distinguishes them (default `direct_edits` for back-compat):
+   *  - `direct_edits` — apply its edits DIRECTLY (without the review pane);
+   *    granting makes subsequent edits apply immediately (see {@link apply}).
+   *  - `external_tools` — call EXTERNAL MCP tools (`mcp__*`), which send inputs
+   *    off the workspace; granting lets the agent use them for this conversation.
+   * The UI shows an allow / keep-reviewing prompt either way.
    */
-  | {type: 'permission_request'; summary: string}
+  | {type: 'permission_request'; summary: string; kind?: 'direct_edits' | 'external_tools'}
   /** The agent is asking the user a multi-step interview; answers return as the
    *  user's next message. */
   | {type: 'interview'; title?: string; steps: InterviewStep[]}
@@ -345,6 +349,114 @@ export interface AgentChatOptions {
    *  via an {@link AgentChatEvent.apply} event instead of becoming review
    *  suggestions. Sticky for the conversation once granted. */
   allowDirectEdits?: boolean;
+  /** When true (the user consented), the agent may call EXTERNAL MCP tools
+   *  (`mcp__*`) without pausing. Sticky for the conversation; the first external
+   *  call otherwise emits a `permission_request` with `kind:'external_tools'`. */
+  allowExternalTools?: boolean;
+  /** When true, an external MCP tool was already used earlier in this conversation
+   *  — the client re-sends it (set once it sees any `mcp__*` tool event) so taint
+   *  (edits routed through review) stays sticky for the rest of the conversation,
+   *  not just the run that made the external call. */
+  externalToolsUsed?: boolean;
+}
+
+// ── External tools: MCP client (AGENT-3) ────────────────────────────────────────
+
+/**
+ * How the in-app agent reaches an external MCP server:
+ *  - `stdio` — spawn a local child process and speak MCP over its stdio. This is
+ *    host **command execution** (the child runs as the server user and can reach
+ *    loopback services the identity layer trusts as the machine owner), so it is
+ *    permitted ONLY on a desktop / UNCLAIMED instance. On a claimed multi-user
+ *    instance the server rejects a `stdio` registration and the UI hides it.
+ *  - `http` — a remote (or loopback) Streamable-HTTP MCP endpoint, authed with a
+ *    static bearer token. The only transport offered on a claimed instance.
+ */
+export type McpTransport = 'stdio' | 'http';
+
+/**
+ * One registered external MCP server. Admin-managed (see {@link McpClientConfig});
+ * connections are pooled server-side and its tools are merged into an agent run
+ * namespaced `mcp__<id>__<tool>` (so `id` forbids underscores — the delimiter).
+ */
+export interface McpServerConfig {
+  /** Stable slug, `^[a-z0-9][a-z0-9-]{0,31}$` (NO underscores — the namespace
+   *  delimiter). Unique within {@link McpClientConfig.servers}. */
+  id: string;
+  /** Optional display name (defaults to {@link id}). */
+  name?: string;
+  /** Per-server enable. Default false — a registered server does nothing until
+   *  explicitly enabled (and the global {@link McpClientConfig.enabled} is on). */
+  enabled: boolean;
+  transport: McpTransport;
+  // ── stdio transport ──
+  /** The executable to spawn (stdio). */
+  command?: string;
+  /** Arguments for {@link command} (stdio). NEVER carries the auth token. */
+  args?: string[];
+  /** Extra environment for the child (stdio). Overlaid on a MINIMAL default env
+   *  (never the server's own `process.env`); the auth token is injected under
+   *  {@link authEnvVar}, not here. */
+  env?: Record<string, string>;
+  /** Env var name the auth token is injected under (stdio). Default `MCP_AUTH_TOKEN`. */
+  authEnvVar?: string;
+  // ── http transport ──
+  /** The Streamable-HTTP MCP endpoint (http). */
+  url?: string;
+  /** Extra request headers (http). The auth token is sent as `Authorization:
+   *  Bearer <token>`, NOT here. */
+  headers?: Record<string, string>;
+  /**
+   * The static bearer token (http) or injected secret (stdio). **Write-only
+   * across the wire** — the server never returns it. Same three-way contract as
+   * {@link AiProviderSettings.apiKey}:
+   *   • omitted / empty string → PRESERVE the stored token;
+   *   • a non-empty string     → set a new token;
+   *   • explicit `null`        → CLEAR the stored token.
+   */
+  authToken?: string | null;
+  /** Response-only signal: the server holds a non-empty token for this server.
+   *  Set by `GET /api/ai/mcp` in place of the redacted {@link authToken}. */
+  authTokenSet?: boolean;
+  /** Per-call timeout for this server's tools, ms. Default 30000, clamped
+   *  1000..120000. */
+  timeoutMs?: number;
+}
+
+/**
+ * The workspace's external-tool (MCP client) configuration, persisted server-side
+ * under the `ai.mcp` settings key. Admin-managed. OFF and empty by default —
+ * nothing connects until an admin adds a server, enables it, and flips the global
+ * switch. A deployment env kill-switch (`OPENBOOK_MCP_CLIENTS=0`) hard-disables
+ * the whole subsystem regardless.
+ */
+export interface McpClientConfig {
+  /** Global kill-switch. Default false — with it off no server connects, even an
+   *  individually-enabled one. */
+  enabled: boolean;
+  servers: McpServerConfig[];
+}
+
+/**
+ * `GET /api/ai/mcp` (admin only): the redacted config (every {@link
+ * McpServerConfig.authToken} stripped, {@link McpServerConfig.authTokenSet}
+ * flagged) plus `stdioAllowed` — whether this instance's trust level permits the
+ * `stdio` transport (true on a desktop / unclaimed instance, false once claimed).
+ * The UI hides the stdio option when false; the PUT route enforces the same rule.
+ */
+export interface McpConfigResponse {
+  config: McpClientConfig;
+  stdioAllowed: boolean;
+}
+
+/** Result of `POST /api/ai/mcp/test` (admin only): a connect + list-tools dry-run
+ *  against one server config. Never returns secrets. */
+export interface McpTestResult {
+  ok: boolean;
+  /** Tool names discovered on a successful connect. */
+  tools?: string[];
+  /** A human-readable failure reason (error class / message), never headers/env. */
+  error?: string;
 }
 
 // ── Skills (user-authored prompt/recipe skills) ─────────────────────────────────

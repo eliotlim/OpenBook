@@ -1,12 +1,13 @@
 import {Hono, type Context} from 'hono';
 import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
-import {API, isPaidProvider, providerSettings, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiPricingTable, type AiProvider, type AiSkill, type PluginAgentTool, type Principal} from '@book.dev/sdk';
+import {API, isPaidProvider, providerSettings, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiPricingTable, type AiProvider, type AiSkill, type McpClientConfig, type McpServerConfig, type PluginAgentTool, type Principal} from '@book.dev/sdk';
 import type {PageStore} from '../store';
 import type {AppEnv} from '../appEnv';
 import {requireCreate, requireInstanceAdmin} from '../access';
 import {AgentRunner, type AgentMessage} from './agent';
 import type {AiService} from './service';
+import {McpConfigError, type ExternalAgentTool, type McpClientManager} from './mcpClients';
 import type {TokenUsage} from './providers';
 import type {AiUsageLog, UsageKind} from './usage';
 
@@ -20,7 +21,7 @@ import type {AiUsageLog, UsageKind} from './usage';
  * generate / complete / agent-turn writes ONE row through it. Best-effort — a
  * logging failure never breaks the request.
  */
-export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore, onPagesChanged?: () => Promise<void>, aiUsage?: AiUsageLog): void {
+export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore, onPagesChanged?: () => Promise<void>, aiUsage?: AiUsageLog, mcp?: McpClientManager): void {
   /**
    * Log a single generate/complete usage row against the effective provider/model.
    * Best-effort (the logger swallows its own errors); does nothing without a logger
@@ -173,6 +174,8 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
       pageId?: string;
       selection?: string;
       allowDirectEdits?: boolean;
+      allowExternalTools?: boolean;
+      externalToolsUsed?: boolean;
     };
     const turns = (body.messages ?? []).filter(
       (m): m is AgentMessage => (m?.role === 'user' || m?.role === 'assistant') && typeof m?.content === 'string',
@@ -190,6 +193,17 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     const thinking = body.thinking ?? config.thinking ?? true;
     const skills = await ai.skills.resolve(body.skills ?? []);
     const pluginTools = await collectPluginTools(store);
+    // External MCP tools (AGENT-3), gathered beside the plugin tools under a short
+    // deadline (a slow/unreachable server contributes nothing, the run proceeds).
+    // Q3: offered ONLY to a WRITER-GATED principal (`decideCreateAccess` — the same
+    // floor `create_page` uses); a guest agent run gets no external tools at all,
+    // so it can never be driven to exfiltrate through a third-party server.
+    const principal = c.get('principal');
+    let externalTools: ExternalAgentTool[] = [];
+    if (mcp) {
+      const canUseExternal = (await store.decideCreateAccess(principal)).canWrite;
+      if (canUseExternal) externalTools = await mcp.toolsForRun(3000).catch(() => []);
+    }
 
     // Ambient context: the page the user is viewing (fetched here so we don't
     // ship its body over the wire twice) + their current selection.
@@ -211,7 +225,7 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     // Thread the request principal so the agent's autonomous read/write tools are
     // bounded by the SAME per-page/ACL decisions the content routes enforce — the
     // runner can't be driven to read/edit pages this caller can't (OB-190 follow-up).
-    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, context, allowDirectEdits: body.allowDirectEdits === true, onPagesChanged, principal: c.get('principal'), usage: aiUsage});
+    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, externalTools, context, allowDirectEdits: body.allowDirectEdits === true, allowExternalTools: body.allowExternalTools === true, externalToolsUsed: body.externalToolsUsed === true, onPagesChanged, principal, usage: aiUsage});
     return streamSSE(c, async (stream) => {
       const abort = new AbortController();
       stream.onAbort(() => abort.abort());
@@ -285,6 +299,41 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     } catch (err) {
       return c.json({error: err instanceof Error ? err.message : String(err)}, 503);
     }
+  });
+
+  // ── External tools (MCP client) — admin only ────────────────────────────────
+  // Registering an external MCP server is host command-execution territory
+  // (a stdio server spawns a child; even an HTTP server sends workspace content
+  // off-box), so the whole surface is gated by `requireInstanceAdmin` — STRICTER
+  // than the writer gate the engine config uses. Secrets (auth tokens) are
+  // write-only across the wire, exactly like the provider apiKey.
+  app.get(API.aiMcp, async (c) => {
+    await requireInstanceAdmin(c, store);
+    if (!mcp) return c.json({config: {enabled: false, servers: []}, stdioAllowed: false});
+    const config = mcp.redact(await mcp.getConfig());
+    return c.json({config, stdioAllowed: await mcp.stdioAllowed()});
+  });
+
+  app.put(API.aiMcp, async (c) => {
+    await requireInstanceAdmin(c, store);
+    if (!mcp) return c.json({error: 'external tools are not available on this server'}, 503);
+    const body = (await c.req.json().catch(() => ({}))) as McpClientConfig;
+    try {
+      const saved = mcp.redact(await mcp.setConfig({enabled: body.enabled === true, servers: Array.isArray(body.servers) ? body.servers : []}));
+      return c.json({config: saved, stdioAllowed: await mcp.stdioAllowed()});
+    } catch (err) {
+      // A validation error (bad slug, duplicate id, stdio-on-claimed) is a 400 —
+      // the client's bad request, not a server fault. Never echo secrets.
+      if (err instanceof McpConfigError) return c.json({error: err.message}, 400);
+      return c.json({error: err instanceof Error ? err.message : String(err)}, 500);
+    }
+  });
+
+  app.post(API.aiMcpTest, async (c) => {
+    await requireInstanceAdmin(c, store);
+    if (!mcp) return c.json({ok: false, error: 'external tools are not available on this server'});
+    const server = (await c.req.json().catch(() => ({}))) as McpServerConfig;
+    return c.json(await mcp.test(server));
   });
 }
 

@@ -42,8 +42,9 @@ type ThreadItem =
   | {kind: 'reasoning'; text: string; expanded?: boolean; streaming?: boolean}
   | {kind: 'tool'; name: string; detail?: string; running: boolean; result?: string; expanded?: boolean}
   | {kind: 'suggestions'; suggestions: StoredSuggestion[]}
-  /** The agent asked to apply edits directly; awaiting allow/deny. */
-  | {kind: 'permission'; summary: string; resolved?: 'allowed' | 'denied'}
+  /** The agent asked for a sticky permission (direct edits, or external tools);
+   *  awaiting allow/deny. */
+  | {kind: 'permission'; summary: string; permKind: 'direct_edits' | 'external_tools'; resolved?: 'allowed' | 'denied'}
   /** The agent posed a multi-step interview; `resolved` once answers were sent. */
   | {kind: 'interview'; title?: string; steps: InterviewStep[]; resolved?: boolean}
   /** Edits the agent applied directly (granted access). */
@@ -115,6 +116,12 @@ export function AgentPanel() {
   const [thinking, setThinking] = useState(true);
   // Sticky once the agent's "apply directly" request is granted this conversation.
   const [directEdits, setDirectEdits] = useState(false);
+  // Sticky once the agent's "use external tools" request is granted this conversation.
+  const [externalTools, setExternalTools] = useState(false);
+  // Sticky once ANY external (mcp__*) tool has actually run this conversation — so
+  // taint (edits routed through review) persists across turns, not just the run
+  // that made the external call. Re-sent to the server each turn.
+  const externalUsedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -162,6 +169,8 @@ export function AgentPanel() {
     setThread([]);
     setConversation([]);
     setDirectEdits(false);
+    setExternalTools(false);
+    externalUsedRef.current = false;
     setBusy(false);
     inputRef.current?.focus();
   };
@@ -171,6 +180,9 @@ export function AgentPanel() {
       // A live answer chunk — append to the streaming assistant bubble.
       setThread((items) => appendStream(items, 'assistant', event.text));
     } else if (event.type === 'tool') {
+      // An external tool actually ran → taint the conversation (sticky, re-sent so
+      // later turns route edits through review too).
+      if (event.name.startsWith('mcp__')) externalUsedRef.current = true;
       setThread((items) => [...settle(items), {kind: 'tool', name: event.name, detail: argSummary(event.args), running: true}]);
     } else if (event.type === 'tool_result') {
       setThread((items) => {
@@ -193,7 +205,7 @@ export function AgentPanel() {
         setThread((items) => [...items, {kind: 'suggestions', suggestions: event.suggestions}]);
       }
     } else if (event.type === 'permission_request') {
-      setThread((items) => [...settle(items), {kind: 'permission', summary: event.summary}]);
+      setThread((items) => [...settle(items), {kind: 'permission', summary: event.summary, permKind: event.kind ?? 'direct_edits'}]);
     } else if (event.type === 'interview') {
       setThread((items) => [...settle(items), {kind: 'interview', title: event.title, steps: event.steps}]);
     } else if (event.type === 'apply') {
@@ -236,7 +248,7 @@ export function AgentPanel() {
   // Stream one agent run over `turns`. `direct` carries the edit-access grant for
   // this run (passed explicitly so a freshly-granted permission applies at once,
   // before the `directEdits` state has flushed).
-  const runAgent = (turns: AgentChatMessage[], direct: boolean): void => {
+  const runAgent = (turns: AgentChatMessage[], direct: boolean, external: boolean = externalTools): void => {
     setBusy(true);
     const abort = new AbortController();
     abortRef.current = abort;
@@ -252,6 +264,8 @@ export function AgentPanel() {
         pageId: targetPageId,
         selection: lastSelection() || undefined,
         allowDirectEdits: direct,
+        allowExternalTools: external,
+        externalToolsUsed: externalUsedRef.current,
       })
       .catch((err: unknown) => {
         if (abort.signal.aborted) return;
@@ -262,12 +276,12 @@ export function AgentPanel() {
 
   // Append a user turn and run the agent. Used by the composer and by the
   // interactive cards (permission grant / interview answers) to resume the agent.
-  const sendUser = (text: string, direct = directEdits): void => {
+  const sendUser = (text: string, direct = directEdits, external = externalTools): void => {
     if (busy) return;
     const turns: AgentChatMessage[] = [...conversation, {role: 'user', content: text}];
     setConversation(turns);
     setThread((items) => [...items, {kind: 'user', text}]);
-    runAgent(turns, direct);
+    runAgent(turns, direct, external);
   };
 
   const send = (): void => {
@@ -277,13 +291,26 @@ export function AgentPanel() {
     sendUser(text);
   };
 
-  // Resolve the agent's request to edit directly: granting flips the sticky flag
-  // and resumes the agent with edit access; declining keeps the review flow.
+  // Resolve the agent's sticky-permission request. For direct edits, granting
+  // flips the direct-edit flag; for external tools, the external-tools consent
+  // flag (Q4). Either way we resume the agent with the freshly-granted flag (the
+  // other grant stays as-is), or keep the safe default on decline.
   const resolvePermission = (index: number, allow: boolean): void => {
     if (busy) return;
+    const item = thread[index];
+    const kind = item && item.kind === 'permission' ? item.permKind : 'direct_edits';
     setThread((items) => items.map((it, i) => (i === index && it.kind === 'permission' ? {...it, resolved: allow ? 'allowed' : 'denied'} : it)));
+    if (kind === 'external_tools') {
+      if (allow) setExternalTools(true);
+      sendUser(
+        allow ? t('agent.permissionExternalGrantedMsg') : t('agent.permissionDeniedMsg'),
+        directEdits,
+        allow ? true : externalTools,
+      );
+      return;
+    }
     if (allow) setDirectEdits(true);
-    sendUser(allow ? t('agent.permissionGrantedMsg') : t('agent.permissionDeniedMsg'), allow);
+    sendUser(allow ? t('agent.permissionGrantedMsg') : t('agent.permissionDeniedMsg'), allow, externalTools);
   };
 
   // The user finished the interview: send their answers back as a tidy message.
@@ -401,10 +428,26 @@ export function AgentPanel() {
                   )}
                 >
                   {item.running ? <Loader2 className="size-3 animate-spin" aria-hidden /> : <Chevron className="size-3" aria-hidden />}
-                  <span className="truncate">
-                    {t(`agent.tool.${item.name}` as TKey)}
-                    {item.detail ? ` · ${item.detail}` : ''}
-                  </span>
+                  {/* External MCP tools (`mcp__server__tool`) have no built-in
+                      label; show a generic "External tool" name + the tool's own
+                      name, with an "external" badge so its provenance is obvious. */}
+                  {item.name.startsWith('mcp__') ? (
+                    <span className="flex min-w-0 items-center gap-1.5 truncate">
+                      <span className="rounded-sm bg-amber-500/15 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:text-amber-400" data-agent-tool-external>
+                        {t('agent.externalBadge')}
+                      </span>
+                      <span className="truncate">
+                        {t('agent.externalTool')}
+                        {` · ${item.name.split('__').slice(2).join('__') || item.name}`}
+                        {item.detail ? ` · ${item.detail}` : ''}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="truncate">
+                      {t(`agent.tool.${item.name}` as TKey)}
+                      {item.detail ? ` · ${item.detail}` : ''}
+                    </span>
+                  )}
                 </button>
                 {item.expanded && item.result !== undefined && (
                   <pre
@@ -484,17 +527,25 @@ export function AgentPanel() {
               >
                 <p className="flex items-center gap-1.5 text-xs font-medium">
                   <ShieldCheck className="size-3.5 text-primary" aria-hidden />
-                  {t('agent.permissionTitle')}
+                  {item.permKind === 'external_tools' ? t('agent.permissionExternalTitle') : t('agent.permissionTitle')}
                 </p>
-                <p className="text-[11px] text-muted-foreground">{t('agent.permissionHint', {summary: item.summary})}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {item.permKind === 'external_tools'
+                    ? t('agent.permissionExternalHint', {summary: item.summary})
+                    : t('agent.permissionHint', {summary: item.summary})}
+                </p>
                 {item.resolved ? (
                   <p className="text-[11px] font-medium text-muted-foreground">
-                    {item.resolved === 'allowed' ? t('agent.permissionAllowed') : t('agent.permissionDeclined')}
+                    {item.resolved === 'allowed'
+                      ? item.permKind === 'external_tools'
+                        ? t('agent.permissionExternalAllowed')
+                        : t('agent.permissionAllowed')
+                      : t('agent.permissionDeclined')}
                   </p>
                 ) : (
                   <div className="flex gap-2">
                     <Button size="sm" data-agent-permission-allow onClick={() => resolvePermission(i, true)} disabled={busy}>
-                      {t('agent.permissionAllow')}
+                      {item.permKind === 'external_tools' ? t('agent.permissionExternalAllow') : t('agent.permissionAllow')}
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => resolvePermission(i, false)} disabled={busy}>
                       {t('agent.permissionKeepReview')}

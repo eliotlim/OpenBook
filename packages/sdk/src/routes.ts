@@ -103,6 +103,16 @@ export const API = {
   aiModelDownload: '/api/ai/models/download',
   /** The agent harness: `POST` `{messages, effort?, thinking?, skills?}` → SSE tool/reasoning/proposal/final events. */
   agentChat: '/api/agent/chat',
+  /**
+   * External tools (MCP client) config (admin only): `GET` returns
+   * {@link McpConfigResponse} (redacted config + `stdioAllowed`); `PUT`
+   * `{enabled, servers}` merges it (write-only auth tokens preserved/replaced/
+   * cleared) and returns the redacted result. Managing external tool servers is
+   * host command-execution territory — gated by `requireInstanceAdmin`. */
+  aiMcp: '/api/ai/mcp',
+  /** Dry-run one MCP server config (admin only): `POST` a {@link McpServerConfig}
+   *  → {@link McpTestResult} (connect + list tools; never returns secrets). */
+  aiMcpTest: '/api/ai/mcp/test',
   /** User-authored prompt/recipe skills: `GET` (list) / `PUT` `{skill}` (upsert). */
   aiSkills: '/api/ai/skills',
   /** One skill by name: `DELETE`. */

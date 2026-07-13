@@ -418,5 +418,10 @@ export type {
   AiUsageRow,
   AiUsageTotals,
   AiUsageResponse,
+  McpTransport,
+  McpServerConfig,
+  McpClientConfig,
+  McpConfigResponse,
+  McpTestResult,
 } from './ai';
 export {providerSettings, isPaidProvider} from './ai';
