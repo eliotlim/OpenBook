@@ -50,6 +50,7 @@ import {
   isAgentApiEnabled,
 } from './agentTokens';
 import {mountAgentTokenRoutes} from './agentTokenRoutes';
+import {mountMcpHttp} from './mcpHttp';
 import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
 import type {RosterController} from './rosterSync';
@@ -549,6 +550,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // Optional local-AI subsystem (status/search/generate). Mounted only when
   // the host passed a service; document APIs never depend on it.
   if (ai) mountAiRoutes(app, ai, store, broadcastList, opts.aiUsage, opts.mcp);
+  // Remote streamable-HTTP MCP transport (AGENT-5). Mounted here so the full `/api/*`
+  // middleware stack (bearer gate, forwarded-reject, PAT resolution + guest floor,
+  // scope-gate) runs BEFORE the handler; DARK by default and structurally loopback/
+  // LAN-only (see mcpHttp.ts). The `agentApi` scope-gate allowlist admits ALL of
+  // `/api/mcp`; scope is re-enforced per tool call by the handler's PAT loop-back.
+  mountMcpHttp(app, store);
   mountPluginRoutes(app, store);
   // Agent-PAT management (AGENT-6): admin-only mint/list/revoke + the dark `agentApi`
   // toggle. A PAT can never reach these (both `requireInstanceAdmin` and the
