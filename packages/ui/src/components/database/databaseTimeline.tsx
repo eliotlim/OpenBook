@@ -920,11 +920,15 @@ const TimelineCanvas: React.FC<{
                     </marker>
                   </defs>
                   {arrows.map((a, i) => {
-                    const midX = Math.max(a.x1 + 8, a.x2 - 8);
+                    // Smooth cubic Bézier with horizontal end tangents: the edge leaves
+                    // the predecessor's end going right and enters the successor's start
+                    // going right. Backward dependencies (x2 < x1) then read as a clean
+                    // loop instead of an orthogonal elbow that doubles back on itself.
+                    const dx = Math.max(16, Math.abs(a.x2 - a.x1) * 0.5);
                     return (
                       <path
                         key={i}
-                        d={`M ${a.x1} ${a.y1} H ${midX} V ${a.y2} H ${a.x2}`}
+                        d={`M ${a.x1} ${a.y1} C ${a.x1 + dx} ${a.y1}, ${a.x2 - dx} ${a.y2}, ${a.x2} ${a.y2}`}
                         className="stroke-muted-foreground/60"
                         strokeWidth={1.5}
                         fill="none"
