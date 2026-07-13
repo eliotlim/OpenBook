@@ -219,6 +219,23 @@ export const API = {
   backups: '/api/backups',
   /** Run a backup immediately: `POST` `{cadence?}` → the written file's name. */
   backupRun: '/api/backups/run',
+
+  // ── Agent access: PAT credential management (AGENT-6) ─────────────────────────
+  /**
+   * Agent Personal-Access-Token management (admin only — `requireInstanceAdmin`;
+   * a PAT can never reach this route, both by `requireInstanceAdmin` and the
+   * scope-gate). `GET` → `{enabled, tokens}` (redacted list + the `agentApi`
+   * on/off state); `PUT` `{enabled}` toggles the dark `agentApi` setting; `POST`
+   * `{name, scope?, expiresInDays?}` mints a token (404 while `agentApi` is off) and
+   * returns the plaintext exactly ONCE. */
+  agentTokens: '/api/agent-tokens',
+  /** Revoke one agent token by id: `DELETE`. `true` if one was removed. */
+  agentToken: (id: string): string => `/api/agent-tokens/${encodeURIComponent(id)}`,
+  /**
+   * Remote streamable-HTTP MCP transport (AGENT-5 — handler built separately).
+   * Declared here so the AGENT-6 scope-gate can allowlist it; harmless until the
+   * handler is mounted. */
+  mcp: '/api/mcp',
 } as const;
 
 /** Result of a {@link API.compact} run: the database's on-disk size before/after,

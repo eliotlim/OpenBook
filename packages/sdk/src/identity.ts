@@ -32,9 +32,54 @@ export type VerifiedVia =
   | 'synced'
   /** In-process caller (the embedded `LocalDataClient`) — implicitly the local
    *  owner; there is no request to carry a credential. */
-  | 'local';
+  | 'local'
+  /**
+   * An **agent Personal-Access-Token** (AGENT-6): a `Bearer obat_…` credential an
+   * instance admin minted, bound at mint time to the MINTER's own verified subject
+   * (never client-chosen). It rides the SUBJECT-keyed authorize rungs its bound user
+   * would — owner-content, subject-ACL, authenticated-read — but is deliberately
+   * NOT a roster member (no `admin`/`viewer` rung, see `resolveMemberRole`), carries
+   * no persona email (never matches an email-ACL), and can never mint verified block
+   * authorship (`verifiedSubject` stays jws-only). Its HTTP surface is further
+   * confined by a default-deny scope-gate. */
+  | 'pat';
 
 export type PrincipalKind = 'user' | 'guest';
+
+/** What a minted agent token may do over the API (AGENT-6). `read` is confined to
+ *  the read scope-gate allowlist; `write` additionally admits the unsafe methods on
+ *  content routes. Never grants any privileged/admin route (default-deny). */
+export type AgentTokenScope = 'read' | 'write';
+
+/**
+ * The **redacted** view of a minted agent token (AGENT-6), safe to return from the
+ * management API and render in settings. NEVER carries the secret itself — only an
+ * `obat_…` preview prefix; the plaintext is shown exactly once, in the create
+ * response, and only its SHA-256 hash is stored at rest.
+ */
+export interface AgentTokenMeta {
+  id: string;
+  /** Human label the minter gave the token. */
+  name: string;
+  scope: AgentTokenScope;
+  /** The verified subject the token is bound to (the minter's own subject, or
+   *  `local:owner` for a hatch/local-owner minter). */
+  subject: string;
+  /** The issuer that vouched for {@link subject} (empty / `local` for the hatch). */
+  issuer: string;
+  /** Who minted it (a display label). */
+  createdBy: string;
+  /** ISO timestamps. */
+  createdAt: string;
+  /** ISO expiry, or `null` for a no-expiry token. */
+  expiresAt: string | null;
+  /** ISO last-used, or `null` if never presented. */
+  lastUsedAt: string | null;
+  /** A short, non-secret prefix of the token (`obat_xxxx…`) for recognition. */
+  preview: string;
+  /** True once revoked (kept listed briefly for provenance; never resolves). */
+  revoked: boolean;
+}
 
 /** The actor behind a request, resolved by the server and stamped onto changes. */
 export interface Principal {

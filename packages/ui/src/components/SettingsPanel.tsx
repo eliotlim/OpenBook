@@ -7,7 +7,7 @@ import {
   MixerHorizontalIcon,
   UpdateIcon,
 } from '@radix-ui/react-icons';
-import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, LifebuoyIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, WrenchIcon} from '@heroicons/react/24/outline';
+import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, KeyIcon, LifebuoyIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, WrenchIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
 import AppearanceSettings from '@/components/AppearanceSettings';
 import GeneralSettings from '@/components/GeneralSettings';
@@ -20,6 +20,7 @@ import ConnectionSettings from '@/components/settings/ConnectionSettings';
 import SharingPublishingSettings from '@/components/settings/SharingPublishingSettings';
 import AdminSettings from '@/components/settings/AdminSettings';
 import AccountSettings from '@/components/settings/AccountSettings';
+import AgentTokensSettings from '@/components/settings/AgentTokensSettings';
 import DiagnosticsSettings from '@/components/settings/DiagnosticsSettings';
 import {cn} from '@/lib/utils';
 import {useSelfIdentity, useTranslation} from '@/providers';
@@ -37,6 +38,7 @@ const TAB_META: Record<SettingsTab, {labelKey: TKey; icon: ComponentType<{classN
   extensions: {labelKey: 'settings.tab.extensions', icon: PuzzlePieceIcon},
   ai: {labelKey: 'settings.tab.ai', icon: CpuChipIcon},
   admin: {labelKey: 'settings.tab.admin', icon: ArchiveBoxIcon},
+  agents: {labelKey: 'settings.tab.agents', icon: KeyIcon},
   diagnostics: {labelKey: 'settings.tab.diagnostics', icon: LifebuoyIcon},
 };
 
@@ -57,6 +59,7 @@ const PANELS: Record<SettingsTab, ComponentType> = {
   sharing: SharingPublishingSettings,
   extensions: ExtensionsSettings,
   admin: AdminSettings,
+  agents: AgentTokensSettings,
   diagnostics: DiagnosticsSettings,
 };
 

@@ -1,5 +1,7 @@
 import type {
   AclLevel,
+  AgentTokenList,
+  CreatedAgentToken,
   AiConfig,
   AiPricingResponse,
   AiPricingTable,
@@ -481,6 +483,36 @@ export class LocalDataClient implements DataClient {
 
   removeMember(id: string): Promise<boolean> {
     return this.store.removeMember(id);
+  }
+
+  // ── Agent access: PAT credential management (AGENT-6) ─────────────────────────
+  // Agent PATs authenticate an OUTWARD `Bearer obat_…` HTTP request; the in-webview
+  // store exposes no such server, so the feature is inert here — the panel renders a
+  // "runs on the desktop app or a connected server" notice.
+
+  listAgentTokens(): Promise<AgentTokenList> {
+    // Reject (rather than resolve empty) so the settings panel renders its
+    // "unavailable in the browser" state instead of a live-looking Enable toggle
+    // that would then error on use.
+    return Promise.reject(
+      new Error('Agent tokens run on the desktop app or a connected server — not in the browser.'),
+    );
+  }
+
+  setAgentApiEnabled(): Promise<{enabled: boolean}> {
+    return Promise.reject(
+      new Error('Agent tokens run on the desktop app or a connected server — not in the browser.'),
+    );
+  }
+
+  createAgentToken(): Promise<CreatedAgentToken> {
+    return Promise.reject(
+      new Error('Agent tokens run on the desktop app or a connected server — not in the browser.'),
+    );
+  }
+
+  revokeAgentToken(): Promise<boolean> {
+    return Promise.resolve(false);
   }
 
   // ── Scheduled backups (OB-166) ───────────────────────────────────────────────

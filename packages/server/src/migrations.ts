@@ -363,6 +363,37 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS pages_name_idx ON pages (name) WHERE name IS NOT NULL AND deleted_at IS NULL',
     ],
   },
+  {
+    // Agent Personal-Access-Tokens (AGENT-6). A `Bearer obat_…` credential an
+    // instance admin mints to authenticate an OUTWARD agent/MCP HTTP request. The
+    // SECRET is never stored — only its SHA-256 hash (`token_hash`, UNIQUE so a
+    // byte-identical mint can't collide) and a short non-secret `preview`. Each row
+    // is BOUND at mint time to the minter's own verified subject/issuer (never a
+    // client-chosen value); `scope` is the read/write ceiling the request-time
+    // scope-gate enforces. `revoked_at`/`expires_at` gate resolution (a revoked or
+    // expired token never resolves — the presenter hard-401s, never a silent guest
+    // downgrade). `last_used_at` is a debounced best-effort touch. Purely additive +
+    // idempotent: absent on every existing instance until an admin enables the dark
+    // `agentApi` setting and mints one, so a live workspace behaves exactly as before.
+    name: '0016_agent_tokens',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS agent_tokens (
+        id           UUID        PRIMARY KEY,
+        name         TEXT        NOT NULL DEFAULT '',
+        token_hash   TEXT        NOT NULL UNIQUE,
+        preview      TEXT        NOT NULL DEFAULT '',
+        subject      TEXT        NOT NULL,
+        issuer       TEXT        NOT NULL DEFAULT '',
+        scope        TEXT        NOT NULL DEFAULT 'read',
+        created_by   TEXT        NOT NULL DEFAULT '',
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        expires_at   TIMESTAMPTZ,
+        last_used_at TIMESTAMPTZ,
+        revoked_at   TIMESTAMPTZ
+      )`,
+      'CREATE INDEX IF NOT EXISTS agent_tokens_active_idx ON agent_tokens (created_at DESC) WHERE revoked_at IS NULL',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

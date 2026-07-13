@@ -4,6 +4,8 @@ import type {
   AccessCtx,
   AclEntry,
   AclLevel,
+  AgentTokenMeta,
+  AgentTokenScope,
   BackupConfig,
   CommentInput,
   CommentRun,
@@ -39,6 +41,7 @@ import type {
 } from '@book.dev/sdk';
 import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import type {Db} from './dbCore';
+import type {AgentTokenRow} from './agentTokens';
 import {runMigrations} from './migrations';
 
 /**
@@ -120,6 +123,36 @@ const parseJson = <T>(value: T | string | null | undefined, fallback: T): T => {
 
 const parseSnapshot = (value: PageSnapshot | string | null | undefined): PageSnapshot =>
   parseJson<PageSnapshot>(value, EMPTY_SNAPSHOT);
+
+// One row of the `agent_tokens` table, as read for the redacted management view
+// (the `token_hash` column is deliberately never selected into it).
+interface AgentTokenDbRow {
+  id: string;
+  name: string;
+  preview: string;
+  subject: string;
+  issuer: string;
+  scope: string;
+  created_by: string;
+  created_at: Date | string;
+  expires_at: Date | string | null;
+  last_used_at: Date | string | null;
+  revoked_at: Date | string | null;
+}
+
+const agentTokenMetaFromRow = (row: AgentTokenDbRow): AgentTokenMeta => ({
+  id: row.id,
+  name: row.name,
+  scope: row.scope as AgentTokenScope,
+  subject: row.subject,
+  issuer: row.issuer,
+  createdBy: row.created_by,
+  createdAt: toIso(row.created_at),
+  expiresAt: toIsoOrNull(row.expires_at),
+  lastUsedAt: toIsoOrNull(row.last_used_at),
+  preview: row.preview,
+  revoked: row.revoked_at != null,
+});
 
 const metaFromRow = (row: PageRow): PageMeta => ({
   id: row.id,
@@ -1693,6 +1726,87 @@ export class PageStore {
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
       [key, JSON.stringify(value)],
     );
+  }
+
+  // ── Agent Personal-Access-Tokens (AGENT-6) ───────────────────────────────────
+
+  /**
+   * Insert a minted agent token. The plaintext is NEVER stored — only its SHA-256
+   * `tokenHash` (UNIQUE) + a non-secret `preview`. `subject`/`issuer` are the
+   * MINTER's own verified identity (bound by the route, never client-chosen). Returns
+   * the redacted {@link AgentTokenMeta} (no secret).
+   */
+  async createAgentToken(input: {
+    name: string;
+    tokenHash: string;
+    preview: string;
+    subject: string;
+    issuer: string;
+    scope: AgentTokenScope;
+    createdBy: string;
+    expiresAt: Date | null;
+  }): Promise<AgentTokenMeta> {
+    const rows = await this.db.query<AgentTokenDbRow>(
+      `INSERT INTO agent_tokens (id, name, token_hash, preview, subject, issuer, scope, created_by, expires_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, name, preview, subject, issuer, scope, created_by, created_at, expires_at, last_used_at, revoked_at`,
+      [randomUUID(), input.name, input.tokenHash, input.preview, input.subject, input.issuer, input.scope, input.createdBy, input.expiresAt],
+    );
+    return agentTokenMetaFromRow(rows[0]);
+  }
+
+  /** Count LIVE (non-revoked, unexpired) tokens — the mint-cap check. */
+  async countActiveAgentTokens(): Promise<number> {
+    const rows = await this.db.query<{n: number | string}>(
+      'SELECT count(*)::int AS n FROM agent_tokens WHERE revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())',
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  /** List every token (redacted), newest first — revoked/expired ones included and
+   *  flagged, for provenance. The secret hash is never selected. */
+  async listAgentTokens(): Promise<AgentTokenMeta[]> {
+    const rows = await this.db.query<AgentTokenDbRow>(
+      `SELECT id, name, preview, subject, issuer, scope, created_by, created_at, expires_at, last_used_at, revoked_at
+       FROM agent_tokens ORDER BY created_at DESC`,
+    );
+    return rows.map(agentTokenMetaFromRow);
+  }
+
+  /**
+   * Resolve a presented token by its hash — returns the row ONLY when it is LIVE
+   * (not revoked, not past `expires_at`). An absent/revoked/expired hash ⇒ `null`,
+   * so the caller HARD-401s rather than downgrading to a guest.
+   */
+  async resolveAgentToken(tokenHash: string): Promise<AgentTokenRow | null> {
+    const rows = await this.db.query<{id: string; name: string; subject: string; issuer: string; scope: string}>(
+      `SELECT id, name, subject, issuer, scope FROM agent_tokens
+       WHERE token_hash = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())`,
+      [tokenHash],
+    );
+    if (rows.length === 0) return null;
+    const r = rows[0];
+    return {id: r.id, name: r.name, subject: r.subject, issuer: r.issuer, scope: r.scope as AgentTokenScope};
+  }
+
+  /** Best-effort debounced `last_used_at` touch (skips a write within ~60s of the
+   *  last so a busy agent doesn't write on every request). */
+  async touchAgentTokenUsed(id: string): Promise<void> {
+    await this.db.query(
+      `UPDATE agent_tokens SET last_used_at = now() WHERE id = $1
+         AND (last_used_at IS NULL OR last_used_at < now() - interval '60 seconds')`,
+      [id],
+    );
+  }
+
+  /** Revoke a token by id (sets `revoked_at`; the row lingers for provenance).
+   *  Returns `true` when a not-yet-revoked row was revoked. */
+  async revokeAgentToken(id: string): Promise<boolean> {
+    const rows = await this.db.query<{id: string}>(
+      'UPDATE agent_tokens SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL RETURNING id',
+      [id],
+    );
+    return rows.length > 0;
   }
 
   /** The instance's multi-user policy (guest gate + trusted issuers), with

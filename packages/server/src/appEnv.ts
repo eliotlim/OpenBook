@@ -1,4 +1,4 @@
-import type {Principal} from '@book.dev/sdk';
+import type {AgentTokenScope, Principal} from '@book.dev/sdk';
 
 /** Per-request state the principal middleware attaches to the Hono context. */
 export type AppVariables = {
@@ -10,6 +10,13 @@ export type AppVariables = {
    * own instance even when their account identity is absent, stale, or drifted.
    */
   localOwner?: boolean;
+  /**
+   * Set when the request authenticated with an agent PAT (AGENT-6) — the resolved
+   * token id + its read/write scope. Presence of this var is what the scope-gate
+   * middleware keys on to confine a `pat` request to its default-deny allowlist; a
+   * PAT-bearing request deliberately never also gets {@link localOwner}.
+   */
+  agentToken?: {id: string; scope: AgentTokenScope};
 };
 
 /** The Hono environment shared by the app and its mounted route groups. */
