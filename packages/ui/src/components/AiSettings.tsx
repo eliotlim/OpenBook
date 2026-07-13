@@ -3,6 +3,7 @@ import {ChevronDown, ChevronRight, Trash2} from 'lucide-react';
 import {providerSettings, type AiConfig, type AiEffort, type AiProvider, type AiProviderSettings, type AiSkill, type AiStatus} from '@book.dev/sdk';
 import {ScopeChip, SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
 import AiUsageSettings from '@/components/settings/AiUsageSettings';
+import McpSettings from '@/components/settings/McpSettings';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {useData} from '@/data';
@@ -387,6 +388,10 @@ export default function AiSettings() {
           </span>
         </div>
       </SettingsSection>
+
+      {/* External tools (MCP client). Admin-only (self-gated + 403-gated); off and
+          empty by default; the stdio transport hides on a claimed instance. */}
+      <McpSettings />
 
       {/* AI usage attribution + pricing + retention. Renders nothing unless YOU
           are an instance admin (self-gated + 403-gated); a viewer/guest sees none

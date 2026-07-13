@@ -13,6 +13,10 @@ import type {
   AiStatus,
   AiStreamEvent,
   AiTasksResponse,
+  McpClientConfig,
+  McpConfigResponse,
+  McpServerConfig,
+  McpTestResult,
 } from './ai';
 import type {AclLevel, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVisibility, StoredPage} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
@@ -106,6 +110,16 @@ export interface DataClient {
   getAiUsage(): Promise<AiUsageResponse>;
   /** Set the AI usage database's retention window in days (admin only). */
   setAiUsageRetention(days: number): Promise<{days: number}>;
+  /** Read the external-tools (MCP client) config (admin only): redacted config +
+   *  whether the stdio transport is permitted on this instance. */
+  getMcpConfig(): Promise<McpConfigResponse>;
+  /** Save the external-tools (MCP client) config (admin only). Auth tokens are
+   *  write-only (omit/blank preserves, a value sets, `null` clears). Returns the
+   *  redacted result. */
+  putMcpConfig(config: McpClientConfig): Promise<McpConfigResponse>;
+  /** Dry-run one MCP server config (admin only): connect + list tools; never
+   *  returns secrets. */
+  testMcpServer(server: McpServerConfig): Promise<McpTestResult>;
 
   // ── Extensions (installed plugins, stored server-side per workspace) ───────
   listPlugins(): Promise<StoredPlugin[]>;
@@ -1250,6 +1264,18 @@ export class HttpDataClient implements DataClient {
     return this.request<AiPricingResponse>('PUT', API.aiPricing, override);
   }
 
+  async getMcpConfig(): Promise<McpConfigResponse> {
+    return this.request<McpConfigResponse>('GET', API.aiMcp);
+  }
+
+  async putMcpConfig(config: McpClientConfig): Promise<McpConfigResponse> {
+    return this.request<McpConfigResponse>('PUT', API.aiMcp, config);
+  }
+
+  async testMcpServer(server: McpServerConfig): Promise<McpTestResult> {
+    return this.request<McpTestResult>('POST', API.aiMcpTest, server);
+  }
+
   async getAiUsage(): Promise<AiUsageResponse> {
     return this.request<AiUsageResponse>('GET', API.aiUsage);
   }
@@ -1267,7 +1293,7 @@ export class HttpDataClient implements DataClient {
     const res = await this.authFetch(`${this.baseUrl}${API.agentChat}`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({messages, provider: opts.provider, model: opts.model, effort: opts.effort, thinking: opts.thinking, skills: opts.skills, pageId: opts.pageId, selection: opts.selection, allowDirectEdits: opts.allowDirectEdits}),
+      body: JSON.stringify({messages, provider: opts.provider, model: opts.model, effort: opts.effort, thinking: opts.thinking, skills: opts.skills, pageId: opts.pageId, selection: opts.selection, allowDirectEdits: opts.allowDirectEdits, allowExternalTools: opts.allowExternalTools}),
       cache: 'no-store',
       signal: opts.signal,
     });

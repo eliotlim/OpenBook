@@ -200,6 +200,9 @@ importers:
       '@hono/node-server':
         specifier: ^2.0.4
         version: 2.0.4(hono@4.12.23)
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.13.0
+        version: 1.29.0(zod@3.25.76)
       hono:
         specifier: ^4.12.0
         version: 4.12.23

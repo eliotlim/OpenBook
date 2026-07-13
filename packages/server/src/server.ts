@@ -6,6 +6,7 @@ import {PageStore} from './store';
 import {PageHub} from './hub';
 import {BookMirror, MirrorLockedError, WriteBudgetError} from './mirror';
 import {AiService} from './ai/service';
+import {McpClientManager} from './ai/mcpClients';
 import {AiUsageLog} from './ai/usage';
 import {IdentityService} from './instanceConfig';
 import {BackupScheduler} from './backups';
@@ -369,6 +370,11 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const modelsDir = process.env.OPENBOOK_MODELS_DIR
     || (opts.dataDir ? path.join(opts.dataDir, 'models') : path.join(os.homedir(), '.openbook', 'models'));
   const ai = new AiService(db, modelsDir);
+  // External-tools (MCP client) manager (AGENT-3): owned beside AiService, pools
+  // connections to admin-registered MCP servers and hands the agent route
+  // namespaced `mcp__*` tools. Inert until an admin configures + enables a server
+  // (and the deployment hasn't set `OPENBOOK_MCP_CLIENTS=0`).
+  const mcp = new McpClientManager(store);
 
   // Multi-user identity (OB-165): resolves a principal per request and enforces
   // the guest-access policy stored in settings. The default policy is
@@ -422,6 +428,8 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     // C1: the AI usage-attribution log — routes log through it, and the database
     // write routes reject end-user edits to its managed database.
     aiUsage,
+    // AGENT-3: the external-tools (MCP client) manager.
+    mcp,
     // Loopback-owner hatch: the spawning host (the desktop app) shares its per-run
     // secret via env; a dev setup can export the same value to both processes.
     localOwnerSecret: opts.localOwnerSecret ?? process.env.OPENBOOK_LOCAL_OWNER_SECRET,
@@ -548,6 +556,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     address,
     close: async () => {
       await ai.dispose();
+      await mcp.dispose();
       backups.stop();
       roster.stop();
       if (cleanupTimer) clearInterval(cleanupTimer);

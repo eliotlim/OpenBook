@@ -20,6 +20,9 @@ import type {
   ImportResult,
   InstanceConfig,
   InstanceInfo,
+  McpClientConfig,
+  McpConfigResponse,
+  McpTestResult,
   Member,
   MemberRole,
   MemberStatus,
@@ -609,6 +612,21 @@ export class LocalDataClient implements DataClient {
 
   setAiUsageRetention(days: number): Promise<{days: number}> {
     return Promise.resolve({days});
+  }
+
+  // No server process in local in-app mode → no external MCP tools. Report an
+  // empty, off config (and no stdio) so the settings panel renders its empty
+  // state rather than throwing; a save is a no-op, and a test is unavailable.
+  getMcpConfig(): Promise<McpConfigResponse> {
+    return Promise.resolve({config: {enabled: false, servers: []}, stdioAllowed: false});
+  }
+
+  putMcpConfig(config: McpClientConfig): Promise<McpConfigResponse> {
+    return Promise.resolve({config: {enabled: false, servers: config.servers ?? []}, stdioAllowed: false});
+  }
+
+  testMcpServer(): Promise<McpTestResult> {
+    return Promise.resolve({ok: false, error: 'External tools run on a connected OpenBook server; not available in local in-app mode.'});
   }
 
   private aiUnavailable(): Error {

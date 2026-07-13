@@ -42,6 +42,7 @@ import type {BackupController} from './backups';
 import type {RosterController} from './rosterSync';
 import type {AppEnv} from './appEnv';
 import type {AiService} from './ai/service';
+import type {McpClientManager} from './ai/mcpClients';
 import type {AiUsageLog} from './ai/usage';
 
 /**
@@ -208,6 +209,14 @@ export interface AppOptions {
    * owned by the caller (`startServer`); omitted in tests / the in-webview store.
    */
   aiUsage?: AiUsageLog;
+  /**
+   * The external-tools (MCP client) manager (AGENT-3). When provided, the AI
+   * routes expose the admin-only `/api/ai/mcp` surface and the agent run merges
+   * its namespaced `mcp__*` tools (for writer-gated principals only). Owned by
+   * the caller (`startServer`); omitted in tests / the in-webview store, where
+   * external tools are simply unavailable.
+   */
+  mcp?: McpClientManager;
 }
 
 /**
@@ -431,7 +440,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   // Optional local-AI subsystem (status/search/generate). Mounted only when
   // the host passed a service; document APIs never depend on it.
-  if (ai) mountAiRoutes(app, ai, store, broadcastList, opts.aiUsage);
+  if (ai) mountAiRoutes(app, ai, store, broadcastList, opts.aiUsage, opts.mcp);
   mountPluginRoutes(app, store);
 
   app.get(API.health, (c) => c.text('ok'));
