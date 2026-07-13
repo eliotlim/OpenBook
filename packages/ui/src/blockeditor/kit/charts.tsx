@@ -737,14 +737,20 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
         )}
       </figcaption>
       <div className="obe-chart-plot">
-        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title || `${kind} chart`} className="obe-chart-svg">
+        {/* role="group" (not "img"): the marks are interactive `role="button"`
+            children now, and an img is an ARIA leaf that would hide them (and
+            their `label: value` names) from assistive tech. A labelled group
+            keeps the chart's accessible name while exposing every mark. */}
+        <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label={title || `${kind} chart`} className="obe-chart-svg">
           <ChartInteractionContext.Provider value={interactions}>{body}</ChartInteractionContext.Provider>
         </svg>
         {active && !menu && (
           // aria-hidden: the focused/hovered mark already carries the label+value
           // in its aria-label, so the visual tooltip must not double-announce.
+          // Flips below the mark near the top edge so it never escapes the plot
+          // into the figcaption (max bar / top scatter point / funnel row 1).
           <div
-            className="obe-chart-tooltip"
+            className={cn('obe-chart-tooltip', active.at.y < H * 0.16 && 'obe-chart-tooltip-below')}
             aria-hidden
             style={{left: `${pctIn(active.at.x, W)}%`, top: `${(active.at.y / H) * 100}%`}}
           >
@@ -761,7 +767,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               aria-hidden
               tabIndex={-1}
               className="obe-chart-menu-anchor"
-              style={menu ? {left: `${(menu.at.x / W) * 100}%`, top: `${(menu.at.y / H) * 100}%`} : undefined}
+              style={menu ? {left: `${pctIn(menu.at.x, W)}%`, top: `${(menu.at.y / H) * 100}%`} : undefined}
             />
           </DropdownMenuTrigger>
           {menu && (
@@ -778,12 +784,12 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => void navigator.clipboard?.writeText(`${menu.datum.label}: ${fmtChartValue(menu.datum.value)}`)}>
-                <Copy className="mr-2 h-3.5 w-3.5" /> Copy value
+                <Copy className="mr-2 h-4 w-4" /> Copy value
               </DropdownMenuItem>
               {canChangeKind && (
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger>
-                    <BarChart3 className="mr-2 h-3.5 w-3.5" /> Change chart kind
+                    <BarChart3 className="mr-2 h-4 w-4" /> Change chart kind
                   </DropdownMenuSubTrigger>
                   <DropdownMenuSubContent>
                     <DropdownMenuRadioGroup value={kind} onValueChange={(k) => setProp(editor, block, 'kind', k)}>

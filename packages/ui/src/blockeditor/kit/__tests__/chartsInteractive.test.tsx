@@ -125,13 +125,27 @@ describe('context menu', () => {
 });
 
 describe('additive render contract — no interactions', () => {
-  it('a kind rendered with only {value, labels, palette} produces no interaction wrappers', () => {
-    // The static-export / provider-less / test path: Mark is an inert passthrough
-    // so the SVG has no `.obe-chart-mark` wrappers — byte-identical body.
+  // The static-export / provider-less / test path: `<Mark>` is an inert
+  // passthrough, so the invariant is that NO `.obe-chart-mark` interaction
+  // wrappers are emitted. The kinds still draw their data elements — including,
+  // for line/area, the per-point `.obe-chart-dot` hit circles, which always ship
+  // but are invisible (`.obe-chart-dot { fill-opacity: 0 }`); they add no visual
+  // change, so this path stays byte-equivalent in appearance.
+  it('bar: no interaction wrappers, bars still draw', () => {
     const args: ChartRenderArgs = {value: [3, 1, 4], labels: ['A', 'B', 'C'], palette: PALETTE};
     const {container} = render(<svg>{getChartKind('bar')!.render(args)}</svg>);
-    expect(container.querySelector('.obe-chart-mark')).toBeNull();
-    // The bars themselves still draw.
+    expect(container.querySelectorAll('.obe-chart-mark').length).toBe(0);
     expect(container.querySelectorAll('rect').length).toBeGreaterThanOrEqual(3);
   });
+
+  for (const kind of ['line', 'area'] as const) {
+    it(`${kind}: no interaction wrappers even though invisible hit dots ship`, () => {
+      const args: ChartRenderArgs = {value: [3, 1, 4], labels: ['A', 'B', 'C'], palette: PALETTE};
+      const {container} = render(<svg>{getChartKind(kind)!.render(args)}</svg>);
+      // The true invariant: zero interaction wrappers in the no-context path…
+      expect(container.querySelectorAll('.obe-chart-mark').length).toBe(0);
+      // …while the always-shipped (invisible) point dots are still present.
+      expect(container.querySelectorAll('.obe-chart-dot').length).toBe(3);
+    });
+  }
 });

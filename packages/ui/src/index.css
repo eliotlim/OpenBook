@@ -2371,6 +2371,12 @@ a.obe-mention {
 /* Each datum's <g> wrapper. Highlight is shared: the active mark brightens, the
    rest de-emphasise, so every registered kind gets it from the scaffold. */
 .obe-chart-mark { cursor: pointer; outline: none; transition: opacity 0.12s ease, filter 0.12s ease; }
+/* Forced-colors users get no cue from the token stroke ring, so restore a real
+   focus outline there (the `outline:none` above is fine for everyone else, who
+   see the is-active emphasis on focus). */
+@media (forced-colors: active) {
+  .obe-chart-mark:focus-visible { outline: 2px solid Highlight; outline-offset: 1px; }
+}
 .obe-chart-mark.is-dim { opacity: 0.32; }
 .obe-chart-mark.is-active { filter: brightness(1.06); }
 .obe-chart-mark.is-active :is(rect, path, circle) { stroke: hsl(var(--foreground) / 0.55); stroke-width: 1.5px; }
@@ -2396,6 +2402,8 @@ a.obe-mention {
   white-space: nowrap;
   pointer-events: none;
 }
+/* Near the top edge the tooltip flips below the mark so it stays inside the plot. */
+.obe-chart-tooltip-below { transform: translate(-50%, 10px); }
 .obe-chart-tt-label { color: hsl(var(--muted-foreground)); }
 .obe-chart-tt-value { font-weight: 600; font-variant-numeric: tabular-nums; }
 .obe-chart-menu-anchor { position: absolute; top: 0; left: 0; width: 1px; height: 1px; pointer-events: none; }
