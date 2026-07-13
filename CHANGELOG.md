@@ -1,3 +1,19 @@
+## 2.2.0 (2026-07-13)
+
+### 🚀 Features
+
+- **ui:** dashboard cross-filter for DB-source charts (DASH-7) ([#153](https://github.com/eliotlim/OpenBook/pull/153))
+
+### 🩹 Fixes
+
+- **release:** build @book.dev/mcp before the desktop sidecar so bun can resolve it ([#152](https://github.com/eliotlim/OpenBook/pull/152))
+- **ui:** curve dependency arrows + paint desktop cover tint behind the titlebar glass ([#154](https://github.com/eliotlim/OpenBook/pull/154))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 2.1.0 (2026-07-13)
 
 ### 🚀 Features
