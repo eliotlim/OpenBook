@@ -17,12 +17,21 @@ import {rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import {FORWARDED_HEADER, type AgentTokenScope} from '@book.dev/sdk';
+import {
+  FORWARDED_HEADER,
+  LOCAL_OWNER_HEADER,
+  mintIdentityKeypair,
+  signIdentity,
+  type AgentTokenScope,
+  type IdentityKeypair,
+  type Jwks,
+} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {createApp} from './app';
 import {IdentityService} from './instanceConfig';
+import {IDENTITY_HEADER} from './principal';
 import {AGENT_API_SETTING_KEY, generateAgentToken} from './agentTokens';
 
 const ISS = 'https://account.book.pub';
@@ -30,6 +39,8 @@ const OWNER = `${ISS}#owner`;
 let store: PageStore;
 let dir: string;
 let seq = 0;
+let kp: IdentityKeypair;
+let jwks: Jwks;
 
 const snapshot = () => ({editorjs: {blocks: []}, values: [], names: []});
 
@@ -39,6 +50,8 @@ beforeEach(async () => {
   rmSync(dir, {recursive: true, force: true});
   store = new PageStore(await PgliteDb.create(dir));
   await store.migrate();
+  kp = await mintIdentityKeypair('k1');
+  jwks = {keys: [kp.publicJwk]};
 });
 
 afterEach(async () => {
@@ -47,8 +60,16 @@ afterEach(async () => {
 });
 
 const app = () => createApp(store, undefined, new PageHub(), {identity: new IdentityService(store)});
-const claim = () => store.updateInstanceConfig({trustedIssuers: [{issuer: ISS, jwks: {keys: []}}], ownerSubject: OWNER});
+const claim = () => store.updateInstanceConfig({trustedIssuers: [{issuer: ISS, jwks}], ownerSubject: OWNER});
 const enableAgentApi = () => store.setSetting(AGENT_API_SETTING_KEY, {enabled: true});
+
+/** A validly-signed identity JWS for `sub` (verifies against the claimed jwks). */
+const idFor = (sub: string): Promise<string> =>
+  signIdentity(
+    kp.privateKey,
+    {iss: ISS, sub, name: sub, iat: Math.floor(Date.now() / 1000) - 30, exp: Math.floor(Date.now() / 1000) + 3600, jti: `jti-${sub}-${Math.random()}`},
+    kp.publicJwk.kid,
+  );
 
 /** Mint a PAT directly in the store (returns the plaintext bearer to present). */
 async function mintPat(scope: AgentTokenScope = 'read', subject = OWNER): Promise<string> {
@@ -175,6 +196,19 @@ describe('mcpHttp handshake + read tools', () => {
     expect(typeof info?.protocolVersion).toBe('string');
   });
 
+  it('an oversized JSON-RPC body is refused (413) — bodyLimit DoS parity', async () => {
+    const a = app();
+    const pat = await mintPat('read');
+    // > 1 MiB body from a valid PAT holder: the route bodyLimit 413s before the handler.
+    const huge = {jsonrpc: '2.0', id: 1, method: 'tools/call', params: {name: 'create_page', arguments: {title: 't', content: 'x'.repeat(1024 * 1024 + 1024)}}};
+    const res = await a.request('/api/mcp', {
+      method: 'POST',
+      headers: {Authorization: `Bearer ${pat}`, 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream'},
+      body: JSON.stringify(huge),
+    });
+    expect(res.status).toBe(413);
+  });
+
   it('tools/list returns the tool catalogue', async () => {
     const a = app();
     const pat = await mintPat('read');
@@ -256,5 +290,78 @@ describe('mcpHttp scope is enforced by the PAT loop-back', () => {
     const create = await rpc(a, pat, callMsg('create_page', {title: `made-${seq}`, content: 'hello'}));
     expect(toolIsError(create.json)).toBe(false);
     expect((await store.listPages()).some((p) => p.name === `made-${seq}`)).toBe(true);
+  });
+});
+
+// ── The load-bearing invariant: inbound headers NEVER propagate to the loop-back ──
+//
+// The whole confidentiality/integrity guarantee rests on the handler's `fetchImpl`
+// building headers FROM SCRATCH — attaching ONLY the caller's own PAT — and the MCP
+// server never holding the `store` or a LocalDataClient. This pins that: an inbound
+// request that ALSO smuggles a valid owner identity JWS AND the loopback-owner secret
+// must NOT let the loop-back run as the owner / local-owner. The inner request runs as
+// the PAT principal ONLY. It would FAIL if the loop-back spread inbound headers (owner
+// identity / LOCAL_OWNER leak) or if the MCP server were handed a LocalDataClient/store
+// (which bypasses authorize() and would read the owner-only page regardless).
+
+describe('mcpHttp inbound identity / local-owner headers do NOT propagate to the loop-back', () => {
+  const SECRET = 'the-machine-owner-hatch-secret';
+  // A claimed instance WITH a configured local-owner hatch secret (so a leaked
+  // LOCAL_OWNER_HEADER would actually grant owner authority if it ever reached an
+  // inner request).
+  const appWithHatch = () => createApp(store, undefined, new PageHub(), {identity: new IdentityService(store), localOwnerSecret: SECRET});
+
+  beforeEach(async () => {
+    await claim();
+    await enableAgentApi();
+  });
+
+  it('a non-owner PAT cannot read an OWNER-only page even when the request smuggles the owner JWS + local-owner secret', async () => {
+    const a = appWithHatch();
+    const agentSub = `${ISS}#agent`;
+
+    // An owner-only restricted page (readable by the owner / local-owner, NOT by the
+    // agent subject) and an agent-ACL'd page (readable by the PAT).
+    const ownerPage = await store.upsertPage({name: `owner-only-${seq}`, data: snapshot()});
+    await store.setPageVisibility(ownerPage.id, 'restricted');
+    await store.setPageAcl(ownerPage.id, {subject: OWNER, level: 'read'});
+    const agentPage = await store.upsertPage({name: `agent-${seq}`, data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'agent-visible body'}}]}, values: [], names: []}});
+    await store.setPageVisibility(agentPage.id, 'restricted');
+    await store.setPageAcl(agentPage.id, {subject: agentSub, level: 'read'});
+
+    const pat = await mintPat('read', agentSub);
+    // The attack: present a VALID owner identity JWS AND the machine-owner hatch secret
+    // alongside the PAT on the inbound MCP request.
+    const smuggled = {[IDENTITY_HEADER]: await idFor('owner'), [LOCAL_OWNER_HEADER]: SECRET};
+
+    // The owner-only page is NOT readable — the inner request runs as the agent PAT, not
+    // the owner and not the local-owner. (A propagation bug or a LocalDataClient would
+    // make this succeed.)
+    const readOwner = await rpc(a, pat, callMsg('read_page', {pageId: ownerPage.id}), smuggled);
+    expect(toolIsError(readOwner.json)).toBe(true);
+    expect(toolText(readOwner.json)).toContain('not found');
+
+    // Control: the SAME request (same smuggled headers) reads the agent's OWN page fine —
+    // proving the loop-back works and the failure above is confinement, not breakage.
+    const readAgent = await rpc(a, pat, callMsg('read_page', {pageId: agentPage.id}), smuggled);
+    expect(toolIsError(readAgent.json)).toBe(false);
+    expect(toolText(readAgent.json)).toContain('agent-visible body');
+  });
+
+  it('the smuggled owner JWS + local-owner secret grant no WRITE either (inner scope-gate still the agent PAT)', async () => {
+    const a = appWithHatch();
+    const agentSub = `${ISS}#agent`;
+    // A page the agent can neither read nor write (owner-only).
+    const ownerPage = await store.upsertPage({name: `owner-w-${seq}`, data: snapshot()});
+    await store.setPageVisibility(ownerPage.id, 'restricted');
+    await store.setPageAcl(ownerPage.id, {subject: OWNER, level: 'read'});
+
+    const pat = await mintPat('write', agentSub);
+    const smuggled = {[IDENTITY_HEADER]: await idFor('owner'), [LOCAL_OWNER_HEADER]: SECRET};
+    // append_to_page → inner getPage 404 for the agent (owner-only) → tool errors; nothing
+    // is queued. The owner identity / hatch never elevate the inner principal.
+    const append = await rpc(a, pat, callMsg('append_to_page', {pageId: ownerPage.id, content: 'x'}), smuggled);
+    expect(toolIsError(append.json)).toBe(true);
+    expect(await store.listSuggestions(ownerPage.id)).toHaveLength(0);
   });
 });
