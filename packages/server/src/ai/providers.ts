@@ -563,8 +563,8 @@ export class LlamaEngine implements AiEngine {
  *  native tool-calling. No embeddings endpoint, so search falls back to lexical. */
 export class AnthropicEngine implements AiEngine {
   readonly kind = 'claude';
-  /** Default when the user hasn't pinned a model — a current, balanced Claude. */
-  static readonly DEFAULT_MODEL = 'claude-sonnet-4-6';
+  /** Default when the user hasn't pinned a model — the current flagship Claude. */
+  static readonly DEFAULT_MODEL = 'claude-opus-4-8';
   private readonly apiKey: string;
   private readonly model: string;
   private readonly baseUrl: string;
@@ -609,7 +609,7 @@ export class AnthropicEngine implements AiEngine {
 
   async generate(prompt: string, opts: GenerateOptions): Promise<string> {
     const useTools = Boolean(opts.tools && opts.tools.length > 0);
-    const maxTokens = opts.maxTokens ?? 1024;
+    const maxTokens = opts.maxTokens ?? 4096;
     // Extended thinking needs a ≥1024-token budget below max_tokens, and forbids
     // a custom temperature — so enable it only when the budget allows.
     const think = opts.thinkingBudget && opts.thinkingBudget >= 1024 ? Math.min(opts.thinkingBudget, maxTokens + 4096) : 0;
@@ -626,7 +626,13 @@ export class AnthropicEngine implements AiEngine {
           : {}),
       ...(useTools ? {tools: opts.tools!.map((tool) => ({name: tool.name, description: tool.description, input_schema: tool.parameters}))} : {}),
     };
-    const res = await fetch(`${this.baseUrl}/v1/messages`, {method: 'POST', headers: this.headers(), body: JSON.stringify(body), signal: opts.signal});
+    // Interleaved thinking lets the model reason *between* tool calls (not just
+    // once before the first) — the `thinking` config and the `tools` array are
+    // sent together in the body above, and this beta flag unlocks the interleave.
+    // Only send it when thinking is actually enabled for the turn.
+    const headers = this.headers();
+    if (think) headers['anthropic-beta'] = 'interleaved-thinking-2025-05-14';
+    const res = await fetch(`${this.baseUrl}/v1/messages`, {method: 'POST', headers, body: JSON.stringify(body), signal: opts.signal});
     if (!res.ok || !res.body) {
       const detail = await res.text().catch(() => '');
       throw new Error(`Generation failed: HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);

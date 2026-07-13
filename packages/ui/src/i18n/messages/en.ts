@@ -596,7 +596,7 @@ export const en = {
     apiKeySetStatus: 'Key set',
     apiKeyKeepHint: 'Leave blank to keep the current key.',
     apiKeyClear: 'Clear key',
-    claudeModelHint: 'A Claude model id, e.g. claude-sonnet-4-6 or claude-haiku-4-5.',
+    claudeModelHint: 'A Claude model id, e.g. claude-opus-4-8 or claude-haiku-4-5.',
     search: 'Note search',
     searchHint: 'Notes are indexed for search automatically; rebuild if results look stale.',
     reindex: 'Rebuild index',

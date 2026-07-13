@@ -267,7 +267,7 @@ export default function AiSettings() {
                   </p>
                 )}
               </SettingsField>
-              {modelInput(p, 'claude-sonnet-4-6', t('ai.claudeModelHint'))}
+              {modelInput(p, 'claude-opus-4-8', t('ai.claudeModelHint'))}
             </>
           );
         })()}

@@ -89,7 +89,7 @@ const EFFORTS: Array<{value: AiEffort; key: TKey}> = [
 const MODEL_PRESETS: Partial<Record<AiProvider, Array<{value: string; label: string}>>> = {
   claude: [
     {value: 'claude-opus-4-8', label: 'Opus 4.8'},
-    {value: 'claude-sonnet-4-6', label: 'Sonnet 4.6'},
+    {value: 'claude-sonnet-5', label: 'Sonnet 5'},
     {value: 'claude-haiku-4-5', label: 'Haiku 4.5'},
   ],
 };

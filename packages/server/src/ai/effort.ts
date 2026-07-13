@@ -18,10 +18,14 @@ export interface EffortProfile {
   maxSteps: number;
 }
 
+// Budgets are sized for Opus 4.8's extended thinking: every tier clears the
+// ≥1024-token floor the Anthropic engine needs to switch thinking on, so
+// reasoning is always available and merely scales with effort. maxTokens rises
+// in step so a deliberate answer isn't truncated mid-thought.
 const PROFILES: Record<AiEffort, EffortProfile> = {
-  low: {thinkingBudget: 256, temperature: 0.1, maxTokens: 600, maxSteps: 4},
-  med: {thinkingBudget: 1024, temperature: 0.2, maxTokens: 900, maxSteps: 8},
-  high: {thinkingBudget: 4096, temperature: 0.3, maxTokens: 1400, maxSteps: 16},
+  low: {thinkingBudget: 2048, temperature: 0.1, maxTokens: 4000, maxSteps: 4},
+  med: {thinkingBudget: 8192, temperature: 0.2, maxTokens: 8000, maxSteps: 8},
+  high: {thinkingBudget: 16384, temperature: 0.3, maxTokens: 16000, maxSteps: 16},
 };
 
 export const DEFAULT_EFFORT: AiEffort = 'med';
