@@ -826,10 +826,10 @@ describe('AnthropicEngine picks the request shape by model', () => {
   };
 
   it('classifies current-gen (+ unknown) as adaptive and known budget_tokens families as legacy', () => {
-    for (const m of ['claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-fable-5', 'some-future-model']) {
+    for (const m of ['claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-5', 'claude-fable-5', 'claude-mythos-5', 'some-future-model']) {
       expect(usesAdaptiveThinking(m)).toBe(true);
     }
-    for (const m of ['claude-opus-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4-20250514', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-3-7-sonnet-20250219']) {
+    for (const m of ['claude-opus-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4-20250514', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-haiku-4-5', 'claude-haiku-4-5-20251001', 'claude-3-7-sonnet-20250219']) {
       expect(usesAdaptiveThinking(m)).toBe(false);
     }
   });
@@ -855,6 +855,13 @@ describe('AnthropicEngine picks the request shape by model', () => {
 
   it('keeps the legacy enabled+budget_tokens shape (with interleaved beta) for a budget_tokens-era model', async () => {
     const {body, headers} = await capture('claude-sonnet-4-5', {thinkingBudget: 8192, effort: 'med'});
+    expect(body.thinking).toEqual({type: 'enabled', budget_tokens: 8192});
+    expect(body).not.toHaveProperty('output_config');
+    expect(headers['anthropic-beta']).toBe('interleaved-thinking-2025-05-14');
+  });
+
+  it('routes Haiku 4.5 (dated id) to the legacy shape — enabled+budget_tokens, no output_config', async () => {
+    const {body, headers} = await capture('claude-haiku-4-5-20251001', {thinkingBudget: 8192, effort: 'med'});
     expect(body.thinking).toEqual({type: 'enabled', budget_tokens: 8192});
     expect(body).not.toHaveProperty('output_config');
     expect(headers['anthropic-beta']).toBe('interleaved-thinking-2025-05-14');

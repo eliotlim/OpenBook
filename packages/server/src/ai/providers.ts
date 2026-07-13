@@ -587,6 +587,17 @@ export function usesAdaptiveThinking(model: string): boolean {
   if (/^claude-opus-4-[0-6]/.test(m)) return false;
   // Sonnet 4.x (4.0/4.5/4.6). Sonnet 5 is `claude-sonnet-5` — no `-4-`.
   if (/^claude-sonnet-4-/.test(m)) return false;
+  // Haiku 4.x (4.5) uses budget_tokens and allows temperature but REJECTS the
+  // effort param ("This model does not support the effort parameter"), so it
+  // belongs on the legacy path. (Haiku 3.x is already caught by `claude-3*`.)
+  if (/^claude-haiku-4-/.test(m)) return false;
+  // Documented residual (intentional, not a bug): a few models we route legacy
+  // (Opus 4.5/4.6, Sonnet 4.6) *do* accept `output_config.effort`, but we send
+  // them `budget_tokens` WITHOUT effort — which never 400s (budget_tokens works
+  // on them); we simply forgo the effort optimization on those older ids. Only
+  // the adaptive path (Opus 4.7/4.8, Sonnet 5, Fable/Mythos 5, unknowns) sends
+  // effort. Sonnet 4.6's adaptive-vs-budget status is ambiguous in the docs, so
+  // legacy is the safe default (affects only a user who pins `claude-sonnet-4-6`).
   return true;
 }
 
