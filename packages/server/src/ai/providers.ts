@@ -558,6 +558,38 @@ export class LlamaEngine implements AiEngine {
 
 // ── Anthropic (hosted Claude API) ────────────────────────────────────────────
 
+/** AiEffort tiers → the Anthropic `output_config.effort` strings. */
+const EFFORT_TO_ANTHROPIC: Record<'low' | 'med' | 'high', 'low' | 'medium' | 'high'> = {low: 'low', med: 'medium', high: 'high'};
+
+/**
+ * Which request shape the target model expects.
+ *
+ * Current-generation Claude (Opus 4.7/4.8, Sonnet 5, Haiku 4.5, Fable/Mythos 5,
+ * and anything newer) use **adaptive** thinking — `thinking:{type:'adaptive'}`
+ * plus `output_config.effort` — and REJECT (HTTP 400) the old
+ * `thinking:{type:'enabled', budget_tokens}`, the `temperature`/`top_p`/`top_k`
+ * sampling params, and the `interleaved-thinking-2025-05-14` beta header
+ * (interleaved thinking is automatic under adaptive). Only the known
+ * budget_tokens-era families take the legacy shape.
+ *
+ * Unknown/unrecognized ids default to **adaptive**: the shipped default is Opus
+ * 4.8 and adaptive is the safe forward shape for anything not yet catalogued —
+ * so this only returns `false` for explicitly-known legacy families, keeping the
+ * generic client working against older pinned models and gateways.
+ */
+export function usesAdaptiveThinking(model: string): boolean {
+  const m = model.trim().toLowerCase();
+  // Claude 3.x (incl. 3.7 Sonnet's budget_tokens extended thinking).
+  if (m.startsWith('claude-3')) return false;
+  // Opus 4.0–4.6 used budget_tokens; 4.7/4.8 are adaptive-only. The char after
+  // `claude-opus-4-` is the minor version — or the leading digit of a dated 4.0
+  // snapshot (`claude-opus-4-20250514`), which is also legacy.
+  if (/^claude-opus-4-[0-6]/.test(m)) return false;
+  // Sonnet 4.x (4.0/4.5/4.6). Sonnet 5 is `claude-sonnet-5` — no `-4-`.
+  if (/^claude-sonnet-4-/.test(m)) return false;
+  return true;
+}
+
 /** The Anthropic Messages API (`/v1/messages`). The only cloud provider —
  *  content leaves the machine. Streams text + (extended) thinking and supports
  *  native tool-calling. No embeddings endpoint, so search falls back to lexical. */
@@ -610,28 +642,43 @@ export class AnthropicEngine implements AiEngine {
   async generate(prompt: string, opts: GenerateOptions): Promise<string> {
     const useTools = Boolean(opts.tools && opts.tools.length > 0);
     const maxTokens = opts.maxTokens ?? 4096;
-    // Extended thinking needs a ≥1024-token budget below max_tokens, and forbids
-    // a custom temperature — so enable it only when the budget allows.
+    const model = this.model || AnthropicEngine.DEFAULT_MODEL;
+    const adaptive = usesAdaptiveThinking(model);
+    // A ≥1024-token reasoning budget switches thinking on; below that we skip it.
+    // `think` also sizes the max_tokens headroom so a deliberate answer (thinking
+    // + reply) isn't truncated — this holds on both request shapes.
     const think = opts.thinkingBudget && opts.thinkingBudget >= 1024 ? Math.min(opts.thinkingBudget, maxTokens + 4096) : 0;
+    // The thinking + sampling shape is model-dependent (see usesAdaptiveThinking):
+    //  • current-gen → `thinking:{type:'adaptive'}` + `output_config.effort`; the
+    //    model self-regulates depth and interleaves between tool calls. It rejects
+    //    `budget_tokens`, `temperature`, and the interleaved beta header — so with
+    //    thinking off we send NO sampling params either.
+    //  • legacy (budget_tokens era) → the classic `thinking:{type:'enabled',
+    //    budget_tokens}` (+ interleaved beta header), and an explicit temperature
+    //    only when thinking is off.
+    const shape: Record<string, unknown> = think
+      ? adaptive
+        ? {thinking: {type: 'adaptive'}, output_config: {effort: EFFORT_TO_ANTHROPIC[opts.effort ?? 'med']}}
+        : {thinking: {type: 'enabled', budget_tokens: think}}
+      : adaptive
+        ? {}
+        : opts.temperature !== undefined
+          ? {temperature: opts.temperature}
+          : {};
     const body: Record<string, unknown> = {
-      model: this.model || AnthropicEngine.DEFAULT_MODEL,
+      model,
       max_tokens: think ? think + maxTokens : maxTokens,
       stream: true,
       messages: [{role: 'user', content: prompt}],
       ...(opts.system ? {system: opts.system} : {}),
-      ...(think
-        ? {thinking: {type: 'enabled', budget_tokens: think}}
-        : opts.temperature !== undefined
-          ? {temperature: opts.temperature}
-          : {}),
+      ...shape,
       ...(useTools ? {tools: opts.tools!.map((tool) => ({name: tool.name, description: tool.description, input_schema: tool.parameters}))} : {}),
     };
-    // Interleaved thinking lets the model reason *between* tool calls (not just
-    // once before the first) — the `thinking` config and the `tools` array are
-    // sent together in the body above, and this beta flag unlocks the interleave.
-    // Only send it when thinking is actually enabled for the turn.
     const headers = this.headers();
-    if (think) headers['anthropic-beta'] = 'interleaved-thinking-2025-05-14';
+    // The interleaved-thinking beta belongs to the legacy budget_tokens path only.
+    // Under adaptive, interleaved thinking is automatic and this header 400s on
+    // Opus 4.7+, so never send it there.
+    if (!adaptive && think) headers['anthropic-beta'] = 'interleaved-thinking-2025-05-14';
     const res = await fetch(`${this.baseUrl}/v1/messages`, {method: 'POST', headers, body: JSON.stringify(body), signal: opts.signal});
     if (!res.ok || !res.body) {
       const detail = await res.text().catch(() => '');

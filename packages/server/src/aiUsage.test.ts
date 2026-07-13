@@ -41,7 +41,7 @@ import {createApp} from './app';
 import {AiService} from './ai/service';
 import {AgentRunner} from './ai/agent';
 import {AiUsageLog, DEFAULT_PRICING} from './ai/usage';
-import {AnthropicEngine, LlamaEngine, MockEngine, OpenAiCompatEngine, estimateTokens, type AiEngine, type TokenUsage} from './ai/providers';
+import {AnthropicEngine, LlamaEngine, MockEngine, OpenAiCompatEngine, estimateTokens, usesAdaptiveThinking, type AiEngine, type TokenUsage} from './ai/providers';
 import {IdentityService} from './instanceConfig';
 import {IDENTITY_HEADER} from './principal';
 
@@ -804,5 +804,65 @@ describe('provider usage parsers surface onUsage exactly once', () => {
     await engine.generate('prompt one two', {system: 'sys a', onToken: () => undefined, onUsage: (u) => usages.push(u)});
     // input = tokenize(prompt=3) + tokenize(system=2) = 5; output = tokenize(out=3) = 3.
     expect(usages).toEqual([{inputTokens: 5, outputTokens: 3}]);
+  });
+});
+
+describe('AnthropicEngine picks the request shape by model', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  // Minimal well-formed SSE so generate() resolves without touching the network.
+  const OK_SSE = ['event: message_start', 'data: {"type":"message_start","message":{"usage":{}}}', '', 'event: message_stop', 'data: {"type":"message_stop"}', ''].join('\n');
+
+  /** Run one generate() against a stubbed fetch and return the parsed request body + headers. */
+  const capture = async (model: string, opts: {thinkingBudget?: number; effort?: 'low' | 'med' | 'high'; temperature?: number}) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(OK_SSE, {status: 200}));
+    vi.stubGlobal('fetch', fetchMock);
+    await new AnthropicEngine('sk-ant-api-test', model).generate('go', {maxTokens: 8000, onToken: () => undefined, ...opts});
+    const init = fetchMock.mock.calls[0]![1] as {body: string; headers: Record<string, string>};
+    return {body: JSON.parse(init.body) as Record<string, unknown>, headers: init.headers};
+  };
+
+  it('classifies current-gen (+ unknown) as adaptive and known budget_tokens families as legacy', () => {
+    for (const m of ['claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-5', 'claude-haiku-4-5', 'claude-fable-5', 'some-future-model']) {
+      expect(usesAdaptiveThinking(m)).toBe(true);
+    }
+    for (const m of ['claude-opus-4-6', 'claude-opus-4-5', 'claude-opus-4-1', 'claude-opus-4-20250514', 'claude-sonnet-4-6', 'claude-sonnet-4-5', 'claude-3-7-sonnet-20250219']) {
+      expect(usesAdaptiveThinking(m)).toBe(false);
+    }
+  });
+
+  it('sends the adaptive shape for the default Opus 4.8 — no budget_tokens/temperature, no interleaved beta', async () => {
+    const {body, headers} = await capture('claude-opus-4-8', {thinkingBudget: 8192, effort: 'med'});
+    expect(body.thinking).toEqual({type: 'adaptive'});
+    expect(body.output_config).toEqual({effort: 'medium'});
+    expect(body).not.toHaveProperty('temperature');
+    expect(body).not.toHaveProperty('top_p');
+    // No stale budget_tokens anywhere in the thinking config.
+    expect(JSON.stringify(body.thinking)).not.toContain('budget_tokens');
+    expect(headers['anthropic-beta']).toBeUndefined();
+  });
+
+  it('omits sampling params on a current model even when thinking is off (temperature would 400)', async () => {
+    const {body, headers} = await capture('claude-opus-4-8', {temperature: 0.4});
+    expect(body).not.toHaveProperty('thinking');
+    expect(body).not.toHaveProperty('output_config');
+    expect(body).not.toHaveProperty('temperature');
+    expect(headers['anthropic-beta']).toBeUndefined();
+  });
+
+  it('keeps the legacy enabled+budget_tokens shape (with interleaved beta) for a budget_tokens-era model', async () => {
+    const {body, headers} = await capture('claude-sonnet-4-5', {thinkingBudget: 8192, effort: 'med'});
+    expect(body.thinking).toEqual({type: 'enabled', budget_tokens: 8192});
+    expect(body).not.toHaveProperty('output_config');
+    expect(headers['anthropic-beta']).toBe('interleaved-thinking-2025-05-14');
+  });
+
+  it('keeps an explicit temperature on a legacy model when thinking is off', async () => {
+    const {body} = await capture('claude-sonnet-4-5', {temperature: 0.4});
+    expect(body.temperature).toBe(0.4);
+    expect(body).not.toHaveProperty('thinking');
   });
 });
