@@ -1293,7 +1293,7 @@ export class HttpDataClient implements DataClient {
     const res = await this.authFetch(`${this.baseUrl}${API.agentChat}`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({messages, provider: opts.provider, model: opts.model, effort: opts.effort, thinking: opts.thinking, skills: opts.skills, pageId: opts.pageId, selection: opts.selection, allowDirectEdits: opts.allowDirectEdits, allowExternalTools: opts.allowExternalTools}),
+      body: JSON.stringify({messages, provider: opts.provider, model: opts.model, effort: opts.effort, thinking: opts.thinking, skills: opts.skills, pageId: opts.pageId, selection: opts.selection, allowDirectEdits: opts.allowDirectEdits, allowExternalTools: opts.allowExternalTools, externalToolsUsed: opts.externalToolsUsed}),
       cache: 'no-store',
       signal: opts.signal,
     });

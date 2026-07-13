@@ -118,6 +118,10 @@ export function AgentPanel() {
   const [directEdits, setDirectEdits] = useState(false);
   // Sticky once the agent's "use external tools" request is granted this conversation.
   const [externalTools, setExternalTools] = useState(false);
+  // Sticky once ANY external (mcp__*) tool has actually run this conversation — so
+  // taint (edits routed through review) persists across turns, not just the run
+  // that made the external call. Re-sent to the server each turn.
+  const externalUsedRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -166,6 +170,7 @@ export function AgentPanel() {
     setConversation([]);
     setDirectEdits(false);
     setExternalTools(false);
+    externalUsedRef.current = false;
     setBusy(false);
     inputRef.current?.focus();
   };
@@ -175,6 +180,9 @@ export function AgentPanel() {
       // A live answer chunk — append to the streaming assistant bubble.
       setThread((items) => appendStream(items, 'assistant', event.text));
     } else if (event.type === 'tool') {
+      // An external tool actually ran → taint the conversation (sticky, re-sent so
+      // later turns route edits through review too).
+      if (event.name.startsWith('mcp__')) externalUsedRef.current = true;
       setThread((items) => [...settle(items), {kind: 'tool', name: event.name, detail: argSummary(event.args), running: true}]);
     } else if (event.type === 'tool_result') {
       setThread((items) => {
@@ -257,6 +265,7 @@ export function AgentPanel() {
         selection: lastSelection() || undefined,
         allowDirectEdits: direct,
         allowExternalTools: external,
+        externalToolsUsed: externalUsedRef.current,
       })
       .catch((err: unknown) => {
         if (abort.signal.aborted) return;

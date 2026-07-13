@@ -255,7 +255,10 @@ export default function McpSettings() {
           size="sm"
           variant="outline"
           disabled={busy}
-          onClick={() => void save({...config, servers: [...config.servers, blankServer()]})}
+          // Add the blank row to LOCAL state only — it has an empty id, which the
+          // server would reject (SLUG_RE) with a 400. The per-field onBlur persists
+          // it once the admin has entered a valid id + endpoint.
+          onClick={() => setConfig({...config, servers: [...config.servers, blankServer()]})}
         >
           {t('ai.mcp.addServer')}
         </Button>

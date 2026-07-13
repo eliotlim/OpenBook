@@ -622,7 +622,14 @@ export class LocalDataClient implements DataClient {
   }
 
   putMcpConfig(config: McpClientConfig): Promise<McpConfigResponse> {
-    return Promise.resolve({config: {enabled: false, servers: config.servers ?? []}, stdioAllowed: false});
+    // No server → nothing persists. Echo back a REDACTED, off config (strip any
+    // write-only token the caller sent, flag it as set) so the stub matches the
+    // real server's response shape and never round-trips a secret.
+    const servers = (config.servers ?? []).map((s) => {
+      const {authToken, ...rest} = s;
+      return {...rest, ...(typeof authToken === 'string' && authToken.trim() ? {authTokenSet: true} : {})};
+    });
+    return Promise.resolve({config: {enabled: false, servers}, stdioAllowed: false});
   }
 
   testMcpServer(): Promise<McpTestResult> {

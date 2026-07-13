@@ -175,6 +175,7 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
       selection?: string;
       allowDirectEdits?: boolean;
       allowExternalTools?: boolean;
+      externalToolsUsed?: boolean;
     };
     const turns = (body.messages ?? []).filter(
       (m): m is AgentMessage => (m?.role === 'user' || m?.role === 'assistant') && typeof m?.content === 'string',
@@ -224,7 +225,7 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     // Thread the request principal so the agent's autonomous read/write tools are
     // bounded by the SAME per-page/ACL decisions the content routes enforce — the
     // runner can't be driven to read/edit pages this caller can't (OB-190 follow-up).
-    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, externalTools, context, allowDirectEdits: body.allowDirectEdits === true, allowExternalTools: body.allowExternalTools === true, onPagesChanged, principal, usage: aiUsage});
+    const runner = new AgentRunner(ai, store, {effort, thinking, engineOverride, skills, pluginTools, externalTools, context, allowDirectEdits: body.allowDirectEdits === true, allowExternalTools: body.allowExternalTools === true, externalToolsUsed: body.externalToolsUsed === true, onPagesChanged, principal, usage: aiUsage});
     return streamSSE(c, async (stream) => {
       const abort = new AbortController();
       stream.onAbort(() => abort.abort());

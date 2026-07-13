@@ -353,6 +353,11 @@ export interface AgentChatOptions {
    *  (`mcp__*`) without pausing. Sticky for the conversation; the first external
    *  call otherwise emits a `permission_request` with `kind:'external_tools'`. */
   allowExternalTools?: boolean;
+  /** When true, an external MCP tool was already used earlier in this conversation
+   *  — the client re-sends it (set once it sees any `mcp__*` tool event) so taint
+   *  (edits routed through review) stays sticky for the rest of the conversation,
+   *  not just the run that made the external call. */
+  externalToolsUsed?: boolean;
 }
 
 // ── External tools: MCP client (AGENT-3) ────────────────────────────────────────

@@ -307,6 +307,87 @@ describe('external tools: merged, consented, and recoverable', () => {
   });
 });
 
+/** A NATIVE (function-calling) engine that emits a whole BATCH of tool calls in
+ *  one turn, then answers "ok" once it sees any tool result. */
+const nativeBatchEngine = (batch: Array<{name: string; args?: Record<string, unknown>}>): AiEngine => ({
+  kind: 'mock',
+  async ensureReady() {
+    /* always ready */
+  },
+  async supportsTools() {
+    return true;
+  },
+  async generate(prompt, opts) {
+    if (prompt.includes('TOOL RESULT') || prompt.includes('Asked the user')) {
+      opts.onToken('ok');
+      return 'ok';
+    }
+    opts.onToolCalls?.(batch.map((c, i) => ({id: `c${i}`, name: c.name, args: c.args ?? {}})));
+    return '';
+  },
+  async dispose() {
+    /* nothing to release */
+  },
+});
+
+/** Run a native-batch conversation with arbitrary runner options. */
+const runNative = async (
+  batch: Array<{name: string; args?: Record<string, unknown>}>,
+  opts: AgentRunOptions,
+): Promise<AgentEvent[]> => {
+  const ai = new ScriptedAi(db, join(dir, 'models'));
+  ai.scripted = nativeBatchEngine(batch);
+  const runner = new AgentRunner(ai, store, {thinking: false, ...opts});
+  const events: AgentEvent[] = [];
+  await runner.run([{role: 'user', content: 'go'}], (ev) => {
+    events.push(ev);
+  });
+  return events;
+};
+
+describe('external tools: the consent gate is NOT bypassable by a parallel (native) tool batch', () => {
+  it('two mcp__* calls in ONE batch with no consent → NEITHER runs, consent is requested once', async () => {
+    let ranA = false;
+    let ranB = false;
+    const a: ExternalAgentTool = {name: 'mcp__ext__a', description: 'a', schema: {type: 'object', properties: {}}, external: true, run: async () => {
+      ranA = true;
+      return 'A';
+    }};
+    const b: ExternalAgentTool = {name: 'mcp__ext__b', description: 'b', schema: {type: 'object', properties: {}}, external: true, run: async () => {
+      ranB = true;
+      return 'B';
+    }};
+    const events = await runNative([{name: 'mcp__ext__a'}, {name: 'mcp__ext__b'}], {
+      principal: guestPrincipal(),
+      externalTools: [a, b],
+      // no consent
+    });
+    // The exfiltration hole: call #1 sets `interactive`, call #2 must NOT slip past.
+    expect(ranA).toBe(false);
+    expect(ranB).toBe(false);
+    const perms = events.filter((e) => e.type === 'permission_request');
+    expect(perms).toHaveLength(1);
+    expect(perms[0].type === 'permission_request' && perms[0].kind).toBe('external_tools');
+    // Neither external tool produced a result frame.
+    expect(events.some((e) => e.type === 'tool_result' && e.name.startsWith('mcp__'))).toBe(false);
+  });
+
+  it('pairing request_edit_access with an external call in one batch does NOT run the external tool', async () => {
+    let ran = false;
+    const ext: ExternalAgentTool = {name: 'mcp__ext__a', description: 'a', schema: {type: 'object', properties: {}}, external: true, run: async () => {
+      ran = true;
+      return 'A';
+    }};
+    const events = await runNative([{name: 'request_edit_access', args: {summary: 'edit'}}, {name: 'mcp__ext__a'}], {
+      principal: guestPrincipal(),
+      externalTools: [ext],
+      // no external consent
+    });
+    expect(ran).toBe(false);
+    expect(events.some((e) => e.type === 'tool_result' && e.name === 'mcp__ext__a')).toBe(false);
+  });
+});
+
 describe('external tools taint the run: later writes go through review even with direct edits', () => {
   it('after an external call, a write is SUGGESTED (not applied) despite allowDirectEdits', async () => {
     // A page to write to; guest on an unclaimed instance has blanket write.
@@ -328,6 +409,20 @@ describe('external tools taint the run: later writes go through review even with
     );
 
     // Tainted → the write became a reviewable suggestion, NOT a direct apply.
+    expect(events.some((e) => e.type === 'suggestions')).toBe(true);
+    expect(events.some((e) => e.type === 'apply')).toBe(false);
+  });
+
+  it('taint is CONVERSATION-STICKY: a later turn with externalToolsUsed edits into review even if it calls no external tool itself', async () => {
+    // Turn 2 of a tainted conversation: the client re-sends externalToolsUsed:true
+    // (it saw an mcp__* tool event earlier). This run edits WITHOUT calling an
+    // external tool — but the conversation is still on external-injected content,
+    // so the write must go through review, not apply directly.
+    const page = await store.upsertPage({name: `stickytaint-${seq}`, data: {editorjs: {blocks: []}, values: [], names: []}});
+    const events = await runSeq(
+      [{tool: 'append_to_page', args: {pageId: page.id, content: 'a new paragraph'}}, {final: 'ok'}],
+      {principal: guestPrincipal(), allowDirectEdits: true, externalToolsUsed: true},
+    );
     expect(events.some((e) => e.type === 'suggestions')).toBe(true);
     expect(events.some((e) => e.type === 'apply')).toBe(false);
   });

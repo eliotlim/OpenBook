@@ -98,6 +98,14 @@ export interface AgentRunOptions {
    * `mcp__*` call in a conversation without this pauses for a `permission_request`
    * (S4 exfiltration gate); once granted the client re-sends it true. */
   allowExternalTools?: boolean;
+  /**
+   * An external MCP tool was ALREADY used earlier in this conversation (Q2 taint,
+   * made conversation-sticky). The client re-sends it true once it has seen any
+   * `mcp__*` tool event, so a later turn that edits WITHOUT itself calling an
+   * external tool is still tainted — its writes go through review, because the
+   * conversation is operating on external-injected content. OR'd into the per-run
+   * {@link tainted} at run start. */
+  externalToolsUsed?: boolean;
   /** Ambient context: the page the user is viewing + their current selection,
    *  injected into the system prompt so replies are grounded without a tool call. */
   context?: {pageTitle?: string; pageId?: string; pageText?: string; selection?: string};
@@ -1267,7 +1275,11 @@ export class AgentRunner {
     this.pendingApply = [];
     this.interactive = null;
     this.pagesTouched = false;
-    this.tainted = false;
+    // Taint is conversation-sticky: seed it from whether an external tool was used
+    // earlier in THIS conversation (client-tracked, re-sent per turn), so a later
+    // turn that edits without itself calling an external tool is still forced
+    // through review while the conversation runs on external-injected content.
+    this.tainted = this.options.externalToolsUsed === true;
 
     // Resolve the engine for this run — the configured default, or a transient
     // engine for a per-conversation provider/model override. A bad key / off
@@ -1306,16 +1318,21 @@ export class AgentRunner {
     const runTool = async (name: string, args: Record<string, unknown>): Promise<string> => {
       const tool = this.tools.find((t) => t.name === name);
       if (!tool) return `unknown tool "${name}". Use one of: ${this.tools.map((t) => t.name).join(', ')}.`;
-      // External-tool consent gate (S4 / Q4): the FIRST `mcp__*` call in a
-      // conversation pauses for a per-conversation grant before ANY data leaves the
-      // box (exfiltration control). Don't emit a tool frame for the un-run call —
-      // set `interactive` and return; the loop pauses on it.
-      if (tool.external && !this.externalConsent && !this.interactive) {
-        this.interactive = {
-          type: 'permission_request',
-          kind: 'external_tools',
-          summary: `use external tools (starting with "${tool.name}") — their output is untrusted and your inputs are sent off this workspace`,
-        };
+      // External-tool consent gate (S4 / Q4): NO external tool runs until the user
+      // has consented this conversation — the exfiltration control. This gate is
+      // INDEPENDENT of the pending-request flag: a model that emits several
+      // `mcp__*` calls in ONE native batch must not have call #2 slip past just
+      // because call #1 already set `interactive` (that would ship args to the
+      // untrusted server before consent). We request consent once (the first
+      // ungated call sets it) and then refuse EVERY external call outright.
+      if (tool.external && !this.externalConsent) {
+        if (!this.interactive) {
+          this.interactive = {
+            type: 'permission_request',
+            kind: 'external_tools',
+            summary: `use external tools (starting with "${tool.name}") — their output is untrusted and your inputs are sent off this workspace`,
+          };
+        }
         return 'Asked the user to allow external tools. Stop now and wait for their answer.';
       }
       await emitSeq({type: 'tool', name: tool.name, args});
@@ -1423,6 +1440,11 @@ export class AgentRunner {
         // Native path: the model emitted structured tool calls.
         if (useNative && calls.length > 0) {
           for (const call of calls) {
+            // Defense in depth: once a call in this batch has paused the run (an
+            // interactive tool, or the external-consent gate), STOP dispatching the
+            // rest of the batch — don't run a second external call before the user
+            // has answered. (runTool also refuses every external call pre-consent.)
+            if (this.interactive) break;
             const result = await runTool(call.name, call.args);
             toolTrace.push(`Assistant: ${JSON.stringify({tool: call.name, args: call.args})}`);
             toolTrace.push(`TOOL RESULT (${call.name}):\n${clip(result)}`);
