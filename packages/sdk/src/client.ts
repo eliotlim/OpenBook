@@ -20,6 +20,7 @@ import type {
 } from './ai';
 import type {AclLevel, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVisibility, StoredPage} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
+import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult} from './backup';
 import type {
   DatabaseInput,
@@ -44,6 +45,26 @@ export interface PageSubscription {
   onPage?: (page: StoredPage) => void;
   /** The page was deleted. */
   onDeleted?: (id: string) => void;
+}
+
+/** Input to {@link DataClient.createAgentToken}. `scope` defaults to `read`;
+ *  `expiresInDays` defaults to 90 server-side, and `null` mints a no-expiry token. */
+export interface CreateAgentTokenInput {
+  name: string;
+  scope?: AgentTokenScope;
+  expiresInDays?: number | null;
+}
+
+/** The one-time create response: the plaintext `token` (shown ONCE) + its meta. */
+export interface CreatedAgentToken {
+  token: string;
+  meta: AgentTokenMeta;
+}
+
+/** The agent-token management view: the dark `agentApi` on/off state + the list. */
+export interface AgentTokenList {
+  enabled: boolean;
+  tokens: AgentTokenMeta[];
 }
 
 /**
@@ -298,6 +319,17 @@ export interface DataClient {
   updateMember(id: string, patch: {role?: MemberRole; status?: MemberStatus}): Promise<Member>;
   /** Revoke a roster row by id. `true` if one was removed. */
   removeMember(id: string): Promise<boolean>;
+
+  // ── Agent access: PAT credential management (AGENT-6; admin-only) ─────────────
+  /** List minted agent tokens (redacted) plus the dark `agentApi` on/off state. */
+  listAgentTokens(): Promise<AgentTokenList>;
+  /** Toggle the dark `agentApi` setting on/off. Returns the new state. */
+  setAgentApiEnabled(enabled: boolean): Promise<{enabled: boolean}>;
+  /** Mint a token (requires `agentApi` enabled). The plaintext `token` comes back
+   *  exactly ONCE — store it now; only its hash is kept server-side. */
+  createAgentToken(input: CreateAgentTokenInput): Promise<CreatedAgentToken>;
+  /** Revoke a token by id. `true` if one was removed. */
+  revokeAgentToken(id: string): Promise<boolean>;
 
   // ── Scheduled backups (OB-166) ───────────────────────────────────────────────
   /** Scheduled-backup policy + per-cadence status. */
@@ -1128,6 +1160,31 @@ export class HttpDataClient implements DataClient {
   /** Revoke a roster row by id. `true` if one was removed. */
   async removeMember(id: string): Promise<boolean> {
     const res = await this.authFetch(`${this.baseUrl}${API.member(id)}`, {method: 'DELETE'});
+    if (res.status === 404) return false;
+    await throwIfNotOk(res);
+    return true;
+  }
+
+  // ── Agent access: PAT credential management (AGENT-6; admin-only) ─────────────
+
+  async listAgentTokens(): Promise<AgentTokenList> {
+    return this.request<AgentTokenList>('GET', API.agentTokens);
+  }
+
+  async setAgentApiEnabled(enabled: boolean): Promise<{enabled: boolean}> {
+    return this.request<{enabled: boolean}>('PUT', API.agentTokens, {enabled});
+  }
+
+  async createAgentToken(input: CreateAgentTokenInput): Promise<CreatedAgentToken> {
+    return this.request<CreatedAgentToken>('POST', API.agentTokens, {
+      name: input.name,
+      scope: input.scope,
+      expiresInDays: input.expiresInDays,
+    });
+  }
+
+  async revokeAgentToken(id: string): Promise<boolean> {
+    const res = await this.authFetch(`${this.baseUrl}${API.agentToken(id)}`, {method: 'DELETE'});
     if (res.status === 404) return false;
     await throwIfNotOk(res);
     return true;

@@ -17,7 +17,7 @@ export type {
 } from './types';
 export {emptyPageSnapshot, PAGE_VISIBILITIES} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
-export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential} from './client';
+export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential, CreateAgentTokenInput, CreatedAgentToken, AgentTokenList} from './client';
 export {HttpDataClient} from './client';
 export {
   ForwardingApiError,
@@ -217,6 +217,8 @@ export {
   type Principal,
   type PrincipalKind,
   type VerifiedVia,
+  type AgentTokenScope,
+  type AgentTokenMeta,
   type IdentityHeader,
   type IdentityClaims,
   type Jwk,

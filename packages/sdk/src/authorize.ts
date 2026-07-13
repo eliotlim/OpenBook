@@ -112,12 +112,15 @@ export function isEmailAuthoritative(
  * satisfy an `account.book.pub`-scoped email grant.
  */
 function matchAcl(principal: Principal, acl: AclEntry[], ctx: AccessCtx): AclLevel | null {
-  const isJws = principal.verifiedVia === 'jws';
+  // A **subject** entry matches a `jws` OR a `pat` principal with that subject: an
+  // agent PAT (AGENT-6) rides the exact subject-keyed grants its bound user has. An
+  // **email** entry stays jws-only (a PAT carries no persona email — see below).
+  const subjectEligible = principal.verifiedVia === 'jws' || principal.verifiedVia === 'pat';
   let best: AclLevel | null = null;
   for (const entry of acl) {
     let matches = false;
     if (entry.subject) {
-      matches = isJws && entry.subject === principal.subject;
+      matches = subjectEligible && entry.subject === principal.subject;
     } else if (entry.email) {
       matches =
         ctx.emailIsAuthoritative &&
@@ -141,8 +144,9 @@ function scopeAllowsRead(principal: Principal, ctx: AccessCtx, guestBlocked: boo
     // guest when `guestAccess='off'` (rule 6 / footnote ¹).
     return !guestBlocked;
   case 'authenticated':
-    // Any signed-in (jws) user; guests denied (N8).
-    return principal.verifiedVia === 'jws';
+    // Any signed-in (jws) user, or an agent PAT bound to one (AGENT-6); guests
+    // denied (N8).
+    return principal.verifiedVia === 'jws' || principal.verifiedVia === 'pat';
   case 'members':
     // Only active roster members — an active row resolves to a non-null role.
     // A signed-in non-member or invited/suspended persona (role null) gets
@@ -174,6 +178,13 @@ export function authorize(principal: Principal, page: AccessPage, ctx: AccessCtx
   const {config} = ctx;
   const isLocal = principal.verifiedVia === 'local';
   const isJws = principal.verifiedVia === 'jws';
+  // An agent PAT (AGENT-6) rides the SUBJECT-keyed rungs its bound user would —
+  // owner-content (rule 2), subject-ACL (rule 3), authenticated-read (rule 5), and
+  // the unclaimed rule-0 short-circuit — but is NEVER a roster member (rule 4:
+  // `ctx.role` is jws-only via `resolveMemberRole`, so a PAT can't ride the
+  // admin/viewer rung) and carries no persona email (no email-ACL). Its write
+  // ceiling is additionally enforced out-of-band by the HTTP scope-gate.
+  const isPat = principal.verifiedVia === 'pat';
 
   // Rule 0 — unclaimed instance: legacy short-circuit, preserving today's
   // loopback behaviour exactly. Roster/scope/ACL don't exist until claimed; the
@@ -181,7 +192,7 @@ export function authorize(principal: Principal, page: AccessPage, ctx: AccessCtx
   // footer), everyone else is judged by the guest gate. Reachable only on
   // loopback (the §2.6 exposure invariant — a claim is required before exposure).
   if (config.ownerSubject === undefined) {
-    const privileged = isJws || isLocal;
+    const privileged = isJws || isLocal || isPat;
     return {
       canRead: config.guestAccess !== 'off' || privileged,
       canWrite: config.guestAccess === 'write' || privileged,
@@ -190,7 +201,7 @@ export function authorize(principal: Principal, page: AccessPage, ctx: AccessCtx
   }
 
   // ── Claimed instance ──────────────────────────────────────────────────────
-  const isOwner = isJws && principal.subject === config.ownerSubject; // rule 2
+  const isOwner = (isJws || isPat) && principal.subject === config.ownerSubject; // rule 2
   const aclMatch = matchAcl(principal, page.acl, ctx); // rule 3
   const isAdmin = ctx.role === 'admin'; // rule 4
   const isViewer = ctx.role === 'viewer'; // rule 4
@@ -202,7 +213,7 @@ export function authorize(principal: Principal, page: AccessPage, ctx: AccessCtx
   // past the `guestAccess='off'` floor onto a `public` page either (defence in
   // depth behind the middleware, which already rejects such principals at the gate
   // on an identity-enabled instance).
-  const guestBlocked = !isJws && !isLocal && config.guestAccess === 'off';
+  const guestBlocked = !isJws && !isLocal && !isPat && config.guestAccess === 'off';
   const scopeRead = scopeAllowsRead(principal, ctx, guestBlocked); // rule 5
 
   // WRITE — only rules 1/2/3(write)/4(admin) ever grant it. `viewer` is locked,

@@ -37,6 +37,19 @@ import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
 import {guestGate, isLocalOwnerRequest, recoverAudienceLockedPrincipal, resolvePrincipal, type IdentityProvider} from './principal';
 import {requireAccess, requireCreate, requireDbAccess, requireInstanceAdmin, streamGates} from './access';
+import {
+  AGENT_FAILED_RATE_LIMIT,
+  AGENT_RATE_WINDOW_MS,
+  AGENT_TOKEN_RATE_LIMIT,
+  FixedWindowLimiter,
+  agentPrincipal,
+  agentScopeAllows,
+  bearerAgentToken,
+  clientIpKey,
+  hashAgentToken,
+  isAgentApiEnabled,
+} from './agentTokens';
+import {mountAgentTokenRoutes} from './agentTokenRoutes';
 import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
 import type {RosterController} from './rosterSync';
@@ -247,6 +260,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // Ephemeral presence (Collab T4): per-page identity-stamped awareness snapshot so
   // a late joiner sees who's here at once. Persists nothing, like the relay above.
   const awarenessRelay = new AwarenessRelay();
+
+  // Agent PAT rate limiters (AGENT-6), scoped to this app instance (the native
+  // server is single-process). `patTokenLimiter` caps a valid token's request rate;
+  // `patFailLimiter` caps FAILED PAT attempts per client IP so the hash space can't
+  // be brute-forced or used to DoS the lookup.
+  const patTokenLimiter = new FixedWindowLimiter(AGENT_TOKEN_RATE_LIMIT, AGENT_RATE_WINDOW_MS);
+  const patFailLimiter = new FixedWindowLimiter(AGENT_FAILED_RATE_LIMIT, AGENT_RATE_WINDOW_MS);
   // Loads a page's durable snapshot as raw Yjs update bytes — the seed base for the
   // relay doc. The block document stores its CRDT state as base64 in `blockdoc.update`.
   const loadRelayBase = async (pageId: string): Promise<Uint8Array | null> => {
@@ -309,6 +329,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   if (opts.accessToken) {
     const token = opts.accessToken;
     app.use('/api/*', async (c, next) => {
+      // An agent PAT (AGENT-6) is its OWN credential class and, when valid, satisfies
+      // reachability on its own ("PAT ≥ accessToken" — an intentional LAN trust
+      // change): don't measure a `Bearer obat_…` against the instance accessToken
+      // (which it would always fail). It is validated — or HARD-401'd — by the PAT
+      // resolution in the principal middleware below, so a garbage/disabled PAT never
+      // gets served here; it just isn't rejected by THIS gate.
+      if (bearerAgentToken(c)) return next();
       const auth = c.req.header('Authorization') ?? '';
       const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
       const provided = bearer || c.req.query('token') || '';
@@ -348,51 +375,87 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // With no identity provider configured the instance stays legacy: everyone is
   // an anonymous guest with full access.
   app.use('/api/*', async (c, next) => {
+    // An agent PAT (AGENT-6) is a distinct credential class — detect it FIRST. A
+    // PAT-bearing request never ALSO claims the loopback-owner hatch (so a stolen
+    // PAT can't ride `localOwner` past `requireInstanceAdmin`); the host secret is
+    // irrelevant when the caller presents a token.
+    const pat = bearerAgentToken(c);
+
     // Loopback-owner hatch: a non-forwarded request presenting the host's per-run
     // secret is the machine owner's own app. Resolved once here; owner-gated routes
     // (instance policy, ownership repair, whole-workspace export/import) also read
     // the flag, so a signed-in-but-drifted identity keeps machine-owner authority.
-    const localOwner = isLocalOwnerRequest(c, opts.localOwnerSecret);
+    const localOwner = !pat && isLocalOwnerRequest(c, opts.localOwnerSecret);
     if (localOwner) c.set('localOwner', true);
 
-    const resolved = await resolvePrincipal(c, opts.identity);
-    if ('reject' in resolved) {
-      // The machine owner is never locked out of their own instance by a bad
-      // credential: an expired / re-issued / audience-locked token over the trusted
-      // local transport degrades to the local-owner principal instead of a 401. The
-      // strict no-silent-downgrade rule stays in force for every other caller —
-      // over the hatch the *transport* is the credential.
-      if (localOwner) {
-        c.set('principal', localPrincipal());
-        return next();
+    let principal: Principal;
+    if (pat) {
+      // Agent-PAT resolution. DARK by default: a PAT only resolves when the admin has
+      // enabled `agentApi` AND the `OPENBOOK_AGENT_API=0` kill-switch env is unset —
+      // otherwise the token is treated as invalid and HARD-401s (never a silent
+      // downgrade to guest). An invalid / revoked / expired token 401s here too, before
+      // any route runs. The per-IP failed-PAT limiter makes the hash space
+      // un-brute-forceable; the per-token limiter caps a valid token's rate.
+      if (!(await isAgentApiEnabled(store))) {
+        return c.json({error: 'unauthorized'}, 401);
       }
-      // Loopback-owner audience-lockout recovery (OB-202): a token rejected solely
-      // for its audience may still relax this instance's own audience requirement,
-      // so the owner is never permanently stranded behind it. Everything else stays
-      // rejected, and the instance route's owner-check still gates WHO may apply it.
-      const recovered = await recoverAudienceLockedPrincipal(c, opts.identity);
-      if (recovered) {
-        c.set('principal', recovered);
-        return next();
+      const row = await store.resolveAgentToken(hashAgentToken(pat));
+      if (!row) {
+        const over = patFailLimiter.exceeded(clientIpKey(c));
+        return c.json({error: over ? 'too many failed attempts' : 'unauthorized'}, over ? 429 : 401);
       }
-      return c.json({error: resolved.reject.error}, resolved.reject.status);
+      if (patTokenLimiter.exceeded(row.id)) {
+        return c.json({error: 'rate limit exceeded'}, 429);
+      }
+      principal = agentPrincipal(row);
+      c.set('agentToken', {id: row.id, scope: row.scope});
+      void store.touchAgentTokenUsed(row.id).catch(() => {});
+    } else {
+      const resolved = await resolvePrincipal(c, opts.identity);
+      if ('reject' in resolved) {
+        // The machine owner is never locked out of their own instance by a bad
+        // credential: an expired / re-issued / audience-locked token over the trusted
+        // local transport degrades to the local-owner principal instead of a 401. The
+        // strict no-silent-downgrade rule stays in force for every other caller —
+        // over the hatch the *transport* is the credential.
+        if (localOwner) {
+          c.set('principal', localPrincipal());
+          return next();
+        }
+        // Loopback-owner audience-lockout recovery (OB-202): a token rejected solely
+        // for its audience may still relax this instance's own audience requirement,
+        // so the owner is never permanently stranded behind it. Everything else stays
+        // rejected, and the instance route's owner-check still gates WHO may apply it.
+        const recovered = await recoverAudienceLockedPrincipal(c, opts.identity);
+        if (recovered) {
+          c.set('principal', recovered);
+          return next();
+        }
+        return c.json({error: resolved.reject.error}, resolved.reject.status);
+      }
+      // A signed-out machine owner is the local owner, not an anonymous guest; a
+      // verified identity (when presented) still wins, so edits stay attributed to
+      // the signed-in user and persona/email-ACL matching keeps working.
+      principal = localOwner && resolved.principal.kind === 'guest' ? localPrincipal() : resolved.principal;
     }
-    // A signed-out machine owner is the local owner, not an anonymous guest; a
-    // verified identity (when presented) still wins, so edits stay attributed to
-    // the signed-in user and persona/email-ACL matching keeps working.
-    const principal = localOwner && resolved.principal.kind === 'guest' ? localPrincipal() : resolved.principal;
     c.set('principal', principal);
     if (opts.identity) {
       // Guest-floor guarantee (OB-190, OB-189 security review #1). On an
       // identity-enabled instance the only request-time principals `authorize()`
-      // may ever judge are `guest | jws` — plus `local`, which arrives over a
+      // may ever judge are `guest | jws | pat` — plus `local`, which arrives over a
       // request ONLY via the loopback-owner hatch above (the host-minted secret;
-      // never mintable from a header alone). `synced` is never request-emitted and
+      // never mintable from a header alone). A `pat` is admitted HERE explicitly and
+      // ONLY after `resolveAgentToken` above confirmed it valid (an invalid PAT never
+      // reaches this line — it 401'd). `synced` is never request-emitted and
       // `unverified` only arises with NO identity trust configured — make that a
       // hard invariant rather than an accident, so the `guestAccess='off'`
       // public-read floor (keyed on the guest class) can never be stepped around
-      // by a non-jws, non-guest `user` principal. A bad credential is a 401.
-      if (principal.verifiedVia !== 'jws' && principal.verifiedVia !== 'guest') {
+      // by a non-jws, non-guest, non-pat `user` principal. A bad credential is a 401.
+      if (
+        principal.verifiedVia !== 'jws' &&
+        principal.verifiedVia !== 'guest' &&
+        principal.verifiedVia !== 'pat'
+      ) {
         if (!(localOwner && principal.verifiedVia === 'local')) {
           return c.json({error: 'identity could not be verified'}, 401);
         }
@@ -404,12 +467,30 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       // JWS appears, bind every matching `invited` roster row / email ACL to its
       // subject — a no-op for a non-authoritative principal. Runs before any route
       // resolves the role, so a just-claimed membership is live this same request.
-      // Best-effort: a claim failure must never fail the request.
+      // Best-effort: a claim failure must never fail the request. Never for a PAT (it
+      // is not a persona sign-in and must not claim invited rows).
       if (principal.verifiedVia === 'jws') {
         await store.claimMemberships(principal).catch((err) => {
           console.error('OpenBook claim-on-sign-in failed:', err);
         });
       }
+    }
+    return next();
+  });
+
+  // Agent-PAT scope-gate (AGENT-6). A STRICT explicit default-deny PATH allowlist
+  // that confines a `pat` request to its read/write scope — it runs only for a
+  // PAT-authenticated request (the `agentToken` var is set) and never touches any
+  // other principal. Deliberately PATH-shaped, not method-shaped: many privileged
+  // routes are GETs (export/members/backups/instance/library-sync/plugins/ai-status),
+  // so "any GET is a read" would be a hole. Everything not explicitly allowlisted is
+  // DENIED. This is defence in depth ON TOP of the per-route gates + the jws-only
+  // privileged owner checks — not the sole confinement.
+  app.use('/api/*', async (c, next) => {
+    const agentToken = c.get('agentToken');
+    if (!agentToken) return next();
+    if (!agentScopeAllows(agentToken.scope, c.req.method, c.req.path)) {
+      return c.json({error: 'this agent token is not permitted to access this resource'}, 403);
     }
     return next();
   });
@@ -442,6 +523,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // the host passed a service; document APIs never depend on it.
   if (ai) mountAiRoutes(app, ai, store, broadcastList, opts.aiUsage, opts.mcp);
   mountPluginRoutes(app, store);
+  // Agent-PAT management (AGENT-6): admin-only mint/list/revoke + the dark `agentApi`
+  // toggle. A PAT can never reach these (both `requireInstanceAdmin` and the
+  // scope-gate deny it); minting binds each token to the minter's own verified
+  // subject.
+  mountAgentTokenRoutes(app, store, logEdit);
 
   app.get(API.health, (c) => c.text('ok'));
 
@@ -987,7 +1073,16 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // the machine owner over the trusted local transport (the loopback hatch), so
     // a missing/stale account identity can't lock the desktop out of its own
     // policy (the "only the instance owner can change multi-user" lockout).
-    if (current.ownerSubject && principal.subject !== current.ownerSubject && !c.get('localOwner')) {
+    // AGENT-6 (Sasha HIGH-1 + HIGH-3): the owner match MUST require `verifiedVia ===
+    // 'jws'`, not merely a subject match — an owner-minted agent PAT carries the
+    // owner's subject but is `verifiedVia:'pat'` and must NEVER change instance
+    // policy (guestAccess / issuers / audience / visibility). This is defence in
+    // depth: the scope-gate already denies `PUT /api/instance` for any PAT.
+    if (
+      current.ownerSubject &&
+      !c.get('localOwner') &&
+      !(principal.verifiedVia === 'jws' && principal.subject === current.ownerSubject)
+    ) {
       return c.json({error: 'only the instance owner can change multi-user policy'}, 403);
     }
     const next = await store.updateInstanceConfig(patch);
@@ -1159,7 +1254,14 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.put(API.backups, async (c) => {
     const principal = c.get('principal');
     const instance = await store.getInstanceConfig();
-    if (instance.ownerSubject && principal.subject !== instance.ownerSubject) {
+    // AGENT-6 (Sasha HIGH-1 + HIGH-3): require `verifiedVia === 'jws'` for the owner
+    // match — an owner-minted PAT carries the owner's subject but must NEVER change
+    // backup config (folder, cadences, retention). Defence in depth atop the
+    // scope-gate, which already denies `PUT /api/backups` for any PAT.
+    if (
+      instance.ownerSubject &&
+      !(principal.verifiedVia === 'jws' && principal.subject === instance.ownerSubject)
+    ) {
       return c.json({error: 'only the instance owner can change backups'}, 403);
     }
     const patch = await c.req.json<Partial<BackupConfig>>();
