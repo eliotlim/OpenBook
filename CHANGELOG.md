@@ -1,3 +1,24 @@
+## 2.1.0 (2026-07-13)
+
+### 🚀 Features
+
+- **ai:** model + thinking currency — Opus 4.8 default, adaptive thinking (AGENT-1) ([#140](https://github.com/eliotlim/OpenBook/pull/140))
+- **ai:** harden agent tool schemas + error feedback, raise maxSteps ([#144](https://github.com/eliotlim/OpenBook/pull/144))
+- **ai:** MCP client — in-app agent consumes external MCP servers (AGENT-3) ([#145](https://github.com/eliotlim/OpenBook/pull/145))
+- **mcp:** route writes through the suggestion-review layer ([#142](https://github.com/eliotlim/OpenBook/pull/142))
+- **server:** agent PAT credential — dark/default-off (AGENT-6) ([#148](https://github.com/eliotlim/OpenBook/pull/148))
+- **server:** remote HTTP MCP transport — dark/default-off (AGENT-5) ([#150](https://github.com/eliotlim/OpenBook/pull/150))
+- **ui:** database data source for kit charts (DASH-3) ([#143](https://github.com/eliotlim/OpenBook/pull/143))
+- **ui:** interactive kit charts — hover, highlight, context menu (DASH-2) ([#146](https://github.com/eliotlim/OpenBook/pull/146))
+- **ui:** KPI, heatmap, combo chart kinds (DASH-5) ([#149](https://github.com/eliotlim/OpenBook/pull/149), [#233246](https://github.com/eliotlim/OpenBook/issues/233246))
+- **ui:** dashboard template + build-flow + chart-view polish (DASH-6) ([#151](https://github.com/eliotlim/OpenBook/pull/151))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Claude Opus 4.8
+- Eliot Lim @eliotlim
+
 # 2.0.0 (2026-07-13)
 
 ### 🚀 Features
