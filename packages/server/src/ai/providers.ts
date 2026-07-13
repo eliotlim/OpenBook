@@ -581,10 +581,14 @@ export function usesAdaptiveThinking(model: string): boolean {
   const m = model.trim().toLowerCase();
   // Claude 3.x (incl. 3.7 Sonnet's budget_tokens extended thinking).
   if (m.startsWith('claude-3')) return false;
-  // Opus 4.0–4.6 used budget_tokens; 4.7/4.8 are adaptive-only. The char after
-  // `claude-opus-4-` is the minor version — or the leading digit of a dated 4.0
-  // snapshot (`claude-opus-4-20250514`), which is also legacy.
-  if (/^claude-opus-4-[0-6]/.test(m)) return false;
+  // Opus 4.0–4.6 used budget_tokens; 4.7/4.8 are adaptive-only. Anchor the minor
+  // version with `(?![0-9])` so ONLY single-digit 0–6 match — a hypothetical
+  // `claude-opus-4-10`…`4-16` must not be dragged legacy by its leading digit.
+  if (/^claude-opus-4-[0-6](?![0-9])/.test(m)) return false;
+  // Opus 4.0's ids don't fit that pattern: the `claude-opus-4-0` alias and its
+  // dated `claude-opus-4-20250514` snapshot (whose `2` is followed by a digit,
+  // so the anchored rule above skips it). Both are legacy.
+  if (m === 'claude-opus-4-0' || /^claude-opus-4-2025/.test(m)) return false;
   // Sonnet 4.x (4.0/4.5/4.6). Sonnet 5 is `claude-sonnet-5` — no `-4-`.
   if (/^claude-sonnet-4-/.test(m)) return false;
   // Haiku 4.x (4.5) uses budget_tokens and allows temperature but REJECTS the

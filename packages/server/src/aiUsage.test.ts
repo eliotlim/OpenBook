@@ -845,6 +845,20 @@ describe('AnthropicEngine picks the request shape by model', () => {
     expect(headers['anthropic-beta']).toBeUndefined();
   });
 
+  it('drops the effort-profile temperature on the real Opus 4.8 agent path (thinking ON + temperature passed)', async () => {
+    // Mirrors the live agent call: effortProfile supplies BOTH thinkingBudget and
+    // a temperature — the adaptive+thinking-on branch must strip the temperature
+    // (and any other sampling param), the exact 400 we've been guarding against.
+    const {body, headers} = await capture('claude-opus-4-8', {thinkingBudget: 8192, effort: 'med', temperature: 0.2});
+    expect(body.thinking).toEqual({type: 'adaptive'});
+    expect(body.output_config).toEqual({effort: 'medium'});
+    expect(body).not.toHaveProperty('temperature');
+    expect(body).not.toHaveProperty('top_p');
+    expect(body).not.toHaveProperty('top_k');
+    expect(JSON.stringify(body.thinking)).not.toContain('budget_tokens');
+    expect(headers['anthropic-beta']).toBeUndefined();
+  });
+
   it('omits sampling params on a current model even when thinking is off (temperature would 400)', async () => {
     const {body, headers} = await capture('claude-opus-4-8', {temperature: 0.4});
     expect(body).not.toHaveProperty('thinking');
