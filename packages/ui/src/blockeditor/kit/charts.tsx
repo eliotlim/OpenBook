@@ -27,11 +27,11 @@ import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import {aggregateDbSeries, readDbBinding, DB_AGG_TYPES, NUMERIC_PROP_TYPES, type ChartDbBinding, type ChartSeriesData} from './chartData';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockDef, CustomBlockProps} from '../registry';
-import {computeScope, evalExpr} from './scope';
+import {computeScope, evalExpr, inputScope} from './scope';
 import {useKitLock, useKitPageLock} from './lock';
 import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionFields, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
-import {extent, funnelRows, linePoints, paletteFor, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
+import {axisTickLabel, extent, funnelRows, linePoints, paletteFor, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
 import {useDataScheme} from '@/lib/dataScheme';
 import {useOptionalData} from '@/data';
 import {useNavigation} from '@/providers';
@@ -146,7 +146,7 @@ const Grid: React.FC<{d: ReturnType<typeof extent>}> = ({d}) => (
         <g key={t}>
           <line x1={PAD} x2={W - PAD} y1={y} y2={y} />
           <text x={PAD - 6} y={y + 3}>
-            {t}
+            {axisTickLabel(t)}
           </text>
         </g>
       );
@@ -985,7 +985,7 @@ export type {ChartDbBinding};
  * mount) — the chart shows its placeholder there; static exports resolve their
  * own series at export time (see `resolveDbChartSeries`), never from the doc.
  */
-function useDbChartSeries(binding: ChartDbBinding | null): {series: ChartSeriesData | null} {
+function useDbChartSeries(binding: ChartDbBinding | null, filterValue?: unknown): {series: ChartSeriesData | null} {
   const client = useOptionalData();
   const dbId = binding?.dbId ?? '';
   const [rows, setRows] = useState<DatabaseRow[]>([]);
@@ -1012,10 +1012,17 @@ function useDbChartSeries(binding: ChartDbBinding | null): {series: ChartSeriesD
   const groupBy = binding?.groupBy ?? '';
   const aggType = binding?.aggType ?? 'count';
   const aggProp = binding?.aggProp;
+  const filterInput = binding?.filterInput;
+  const filterProp = binding?.filterProp;
+  // A JSON key of the resolved filter value so the memo re-aggregates when the
+  // bound control changes (arrays and scalars alike), not on every render.
+  const filterKey = JSON.stringify(filterValue ?? null);
   const series = useMemo(() => {
     if (!client || !dbId || !groupBy) return null;
-    return aggregateDbSeries(rows, properties, {dbId, groupBy, aggType, aggProp});
-  }, [client, rows, properties, dbId, groupBy, aggType, aggProp]);
+    // `filterKey` (a stable JSON key of `filterValue`) stands in for the value in
+    // the dep list, so the memo re-aggregates when the bound control changes.
+    return aggregateDbSeries(rows, properties, {dbId, groupBy, aggType, aggProp, filterInput, filterProp}, filterValue);
+  }, [client, rows, properties, dbId, groupBy, aggType, aggProp, filterInput, filterProp, filterKey]);
   return {series};
 }
 
@@ -1028,13 +1035,15 @@ function useDbChartSeries(binding: ChartDbBinding | null): {series: ChartSeriesD
  */
 const selectClass = 'w-full rounded-md border border-border bg-card px-2 py-1 text-sm';
 
-const ChartDbConfig: React.FC<{block: BlockMap; setProp: (key: string, value: unknown) => void; readOnly: boolean}> = ({block, setProp, readOnly}) => {
+const ChartDbConfig: React.FC<{block: BlockMap; editor: BlockEditorController; setProp: (key: string, value: unknown) => void; readOnly: boolean}> = ({block, editor, setProp, readOnly}) => {
   const {pages} = useNavigation();
   const client = useOptionalData();
   const dbId = blockProp<string>(block, 'dbId') ?? '';
   const groupBy = blockProp<string>(block, 'dbGroupBy') ?? '';
   const aggType = blockProp<ChartAggregate['type']>(block, 'dbAggType') ?? 'count';
   const aggProp = blockProp<string>(block, 'dbAggProp') ?? '';
+  const filterInput = blockProp<string>(block, 'dbFilterInput') ?? '';
+  const filterProp = blockProp<string>(block, 'dbFilterProp') ?? '';
   const [properties, setProperties] = useState<DatabaseProperty[]>([]);
   useEffect(() => {
     if (!client || !dbId) {
@@ -1075,6 +1084,34 @@ const ChartDbConfig: React.FC<{block: BlockMap; setProp: (key: string, value: un
   useEffect(() => {
     if (!readOnly && dbId && !groupBy && preferredGroupBy) setProp('dbGroupBy', preferredGroupBy);
   }, [readOnly, dbId, groupBy, preferredGroupBy, setProp]);
+
+  // Cross-filter (DASH-7): the page's named inputs that can drive a filter — a
+  // single-value selection (dropdown/radio/text/number/toggle) or a multi-select
+  // (checklist/tag field, an array). Grouped bags and the location object aren't
+  // scalar match sources, so they're excluded. A dashboard author picks one here
+  // + a property; every chart bound to the same input re-scopes together.
+  const filterInputNames = useMemo(() => {
+    const scope = inputScope(editor.doc);
+    return Object.keys(scope)
+      .filter((k) => {
+        const v = scope[k];
+        return typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || Array.isArray(v);
+      })
+      .sort();
+  }, [editor.doc]);
+  // When an input is chosen but no property is set yet, suggest one whose name
+  // matches the input's (region → "Region"), else the first select/status column
+  // — the natural categorical axis a cross-filter slices.
+  const preferredFilterProp = useMemo(() => {
+    if (!filterInput || properties.length === 0) return '';
+    const byName = properties.find((p) => p.name.trim().toLowerCase() === filterInput.trim().toLowerCase());
+    if (byName) return byName.id;
+    const categorical = properties.find((p) => p.type === 'select' || p.type === 'status');
+    return categorical?.id ?? '';
+  }, [filterInput, properties]);
+  useEffect(() => {
+    if (!readOnly && filterInput && !filterProp && preferredFilterProp) setProp('dbFilterProp', preferredFilterProp);
+  }, [readOnly, filterInput, filterProp, preferredFilterProp, setProp]);
 
   return (
     <>
@@ -1130,6 +1167,51 @@ const ChartDbConfig: React.FC<{block: BlockMap; setProp: (key: string, value: un
           </div>
           {noNumericMeasure && (
             <span className="text-[0.7rem] text-muted-foreground">No numeric property to measure — add a number column to this database.</span>
+          )}
+        </div>
+      )}
+      {dbId && (
+        // Cross-filter binding. Optional: with no input picked the chart shows the
+        // whole database (unchanged). Bind an input + a property and the chart
+        // re-scopes to that input's value — pick the SAME input on several charts
+        // to build a dashboard-wide filter.
+        <div className="flex flex-col gap-1">
+          <div className="flex gap-1">
+            <label className="flex flex-1 flex-col gap-1">
+              <span className="text-xs font-medium text-foreground/80">Filter by input</span>
+              <Select unstyled className={selectClass} value={filterInput} disabled={readOnly} aria-label="Cross-filter input" onChange={(e) => {
+                const next = e.target.value;
+                setProp('dbFilterInput', next || undefined);
+                // Clearing the input clears the paired property, so a half-set
+                // binding never lingers and silently filters nothing.
+                if (!next) setProp('dbFilterProp', undefined);
+              }}>
+                <option value="">No filter</option>
+                {filterInputNames.map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            {filterInput && (
+              <label className="flex flex-1 flex-col gap-1">
+                <span className="text-xs font-medium text-foreground/80">On property</span>
+                <Select unstyled className={selectClass} value={filterProp} disabled={readOnly} aria-label="Cross-filter property" onChange={(e) => setProp('dbFilterProp', e.target.value || undefined)}>
+                  <option value="">Choose a property…</option>
+                  {properties.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            )}
+          </div>
+          {filterInput && filterInputNames.length === 0 ? (
+            <span className="text-[0.7rem] text-muted-foreground">No named inputs on this page yet — add a dropdown or radio input to filter by.</span>
+          ) : (
+            <span className="text-[0.7rem] text-muted-foreground">Scope this chart to a control’s value — reuse the same input across charts for a dashboard-wide filter.</span>
           )}
         </div>
       )}
@@ -1395,7 +1477,12 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   // existing config Kind selector's gate plus the group/page locks.
   const canChangeKind = !editor.readOnly && !pageLocked && !groupLocked;
   const dbBinding = readDbBinding(block);
-  const {series: dbSeries} = useDbChartSeries(dbBinding);
+  // Cross-filter (DASH-7): a DB chart bound to a named input reads that input's
+  // LIVE value from the page scope and scopes its rows to it. ChartBlock already
+  // re-renders on any doc change (the reactive backbone), so picking a new value
+  // in the bound control recomputes this and re-aggregates the series below.
+  const filterValue = dbBinding?.filterInput ? inputScope(editor.doc)[dbBinding.filterInput] : undefined;
+  const {series: dbSeries} = useDbChartSeries(dbBinding, filterValue);
 
   // Resolve the plotted data from whichever source is active. Expression mode is
   // the original path (evaluated over the page's inputs). Database mode reads the
@@ -1529,7 +1616,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
             </div>
           </ConfigField>
           {dbBinding ? (
-            <ChartDbConfig block={block} setProp={(key, v) => setProp(editor, block, key, v)} readOnly={editor.readOnly} />
+            <ChartDbConfig block={block} editor={editor} setProp={(key, v) => setProp(editor, block, key, v)} readOnly={editor.readOnly} />
           ) : (
             <>
               <ConfigField label="Data" hint="An expression over the page's inputs.">

@@ -24,6 +24,7 @@ function kitExtent(vals){ if(!vals.length) return {min:0,max:1}; let min=Math.mi
 function kitScale(v,d,r0,r1){ return r0+((v-d.min)/(d.max-d.min))*(r1-r0); }
 function kitTicks(d){ const span=d.max-d.min, step0=Math.pow(10,Math.floor(Math.log10(span/3))); const step=[step0,step0*2,step0*5,step0*10].find(s=>span/s<=4)||step0*10; const out=[]; for(let v=Math.ceil(d.min/step)*step; v<=d.max+1e-9; v+=step) out.push(Math.round(v*1e6)/1e6); return out; }
 function kitFmt(n){ return Number.isInteger(n)? n.toLocaleString() : n.toLocaleString(undefined,{maximumFractionDigits:2}); }
+function kitTick(n){ var t=function(x){return String(Math.round(x*10)/10);}, a=Math.abs(n); if(a>=1e6) return t(n/1e6)+"M"; if(a>=1e3) return t(n/1e3)+"k"; return t(n); }
 function kitFin(x){ return typeof x==="number"&&isFinite(x)?x:undefined; }
 function kitTrunc(s,m){ s=String(s); return s.length>m ? s.slice(0,Math.max(1,m-1))+"…" : s; }
 function kitKpi(v){ var n=kitFin(v); if(n!==undefined) return {value:n};
@@ -37,7 +38,7 @@ function kitGridVals(g){ var out=[]; g.cells.forEach(function(row){row.forEach(f
 function drawKit(v,kind,labels){
   labels = labels || [];
   const W=660,H=300,PAD=34,P=KIT_PALETTE;
-  const grid=(d)=>kitTicks(d).map(t=>{const y=kitScale(t,d,H-PAD,PAD);return '<line x1="'+PAD+'" x2="'+(W-PAD)+'" y1="'+y+'" y2="'+y+'" stroke="currentColor" opacity="0.15" stroke-dasharray="2 4"/><text x="'+(PAD-6)+'" y="'+(y+3)+'" font-size="10" fill="currentColor" opacity="0.55" text-anchor="end">'+t+'</text>';}).join('');
+  const grid=(d)=>kitTicks(d).map(t=>{const y=kitScale(t,d,H-PAD,PAD);return '<line x1="'+PAD+'" x2="'+(W-PAD)+'" y1="'+y+'" y2="'+y+'" stroke="currentColor" opacity="0.15" stroke-dasharray="2 4"/><text x="'+(PAD-6)+'" y="'+(y+3)+'" font-size="10" fill="currentColor" opacity="0.55" text-anchor="end">'+kitTick(t)+'</text>';}).join('');
   let body='';
   if(kind==='pie'||kind==='donut'){
     const slices=kitLabelled(v,labels).filter(s=>s.value>0); if(!slices.length) return '';

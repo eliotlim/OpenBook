@@ -83,7 +83,7 @@ const GUIDANCE = {
   productHq:
     'This template shows two linked databases: each initiative relates to tasks on the Tasks sub-page, and the Progress and Task count columns roll those tasks up. Try it: tick a task done on the sub-page and watch the rollup move, or open the Tasks timeline for the dependency arrows.',
   dashboard:
-    'This dashboard reads a sample sales database: the KPI tiles total the rows, and the bar, pie and trend charts group them — all live. Try it: edit a deal on the “… data” sub-page and watch a tile move.',
+    'This dashboard reads a sample sales database: the KPI tiles total the rows, and the bar, pie and trend charts group them — all live. Try it: pick a quarter in the control at the top and every tile and chart re-scopes to it at once — or edit a deal on the “… data” sub-page and watch a tile move.',
 } as const;
 
 /** The guidance callout as a block-doc block (ids are stable per template). */
@@ -965,23 +965,54 @@ const dashboardChart = (
   groupBy: string,
   aggType: 'count' | 'sum',
   aggProp?: string,
+  /** Cross-filter (DASH-7): bind the chart to a named input + a property so a
+   *  top-of-dashboard control re-scopes it. Omitted → the chart is unfiltered. */
+  filter?: {input: string; prop: string},
 ): object => ({
   id,
   type: 'kitchart',
-  props: {kind, title, description, sourceMode: 'database', dbId, dbGroupBy: groupBy, dbAggType: aggType, ...(aggProp ? {dbAggProp: aggProp} : {})},
+  props: {
+    kind,
+    title,
+    description,
+    sourceMode: 'database',
+    dbId,
+    dbGroupBy: groupBy,
+    dbAggType: aggType,
+    ...(aggProp ? {dbAggProp: aggProp} : {}),
+    ...(filter ? {dbFilterInput: filter.input, dbFilterProp: filter.prop} : {}),
+  },
 });
 
 /** The dashboard document: a leading guidance callout, a KPI row across the top
  *  (three tiles in a 12-col columns block), then the bar+pie pair and a
  *  full-width quarterly trend — every chart bound to the seeded sales database. */
 const dashboardBlocks = (dbId: string, guidance: string): object[] => {
-  const chart = (id: string, kind: string, title: string, description: string, groupBy: string, aggType: 'count' | 'sum', aggProp?: string) =>
-    dashboardChart(dbId, id, kind, title, description, groupBy, aggType, aggProp);
+  // The cross-filter (DASH-7): a Quarter control published as `quarter`. Every
+  // chart below (except the quarterly trend, which IS the quarter axis) binds to
+  // it on the Quarter property, so picking a quarter re-scopes the whole board.
+  const QUARTER_FILTER = {input: 'quarter', prop: 'p_quarter'};
+  const chart = (id: string, kind: string, title: string, description: string, groupBy: string, aggType: 'count' | 'sum', aggProp?: string, filter: {input: string; prop: string} | null = QUARTER_FILTER) =>
+    dashboardChart(dbId, id, kind, title, description, groupBy, aggType, aggProp, filter ?? undefined);
   return [
     guidanceCallout('db-guide', guidance),
+    // Cross-filter control: a dropdown that publishes `quarter`. "All quarters"
+    // (value `all`) is the default and reads as inactive, so the board opens
+    // showing the whole year; picking Q1–Q4 scopes every bound chart at once.
+    {
+      id: 'db-filter',
+      type: 'dropdown',
+      props: {
+        name: 'quarter',
+        label: 'Quarter',
+        value: 'all',
+        opts: [{label: 'All quarters', value: 'all'}, {label: 'Q1'}, {label: 'Q2'}, {label: 'Q3'}, {label: 'Q4'}],
+      },
+    },
     {id: 'db-h1', type: 'heading', text: [{t: 'This quarter at a glance'}], props: {level: 2}},
     // KPI row — three number tiles across the top (the DASH-5 `kpi` kind). Each
     // folds a grouped DB series to one grand total; the tile's title names it.
+    // All three bind to the Quarter cross-filter (default `chart` filter).
     {
       id: 'db-kpis',
       type: 'columns',
@@ -992,7 +1023,7 @@ const dashboardBlocks = (dbId: string, guidance: string): object[] => {
       ],
     },
     {id: 'db-h2', type: 'heading', text: [{t: 'Breakdown'}], props: {level: 2}},
-    // Bar + pie side by side in a 6/6 split.
+    // Bar + pie side by side in a 6/6 split — both scoped by the Quarter filter.
     {
       id: 'db-cols',
       type: 'columns',
@@ -1001,8 +1032,10 @@ const dashboardBlocks = (dbId: string, guidance: string): object[] => {
         {id: 'db-cr', type: 'column', props: {span: 6}, children: [chart('db-pie', 'pie', 'Deals by channel', 'Share of deals won online, retail and via partners', 'p_channel', 'count')]},
       ],
     },
-    // A full-width quarterly trend closes the dashboard.
-    chart('db-line', 'line', 'Revenue by quarter (£)', 'Amount summed by quarter, Q1 → Q4', 'p_quarter', 'sum', 'p_amount'),
+    // A full-width quarterly trend closes the dashboard. It is NOT bound to the
+    // Quarter filter (it is already the quarter axis) — it stays full-year, giving
+    // context while the tiles + breakdowns above slice to the chosen quarter.
+    chart('db-line', 'line', 'Revenue by quarter (£)', 'Amount summed by quarter, Q1 → Q4', 'p_quarter', 'sum', 'p_amount', null),
     // Trailing pointer: how to ADD a chart (distinct from the lead callout, which
     // is about editing the data). The slash menu inserts a Chart, then its ⚙
     // Source toggle switches it to Database — there is no "/chart → Database".
