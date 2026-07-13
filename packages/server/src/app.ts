@@ -1,4 +1,4 @@
-import {Hono} from 'hono';
+import {Hono, type Context} from 'hono';
 import {cors} from 'hono/cors';
 import {bodyLimit} from 'hono/body-limit';
 import {HTTPException} from 'hono/http-exception';
@@ -162,10 +162,11 @@ export interface AppOptions {
    */
   handleResolver?: HandleResolver;
   /**
-   * Managed-workspace roster sync (OB-199). When provided (the instance is bound,
-   * or could be), the `/api/workspace/sync` routes report binding status and run
-   * an on-demand reconcile of the bound workspace roster into the local roster.
-   * Omitted ⇒ the routes report "unavailable" (standalone instance).
+   * Managed-library roster sync (OB-199; LIB-5 wire rename). When provided (the
+   * instance is bound, or could be), the `/api/library/sync` routes (and their
+   * legacy `/api/workspace/sync` alias) report binding status and run an on-demand
+   * reconcile of the bound library roster into the local roster. Omitted ⇒ the
+   * routes report "unavailable" (standalone instance).
    */
   roster?: RosterController;
   /**
@@ -1031,31 +1032,40 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.body(null, 204);
   });
 
-  // ── Managed workspace: roster sync (OB-199) ──────────────────────────────────
+  // ── Managed library: roster sync (OB-199; LIB-5 wire rename) ─────────────────
   // Report binding/last-sync status, and run an on-demand reconcile of the bound
-  // workspace roster into the local roster. Instance-writer (owner/admin/loopback)
+  // library roster into the local roster. Instance-writer (owner/admin/loopback)
   // only — same gate as managing the roster directly. The reconcile is the same
   // one the periodic syncer runs; it fails safe (keeps last-good) on a fetch error.
+  // Registered on BOTH the new `/api/library/sync` and the legacy
+  // `/api/workspace/sync` alias (identical handlers) so a not-yet-updated caller
+  // still resolves during the transition; retire the alias in the last phase.
 
-  app.get(API.workspaceSync, async (c) => {
+  const rosterStatusHandler = async (c: Context<AppEnv>) => {
     await requireCreate(c, store);
     if (!opts.roster) return c.json({bound: false, available: false}, 200);
     return c.json({available: true, ...(await opts.roster.status())});
-  });
+  };
 
-  app.post(API.workspaceSync, async (c) => {
+  const rosterSyncHandler = async (c: Context<AppEnv>) => {
     await requireCreate(c, store);
     if (!opts.roster) return c.json({error: 'roster sync is not available on this instance'}, 501);
     try {
       const result = await opts.roster.syncNow();
-      if (!result) return c.json({error: 'this instance is not bound to a workspace'}, 409);
-      logEdit(c, null, 'workspace.sync', `+${result.added}/~${result.updated}/-${result.removed}`);
+      if (!result) return c.json({error: 'this instance is not bound to a library'}, 409);
+      logEdit(c, null, 'library.sync', `+${result.added}/~${result.updated}/-${result.removed}`);
       return c.json(result);
     } catch (err) {
       // Fail-safe: the roster is untouched; surface the upstream failure as a 502.
       return c.json({error: err instanceof Error ? err.message : 'roster sync failed'}, 502);
     }
-  });
+  };
+
+  app.get(API.librarySync, (c) => rosterStatusHandler(c));
+  app.post(API.librarySync, (c) => rosterSyncHandler(c));
+  // Legacy alias (LIB-5) — same handlers, kept live through the transition.
+  app.get(API.workspaceSync, (c) => rosterStatusHandler(c));
+  app.post(API.workspaceSync, (c) => rosterSyncHandler(c));
 
   app.get(`${API.pages}/:id/acl`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));

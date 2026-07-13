@@ -105,29 +105,30 @@ export interface StartOptions {
    */
   accessToken?: string;
   /**
-   * Managed-workspace roster sync (OB-199). Mints a FRESH signed roster assertion
-   * per fetch for the bound workspace's `GET /api/workspaces/:id/roster` call. The
-   * signing happens HERE in the provider (the keychain-holding layer), so the site
-   * private key never enters the data-server — the server only sees the resulting
-   * bearer string. Preferred over {@link workspaceSyncToken}.
+   * Managed-library roster sync (OB-199; LIB-5 wire rename). Mints a FRESH signed
+   * roster assertion per fetch for the bound library's `GET /api/libraries/:id/roster`
+   * call. The signing happens HERE in the provider (the keychain-holding layer), so
+   * the site private key never enters the data-server — the server only sees the
+   * resulting bearer string. Preferred over {@link librarySyncToken}.
    *
    * DEFERRED desktop wiring (OB-199 follow-up): the desktop runs the data-server as
    * a separate sidecar process while the site key lives in the webview OS keychain,
    * so the provider must round-trip over IPC — a Tauri command (`ipc.rs`) the
    * sidecar's provider calls, handled in the webview by loading the keychain
-   * identity and calling `signRosterAssertion({privateKey, publicKey, workspaceId})`
+   * identity and calling `signRosterAssertion({privateKey, publicKey, libraryId})`
    * from `@book.dev/sdk` (see `ForwardingProvider`, which already holds
    * `forwarding.keyStore`). Until that lands the provider is unset ⇒ no auth header.
    */
   rosterAssertionProvider?: RosterAssertionProvider;
   /**
    * Legacy/back-compat: a STATIC out-of-band bearer for the roster fetch (a
-   * forwarding/site or device token), also read from `OPENBOOK_WORKSPACE_SYNC_TOKEN`.
-   * Superseded by {@link rosterAssertionProvider} (which is fresh per fetch); used
-   * only when no provider is supplied. Absent + no provider ⇒ the request is
-   * unauthenticated. The sync is inert unless a binding is configured.
+   * forwarding/site or device token), also read from `OPENBOOK_WORKSPACE_SYNC_TOKEN`
+   * (env var name kept for back-compat). Superseded by {@link rosterAssertionProvider}
+   * (which is fresh per fetch); used only when no provider is supplied. Absent + no
+   * provider ⇒ the request is unauthenticated. The sync is inert unless a binding is
+   * configured.
    */
-  workspaceSyncToken?: string;
+  librarySyncToken?: string;
   /**
    * Server-authoritative Yjs persistence (Collab T9) — opt-in, default off. When
    * true, the server keeps a per-page canonical CRDT doc and persists the durable
@@ -386,15 +387,15 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const backups = new BackupScheduler(store, {defaultDir: defaultBackupDir});
   backups.start();
 
-  // Managed-workspace roster sync (OB-199): when this instance is bound to an
-  // account workspace, periodically (+ on demand) pull that workspace's roster and
+  // Managed-library roster sync (OB-199; LIB-5): when this instance is bound to an
+  // account library, periodically (+ on demand) pull that library's roster and
   // reconcile it into the local `members` table, so `members`-scope + admin/viewer
   // roles resolve for direct access too. Inert (a cheap config read) until a
   // binding is configured. Auth: prefer the injected assertion provider (mints a
   // fresh site-signed assertion per fetch in the keychain layer — the raw key never
   // reaches here); else fall back to a static out-of-band bearer; else no header.
   // `unref`'d.
-  const syncToken = opts.workspaceSyncToken ?? process.env.OPENBOOK_WORKSPACE_SYNC_TOKEN;
+  const syncToken = opts.librarySyncToken ?? process.env.OPENBOOK_WORKSPACE_SYNC_TOKEN;
   const assertionProvider: RosterAssertionProvider | undefined =
     opts.rosterAssertionProvider ?? (syncToken ? () => syncToken : undefined);
   const roster = new RosterSyncer(store, {
