@@ -58,7 +58,7 @@ test('settings: every provider is configurable in its own panel + the radio pick
   await page.locator('#ai-section-openai > button').click();
   await page.locator('#ai-section-llama > button').click();
   await expect(page.getByPlaceholder('sk-ant-…')).toBeVisible();
-  await expect(page.getByPlaceholder('claude-sonnet-4-6')).toBeVisible();
+  await expect(page.getByPlaceholder('claude-opus-4-8')).toBeVisible();
   await expect(page.getByPlaceholder('qwen2.5:1.5b')).toBeVisible();
   await expect(page.getByRole('button', {name: /Download recommended model/})).toBeVisible();
 

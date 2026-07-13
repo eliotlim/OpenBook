@@ -35,7 +35,7 @@ export type AiEffort = 'low' | 'med' | 'high';
  *  claude all set up at once and switch between them per agent run. */
 export interface AiProviderSettings {
   /** Model identifier: a GGUF filename (llama), an MLX model id (mlx), a served
-   *  model name (openai), or a Claude model id (e.g. `claude-sonnet-4-6`). */
+   *  model name (openai), or a Claude model id (e.g. `claude-opus-4-8`). */
   model?: string;
   /** Base URL for `mlx` / `openai` / `claude`. Defaults: mlx
    *  http://127.0.0.1:8080, openai http://127.0.0.1:11434, claude
