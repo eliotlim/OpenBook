@@ -246,6 +246,10 @@ export default function BackupSettings() {
             <FolderDown className="h-4 w-4" />
             {busy === 'folder' ? t('backup.folderExporting') : t('backup.folderExport')}
           </Button>
+          <Button variant="secondary" onClick={() => void onExport()} disabled={busy !== null} className="gap-2">
+            <Download className="h-4 w-4" />
+            {busy === 'export' ? t('backup.exporting') : t('backup.folderBackup')}
+          </Button>
           <Button variant="secondary" onClick={() => void onImportFolder()} disabled={busy !== null} className="gap-2">
             <FolderUp className="h-4 w-4" />
             {t('backup.folderImport')}
