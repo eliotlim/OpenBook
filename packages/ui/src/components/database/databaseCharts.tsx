@@ -12,10 +12,22 @@ import {
 import {cn} from '@/lib/utils';
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
+import {KitChartPlot, type ChartDatum, type ChartMatrixInput} from '@/blockeditor/kit/charts';
+import {paletteFor} from '@/blockeditor/kit/chartMath';
 import type {UseDatabase} from './useDatabase';
 import {chartColor} from './databaseColors';
 import {useDataScheme} from '@/lib/dataScheme';
 import {ViewSetupCard} from './ViewSetupCard';
+
+/**
+ * The database bar/pie views render through the KIT chart engine (DASH-4): they
+ * fold rows into the SDK {@link aggregateMatrix} and hand it to {@link KitChartPlot}
+ * as a {@link ChartMatrixInput}, so a DB bar/pie is the SAME drawn-SVG chart, with
+ * the same hover tooltip + highlight, as an in-doc kit chart. The DB-specific
+ * chrome — the measure readout, the group/breakdown legend, and the click-to-drill
+ * panel — lives here, around the plot; the plot's marks carry each bar/slice's rows
+ * so a click drills into them.
+ */
 
 /** A short numeric label for a bar/slice value (keeps long sums readable). */
 const fmt = (n: number): string => {
@@ -24,35 +36,8 @@ const fmt = (n: number): string => {
   return n.toLocaleString(undefined, {maximumFractionDigits: 2});
 };
 
-const TAU = Math.PI * 2;
-const polar = (cx: number, cy: number, r: number, a: number): [number, number] => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
-
-/** SVG path for an annular sector (a pie slice when `rInner` is 0). Angles in radians. */
-function arcPath(cx: number, cy: number, rInner: number, rOuter: number, a0: number, a1: number): string {
-  const large = a1 - a0 > Math.PI ? 1 : 0;
-  const [xo0, yo0] = polar(cx, cy, rOuter, a0);
-  const [xo1, yo1] = polar(cx, cy, rOuter, a1);
-  if (rInner <= 0) {
-    return `M ${cx} ${cy} L ${xo0} ${yo0} A ${rOuter} ${rOuter} 0 ${large} 1 ${xo1} ${yo1} Z`;
-  }
-  const [xi1, yi1] = polar(cx, cy, rInner, a1);
-  const [xi0, yi0] = polar(cx, cy, rInner, a0);
-  return `M ${xo0} ${yo0} A ${rOuter} ${rOuter} 0 ${large} 1 ${xo1} ${yo1} L ${xi1} ${yi1} A ${rInner} ${rInner} 0 ${large} 0 ${xi0} ${yi0} Z`;
-}
-
-/** One drawable slice of the pie/sunburst, carrying its drill-down rows. */
-interface Slice {
-  key: string;
-  a0: number;
-  a1: number;
-  frac: number;
-  rInner: number;
-  rOuter: number;
-  color: string;
-  label: string;
-  value: number;
-  rows: DatabaseRow[];
-}
+/** Square viewBox for the DB pie/sunburst — the kit's default box is wide (640×240). */
+const PIE_SIZE = 240;
 
 /** Human label for the view's measure, e.g. `Count` or `Sum of Cost`. */
 const measureLabel = (view: DbView, properties: DatabaseProperty[]): string => {
@@ -71,6 +56,21 @@ const NoData: React.FC = () => (
 type Drill = {title: string; rows: DatabaseRow[]} | null;
 /** What the pointer is over: shown in the chart readout strip. */
 type Hover = {label: string; value: number} | null;
+
+/** Build the kit matrix input from an aggregate, resolving each item's semantic swatch. */
+const toMatrix = (
+  groups: ChartGroup[],
+  series: ChartSeries[],
+  stacked: boolean,
+  scheme: ReturnType<typeof useDataScheme>,
+  percent = false,
+): ChartMatrixInput => ({
+  groups,
+  series,
+  stacked,
+  percent,
+  colorOf: (item, i) => chartColor(item, i, scheme),
+});
 
 /**
  * A live readout above the chart: the measure (and grand total) by default, or
@@ -125,101 +125,57 @@ const DrillPanel: React.FC<{db: UseDatabase; drill: NonNullable<Drill>; onClose:
 );
 
 /**
- * A horizontal bar chart: one bar per group of the view's `groupByPropertyId`,
- * sized by its aggregate (count by default, else sum/avg/min/max of a numeric
- * property). A `breakdownPropertyId` splits each bar into stacked segments. Bars
- * are interactive — hover for a readout, click to drill into the underlying rows.
- * Dependency-free — just flexbox bars — so it renders identically in the web app
- * and the desktop WKWebView.
+ * A bar chart: one column per group of the view's `groupByPropertyId`, sized by
+ * its aggregate (count by default, else sum/avg/min/max of a numeric property). A
+ * `breakdownPropertyId` stacks each column into segments. The drawn SVG + its
+ * hover tooltip/highlight come from the kit engine ({@link KitChartPlot}); a bar's
+ * mark carries its rows so a click drills into them, and the readout + breakdown
+ * legend wrap the plot.
  */
 export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
   const scheme = useDataScheme();
   const [drill, setDrill] = useState<Drill>(null);
-  const [hover, setHover] = useState<Hover>(null);
-  // The hovered bar/segment, and (from the legend) the hovered series — together
-  // they decide which bars stay lit while the rest dim.
-  const [hoverKey, setHoverKey] = useState<string | null>(null);
-  const [hoverSeries, setHoverSeries] = useState<string | null>(null);
+  const [readout, setReadout] = useState<Hover>(null);
+  // The series lit from the breakdown legend — passed to the plot to dim the rest.
+  const [legendKey, setLegendKey] = useState<string | null>(null);
   if (!view.groupByPropertyId) return <ViewSetupCard kind="chart" db={db} view={view} properties={properties} />;
 
   const {groups, series} = aggregateMatrix(db.visibleRows, view, properties);
   const stacked = series[0]?.key !== CHART_TOTAL_SERIES;
-  const percent = stacked && !!view.chartStacked100; // 100%-stacked: bars fill the track
-  const max = Math.max(1, ...groups.map((g) => g.total));
   const total = groups.reduce((sum, g) => sum + g.total, 0);
-  const anyHover = hoverKey !== null || hoverSeries !== null;
-  const dimOpacity = (lit: boolean): number => (anyHover && !lit ? 0.35 : 1);
-  const clear = (): void => {
-    setHoverKey(null);
-    setHoverSeries(null);
-    setHover(null);
-  };
+  const matrix = toMatrix(groups, series, stacked, scheme, stacked && !!view.chartStacked100);
 
   return (
     <div>
-      <div className="rounded-md border border-border p-4">
-        <ChartReadout view={view} properties={properties} hover={hover} total={total} />
-        <div className="mt-3 space-y-2">
-          {groups.length === 0 && <NoData />}
-          {groups.map((g, gi) => (
-            <div key={g.key} className="flex items-center gap-2 text-sm">
-              <div className="w-28 shrink-0 truncate text-right text-xs text-muted-foreground" title={g.label}>
-                {g.label || '—'}
-              </div>
-              <div className="relative flex h-6 flex-1 overflow-hidden rounded bg-muted/40">
-                {stacked
-                  ? g.segments.map((seg) => {
-                    if (seg.value <= 0) return null;
-                    const si = series.findIndex((s) => s.key === seg.seriesKey);
-                    const s = series[si];
-                    const label = `${g.label || '—'} · ${s.label || '—'}`;
-                    const key = `${g.key}:${seg.seriesKey}`;
-                    const lit = hoverKey === key || hoverSeries === seg.seriesKey;
-                    return (
-                      <button
-                        key={seg.seriesKey}
-                        onMouseEnter={() => {
-                          setHoverKey(key);
-                          setHover({label, value: seg.value});
-                        }}
-                        onMouseLeave={clear}
-                        onClick={() => setDrill({title: label, rows: seg.rows})}
-                        title={`${s.label || '—'}: ${fmt(seg.value)}`}
-                        aria-label={`${label}: ${fmt(seg.value)}`}
-                        className="h-full cursor-pointer transition-all first:rounded-l last:rounded-r"
-                        style={{width: `${(seg.value / (percent ? g.total || 1 : max)) * 100}%`, backgroundColor: chartColor(s, si, scheme), opacity: dimOpacity(lit)}}
-                      />
-                    );
-                  })
-                  : (
-                    <button
-                      onMouseEnter={() => {
-                        setHoverKey(g.key);
-                        setHover({label: g.label || '—', value: g.total});
-                      }}
-                      onMouseLeave={clear}
-                      onClick={() => setDrill({title: g.label || '—', rows: g.rows})}
-                      title={fmt(g.total)}
-                      aria-label={`${g.label || 'No value'}: ${fmt(g.total)}`}
-                      className="h-full cursor-pointer rounded transition-all"
-                      style={{width: `${Math.max(2, (g.total / max) * 100)}%`, backgroundColor: chartColor(g, gi, scheme), opacity: dimOpacity(hoverKey === g.key)}}
-                    />
-                  )}
-              </div>
-              <div className="w-12 shrink-0 text-right tabular-nums text-xs font-medium">{fmt(g.total)}</div>
-            </div>
-          ))}
-        </div>
+      <div className="space-y-3 rounded-md border border-border p-4">
+        <ChartReadout view={view} properties={properties} hover={readout} total={total} />
+        {groups.length === 0 ? (
+          <NoData />
+        ) : (
+          <KitChartPlot
+            kind="bar"
+            matrix={matrix}
+            palette={paletteFor(scheme)}
+            ariaLabel="Bar chart"
+            mode="action"
+            highlightKey={legendKey}
+            onSelect={(d: ChartDatum) => setDrill({title: d.label, rows: d.rows ?? []})}
+            onActiveChange={(d: ChartDatum | null) => setReadout(d ? {label: d.label, value: d.value} : null)}
+          />
+        )}
         {stacked && groups.length > 0 && (
           <SeriesLegend
             series={series}
             groups={groups}
-            hoverSeries={hoverSeries}
+            activeKey={legendKey}
             onHover={(key, h) => {
-              setHoverSeries(key);
-              setHover(h);
+              setLegendKey(key);
+              setReadout(h);
             }}
-            onLeave={clear}
+            onLeave={() => {
+              setLegendKey(null);
+              setReadout(null);
+            }}
             onPick={(title, rows) => setDrill({title, rows})}
           />
         )}
@@ -234,14 +190,14 @@ export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
 const SeriesLegend: React.FC<{
   series: ChartSeries[];
   groups: ChartGroup[];
-  hoverSeries: string | null;
+  activeKey: string | null;
   onHover: (key: string, h: Hover) => void;
   onLeave: () => void;
   onPick: (title: string, rows: DatabaseRow[]) => void;
-}> = ({series, groups, hoverSeries, onHover, onLeave, onPick}) => {
+}> = ({series, groups, activeKey, onHover, onLeave, onPick}) => {
   const scheme = useDataScheme();
   return (
-    <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5 border-t border-border/60 pt-2.5">
+    <div className="flex flex-wrap gap-x-3 gap-y-1.5 border-t border-border/60 pt-2.5">
       {series.map((s, si) => {
         const rows = groups.flatMap((g) => g.segments.find((seg) => seg.seriesKey === s.key)?.rows ?? []);
         const value = groups.reduce((sum, g) => sum + (g.segments.find((seg) => seg.seriesKey === s.key)?.value ?? 0), 0);
@@ -253,7 +209,7 @@ const SeriesLegend: React.FC<{
             onClick={() => onPick(s.label || '—', rows)}
             className={cn(
               'flex cursor-pointer items-center gap-1.5 text-xs transition-colors hover:text-foreground',
-              hoverSeries === s.key ? 'text-foreground' : 'text-muted-foreground',
+              activeKey === s.key ? 'text-foreground' : 'text-muted-foreground',
             )}
           >
             <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si, scheme)}} />
@@ -266,18 +222,19 @@ const SeriesLegend: React.FC<{
 };
 
 /**
- * A pie chart drawn with a CSS `conic-gradient` plus an interactive legend. Each
- * slice is a group of the view's `groupByPropertyId`. With a `breakdownPropertyId`
- * it becomes a two-ring sunburst: the inner disc is the primary groups, the outer
- * ring their breakdown segments, and the legend nests each group's segments. Every
- * legend row hovers for a readout and clicks to drill into its rows.
+ * A pie chart: one slice per group of the view's `groupByPropertyId`. With a
+ * `breakdownPropertyId` it becomes a two-ring sunburst — the inner disc is the
+ * primary groups, the outer ring their breakdown segments — and the legend nests
+ * each group's segments. The drawn SVG (and its hover highlight) comes from the
+ * kit engine; the arcs are decorative, so the legend rows here are the accessible,
+ * clickable controls that hover for a readout, light the matching slice, and drill.
  */
 export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: DatabaseProperty[]}> = ({db, view, properties}) => {
   const scheme = useDataScheme();
   const [drill, setDrill] = useState<Drill>(null);
-  const [hover, setHover] = useState<Hover>(null);
-  // The slice/legend the pointer is over — drives the slice highlight + readout,
-  // and is shared so hovering the legend lights up the matching slice and back.
+  const [readout, setReadout] = useState<Hover>(null);
+  // The slice/legend the pointer is over — shared so hovering the legend lights up
+  // the matching slice (and a slice hover lights its legend row) via the kit plot.
   const [hoverKey, setHoverKey] = useState<string | null>(null);
   if (!view.groupByPropertyId) return <ViewSetupCard kind="chart" db={db} view={view} properties={properties} />;
 
@@ -287,143 +244,87 @@ export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
   const total = live.reduce((sum, g) => sum + g.total, 0);
   if (total === 0) return <NoData />;
 
-  const CX = 50;
-  const CY = 50;
-  const R = 47;
-  const RINNER = stacked ? 28 : 0; // donut hole / inner-disc radius for the sunburst
-
-  // Inner disc (or the whole pie when there's no breakdown): one arc per group.
-  let ga = -Math.PI / 2;
-  const groupSlices: Slice[] = live.map((g, i) => {
-    const frac = g.total / total;
-    const a0 = ga;
-    ga += frac * TAU;
-    return {key: `g:${g.key}`, a0, a1: ga, frac, rInner: 0, rOuter: stacked ? RINNER : R, color: chartColor(g, i, scheme), label: g.label || '—', value: g.total, rows: g.rows};
-  });
-
-  // Outer ring (sunburst): each group's arc subdivided into its breakdown segments.
-  let sa = -Math.PI / 2;
-  const segSlices: Slice[] = stacked
-    ? live.flatMap((g) =>
-      g.segments
-        .filter((seg) => seg.value > 0)
-        .map((seg) => {
-          const si = series.findIndex((s) => s.key === seg.seriesKey);
-          const s = series[si];
-          const frac = seg.value / total;
-          const a0 = sa;
-          sa += frac * TAU;
-          return {key: `s:${g.key}:${seg.seriesKey}`, a0, a1: sa, frac, rInner: RINNER, rOuter: R, color: chartColor(s, si, scheme), label: `${g.label || '—'} · ${s.label || '—'}`, value: seg.value, rows: seg.rows};
-        }),
-    )
-    : [];
-
-  // Ring first, inner disc last so the disc cleanly covers the sunburst's centre.
-  const slices = [...segSlices, ...groupSlices];
-  const enter = (sl: Slice): void => {
-    setHoverKey(sl.key);
-    setHover({label: sl.label, value: sl.value});
+  const matrix = toMatrix(live, series, stacked, scheme);
+  const enter = (key: string, label: string, value: number): void => {
+    setHoverKey(key);
+    setReadout({label, value});
   };
   const leave = (): void => {
     setHoverKey(null);
-    setHover(null);
+    setReadout(null);
   };
 
   return (
     <div>
       <div className="flex flex-wrap items-center gap-6 rounded-md border border-border p-5">
-        <svg viewBox="0 0 100 100" className="h-44 w-44 shrink-0" role="img" aria-label={stacked ? 'Sunburst chart' : 'Pie chart'}>
-          {slices.map((sl) => {
-            const active = hoverKey === sl.key;
-            const dim = hoverKey !== null && !active;
-            const common = {
-              fill: sl.color,
-              style: {
-                stroke: active ? 'hsl(var(--foreground))' : 'hsl(var(--card))',
-                strokeWidth: active ? 1.2 : 0.6,
-                opacity: dim ? 0.3 : 1,
-                transition: 'opacity .12s ease, stroke .12s ease',
-              },
-              className: 'cursor-pointer',
-              onMouseEnter: () => enter(sl),
-              onMouseLeave: leave,
-              onClick: () => setDrill({title: sl.label, rows: sl.rows}),
-            };
-            return sl.frac >= 0.9999 ? (
-              <circle key={sl.key} cx={CX} cy={CY} r={sl.rOuter} {...common} />
-            ) : (
-              <path key={sl.key} d={arcPath(CX, CY, sl.rInner, sl.rOuter, sl.a0, sl.a1)} {...common} />
-            );
-          })}
-          {stacked && (
-            <g style={{pointerEvents: 'none'}}>
-              <text x={CX} y={CY - 1} textAnchor="middle" style={{fill: 'hsl(var(--foreground))', fontSize: 11, fontWeight: 700}}>
-                {fmt(hover ? hover.value : total)}
-              </text>
-              <text x={CX} y={CY + 7} textAnchor="middle" style={{fill: 'hsl(var(--muted-foreground))', fontSize: 4.5, letterSpacing: 0.3}}>
-                {hover ? 'SELECTED' : 'TOTAL'}
-              </text>
-            </g>
-          )}
-        </svg>
+        <div className="h-44 w-44 shrink-0">
+          <KitChartPlot
+            kind="pie"
+            matrix={matrix}
+            palette={paletteFor(scheme)}
+            ariaLabel={stacked ? 'Sunburst chart' : 'Pie chart'}
+            viewW={PIE_SIZE}
+            viewH={PIE_SIZE}
+            mode="decorative"
+            highlightKey={hoverKey}
+            onSelect={(d: ChartDatum) => setDrill({title: d.label, rows: d.rows ?? []})}
+            onActiveChange={(d: ChartDatum | null) => {
+              setReadout(d ? {label: d.label, value: d.value} : null);
+              setHoverKey(d?.key ?? null);
+            }}
+          />
+        </div>
         <div className="min-w-[12rem] flex-1 space-y-2">
-          <ChartReadout view={view} properties={properties} hover={hover} total={total} />
+          <ChartReadout view={view} properties={properties} hover={readout} total={total} />
           <div className="space-y-1.5">
-            {live.map((g, i) => {
-              const gk = `g:${g.key}`;
-              return (
-                <div key={g.key}>
-                  <button
-                    onMouseEnter={() => enter({...groupSlices[i], label: g.label || '—', value: g.total} as Slice)}
-                    onMouseLeave={leave}
-                    onClick={() => setDrill({title: g.label || '—', rows: g.rows})}
-                    className={cn(
-                      'flex w-full cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm transition-colors hover:text-foreground',
-                      hoverKey === gk && 'bg-accent/50',
-                    )}
-                  >
-                    <span className="h-3 w-3 shrink-0 rounded-sm" style={{backgroundColor: chartColor(g, i, scheme)}} />
-                    <span className="min-w-0 flex-1 truncate text-left" title={g.label}>
-                      {g.label || '—'}
-                    </span>
-                    <span className="tabular-nums text-xs text-muted-foreground">{fmt(g.total)}</span>
-                    <span className="w-10 text-right tabular-nums text-xs font-medium">{Math.round((g.total / total) * 100)}%</span>
-                  </button>
-                  {stacked && (
-                    <div className="ml-5 mt-0.5 flex flex-wrap gap-1">
-                      {g.segments
-                        .filter((seg) => seg.value > 0)
-                        .map((seg) => {
-                          const si = series.findIndex((s) => s.key === seg.seriesKey);
-                          const s = series[si];
-                          const label = `${g.label || '—'} · ${s.label || '—'}`;
-                          const sk = `s:${g.key}:${seg.seriesKey}`;
-                          return (
-                            <button
-                              key={seg.seriesKey}
-                              onMouseEnter={() => {
-                                setHoverKey(sk);
-                                setHover({label, value: seg.value});
-                              }}
-                              onMouseLeave={leave}
-                              onClick={() => setDrill({title: label, rows: seg.rows})}
-                              title={`${s.label || '—'}: ${fmt(seg.value)}`}
-                              className={cn(
-                                'flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors',
-                                hoverKey === sk ? 'bg-accent text-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-hover hover:text-foreground',
-                              )}
-                            >
-                              <span className="h-2 w-2 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si, scheme)}} />
-                              <span className="max-w-[7rem] truncate">{s.label || '—'}</span>
-                              <span className="tabular-nums">{fmt(seg.value)}</span>
-                            </button>
-                          );
-                        })}
-                    </div>
+            {live.map((g, i) => (
+              <div key={g.key}>
+                <button
+                  onMouseEnter={() => enter(g.key, g.label || '—', g.total)}
+                  onMouseLeave={leave}
+                  onClick={() => setDrill({title: g.label || '—', rows: g.rows})}
+                  className={cn(
+                    'flex w-full cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-sm transition-colors hover:text-foreground',
+                    hoverKey === g.key && 'bg-accent/50',
                   )}
-                </div>
-              );
-            })}
+                >
+                  <span className="h-3 w-3 shrink-0 rounded-sm" style={{backgroundColor: chartColor(g, i, scheme)}} />
+                  <span className="min-w-0 flex-1 truncate text-left" title={g.label}>
+                    {g.label || '—'}
+                  </span>
+                  <span className="tabular-nums text-xs text-muted-foreground">{fmt(g.total)}</span>
+                  <span className="w-10 text-right tabular-nums text-xs font-medium">{Math.round((g.total / total) * 100)}%</span>
+                </button>
+                {stacked && (
+                  <div className="ml-5 mt-0.5 flex flex-wrap gap-1">
+                    {g.segments
+                      .filter((seg) => seg.value > 0)
+                      .map((seg) => {
+                        const si = series.findIndex((s) => s.key === seg.seriesKey);
+                        const s = series[si];
+                        const label = `${g.label || '—'} · ${s.label || '—'}`;
+                        const sk = `${g.key}::${seg.seriesKey}`;
+                        return (
+                          <button
+                            key={seg.seriesKey}
+                            onMouseEnter={() => enter(sk, label, seg.value)}
+                            onMouseLeave={leave}
+                            onClick={() => setDrill({title: label, rows: seg.rows})}
+                            className={cn(
+                              'flex cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors',
+                              hoverKey === sk ? 'bg-accent text-foreground' : 'bg-muted/50 text-muted-foreground hover:bg-hover hover:text-foreground',
+                            )}
+                          >
+                            <span className="h-2 w-2 shrink-0 rounded-sm" style={{backgroundColor: chartColor(s, si, scheme)}} />
+                            <span className="max-w-[7rem] truncate">{s.label || '—'}</span>
+                            <span className="tabular-nums">{fmt(seg.value)}</span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
       </div>

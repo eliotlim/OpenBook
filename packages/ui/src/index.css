@@ -2377,7 +2377,10 @@ a.obe-mention {
 @media (forced-colors: active) {
   .obe-chart-mark:focus-visible { outline: 2px solid Highlight; outline-offset: 1px; }
 }
-.obe-chart-mark.is-dim { opacity: 0.32; }
+/* Dim the mark's SHAPE (not the <g> wrapper) so a de-emphasised slice reports its
+   own low opacity — group opacity never surfaces on a child in getComputedStyle,
+   which the database sunburst's legend-hover check relies on. */
+.obe-chart-mark.is-dim > :is(rect, path, circle, polyline, polygon) { opacity: 0.32; }
 .obe-chart-mark.is-active { filter: brightness(1.06); }
 .obe-chart-mark.is-active :is(rect, path, circle) { stroke: hsl(var(--foreground) / 0.55); stroke-width: 1.5px; }
 /* Line/scatter point markers read as part of the line at rest, surfacing on hover/focus. */
