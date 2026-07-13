@@ -2,7 +2,7 @@ import React from 'react';
 import {Select} from '@/components/ui/select';
 import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import type {BlockEditorController} from '../useBlockEditor';
-import type {CustomBlockProps} from '../registry';
+import type {CustomBlockDef, CustomBlockProps} from '../registry';
 import {computeScope, evalExpr} from './scope';
 import {useKitPageLock} from './lock';
 import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionFields, ScopeHints} from './KitFrame';
@@ -18,8 +18,8 @@ import {useDataScheme} from '@/lib/dataScheme';
  * themes, and identical markup in the interactive HTML export.
  */
 
-export const CHART_KINDS = ['line', 'area', 'bar', 'pie', 'donut', 'scatter', 'funnel'] as const;
-export type ChartKind = (typeof CHART_KINDS)[number];
+/** Serialized chart `kind`. Dynamic — the set is whatever the registry holds. */
+export type ChartKind = string;
 
 const W = 640;
 const H = 240;
@@ -199,6 +199,125 @@ const Funnel: React.FC<{value: unknown; labels: string[]; palette: string[]}> = 
   );
 };
 
+/**
+ * Chart-kind registry. Rendering, the config Kind selector, and the slash menu
+ * all DERIVE from this map, so a new kind (DASH-2/3/5) is one
+ * {@link registerChartKind} call — no `switch` or array to edit.
+ */
+
+export interface ChartRenderArgs {
+  /** Evaluated result of the chart's `source` expression. */
+  value: unknown;
+  /** Parsed comma-separated labels, one per point/slice/stage. */
+  labels: string[];
+  /** Concrete-hex series palette for the active data-colour scheme. */
+  palette: string[];
+}
+
+export interface ChartKindConfigArgs {
+  block: BlockMap;
+  editor: BlockEditorController;
+  /** Transactionally writes a prop on this chart block. */
+  setProp: (key: string, value: unknown) => void;
+}
+
+export interface ChartKindDef {
+  /** Serialized `kind` string — part of the block model; keep it stable. */
+  kind: string;
+  /** Label shown in the ⚙ config Kind selector (also the option text). */
+  label: string;
+  /** Renders the SVG body for this kind. */
+  render: (args: ChartRenderArgs) => React.ReactNode;
+  /**
+   * Whether the data has anything to plot; drives the "no plottable data"
+   * placeholder. Defaults to the series-or-labelled check the value kinds
+   * share. Point-based kinds (scatter) override it so a stray value still
+   * renders an empty plot rather than the placeholder.
+   */
+  hasData?: (value: unknown, labels: string[]) => boolean;
+  /**
+   * Optional per-kind config fields rendered under the shared Kind/Data/Labels
+   * controls. Unused by the built-ins today — an extension point for future
+   * kinds (DASH-3 DB source, DASH-5 new kinds).
+   */
+  configFields?: (args: ChartKindConfigArgs) => React.ReactNode;
+  /**
+   * Optional slash-menu entry that inserts a chart. Today only the default
+   * `line` kind carries one — a single "Chart" item. The block `type` is
+   * always `kitchart`; the kind is switched from config, not the slash menu.
+   */
+  slash?: CustomBlockDef['slash'];
+}
+
+const registry = new Map<string, ChartKindDef>();
+
+/**
+ * Register a chart kind. Re-registering an existing `kind` replaces it. The
+ * render dispatch, Kind selector, and slash menu all read from the registry,
+ * so this is the ONLY edit needed to add a kind.
+ */
+export function registerChartKind(def: ChartKindDef): void {
+  registry.set(def.kind, def);
+}
+
+/** Look up a registered kind. */
+export const getChartKind = (kind: string): ChartKindDef | undefined => registry.get(kind);
+
+/** All registered kinds, in registration order. */
+export const chartKinds = (): ChartKindDef[] => [...registry.values()];
+
+/** The default series-or-labelled emptiness check most kinds use. */
+const hasPlottable = (value: unknown, labels: string[]): boolean =>
+  toSeries(value).length > 0 || toLabelled(value, labels).length > 0;
+
+// The seven built-in kinds. Each is a plain registry entry — the former
+// switch(kind) render dispatch and the CHART_KINDS array both derive from here.
+registerChartKind({
+  kind: 'line',
+  label: 'line',
+  render: ({value, labels, palette}) => <LineArea value={value} area={false} labels={labels} palette={palette} />,
+  slash: {
+    label: 'Chart',
+    hint: 'Line, bar, pie, scatter, funnel — live over inputs',
+    keywords: 'chart graph plot line bar pie donut scatter funnel visualization',
+    make: () => ({type: 'kitchart', props: {kind: 'line', source: '[3, 1, 4, 1, 5, 9, 2, 6]'}}),
+  },
+});
+registerChartKind({
+  kind: 'area',
+  label: 'area',
+  render: ({value, labels, palette}) => <LineArea value={value} area labels={labels} palette={palette} />,
+});
+registerChartKind({
+  kind: 'bar',
+  label: 'bar',
+  render: ({value, labels, palette}) => <Bars value={value} labels={labels} palette={palette} />,
+});
+registerChartKind({
+  kind: 'pie',
+  label: 'pie',
+  render: ({value, labels, palette}) => <PieDonut value={value} labels={labels} donut={false} palette={palette} />,
+});
+registerChartKind({
+  kind: 'donut',
+  label: 'donut',
+  render: ({value, labels, palette}) => <PieDonut value={value} labels={labels} donut palette={palette} />,
+});
+registerChartKind({
+  kind: 'scatter',
+  label: 'scatter',
+  hasData: () => true,
+  render: ({value, palette}) => <Scatter value={value} palette={palette} />,
+});
+registerChartKind({
+  kind: 'funnel',
+  label: 'funnel',
+  render: ({value, labels, palette}) => <Funnel value={value} labels={labels} palette={palette} />,
+});
+
+/** Kind strings of the currently-registered kinds (re-exported by the kit). */
+export const CHART_KINDS: readonly string[] = chartKinds().map((d) => d.kind);
+
 const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const kind = (blockProp<string>(block, 'kind') as ChartKind) ?? 'line';
   const source = blockProp<string>(block, 'source') ?? '';
@@ -219,31 +338,19 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   // recolours live when the scheme switches.
   const palette = paletteFor(useDataScheme());
 
+  // Unknown kinds fall back to `line`, matching the former switch `default`.
+  const def = getChartKind(kind) ?? getChartKind('line')!;
   const body = (() => {
     if (error) return <text className="obe-chart-msg" x={W / 2} y={H / 2}>⚠ {error}</text>;
-    if (value === undefined || (kind !== 'scatter' && toSeries(value).length === 0 && toLabelled(value, labels).length === 0)) {
+    const hasData = def.hasData ?? hasPlottable;
+    if (value === undefined || !hasData(value, labels)) {
       return (
         <text className="obe-chart-msg" x={W / 2} y={H / 2}>
           {source.trim() ? 'no plottable data' : 'configure data ⚙ — e.g. [3, 1, 4, 1, 5] or {a: [1,2], b: [3,4]}'}
         </text>
       );
     }
-    switch (kind) {
-    case 'area':
-      return <LineArea value={value} area labels={labels} palette={palette} />;
-    case 'bar':
-      return <Bars value={value} labels={labels} palette={palette} />;
-    case 'pie':
-      return <PieDonut value={value} labels={labels} donut={false} palette={palette} />;
-    case 'donut':
-      return <PieDonut value={value} labels={labels} donut palette={palette} />;
-    case 'scatter':
-      return <Scatter value={value} palette={palette} />;
-    case 'funnel':
-      return <Funnel value={value} labels={labels} palette={palette} />;
-    default:
-      return <LineArea value={value} area={false} labels={labels} palette={palette} />;
-    }
+    return def.render({value, labels, palette});
   })();
 
   return (
@@ -284,9 +391,9 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
               aria-label="Chart kind"
               onChange={(e) => setProp(editor, block, 'kind', e.target.value)}
             >
-              {CHART_KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {k}
+              {chartKinds().map((k) => (
+                <option key={k.kind} value={k.kind}>
+                  {k.label}
                 </option>
               ))}
             </Select>
@@ -306,21 +413,16 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
           <ConfigField label="Labels" hint="Comma-separated, one per point.">
             <ConfigInput value={blockProp<string>(block, 'labels') ?? ''} readOnly={editor.readOnly} aria-label="Labels (comma-separated)" placeholder="A, B, C" onChange={(e) => setProp(editor, block, 'labels', e.target.value)} />
           </ConfigField>
+          {def.configFields?.({block, editor, setProp: (key, v) => setProp(editor, block, key, v)})}
         </div>
       </KitSettings>
     </figure>
   );
 };
 
-export const CHART_BLOCKS = [
-  {
-    type: 'kitchart',
-    render: ChartBlock,
-    slash: {
-      label: 'Chart',
-      hint: 'Line, bar, pie, scatter, funnel — live over inputs',
-      keywords: 'chart graph plot line bar pie donut scatter funnel visualization',
-      make: () => ({type: 'kitchart', props: {kind: 'line', source: '[3, 1, 4, 1, 5, 9, 2, 6]'}}),
-    },
-  },
-] as const;
+// The chart block is a single `kitchart` type that renders any kind; the slash
+// menu entry is derived from the registry (today only `line` declares one, so
+// this yields exactly one "Chart" item). No edit needed to add a kind.
+export const CHART_BLOCKS: CustomBlockDef[] = chartKinds()
+  .filter((d) => d.slash)
+  .map((d) => ({type: 'kitchart', render: ChartBlock, slash: d.slash}));
