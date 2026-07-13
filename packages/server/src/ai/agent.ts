@@ -242,7 +242,7 @@ export class AgentRunner {
     return [
       {
         name: 'search_notes',
-        description: 'Search every note/page in the workspace; returns ranked matches with snippets.',
+        description: 'Search every note/page in the workspace; returns up to the 5 top-ranked matches as `[pageId] title: snippet`. Pass a pageId to read_page for the full text.',
         args: '{"query": string}',
         schema: obj({query: str('What to look for.')}, ['query']),
         run: async (args) => {
@@ -259,7 +259,7 @@ export class AgentRunner {
       },
       {
         name: 'list_pages',
-        description: 'List workspace pages (id and title), most recently updated first.',
+        description: 'List workspace pages as `[id] title`, most recently updated first (first 40 only — use search_notes to find a specific page in a large workspace).',
         args: '{}',
         schema: obj({}),
         run: async () => {
@@ -271,7 +271,7 @@ export class AgentRunner {
       },
       {
         name: 'read_page',
-        description: 'Read the full text of one page by id.',
+        description: 'Read the plain text of one page by id (long pages are truncated). For block ids/types/props to edit, use inspect_page_structure instead.',
         args: '{"pageId": string}',
         schema: obj({pageId: str('The page id.')}, ['pageId']),
         run: async (args) => {
@@ -342,7 +342,7 @@ export class AgentRunner {
       {
         name: 'describe_database',
         description:
-          'Describe the database hosted on a page: every column (id, name, type, and select options) plus its rows (id + title). Call this before creating or updating rows/columns so you use the right ids.',
+          'Describe the database hosted on a page: every column (id, name, type, and select options) plus its rows (id + title, first 40). This is the source of the column ids and row ids the other database tools need — call it before creating or updating rows/columns/cells.',
         args: '{"pageId": string}',
         schema: obj({pageId: str('The page hosting the database.')}, ['pageId']),
         run: async (args) => {
@@ -589,7 +589,7 @@ export class AgentRunner {
       },
       {
         name: 'append_to_page',
-        description: 'Propose appending text to an existing page (one paragraph per line). The user approves before it is applied.',
+        description: 'Propose appending PLAIN paragraphs to an existing page (one paragraph per line — no headings, lists, or formatting). For headings, lists, interactive inputs, charts, or layout, use add_blocks instead. The user approves before it is applied.',
         args: '{"pageId": string, "content": string}',
         schema: obj({pageId: str('The page id.'), content: str('Plain text to append.')}, ['pageId', 'content']),
         write: true,
@@ -725,7 +725,8 @@ export class AgentRunner {
       },
       {
         name: 'set_db_cell',
-        description: 'Propose setting a manual property value on a database row (by property id). User approves first.',
+        description:
+          'Propose setting ONE manual property value on a database row, addressed by property id. Get the page/row/property ids from describe_database. For select/status columns pass the option id (from describe_database); for a checkbox a boolean; for number a number. To change several cells or add a new row use update_row / create_row (which also accept column names and option labels). User approves first.',
         args: '{"pageId": string, "rowId": string, "propertyId": string, "value": any}',
         schema: obj(
           {
@@ -748,7 +749,7 @@ export class AgentRunner {
           const row = rows.find((r) => r.id === rowId);
           if (!row) return 'Row not found in this database.';
           const prop = (db.schema.properties ?? []).find((p) => p.id === propertyId);
-          if (!prop) return `No property "${propertyId}" on this database — use list_db_views/get_db_row.`;
+          if (!prop) return `No property "${propertyId}" on this database — use describe_database to list the column ids.`;
           return this.propose({
             kind: 'set_db_cell',
             summary: `Set ${prop.name} = ${JSON.stringify(value)} on "${row.name ?? 'Untitled'}"`,
@@ -949,7 +950,9 @@ export class AgentRunner {
             title: str('Optional heading for the interview.'),
             steps: {
               type: 'array',
-              description: 'The questions, asked one per step (1–8).',
+              minItems: 1,
+              maxItems: 8,
+              description: 'The questions, asked one per step (1–8; extra steps are dropped).',
               items: obj(
                 {
                   question: str('The question to ask.'),
@@ -1235,8 +1238,18 @@ export class AgentRunner {
       let result: string;
       try {
         result = await tool.run(args);
+        // A tool that silently returns nothing would read to the model as an empty
+        // TOOL RESULT (ambiguous — "did it work?"). Normalise to an explicit note so
+        // the model always gets a definite signal to act on.
+        if (typeof result !== 'string' || result.trim() === '') {
+          result = `The "${tool.name}" tool returned no output.`;
+        }
       } catch (err) {
-        result = `Tool failed: ${err instanceof Error ? err.message : String(err)}`;
+        // A thrown tool must NOT abort the run — surface a clear, recoverable error
+        // as the tool_result so the model can adjust its arguments or try another
+        // tool on the next step (the loop continues rather than dying).
+        const message = err instanceof Error ? err.message : String(err);
+        result = `Error: the "${tool.name}" tool failed — ${message}. Check the arguments and try again or take a different approach.`;
       }
       await emitSeq({type: 'tool_result', name: tool.name, result: clip(result, 400)});
       return result;
