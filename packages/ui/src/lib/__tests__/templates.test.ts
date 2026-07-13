@@ -39,7 +39,9 @@ function stubClient(existing: string[]): DataClient {
 const SLIDE_DECK_IDS = ['grocery-tracker', 'project-intake', 'savings-planner', 'pitch-deck'] as const;
 /** Every block-doc template (the decks plus the single-page dashboards). */
 const BLOCK_DOC_IDS = [...SLIDE_DECK_IDS, 'compound-growth', 'team-status'] as const;
-const DATABASE_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map', 'product-hq'] as const;
+// Templates that create a database (the four fixtures, the two-database Product HQ,
+// and the Dashboard — which lands on a document but seeds a sample sales database).
+const DATABASE_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map', 'product-hq', 'dashboard'] as const;
 
 /** Run a template against a stub and return the schema it created (database templates). */
 async function schemaOf(id: PageTemplate['id']): Promise<DatabaseSchema> {
@@ -141,16 +143,16 @@ function decodeSeededPng(dataUri: string): number {
 }
 
 describe('PAGE_TEMPLATES', () => {
-  it('has eleven templates with unique ids, names, and icons', () => {
+  it('has twelve templates with unique ids, names, and icons', () => {
     const ids = PAGE_TEMPLATES.map((t) => t.id);
     const names = PAGE_TEMPLATES.map((t) => t.pageName);
-    expect(PAGE_TEMPLATES).toHaveLength(11);
+    expect(PAGE_TEMPLATES).toHaveLength(12);
     expect(new Set(ids)).toEqual(new Set([...BLOCK_DOC_IDS, ...DATABASE_IDS]));
     expect(new Set(names).size).toBe(PAGE_TEMPLATES.length);
     for (const t of PAGE_TEMPLATES) expect(t.icon.length).toBeGreaterThan(0);
   });
 
-  it('builds block-doc artifacts for the showcases and databases for the four fixtures', async () => {
+  it('builds block-doc artifacts for the showcases and databases for the fixtures', async () => {
     for (const t of PAGE_TEMPLATES) {
       const client = stubClient([]);
       await t.create(client, t.pageName);
@@ -534,11 +536,57 @@ describe('product hq (two linked databases)', () => {
   });
 });
 
+describe('sales dashboard (composite KPI + DB-backed charts)', () => {
+  const template = PAGE_TEMPLATES.find((t) => t.id === 'dashboard') as PageTemplate;
+
+  it('lands a document of DB-bound charts and seeds the sales database they read', async () => {
+    const client = stubClient([]);
+    await template.create(client, template.pageName);
+
+    // Two pages: the dashboard document (saved first, so its charts' dbId is the
+    // minted sample-db id) then the "… data" sub-page hosting the database.
+    const saves = (client.savePage as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as {name?: string; data: {editor?: string}; parentId?: string});
+    expect(saves).toHaveLength(2);
+    expect(saves[0].data.editor).toBe('blocks'); // the dashboard document
+    expect(saves[1].name).toMatch(/ data$/);
+    expect(saves[1].parentId).toBeTruthy(); // the data DB is a sub-page
+
+    // The sample sales database + its dozen deals.
+    const dbCall = (client.createDatabase as ReturnType<typeof vi.fn>).mock.calls[0][0] as {id: string; schema: DatabaseSchema};
+    const groupables = dbCall.schema.properties.filter((p) => p.type === 'select' || p.type === 'status').map((p) => p.id);
+    expect(groupables).toEqual(expect.arrayContaining(['p_region', 'p_channel', 'p_stage', 'p_quarter']));
+    expect(dbCall.schema.properties.some((p) => p.id === 'p_amount' && p.type === 'number')).toBe(true);
+    expect((client.createRow as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThanOrEqual(12);
+
+    // Every kitchart is bound to that database (DASH-3 source mode), and the
+    // composition covers the KPI tiles + bar + pie + trend, in column layouts.
+    // Decode the SAME run's document (the dbId is a per-run minted uuid, so a
+    // fresh `docOf` re-run would mint a different one).
+    const blocks = (saves[0] as {data: {blockdoc?: {blocks: Array<Record<string, unknown>>}}}).data.blockdoc?.blocks ?? [];
+    const doc = decodeSnapshot({v: 1, update: '', blocks} as unknown as BlockDocSnapshot);
+    const charts = allBlocks(doc).filter((b) => (blockType(b) as string) === 'kitchart');
+    for (const c of charts) {
+      expect(blockProp<string>(c, 'sourceMode')).toBe('database');
+      expect(blockProp<string>(c, 'dbId')).toBe(dbCall.id);
+      expect(blockProp<string>(c, 'dbGroupBy')).toBeTruthy();
+    }
+    const kinds = charts.map((c) => blockProp<string>(c, 'kind'));
+    expect(kinds.filter((k) => k === 'kpi').length).toBe(3); // the KPI row
+    expect(kinds).toEqual(expect.arrayContaining(['bar', 'pie', 'line']));
+    expect(allBlocks(doc).some((b) => (blockType(b) as string) === 'columns')).toBe(true);
+  });
+
+  it('tags itself interactive (it lands on a document, not a database view)', () => {
+    expect(template.tags).toEqual(['interactive']);
+  });
+});
+
 describe('guidance callouts (the standardized "how to use this" lead block)', () => {
-  /** The guided templates: the five database fixtures — the ones without strong
-   *  in-doc guidance of their own. (The sample-document copy self-guides via its
-   *  own intro paragraph, so it carries no standardized callout.) */
-  const GUIDED_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map', 'product-hq'] as const;
+  /** The guided templates: the four database fixtures, the two-database Product
+   *  HQ, and the Dashboard — the ones without strong in-doc guidance of their own,
+   *  so each leads with the standardized callout. (The sample-document copy
+   *  self-guides via its own intro paragraph, so it carries no standardized one.) */
+  const GUIDED_IDS = ['task-board', 'reading-list', 'roadmap', 'field-map', 'product-hq', 'dashboard'] as const;
 
   type SavedDoc = {editor?: string; blockdoc?: {blocks: Array<Record<string, unknown>>}};
   type CalloutBlock = {type?: string; props?: {variant?: string}; text?: Array<{t?: string}>};

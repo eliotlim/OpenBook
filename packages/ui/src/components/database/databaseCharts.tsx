@@ -157,6 +157,7 @@ export const BarChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
             matrix={matrix}
             palette={paletteFor(scheme)}
             ariaLabel="Bar chart"
+            frameless
             mode="action"
             highlightKey={legendKey}
             onSelect={(d: ChartDatum) => setDrill({title: d.label, rows: d.rows ?? []})}
@@ -265,6 +266,7 @@ export const PieChartView: React.FC<{db: UseDatabase; view: DbView; properties: 
             ariaLabel={stacked ? 'Sunburst chart' : 'Pie chart'}
             viewW={PIE_SIZE}
             viewH={PIE_SIZE}
+            frameless
             mode="decorative"
             highlightKey={hoverKey}
             onSelect={(d: ChartDatum) => setDrill({title: d.label, rows: d.rows ?? []})}

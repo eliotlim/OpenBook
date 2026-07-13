@@ -27,7 +27,7 @@ test('gallery: lists every template with names and descriptions', {tag: ['@shell
   await hydrated(page);
   await openGallery(page);
 
-  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck', 'Compound growth', 'Team status dashboard', 'Product HQ']) {
+  for (const name of ['Grocery price tracker', 'Project task board', 'Reading list', 'Project intake', 'Savings & investing', 'Product roadmap', 'Field map', 'Pitch deck', 'Compound growth', 'Team status dashboard', 'Product HQ', 'Sales dashboard']) {
     await expect(page.getByRole('button', {name: new RegExp(name)})).toBeVisible();
   }
   await takeSnapshot(page, testInfo); // visual: the template gallery
@@ -233,6 +233,31 @@ test('product hq: two databases linked by a relation, rolled up, and chained on 
   await expect(page.getByRole('button', {name: 'Timeline', exact: true})).toBeVisible();
   await expect(page.getByTitle(/drag to reschedule/)).toHaveCount(5);
   await expect(page.locator('svg path[marker-end]')).toHaveCount(2);
+});
+
+test('sales dashboard: a composite of KPI tiles and DB-backed charts over a seeded database', {tag: ['@shell']}, async ({page}) => {
+  await hydrated(page);
+  await pick(page, 'dashboard');
+
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Sales dashboard/);
+  // The KPI row (three number tiles) plus a bar, a pie, and a quarterly trend —
+  // every chart bound to the sample sales database (DASH-3 source mode).
+  await expect(page.locator('.obe-kit-chart[data-chart-kind="kpi"]')).toHaveCount(3);
+  await expect(page.locator('.obe-kit-chart[data-chart-kind="bar"]')).toHaveCount(1);
+  await expect(page.locator('.obe-kit-chart[data-chart-kind="pie"]')).toHaveCount(1);
+  await expect(page.locator('.obe-kit-chart[data-chart-kind="line"]')).toHaveCount(1);
+  // The tiles resolve real totals from the seeded rows, not the "configure a
+  // database" placeholder — the big figure renders a number.
+  const firstKpi = page.locator('.obe-chart-kpi-value').first();
+  await expect(firstKpi).toBeVisible();
+  await expect.poll(async () => (await firstKpi.textContent())?.trim() ?? '').toMatch(/\d/);
+
+  // The sample database lands as a "… data" sub-page, browsable from the palette.
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByPlaceholder(/Search pages or run a command/).fill('Sales dashboard data');
+  await page.getByRole('option', {name: /Sales dashboard.*data/}).first().click();
+  await expect(page.getByLabel('Page title')).toHaveValue(/^Sales dashboard.*data/);
+  await expect(page.getByRole('button', {name: 'Table', exact: true})).toBeVisible();
 });
 
 test('instantiating a template twice suffixes the page and row names (names are unique)', {tag: ['@shell']}, async ({page}) => {

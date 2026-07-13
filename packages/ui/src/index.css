@@ -2355,6 +2355,9 @@ a.obe-mention {
   border-radius: 10px;
   background: hsl(var(--card) / 0.5);
 }
+/* Borderless plot: the DB chart-views wrap the plot in their own readout card,
+   so the default frame would nest a second concentric border (DASH-4). */
+.obe-chart-svg-bare { border: none; border-radius: 0; background: none; }
 .obe-chart-grid line { stroke: hsl(var(--border) / 0.55); stroke-dasharray: 2 4; }
 .obe-chart-grid text, .obe-chart-xlabels text, .obe-chart-legend text {
   font-size: 10px;
@@ -2362,6 +2365,10 @@ a.obe-mention {
   text-anchor: end;
 }
 .obe-chart-xlabels text { text-anchor: middle; }
+
+/* Sunburst centre readout (DASH-4): total at rest, hovered slice on hover. */
+.obe-chart-center-value { fill: hsl(var(--foreground)); font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.obe-chart-center-label { fill: hsl(var(--muted-foreground)); font-size: 11px; }
 .obe-chart-legend text { text-anchor: start; font-size: 11px; }
 .obe-chart-msg { fill: hsl(var(--muted-foreground) / 0.8); font-size: 12px; text-anchor: middle; }
 .obe-chart-funnel-label { fill: hsl(var(--background)); font-size: 11px; font-weight: 600; text-anchor: middle; pointer-events: none; }

@@ -68,6 +68,12 @@ export const fmtChartValue = (n: number): string =>
 /** SVG coord → clamped percentage of a span, so an overlay stays inside the plot. */
 const pctIn = (v: number, span: number, min = 6, max = 94): number => Math.max(min, Math.min(max, (v / span) * 100));
 
+/** Truncate a label to `max` chars with an ellipsis (drives the DB bar x-labels,
+ *  which have no truncation of their own — a long/many-group label set overflows
+ *  otherwise). Returns the original when it already fits. */
+const ellipsize = (label: string, max: number): string =>
+  label.length > max ? `${label.slice(0, Math.max(1, max - 1)).trimEnd()}…` : label;
+
 // ── Interactivity (DASH-2): hover tooltip, highlight, context menu ───────────
 //
 // The seven kinds each draw their own SVG, but the interaction behaviour is
@@ -256,12 +262,19 @@ const Bars: React.FC<{value: unknown; labels: string[]; palette: string[]}> = ({
         }),
       )}
       {labels.length > 0 && (
+        // Truncate to the per-group width with a hover title, matching the static
+        // export (kitChart.ts) so an in-doc bar and its export read the same.
         <g className="obe-chart-xlabels">
-          {labels.slice(0, n).map((l, i) => (
-            <text key={i} x={PAD + i * groupW + groupW / 2} y={H - 8}>
-              {l}
-            </text>
-          ))}
+          {labels.slice(0, n).map((l, i) => {
+            const budget = Math.max(3, Math.floor(groupW / 6));
+            const shown = ellipsize(l, budget);
+            return (
+              <text key={i} x={PAD + i * groupW + groupW / 2} y={H - 8}>
+                {shown}
+                {shown !== l && <title>{l}</title>}
+              </text>
+            );
+          })}
         </g>
       )}
       <SeriesLegend series={series} palette={palette} />
@@ -417,12 +430,23 @@ const MatrixBars: React.FC<{matrix: ChartMatrixInput; palette: string[]}> = ({ma
           </g>
         );
       })}
+      {/* X-labels: the DB bar has no truncation of its own, so long/many-group
+          labels collide or overflow. Truncate each to its column width (budget
+          scales with `groupW`, so labels shrink as groups multiply and never
+          collide) with a hover <title> carrying the full text. Kept horizontal
+          and centred — angled labels clip against the fixed-height viewBox — and
+          identical to the flat `Bars` + static export so all three read alike. */}
       <g className="obe-chart-xlabels">
-        {groups.map((g, i) => (
-          <text key={g.key} x={PAD + i * groupW + groupW / 2} y={H - 8}>
-            {g.label}
-          </text>
-        ))}
+        {groups.map((g, i) => {
+          const label = g.label ?? '';
+          const shown = ellipsize(label, Math.max(3, Math.floor(groupW / 6)));
+          return (
+            <text key={g.key} x={PAD + i * groupW + groupW / 2} y={H - 8}>
+              {shown}
+              {shown !== label && <title>{label}</title>}
+            </text>
+          );
+        })}
       </g>
     </>
   );
@@ -435,7 +459,12 @@ const MatrixBars: React.FC<{matrix: ChartMatrixInput; palette: string[]}> = ({ma
  * render the accessible legend + readout around this, so these arcs are
  * decorative pointer targets (mark mode `'decorative'`).
  */
-const MatrixPie: React.FC<{matrix: ChartMatrixInput; palette: string[]; size?: number}> = ({matrix, palette, size = H}) => {
+const MatrixPie: React.FC<{matrix: ChartMatrixInput; palette: string[]; size?: number; active?: ChartDatum | null}> = ({
+  matrix,
+  palette,
+  size = H,
+  active = null,
+}) => {
   const {groups, series, stacked} = matrix;
   const live = groups.filter((g) => g.total > 0);
   const total = live.reduce((s, g) => s + g.total, 0);
@@ -483,6 +512,23 @@ const MatrixPie: React.FC<{matrix: ChartMatrixInput; palette: string[]; size?: n
           </Mark>
         );
       })}
+      {/* Sunburst centre readout (DASH-4 restore): the grand total at rest, the
+          hovered/focused slice while a pointer is over one. A card-tinted disc
+          keeps it legible over the group ring without changing the arc geometry
+          the DB pie spec counts. Absent for a flat pie (no ring, RINNER = 0). */}
+      {stacked && (
+        <g className="obe-chart-center" aria-hidden pointerEvents="none">
+          <circle cx={CX} cy={CY} r={RINNER * 0.72} fill="hsl(var(--card))" opacity={0.94} />
+          <text className="obe-chart-center-value" x={CX} y={active ? CY - 1 : CY + 3} textAnchor="middle">
+            {fmtChartValue(active ? active.value : total)}
+          </text>
+          {active && (
+            <text className="obe-chart-center-label" x={CX} y={CY + 16} textAnchor="middle">
+              {ellipsize(active.label, 16)}
+            </text>
+          )}
+        </g>
+      )}
     </>
   );
 };
@@ -544,7 +590,11 @@ const targetPct = (value: number, target?: number): number | null =>
 const Kpi: React.FC<{value: unknown; labels: string[]; palette: string[]}> = ({value, labels, palette}) => {
   const kpi = toKpi(value);
   if (!kpi) return null;
-  const caption = labels[0] ?? '';
+  // The caption names the single figure — meaningful only when there's exactly
+  // one label (an expression KPI's `labels: 'Revenue'`). A DB-source KPI folds a
+  // GROUPED series to one grand total, so its many group labels don't caption the
+  // total; there the chart's own title carries the name (leave the SVG caption off).
+  const caption = labels.length === 1 ? labels[0] : '';
   const pct = targetPct(kpi.value, kpi.target);
   const barW = W * 0.5;
   const barX = (W - barW) / 2;
@@ -773,6 +823,12 @@ export interface ChartRenderArgs {
    * path; each mark carries its rows for drill. Absent for expression charts.
    */
   matrix?: ChartMatrixInput;
+  /**
+   * The datum currently hovered/focused (DASH-4). Lets a kind reflect the active
+   * selection in its own chrome — the DB sunburst's centre readout shows this
+   * slice's value while a pointer is over one, the grand total otherwise.
+   */
+  active?: ChartDatum | null;
   /** The chart block, for kind-level actions (a custom kind mutating props). */
   block?: BlockMap;
   /** The editor controller, for kind-level actions (transactional prop writes). */
@@ -865,8 +921,8 @@ registerChartKind({
 registerChartKind({
   kind: 'pie',
   label: 'pie',
-  render: ({value, labels, palette, matrix, height}) =>
-    matrix ? <MatrixPie matrix={matrix} palette={palette} size={height ?? H} /> : <PieDonut value={value} labels={labels} donut={false} palette={palette} />,
+  render: ({value, labels, palette, matrix, height, active}) =>
+    matrix ? <MatrixPie matrix={matrix} palette={palette} size={height ?? H} active={active} /> : <PieDonut value={value} labels={labels} donut={false} palette={palette} />,
 });
 registerChartKind({
   kind: 'donut',
@@ -1004,6 +1060,22 @@ const ChartDbConfig: React.FC<{block: BlockMap; setProp: (key: string, value: un
     if (!readOnly && !dbId && loneDbId) setProp('dbId', loneDbId);
   }, [readOnly, dbId, loneDbId, setProp]);
 
+  // Once a database is chosen, auto-pick a sensible group-by so the chart draws
+  // immediately (measure defaults to `count`, which needs no numeric property):
+  // the first select/status column is the natural "one bar/slice per value" axis,
+  // else the first non-numeric column, else anything. This makes the slash → Chart
+  // → Database flow land on a real chart without a manual group-by step.
+  const preferredGroupBy = useMemo(() => {
+    if (properties.length === 0) return '';
+    const categorical = properties.find((p) => p.type === 'select' || p.type === 'status');
+    if (categorical) return categorical.id;
+    const nonNumeric = properties.find((p) => !NUMERIC_PROP_TYPES.has(p.type));
+    return (nonNumeric ?? properties[0]).id;
+  }, [properties]);
+  useEffect(() => {
+    if (!readOnly && dbId && !groupBy && preferredGroupBy) setProp('dbGroupBy', preferredGroupBy);
+  }, [readOnly, dbId, groupBy, preferredGroupBy, setProp]);
+
   return (
     <>
       <ConfigField label="Database" hint="Aggregate a database's rows.">
@@ -1105,6 +1177,10 @@ export interface KitChartPlotProps {
   /** viewBox width/height. Default 640×240 (the wide plot); the DB pie passes a square box. */
   viewW?: number;
   viewH?: number;
+  /** Drop the SVG's own border/radius/card background. The DB chart-views wrap
+   *  the plot in their own readout card, so the default frame would nest a second
+   *  concentric border inside it — a bare plot avoids the double frame (DASH-4). */
+  frameless?: boolean;
   /** When set, the plot shows this placeholder (error / empty) instead of the chart. */
   message?: React.ReactNode;
   block?: BlockMap;
@@ -1130,6 +1206,7 @@ export const KitChartPlot: React.FC<KitChartPlotProps> = ({
   ariaLabel,
   viewW = W,
   viewH = H,
+  frameless = false,
   message,
   block,
   editor,
@@ -1231,7 +1308,7 @@ export const KitChartPlot: React.FC<KitChartPlotProps> = ({
         {message}
       </text>
     ) : (
-      def.render({value, labels, palette, interactions, matrix, block, editor, width: viewW, height: viewH})
+      def.render({value, labels, palette, interactions, matrix, active: active?.datum ?? null, block, editor, width: viewW, height: viewH})
     );
 
   return (
@@ -1240,10 +1317,13 @@ export const KitChartPlot: React.FC<KitChartPlotProps> = ({
           children now, and an img is an ARIA leaf that would hide them (and
           their `label: value` names) from assistive tech. A labelled group
           keeps the chart's accessible name while exposing every mark. */}
-      <svg viewBox={`0 0 ${viewW} ${viewH}`} role="group" aria-label={ariaLabel} className="obe-chart-svg">
+      <svg viewBox={`0 0 ${viewW} ${viewH}`} role="group" aria-label={ariaLabel} className={cn('obe-chart-svg', frameless && 'obe-chart-svg-bare')}>
         <ChartInteractionContext.Provider value={interactions}>{body}</ChartInteractionContext.Provider>
       </svg>
-      {active && !menu && (
+      {/* The floating tooltip is the in-doc idiom. In DB-view mode ('action'/
+          'decorative') the persistent ChartReadout strip already names the
+          hovered datum, so suppress the tooltip there — no double readout. */}
+      {active && !menu && mode === 'menu' && (
         // aria-hidden: the focused/hovered mark already carries the label+value
         // in its aria-label, so the visual tooltip must not double-announce.
         // Flips below the mark near the top edge so it never escapes the plot.
