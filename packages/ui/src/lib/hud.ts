@@ -1,10 +1,10 @@
 /** The settings sidebar: three sections, each with its sub-screens, in order.
  *  Preferences = how the app behaves and looks; Account = who you are
- *  (identity first); Workspace = this workspace's server and capabilities. */
+ *  (identity first); Library = this library's server and capabilities. */
 export const SETTINGS_SECTIONS = [
   {id: 'preferences', tabs: ['general', 'appearance', 'customisation']},
   {id: 'account', tabs: ['profile', 'signin']},
-  {id: 'workspace', tabs: ['connection', 'sharing', 'extensions', 'ai', 'admin', 'agents', 'diagnostics']},
+  {id: 'library', tabs: ['connection', 'sharing', 'extensions', 'ai', 'admin', 'agents', 'diagnostics']},
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];
