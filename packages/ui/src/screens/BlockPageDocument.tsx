@@ -12,6 +12,7 @@ import {
 } from '@/blockeditor/model';
 import {projectSnapshotForExport} from '@/blockeditor/exportBlocks';
 import {computeScope} from '@/blockeditor/kit/scope';
+import {resolveDbChartSeries} from '@/blockeditor/kit/chartData';
 import {buildDocumentModel} from '@/export/documentModel';
 import {toMarkdown} from '@/export/toMarkdown';
 import {resolveExportAssets} from '@/export/exportAssets';
@@ -343,13 +344,18 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
       }
       return;
     }
+    // Resolve database-bound kit charts to their series live, via this in-app
+    // client, and thread them through the projection. Nothing is written to the
+    // doc — a DB chart persists no snapshot, so viewing/presenting is write-free.
+    const encoded = encodeSnapshot(doc);
+    const dbSeries = await resolveDbChartSeries(client, encoded.blocks ?? []);
     const snapshot = projectSnapshotForExport({
       editorjs: {blocks: []},
       values: [],
       names: [],
       editor: 'blocks',
-      blockdoc: encodeSnapshot(doc),
-    });
+      blockdoc: encoded,
+    }, dbSeries);
     const base = safeFilename(title);
     // Identity stamped into a single-page/deck export's source island (so a saved
     // page re-imports onto its own id). Unsaved pages leave it blank — the island
@@ -361,7 +367,7 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         // embeds the picture rather than a dangling reference. Markdown has no
         // sandboxed-iframe equivalent, so only the image map applies here.
         const assets = await resolveExportAssets(client, [snapshot]);
-        downloadText(`${base}.md`, toMarkdown(buildDocumentModel({title, icon, snapshot, assets: assets.images})), 'text/markdown');
+        downloadText(`${base}.md`, toMarkdown(buildDocumentModel({title, icon, snapshot, assets: assets.images, dbSeries})), 'text/markdown');
       } else if (kind === 'pdf-paged' || kind === 'pdf-continuous' || kind === 'pdf-slides') {
         // PDF mirrors the HTML export (vector, selectable) rather than a separate
         // hand-drawn renderer — so it looks like the window. See export/toPdf.ts.
@@ -372,12 +378,12 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
         ]);
         const blob =
           kind === 'pdf-slides'
-            ? await toPdfSlides(toSlideDeck(snapshot, title, icon, assets, meta, appearance.dataColors))
-            : await toPdf(toHtml(snapshot, title, icon, assets, meta, appearance.dataColors), kind === 'pdf-continuous' ? 'continuous' : 'paged');
+            ? await toPdfSlides(toSlideDeck(snapshot, title, icon, assets, meta, appearance.dataColors, dbSeries))
+            : await toPdf(toHtml(snapshot, title, icon, assets, meta, appearance.dataColors, dbSeries), kind === 'pdf-continuous' ? 'continuous' : 'paged');
         downloadBlob(`${base}${kind === 'pdf-slides' ? '-slides' : ''}.pdf`, blob);
       } else if (kind === 'html-slides') {
         const [{toSlideDeck}, assets] = await Promise.all([import('@/export/toHtml'), resolveExportAssets(client, [snapshot])]);
-        downloadText(`${base}-slides.html`, toSlideDeck(snapshot, title, icon, assets, meta, appearance.dataColors), 'text/html');
+        downloadText(`${base}-slides.html`, toSlideDeck(snapshot, title, icon, assets, meta, appearance.dataColors, dbSeries), 'text/html');
       } else {
         const [{toHtmlSite}, {gatherSite}] = await Promise.all([import('@/export/toHtml'), import('@/export/exportSite')]);
         const bundle = pageId

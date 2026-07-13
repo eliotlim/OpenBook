@@ -2,6 +2,7 @@ import type * as Y from 'yjs';
 import {blockChildren, blockId, blockProp, blockType, rootBlocks, setBlockProp, type TextRun, walkBlocks, type BlockMap} from '../model';
 import {varNameFromLabel} from './options';
 import {containerCompletions} from './completion';
+import type {DbChartSeriesMap} from './chartData';
 
 /**
  * The artifact kit's reactive backbone. Every *input* block publishes a named
@@ -345,7 +346,7 @@ export interface ExportCell {
  * status lights, and progress bars evaluate their expression over the same
  * scope (mirroring their block components).
  */
-export function computeExportCells(doc: Y.Doc): Map<string, ExportCell> {
+export function computeExportCells(doc: Y.Doc, dbSeries?: DbChartSeriesMap): Map<string, ExportCell> {
   const {scope, results} = computeScope(doc);
   const cells = new Map<string, ExportCell>();
   for (const {block} of walkBlocks(rootBlocks(doc))) {
@@ -358,11 +359,10 @@ export function computeExportCells(doc: Y.Doc): Map<string, ExportCell> {
       cells.set(id, {value: r?.error ? undefined : r?.value});
     } else if (type === 'kitchart' && blockProp<string>(block, 'sourceMode') === 'database') {
       // A database-bound chart's data can't be recomputed from the doc alone (it
-      // needs the data client, absent in a static export). The live block writes
-      // its resolved series to `dbSnapshot` for exactly this — export the
-      // last-known values so the chart renders rather than blanking.
-      const snap = blockProp<{value?: unknown}>(block, 'dbSnapshot');
-      cells.set(id, {value: snap?.value});
+      // needs the data client, absent in a static export). It's resolved live at
+      // export time and threaded in via `dbSeries` — the doc holds NO derived
+      // snapshot, so viewing/presenting the chart never writes anything.
+      cells.set(id, {value: dbSeries?.get(id)?.value});
     } else if (type === 'kitchart' || type === 'progressbar') {
       cells.set(id, {value: evalExpr(blockProp<string>(block, 'source') ?? '', scope).value});
     } else if (type === 'statuslight') {

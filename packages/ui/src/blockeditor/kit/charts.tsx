@@ -1,7 +1,8 @@
 import React, {useEffect, useMemo, useState} from 'react';
-import {aggregateRows, PARENT_GROUP_ID, type ChartAggregate, type DatabaseProperty, type DatabaseRow, type DatabaseView} from '@book.dev/sdk';
+import {PARENT_GROUP_ID, type ChartAggregate, type DatabaseProperty, type DatabaseRow} from '@book.dev/sdk';
 import {Select} from '@/components/ui/select';
 import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
+import {aggregateDbSeries, readDbBinding, DB_AGG_TYPES, NUMERIC_PROP_TYPES, type ChartDbBinding, type ChartSeriesData} from './chartData';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockDef, CustomBlockProps} from '../registry';
 import {computeScope, evalExpr} from './scope';
@@ -329,63 +330,23 @@ export const CHART_KINDS: readonly string[] = chartKinds().map((d) => d.kind);
 // binding (`sourceMode === 'database'`): group a database's rows by a property
 // and fold a measure, reusing the SDK aggregate pipeline the DB chart-views use.
 // The render contract stays source-agnostic — both paths produce `{value,
-// labels}`; the kind's `render` never learns where the data came from.
+// labels}`; the kind's `render` never learns where the data came from. The pure
+// data logic lives in `./chartData` so the (sync) export path can share it.
 
-/** Aggregation types offered by a database-bound chart (mirrors the DB views). */
-const DB_AGG_TYPES: readonly ChartAggregate['type'][] = ['count', 'sum', 'avg', 'min', 'max'];
-/** Property types a numeric measure (`sum`/`avg`/`min`/`max`) can fold. */
-const NUMERIC_PROP_TYPES = new Set(['number', 'formula', 'expr']);
-
-/** A chart's database data source. `groupBy` is a property id or the parent
- *  sentinel; `aggProp` is the numeric property folded by non-`count` measures. */
-export interface ChartDbBinding {
-  dbId: string;
-  groupBy: string;
-  aggType: ChartAggregate['type'];
-  aggProp?: string;
-}
-
-/** One series of a chart: values with an aligned label per point/slice. */
-interface ChartSeriesData {
-  value: number[];
-  labels: string[];
-}
-
-/** Read the block's database binding, or null when it isn't in database mode. */
-export const readDbBinding = (block: BlockMap): ChartDbBinding | null => {
-  if (blockProp<string>(block, 'sourceMode') !== 'database') return null;
-  return {
-    dbId: blockProp<string>(block, 'dbId') ?? '',
-    groupBy: blockProp<string>(block, 'dbGroupBy') ?? '',
-    aggType: blockProp<ChartAggregate['type']>(block, 'dbAggType') ?? 'count',
-    aggProp: blockProp<string>(block, 'dbAggProp') || undefined,
-  };
-};
+// Re-exported so existing importers (and tests) keep resolving these from the
+// chart module even though the pure logic now lives in `./chartData`.
+export {readDbBinding, aggregateDbSeries};
+export type {ChartDbBinding};
 
 /**
- * Fold a database's rows into a single labelled series via the SDK
- * {@link aggregateRows} pipeline — one datum per group of `groupBy`, its height
- * the `aggType` measure (count, or sum/avg/min/max of `aggProp`). A minimal
- * view carrying only the fields `aggregateRows` reads drives it, so the kit
- * chart and the database bar/pie views share one aggregation.
+ * Resolve a database binding's rows to a `{value, labels}` series, live, for
+ * on-screen display. Seeds from {@link DataClient.listRows} and re-aggregates on
+ * {@link DataClient.subscribeRows} row edits (the same reactivity the DB
+ * chart-views ride). Returns `null` outside a `<DataProvider>` (a provider-less
+ * mount) — the chart shows its placeholder there; static exports resolve their
+ * own series at export time (see `resolveDbChartSeries`), never from the doc.
  */
-export function aggregateDbSeries(rows: DatabaseRow[], properties: DatabaseProperty[], binding: ChartDbBinding): ChartSeriesData {
-  const view = {
-    groupByPropertyId: binding.groupBy || undefined,
-    aggregate: {type: binding.aggType, propertyId: binding.aggProp},
-  } as DatabaseView;
-  const data = aggregateRows(rows, view, properties);
-  return {value: data.map((d) => d.value), labels: data.map((d) => d.label)};
-}
-
-/**
- * Resolve a database binding's rows to a `{value, labels}` series, live. Seeds
- * from {@link DataClient.listRows} and re-aggregates on {@link
- * DataClient.subscribeRows} row edits (the same reactivity the DB chart-views
- * ride). Returns `client: null` outside a `<DataProvider>` (the viewer/export
- * bundle) so the caller falls back to the exported snapshot instead of a blank.
- */
-function useDbChartSeries(binding: ChartDbBinding | null): {series: ChartSeriesData | null; client: ReturnType<typeof useOptionalData>} {
+function useDbChartSeries(binding: ChartDbBinding | null): {series: ChartSeriesData | null} {
   const client = useOptionalData();
   const dbId = binding?.dbId ?? '';
   const [rows, setRows] = useState<DatabaseRow[]>([]);
@@ -416,7 +377,7 @@ function useDbChartSeries(binding: ChartDbBinding | null): {series: ChartSeriesD
     if (!client || !dbId || !groupBy) return null;
     return aggregateDbSeries(rows, properties, {dbId, groupBy, aggType, aggProp});
   }, [client, rows, properties, dbId, groupBy, aggType, aggProp]);
-  return {series, client};
+  return {series};
 }
 
 /**
@@ -451,11 +412,19 @@ const ChartDbConfig: React.FC<{block: BlockMap; setProp: (key: string, value: un
   }, [client, dbId]);
   const databases = pages.filter((p) => p.hostedDatabaseId);
   const numericProps = properties.filter((p) => NUMERIC_PROP_TYPES.has(p.type));
+  const noNumericMeasure = aggType !== 'count' && numericProps.length === 0;
+
+  // With exactly one database to bind, pick it — one less click when the author
+  // just switched to Database mode (mirrors the DB views auto-picking a group-by).
+  const loneDbId = databases.length === 1 ? databases[0].hostedDatabaseId : undefined;
+  useEffect(() => {
+    if (!readOnly && !dbId && loneDbId) setProp('dbId', loneDbId);
+  }, [readOnly, dbId, loneDbId, setProp]);
 
   return (
     <>
       <ConfigField label="Database" hint="Aggregate a database's rows.">
-        <Select unstyled className={selectClass} value={dbId} disabled={readOnly} aria-label="Database" onChange={(e) => setProp('dbId', e.target.value)}>
+        <Select unstyled className={selectClass} value={dbId} disabled={readOnly} onChange={(e) => setProp('dbId', e.target.value)}>
           <option value="">Choose a database…</option>
           {databases.map((p) => (
             <option key={p.hostedDatabaseId!} value={p.hostedDatabaseId!}>
@@ -466,7 +435,7 @@ const ChartDbConfig: React.FC<{block: BlockMap; setProp: (key: string, value: un
       </ConfigField>
       {dbId && (
         <ConfigField label="Group by" hint="One bar/slice per value.">
-          <Select unstyled className={selectClass} value={groupBy} disabled={readOnly} aria-label="Group by" onChange={(e) => setProp('dbGroupBy', e.target.value)}>
+          <Select unstyled className={selectClass} value={groupBy} disabled={readOnly} onChange={(e) => setProp('dbGroupBy', e.target.value)}>
             <option value="">Choose a property…</option>
             <option value={PARENT_GROUP_ID}>Sub-items (parent)</option>
             {properties.map((p) => (
@@ -478,27 +447,36 @@ const ChartDbConfig: React.FC<{block: BlockMap; setProp: (key: string, value: un
         </ConfigField>
       )}
       {dbId && (
-        <ConfigField label="Measure" hint="How each group is folded.">
+        <div className="flex flex-col gap-1">
           <div className="flex gap-1">
-            <Select unstyled className={selectClass} value={aggType} disabled={readOnly} aria-label="Measure" onChange={(e) => setProp('dbAggType', e.target.value)}>
-              {DB_AGG_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </Select>
-            {aggType !== 'count' && (
-              <Select unstyled className={selectClass} value={aggProp} disabled={readOnly} aria-label="Measure property" onChange={(e) => setProp('dbAggProp', e.target.value || undefined)}>
-                <option value="">—</option>
-                {numericProps.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
+            <label className="flex flex-1 flex-col gap-1">
+              <span className="text-xs font-medium text-foreground/80">Measure</span>
+              <Select unstyled className={selectClass} value={aggType} disabled={readOnly} onChange={(e) => setProp('dbAggType', e.target.value)}>
+                {DB_AGG_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
                   </option>
                 ))}
               </Select>
+            </label>
+            {aggType !== 'count' && (
+              <label className="flex flex-1 flex-col gap-1">
+                <span className="text-xs font-medium text-foreground/80">Of</span>
+                <Select unstyled className={selectClass} value={aggProp} disabled={readOnly} onChange={(e) => setProp('dbAggProp', e.target.value || undefined)}>
+                  <option value="">—</option>
+                  {numericProps.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </label>
             )}
           </div>
-        </ConfigField>
+          {noNumericMeasure && (
+            <span className="text-[0.7rem] text-muted-foreground">No numeric property to measure — add a number column to this database.</span>
+          )}
+        </div>
       )}
     </>
   );
@@ -519,39 +497,24 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   const pageLocked = useKitPageLock();
   const chromeEditable = !editor.readOnly && !pageLocked;
   const dbBinding = readDbBinding(block);
-  const {series: dbSeries, client: dataClient} = useDbChartSeries(dbBinding);
+  const {series: dbSeries} = useDbChartSeries(dbBinding);
 
   // Resolve the plotted data from whichever source is active. Expression mode is
   // the original path (evaluated over the page's inputs). Database mode reads the
-  // live aggregated series in the app, or the exported snapshot in the viewer
-  // (no data client there) so a bound chart still renders its last-known data.
+  // live aggregated series from the data client for on-screen display ONLY — it
+  // never persists derived data to the doc (viewing/presenting a DB chart must
+  // cause zero writes). The static export resolves its own series at export time.
   let value: unknown;
   let error: string | undefined;
   let effectiveLabels = labels;
   if (dbBinding) {
-    if (dataClient) {
-      value = dbSeries?.value;
-      effectiveLabels = dbSeries?.labels ?? [];
-    } else {
-      const snap = blockProp<ChartSeriesData>(block, 'dbSnapshot');
-      value = snap?.value;
-      effectiveLabels = snap?.labels ?? [];
-    }
+    value = dbSeries?.value;
+    effectiveLabels = dbSeries?.labels ?? [];
   } else {
     const evaluated = evalExpr(source, computeScope(editor.doc).scope);
     value = evaluated.value;
     error = evaluated.error;
   }
-
-  // Persist the resolved DB series so static exports (which can't reach a data
-  // client) render the last-known data rather than a blank chart. Guarded by an
-  // equality check so an unchanged series never re-writes the doc.
-  useEffect(() => {
-    if (!dataClient || editor.readOnly || !dbSeries) return;
-    const prev = blockProp<ChartSeriesData>(block, 'dbSnapshot');
-    if (prev && JSON.stringify(prev.value) === JSON.stringify(dbSeries.value) && JSON.stringify(prev.labels) === JSON.stringify(dbSeries.labels)) return;
-    setProp(editor, block, 'dbSnapshot', {value: dbSeries.value, labels: dbSeries.labels});
-  }, [dataClient, dbSeries, editor, block]);
 
   // Concrete-hex series fills for the active data-colour scheme (OB-379): the SVG
   // `fill=` attribute can't read a CSS var, so resolve the palette here — it
@@ -611,7 +574,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
           <NameDescriptionFields block={block} editor={editor} nameKey="title" namePlaceholder="Chart title" />
           <ConfigField label="Kind">
             <Select unstyled
-              className="w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
+              className={selectClass}
               value={kind}
               disabled={editor.readOnly}
               aria-label="Chart kind"

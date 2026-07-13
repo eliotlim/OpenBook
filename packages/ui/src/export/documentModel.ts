@@ -10,6 +10,7 @@
  */
 import type {PageSnapshot} from '@book.dev/sdk';
 import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
+import type {DbChartSeriesMap} from '../blockeditor/kit/chartData';
 import {normalizeChartInput, type NormalizedSeries} from './chartNormalize';
 
 export interface InlineRun {
@@ -155,12 +156,14 @@ export interface BuildModelOptions {
   snapshot: PageSnapshot;
   /** Image assets resolved up front: `assetId` → a `data:` URI (see exportAssets). */
   assets?: Map<string, string>;
+  /** Database-bound chart series resolved live at export time (DASH-3). */
+  dbSeries?: DbChartSeriesMap;
 }
 
-export function buildDocumentModel({title, icon, snapshot: rawSnapshot, assets = new Map()}: BuildModelOptions): DocModel {
+export function buildDocumentModel({title, icon, snapshot: rawSnapshot, assets = new Map(), dbSeries}: BuildModelOptions): DocModel {
   // Pages written by the CRDT block editor project into the export-projection
   // shape first, so every exporter below works on one block dialect.
-  const snapshot = projectSnapshotForExport(rawSnapshot);
+  const snapshot = projectSnapshotForExport(rawSnapshot, dbSeries);
   const blocks = flattenColumns(((snapshot.editorjs as {blocks?: ExportBlock[]} | undefined)?.blocks ?? []) as ExportBlock[]);
   const values = new Map<string, unknown>(snapshot.values as Array<[string, unknown]>);
   const nameByCell = new Map<string, string>();

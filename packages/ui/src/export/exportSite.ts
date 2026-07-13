@@ -16,6 +16,7 @@ import {
   type StoredPage,
 } from '@book.dev/sdk';
 import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
+import {resolveDbChartSeries, snapshotBlocks} from '../blockeditor/kit/chartData';
 import {DEFAULT_PAGE_ICON, readPageIcon} from '@/lib/pageIcon';
 
 /** A database hosted by a page, projected for static rendering. */
@@ -100,7 +101,12 @@ export async function gatherSite(
     const isRoot = id === rootId;
     if (!stored && !isRoot) continue;
 
-    const snapshot = projectSnapshotForExport(isRoot ? root.snapshot : stored!.data);
+    // Resolve any database-bound kit charts on this page to their series live,
+    // via the same client, and thread them into the projection — the doc holds no
+    // persisted snapshot (viewing never writes; export resolves fresh).
+    const rawSnapshot = isRoot ? root.snapshot : stored!.data;
+    const dbSeries = await resolveDbChartSeries(client, snapshotBlocks(rawSnapshot));
+    const snapshot = projectSnapshotForExport(rawSnapshot, dbSeries);
     const title = (isRoot ? root.title : stored!.name ?? '').trim() || 'Untitled';
     // Prefer the icon stored on the page record (it travels in properties now);
     // fall back to the in-memory cache / default for the unsaved root.

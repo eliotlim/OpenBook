@@ -4,6 +4,7 @@ import {decodeSnapshot} from './model';
 import {COLOR_EXPORT_HEX} from './colors';
 import {resolveOptionsFromProps, varNameFromLabel} from './kit/options';
 import {computeExportCells, type ExportCell} from './kit/scope';
+import type {DbChartSeriesMap} from './kit/chartData';
 
 // TextRun is referenced in the kit emit cases below.
 
@@ -373,7 +374,7 @@ const KIT_INPUT_VALUE: Record<string, (props: Record<string, unknown>) => unknow
   richtext: (p) => (Array.isArray(p.runs) ? (p.runs as Array<{t?: string}>).map((r) => r?.t ?? '').join('') : ''),
 };
 
-export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<string, ExportCell>): ExportDoc {
+export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<string, ExportCell>, dbSeries?: DbChartSeriesMap): ExportDoc {
   const out: ExportDoc = {blocks: [], values: [], names: []};
   // Seed a reactive cell's CURRENT value (resolved by the editor's evaluator) so
   // static exports show the same numbers/series/states as the live window. Only
@@ -625,19 +626,15 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
         // Exported charts stay LIVE: moving a slider recomputes the cell and the
         // plot redraws; the seeded value renders the static export + first paint.
         //
-        // A DATABASE-bound chart (DASH-3) has no reactive expression — its data
-        // is the aggregated series the live block snapshotted to `dbSnapshot`. Bake
-        // that series in as a constant literal so both the static render and the
-        // runtime's recompute show the last-known data; its labels are the groups
-        // (from the snapshot), not the manual `labels` prop.
+        // A DATABASE-bound chart (DASH-3) has no reactive expression — its data is
+        // the series resolved live at export time and threaded in via `dbSeries`
+        // (never persisted to the doc). Bake it in as a constant literal so both
+        // the static render and the runtime's recompute show that data; its labels
+        // are the groups (from the resolved series), not the manual `labels` prop.
         const dbBound = b.props?.sourceMode === 'database';
-        const snap = dbBound ? (b.props?.dbSnapshot as {value?: unknown; labels?: unknown} | undefined) : undefined;
-        const exprSource = dbBound ? JSON.stringify(snap?.value ?? []) : String(b.props?.source ?? '');
-        const chartLabels = dbBound
-          ? Array.isArray(snap?.labels)
-            ? (snap!.labels as unknown[]).map(String).join(', ')
-            : ''
-          : String(b.props?.labels ?? '');
+        const series = dbBound ? dbSeries?.get(b.id) : undefined;
+        const exprSource = dbBound ? JSON.stringify(series?.value ?? []) : String(b.props?.source ?? '');
+        const chartLabels = dbBound ? (series?.labels ?? []).map(String).join(', ') : String(b.props?.labels ?? '');
         sink.push({id: b.id, type: 'expr', data: {name: String(b.props?.title ?? 'chart'), source: tokenize(exprSource), hidden: true}});
         pushCell(b.id);
         sink.push({
@@ -786,7 +783,7 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
  *  into the export-projection shape; everything else passes through untouched.
  *  Export entry points call this so mixed trees (a legacy stored page linking
  *  block subpages, or vice versa) export every page faithfully. */
-export function projectSnapshotForExport<T extends {editor?: string; blockdoc?: unknown}>(snapshot: T): T {
+export function projectSnapshotForExport<T extends {editor?: string; blockdoc?: unknown}>(snapshot: T, dbSeries?: DbChartSeriesMap): T {
   if (!snapshot || snapshot.editor !== 'blocks' || !snapshot.blockdoc) return snapshot;
   const blockdoc = snapshot.blockdoc as {blocks?: BlockJSON[]; update?: string};
   const blocks = (blockdoc.blocks ?? []) as BlockJSON[];
@@ -797,11 +794,11 @@ export function projectSnapshotForExport<T extends {editor?: string; blockdoc?: 
   // values; the interactive HTML recomputes them anyway).
   let computed: Map<string, ExportCell> | undefined;
   try {
-    computed = computeExportCells(decodeSnapshot(blockdoc as never));
+    computed = computeExportCells(decodeSnapshot(blockdoc as never), dbSeries);
   } catch {
     computed = undefined;
   }
-  const projected = projectBlocksForExport(blocks, computed);
+  const projected = projectBlocksForExport(blocks, computed, dbSeries);
   // `editorjs` is the RETAINED on-disk storage key for the export projection
   // (back-compat alias — see PageSnapshot in sdk/types.ts). Every consumer reads
   // `snapshot.editorjs.blocks`; the key name must not change or persisted

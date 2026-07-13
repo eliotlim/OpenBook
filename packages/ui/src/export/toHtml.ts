@@ -26,6 +26,7 @@ import type {DatabaseProperty, DatabaseRow, DatabaseSchema, PageSnapshot} from '
 import {assetsIslandScript, isSafeHref, pageIslandScript, libraryIslandScript, type ExportAssetEntry} from '@book.dev/sdk';
 import {DATA_COLOR_SCHEMES, DATA_PALETTE, DATA_STROKE, DEFAULT_DATA_COLOR_SCHEME, hexAlpha, isDataColorToken, statusColor, type DataColorScheme} from '@book.dev/sdk';
 import {projectSnapshotForExport} from '../blockeditor/exportBlocks';
+import type {DbChartSeriesMap} from '../blockeditor/kit/chartData';
 import {collectExportAssetIds, emptyExportAssets, type AssetMap, type ExportAssets} from './exportAssets';
 // Inlined so a page with charts works fully offline: d3's UMD sets `window.d3`,
 // then Plot's UMD (which expects a global d3) sets `window.Plot`. Inlined only
@@ -799,9 +800,10 @@ export function toHtml(
   assets: ExportAssetsLike = emptyExportAssets(),
   meta: PageExportMeta = {},
   scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME,
+  dbSeries?: DbChartSeriesMap,
 ): string {
   const {images, artifactText} = normalizeAssets(assets);
-  const snapshot = projectSnapshotForExport(rawSnapshot);
+  const snapshot = projectSnapshotForExport(rawSnapshot, dbSeries);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
   loadSnapshot(snapshot, values, nameByCell);
@@ -901,9 +903,10 @@ export function toSlideDeck(
   assets: ExportAssetsLike = emptyExportAssets(),
   meta: PageExportMeta = {},
   scheme: DataColorScheme = DEFAULT_DATA_COLOR_SCHEME,
+  dbSeries?: DbChartSeriesMap,
 ): string {
   const {images} = normalizeAssets(assets);
-  const snapshot = projectSnapshotForExport(rawSnapshot);
+  const snapshot = projectSnapshotForExport(rawSnapshot, dbSeries);
   const values = new Map<string, unknown>();
   const nameByCell = new Map<string, string>();
   loadSnapshot(snapshot, values, nameByCell);
