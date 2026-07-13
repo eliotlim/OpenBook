@@ -1,3 +1,30 @@
+# 2.0.0 (2026-07-13)
+
+### 🚀 Features
+
+- **app:** migrate localStorage openbook.workspaces -> openbook.libraries (LIB-3) ([#136](https://github.com/eliotlim/OpenBook/pull/136))
+- ⚠️  **app:** LIB-5 wire rename — roster v2 signer + dual-read consumer (workspaceId→libraryId) ([#138](https://github.com/eliotlim/OpenBook/pull/138))
+- **sdk:** export-format openbook.space.json → openbook.library.json + dual-read (LIB-4) ([#137](https://github.com/eliotlim/OpenBook/pull/137))
+- **settings:** merge Members into the Sharing tab ([#127](https://github.com/eliotlim/OpenBook/pull/127))
+- **share:** honest + simplified Share dialog ([#125](https://github.com/eliotlim/OpenBook/pull/125))
+- **templates:** showcase content — Pitch deck, calendar view, sample doc ([#126](https://github.com/eliotlim/OpenBook/pull/126))
+- **templates:** Team status dashboard + Product HQ showcase templates ([#128](https://github.com/eliotlim/OpenBook/pull/128))
+- **templates:** seed valid reading-list gallery covers ([#129](https://github.com/eliotlim/OpenBook/pull/129))
+- **templates:** guidance callouts + cross-DB rollup residuals ([#132](https://github.com/eliotlim/OpenBook/pull/132))
+
+### 🩹 Fixes
+
+- **sharing:** honest published-address visibility bridge (SHR-8/SHR-10) ([#131](https://github.com/eliotlim/OpenBook/pull/131))
+
+### ⚠️  Breaking Changes
+
+- **app:** LIB-5 wire rename — roster v2 signer + dual-read consumer (workspaceId→libraryId)  ([#138](https://github.com/eliotlim/OpenBook/pull/138))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8
+- Eliot Lim @eliotlim
+
 ## 1.76.2 (2026-07-12)
 
 ### 🚀 Features
