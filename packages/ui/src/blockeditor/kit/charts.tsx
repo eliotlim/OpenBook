@@ -39,7 +39,7 @@ import {cn} from '@/lib/utils';
 
 /**
  * The kit's chart block: one block, many kinds (line, area, bar, pie, donut,
- * scatter, funnel). Data comes from an expression over the document's named
+ * scatter, funnel, kpi, heatmap, combo). Data comes from an expression over the document's named
  * inputs, so a stepper click or radio pick redraws every chart that reads it
  * — that's the artifact loop. Rendering is plain SVG: no chart library, both
  * themes, and identical markup in the interactive HTML export.
@@ -478,6 +478,251 @@ const MatrixPie: React.FC<{matrix: ChartMatrixInput; palette: string[]; size?: n
   );
 };
 
+// ── New built-in kinds (DASH-5): KPI tile, heatmap, combo ────────────────────
+//
+// Each is a plain registry entry consuming the SAME render contract as the seven
+// originals: flat `value` (a reactive expression OR a DB-source single series)
+// with the OPTIONAL {@link ChartRenderArgs.matrix} fast-path, wrapping every
+// datum in {@link Mark} for the shared hover/highlight/menu scaffold. No
+// switch/selector/slash edit — registration alone lights them in the Kind
+// selector + Change-kind menu, and their static-export drawing lives in the
+// export runtime string (see `export/kitChart.ts`).
+
+const finiteNum = (x: unknown): number | undefined => (typeof x === 'number' && Number.isFinite(x) ? x : undefined);
+
+/** A KPI's single figure + optional goal, coerced from the flat chart value. */
+export interface KpiDatum {
+  value: number;
+  target?: number;
+}
+
+/**
+ * Reduce the chart value to one KPI figure (+ optional target). A scalar shows
+ * as-is; a number array sums (a DB-source series → its grand total); an object
+ * may name its figure (`value`/`current`/`total`) and a goal (`target`/`goal`),
+ * else its numeric entries sum. Returns null when there's nothing numeric — the
+ * chart shows its placeholder. Kept in sync with `kitKpi` in the export runtime.
+ */
+export function toKpi(value: unknown): KpiDatum | null {
+  const n = finiteNum(value);
+  if (n !== undefined) return {value: n};
+  if (Array.isArray(value) && value.every((v) => finiteNum(v) !== undefined)) {
+    return value.length ? {value: (value as number[]).reduce((a, b) => a + b, 0)} : null;
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const o = value as Record<string, unknown>;
+    const target = finiteNum(o.target) ?? finiteNum(o.goal);
+    const main = finiteNum(o.value) ?? finiteNum(o.current) ?? finiteNum(o.total);
+    if (main !== undefined) return {value: main, target};
+    const entries = Object.entries(o).filter(([k, v]) => finiteNum(v) !== undefined && k !== 'target' && k !== 'goal');
+    if (entries.length) return {value: entries.reduce((a, [, v]) => a + (v as number), 0), target};
+  }
+  const s = toSeries(value);
+  if (s.length && s[0].values.length) return {value: s[0].values.reduce((a, b) => a + b, 0)};
+  return null;
+}
+
+/** Percent of target, clamped 0–100, or null without a positive target. */
+const targetPct = (value: number, target?: number): number | null =>
+  target && target > 0 ? Math.max(0, Math.min(100, Math.round((value / target) * 100))) : null;
+
+/**
+ * KPI / number tile: one large figure with an optional caption (the first
+ * label), a target readout and a progress bar — the {@link MetricCard} look
+ * rendered as SVG so it rides the same in-editor + export chart pipeline. The
+ * figure is a {@link Mark}, so it gains the shared hover tooltip + keyboard focus.
+ */
+const Kpi: React.FC<{value: unknown; labels: string[]; palette: string[]}> = ({value, labels, palette}) => {
+  const kpi = toKpi(value);
+  if (!kpi) return null;
+  const caption = labels[0] ?? '';
+  const pct = targetPct(kpi.value, kpi.target);
+  const barW = W * 0.5;
+  const barX = (W - barW) / 2;
+  const barY = 190;
+  return (
+    <>
+      {caption && (
+        <text className="obe-chart-kpi-caption" x={W / 2} y={58}>
+          {caption}
+        </text>
+      )}
+      <Mark datum={{key: 'kpi', label: caption || 'Value', value: kpi.value}} at={{x: W / 2, y: pct !== null ? 108 : 128}}>
+        <text className="obe-chart-kpi-value" x={W / 2} y={pct !== null ? 128 : 148}>
+          {fmtChartValue(kpi.value)}
+        </text>
+      </Mark>
+      {pct !== null && (
+        <>
+          <text className="obe-chart-kpi-sub" x={W / 2} y={170}>
+            {`${pct}% of ${fmtChartValue(kpi.target!)}`}
+          </text>
+          <rect className="obe-chart-kpi-track" x={barX} y={barY} width={barW} height={8} rx={4} />
+          <rect x={barX} y={barY} width={(barW * pct) / 100} height={8} rx={4} fill={palette[0]} />
+        </>
+      )}
+    </>
+  );
+};
+
+/** A rows×cols grid the heatmap + combo share, from a matrix (groups×series) or
+ *  the flat multi-series value. Cells may be `undefined` (ragged series). */
+interface ChartGrid {
+  /** Row names (series names / breakdown labels); '' when unnamed. */
+  rows: string[];
+  /** Column labels (per-point labels / group labels). */
+  cols: string[];
+  cells: Array<Array<number | undefined>>;
+}
+
+function toGrid(value: unknown, labels: string[], matrix?: ChartMatrixInput): ChartGrid {
+  if (matrix && matrix.groups.length) {
+    const cols = matrix.groups.map((g) => g.label);
+    const breakdown = matrix.stacked && matrix.series.length > 0;
+    const rows = breakdown ? matrix.series.map((s) => s.label || s.key) : [''];
+    const cells = (breakdown ? matrix.series : [{key: CHART_TOTAL_SERIES}]).map((s) =>
+      matrix.groups.map((g) => (breakdown ? g.segments.find((seg) => seg.seriesKey === s.key)?.value ?? 0 : g.total)),
+    );
+    return {rows, cols, cells};
+  }
+  const series = toSeries(value);
+  const nCols = series.reduce((m, s) => Math.max(m, s.values.length), 0);
+  const cols = Array.from({length: nCols}, (_, c) => labels[c] ?? `#${c + 1}`);
+  const rows = series.map((s) => s.name);
+  const cells = series.map((s) => cols.map((_, c) => s.values[c]));
+  return {rows, cols, cells};
+}
+
+/** Kept in sync with `kitGrid` in the export runtime. */
+const gridValues = (g: ChartGrid): number[] => g.cells.flat().filter((v): v is number => typeof v === 'number');
+
+/**
+ * Heatmap: a groups×series grid where a cell's colour intensity encodes its
+ * value (a single-hue ramp over the first palette colour, so it stays on-theme
+ * and recolours with the scheme). Reads the flat multi-series value (each named
+ * series a row) or the matrix channel; every cell is a {@link Mark} for
+ * hover/tooltip, with a legible in-cell number when it fits.
+ */
+const Heatmap: React.FC<{value: unknown; labels: string[]; palette: string[]; matrix?: ChartMatrixInput}> = ({value, labels, palette, matrix}) => {
+  const {rows, cols, cells} = toGrid(value, labels, matrix);
+  const flat = gridValues({rows, cols, cells});
+  if (rows.length === 0 || cols.length === 0 || flat.length === 0) return null;
+  const min = Math.min(...flat);
+  const max = Math.max(...flat);
+  const showRowLabels = rows.some((r) => r !== '');
+  const gutter = showRowLabels ? 64 : PAD;
+  const gridX = gutter;
+  const gridY = 14;
+  const gridW = W - gutter - PAD;
+  const gridH = H - gridY - 22; // 22px for column labels
+  const cw = gridW / cols.length;
+  const ch = gridH / rows.length;
+  const base = palette[0];
+  const intensity = (v: number): number => (max === min ? 0.55 : 0.14 + 0.82 * ((v - min) / (max - min)));
+  return (
+    <>
+      {rows.map((rowName, r) =>
+        cols.map((colLabel, c) => {
+          const v = cells[r]?.[c];
+          const x = gridX + c * cw;
+          const y = gridY + r * ch;
+          if (typeof v !== 'number') {
+            return <rect key={`${r}-${c}`} className="obe-chart-heat-empty" x={x + 1} y={y + 1} width={cw - 2} height={ch - 2} rx={3} />;
+          }
+          return (
+            <Mark key={`${r}-${c}`} datum={{key: `h-${r}-${c}`, label: `${rowName ? `${rowName} · ` : ''}${colLabel}`, value: v}} at={{x: x + cw / 2, y: y + ch / 2}}>
+              <rect x={x + 1} y={y + 1} width={cw - 2} height={ch - 2} rx={3} fill={base} fillOpacity={intensity(v)} />
+              {cw > 34 && ch > 18 && (
+                <text className="obe-chart-heat-label" x={x + cw / 2} y={y + ch / 2 + 4}>
+                  {fmtChartValue(v)}
+                </text>
+              )}
+            </Mark>
+          );
+        }),
+      )}
+      {showRowLabels &&
+        rows.map((rowName, r) =>
+          rowName ? (
+            <text key={`rl-${r}`} className="obe-chart-heat-rowlabel" x={gutter - 8} y={gridY + r * ch + ch / 2 + 3}>
+              {rowName}
+            </text>
+          ) : null,
+        )}
+      <g className="obe-chart-xlabels">
+        {cols.map((colLabel, c) => (
+          <text key={`cl-${c}`} x={gridX + c * cw + cw / 2} y={H - 7}>
+            {colLabel}
+          </text>
+        ))}
+      </g>
+    </>
+  );
+};
+
+const comboLabel = (name: string, col: string): string => (name ? `${name} · ${col}` : col);
+
+/**
+ * Combo: the first series drawn as bars, the remaining series overlaid as lines
+ * on one shared scale — the classic "measure vs. trend/target" pairing. Reads the
+ * flat multi-series value (or the matrix channel); bars + line points are each a
+ * {@link Mark}. A single series degrades to a plain bar chart.
+ */
+const Combo: React.FC<{value: unknown; labels: string[]; palette: string[]; matrix?: ChartMatrixInput}> = ({value, labels, palette, matrix}) => {
+  const {rows, cols, cells} = toGrid(value, labels, matrix);
+  const flat = gridValues({rows, cols, cells});
+  if (rows.length === 0 || cols.length === 0 || flat.length === 0) return null;
+  const d = extent(flat);
+  const n = cols.length;
+  const groupW = (W - PAD * 2) / n;
+  const zero = scale(Math.max(d.min, 0), d, H - PAD, PAD);
+  const barW = Math.max(groupW * 0.5, 2);
+  const px = (c: number): number => PAD + c * groupW + groupW / 2;
+  return (
+    <>
+      <Grid d={d} />
+      {cells[0].map((v, c) => {
+        if (typeof v !== 'number') return null;
+        const y = scale(v, d, H - PAD, PAD);
+        const x = PAD + c * groupW + (groupW - barW) / 2;
+        return (
+          <Mark key={`bar-${c}`} datum={{key: `cb-0-${c}`, label: comboLabel(rows[0], cols[c]), value: v}} at={{x: x + barW / 2, y: Math.min(y, zero)}}>
+            <rect x={x} y={Math.min(y, zero)} width={barW} height={Math.max(Math.abs(zero - y), 1)} rx={2} fill={palette[0]} />
+          </Mark>
+        );
+      })}
+      {rows.slice(1).map((rowName, li) => {
+        const r = li + 1;
+        const color = palette[r % palette.length];
+        const pts = cells[r]
+          .map((v, c) => (typeof v === 'number' ? `${px(c)},${scale(v, d, H - PAD, PAD)}` : null))
+          .filter(Boolean)
+          .join(' ');
+        return (
+          <g key={`line-${r}`}>
+            <polyline points={pts} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+            {cells[r].map((v, c) =>
+              typeof v === 'number' ? (
+                <Mark key={`ln-${r}-${c}`} datum={{key: `cb-${r}-${c}`, label: comboLabel(rowName, cols[c]), value: v}} at={{x: px(c), y: scale(v, d, H - PAD, PAD)}}>
+                  <circle className="obe-chart-dot" cx={px(c)} cy={scale(v, d, H - PAD, PAD)} r={5} fill={color} />
+                </Mark>
+              ) : null,
+            )}
+          </g>
+        );
+      })}
+      <g className="obe-chart-xlabels">
+        {cols.map((l, c) => (
+          <text key={c} x={px(c)} y={H - 8}>
+            {l}
+          </text>
+        ))}
+      </g>
+      <SeriesLegend series={rows.map((name) => ({name}))} palette={palette} />
+    </>
+  );
+};
+
 /**
  * Chart-kind registry. Rendering, the config Kind selector, and the slash menu
  * all DERIVE from this map, so a new kind (DASH-2/3/5) is one
@@ -619,6 +864,24 @@ registerChartKind({
   kind: 'funnel',
   label: 'funnel',
   render: ({value, labels, palette}) => <Funnel value={value} labels={labels} palette={palette} />,
+});
+// DASH-5 kinds — register-only; they appear in the Kind selector + Change-kind
+// menu (both derive from the registry) with no dispatch edit.
+registerChartKind({
+  kind: 'kpi',
+  label: 'KPI',
+  hasData: (value) => toKpi(value) !== null,
+  render: ({value, labels, palette}) => <Kpi value={value} labels={labels} palette={palette} />,
+});
+registerChartKind({
+  kind: 'heatmap',
+  label: 'heatmap',
+  render: ({value, labels, palette, matrix}) => <Heatmap value={value} labels={labels} palette={palette} matrix={matrix} />,
+});
+registerChartKind({
+  kind: 'combo',
+  label: 'combo',
+  render: ({value, labels, palette, matrix}) => <Combo value={value} labels={labels} palette={palette} matrix={matrix} />,
 });
 
 /** Kind strings of the currently-registered kinds (re-exported by the kit). */
