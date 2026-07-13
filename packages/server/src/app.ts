@@ -76,6 +76,22 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
+ * AGENT-6 defense-in-depth: page SHARING / EXPOSURE controls (per-page ACL grants +
+ * visibility scope) are privileged and jws-only — an agent PAT must NEVER re-share a
+ * page or change its visibility. A durable ACL grant would SURVIVE the token's
+ * revocation (a permanent backdoor defeating revocation-as-mitigation), and flipping
+ * a restricted page to `public` is an outright confidentiality break. These routes
+ * ordinarily gate on mere page-write (which a write-PAT passes), so they get an
+ * explicit `pat` refusal at the handler — belt-and-braces on top of the scope-gate,
+ * which also carves these sub-paths out of the PAT allowlist entirely.
+ */
+function denyPatSharing(c: Context<AppEnv>): void {
+  if (c.get('principal').verifiedVia === 'pat') {
+    throw new HTTPException(403, {message: 'agent tokens cannot change page sharing or visibility'});
+  }
+}
+
+/**
  * The image mime types the asset store echoes back verbatim as a response
  * `Content-Type` (Assets A1 is image-only for v1 — A0's block only produces image
  * data-URLs). `image/svg+xml` is deliberately EXCLUDED: SVG can carry inline
@@ -390,6 +406,17 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
     let principal: Principal;
     if (pat) {
+      // Loopback/LAN-only (Wave-2): a FORWARDED PAT never resolves. The forwarded
+      // backstop above only refuses forwarded traffic on an UNCLAIMED instance; on a
+      // claimed one a forwarded `Bearer obat_` would otherwise pass origin (only the
+      // edge SSO gate — a different repo — blocks it). Refuse it here, regardless of
+      // claimed status, so the REST PAT surface is structurally local-only now
+      // (*.book.cloud is deferred to its own security review; AGENT-5's `/api/mcp`
+      // inherits this refusal). Belt-and-braces: the tunnel also strips/marks this
+      // header, and it is never client-suppliable.
+      if (c.req.header(FORWARDED_HEADER)) {
+        return c.json({error: 'agent tokens are not accepted over a forwarded connection'}, 403);
+      }
       // Agent-PAT resolution. DARK by default: a PAT only resolves when the admin has
       // enabled `agentApi` AND the `OPENBOOK_AGENT_API=0` kill-switch env is unset —
       // otherwise the token is treated as invalid and HARD-401s (never a silent
@@ -1178,6 +1205,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.post(`${API.pages}/:id/acl`, async (c) => {
     const id = c.req.param('id');
+    denyPatSharing(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
     const body = await c.req.json<{invitee?: string; level?: AclLevel}>();
@@ -1194,6 +1222,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.delete(`${API.pages}/:id/acl`, async (c) => {
     const id = c.req.param('id');
+    denyPatSharing(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
     const subject = c.req.query('subject');
@@ -1216,6 +1245,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.put(`${API.pages}/:id/visibility`, async (c) => {
     const id = c.req.param('id');
+    denyPatSharing(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
     const {visibility} = await c.req.json<{visibility?: PageVisibility}>();

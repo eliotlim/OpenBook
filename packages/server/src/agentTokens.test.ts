@@ -12,6 +12,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {
+  FORWARDED_HEADER,
   mintIdentityKeypair,
   signIdentity,
   verifiedSubject,
@@ -395,5 +396,93 @@ describe('rate limiting', () => {
       expect(res.status).toBe(401);
     }
     expect(sawRateLimit).toBe(true);
+  });
+});
+
+// ── Sharing / exposure controls are never a PAT surface (BLOCKER regression) ───────
+
+describe('page sharing/exposure is refused for a PAT', () => {
+  beforeEach(async () => {
+    await claim();
+    await enableAgentApi();
+  });
+
+  it('a WRITE PAT (bound to the owner) is refused visibility + ACL changes (403), but normal content writes still work', async () => {
+    const a = app();
+    const {token} = await mintPat({scope: 'write', subject: OWNER});
+    const pid = (await store.upsertPage({name: `s-${seq}`, data: snapshot()})).id;
+
+    // Exposure: flipping a page to `public` — a confidentiality break — is refused.
+    const vis = await req(a, `/api/pages/${pid}/visibility`, {
+      method: 'PUT',
+      headers: {...bearer(token), 'Content-Type': 'application/json'},
+      body: JSON.stringify({visibility: 'public'}),
+    });
+    expect(vis.status).toBe(403);
+
+    // Sharing: a durable ACL grant that would SURVIVE revocation is refused.
+    const share = await req(a, `/api/pages/${pid}/acl`, {
+      method: 'POST',
+      headers: {...bearer(token), 'Content-Type': 'application/json'},
+      body: JSON.stringify({invitee: `${ISS}#attacker`, level: 'write'}),
+    });
+    expect(share.status).toBe(403);
+
+    const unshare = await req(a, `/api/pages/${pid}/acl?subject=${encodeURIComponent(`${ISS}#x`)}`, {
+      method: 'DELETE',
+      headers: bearer(token),
+    });
+    expect(unshare.status).toBe(403);
+
+    // Control: ordinary page CONTENT writes still succeed for the same write PAT.
+    const write = await req(a, `/api/pages/${pid}`, {
+      method: 'PUT',
+      headers: {...bearer(token), 'Content-Type': 'application/json'},
+      body: JSON.stringify({id: pid, name: `s-${seq}`, data: snapshot()}),
+    });
+    expect(write.status).toBe(200);
+  });
+});
+
+// ── Forwarded PAT is refused (Wave-2 loopback/LAN-only) ────────────────────────────
+
+describe('forwarded PAT reject', () => {
+  it('a valid PAT carrying the forwarded marker is refused (403) even on a claimed instance', async () => {
+    await claim();
+    await enableAgentApi();
+    const a = app();
+    const {token} = await mintPat({subject: OWNER});
+    // Sanity: it resolves fine without the marker.
+    expect((await req(a, '/api/pages', {headers: bearer(token)})).status).toBe(200);
+    // With the forwarded marker it never resolves.
+    const res = await req(a, '/api/pages', {headers: {...bearer(token), [FORWARDED_HEADER]: '1'}});
+    expect(res.status).toBe(403);
+  });
+});
+
+// ── Defense-in-depth: the jws-only owner gate denies a PAT independently ───────────
+
+describe('privileged owner checks are jws-only (independent of the scope-gate)', () => {
+  it('an owner-bound PAT cannot change instance policy or backups (scope-gate layer, 403)', async () => {
+    await claim();
+    await enableAgentApi();
+    const a = app();
+    const {token} = await mintPat({scope: 'write', subject: OWNER});
+    expect((await req(a, '/api/instance', {method: 'PUT', headers: {...bearer(token), 'Content-Type': 'application/json'}, body: '{}'})).status).toBe(403);
+    expect((await req(a, '/api/backups', {method: 'PUT', headers: {...bearer(token), 'Content-Type': 'application/json'}, body: '{}'})).status).toBe(403);
+  });
+
+  it('a non-jws principal carrying the owner subject is denied AT the handler (jws gate, scope-gate uninvolved)', async () => {
+    // No identity provider ⇒ a presented JWS resolves to an `unverified` principal
+    // (subject preserved, verifiedVia !== 'jws') that is NOT a PAT, so it reaches the
+    // owner-check handler WITHOUT passing through the scope-gate. This proves the
+    // `verifiedVia === 'jws'` tightening at PUT /api/instance + /api/backups is a real,
+    // independent gate — a PAT is just another non-jws owner-subject principal.
+    await store.updateInstanceConfig({ownerSubject: OWNER});
+    const noIdentity = createApp(store, undefined, new PageHub(), {});
+    const jws = await idFor('owner');
+    const hdr = {[IDENTITY_HEADER]: jws, 'Content-Type': 'application/json'};
+    expect((await noIdentity.request('/api/instance', {method: 'PUT', headers: hdr, body: JSON.stringify({guestAccess: 'read'})})).status).toBe(403);
+    expect((await noIdentity.request('/api/backups', {method: 'PUT', headers: hdr, body: JSON.stringify({})})).status).toBe(403);
   });
 });

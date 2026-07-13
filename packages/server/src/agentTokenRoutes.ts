@@ -79,10 +79,10 @@ export function mountAgentTokenRoutes(app: Hono<AppEnv>, store: PageStore, logEd
       .catch(() => ({}) as {name?: unknown; scope?: unknown; expiresInDays?: unknown});
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME_LEN) : '';
     if (!name) return c.json({error: 'a token name is required'}, 400);
-    const scope: AgentTokenScope = body.scope === 'write' ? 'write' : 'read';
     if (body.scope !== undefined && body.scope !== 'read' && body.scope !== 'write') {
       return c.json({error: 'scope must be "read" or "write"'}, 400);
     }
+    const scope: AgentTokenScope = body.scope === 'write' ? 'write' : 'read';
 
     // Expiry: default 90 days; `null` ⇒ no expiry (allowed, with a UI warning); a
     // finite positive number ⇒ that many days from now.

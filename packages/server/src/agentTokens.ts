@@ -161,6 +161,15 @@ const WRITE_PREFIXES = ['/api/pages', '/api/suggestions', '/api/comments', '/api
  *  database's own schema routes. */
 const DB_ROWS_RE = /^\/api\/databases\/[^/]+\/rows(\/.*)?$/;
 
+/**
+ * Page SHARING / EXPOSURE sub-paths (`…/acl`, `…/visibility`). DENIED for ANY PAT of
+ * ANY scope, even though they sit under the `/api/pages` prefix: they gate only on
+ * page-write, so a write-PAT would otherwise re-share a page (a durable grant that
+ * SURVIVES the token's revocation — a permanent backdoor) or flip a restricted page
+ * to `public` (a confidentiality break). Carved out here AND independently refused at
+ * the two handlers (`denyPatSharing`). */
+const SHARING_CONTROL_RE = /\/(acl|visibility)$/;
+
 function isSafeMethod(method: string): boolean {
   return method === 'GET' || method === 'HEAD';
 }
@@ -195,6 +204,8 @@ function writeAllowed(method: string, path: string): boolean {
  */
 export function agentScopeAllows(scope: AgentTokenScope, method: string, path: string): boolean {
   if (method === 'OPTIONS') return true;
+  // Sharing/exposure controls are NEVER a PAT surface — deny for any scope/method.
+  if (SHARING_CONTROL_RE.test(path)) return false;
   return scope === 'write' ? writeAllowed(method, path) : readAllowed(method, path);
 }
 
@@ -226,11 +237,25 @@ export class FixedWindowLimiter {
   }
 }
 
-/** Best-effort client IP for the per-IP failed-PAT limiter. On loopback there is no
- *  forwarded-for header, so failures collapse under a single `local` bucket (still a
- *  DoS backstop); on LAN/forwarded the first `x-forwarded-for` hop keys per client. */
+/**
+ * Best-effort peer key for the per-IP FAILED-PAT limiter — a coarse DoS backstop.
+ *
+ * The REAL brute-force control is the token's 256-bit entropy: an attacker cannot
+ * enumerate `obat_` values, so this limiter only exists to stop a flood from churning
+ * the hash lookup. It is therefore keyed on the SOCKET PEER address where the runtime
+ * exposes it (the Node adapter's `c.env.incoming.socket.remoteAddress`), NEVER the
+ * client-supplied `x-forwarded-for` (trivially spoofable to spread across buckets and
+ * defeat the limit). Forwarded PAT requests are rejected outright at resolution, so no
+ * legitimate PAT traffic carries a proxy hop anyway. When the peer is unavailable
+ * (in-process `app.request`, some adapters) failures collapse into one bucket.
+ */
 export function clientIpKey(c: Context): string {
-  const fwd = c.req.header('x-forwarded-for');
-  if (fwd) return fwd.split(',')[0]?.trim() || 'local';
-  return c.req.header('x-real-ip')?.trim() || 'local';
+  try {
+    const env = c.env as {incoming?: {socket?: {remoteAddress?: string}}} | undefined;
+    const peer = env?.incoming?.socket?.remoteAddress;
+    if (peer) return peer;
+  } catch {
+    // Adapter without a Node-style socket — fall through to the shared bucket.
+  }
+  return 'peer';
 }

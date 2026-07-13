@@ -23,6 +23,13 @@ function cleanError(e: unknown): string {
   return (m?.[1] ?? raw).trim();
 }
 
+/** The in-webview (browser) client rejects with this shape — no HTTP server to mint
+ *  PATs against — so the panel shows an "unavailable" notice, not a live toggle. */
+function isUnavailable(e: unknown): boolean {
+  const raw = e instanceof Error ? e.message : String(e);
+  return /not in the browser|unavailable/i.test(raw);
+}
+
 type Expiry = '90' | '30' | 'never';
 const EXPIRY_DAYS: Record<Expiry, number | null> = {'90': 90, '30': 30, never: null};
 
@@ -41,6 +48,7 @@ export default function AgentTokensSettings() {
   const confirm = useConfirm();
 
   const [canManage, setCanManage] = useState<boolean | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [tokens, setTokens] = useState<AgentTokenMeta[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -63,6 +71,10 @@ export default function AgentTokensSettings() {
       setCanManage(true);
       setLoadError(null);
     } catch (e) {
+      if (isUnavailable(e)) {
+        setUnavailable(true);
+        return;
+      }
       if (isForbidden(e)) {
         setCanManage(false);
         return;
@@ -138,7 +150,9 @@ export default function AgentTokensSettings() {
 
   return (
     <SettingsScreen title={t('agents.title')} description={t('agents.description')} scope="library">
-      {canManage === null ? (
+      {unavailable ? (
+        <p className="text-sm text-muted-foreground">{t('agents.unavailable')}</p>
+      ) : canManage === null ? (
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
       ) : canManage === false ? (
         <p className="text-sm text-muted-foreground">{t('agents.readonly')}</p>

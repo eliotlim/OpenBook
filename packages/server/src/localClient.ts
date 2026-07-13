@@ -491,7 +491,12 @@ export class LocalDataClient implements DataClient {
   // "runs on the desktop app or a connected server" notice.
 
   listAgentTokens(): Promise<AgentTokenList> {
-    return Promise.resolve({enabled: false, tokens: []});
+    // Reject (rather than resolve empty) so the settings panel renders its
+    // "unavailable in the browser" state instead of a live-looking Enable toggle
+    // that would then error on use.
+    return Promise.reject(
+      new Error('Agent tokens run on the desktop app or a connected server — not in the browser.'),
+    );
   }
 
   setAgentApiEnabled(): Promise<{enabled: boolean}> {
