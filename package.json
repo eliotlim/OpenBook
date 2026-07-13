@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "pnpm run build:libs && pnpm run build:web && pnpm run build:desktop",
-    "build:libs": "pnpm --filter @book.dev/sdk run build && pnpm --filter @book.dev/ui run build && pnpm --filter @book.dev/server run build",
+    "build:libs": "pnpm --filter @book.dev/sdk run build && pnpm --filter @book.dev/ui run build && pnpm --filter @book.dev/mcp run build && pnpm --filter @book.dev/server run build",
     "build:web": "pnpm --filter @book.dev/web run build",
     "build:desktop": "pnpm --filter @book.dev/app run tauri build",
     "build:sidecar": "pnpm --filter @book.dev/server run build:sidecar",

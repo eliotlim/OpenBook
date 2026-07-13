@@ -40,6 +40,7 @@
     "@electric-sql/pglite": "^0.4.6",
     "@hono/node-server": "^2.0.4",
     "@modelcontextprotocol/sdk": "^1.13.0",
+    "@book.dev/mcp": "workspace:*",
     "@book.dev/sdk": "workspace:*",
     "hono": "^4.12.0",
     "postgres": "^3.4.9",

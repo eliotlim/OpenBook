@@ -191,6 +191,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@book.dev/mcp':
+        specifier: workspace:*
+        version: link:../mcp
       '@book.dev/sdk':
         specifier: workspace:*
         version: link:../sdk
