@@ -7,6 +7,9 @@ import {
   textSnapshot,
   type DataClient,
   type PageSnapshot,
+  type StoredSuggestion,
+  type SuggestionKind,
+  type SuggestionTarget,
 } from '@book.dev/sdk';
 
 // ── Read helpers over the JSON projection (shared shape with the in-app agent) ─
@@ -128,6 +131,21 @@ function setKitValueInSnapshot(data: PageSnapshot, name: string, value: unknown)
   return {...data, blockdoc: {...bd, update: undefined, blocks}};
 }
 
+/** Read one block's plain text from the JSON projection. Returns null if absent. */
+function blockTextInSnapshot(data: PageSnapshot | null | undefined, blockId: string): string | null {
+  const blocks = blockdocBlocks(data);
+  if (!blocks) return null;
+  let found: string | null = null;
+  const walk = (list: AnyJsonBlock[]): void => {
+    for (const b of list) {
+      if (found === null && b.id === blockId) found = runText(b);
+      if (b.children) walk(b.children);
+    }
+  };
+  walk(blocks);
+  return found;
+}
+
 /** Replace one block's text in the JSON projection. Returns null if absent. */
 function setBlockTextInSnapshot(data: PageSnapshot, blockId: string, text: string): PageSnapshot | null {
   const blocks = blockdocBlocks(data);
@@ -152,9 +170,12 @@ function setBlockTextInSnapshot(data: PageSnapshot, blockId: string, text: strin
  * The OpenBook MCP server: exposes a workspace to any MCP client (Claude
  * Desktop, Claude Code, …) as a set of tools over the same `@book.dev/sdk`
  * contract the apps use. Read tools degrade gracefully (search is lexical
- * BM25 even with the AI engine off); write tools share the SDK's content
- * helpers with the in-app agent, so both honour the same rules (e.g. pages
- * owned by the collaborative editor are never appended to blindly).
+ * BM25 even with the AI engine off). Write tools that MUTATE existing content
+ * persist REVIEWABLE SUGGESTIONS by default — routed through the same review
+ * layer (StoredSuggestion) as the in-app agent, so nothing an MCP client writes
+ * is applied until a human accepts it. A trusted deployment can restore direct
+ * mutation via `allowDirectEdits`. Creating new pages/rows stays immediate
+ * (non-destructive).
  */
 
 const clip = (s: string, n = 4000): string => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -162,8 +183,79 @@ const clip = (s: string, n = 4000): string => (s.length > n ? `${s.slice(0, n)}�
 const text = (value: string) => ({content: [{type: 'text' as const, text: value}]});
 const failure = (value: string) => ({content: [{type: 'text' as const, text: value}], isError: true});
 
-export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): McpServer {
+/**
+ * The write-tool kind an MCP mutation maps to (the same identifiers the in-app
+ * agent's proposals use, carried into the suggestion payload as `applyKind` so
+ * the editor bridge replays an MCP-authored suggestion exactly like an
+ * agent-authored one). MCP only ever emits these four; the SDK suggestion
+ * `kind` each maps to mirrors `SUGGESTION_KIND` in packages/server/src/ai/agent.ts.
+ */
+type McpWriteKind = 'append_blocks' | 'update_block' | 'set_kit_value' | 'set_db_cell';
+
+const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
+  append_blocks: 'insert',
+  update_block: 'replace-text',
+  set_kit_value: 'replace-text',
+  set_db_cell: 'set-cell',
+};
+
+/**
+ * Display author for suggestions an MCP client proposes. `authorKind` is `ai`
+ * (a machine-generated proposal a human reviews) — this label lets the reviewer
+ * see the change originated from an external MCP client rather than the in-app
+ * assistant.
+ */
+const MCP_AUTHOR_NAME = 'MCP client';
+
+/** Configuration for the MCP server. */
+export interface OpenBookMcpOptions {
+  /** Server version reported in the MCP handshake. */
+  version?: string;
+  /**
+   * Restore DIRECT mutation for trusted deployments. When false (the default),
+   * every content-mutating write tool persists a reviewable SUGGESTION instead
+   * of mutating the page/database — nothing an MCP client writes is applied
+   * until a human accepts it in the review pane. Only set this for a trusted,
+   * first-party automation; an untrusted MCP client must never be able to flip
+   * it (hence it is a deployment/config flag, not a per-tool argument).
+   */
+  allowDirectEdits?: boolean;
+}
+
+export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcpOptions = {}): McpServer {
+  const {version = '0.1.0', allowDirectEdits = false} = options;
   const server = new McpServer({name: 'openbook', version});
+
+  /**
+   * Persist a content mutation as a reviewable SUGGESTION (default) instead of
+   * applying it. The `kind`/`target`/`before`/`after`/`payload` mirror the
+   * in-app agent's `enqueue` (packages/server/src/ai/agent.ts) so both produce
+   * the same `StoredSuggestion` and share the accept/apply bridge. Returns the
+   * stored suggestion.
+   */
+  const recordSuggestion = (input: {
+    kind: McpWriteKind;
+    pageId: string;
+    summary: string;
+    before?: string;
+    after?: string;
+    target: SuggestionTarget;
+    payload: Record<string, unknown>;
+  }): Promise<StoredSuggestion> =>
+    client.createSuggestion({
+      pageId: input.pageId,
+      authorKind: 'ai',
+      authorName: MCP_AUTHOR_NAME,
+      kind: MCP_SUGGESTION_KIND[input.kind],
+      target: input.target,
+      before: input.before ?? '',
+      after: input.after ?? '',
+      payload: {...input.payload, applyKind: input.kind, summary: input.summary},
+    });
+
+  /** The tool result a queued (not applied) suggestion returns to the client. */
+  const suggested = (summary: string, s: StoredSuggestion) =>
+    text(`Suggested for review (not applied): ${summary}. It is queued in the review pane (suggestion ${s.id}); a human must accept it before it changes the workspace.`);
 
   server.registerTool(
     'list_pages',
@@ -215,7 +307,7 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     'create_page',
     {
       title: 'Create a page',
-      description: 'Create a new page with a title and optional text content (one paragraph per line).',
+      description: 'Create a new page with a title and optional text content (one paragraph per line). Creating a page is non-destructive, so it is applied immediately (edits to EXISTING content are proposed as reviewable suggestions instead).',
       inputSchema: {
         title: z.string().describe('The page title — a display label; it need not be unique (pages are identified by id).'),
         content: z.string().optional().describe('Plain-text body; each line becomes a paragraph.'),
@@ -258,7 +350,7 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     {
       title: 'Create an artifact page',
       description:
-        'Create an interactive page from blocks: named inputs (number stepper, slider, radio, checklist, toggle, text field) publish values onto a shared scope, and live blocks compute over it (kitchart, statuslight, formula — JavaScript expressions over the input names). Use this to BUILD calculators, dashboards, and pickers instead of writing HTML.',
+        'Create an interactive page from blocks: named inputs (number stepper, slider, radio, checklist, toggle, text field) publish values onto a shared scope, and live blocks compute over it (kitchart, statuslight, formula — JavaScript expressions over the input names). Use this to BUILD calculators, dashboards, and pickers instead of writing HTML. Creating a page is non-destructive, so it is applied immediately.',
       inputSchema: {
         title: z.string().describe('The page title — a display label; it need not be unique (pages are identified by id).'),
         blocks: z.array(artifactBlock).min(1).describe('The page content, top to bottom.'),
@@ -291,7 +383,8 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     'append_to_page',
     {
       title: 'Append to a page',
-      description: 'Append text to the end of an existing page (one paragraph per line).',
+      description:
+        'Append text to the end of an existing page (one paragraph per line). By default this creates a REVIEWABLE SUGGESTION (nothing is applied until a human accepts it in the review pane); a trusted deployment (allowDirectEdits) applies it immediately.',
       inputSchema: {
         pageId: z.string().describe('The page id.'),
         content: z.string().describe('Plain-text to append; each line becomes a paragraph.'),
@@ -300,6 +393,14 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     async ({pageId, content}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
+      const paragraphs = content.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (paragraphs.length === 0) return failure('Nothing to append.');
+      if (!allowDirectEdits) {
+        const blocks = paragraphs.map((t) => ({type: 'paragraph', text: t}));
+        const summary = `Append ${paragraphs.length} paragraph(s) to "${page.name ?? 'Untitled'}"`;
+        const s = await recordSuggestion({kind: 'append_blocks', pageId, summary, after: clip(content, 200), target: {}, payload: {pageId, blocks}});
+        return suggested(summary, s);
+      }
       const data = appendTextToSnapshot(page.data, content, `mcp-${Date.now().toString(36)}`);
       if (data === page.data) return failure('Nothing to append.');
       await client.savePage({id: page.id, name: page.name, data});
@@ -328,7 +429,7 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     'create_database_row',
     {
       title: 'Create a database row',
-      description: 'Add a row to the database hosted on a page, optionally with a title and property values.',
+      description: 'Add a row to the database hosted on a page, optionally with a title and property values. Adding a row is applied immediately (creation is non-destructive); editing an EXISTING cell via set_db_cell is proposed as a reviewable suggestion instead.',
       inputSchema: {
         pageId: z.string().describe('The id of the page that hosts the database.'),
         name: z.string().optional().describe('The row title.'),
@@ -420,16 +521,23 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
   );
 
   // ── Writes ───────────────────────────────────────────────────────────────────
-  // The MCP server has no live editor, so writes go straight through the SDK
-  // content helpers / row APIs (the same fallback the in-app confirm gate uses
-  // when no editor bridge is present). The in-app agent gates these behind
-  // approval; an MCP client is an external automation and applies directly.
+  // These tools MUTATE existing page/database content. By DEFAULT each persists
+  // a reviewable SUGGESTION (StoredSuggestion) instead of applying the change —
+  // the same review layer the in-app agent uses (packages/server/src/ai/agent.ts),
+  // with matching kind/target/payload — so nothing an MCP client writes lands in
+  // the workspace until a human accepts it. A trusted deployment can restore
+  // direct mutation with `allowDirectEdits` (OpenBookMcpOptions / an env flag in
+  // bin.ts). Pure CREATION tools above (create_page, create_artifact_page,
+  // create_database_row) stay immediate — they add new, non-destructive content
+  // and the review model has no target page / suggestion kind for a not-yet-
+  // existing page, matching the agent's "creation applies immediately" rule.
 
   server.registerTool(
     'append_blocks',
     {
       title: 'Append blocks',
-      description: 'Append typed blocks (paragraph/heading/todo/quote/callout/code/divider) to the end of a block-editor page.',
+      description:
+        'Append typed blocks (paragraph/heading/todo/quote/callout/code/divider) to the end of a block-editor page. By default this creates a REVIEWABLE SUGGESTION (applied only when a human accepts it); a trusted deployment (allowDirectEdits) applies it immediately.',
       inputSchema: {
         pageId: z.string().describe('The page id (a block-editor page).'),
         blocks: z
@@ -441,6 +549,15 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     async ({pageId, blocks}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
+      if ((page.data as {editor?: string}).editor !== 'blocks') {
+        return failure('That page is a legacy editor page — use append_to_page instead.');
+      }
+      if (!allowDirectEdits) {
+        const summary = `Append ${blocks.length} block(s) to "${page.name ?? 'Untitled'}"`;
+        const after = clip(blocks.map((b) => (b.text ? `${b.type}: ${b.text}` : b.type)).join('\n'), 200);
+        const s = await recordSuggestion({kind: 'append_blocks', pageId, summary, after, target: {}, payload: {pageId, blocks}});
+        return suggested(summary, s);
+      }
       const data = appendBlocksToSnapshot(page.data, blocks, `mcp-${Date.now().toString(36)}`);
       if (!data) return failure('That page is a legacy editor page — use append_to_page instead.');
       await client.savePage({id: page.id, name: page.name, data});
@@ -452,7 +569,8 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     'update_block',
     {
       title: 'Update a block',
-      description: 'Replace the text of one block on a block-editor page (find the block id via inspect_page_structure).',
+      description:
+        'Replace the text of one block on a block-editor page (find the block id via inspect_page_structure). By default this creates a REVIEWABLE SUGGESTION (applied only when a human accepts it); a trusted deployment (allowDirectEdits) applies it immediately.',
       inputSchema: {
         pageId: z.string().describe('The page id.'),
         blockId: z.string().describe('The block id from inspect_page_structure.'),
@@ -462,6 +580,23 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     async ({pageId, blockId, text: newText}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
+      if (!allowDirectEdits) {
+        const before = blockTextInSnapshot(page.data, blockId);
+        if (before === null) return failure(`No block "${blockId}" on that block-editor page — use inspect_page_structure.`);
+        const summary = `Edit block ${blockId} on "${page.name ?? 'Untitled'}"`;
+        // The full prior text (not the clipped diff `before`) rides in the payload
+        // as the merge base, matching the agent's update_block proposal.
+        const s = await recordSuggestion({
+          kind: 'update_block',
+          pageId,
+          summary,
+          before: clip(before, 200),
+          after: clip(newText, 200),
+          target: {blockId},
+          payload: {pageId, blockId, text: newText, before},
+        });
+        return suggested(summary, s);
+      }
       const data = setBlockTextInSnapshot(page.data, blockId, newText);
       if (!data) return failure(`No block "${blockId}" on that block-editor page — use inspect_page_structure.`);
       await client.savePage({id: page.id, name: page.name, data});
@@ -473,7 +608,8 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     'set_kit_value',
     {
       title: 'Set a kit value',
-      description: 'Set a named reactive input on a page (slider/number/toggle/textfield/radio/dropdown/checklist). Find names via get_kit_values.',
+      description:
+        'Set a named reactive input on a page (slider/number/toggle/textfield/radio/dropdown/checklist). Find names via get_kit_values. By default this creates a REVIEWABLE SUGGESTION (applied only when a human accepts it); a trusted deployment (allowDirectEdits) applies it immediately.',
       inputSchema: {
         pageId: z.string().describe('The page id.'),
         name: z.string().describe('The published input name (from get_kit_values).'),
@@ -483,6 +619,21 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     async ({pageId, name, value}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
+      if (!allowDirectEdits) {
+        const scope = kitValues(page.data);
+        if (!(name in scope)) return failure(`No input named "${name}" on that page — use get_kit_values.`);
+        const summary = `Set "${name}" = ${JSON.stringify(value)}`;
+        const s = await recordSuggestion({
+          kind: 'set_kit_value',
+          pageId,
+          summary,
+          before: JSON.stringify(scope[name]),
+          after: JSON.stringify(value),
+          target: {},
+          payload: {pageId, name, value},
+        });
+        return suggested(summary, s);
+      }
       const data = setKitValueInSnapshot(page.data, name, value);
       if (!data) return failure(`No input named "${name}" on that page — use get_kit_values.`);
       await client.savePage({id: page.id, name: page.name, data});
@@ -494,7 +645,8 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
     'set_db_cell',
     {
       title: 'Set a database cell',
-      description: 'Set a manual property value on a database row (by property id).',
+      description:
+        'Set a manual property value on a database row (by property id). By default this creates a REVIEWABLE SUGGESTION (applied only when a human accepts it); a trusted deployment (allowDirectEdits) applies it immediately.',
       inputSchema: {
         pageId: z.string().describe('The page hosting the database.'),
         rowId: z.string().describe('The row (page) id.'),
@@ -507,6 +659,24 @@ export function createOpenBookMcpServer(client: DataClient, version = '0.1.0'): 
       if (!database) return failure('That page hosts no database.');
       const prop = (database.schema.properties ?? []).find((p) => p.id === propertyId);
       if (!prop) return failure(`No property "${propertyId}" on this database — use get_db_row.`);
+      if (!allowDirectEdits) {
+        const rows = await client.listRows(database.id);
+        const row = rows.find((r) => r.id === rowId);
+        if (!row) return failure('Row not found in this database.');
+        const summary = `Set ${prop.name} = ${JSON.stringify(value)} on "${row.name ?? 'Untitled'}"`;
+        const s = await recordSuggestion({
+          kind: 'set_db_cell',
+          // A cell suggestion is reviewed on the database's HOST page (the page
+          // the review pane opens against), matching the agent's set_db_cell.
+          pageId,
+          summary,
+          before: JSON.stringify(row.properties?.[propertyId] ?? null),
+          after: JSON.stringify(value),
+          target: {databaseId: database.id, rowId, propertyId},
+          payload: {databaseId: database.id, rowId, propertyId, value},
+        });
+        return suggested(summary, s);
+      }
       try {
         await client.updateRow(database.id, rowId, {properties: {[propertyId]: value}});
       } catch (err) {

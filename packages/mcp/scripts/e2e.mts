@@ -98,17 +98,23 @@ async function main(): Promise<void> {
   const createdId = /id ([0-9a-f-]{36})/.exec(resultText(created))?.[1];
   check('create_page returns the new id', Boolean(createdId));
 
+  // Write tools now route through the review layer by DEFAULT: append_to_page
+  // records an `insert` suggestion (applyKind append_blocks) rather than mutating.
   const append = await client.callTool({name: 'append_to_page', arguments: {pageId: createdId!, content: 'Appended line.'}});
-  check('append_to_page confirms', resultText(append).includes('Appended to'));
+  check('append_to_page queues a suggestion', resultText(append).includes('Suggested for review'));
   const reread = await client.callTool({name: 'read_page', arguments: {pageId: createdId!}});
-  check('appended text is readable back', resultText(reread).includes('Appended line.'));
+  check('append_to_page did not mutate the page', !resultText(reread).includes('Appended line.'));
+  const appendSuggs = await seed.listSuggestions(createdId!);
+  check(
+    'append_to_page recorded an insert suggestion',
+    appendSuggs.some((s) => s.kind === 'insert' && (s.payload as {applyKind?: string}).applyKind === 'append_blocks'),
+  );
 
-  // append_to_page now works on block-editor pages too — the text merges into the
-  // blockdoc JSON projection (a live client re-merges from `blocks` on next load).
+  // append_to_page also PROPOSES on block-editor pages (an insert suggestion).
   const onBlockPage = await client.callTool({name: 'append_to_page', arguments: {pageId: blocksPage.id, content: 'Added to the collab doc.'}});
-  check('append_to_page appends to a block-editor page', onBlockPage.isError !== true && resultText(onBlockPage).includes('Appended to'));
+  check('append_to_page proposes on a block-editor page', onBlockPage.isError !== true && resultText(onBlockPage).includes('Suggested for review'));
   const rereadBlock = await client.callTool({name: 'read_page', arguments: {pageId: blocksPage.id}});
-  check('append_to_page text lands on the block page', resultText(rereadBlock).includes('Added to the collab doc.'));
+  check('append_to_page did not mutate the block page', !resultText(rereadBlock).includes('Added to the collab doc.'));
 
   // Names are not unique (server migration 0015): a duplicate title lands as a
   // distinct page rather than erroring.
@@ -173,33 +179,46 @@ async function main(): Promise<void> {
   const getRow = await client.callTool({name: 'get_db_row', arguments: {pageId: dbHost.id, rowId: seededRow.id}});
   check('get_db_row reads the row by id', resultText(getRow).includes('Write the report'));
 
-  console.log('\nWrite tools (T11)');
+  // Write tools (T11) — reviewable by default: each queues a suggestion and
+  // leaves the underlying page/database unchanged (see suggestions.test.mts for
+  // the allowDirectEdits opt-out path).
+  console.log('\nWrite tools (T11) — default = reviewable suggestions');
   const setKit = await client.callTool({name: 'set_kit_value', arguments: {pageId: artifactId!, name: 'n', value: 7}});
-  check('set_kit_value confirms', resultText(setKit).includes('"n"') && resultText(setKit).includes('7'));
+  check('set_kit_value queues a suggestion', resultText(setKit).includes('Suggested for review'));
   const kitAfter = await client.callTool({name: 'get_kit_values', arguments: {pageId: artifactId!}});
-  check('set_kit_value persisted the new value', resultText(kitAfter).includes('n = 7'));
+  check('set_kit_value did not mutate the value (still 3)', resultText(kitAfter).includes('n = 3'));
   const setKitMissing = await client.callTool({name: 'set_kit_value', arguments: {pageId: artifactId!, name: 'nope', value: 1}});
   check('set_kit_value rejects an unknown input', setKitMissing.isError === true);
 
   const updateBlock = await client.callTool({name: 'update_block', arguments: {pageId: artifactId!, blockId: headingId!, text: 'Renamed demo'}});
-  check('update_block confirms', resultText(updateBlock).includes('Updated block'));
+  check('update_block queues a suggestion', resultText(updateBlock).includes('Suggested for review'));
   const treeAfter = await client.callTool({name: 'inspect_page_structure', arguments: {pageId: artifactId!}});
-  check('update_block changed the heading text', resultText(treeAfter).includes('Renamed demo'));
+  check('update_block did not mutate the heading', !resultText(treeAfter).includes('Renamed demo'));
   const updateMissing = await client.callTool({name: 'update_block', arguments: {pageId: artifactId!, blockId: 'no-such-block', text: 'x'}});
   check('update_block rejects an unknown block id', updateMissing.isError === true);
 
   const appended = await client.callTool({name: 'append_blocks', arguments: {pageId: artifactId!, blocks: [{type: 'paragraph', text: 'Appended via MCP.'}]}});
-  check('append_blocks confirms', resultText(appended).includes('Appended 1 block'));
+  check('append_blocks queues a suggestion', resultText(appended).includes('Suggested for review'));
   const readAppended = await client.callTool({name: 'read_page', arguments: {pageId: artifactId!}});
-  check('append_blocks added the paragraph', resultText(readAppended).includes('Appended via MCP.'));
+  check('append_blocks did not mutate the page', !resultText(readAppended).includes('Appended via MCP.'));
   const appendGuard = await client.callTool({name: 'append_blocks', arguments: {pageId: note.id, blocks: [{type: 'paragraph', text: 'x'}]}});
   check('append_blocks refuses legacy editor pages', appendGuard.isError === true);
 
+  const artifactSuggs = await seed.listSuggestions(artifactId!);
+  check(
+    'the artifact page collected the queued edit suggestions',
+    artifactSuggs.some((s) => (s.payload as {applyKind?: string}).applyKind === 'update_block') &&
+      artifactSuggs.some((s) => (s.payload as {applyKind?: string}).applyKind === 'append_blocks') &&
+      artifactSuggs.some((s) => (s.payload as {applyKind?: string}).applyKind === 'set_kit_value'),
+  );
+
   const textProp = (database.schema.properties ?? []).find((p) => p.type === 'text');
   const setCell = await client.callTool({name: 'set_db_cell', arguments: {pageId: dbHost.id, rowId: seededRow.id, propertyId: textProp!.id, value: 'set via mcp'}});
-  check('set_db_cell confirms', resultText(setCell).includes('set via mcp'));
+  check('set_db_cell queues a suggestion', resultText(setCell).includes('Suggested for review'));
   const rowAfter = await client.callTool({name: 'get_db_row', arguments: {pageId: dbHost.id, rowId: seededRow.id}});
-  check('set_db_cell persisted the cell', resultText(rowAfter).includes('set via mcp'));
+  check('set_db_cell did not mutate the cell', !resultText(rowAfter).includes('set via mcp'));
+  const cellSuggs = await seed.listSuggestions(dbHost.id);
+  check('set_db_cell recorded a set-cell suggestion', cellSuggs.some((s) => s.kind === 'set-cell'));
   const setCellMissing = await client.callTool({name: 'set_db_cell', arguments: {pageId: dbHost.id, rowId: seededRow.id, propertyId: 'nope', value: 'x'}});
   check('set_db_cell rejects an unknown property', setCellMissing.isError === true);
 

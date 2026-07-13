@@ -1,1 +1,1 @@
-export {createOpenBookMcpServer} from './server';
+export {createOpenBookMcpServer, type OpenBookMcpOptions} from './server';
