@@ -163,6 +163,21 @@ export function ticks(d: Extent, count = 3): number[] {
 }
 
 /**
+ * A compact y-axis tick label: `25000 → "25k"`, `1_500_000 → "1.5M"`, small
+ * values unchanged. The axis labels are `text-anchor:end` at the left gutter, so
+ * a raw 5–6 digit value's left edge ran past the viewBox origin and CLIPPED;
+ * abbreviating keeps every tick inside the plot (and reads cleaner) without
+ * moving any plotted geometry. Mirrored by `kitTick` in the export runtime.
+ */
+export const axisTickLabel = (n: number): string => {
+  const trim = (x: number): string => String(Math.round(x * 10) / 10);
+  const abs = Math.abs(n);
+  if (abs >= 1e6) return `${trim(n / 1e6)}M`;
+  if (abs >= 1e3) return `${trim(n / 1e3)}k`;
+  return trim(n);
+};
+
+/**
  * The kit chart palette for a scheme: the canonical data-colour `SERIES_ORDER`
  * resolved to concrete fills — one source shared with the database charts and
  * the export runtime (OB-378). Concrete hex (not a `var()`) because the charts

@@ -576,6 +576,31 @@ describe('sales dashboard (composite KPI + DB-backed charts)', () => {
     expect(allBlocks(doc).some((b) => (blockType(b) as string) === 'columns')).toBe(true);
   });
 
+  it('ships a Quarter cross-filter that scopes every chart except the quarterly trend', async () => {
+    const client = stubClient([]);
+    await template.create(client, template.pageName);
+    const saves = (client.savePage as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0] as {data: {blockdoc?: {blocks: Array<Record<string, unknown>>}}});
+    const blocks = saves[0].data.blockdoc?.blocks ?? [];
+    const doc = decodeSnapshot({v: 1, update: '', blocks} as unknown as BlockDocSnapshot);
+    const all = allBlocks(doc);
+
+    // The cross-filter control: a dropdown publishing `quarter`, defaulting to
+    // the inactive "all" so the board opens showing the whole year.
+    const control = all.find((b) => (blockType(b) as string) === 'dropdown');
+    expect(control).toBeTruthy();
+    expect(blockProp<string>(control!, 'name')).toBe('quarter');
+    expect(blockProp<string>(control!, 'value')).toBe('all');
+
+    // Every chart bound to it filters on the Quarter property — except the
+    // quarterly trend (line), which IS the quarter axis and stays full-year.
+    const charts = all.filter((b) => (blockType(b) as string) === 'kitchart');
+    const bound = charts.filter((c) => blockProp<string>(c, 'dbFilterInput') === 'quarter');
+    const unbound = charts.filter((c) => !blockProp<string>(c, 'dbFilterInput'));
+    expect(bound.length).toBe(charts.length - 1);
+    expect(bound.every((c) => blockProp<string>(c, 'dbFilterProp') === 'p_quarter')).toBe(true);
+    expect(unbound.map((c) => blockProp<string>(c, 'kind'))).toEqual(['line']);
+  });
+
   it('tags itself interactive (it lands on a document, not a database view)', () => {
     expect(template.tags).toEqual(['interactive']);
   });

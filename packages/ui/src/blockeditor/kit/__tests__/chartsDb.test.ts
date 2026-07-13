@@ -4,7 +4,7 @@ import {blockProp, createDoc, docToJSON, encodeSnapshot, rootBlocks} from '../..
 import {projectSnapshotForExport} from '../../exportBlocks';
 import {computeExportCells} from '../scope';
 import {aggregateDbSeries, readDbBinding} from '../charts';
-import {resolveDbChartSeries, type DbChartSeriesMap} from '../chartData';
+import {isInactiveFilterValue, namedInputValue, resolveDbChartSeries, scopeRowsByFilter, type DbChartSeriesMap} from '../chartData';
 
 const row = (id: string, over: Partial<DatabaseRow> = {}): DatabaseRow => ({
   id,
@@ -59,6 +59,74 @@ describe('aggregateDbSeries (database data source → {value, labels})', () => {
     const {value, labels} = aggregateDbSeries(tree, [], {dbId: 'db', groupBy: PARENT_GROUP_ID, aggType: 'count'});
     expect(labels).toEqual(['epic']);
     expect(value).toEqual([2]);
+  });
+});
+
+describe('cross-filter (DASH-7): scope rows by a bound input before aggregating', () => {
+  const region: DatabaseProperty = {
+    id: 'p_region',
+    name: 'Region',
+    type: 'select',
+    options: [
+      {id: 'opt_n', label: 'North', color: 'blue'},
+      {id: 'opt_s', label: 'South', color: 'green'},
+    ],
+  };
+  const props = [status, cost, region];
+  const rows = [
+    row('r1', {properties: {p_status: 'opt_todo', p_cost: 10, p_region: 'opt_n'}}),
+    row('r2', {properties: {p_status: 'opt_done', p_cost: 5, p_region: 'opt_s'}}),
+    row('r3', {properties: {p_status: 'opt_todo', p_cost: 3, p_region: 'opt_n'}}),
+  ];
+  const bound = {dbId: 'db', groupBy: 'p_status', aggType: 'count' as const, filterInput: 'region', filterProp: 'p_region'};
+
+  it('keeps only rows matching the value (grouping the scoped subset)', () => {
+    const {value, labels} = aggregateDbSeries(rows, props, bound, 'opt_n');
+    // North has two Todo rows and no Done; the Done group survives (a select
+    // enumerates all its options) but at zero — the chart shows every column.
+    expect(asMap(value, labels)).toEqual({Todo: 2, Done: 0});
+  });
+
+  it('resolves a select value by option id, label, OR slug (input publishes any)', () => {
+    for (const v of ['opt_n', 'North', 'north']) {
+      const scoped = scopeRowsByFilter(rows, props, bound, v);
+      expect(scoped.map((r) => r.id)).toEqual(['r1', 'r3']);
+    }
+  });
+
+  it('treats an inactive value (undefined / empty / "all") as no filter', () => {
+    for (const v of [undefined, '', '  ', 'all', 'ALL', [] as string[]]) {
+      expect(isInactiveFilterValue(v)).toBe(true);
+      const {value, labels} = aggregateDbSeries(rows, props, bound, v);
+      expect(asMap(value, labels)).toEqual({Todo: 2, Done: 1}); // whole database
+    }
+  });
+
+  it('matches ANY value from a multi-select input (array = OR)', () => {
+    const scoped = scopeRowsByFilter(rows, props, bound, ['North', 'South']);
+    expect(scoped.map((r) => r.id)).toEqual(['r1', 'r2', 'r3']);
+  });
+
+  it('is a no-op when the binding carries no filterProp (unfiltered charts unchanged)', () => {
+    const {value, labels} = aggregateDbSeries(rows, props, {dbId: 'db', groupBy: 'p_status', aggType: 'count'}, 'opt_n');
+    expect(asMap(value, labels)).toEqual({Todo: 2, Done: 1});
+  });
+});
+
+describe('namedInputValue — read a serialized input value for the export path', () => {
+  it('reads a scalar input value by its published name (explicit or label-derived)', () => {
+    const blocks = [
+      {id: 'a', type: 'dropdown', props: {name: 'quarter', value: 'q2'}},
+      {id: 'b', type: 'radio', props: {label: 'Sales Region', value: 'north'}},
+    ];
+    expect(namedInputValue(blocks, 'quarter')).toBe('q2');
+    expect(namedInputValue(blocks, 'salesRegion')).toBe('north'); // varNameFromLabel
+  });
+
+  it('reads a multi-select array and finds inputs nested in containers', () => {
+    const blocks = [{id: 'col', type: 'column', children: [{id: 't', type: 'tagfield', props: {name: 'tags', selected: ['a', 'b']}}]}];
+    expect(namedInputValue(blocks, 'tags')).toEqual(['a', 'b']);
+    expect(namedInputValue(blocks, 'missing')).toBeUndefined();
   });
 });
 
@@ -177,5 +245,28 @@ describe('resolveDbChartSeries (export-time live resolution)', () => {
     const doc = createDoc([{id: 'k1', type: 'kitchart', props: {sourceMode: 'database', dbId: 'db1'}}]); // no groupBy
     const map = await resolveDbChartSeries(fakeClient(), docToJSON(doc));
     expect(map.size).toBe(0);
+  });
+
+  it('scopes a bound chart to its cross-filter input value (export reflects the control)', async () => {
+    // A Status control publishes `opt_done`; the chart is bound to it on the
+    // Status property, so the export resolves the FILTERED series, not the whole
+    // database — the same value the live editor would show.
+    const doc = createDoc([
+      {id: 'i', type: 'dropdown', props: {name: 'stage', value: 'opt_done'}},
+      {id: 'k1', type: 'kitchart', props: {kind: 'bar', sourceMode: 'database', dbId: 'db1', dbGroupBy: 'p_status', dbAggType: 'count', dbFilterInput: 'stage', dbFilterProp: 'p_status'}},
+    ]);
+    const map = await resolveDbChartSeries(fakeClient(), docToJSON(doc));
+    const k1 = map.get('k1')!;
+    expect(asMap(k1.value, k1.labels)).toEqual({Todo: 0, Done: 1}); // only the Done row survives
+  });
+
+  it('an inactive control (no selection) exports the whole database', async () => {
+    const doc = createDoc([
+      {id: 'i', type: 'dropdown', props: {name: 'stage', value: 'all'}},
+      {id: 'k1', type: 'kitchart', props: {kind: 'bar', sourceMode: 'database', dbId: 'db1', dbGroupBy: 'p_status', dbAggType: 'count', dbFilterInput: 'stage', dbFilterProp: 'p_status'}},
+    ]);
+    const map = await resolveDbChartSeries(fakeClient(), docToJSON(doc));
+    const k1 = map.get('k1')!;
+    expect(asMap(k1.value, k1.labels)).toEqual({Todo: 2, Done: 1});
   });
 });
