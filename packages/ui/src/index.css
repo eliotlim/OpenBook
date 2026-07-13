@@ -2364,7 +2364,49 @@ a.obe-mention {
 .obe-chart-xlabels text { text-anchor: middle; }
 .obe-chart-legend text { text-anchor: start; font-size: 11px; }
 .obe-chart-msg { fill: hsl(var(--muted-foreground) / 0.8); font-size: 12px; text-anchor: middle; }
-.obe-chart-funnel-label { fill: hsl(var(--background)); font-size: 11px; font-weight: 600; text-anchor: middle; }
+.obe-chart-funnel-label { fill: hsl(var(--background)); font-size: 11px; font-weight: 600; text-anchor: middle; pointer-events: none; }
+
+/* ── Chart interactivity (DASH-2): hover tooltip, highlight, context menu ──── */
+.obe-chart-plot { position: relative; }
+/* Each datum's <g> wrapper. Highlight is shared: the active mark brightens, the
+   rest de-emphasise, so every registered kind gets it from the scaffold. */
+.obe-chart-mark { cursor: pointer; outline: none; transition: opacity 0.12s ease, filter 0.12s ease; }
+/* Forced-colors users get no cue from the token stroke ring, so restore a real
+   focus outline there (the `outline:none` above is fine for everyone else, who
+   see the is-active emphasis on focus). */
+@media (forced-colors: active) {
+  .obe-chart-mark:focus-visible { outline: 2px solid Highlight; outline-offset: 1px; }
+}
+.obe-chart-mark.is-dim { opacity: 0.32; }
+.obe-chart-mark.is-active { filter: brightness(1.06); }
+.obe-chart-mark.is-active :is(rect, path, circle) { stroke: hsl(var(--foreground) / 0.55); stroke-width: 1.5px; }
+/* Line/scatter point markers read as part of the line at rest, surfacing on hover/focus. */
+.obe-chart-dot { fill-opacity: 0; transition: fill-opacity 0.12s ease; }
+.obe-chart-mark.is-active .obe-chart-dot { fill-opacity: 1; }
+
+.obe-chart-tooltip {
+  position: absolute;
+  z-index: 5;
+  transform: translate(-50%, calc(-100% - 10px));
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 6px;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  box-shadow: 0 4px 14px hsl(var(--foreground) / 0.14);
+  font-size: 0.72rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+}
+/* Near the top edge the tooltip flips below the mark so it stays inside the plot. */
+.obe-chart-tooltip-below { transform: translate(-50%, 10px); }
+.obe-chart-tt-label { color: hsl(var(--muted-foreground)); }
+.obe-chart-tt-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+.obe-chart-menu-anchor { position: absolute; top: 0; left: 0; width: 1px; height: 1px; pointer-events: none; }
 
 /* Status light — canonical data palette (OB-378): fill from the semantic status
    token, a ring at 25% of that fill, and the pastel/muted light-mode hairline

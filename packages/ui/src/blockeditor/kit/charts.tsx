@@ -1,12 +1,26 @@
-import React, {useEffect, useMemo, useState} from 'react';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {PARENT_GROUP_ID, type ChartAggregate, type DatabaseProperty, type DatabaseRow} from '@book.dev/sdk';
+import {BarChart3, Copy} from 'lucide-react';
 import {Select} from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {blockId, blockProp, setBlockProp, type BlockMap} from '../model';
 import {aggregateDbSeries, readDbBinding, DB_AGG_TYPES, NUMERIC_PROP_TYPES, type ChartDbBinding, type ChartSeriesData} from './chartData';
 import type {BlockEditorController} from '../useBlockEditor';
 import type {CustomBlockDef, CustomBlockProps} from '../registry';
 import {computeScope, evalExpr} from './scope';
-import {useKitPageLock} from './lock';
+import {useKitLock, useKitPageLock} from './lock';
 import {appendVar, ConfigField, ConfigInput, KitInlineText, NameDescriptionFields, ScopeHints} from './KitFrame';
 import {KitSettings} from './KitSettings';
 import {extent, funnelRows, linePoints, paletteFor, pieArcs, scale, ticks, toLabelled, toPoints, toSeries} from './chartMath';
@@ -38,6 +52,63 @@ const splitLabels = (raw: string): string[] =>
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+
+/** Compact number formatting for tooltips/menus (mirrors the DB charts). */
+export const fmtChartValue = (n: number): string =>
+  Number.isInteger(n) ? n.toLocaleString() : n.toLocaleString(undefined, {maximumFractionDigits: 2});
+
+/** SVG coord → clamped percentage of a span, so an overlay stays inside the plot. */
+const pctIn = (v: number, span: number, min = 6, max = 94): number => Math.max(min, Math.min(max, (v / span) * 100));
+
+// ── Interactivity (DASH-2): hover tooltip, highlight, context menu ───────────
+//
+// The seven kinds each draw their own SVG, but the interaction behaviour is
+// SHARED: a kind only wraps each datum in <Mark>. The Mark reads the ambient
+// {@link ChartInteractions} (provided by the live block) and, for that datum,
+// wires hover/focus → tooltip+highlight and right-click/keyboard → the shared
+// context menu. Outside a live chart — the static export path, a provider-less
+// viewer mount, or a unit test that calls `render` with only {value, labels,
+// palette} — the context is null and <Mark> is an inert passthrough, so the SVG
+// is byte-identical to the pre-interactivity output.
+
+/** SVG-space (viewBox) anchor a tooltip/menu points at. */
+export interface ChartPoint {
+  x: number;
+  y: number;
+}
+
+/** One interactive datum: what the tooltip shows and the menu acts on. */
+export interface ChartDatum {
+  /** Stable identity across every mark in the chart — drives highlight. */
+  key: string;
+  /** Human-readable label (x-label / slice / stage, series-prefixed when multi). */
+  label: string;
+  /** The plotted numeric value. */
+  value: number;
+}
+
+/**
+ * Interaction wiring handed to a kind's `render` via the OPTIONAL
+ * {@link ChartRenderArgs.interactions} field. A kind never touches this
+ * directly — it wraps data in {@link Mark}, which pulls it from context.
+ */
+export interface ChartInteractions {
+  /** Props spread onto a datum's `<g>` wrapper: handlers, focusability, aria, active/dim class. */
+  markProps: (datum: ChartDatum, at: ChartPoint) => React.SVGProps<SVGGElement>;
+}
+
+const ChartInteractionContext = React.createContext<ChartInteractions | null>(null);
+
+/**
+ * Wrap a datum's SVG so it gains hover tooltip, highlight, keyboard focus, and
+ * the shared context menu. Renders children unchanged when there's no live
+ * interaction context (export/viewer/tests) — the additive, no-op default.
+ */
+export const Mark: React.FC<{datum: ChartDatum; at: ChartPoint; children: React.ReactNode}> = ({datum, at, children}) => {
+  const ix = React.useContext(ChartInteractionContext);
+  if (!ix) return <>{children}</>;
+  return <g {...ix.markProps(datum, at)}>{children}</g>;
+};
 
 /** Light horizontal grid + tick labels shared by the XY kinds. */
 const Grid: React.FC<{d: ReturnType<typeof extent>}> = ({d}) => (
@@ -93,6 +164,7 @@ const LineArea: React.FC<{value: unknown; area: boolean; labels: string[]; palet
   const series = toSeries(value);
   if (series.length === 0) return null;
   const d = extent(series.flatMap((s) => s.values));
+  const multi = series.length > 1;
   return (
     <>
       <Grid d={d} />
@@ -102,10 +174,21 @@ const LineArea: React.FC<{value: unknown; area: boolean; labels: string[]; palet
         const coords = pts.split(' ');
         const first = coords[0]?.split(',')[0];
         const last = coords[coords.length - 1]?.split(',')[0];
+        const n = s.values.length;
         return (
           <g key={i}>
             {area && <polygon points={`${first},${base} ${pts} ${last},${base}`} fill={palette[i % palette.length]} opacity={0.15} />}
             <polyline points={pts} fill="none" stroke={palette[i % palette.length]} strokeWidth={2} strokeLinejoin="round" />
+            {s.values.map((v, j) => {
+              const x = n === 1 ? W / 2 : PAD + (j / (n - 1)) * (W - PAD * 2);
+              const y = scale(v, d, H - PAD, PAD);
+              const lbl = labels[j] ?? `#${j + 1}`;
+              return (
+                <Mark key={j} datum={{key: `p-${i}-${j}`, label: multi && s.name ? `${s.name} · ${lbl}` : lbl, value: v}} at={{x, y}}>
+                  <circle className="obe-chart-dot" cx={x} cy={y} r={5} fill={palette[i % palette.length]} />
+                </Mark>
+              );
+            })}
           </g>
         );
       })}
@@ -130,7 +213,16 @@ const Bars: React.FC<{value: unknown; labels: string[]; palette: string[]}> = ({
         s.values.map((v, i) => {
           const y = scale(v, d, H - PAD, PAD);
           const x = PAD + i * groupW + groupW * 0.15 + si * barW;
-          return <rect key={`${si}-${i}`} x={x} y={Math.min(y, zero)} width={barW - 1} height={Math.max(Math.abs(zero - y), 1)} rx={2} fill={palette[si % palette.length]} />;
+          const lbl = labels[i] ?? `#${i + 1}`;
+          return (
+            <Mark
+              key={`${si}-${i}`}
+              datum={{key: `b-${si}-${i}`, label: series.length > 1 && s.name ? `${s.name} · ${lbl}` : lbl, value: v}}
+              at={{x: x + (barW - 1) / 2, y: Math.min(y, zero)}}
+            >
+              <rect x={x} y={Math.min(y, zero)} width={barW - 1} height={Math.max(Math.abs(zero - y), 1)} rx={2} fill={palette[si % palette.length]} />
+            </Mark>
+          );
         }),
       )}
       {labels.length > 0 && (
@@ -155,7 +247,9 @@ const PieDonut: React.FC<{value: unknown; labels: string[]; donut: boolean; pale
   return (
     <>
       {arcs.map((a, i) => (
-        <path key={i} d={a.path} fill={palette[i % palette.length]} stroke="hsl(var(--background, 0 0% 100%))" strokeWidth={1.5} />
+        <Mark key={i} datum={{key: `slice-${i}`, label: slices[i].label, value: slices[i].value}} at={a.labelAt(donut ? r * 0.78 : r * 0.6)}>
+          <path d={a.path} fill={palette[i % palette.length]} stroke="hsl(var(--background, 0 0% 100%))" strokeWidth={1.5} />
+        </Mark>
       ))}
       <g className="obe-chart-legend">
         {slices.map((s, i) => (
@@ -179,9 +273,15 @@ const Scatter: React.FC<{value: unknown; palette: string[]}> = ({value, palette}
   return (
     <>
       <Grid d={dy} />
-      {pts.map((p, i) => (
-        <circle key={i} cx={scale(p.x, dx, PAD, W - PAD)} cy={scale(p.y, dy, H - PAD, PAD)} r={4} fill={palette[0]} opacity={0.75} />
-      ))}
+      {pts.map((p, i) => {
+        const cx = scale(p.x, dx, PAD, W - PAD);
+        const cy = scale(p.y, dy, H - PAD, PAD);
+        return (
+          <Mark key={i} datum={{key: `pt-${i}`, label: `(${fmtChartValue(p.x)}, ${fmtChartValue(p.y)})`, value: p.y}} at={{x: cx, y: cy}}>
+            <circle cx={cx} cy={cy} r={4} fill={palette[0]} opacity={0.75} />
+          </Mark>
+        );
+      })}
     </>
   );
 };
@@ -194,7 +294,9 @@ const Funnel: React.FC<{value: unknown; labels: string[]; palette: string[]}> = 
     <>
       {rows.map((r, i) => (
         <g key={i}>
-          <rect x={PAD + r.x} y={12 + r.y} width={r.width} height={r.height} rx={4} fill={palette[i % palette.length]} opacity={0.85} />
+          <Mark datum={{key: `row-${i}`, label: stages[i].label, value: stages[i].value}} at={{x: W / 2, y: 12 + r.y + r.height / 2}}>
+            <rect x={PAD + r.x} y={12 + r.y} width={r.width} height={r.height} rx={4} fill={palette[i % palette.length]} opacity={0.85} />
+          </Mark>
           <text className="obe-chart-funnel-label" x={W / 2} y={12 + r.y + r.height / 2 + 4}>
             {stages[i].label} · {stages[i].value}
           </text>
@@ -217,6 +319,25 @@ export interface ChartRenderArgs {
   labels: string[];
   /** Concrete-hex series palette for the active data-colour scheme. */
   palette: string[];
+  // ── Additive DASH-2 interaction channel ────────────────────────────────────
+  // All OPTIONAL. Absent for static export, provider-less viewer mounts, and
+  // unit tests that call `render({value, labels, palette})` — kinds that ignore
+  // them (or wrap data in <Mark>, which no-ops without a live context) render
+  // byte-identically to the pre-interactivity output.
+  /**
+   * Live hover/highlight/menu wiring. The seven built-ins never read this
+   * directly — they wrap each datum in {@link Mark}, which pulls the same object
+   * from context — but it's exposed here so a custom kind that draws outside
+   * `<Mark>` can still wire its own handlers.
+   */
+  interactions?: ChartInteractions;
+  /** The chart block, for kind-level actions (a custom kind mutating props). */
+  block?: BlockMap;
+  /** The editor controller, for kind-level actions (transactional prop writes). */
+  editor?: BlockEditorController;
+  /** SVG viewBox dimensions, so a kind can place its own overlays. */
+  width?: number;
+  height?: number;
 }
 
 export interface ChartKindConfigArgs {
@@ -495,9 +616,58 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   // title" / "Add a description…") on a locked page. Empty + editable keeps
   // rendering: present mode hides it via the :placeholder-shown CSS instead.
   const pageLocked = useKitPageLock();
+  const groupLocked = useKitLock();
   const chromeEditable = !editor.readOnly && !pageLocked;
+  // Change-kind writes the block, so it's offered only when the chart is truly
+  // editable — never in the read-only viewer, a locked group, or an export. Copy
+  // value stays available everywhere (present mode included), matching the
+  // existing config Kind selector's gate plus the group/page locks.
+  const canChangeKind = !editor.readOnly && !pageLocked && !groupLocked;
   const dbBinding = readDbBinding(block);
   const {series: dbSeries} = useDbChartSeries(dbBinding);
+
+  // Interaction state (DASH-2). `active` drives the tooltip + highlight from
+  // either hover OR keyboard focus; `menu` is the open context-menu target
+  // (null = closed). Both key off the datum so identity survives re-render. When
+  // the menu closes we return focus to the data point it opened from.
+  const [active, setActive] = useState<{datum: ChartDatum; at: ChartPoint} | null>(null);
+  const [menu, setMenu] = useState<{datum: ChartDatum; at: ChartPoint} | null>(null);
+  const menuReturnRef = useRef<SVGGElement | null>(null);
+  const interactions = useMemo<ChartInteractions>(
+    () => ({
+      markProps: (datum, at) => {
+        const isActive = active?.datum.key === datum.key;
+        const clearIfMine = (cur: {datum: ChartDatum; at: ChartPoint} | null) => (cur?.datum.key === datum.key ? null : cur);
+        return {
+          tabIndex: 0,
+          role: 'button',
+          'aria-haspopup': 'menu',
+          'aria-label': `${datum.label}: ${fmtChartValue(datum.value)}`,
+          className: cn('obe-chart-mark', active && (isActive ? 'is-active' : 'is-dim')),
+          onPointerEnter: () => setActive({datum, at}),
+          onPointerLeave: () => setActive(clearIfMine),
+          onFocus: () => setActive({datum, at}),
+          onBlur: () => setActive(clearIfMine),
+          onContextMenu: (e) => {
+            e.preventDefault();
+            menuReturnRef.current = e.currentTarget;
+            setActive({datum, at});
+            setMenu({datum, at});
+          },
+          onKeyDown: (e) => {
+            if (e.key === 'Enter' || e.key === ' ' || e.key === 'ContextMenu') {
+              e.preventDefault();
+              menuReturnRef.current = e.currentTarget;
+              setMenu({datum, at});
+            } else if (e.key === 'Escape') {
+              setActive(null);
+            }
+          },
+        };
+      },
+    }),
+    [active],
+  );
 
   // Resolve the plotted data from whichever source is active. Expression mode is
   // the original path (evaluated over the page's inputs). Database mode reads the
@@ -539,7 +709,7 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
         </text>
       );
     }
-    return def.render({value, labels: effectiveLabels, palette});
+    return def.render({value, labels: effectiveLabels, palette, interactions, block, editor, width: W, height: H});
   })();
 
   return (
@@ -566,9 +736,76 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
           />
         )}
       </figcaption>
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title || `${kind} chart`} className="obe-chart-svg">
-        {body}
-      </svg>
+      <div className="obe-chart-plot">
+        {/* role="group" (not "img"): the marks are interactive `role="button"`
+            children now, and an img is an ARIA leaf that would hide them (and
+            their `label: value` names) from assistive tech. A labelled group
+            keeps the chart's accessible name while exposing every mark. */}
+        <svg viewBox={`0 0 ${W} ${H}`} role="group" aria-label={title || `${kind} chart`} className="obe-chart-svg">
+          <ChartInteractionContext.Provider value={interactions}>{body}</ChartInteractionContext.Provider>
+        </svg>
+        {active && !menu && (
+          // aria-hidden: the focused/hovered mark already carries the label+value
+          // in its aria-label, so the visual tooltip must not double-announce.
+          // Flips below the mark near the top edge so it never escapes the plot
+          // into the figcaption (max bar / top scatter point / funnel row 1).
+          <div
+            className={cn('obe-chart-tooltip', active.at.y < H * 0.16 && 'obe-chart-tooltip-below')}
+            aria-hidden
+            style={{left: `${pctIn(active.at.x, W)}%`, top: `${(active.at.y / H) * 100}%`}}
+          >
+            <span className="obe-chart-tt-label">{active.datum.label}</span>
+            <span className="obe-chart-tt-value">{fmtChartValue(active.datum.value)}</span>
+          </div>
+        )}
+        <DropdownMenu open={!!menu} onOpenChange={(o) => !o && setMenu(null)}>
+          {/* A zero-size anchor at the datum: the context menu (right-click or
+              keyboard) positions against it, so mouse and keyboard open the same
+              menu in the same place. */}
+          <DropdownMenuTrigger asChild>
+            <span
+              aria-hidden
+              tabIndex={-1}
+              className="obe-chart-menu-anchor"
+              style={menu ? {left: `${pctIn(menu.at.x, W)}%`, top: `${(menu.at.y / H) * 100}%`} : undefined}
+            />
+          </DropdownMenuTrigger>
+          {menu && (
+            <DropdownMenuContent
+              align="start"
+              className="min-w-44"
+              onCloseAutoFocus={(e) => {
+                e.preventDefault();
+                menuReturnRef.current?.focus?.();
+              }}
+            >
+              <DropdownMenuLabel className="max-w-64 truncate">
+                {menu.datum.label}: {fmtChartValue(menu.datum.value)}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => void navigator.clipboard?.writeText(`${menu.datum.label}: ${fmtChartValue(menu.datum.value)}`)}>
+                <Copy className="mr-2 h-4 w-4" /> Copy value
+              </DropdownMenuItem>
+              {canChangeKind && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <BarChart3 className="mr-2 h-4 w-4" /> Change chart kind
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuRadioGroup value={kind} onValueChange={(k) => setProp(editor, block, 'kind', k)}>
+                      {chartKinds().map((k) => (
+                        <DropdownMenuRadioItem key={k.kind} value={k.kind}>
+                          {k.label}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+            </DropdownMenuContent>
+          )}
+        </DropdownMenu>
+      </div>
       <KitSettings blockId={blockId(block)} title={title || `${kind} chart`}>
         <div className="flex flex-col gap-3">
           <NameDescriptionFields block={block} editor={editor} nameKey="title" namePlaceholder="Chart title" />
