@@ -50,6 +50,10 @@ describe('kitChartSvg — heatmap kind exports', () => {
     expect(svg).toContain('>Y<');
     // In-cell value text.
     expect(svg).toContain('>4<');
+    // High-intensity cells (near-opaque pale fill) get a fixed dark ink so the
+    // number stays legible in a dark-theme export; low cells keep the foreground.
+    expect(svg).toContain('fill="#233246"');
+    expect(svg).toContain('fill="currentColor"');
   });
 
   it('returns nothing with no plottable data', () => {
@@ -68,6 +72,9 @@ describe('kitChartSvg — combo kind exports', () => {
     expect(svg).toContain('>Sales<');
     expect(svg).toContain('>Trend<');
     expect(svg).toContain('>A<');
+    // The overlaid (line) series gets a rule glyph in the legend, not a square —
+    // the rounded-cap stroke is unique to the legend rule (grid lines are dashed).
+    expect(svg).toContain('stroke-linecap="round"');
   });
 
   it('degrades a single series to a plain bar chart (no line)', () => {

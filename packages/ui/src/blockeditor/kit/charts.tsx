@@ -148,20 +148,29 @@ const Grid: React.FC<{d: ReturnType<typeof extent>}> = ({d}) => (
   </g>
 );
 
-/** Compact top-right legend for named multi-series data. */
-const SeriesLegend: React.FC<{series: Array<{name: string}>; palette: string[]}> = ({series, palette}) => {
+/** Compact top-right legend for named multi-series data. `glyph` picks the
+ *  swatch per series (default a square) — line/area/combo pass `'line'` for
+ *  their line series so the legend glyph matches the mark it stands for. */
+const SeriesLegend: React.FC<{series: Array<{name: string}>; palette: string[]; glyph?: (index: number) => 'bar' | 'line'}> = ({series, palette, glyph}) => {
   const named = series.filter((s) => s.name);
   if (named.length < 2) return null;
   return (
     <g className="obe-chart-legend">
-      {named.map((s, i) => (
-        <g key={s.name} transform={`translate(${W - PAD - 90}, ${16 + i * 18})`}>
-          <rect width={10} height={10} rx={2} fill={palette[i % palette.length]} />
-          <text x={16} y={9}>
-            {s.name}
-          </text>
-        </g>
-      ))}
+      {named.map((s, i) => {
+        const color = palette[i % palette.length];
+        return (
+          <g key={s.name} transform={`translate(${W - PAD - 90}, ${16 + i * 18})`}>
+            {glyph?.(i) === 'line' ? (
+              <line className="obe-chart-legend-line" x1={0} y1={5} x2={12} y2={5} stroke={color} strokeWidth={2} strokeLinecap="round" />
+            ) : (
+              <rect width={10} height={10} rx={2} fill={color} />
+            )}
+            <text x={16} y={9}>
+              {s.name}
+            </text>
+          </g>
+        );
+      })}
     </g>
   );
 };
@@ -213,7 +222,7 @@ const LineArea: React.FC<{value: unknown; area: boolean; labels: string[]; palet
           </g>
         );
       })}
-      <SeriesLegend series={series} palette={palette} />
+      <SeriesLegend series={series} palette={palette} glyph={() => 'line'} />
       <XLabels labels={labels} n={Math.max(...series.map((s) => s.values.length))} />
     </>
   );
@@ -596,6 +605,11 @@ function toGrid(value: unknown, labels: string[], matrix?: ChartMatrixInput): Ch
 /** Kept in sync with `kitGrid` in the export runtime. */
 const gridValues = (g: ChartGrid): number[] => g.cells.flat().filter((v): v is number => typeof v === 'number');
 
+/** Above this fill intensity the cell is a near-opaque pale fill, so the in-cell
+ *  label switches to a fixed dark ink instead of the theme foreground (which
+ *  would wash out on it in dark mode). Mirrored in the export runtime. */
+const HEAT_LABEL_INK_THRESHOLD = 0.6;
+
 /**
  * Heatmap: a groups×series grid where a cell's colour intensity encodes its
  * value (a single-hue ramp over the first palette colour, so it stays on-theme
@@ -633,7 +647,12 @@ const Heatmap: React.FC<{value: unknown; labels: string[]; palette: string[]; ma
             <Mark key={`${r}-${c}`} datum={{key: `h-${r}-${c}`, label: `${rowName ? `${rowName} · ` : ''}${colLabel}`, value: v}} at={{x: x + cw / 2, y: y + ch / 2}}>
               <rect x={x + 1} y={y + 1} width={cw - 2} height={ch - 2} rx={3} fill={base} fillOpacity={intensity(v)} />
               {cw > 34 && ch > 18 && (
-                <text className="obe-chart-heat-label" x={x + cw / 2} y={y + ch / 2 + 4}>
+                // Pick the ink by cell INTENSITY, not the theme foreground: a
+                // high-intensity cell is a near-opaque pale fill in BOTH themes,
+                // so the flipping `--foreground` washes out on it in dark mode —
+                // a fixed dark ink above the threshold keeps the number legible
+                // regardless of theme (DASH-6 fine-tunes the threshold).
+                <text className={cn('obe-chart-heat-label', intensity(v) > HEAT_LABEL_INK_THRESHOLD && 'obe-chart-heat-label-strong')} x={x + cw / 2} y={y + ch / 2 + 4}>
                   {fmtChartValue(v)}
                 </text>
               )}
@@ -718,7 +737,7 @@ const Combo: React.FC<{value: unknown; labels: string[]; palette: string[]; matr
           </text>
         ))}
       </g>
-      <SeriesLegend series={rows.map((name) => ({name}))} palette={palette} />
+      <SeriesLegend series={rows.map((name) => ({name}))} palette={palette} glyph={(i) => (i === 0 ? 'bar' : 'line')} />
     </>
   );
 };

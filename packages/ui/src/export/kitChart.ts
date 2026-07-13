@@ -79,8 +79,11 @@ function drawKit(v,kind,labels){
     let s='';
     g.rows.forEach(function(rn,r){ g.cols.forEach(function(cl,c){ const x=gx+c*cw, y=gy+r*ch, val=g.cells[r][c];
       if(typeof val!=="number"){ s+='<rect x="'+(x+1)+'" y="'+(y+1)+'" width="'+(cw-2)+'" height="'+(ch-2)+'" rx="3" fill="currentColor" opacity="0.06"/>'; return; }
-      s+='<rect x="'+(x+1)+'" y="'+(y+1)+'" width="'+(cw-2)+'" height="'+(ch-2)+'" rx="3" fill="'+P[0]+'" fill-opacity="'+intensity(val)+'"/>';
-      if(cw>34&&ch>18) s+='<text x="'+(x+cw/2)+'" y="'+(y+ch/2+4)+'" text-anchor="middle" font-size="11" fill="currentColor" opacity="0.85">'+kitFmt(val)+'</text>'; }); });
+      const iv=intensity(val);
+      s+='<rect x="'+(x+1)+'" y="'+(y+1)+'" width="'+(cw-2)+'" height="'+(ch-2)+'" rx="3" fill="'+P[0]+'" fill-opacity="'+iv+'"/>';
+      // Ink by intensity, not theme: a near-opaque pale cell washes out the
+      // exported foreground in a dark-theme export, so pin a dark ink above 0.6.
+      if(cw>34&&ch>18){ const ink=iv>0.6?'fill="#233246"':'fill="currentColor" opacity="0.85"'; s+='<text x="'+(x+cw/2)+'" y="'+(y+ch/2+4)+'" text-anchor="middle" font-size="11" '+ink+'>'+kitFmt(val)+'</text>'; } }); });
     if(showRow) g.rows.forEach(function(rn,r){ if(rn) s+='<text x="'+(gutter-8)+'" y="'+(gy+r*ch+ch/2+3)+'" text-anchor="end" font-size="11" fill="currentColor" opacity="0.6">'+kitEsc(rn)+'</text>'; });
     g.cols.forEach(function(cl,c){ s+='<text x="'+(gx+c*cw+cw/2)+'" y="'+(H-7)+'" text-anchor="middle" font-size="10" fill="currentColor" opacity="0.55">'+kitEsc(cl)+'</text>'; });
     body=s;
@@ -104,7 +107,9 @@ function drawKit(v,kind,labels){
   }
   if(kind!=='pie'&&kind!=='donut'&&kind!=='funnel'&&kind!=='scatter'&&kind!=='kpi'&&kind!=='heatmap'){
     const named=kitSeries(v).filter(s=>s.name);
-    if(named.length>1) body+=named.map((s,i)=>'<g transform="translate('+(W-PAD-90)+','+(16+i*18)+')"><rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/><text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+kitEsc(s.name)+'</text></g>').join('');
+    // Line series (line/area everywhere; combo's overlaid series beyond the bar)
+    // get a rule glyph, not a square, so the legend matches the mark it stands for.
+    if(named.length>1) body+=named.map((s,i)=>{ const isLine=kind==='line'||kind==='area'||(kind==='combo'&&i>0); const g=isLine?'<line x1="0" y1="5" x2="12" y2="5" stroke="'+P[i%P.length]+'" stroke-width="2" stroke-linecap="round"/>':'<rect width="10" height="10" rx="2" fill="'+P[i%P.length]+'"/>'; return '<g transform="translate('+(W-PAD-90)+','+(16+i*18)+')">'+g+'<text x="16" y="9" font-size="11" fill="currentColor" opacity="0.7">'+kitEsc(s.name)+'</text></g>'; }).join('');
   }
   return '<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto">'+body+'</svg>';
 }

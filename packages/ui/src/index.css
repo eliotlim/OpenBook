@@ -2374,6 +2374,10 @@ a.obe-mention {
 
 /* Heatmap (DASH-5) — cell labels + axis labels; cells recolour via fill-opacity. */
 .obe-chart-heat-label { fill: hsl(var(--foreground) / 0.85); font-size: 11px; text-anchor: middle; pointer-events: none; font-variant-numeric: tabular-nums; }
+/* High-intensity cells are a near-opaque pale fill in BOTH themes, so the theme
+   foreground ink washes out on them in dark mode — pin a dark ink that contrasts
+   the pale fill regardless of theme. */
+.obe-chart-heat-label-strong { fill: #233246; }
 .obe-chart-heat-rowlabel { fill: hsl(var(--muted-foreground)); font-size: 11px; text-anchor: end; }
 .obe-chart-heat-empty { fill: hsl(var(--muted-foreground) / 0.08); }
 

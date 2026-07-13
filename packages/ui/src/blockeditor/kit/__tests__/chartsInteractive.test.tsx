@@ -187,14 +187,23 @@ describe('additive render contract — no interactions', () => {
     expect(container.querySelectorAll('.obe-chart-mark').length).toBe(0);
     // 4 cell rects, each with a fill-opacity intensity.
     expect(container.querySelectorAll('rect[fill-opacity]').length).toBe(4);
+    // Values 4 and 3 clear the intensity threshold → the strong (fixed-dark) ink;
+    // 1 and 2 keep the theme foreground. Proves the theme-agnostic label contrast.
+    expect(container.querySelectorAll('.obe-chart-heat-label').length).toBe(4);
+    expect(container.querySelectorAll('.obe-chart-heat-label-strong').length).toBe(2);
   });
 
-  it('combo: no interaction wrappers, bars + line still draw', () => {
+  it('combo: no interaction wrappers, bars + line still draw, legend glyphs match', () => {
     const args: ChartRenderArgs = {value: {Sales: [3, 1, 4], Trend: [2, 2, 2]}, labels: ['A', 'B', 'C'], palette: PALETTE};
     const {container} = render(<svg>{getChartKind('combo')!.render(args)}</svg>);
     expect(container.querySelectorAll('.obe-chart-mark').length).toBe(0);
     expect(container.querySelectorAll('rect').length).toBeGreaterThanOrEqual(3); // bars
     expect(container.querySelectorAll('polyline').length).toBe(1); // the trend line
+    // Legend: the bar series (Sales) keeps a square swatch, the line series
+    // (Trend) gets a rule glyph — one of each inside the legend group.
+    const legend = container.querySelector('.obe-chart-legend')!;
+    expect(legend.querySelectorAll('rect').length).toBe(1);
+    expect(legend.querySelectorAll('.obe-chart-legend-line').length).toBe(1);
   });
 
   it('kpi: no interaction wrapper, the figure still renders', () => {
