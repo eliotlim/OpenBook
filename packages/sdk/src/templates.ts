@@ -34,7 +34,7 @@ export type TemplateTag = 'interactive' | 'slides' | 'database';
 
 export interface PageTemplate {
   /** Stable identifier (i18n keys + tests hang off this). */
-  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth' | 'team-status' | 'product-hq';
+  id: 'grocery-tracker' | 'task-board' | 'reading-list' | 'project-intake' | 'savings-planner' | 'roadmap' | 'field-map' | 'pitch-deck' | 'compound-growth' | 'team-status' | 'product-hq' | 'dashboard';
   /** Emoji shown on the gallery card and applied to the created page. */
   icon: string;
   /** Canonical (English) page name; suffixed when it collides. */
@@ -82,6 +82,8 @@ const GUIDANCE = {
     'This template shows a map database: rows with a location render as region-coloured pins, and the address-only row waits under Unplaced. Try it: click a pin, geocode the unplaced row, or switch to the Table view.',
   productHq:
     'This template shows two linked databases: each initiative relates to tasks on the Tasks sub-page, and the Progress and Task count columns roll those tasks up. Try it: tick a task done on the sub-page and watch the rollup move, or open the Tasks timeline for the dependency arrows.',
+  dashboard:
+    'This dashboard reads a sample sales database: the KPI tiles total the rows, and the bar, pie and trend charts group them — all live. Try it: edit a deal on the “… data” sub-page and watch a tile move, or add a chart of your own with /chart → Database.',
 } as const;
 
 /** The guidance callout as a block-doc block (ids are stable per template). */
@@ -871,6 +873,168 @@ const createProductHq = async (client: DataClient, name: string, guidance: strin
   return page;
 };
 
+// ── 📊 Dashboard ─────────────────────────────────────────────────────────────
+// A composite dashboard: a KPI row + DB-backed bar/pie/trend charts laid out in
+// the 12-col column blocks, all reading LIVE from a sample "sales" database the
+// template also seeds (a sub-page). The charts are ordinary in-doc `kitchart`
+// blocks in DATABASE source mode (DASH-3) — their `dbId` is stamped at
+// instantiation, when the sample database's id is minted. Unlike the database
+// fixtures you land on a composed DOCUMENT, not a table/board.
+
+/** The sample sales database the dashboard charts. One row = one deal, with a
+ *  Region/Channel/Stage/Quarter to group by and Amount/Units to total. */
+const SALES_SCHEMA: DatabaseSchema = {
+  properties: [
+    {
+      id: 'p_region',
+      name: 'Region',
+      type: 'select',
+      options: [
+        {id: 'opt_north', label: 'North', color: 'blue'},
+        {id: 'opt_south', label: 'South', color: 'green'},
+        {id: 'opt_east', label: 'East', color: 'orange'},
+        {id: 'opt_west', label: 'West', color: 'purple'},
+      ],
+    },
+    {
+      id: 'p_channel',
+      name: 'Channel',
+      type: 'select',
+      options: [
+        {id: 'opt_online', label: 'Online', color: 'blue'},
+        {id: 'opt_retail', label: 'Retail', color: 'pink'},
+        {id: 'opt_partner', label: 'Partner', color: 'yellow'},
+      ],
+    },
+    {
+      id: 'p_stage',
+      name: 'Stage',
+      type: 'status',
+      options: [
+        {id: 'opt_pipeline', label: 'Pipeline', color: 'gray', group: 'todo'},
+        {id: 'opt_committed', label: 'Committed', color: 'blue', group: 'in_progress'},
+        {id: 'opt_won', label: 'Won', color: 'green', group: 'complete'},
+      ],
+    },
+    {
+      id: 'p_quarter',
+      name: 'Quarter',
+      type: 'select',
+      options: [
+        {id: 'opt_q1', label: 'Q1', color: 'gray'},
+        {id: 'opt_q2', label: 'Q2', color: 'gray'},
+        {id: 'opt_q3', label: 'Q3', color: 'gray'},
+        {id: 'opt_q4', label: 'Q4', color: 'gray'},
+      ],
+    },
+    {id: 'p_amount', name: 'Amount', type: 'number', numberDisplay: 'number'},
+    {id: 'p_units', name: 'Units', type: 'number'},
+  ],
+  views: [
+    // The data page opens on the table; a bar view backs it (and exercises the
+    // DB chart-view kit engine on the sample data itself).
+    {id: 'v_table', name: 'Table', type: 'table', filters: [], sorts: []},
+    {id: 'v_bar', name: 'By region', type: 'bar', filters: [], sorts: [], groupByPropertyId: 'p_region', aggregate: {type: 'sum', propertyId: 'p_amount'}},
+  ],
+};
+
+const SALES_ROWS = [
+  {name: 'Northwind renewal', properties: {p_region: 'opt_north', p_channel: 'opt_online', p_stage: 'opt_won', p_quarter: 'opt_q1', p_amount: 24000, p_units: 120}},
+  {name: 'Acme retail order', properties: {p_region: 'opt_north', p_channel: 'opt_retail', p_stage: 'opt_committed', p_quarter: 'opt_q2', p_amount: 18000, p_units: 90}},
+  {name: 'Globex expansion', properties: {p_region: 'opt_south', p_channel: 'opt_online', p_stage: 'opt_won', p_quarter: 'opt_q1', p_amount: 31000, p_units: 150}},
+  {name: 'Initech pilot', properties: {p_region: 'opt_south', p_channel: 'opt_partner', p_stage: 'opt_pipeline', p_quarter: 'opt_q3', p_amount: 12000, p_units: 60}},
+  {name: 'Umbrella upsell', properties: {p_region: 'opt_east', p_channel: 'opt_online', p_stage: 'opt_committed', p_quarter: 'opt_q2', p_amount: 27000, p_units: 130}},
+  {name: 'Soylent reorder', properties: {p_region: 'opt_east', p_channel: 'opt_retail', p_stage: 'opt_won', p_quarter: 'opt_q4', p_amount: 22000, p_units: 110}},
+  {name: 'Hooli trial', properties: {p_region: 'opt_west', p_channel: 'opt_partner', p_stage: 'opt_pipeline', p_quarter: 'opt_q3', p_amount: 9000, p_units: 45}},
+  {name: 'Stark contract', properties: {p_region: 'opt_west', p_channel: 'opt_online', p_stage: 'opt_won', p_quarter: 'opt_q4', p_amount: 35000, p_units: 170}},
+  {name: 'Wayne partnership', properties: {p_region: 'opt_north', p_channel: 'opt_partner', p_stage: 'opt_committed', p_quarter: 'opt_q2', p_amount: 15000, p_units: 70}},
+  {name: 'Cyberdyne restock', properties: {p_region: 'opt_south', p_channel: 'opt_retail', p_stage: 'opt_won', p_quarter: 'opt_q1', p_amount: 20000, p_units: 100}},
+  {name: 'Tyrell evaluation', properties: {p_region: 'opt_east', p_channel: 'opt_online', p_stage: 'opt_pipeline', p_quarter: 'opt_q3', p_amount: 14000, p_units: 68}},
+  {name: 'Massive Dynamic order', properties: {p_region: 'opt_west', p_channel: 'opt_retail', p_stage: 'opt_committed', p_quarter: 'opt_q4', p_amount: 17000, p_units: 82}},
+];
+
+/** A database-bound `kitchart` block (DASH-3 source mode). `dbId` is stamped at
+ *  instantiation; `count` needs no numeric property, so `aggProp` is optional. */
+const dashboardChart = (
+  dbId: string,
+  id: string,
+  kind: string,
+  title: string,
+  groupBy: string,
+  aggType: 'count' | 'sum',
+  aggProp?: string,
+): object => ({
+  id,
+  type: 'kitchart',
+  props: {kind, title, sourceMode: 'database', dbId, dbGroupBy: groupBy, dbAggType: aggType, ...(aggProp ? {dbAggProp: aggProp} : {})},
+});
+
+/** The dashboard document: a leading guidance callout, a KPI row across the top
+ *  (three tiles in a 12-col columns block), then the bar+pie pair and a
+ *  full-width quarterly trend — every chart bound to the seeded sales database. */
+const dashboardBlocks = (dbId: string, guidance: string): object[] => {
+  const chart = (id: string, kind: string, title: string, groupBy: string, aggType: 'count' | 'sum', aggProp?: string) =>
+    dashboardChart(dbId, id, kind, title, groupBy, aggType, aggProp);
+  return [
+    guidanceCallout('db-guide', guidance),
+    {id: 'db-h1', type: 'heading', text: [{t: 'This quarter at a glance'}], props: {level: 2}},
+    // KPI row — three number tiles across the top (the DASH-5 `kpi` kind). Each
+    // folds a grouped DB series to one grand total; the tile's title names it.
+    {
+      id: 'db-kpis',
+      type: 'columns',
+      children: [
+        {id: 'db-kc1', type: 'column', props: {span: 4}, children: [chart('db-k-rev', 'kpi', 'Total revenue (£)', 'p_region', 'sum', 'p_amount')]},
+        {id: 'db-kc2', type: 'column', props: {span: 4}, children: [chart('db-k-deals', 'kpi', 'Deals', 'p_stage', 'count')]},
+        {id: 'db-kc3', type: 'column', props: {span: 4}, children: [chart('db-k-units', 'kpi', 'Units sold', 'p_channel', 'sum', 'p_units')]},
+      ],
+    },
+    {id: 'db-h2', type: 'heading', text: [{t: 'Breakdown'}], props: {level: 2}},
+    // Bar + pie side by side in a 6/6 split.
+    {
+      id: 'db-cols',
+      type: 'columns',
+      children: [
+        {id: 'db-cl', type: 'column', props: {span: 6}, children: [chart('db-bar', 'bar', 'Revenue by region (£)', 'p_region', 'sum', 'p_amount')]},
+        {id: 'db-cr', type: 'column', props: {span: 6}, children: [chart('db-pie', 'pie', 'Deals by channel', 'p_channel', 'count')]},
+      ],
+    },
+    // A full-width quarterly trend closes the dashboard.
+    chart('db-line', 'line', 'Revenue by quarter (£)', 'p_quarter', 'sum', 'p_amount'),
+    {id: 'db-note', type: 'callout', text: [{t: 'Every tile and chart reads live from the sales database on the “… data” sub-page — edit a deal there and these update.'}], props: {variant: 'info'}},
+  ];
+};
+
+/** Build the dashboard document, then seed the sample sales database it charts.
+ *  The dashboard host page is saved FIRST (so its charts' `dbId` is the minted
+ *  sample-db id), and the sample database lands on a sub-page. */
+const createDashboard = async (client: DataClient, name: string, guidance: string = GUIDANCE.dashboard): Promise<StoredPage> => {
+  const dataDbId = globalThis.crypto.randomUUID();
+  const dataName = `${name} data`;
+  const page = await client.savePage({
+    name,
+    data: {editorjs: {blocks: []}, values: [], names: [], editor: 'blocks', blockdoc: {blocks: dashboardBlocks(dataDbId, guidance)}},
+  });
+  const dataPage = await client.savePage({name: dataName, data: emptySnapshot([]), parentId: page.id});
+  await client.createDatabase({id: dataDbId, pageId: dataPage.id, name: dataName, schema: SALES_SCHEMA});
+  for (const row of SALES_ROWS) {
+    let rowName: string | null = row.name;
+    for (let attempt = 2; ; attempt += 1) {
+      try {
+        await client.createRow(dataDbId, {...row, name: rowName});
+        break;
+      } catch {
+        if (attempt > 5) {
+          await client.createRow(dataDbId, {...row, name: null});
+          break;
+        }
+        rowName = `${row.name} ${attempt}`;
+      }
+    }
+  }
+  return page;
+};
+
 // ── The gallery ──────────────────────────────────────────────────────────────
 
 /** Create a block-editor template page from a JSON block projection. */
@@ -927,6 +1091,10 @@ export const PAGE_TEMPLATES: PageTemplate[] = [
   {id: 'pitch-deck', icon: '📽️', pageName: 'Pitch deck', tags: ['interactive', 'slides'], create: createBlockDocPage(PITCH_DECK_BLOCKS)},
   {id: 'team-status', icon: '🚦', pageName: 'Team status dashboard', tags: ['interactive'], create: createBlockDocPage(TEAM_STATUS_BLOCKS)},
   {id: 'product-hq', icon: '🎯', pageName: 'Product HQ', tags: ['database'], guidance: GUIDANCE.productHq, create: createProductHq},
+  // A composite dashboard: KPI tiles + DB-backed charts over a seeded sales
+  // database. Tagged `interactive` (you land on a document, not a table), so it
+  // groups under Interactive documents; the description names its data backing.
+  {id: 'dashboard', icon: '📊', pageName: 'Sales dashboard', tags: ['interactive'], guidance: GUIDANCE.dashboard, create: createDashboard},
   // The classic sample document, folded into the gallery. Unlike the Home
   // starter's open-or-create (which targets the canonical sample name and never
   // overwrites), the gallery card always mints a FRESH copy under its own

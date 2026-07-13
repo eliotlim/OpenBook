@@ -970,6 +970,11 @@ export const en = {
       description: 'Two linked databases — Initiatives and Tasks — with a two-way relation, % done rolled up, and dependencies on a timeline.',
       guidance: 'This template shows two linked databases: each initiative relates to tasks on the Tasks sub-page, and the Progress and Task count columns roll those tasks up. Try it: tick a task done on the sub-page and watch the rollup move, or open the Tasks timeline for the dependency arrows.',
     },
+    dashboard: {
+      name: 'Sales dashboard',
+      description: 'A composite dashboard: KPI tiles and bar, pie and trend charts, all live over a seeded sample sales database.',
+      guidance: 'This dashboard reads a sample sales database: the KPI tiles total the rows, and the bar, pie and trend charts group them — all live. Try it: edit a deal on the “… data” sub-page and watch a tile move, or add a chart of your own with /chart → Database.',
+    },
   },
   blocks: {
     subpagePage: 'Page',
