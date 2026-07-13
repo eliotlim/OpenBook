@@ -262,12 +262,19 @@ const Bars: React.FC<{value: unknown; labels: string[]; palette: string[]}> = ({
         }),
       )}
       {labels.length > 0 && (
+        // Truncate to the per-group width with a hover title, matching the static
+        // export (kitChart.ts) so an in-doc bar and its export read the same.
         <g className="obe-chart-xlabels">
-          {labels.slice(0, n).map((l, i) => (
-            <text key={i} x={PAD + i * groupW + groupW / 2} y={H - 8}>
-              {l}
-            </text>
-          ))}
+          {labels.slice(0, n).map((l, i) => {
+            const budget = Math.max(3, Math.floor(groupW / 6));
+            const shown = ellipsize(l, budget);
+            return (
+              <text key={i} x={PAD + i * groupW + groupW / 2} y={H - 8}>
+                {shown}
+                {shown !== l && <title>{l}</title>}
+              </text>
+            );
+          })}
         </g>
       )}
       <SeriesLegend series={series} palette={palette} />
@@ -386,9 +393,6 @@ const MatrixBars: React.FC<{matrix: ChartMatrixInput; palette: string[]}> = ({ma
   const n = groups.length;
   const groupW = (W - PAD * 2) / n;
   const barW = Math.max(groupW * 0.62, 2);
-  // Angle the x-labels once the columns get narrow (many groups) so they read
-  // rather than merge into each other.
-  const rotate = n > 6 || groupW < 58;
   const track = H - PAD * 2;
   const seriesColorOf = (seriesKey: string): string => {
     const si = series.findIndex((s) => s.key === seriesKey);
@@ -427,24 +431,17 @@ const MatrixBars: React.FC<{matrix: ChartMatrixInput; palette: string[]}> = ({ma
         );
       })}
       {/* X-labels: the DB bar has no truncation of its own, so long/many-group
-          labels collide or overflow. Truncate to the per-group width (with a
-          hover <title> carrying the full text), and once the columns get narrow
-          (many groups) angle the labels so they stay legible instead of merging. */}
-      <g className={cn('obe-chart-xlabels', rotate && 'obe-chart-xlabels-rot')}>
+          labels collide or overflow. Truncate each to its column width (budget
+          scales with `groupW`, so labels shrink as groups multiply and never
+          collide) with a hover <title> carrying the full text. Kept horizontal
+          and centred — angled labels clip against the fixed-height viewBox — and
+          identical to the flat `Bars` + static export so all three read alike. */}
+      <g className="obe-chart-xlabels">
         {groups.map((g, i) => {
-          const cx = PAD + i * groupW + groupW / 2;
           const label = g.label ?? '';
-          const budget = rotate ? 11 : Math.max(3, Math.floor(groupW / 6));
-          const shown = ellipsize(label, budget);
-          const y = H - 8;
+          const shown = ellipsize(label, Math.max(3, Math.floor(groupW / 6)));
           return (
-            <text
-              key={g.key}
-              x={cx}
-              y={y}
-              textAnchor={rotate ? 'end' : 'middle'}
-              transform={rotate ? `rotate(-35 ${cx} ${y})` : undefined}
-            >
+            <text key={g.key} x={PAD + i * groupW + groupW / 2} y={H - 8}>
               {shown}
               {shown !== label && <title>{label}</title>}
             </text>

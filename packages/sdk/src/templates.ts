@@ -83,7 +83,7 @@ const GUIDANCE = {
   productHq:
     'This template shows two linked databases: each initiative relates to tasks on the Tasks sub-page, and the Progress and Task count columns roll those tasks up. Try it: tick a task done on the sub-page and watch the rollup move, or open the Tasks timeline for the dependency arrows.',
   dashboard:
-    'This dashboard reads a sample sales database: the KPI tiles total the rows, and the bar, pie and trend charts group them — all live. Try it: edit a deal on the “… data” sub-page and watch a tile move, or add a chart of your own with /chart → Database.',
+    'This dashboard reads a sample sales database: the KPI tiles total the rows, and the bar, pie and trend charts group them — all live. Try it: edit a deal on the “… data” sub-page and watch a tile move.',
 } as const;
 
 /** The guidance callout as a block-doc block (ids are stable per template). */
@@ -954,27 +954,29 @@ const SALES_ROWS = [
 ];
 
 /** A database-bound `kitchart` block (DASH-3 source mode). `dbId` is stamped at
- *  instantiation; `count` needs no numeric property, so `aggProp` is optional. */
+ *  instantiation; `count` needs no numeric property, so `aggProp` is optional. A
+ *  one-line `description` keeps the edit view clean (no ghost "Add a description…"). */
 const dashboardChart = (
   dbId: string,
   id: string,
   kind: string,
   title: string,
+  description: string,
   groupBy: string,
   aggType: 'count' | 'sum',
   aggProp?: string,
 ): object => ({
   id,
   type: 'kitchart',
-  props: {kind, title, sourceMode: 'database', dbId, dbGroupBy: groupBy, dbAggType: aggType, ...(aggProp ? {dbAggProp: aggProp} : {})},
+  props: {kind, title, description, sourceMode: 'database', dbId, dbGroupBy: groupBy, dbAggType: aggType, ...(aggProp ? {dbAggProp: aggProp} : {})},
 });
 
 /** The dashboard document: a leading guidance callout, a KPI row across the top
  *  (three tiles in a 12-col columns block), then the bar+pie pair and a
  *  full-width quarterly trend — every chart bound to the seeded sales database. */
 const dashboardBlocks = (dbId: string, guidance: string): object[] => {
-  const chart = (id: string, kind: string, title: string, groupBy: string, aggType: 'count' | 'sum', aggProp?: string) =>
-    dashboardChart(dbId, id, kind, title, groupBy, aggType, aggProp);
+  const chart = (id: string, kind: string, title: string, description: string, groupBy: string, aggType: 'count' | 'sum', aggProp?: string) =>
+    dashboardChart(dbId, id, kind, title, description, groupBy, aggType, aggProp);
   return [
     guidanceCallout('db-guide', guidance),
     {id: 'db-h1', type: 'heading', text: [{t: 'This quarter at a glance'}], props: {level: 2}},
@@ -984,9 +986,9 @@ const dashboardBlocks = (dbId: string, guidance: string): object[] => {
       id: 'db-kpis',
       type: 'columns',
       children: [
-        {id: 'db-kc1', type: 'column', props: {span: 4}, children: [chart('db-k-rev', 'kpi', 'Total revenue (£)', 'p_region', 'sum', 'p_amount')]},
-        {id: 'db-kc2', type: 'column', props: {span: 4}, children: [chart('db-k-deals', 'kpi', 'Deals', 'p_stage', 'count')]},
-        {id: 'db-kc3', type: 'column', props: {span: 4}, children: [chart('db-k-units', 'kpi', 'Units sold', 'p_channel', 'sum', 'p_units')]},
+        {id: 'db-kc1', type: 'column', props: {span: 4}, children: [chart('db-k-rev', 'kpi', 'Total revenue (£)', 'Summed across every region', 'p_region', 'sum', 'p_amount')]},
+        {id: 'db-kc2', type: 'column', props: {span: 4}, children: [chart('db-k-deals', 'kpi', 'Deals', 'Every row, across all stages', 'p_stage', 'count')]},
+        {id: 'db-kc3', type: 'column', props: {span: 4}, children: [chart('db-k-units', 'kpi', 'Units sold', 'Summed across every channel', 'p_channel', 'sum', 'p_units')]},
       ],
     },
     {id: 'db-h2', type: 'heading', text: [{t: 'Breakdown'}], props: {level: 2}},
@@ -995,13 +997,16 @@ const dashboardBlocks = (dbId: string, guidance: string): object[] => {
       id: 'db-cols',
       type: 'columns',
       children: [
-        {id: 'db-cl', type: 'column', props: {span: 6}, children: [chart('db-bar', 'bar', 'Revenue by region (£)', 'p_region', 'sum', 'p_amount')]},
-        {id: 'db-cr', type: 'column', props: {span: 6}, children: [chart('db-pie', 'pie', 'Deals by channel', 'p_channel', 'count')]},
+        {id: 'db-cl', type: 'column', props: {span: 6}, children: [chart('db-bar', 'bar', 'Revenue by region (£)', 'Amount summed per sales region', 'p_region', 'sum', 'p_amount')]},
+        {id: 'db-cr', type: 'column', props: {span: 6}, children: [chart('db-pie', 'pie', 'Deals by channel', 'Share of deals won online, retail and via partners', 'p_channel', 'count')]},
       ],
     },
     // A full-width quarterly trend closes the dashboard.
-    chart('db-line', 'line', 'Revenue by quarter (£)', 'p_quarter', 'sum', 'p_amount'),
-    {id: 'db-note', type: 'callout', text: [{t: 'Every tile and chart reads live from the sales database on the “… data” sub-page — edit a deal there and these update.'}], props: {variant: 'info'}},
+    chart('db-line', 'line', 'Revenue by quarter (£)', 'Amount summed by quarter, Q1 → Q4', 'p_quarter', 'sum', 'p_amount'),
+    // Trailing pointer: how to ADD a chart (distinct from the lead callout, which
+    // is about editing the data). The slash menu inserts a Chart, then its ⚙
+    // Source toggle switches it to Database — there is no "/chart → Database".
+    {id: 'db-note', type: 'callout', text: [{t: 'Want another cut of the data? Type /chart to insert one, then switch its Source to Database in the chart’s ⚙ settings and pick this database.'}], props: {variant: 'info'}},
   ];
 };
 

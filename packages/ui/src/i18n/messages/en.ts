@@ -973,7 +973,7 @@ export const en = {
     dashboard: {
       name: 'Sales dashboard',
       description: 'A composite dashboard: KPI tiles and bar, pie and trend charts, all live over a seeded sample sales database.',
-      guidance: 'This dashboard reads a sample sales database: the KPI tiles total the rows, and the bar, pie and trend charts group them — all live. Try it: edit a deal on the “… data” sub-page and watch a tile move, or add a chart of your own with /chart → Database.',
+      guidance: 'This dashboard reads a sample sales database: the KPI tiles total the rows, and the bar, pie and trend charts group them — all live. Try it: edit a deal on the “… data” sub-page and watch a tile move.',
     },
   },
   blocks: {

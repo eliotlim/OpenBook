@@ -2365,9 +2365,6 @@ a.obe-mention {
   text-anchor: end;
 }
 .obe-chart-xlabels text { text-anchor: middle; }
-/* Angled x-labels (many/long-labelled DB bar groups): the text-anchor is set
-   inline per-label (end), so this block only softens the type a touch. */
-.obe-chart-xlabels-rot text { font-size: 9.5px; }
 
 /* Sunburst centre readout (DASH-4): total at rest, hovered slice on hover. */
 .obe-chart-center-value { fill: hsl(var(--foreground)); font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
