@@ -6,6 +6,26 @@ import {SERVER} from './seed';
 // collision-free without manual name reclamation.
 test.use({freshWorkspace: true});
 
+// The timeline view centres on *today*, so any fixed calendar date becomes a
+// time-bomb: once "today" drifts past it, the bar scrolls off-screen and its
+// month label stops rendering. Seed every date relative to the current date so
+// bars stay near centre (visible without scrolling) and month labels stay
+// current, no matter when CI runs.
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const pad = (n: number): string => String(n).padStart(2, '0');
+const isoOf = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+/** ISO date (YYYY-MM-DD) `n` days from today; `n` may be negative. */
+const dayFromToday = (n: number): string => {
+  const t = new Date();
+  return isoOf(new Date(t.getFullYear(), t.getMonth(), t.getDate() + n));
+};
+/** The axis' month-tier label for an ISO date — matches databaseTimeline's
+ *  `MONTHS[m] + ' ' + year` format, e.g. "Jul 2026". */
+const monthLabelOf = (iso: string): string => {
+  const [y, m] = iso.split('-').map(Number);
+  return `${MONTHS[m - 1]} ${y}`;
+};
+
 async function newDatabase(page: import('@playwright/test').Page): Promise<void> {
   await page.goto('/');
   // A wiped (freshWorkspace) workspace lands on Home; wait for it to hydrate.
@@ -38,13 +58,14 @@ test('timeline view: a dated row renders as a bar', {tag: ['@database', '@visual
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
 
+  const due = dayFromToday(0);
   await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByLabel('Due').first().fill('2026-03-15');
+  await page.getByLabel('Due').first().fill(due);
 
   await openTimeline(page);
 
-  // The month axis labels the spanned month.
-  await expect(page.getByText('Mar 2026')).toBeVisible();
+  // The month axis labels the spanned (current) month.
+  await expect(page.getByText(monthLabelOf(due))).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: gantt timeline
 });
 
@@ -72,13 +93,14 @@ test('timeline drag: dragging a bar reschedules the row', {tag: ['@database', '@
   await newDatabase(page);
   await addColumn(page, 'When', 'date');
 
+  const when = dayFromToday(0);
   await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByLabel('When').first().fill('2026-03-15');
+  await page.getByLabel('When').first().fill(when);
 
   await openTimeline(page);
 
-  // Drag the bar to the right (later in time). The timeline centres on today, so
-  // a bar dated months earlier starts scrolled off-screen — reveal it first.
+  // Drag the bar to the right (later in time). The bar can sit below the fold
+  // (header + properties + editor above the view) — reveal it before measuring.
   const bar = page.getByTitle(/drag to reschedule/);
   await expect(bar).toBeVisible();
   await bar.scrollIntoViewIfNeeded();
@@ -92,7 +114,7 @@ test('timeline drag: dragging a bar reschedules the row', {tag: ['@database', '@
   // render as text; click to reveal the native input).
   await page.getByRole('button', {name: 'Table', exact: true}).click();
   await page.getByLabel('When').first().click();
-  await expect(page.getByLabel('When').first()).not.toHaveValue('2026-03-15');
+  await expect(page.getByLabel('When').first()).not.toHaveValue(when);
 });
 
 // Drag from one bar's link handle onto another to create a dependency edge.
@@ -102,9 +124,9 @@ test('timeline drag-to-link: drag one bar onto another to add a dependency', {ta
   await addColumn(page, 'Depends', 'dependency');
 
   await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByLabel('When').first().fill('2026-03-10');
+  await page.getByLabel('When').first().fill(dayFromToday(-5));
   await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByLabel('When').nth(1).fill('2026-03-20');
+  await page.getByLabel('When').nth(1).fill(dayFromToday(5));
 
   await openTimeline(page);
 
@@ -181,18 +203,20 @@ test('timeline unscheduled row: a dateless row gets a click-to-place lane', {tag
 test('timeline scale: switching zoom updates the axis', {tag: ['@database']}, async ({page}) => {
   await newDatabase(page);
   await addColumn(page, 'Due', 'date');
+  const due = dayFromToday(0);
+  const [year] = due.split('-');
   await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByLabel('Due').first().fill('2026-03-15');
+  await page.getByLabel('Due').first().fill(due);
 
   await openTimeline(page);
 
-  // A fine default zoom shows a month context tier.
-  await expect(page.getByText('Mar 2026')).toBeVisible();
+  // A fine default zoom shows a month context tier (the current month).
+  await expect(page.getByText(monthLabelOf(due))).toBeVisible();
 
   // Yearly zoom labels whole years and drops the month context.
   await chooseValue(page, page.getByLabel('Timeline scale'), 'year');
-  await expect(page.getByText('2026', {exact: true})).toBeVisible();
-  await expect(page.getByText('Mar 2026')).toHaveCount(0);
+  await expect(page.getByText(year, {exact: true})).toBeVisible();
+  await expect(page.getByText(monthLabelOf(due))).toHaveCount(0);
 });
 
 // A dependency graph view lays rows out as connected nodes.
@@ -255,7 +279,10 @@ test('timeline drag with separate start/end columns moves both dates', {tag: ['@
   const pageId = ((await p.json()) as {id: string}).id;
   const d = await request.post(`${SERVER}/api/databases`, {data: {pageId, name: 'T', schema}});
   const dbId = ((await d.json()) as {id: string}).id;
-  await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {name: `Span ${dbId.slice(0, 8)}`, properties: {p_start: '2026-03-02', p_end: '2026-03-16'}}});
+  // A 14-day span straddling today, so the bar renders near centre.
+  const startDate = dayFromToday(-7);
+  const endDate = dayFromToday(7);
+  await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {name: `Span ${dbId.slice(0, 8)}`, properties: {p_start: startDate, p_end: endDate}}});
 
   await page.goto(`/?page=${pageId}`);
   const bar = page.getByTitle(/drag to reschedule/);
@@ -275,7 +302,7 @@ test('timeline drag with separate start/end columns moves both dates', {tag: ['@
       const rows = (await (await request.get(`${SERVER}/api/databases/${dbId}/rows`)).json()) as Array<{properties: Record<string, string>}>;
       const {p_start, p_end} = rows[0].properties;
       const days = (Date.parse(p_end) - Date.parse(p_start)) / 86_400_000;
-      return {days, moved: p_start !== '2026-03-02'};
+      return {days, moved: p_start !== startDate};
     })
     .toEqual({days: 14, moved: true});
 });
