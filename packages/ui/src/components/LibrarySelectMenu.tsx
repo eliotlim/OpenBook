@@ -30,8 +30,10 @@ import {
   useTranslation,
   useLibrary,
   useHud,
+  useOptionalAccount,
   isSafeServerUrl,
   libraryHostLabel,
+  type Library,
 } from '@/providers';
 
 /**
@@ -43,13 +45,19 @@ import {
  *
  * Connect (LM-3): "Connect to a library…" opens the add-a-server dialog; on
  * submit it adds the server AND switches this device onto it (reload-switch),
- * enforcing the safe-URL + mixed-content guards. The add-a-library flow IS the
- * connect flow — reachable identically from the desktop titlebar switcher.
+ * enforcing the safe-URL + mixed-content guards.
+ *
+ * Discovery (LM-4): when signed in, the libraries synced to the account are shown
+ * under a "From your account" group — including ones configured on another device
+ * that aren't local here yet, which connect with a single click.
  */
 export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sidebar' | 'titlebar'}) {
   const {libraries, library, selectLibrary, addLibrary, removeLibrary} = useLibrary();
   const {setHud} = useHud();
   const {t} = useTranslation();
+  // Account is optional chrome — degrade (no "From your account" group) rather
+  // than crash if this ever renders outside an AccountProvider.
+  const account = useOptionalAccount();
   // On a forwarded `<prefix>.book.cloud` site the app talks to the owner's
   // instance same-origin, so the local/default library (no server override)
   // has no host to name itself after — label it with the site host instead of
@@ -113,6 +121,82 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
     closeAdd();
   };
 
+  // ── Group the switcher list (LM-4). ─────────────────────────────────────────
+  // The active account's synced libraries (empty when signed out). The local
+  // device library (serverUrl null) is always "on this device", never surfaced as
+  // an account library even though the sync blob carries it.
+  const synced = account?.syncedLibraries ?? [];
+  const accountRemotes = synced.filter((l) => l.serverUrl !== null && isSafeServerUrl(l.serverUrl));
+  const accountUrls = new Set(accountRemotes.map((l) => l.serverUrl));
+  const hasAccountGroup = accountRemotes.length > 0;
+  // "On this device" when grouped: the device library + any remote added locally
+  // that the account doesn't (yet) know about.
+  const localOnly = libraries.filter((l) => l.serverUrl === null || !accountUrls.has(l.serverUrl));
+  // The account group: prefer the matching local entry (so its id/icon/status are
+  // the live ones) and fall back to the synced entry, which then connects on click.
+  const accountRows = accountRemotes.map((s) => {
+    const local = libraries.find((l) => l.serverUrl === s.serverUrl);
+    return {lib: local ?? s, local: Boolean(local)};
+  });
+
+  const onSelectRow = (row: {lib: Library; local: boolean}) => {
+    if (row.local) {
+      selectLibrary(row.lib.id);
+      return;
+    }
+    if (row.lib.serverUrl && !isMixedContentBlocked(row.lib.serverUrl)) {
+      connectTo(row.lib.serverUrl, {name: row.lib.name, icon: row.lib.icon});
+    }
+  };
+
+  const renderRow = (row: {lib: Library; local: boolean}) => {
+    const ws = row.lib;
+    const active = row.local && ws.id === library.id;
+    const canRemove = row.local && !active && libraries.length > 1;
+    const blocked = !row.local && Boolean(ws.serverUrl) && isMixedContentBlocked(ws.serverUrl!);
+    return (
+      <DropdownMenuItem
+        key={`${row.local ? 'local' : 'acct'}:${ws.id}`}
+        disabled={blocked}
+        onSelect={() => onSelectRow(row)}
+        className="group flex items-center gap-2"
+        title={blocked ? t('library.mixedContentBlocked') : undefined}
+      >
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center text-lg leading-none">{ws.icon}</span>
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span className="truncate text-sm">{nameFor(ws)}</span>
+          {!isForwardedLocal(ws) && (
+            <span className="truncate text-xs text-muted-foreground">{libraryHostLabel(ws.serverUrl)}</span>
+          )}
+        </span>
+        {active ? (
+          <CheckIcon className="h-4 w-4 shrink-0 text-brand" />
+        ) : row.local ? (
+          <LibraryStatusDot serverUrl={ws.serverUrl} active={false} className="mr-1" />
+        ) : (
+          // A synced library not connected here yet — a one-click connect.
+          <span className="shrink-0 text-xs font-medium text-brand">{t('library.connectFromAccount')}</span>
+        )}
+        {canRemove && (
+          <button
+            type="button"
+            aria-label={t('library.removeLibrary', {name: ws.name})}
+            title={t('common.remove')}
+            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-hover hover:text-destructive group-hover:flex"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              removeLibrary(ws.id);
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </DropdownMenuItem>
+    );
+  };
+
   return (
     <>
       <DropdownMenu>
@@ -139,52 +223,23 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
           )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="w-72">
-          <DropdownMenuLabel>{t('library.libraries')}</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {libraries.map((ws) => {
-            const active = ws.id === library.id;
-            const canRemove = !active && libraries.length > 1;
-            return (
-              <DropdownMenuItem
-                key={ws.id}
-                onSelect={() => selectLibrary(ws.id)}
-                className="group flex items-center gap-2"
-              >
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center text-lg leading-none">
-                  {ws.icon}
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-sm">{nameFor(ws)}</span>
-                  {!isForwardedLocal(ws) && (
-                    <span className="truncate text-xs text-muted-foreground">
-                      {libraryHostLabel(ws.serverUrl)}
-                    </span>
-                  )}
-                </span>
-                {active ? (
-                  <CheckIcon className="h-4 w-4 shrink-0 text-brand" />
-                ) : (
-                  <LibraryStatusDot serverUrl={ws.serverUrl} active={false} className="mr-1" />
-                )}
-                {canRemove && (
-                  <button
-                    type="button"
-                    aria-label={t('library.removeLibrary', {name: ws.name})}
-                    title={t('common.remove')}
-                    className="hidden h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-hover hover:text-destructive group-hover:flex"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      removeLibrary(ws.id);
-                    }}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-              </DropdownMenuItem>
-            );
-          })}
+          {hasAccountGroup ? (
+            <>
+              <DropdownMenuLabel>{t('library.onThisDevice')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {localOnly.map((lib) => renderRow({lib, local: true}))}
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>{t('library.fromAccount')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {accountRows.map(renderRow)}
+            </>
+          ) : (
+            <>
+              <DropdownMenuLabel>{t('library.libraries')}</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {libraries.map((lib) => renderRow({lib, local: true}))}
+            </>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem
             onSelect={(e) => {

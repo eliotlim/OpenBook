@@ -558,6 +558,10 @@ export const en = {
     urlUnsafe: 'Enter an http:// or https:// server URL.',
     mixedContentBlocked:
       'This app is served over https, so it can’t reach a plain http:// address. Use the server’s https:// forwarding address instead.',
+    fromAccount: 'From your account',
+    onThisDevice: 'On this device',
+    connectFromAccount: 'Connect',
+    accountSyncedHint: 'Synced to your account and available on your other devices.',
     status: {
       connected: 'Connected',
       reachable: 'Reachable',
