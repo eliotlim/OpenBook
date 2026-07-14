@@ -83,11 +83,15 @@ export default function BackupSettings() {
 
   const [busy, setBusy] = useState<null | 'export' | 'import' | 'folder' | 'compact'>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // The "Export" section reuses the same export action as the top section but is
+  // rendered far below it — so it carries its own status line, and each export
+  // trigger reports to the status line adjacent to the button that was clicked.
+  const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [bundle, setBundle] = useState<LibraryBackup | null>(null);
 
-  const onExport = useCallback(async () => {
+  const doExport = useCallback(async (setMsg: (s: string | null) => void) => {
     setBusy('export');
-    setStatus(null);
+    setMsg(null);
     try {
       const {pages, databases} = await client.exportLibrary();
       // Icons travel in `page.properties` now, but keep the legacy `icons` map in
@@ -99,9 +103,9 @@ export default function BackupSettings() {
       }
       const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons};
       downloadText(`openbook-backup-${new Date().toISOString().slice(0, 10)}.openbook.json`, JSON.stringify(backup), 'application/json');
-      setStatus(t('backup.exported', {count: pages.length}));
+      setMsg(t('backup.exported', {count: pages.length}));
     } catch (e) {
-      setStatus(t('backup.exportFailed', {error: (e as Error).message}));
+      setMsg(t('backup.exportFailed', {error: (e as Error).message}));
     } finally {
       setBusy(null);
     }
@@ -121,16 +125,16 @@ export default function BackupSettings() {
   // the web falls back to the File System Access API or a zip download.
   const onExportFolder = useCallback(async () => {
     setBusy('folder');
-    setStatus(null);
+    setExportStatus(null);
     try {
       const files = libraryToBookFiles(await client.exportLibrary(), {runtime: await loadFolderRuntime()});
       const name = `openbook-${new Date().toISOString().slice(0, 10)}`;
       const result = platform.bookFolder?.export
         ? await platform.bookFolder.export(files)
         : await exportBookFolderInBrowser(files, name);
-      if (result) setStatus(t('backup.folderExported', {count: result.count, location: result.location}));
+      if (result) setExportStatus(t('backup.folderExported', {count: result.count, location: result.location}));
     } catch (e) {
-      setStatus(t('backup.exportFailed', {error: (e as Error).message}));
+      setExportStatus(t('backup.exportFailed', {error: (e as Error).message}));
     } finally {
       setBusy(null);
     }
@@ -139,7 +143,7 @@ export default function BackupSettings() {
   // Load a book folder back; route it through the same Restore dialog so the
   // user picks which roots to bring in and copy-vs-overwrite.
   const onImportFolder = useCallback(async () => {
-    setStatus(null);
+    setExportStatus(null);
     try {
       const files = platform.bookFolder?.import
         ? await platform.bookFolder.import()
@@ -147,7 +151,7 @@ export default function BackupSettings() {
       if (!files) return;
       const snapshot = parseBookFolder(files);
       if (!snapshot) {
-        setStatus(t('backup.folderEmpty'));
+        setExportStatus(t('backup.folderEmpty'));
         return;
       }
       const icons: Record<string, string> = {};
@@ -157,7 +161,7 @@ export default function BackupSettings() {
       }
       setBundle({version: BACKUP_VERSION, exportedAt: '', pages: snapshot.pages, databases: snapshot.databases, icons});
     } catch (e) {
-      setStatus(t('backup.readFailed', {error: (e as Error).message}));
+      setExportStatus(t('backup.readFailed', {error: (e as Error).message}));
     }
   }, [platform, t]);
 
@@ -196,7 +200,7 @@ export default function BackupSettings() {
           {t('backup.intro')}
         </p>
         <div className="mt-1 flex flex-wrap gap-2">
-          <Button onClick={() => void onExport()} disabled={busy !== null} className="gap-2">
+          <Button onClick={() => void doExport(setStatus)} disabled={busy !== null} className="gap-2">
             <Download className="h-4 w-4" />
             {busy === 'export' ? t('backup.exporting') : t('backup.export')}
           </Button>
@@ -246,7 +250,7 @@ export default function BackupSettings() {
             <FolderDown className="h-4 w-4" />
             {busy === 'folder' ? t('backup.folderExporting') : t('backup.folderExport')}
           </Button>
-          <Button variant="secondary" onClick={() => void onExport()} disabled={busy !== null} className="gap-2">
+          <Button variant="secondary" onClick={() => void doExport(setExportStatus)} disabled={busy !== null} className="gap-2">
             <Download className="h-4 w-4" />
             {busy === 'export' ? t('backup.exporting') : t('backup.folderBackup')}
           </Button>
@@ -255,6 +259,7 @@ export default function BackupSettings() {
             {t('backup.folderImport')}
           </Button>
         </div>
+        {exportStatus && <p className="text-sm text-muted-foreground">{exportStatus}</p>}
       </section>
 
       <BookFilesSection />
