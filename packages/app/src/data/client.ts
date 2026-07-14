@@ -5,6 +5,7 @@ import {
   getServerUrlOverride,
   getServerTokenOverride,
   getIdentityCredential,
+  onIdentityChange,
   type DataClient,
   type FetchLike,
   type ServerInfo,
@@ -25,7 +26,14 @@ export const DEV_SERVER_URL = 'http://127.0.0.1:4319';
 export const createDesktopClient = async (): Promise<DataClient> => {
   const override = getServerUrlOverride();
   if (override) {
-    return new HttpDataClient(override, getServerTokenOverride() ?? undefined, {getIdentity: getIdentityCredential});
+    // Remote/different data-server: rebuild the live nav stream when the account
+    // identity refreshes or lapses, so the streamed list can't keep asserting a
+    // stale identity while one-shot content fetches use the current one
+    // (cross-server "titles show, content blank").
+    return new HttpDataClient(override, getServerTokenOverride() ?? undefined, {
+      getIdentity: getIdentityCredential,
+      subscribeIdentity: onIdentityChange,
+    });
   }
 
   let info: ServerInfo | null = null;
@@ -43,6 +51,7 @@ export const createDesktopClient = async (): Promise<DataClient> => {
       fetchImpl: tauriFetch,
       createLiveSource: createTauriLiveSource,
       getIdentity: getIdentityCredential,
+      subscribeIdentity: onIdentityChange,
     });
   }
 
@@ -58,5 +67,9 @@ export const createDesktopClient = async (): Promise<DataClient> => {
       return fetch(input, {...init, headers});
     }
     : undefined;
-  return new HttpDataClient(DEV_SERVER_URL, undefined, {getIdentity: getIdentityCredential, fetchImpl: devFetch});
+  return new HttpDataClient(DEV_SERVER_URL, undefined, {
+    getIdentity: getIdentityCredential,
+    subscribeIdentity: onIdentityChange,
+    fetchImpl: devFetch,
+  });
 };

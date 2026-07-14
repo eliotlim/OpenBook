@@ -39,6 +39,10 @@ const serverBlobs = new Map<string, {settings: Record<string, unknown>; updatedA
 const failSettingsGet = new Set<string>();
 let rejectAudMints = false;
 const failIdentityMint = new Set<string>();
+//  • revokeIdentityMint — tokens whose identity mint 401s (the device token was
+//    revoked/blocked server-side): a terminal auth failure that must surface a
+//    visible re-auth state and drop the dead JWS, never a silent guest downgrade.
+const revokeIdentityMint = new Set<string>();
 let identityMintUrls: string[] = [];
 const putsFor = (tok: string): Array<{token: string; settings: Record<string, unknown>}> =>
   settingsPuts.filter((p) => p.token === tok);
@@ -67,6 +71,7 @@ function installFetchStub(): void {
       const tok = auth?.replace(/^Bearer\s+/, '') ?? '';
       if (url.includes('/api/identity/token')) {
         identityMintUrls.push(url);
+        if (revokeIdentityMint.has(tok)) return jsonResponse(401, {}); // device token revoked/blocked
         if (failIdentityMint.has(tok)) return jsonResponse(503, {}); // transient outage
         if (!PERSONAS[tok]) return jsonResponse(501, {}); // issuance not configured
         if (rejectAudMints && url.includes('aud=')) {
@@ -137,6 +142,7 @@ beforeEach(() => {
   failSettingsGet.clear();
   rejectAudMints = false;
   failIdentityMint.clear();
+  revokeIdentityMint.clear();
   identityMintUrls = [];
   installFetchStub();
 });
@@ -380,10 +386,47 @@ describe('AccountProvider — identity mint resilience', () => {
       await result.current.remintIdentity();
     });
 
-    // The 503 took the transient path: the stored JWS is untouched, and the
-    // issuance verdict didn't flip on a blip.
+    // The 503 took the transient path: the stored JWS is untouched (it's still well
+    // within its window), the issuance verdict didn't flip on a blip, and no
+    // spurious re-auth prompt was raised for a still-valid identity.
     expect(getIdentityCredential().jws).toBe(before);
     expect(result.current.identityIssuance).toBe('ok');
+    expect(result.current.identityExpired).toBe(false);
+  });
+
+  it('a revoked device token surfaces a visible re-auth state and drops the dead JWS', async () => {
+    const {result} = renderAccount();
+    await addAccount(result, 'tok-work');
+    expect(getIdentityCredential().jws).toBeTruthy();
+    expect(result.current.identityExpired).toBe(false);
+
+    // The device token is revoked server-side: the next refresh mint 401s. A
+    // present-but-invalid assertion hard-401s content on the data server (blank
+    // pages), so the provider must STOP presenting the dead JWS AND surface a
+    // visible reconnect affordance — never a silent drop to anonymous.
+    revokeIdentityMint.add('tok-work');
+    await act(async () => {
+      await result.current.remintIdentity();
+    });
+
+    await waitFor(() => expect(result.current.identityExpired).toBe(true));
+    expect(getIdentityCredential().jws).toBeUndefined();
+    // A revoked token is NOT the legitimate named-guest (501) mode.
+    expect(result.current.identityIssuance).not.toBe('unconfigured');
+  });
+
+  it('signing out clears a raised re-auth prompt (a deliberate exit is not a lapse)', async () => {
+    const {result} = renderAccount();
+    await addAccount(result, 'tok-work');
+    revokeIdentityMint.add('tok-work');
+    await act(async () => {
+      await result.current.remintIdentity();
+    });
+    await waitFor(() => expect(result.current.identityExpired).toBe(true));
+
+    act(() => result.current.signOut());
+    await waitFor(() => expect(result.current.status).toBe('disconnected'));
+    expect(result.current.identityExpired).toBe(false);
   });
 });
 

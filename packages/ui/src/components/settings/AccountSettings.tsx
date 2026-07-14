@@ -15,10 +15,25 @@ import {useAccount, useTranslation} from '@/providers';
  */
 export default function AccountSettings() {
   const {t} = useTranslation();
-  const {status, accounts, error, signIn, submitCode, cancel} = useAccount();
+  const {status, accounts, error, signIn, submitCode, cancel, identityExpired, syncNow} = useAccount();
 
   return (
     <SettingsScreen title={t('account.signin.title')} description={t('account.signin.description')} scope="account">
+      {/* A previously-verified identity lapsed and couldn't refresh — surface a
+          non-blocking reconnect affordance rather than silently dropping the reader
+          to anonymous behind blank content. `syncNow` re-activates the active
+          account (reconcile + re-mint); a truly dead token then routes to sign-in. */}
+      {identityExpired && accounts.length > 0 && (
+        <SettingsSection>
+          <div className="flex flex-col items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+            <p className="text-sm font-medium">{t('account.reauth.title')}</p>
+            <p className="text-sm text-muted-foreground">{t('account.reauth.body')}</p>
+            <Button variant="outline" size="sm" onClick={syncNow}>
+              {t('account.reauth.reconnect')}
+            </Button>
+          </div>
+        </SettingsSection>
+      )}
       {accounts.length === 0 ? (
         <SettingsSection>
           {status === 'connecting' ? (

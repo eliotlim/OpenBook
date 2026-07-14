@@ -20,7 +20,7 @@ export type {
 export {emptyPageSnapshot, PAGE_VISIBILITIES} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential, CreateAgentTokenInput, CreatedAgentToken, AgentTokenList} from './client';
-export {HttpDataClient} from './client';
+export {HttpDataClient, IdentityRejectedError} from './client';
 export {
   ForwardingApiError,
   ForwardingClient,
@@ -189,7 +189,7 @@ export {
   propertiesReferencePage,
   type VerificationValue,
 } from './pageProperties';
-export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, getForwardingAudience, setForwardingAudience, isMixedContentBlocked} from './connection';
+export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, onIdentityChange, getForwardingAudience, setForwardingAudience, isMixedContentBlocked} from './connection';
 export {
   AccountClient,
   AccountError,

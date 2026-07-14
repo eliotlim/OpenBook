@@ -1,6 +1,7 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
   HttpDataClient,
+  IdentityRejectedError,
   LIVE_OPEN_GRACE_MS,
   LIVE_POLL_AFTER_ERRORS,
   LIVE_POLL_INTERVAL_MS,
@@ -336,5 +337,189 @@ describe('HttpDataClient assets (base64-JSON is byte-exact on the http path)', (
     const got = await client.getAsset(id);
     expect(got!.bytes.length).toBe(bytes.length);
     expect(Array.from(got!.bytes)).toEqual(Array.from(bytes)); // byte-exact end to end
+  });
+});
+
+/**
+ * The live nav stream bakes the identity into its EventSource URL when it opens
+ * (an EventSource can't send headers, so the JWS rides `?identity=`) and can never
+ * refresh it afterwards, while one-shot content fetches read the identity fresh
+ * per request. So a stale/stronger streamed identity kept the nav list showing
+ * page TITLES whose bodies then 401/404'd — the cross-server blank-content bug.
+ * The client rebuilds the stream when the identity credential ACTUALLY changes.
+ */
+describe('LiveStream identity re-mint (cross-server blank pages)', () => {
+  function makeIdentityClient() {
+    let jws: string | undefined;
+    let onChange: (() => void) | null = null;
+    const sources: Array<{url: string; source: FakeSource}> = [];
+    const client = new HttpDataClient('https://remote.example', undefined, {
+      fetchImpl: () => Promise.resolve(new Response('[]', {status: 200, headers: {'content-type': 'application/json'}})),
+      createLiveSource: (url) => {
+        const source = new FakeSource();
+        sources.push({url, source});
+        return source;
+      },
+      getIdentity: () => ({jws}),
+      subscribeIdentity: (cb) => {
+        onChange = cb;
+        return () => void (onChange = null);
+      },
+    });
+    return {
+      client,
+      sources,
+      setIdentity: (v: string | undefined): void => void (jws = v),
+      fireChange: (): void => onChange?.(),
+    };
+  }
+
+  it('rebuilds the stream with the new identity when the credential changes', () => {
+    const h = makeIdentityClient();
+    h.setIdentity('jws-A');
+    const unsub = h.client.subscribePages(() => {});
+    expect(h.sources).toHaveLength(1);
+    expect(h.sources[0].url).toContain('identity=jws-A');
+    h.sources[0].source.emit('open'); // establish the connection
+
+    // The account refreshes the identity to a new JWS → the stream is rebuilt so it
+    // can't keep asserting the old one after content fetches move to the new one.
+    h.setIdentity('jws-B');
+    h.fireChange();
+    expect(h.sources[0].source.closed).toBe(true); // old source torn down
+    expect(h.sources).toHaveLength(2);
+    expect(h.sources[1].url).toContain('identity=jws-B');
+
+    unsub();
+  });
+
+  it('does not churn the connection when the credential is unchanged', () => {
+    const h = makeIdentityClient();
+    h.setIdentity('jws-A');
+    const unsub = h.client.subscribePages(() => {});
+    h.sources[0].source.emit('open');
+
+    h.fireChange(); // same identity — a no-op set fired the listener
+    expect(h.sources).toHaveLength(1);
+    expect(h.sources[0].source.closed).toBe(false);
+
+    unsub();
+  });
+
+  it('drops the identity from the stream URL when it lapses to guest', () => {
+    const h = makeIdentityClient();
+    h.setIdentity('jws-A');
+    const unsub = h.client.subscribePages(() => {});
+    h.sources[0].source.emit('open');
+
+    // The verified identity lapses (refresh cleared it): the rebuilt stream must
+    // stop asserting it, so the streamed list degrades to guest in lockstep with
+    // the content fetches rather than out-ranking them.
+    h.setIdentity(undefined);
+    h.fireChange();
+    expect(h.sources).toHaveLength(2);
+    expect(h.sources[1].url).not.toContain('identity=');
+
+    unsub();
+  });
+
+  // An open PAGE that is no longer readable under the new identity must be CLEARED,
+  // not left rendered — otherwise account-A's body lingers under account-B until
+  // the user navigates. The identity-scoped resync fires `onDeleted` for it.
+  function makePageClient(pageStatusFor: (jws: string | undefined) => number) {
+    let jws: string | undefined;
+    let onChange: (() => void) | null = null;
+    const sources: FakeSource[] = [];
+    const client = new HttpDataClient('https://remote.example', undefined, {
+      fetchImpl: (input: string): Promise<Response> => {
+        if (input.includes('/api/pages/')) {
+          const status = pageStatusFor(jws);
+          const body = status === 200 ? JSON.stringify({id: 'p1', name: 'x', data: {}, updatedAt: 't'}) : '{}';
+          return Promise.resolve(new Response(body, {status, headers: {'content-type': 'application/json'}}));
+        }
+        return Promise.resolve(new Response('[]', {status: 200, headers: {'content-type': 'application/json'}}));
+      },
+      createLiveSource: () => {
+        const source = new FakeSource();
+        sources.push(source);
+        return source;
+      },
+      getIdentity: () => ({jws}),
+      subscribeIdentity: (cb) => {
+        onChange = cb;
+        return () => void (onChange = null);
+      },
+    });
+    return {
+      client,
+      sources,
+      setIdentity: (v: string | undefined): void => void (jws = v),
+      fireChange: (): void => onChange?.(),
+    };
+  }
+
+  it('clears an open page that is unreadable under the new identity (drops stale content)', async () => {
+    // p1 reads under jws-A, is hidden (404) under jws-B.
+    const h = makePageClient((jws) => (jws === 'jws-A' ? 200 : 404));
+    h.setIdentity('jws-A');
+    const deleted: string[] = [];
+    const unsub = h.client.subscribePage('p1', {onPage: () => {}, onDeleted: (id) => deleted.push(id)});
+    h.sources[0].emit('open');
+
+    // Identity lapses/switches to B → the identity-scoped resync finds p1 now 404 and
+    // clears it (never leaving A's body under B).
+    h.setIdentity('jws-B');
+    h.fireChange();
+    await vi.waitFor(() => expect(deleted).toContain('p1'));
+
+    unsub();
+  });
+
+  it('a transient reconnect resync does NOT clear a briefly-failing page (only a credential change does)', async () => {
+    // The page 200s under the (unchanged) identity, then briefly 404s during a
+    // server restart. A reconnect resync must NOT treat that as a loss of access.
+    let status = 200;
+    const h = makePageClient(() => status);
+    h.setIdentity('jws-A');
+    const deleted: string[] = [];
+    const unsub = h.client.subscribePage('p1', {onPage: () => {}, onDeleted: (id) => deleted.push(id)});
+    h.sources[0].emit('open');
+
+    status = 404; // server momentarily can't serve
+    h.sources[0].emit('error'); // a drop…
+    h.sources[0].emit('open'); // …then reopen → reconnect resync (clearUnreadable=false)
+    await new Promise((r) => setTimeout(r, 20));
+    expect(deleted).toHaveLength(0); // stale content kept; the next event heals it
+
+    unsub();
+  });
+});
+
+/**
+ * `getPage` must tell a REJECTED identity (401) from a page that's genuinely gone
+ * or hidden (404): 404 → an empty document, 401 → an auth error a caller surfaces
+ * as re-auth. Collapsing 401 into "no content" is what rendered a blank page when
+ * a remote-server identity lapsed.
+ */
+describe('HttpDataClient.getPage — 401 vs 404', () => {
+  it('returns null on 404 (gone or hidden from this principal)', async () => {
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: () => Promise.resolve(new Response('{}', {status: 404, headers: {'content-type': 'application/json'}})),
+    });
+    await expect(client.getPage('p1')).resolves.toBeNull();
+  });
+
+  it('throws IdentityRejectedError on 401 (auth problem, not empty content)', async () => {
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: () =>
+        Promise.resolve(
+          new Response(JSON.stringify({error: 'identity rejected: expired'}), {
+            status: 401,
+            headers: {'content-type': 'application/json'},
+          }),
+        ),
+    });
+    await expect(client.getPage('p1')).rejects.toBeInstanceOf(IdentityRejectedError);
+    await expect(client.getPage('p1')).rejects.toMatchObject({status: 401});
   });
 });

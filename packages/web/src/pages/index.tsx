@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import type {GetServerSideProps, InferGetServerSidePropsType} from 'next';
 import Head from 'next/head';
-import {HttpDataClient, getServerUrlOverride, getServerTokenOverride, getIdentityCredential, type DataClient} from '@book.dev/sdk';
+import {HttpDataClient, getServerUrlOverride, getServerTokenOverride, getIdentityCredential, onIdentityChange, type DataClient} from '@book.dev/sdk';
 import {
   DataProvider,
   DefaultLayout,
@@ -47,18 +47,23 @@ function useWebClient(forwardedPrefix: string | null): {client: DataClient | nul
     // Same-origin (empty base), no token: the edge injects the signed viewer
     // principal. Takes precedence over a local override and the in-browser store.
     if (forwardedPrefix) {
-      setState({client: new HttpDataClient('', undefined, {getIdentity: getIdentityCredential}), browserLocal: false});
-      return;
+      const client = new HttpDataClient('', undefined, {getIdentity: getIdentityCredential, subscribeIdentity: onIdentityChange});
+      setState({client, browserLocal: false});
+      return () => client.dispose();
     }
     const override = getServerUrlOverride() ?? REMOTE_SERVER_URL;
     if (override) {
       // A published server requires its access token on every request; pass the
       // configured one (Connection settings) so a token-gated remote works.
-      setState({
-        client: new HttpDataClient(override, getServerTokenOverride() ?? undefined, {getIdentity: getIdentityCredential}),
-        browserLocal: false,
+      // `subscribeIdentity` rebuilds the live nav stream when the account identity
+      // refreshes / lapses, so the streamed list can't out-rank content fetches
+      // (cross-server "titles show, content blank").
+      const client = new HttpDataClient(override, getServerTokenOverride() ?? undefined, {
+        getIdentity: getIdentityCredential,
+        subscribeIdentity: onIdentityChange,
       });
-      return;
+      setState({client, browserLocal: false});
+      return () => client.dispose();
     }
     let cancelled = false;
     openLocalClient()

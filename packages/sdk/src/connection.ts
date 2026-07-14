@@ -100,17 +100,61 @@ export function getIdentityCredential(): IdentityCredential {
   };
 }
 
+// ── Identity-change notification (cross-server blank-page fix) ────────────────
+// The data client bakes the identity into its live-stream (`/api/live`) URL when
+// the EventSource opens — an EventSource can't send headers, so the JWS rides the
+// query — and that URL is then FROZEN for the life of the connection. One-shot
+// content fetches (`getPage`) instead read the identity fresh per request. So
+// after a sign-out / account switch / token refresh, the streamed nav list keeps
+// asserting the OLD identity while content uses the NEW (or dropped) one: the
+// list can outrank the content and show titles for pages whose bodies now 401/404
+// (the "titles show, content blank" symptom on a lapsed remote-server identity).
+// The client subscribes here so it can rebuild the live stream when the credential
+// ACTUALLY changes, keeping both axes on the same identity.
+type IdentityChangeListener = () => void;
+const identityListeners = new Set<IdentityChangeListener>();
+
+/**
+ * Subscribe to identity-credential changes — a new/cleared verified JWS, or a
+ * changed guest label. Returns an unsubscribe. Fires only on a real value change
+ * (the setters below dedupe), so a caller can rebuild a baked-in connection
+ * without churning it on every no-op set.
+ */
+export function onIdentityChange(listener: IdentityChangeListener): () => void {
+  identityListeners.add(listener);
+  return () => void identityListeners.delete(listener);
+}
+
+function notifyIdentityChange(): void {
+  // Copy first: a listener that (un)subscribes during its own handler must not
+  // perturb the fan-out, and one throwing must not starve the others.
+  for (const listener of [...identityListeners]) {
+    try {
+      listener();
+    } catch {
+      /* a listener's own failure is its own problem */
+    }
+  }
+}
+
 /** Set the verified identity assertion (JWS), or `null` to act as a guest. */
 export function setIdentityToken(jws: string | null): void {
-  identityJws = jws && jws.length > 0 ? jws : null;
+  const next = jws && jws.length > 0 ? jws : null;
+  if (next === identityJws) return; // no real change — don't churn the live stream
+  identityJws = next;
+  notifyIdentityChange();
 }
 
 /** Set the guest display label, persisted so anonymous edits stay attributed. */
 export function setGuestName(name: string | null): void {
-  guestName = name && name.trim() ? name.trim() : null;
-  if (typeof localStorage === 'undefined') return;
-  if (guestName) localStorage.setItem(GUEST_NAME_KEY, guestName);
-  else localStorage.removeItem(GUEST_NAME_KEY);
+  const next = name && name.trim() ? name.trim() : null;
+  const changed = next !== guestName;
+  guestName = next;
+  if (typeof localStorage !== 'undefined') {
+    if (guestName) localStorage.setItem(GUEST_NAME_KEY, guestName);
+    else localStorage.removeItem(GUEST_NAME_KEY);
+  }
+  if (changed) notifyIdentityChange();
 }
 
 /**
