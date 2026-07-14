@@ -14,6 +14,7 @@ import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
 import {hydratePageIcons, readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {recordRecent} from '@/lib/recents';
 import {AGENT_PANE_ID, CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {PANE_TARGET_STORES, paneHasTarget} from '@/lib/paneTarget';
 import {registerKitPanelNav} from '@/blockeditor/kit/kitPanel';
 import {t as bareT} from '@/i18n';
 import {pagePathLabel} from '@/lib/pagePath';
@@ -135,13 +136,18 @@ const LAST_PAGE_KEY = 'openbook.currentPageId';
 // A window's pages live in the query string so it restores on refresh and new
 // native tabs open by URL: `?page=<primary>&split=<secondary>`.
 
-const readUrl = (): {page: string | null; split: string | null; view: string | null} => {
-  if (typeof window === 'undefined') return {page: null, split: null, view: null};
+const readUrl = (): {page: string | null; split: string | null; view: string | null; paneTarget: string | null} => {
+  if (typeof window === 'undefined') return {page: null, split: null, view: null, paneTarget: null};
   const params = new URLSearchParams(window.location.search);
-  return {page: params.get('page'), split: params.get('split'), view: params.get('view')};
+  return {
+    page: params.get('page'),
+    split: params.get('split'),
+    view: params.get('view'),
+    paneTarget: params.get('paneTarget'),
+  };
 };
 
-const writeUrl = (primary: string, split: string | null, view: string | null): void => {
+const writeUrl = (primary: string, split: string | null, view: string | null, paneTarget: string | null): void => {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
   url.searchParams.set('page', primary);
@@ -152,6 +158,11 @@ const writeUrl = (primary: string, split: string | null, view: string | null): v
   // the pane navigates elsewhere (see the provider's view-param reconciliation).
   if (view) url.searchParams.set('view', view);
   else url.searchParams.delete('view');
+  // `?paneTarget=` names the page a side pane (customise/review) is acting on,
+  // so `?split=customise&paneTarget=<id>` survives reload pointed at the same
+  // page. Omitted when the pane targets the primary page (the restore default).
+  if (paneTarget) url.searchParams.set('paneTarget', paneTarget);
+  else url.searchParams.delete('paneTarget');
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   try {
     localStorage.setItem(LAST_PAGE_KEY, primary);
@@ -166,6 +177,7 @@ const pageUrl = (id: string): string => {
   url.searchParams.set('page', id);
   url.searchParams.delete('split');
   url.searchParams.delete('view'); // a fresh page opens on its own default view
+  url.searchParams.delete('paneTarget'); // no side pane carried into a new tab
   return url.toString();
 };
 
@@ -188,6 +200,10 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   // The active database view of the primary page, mirrored to `?view=`. Seeded
   // from the URL so a deep link (`?page=…&view=…`) lands on that view.
   const [viewParam, setViewParam] = useState<string | null>(() => readUrl().view);
+  // Mirror of each pane-target store (customise/review), so the URL-sync effect
+  // re-runs — and re-writes `?paneTarget=` — the instant a pane's target page
+  // changes. A monotonic tick is enough; the effect reads the fresh value.
+  const [paneTargetTick, setPaneTargetTick] = useState(0);
 
   const initRef = useRef<Promise<void> | null>(null);
   const prevTopLevelIds = useRef<Set<string>>(new Set());
@@ -195,17 +211,35 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   // stale `?view=` the moment the primary pane navigates to a different page.
   const prevPrimaryRef = useRef<string | null>(null);
 
-  // Mirror the window into the URL whenever it changes. The block-settings,
-  // customise, review, and agent panes are ephemeral (their state lives in
-  // in-memory bridges), so they never go in the URL — a reload would otherwise
-  // reopen an empty pane (homePage.ts documents each pane's persistence).
+  // Keep the URL-sync effect honest about target changes: bump a tick whenever
+  // either pane-target store moves, so a customise/review pane re-mirrors its
+  // `?paneTarget=` even when `win` and `viewParam` are unchanged.
+  useEffect(() => {
+    const bump = () => setPaneTargetTick((n) => n + 1);
+    const unsubs = Object.values(PANE_TARGET_STORES).map((store) => store.subscribe(bump));
+    return () => unsubs.forEach((u) => u());
+  }, []);
+
+  // Mirror the window into the URL whenever it changes. The block-settings and
+  // agent panes are ephemeral (their state lives in in-memory bridges with no
+  // page target), so they never go in the URL — a reload would otherwise reopen
+  // an empty pane. The customise/review panes DO act on a page, so they persist
+  // as `?split=…` plus `?paneTarget=<pageId>` (homePage.ts / lib/paneTarget.ts
+  // document each pane's persistence).
   useEffect(() => {
     if (!win) return;
     const split = W.activeTab(win).split;
-    const ephemeral =
-      split === CONFIG_PANE_ID || split === CUSTOMISE_PANE_ID || split === REVIEW_PANE_ID || split === AGENT_PANE_ID;
-    writeUrl(W.primaryPage(win), ephemeral ? null : split, viewParam);
-  }, [win, viewParam]);
+    const ephemeral = split === CONFIG_PANE_ID || split === AGENT_PANE_ID;
+    const primary = W.primaryPage(win);
+    // A page-targeting pane records its target — but only when it differs from
+    // the primary page, since restore defaults an absent param to the primary.
+    let paneTarget: string | null = null;
+    if (paneHasTarget(split)) {
+      const target = PANE_TARGET_STORES[split].get();
+      if (target && target !== primary) paneTarget = target;
+    }
+    writeUrl(primary, ephemeral ? null : split, viewParam, paneTarget);
+  }, [win, viewParam, paneTargetTick]);
 
   const update = useCallback((fn: (w: WindowState) => WindowState) => {
     setWin((prev) => (prev ? fn(prev) : prev));
@@ -468,16 +502,26 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
         const known = new Set(list.map((p) => p.id));
         const resolve = async (id: string | null): Promise<string | null> => {
           if (!id) return null;
-          if (id === HOME_PAGE_ID || id === FLOW_PANE_ID) return id; // pseudo-pages
+          // Pseudo-pages: Home, dataflow, and the page-targeting side panes
+          // (customise/review) that now round-trip through the URL.
+          if (id === HOME_PAGE_ID || id === FLOW_PANE_ID || paneHasTarget(id)) return id;
           if (known.has(id)) return id;
           return (await client.getPage(id)) !== null ? id : null;
         };
 
-        const {page, split} = readUrl();
+        const {page, split, paneTarget} = readUrl();
         let primary = await resolve(page);
         if (!primary) primary = await resolve(readLastPage());
         if (!primary) primary = list[0]?.id ?? HOME_PAGE_ID;
         const secondary = await resolve(split && split !== primary ? split : null);
+
+        // Seed a restored side pane's target from the URL (falling back to the
+        // primary page) BEFORE the window — hence the pane body — mounts, so it
+        // renders pointed at the right page instead of an empty bridge.
+        if (paneHasTarget(secondary)) {
+          const target = (await resolve(paneTarget)) ?? primary;
+          PANE_TARGET_STORES[secondary].set(target);
+        }
 
         setWin(W.initWindow(primary, secondary));
       } catch (e) {
