@@ -145,6 +145,9 @@ export interface UseDatabase {
   deleteRow: (rowId: string) => Promise<void>;
   /** Open a row in the split pane for editing its document. */
   openRow: (rowId: string) => void;
+  /** Open a row (a page) in the split pane, a new tab, or a new window — the
+   *  same targets as the page menus. `openRow` is the `'split'` shorthand. */
+  openRowIn: (rowId: string, target: 'split' | 'tab' | 'window') => void;
 
   // Row templates (reusable new-row presets)
   /** The database's saved row templates. */
@@ -219,7 +222,7 @@ export function useDatabase(
   },
 ): UseDatabase {
   const client = useData();
-  const {openInSplit, setPageHint, primaryPageId, activeViewParam, setActiveViewParam} = useNavigation();
+  const {openInSplit, openInNew, setPageHint, primaryPageId, activeViewParam, setActiveViewParam} = useNavigation();
 
   // `?view=` is scoped to the primary (`?page='d`) page: only that page's
   // page-level database reads and writes it. A database in the split pane, an
@@ -755,14 +758,19 @@ export function useDatabase(
     [client, database],
   );
 
-  const openRow = useCallback(
-    (rowId: string) => {
+  // A row is a page, so it opens through the same navigation targets as any page
+  // (split / new tab / new window). We seed the title hint first so the opened
+  // surface reads the row's name immediately, before its page record streams in.
+  const openRowIn = useCallback(
+    (rowId: string, target: 'split' | 'tab' | 'window') => {
       const row = rowsRef.current.find((r) => r.id === rowId);
       setPageHint(rowId, row?.name ?? null);
-      openInSplit(rowId);
+      if (target === 'split') openInSplit(rowId);
+      else openInNew(rowId, target);
     },
-    [openInSplit, setPageHint],
+    [openInNew, openInSplit, setPageHint],
   );
+  const openRow = useCallback((rowId: string) => openRowIn(rowId, 'split'), [openRowIn]);
 
   const addProperty = useCallback(
     async (input: NewPropertyInput): Promise<void> => {
@@ -1113,6 +1121,7 @@ export function useDatabase(
     addRowBefore,
     deleteRow,
     openRow,
+    openRowIn,
     templates: database?.schema.templates ?? [],
     saveAsTemplate,
     addRowFromTemplate,
