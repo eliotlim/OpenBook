@@ -1019,6 +1019,14 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const existing = await store.getPage(id);
     if (!existing) return c.json({error: 'page not found'}, 404);
     const page = await store.upsertPage({id, name: existing.name, data: version.data}, c.get('principal'), {captureMode: 'force'});
+    // A restore writes the old snapshot straight through `upsertPage` — an EXTERNAL write
+    // that bypasses the /updates collab stream. Any live collab doc for this page still
+    // holds the PRE-restore state, so reseed both so connected clients converge onto the
+    // restored content (PVH-8):
+    relay.forget(id); // Collab T1: drop the relay doc so a late-joiner /sync reseeds from the restored snapshot
+    persister?.reseed(id); // Collab T9: drop the canonical doc so the next access reseeds from the restored
+    // pages.data (restore wins; a client mid-edit rebases on its next /sync). Called only here, never from
+    // the checkpoint path (saveServerDoc), so the checkpoint can't self-invalidate — no feedback loop.
     hub.publishPage(page);
     await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);

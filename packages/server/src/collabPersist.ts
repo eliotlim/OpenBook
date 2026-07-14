@@ -236,6 +236,38 @@ export class ServerAuthoritativePersister {
     this.drop(pageId);
   }
 
+  /**
+   * Adopt an EXTERNAL, out-of-band overwrite of a page — a version restore (PVH-3/8), or
+   * any other write to `pages.data` that DIDN'T flow through the `/updates` stream — by
+   * dropping the canonical doc so the next client access reseeds it from the freshly
+   * written durable snapshot.
+   *
+   * Why drop-from-cache (not rebuild-in-place): the canonical doc is by design a disposable
+   * cache — "the next touch reseeds from the just-written snapshot" — so dropping it is the
+   * simplest thing that guarantees convergence. Rebuilding the Y.Doc in place would mean
+   * swapping the doc reference an in-flight `ingest` still holds, or hand-crafting a diff
+   * update; dropping sidesteps both and reuses the exact seed path {@link ensure} already
+   * takes on a cold page.
+   *
+   * **Semantics — restore wins.** A restore is an INTENTIONAL overwrite, so the restored
+   * snapshot becomes the new base and any un-checkpointed edits still sitting in the
+   * canonical doc are deliberately discarded. They are not *lost*: PVH-1 force-captures the
+   * pre-restore state as a version first, recoverable via the same restore route. A client
+   * mid-edit during the restore rebases on its next `/sync` — the server answers that
+   * client's state vector from the reseeded doc, so it converges onto the restored content
+   * (its in-flight local edits, being a CRDT delta, merge on top; the restore is the base).
+   *
+   * **No feedback loop.** This is called ONLY from the external restore path, never from
+   * the checkpoint path (which persists via `saveDoc` → `store.saveServerDoc` and never
+   * touches this method) — so a checkpoint can't self-invalidate. Dropping also cancels the
+   * pending debounce, so a checkpoint of the *pre-restore* content can't fire afterwards;
+   * a checkpoint already past its timer is fenced by {@link persistOnce}'s pre-write
+   * liveness check (it sees the entry is no longer live and skips its now-stale write).
+   */
+  reseed(pageId: string): void {
+    this.drop(pageId);
+  }
+
   /** Checkpoint every dirty canonical doc now (shutdown / periodic flush). Awaits all
    *  writes so a caller can guarantee nothing is lost before the store closes. Any doc a
    *  failed write left un-persisted is LOGGED (never silently stranded) so a broken store
@@ -350,6 +382,12 @@ export class ServerAuthoritativePersister {
     const authors = entry.pendingAuthors;
     entry.pendingAuthors = new Map();
     entry.dirty = false;
+    // Fence a checkpoint that a {@link reseed} (external restore overwrite) dropped while
+    // this persist was debounced: if we're no longer the live doc for this page, writing
+    // our now-stale pre-restore capture would clobber the restored snapshot. The restore's
+    // write wins, so bail — the discarded edits are recoverable (PVH-1 captured them as a
+    // version). Checked AFTER the synchronous capture so no concurrent ingest interleaves.
+    if (this.docs.get(pageId) !== entry) return;
     try {
       const page = await this.opts.saveDoc(pageId, blockdoc, authors);
       if (page === null) {

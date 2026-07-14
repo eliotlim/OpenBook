@@ -169,6 +169,11 @@ export class LocalDataClient implements DataClient {
       localPrincipal(),
       {captureMode: 'force'},
     );
+    // The restore wrote the old snapshot straight through `upsertPage`, bypassing the
+    // /updates collab stream — so a relay doc a second window is syncing against still
+    // holds the pre-restore state. Drop it so its next /sync reseeds from the restored
+    // snapshot (parity with the HTTP restore route; PVH-8).
+    this.relay.forget(pageId);
     this.hub.publishPage(page);
     await this.broadcastList();
     if (page.databaseId) await this.broadcastRows(page.databaseId);

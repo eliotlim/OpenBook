@@ -77,6 +77,20 @@ const blocksOf = async (store: PageStore, id: string): Promise<Array<{id: string
   ((await store.getPage(id))?.data as {blockdoc?: {blocks?: Array<{id: string; text?: unknown}>}} | undefined)?.blockdoc
     ?.blocks ?? [];
 
+// The concatenated text of the page's first (block 'a') block in the durable snapshot.
+const textOf = async (store: PageStore, id: string): Promise<string> => {
+  const t = (await blocksOf(store, id))[0]?.text;
+  return Array.isArray(t) ? (t as Array<{t: string}>).map((op) => op.t).join('') : '';
+};
+
+// A block-doc page snapshot with block 'a' carrying `text` (for durable seeding + versions).
+const snap = (text: string): PageSnapshot => {
+  const d = blockDoc('a', text);
+  const s = {editor: 'blocks', blockdoc: encodeServerBlockDoc(d)} as unknown as PageSnapshot;
+  d.destroy();
+  return s;
+};
+
 // The `/updates` route feeds the persister fire-and-forget (it 204s before the ingest
 // lands), and the checkpoint is debounced — so poll the durable store for the result.
 async function waitFor(predicate: () => Promise<boolean>, ms = 3000): Promise<void> {
@@ -155,5 +169,70 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     expect('savedSv' in body).toBe(false);
     expect(Object.keys(body)).toEqual(['update']);
     client.destroy();
+  });
+
+  // PVH-8: a restore writes the old snapshot straight through `upsertPage`, bypassing the
+  // /updates stream. When server-persist holds a LIVE canonical doc for that page, the
+  // canonical doc must adopt the restored state — otherwise it keeps the pre-restore
+  // content (and its next checkpoint would clobber the restore back).
+  it('a restore reseeds a page whose canonical doc is LIVE (canonical adopts the restored state)', async () => {
+    const store = await freshStore();
+    const app = createApp(store, undefined, new PageHub(), {serverPersist: true});
+    const persister = (app as AppWithCollab).collabPersist!;
+
+    // Durable history: create 'RESTORED', then change to 'LIVE' — the change captures the
+    // 'RESTORED' state as the (only) version we'll roll back to.
+    const created = await store.upsertPage({name: 'restore-reseed', data: snap('RESTORED')});
+    const id = created.id;
+    await store.upsertPage({id, name: 'restore-reseed', data: snap('LIVE')});
+    const versions = await store.listPageVersions(id);
+    expect(versions).toHaveLength(1);
+    const vid = versions[0].id;
+
+    // Make the canonical doc LIVE: fork a client from the durable 'LIVE' state, type into
+    // it, and drive one /updates so the persister seeds + holds the canonical doc.
+    const liveBytes = Buffer.from(
+      ((await store.getPage(id))!.data as {blockdoc: {update: string}}).blockdoc.update,
+      'base64',
+    );
+    const client = new Y.Doc();
+    Y.applyUpdate(client, liveBytes);
+    const clientText = client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text;
+    const before = Y.encodeStateVector(client);
+    clientText.insert(clientText.length, '-EDIT');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client, before), client.clientID);
+    await waitFor(async () => (await textOf(store, id)).includes('-EDIT'));
+    expect(persister.size()).toBe(1); // precondition: a live canonical doc is loaded
+
+    // Restore the 'RESTORED' version through the real route.
+    const res = await app.request(`/api/pages/${id}/versions/${vid}/restore`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: '{}',
+    });
+    expect(res.status).toBe(200);
+
+    // The reseed dropped the stale canonical doc, and the durable snapshot is the restore.
+    expect(persister.size()).toBe(0);
+    expect(await textOf(store, id)).toBe('RESTORED');
+
+    // Convergence: a fresh /updates forked from the RESTORED state reseeds the canonical
+    // doc from the restore (not the stale 'LIVE-EDIT' content) and checkpoints on top of
+    // it — so the durable state stays 'RESTORED'-derived, never reverting toward 'LIVE'.
+    const restoredBytes = Buffer.from(
+      ((await store.getPage(id))!.data as {blockdoc: {update: string}}).blockdoc.update,
+      'base64',
+    );
+    const client2 = new Y.Doc();
+    Y.applyUpdate(client2, restoredBytes);
+    const client2Text = client2.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text;
+    const before2 = Y.encodeStateVector(client2);
+    client2Text.insert(client2Text.length, '-AGAIN');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client2, before2), client2.clientID);
+    await waitFor(async () => (await textOf(store, id)).includes('-AGAIN'));
+    expect(await textOf(store, id)).toBe('RESTORED-AGAIN'); // reseeded from the restore, no 'LIVE' clobber
+
+    client.destroy();
+    client2.destroy();
   });
 });
