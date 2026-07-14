@@ -23,7 +23,7 @@ import LibraryInfo from '@/components/LibraryInfo';
 import {IconPicker} from '@/components/IconPicker';
 import {ChevronUpDownIcon, Cog6ToothIcon, PlusIcon} from '@heroicons/react/24/outline';
 import {CheckIcon, GlobeIcon} from '@radix-ui/react-icons';
-import {Trash2} from 'lucide-react';
+import {Trash2, Cloud} from 'lucide-react';
 import {LibraryStatusDot} from '@/components/LibraryStatusDot';
 import {
   usePlatformCapabilities,
@@ -136,7 +136,7 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
   // the live ones) and fall back to the synced entry, which then connects on click.
   const accountRows = accountRemotes.map((s) => {
     const local = libraries.find((l) => l.serverUrl === s.serverUrl);
-    return {lib: local ?? s, local: Boolean(local)};
+    return {lib: local ?? s, local: Boolean(local), synced: true};
   });
 
   const onSelectRow = (row: {lib: Library; local: boolean}) => {
@@ -149,31 +149,58 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
     }
   };
 
-  const renderRow = (row: {lib: Library; local: boolean}) => {
+  const renderRow = (row: {lib: Library; local: boolean; synced?: boolean}) => {
     const ws = row.lib;
     const active = row.local && ws.id === library.id;
     const canRemove = row.local && !active && libraries.length > 1;
     const blocked = !row.local && Boolean(ws.serverUrl) && isMixedContentBlocked(ws.serverUrl!);
+    // A synced library that's already connected here would otherwise read as a
+    // plain local row — mark it so its account provenance stays legible per-row.
+    const showSyncedCue = Boolean(row.synced) && row.local;
     return (
       <DropdownMenuItem
         key={`${row.local ? 'local' : 'acct'}:${ws.id}`}
-        disabled={blocked}
-        onSelect={() => onSelectRow(row)}
-        className="group flex items-center gap-2"
-        title={blocked ? t('library.mixedContentBlocked') : undefined}
+        // Not `disabled`: that suppresses hover + keyboard focus, so the greyed
+        // row's reason would be unreachable. `aria-disabled` keeps it focusable
+        // and hoverable while `onSelect` below blocks the actual connect.
+        aria-disabled={blocked || undefined}
+        onSelect={(e) => {
+          if (blocked) {
+            e.preventDefault();
+            return;
+          }
+          onSelectRow(row);
+        }}
+        className={`group flex items-center gap-2${blocked ? ' opacity-60' : ''}`}
       >
         <span className="flex h-6 w-6 shrink-0 items-center justify-center text-lg leading-none">{ws.icon}</span>
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-sm">{nameFor(ws)}</span>
+          <span className="flex items-center gap-1.5">
+            <span className="truncate text-sm">{nameFor(ws)}</span>
+            {showSyncedCue && (
+              <span
+                className="flex shrink-0 items-center text-muted-foreground"
+                title={t('library.accountSyncedHint')}
+                aria-label={t('library.accountSyncedHint')}
+              >
+                <Cloud className="h-3 w-3" aria-hidden="true" />
+              </span>
+            )}
+          </span>
           {!isForwardedLocal(ws) && (
             <span className="truncate text-xs text-muted-foreground">{libraryHostLabel(ws.serverUrl)}</span>
+          )}
+          {blocked && (
+            // The "why" for the greyed row — always visible, not truncated, so it
+            // reaches mouse and keyboard users alike.
+            <span className="mt-0.5 text-xs text-muted-foreground">{t('library.mixedContentBlocked')}</span>
           )}
         </span>
         {active ? (
           <CheckIcon className="h-4 w-4 shrink-0 text-brand" />
         ) : row.local ? (
           <LibraryStatusDot serverUrl={ws.serverUrl} active={false} className="mr-1" />
-        ) : (
+        ) : blocked ? null : (
           // A synced library not connected here yet — a one-click connect.
           <span className="shrink-0 text-xs font-medium text-brand">{t('library.connectFromAccount')}</span>
         )}

@@ -534,9 +534,6 @@ export const en = {
   },
   library: {
     libraries: 'Libraries',
-    addLibrary: 'Add a library…',
-    addTitle: 'Add a library',
-    addDescription: 'Connect to another OpenBook server. Switching to it re-points this device at that server.',
     icon: 'Icon',
     name: 'Name',
     serverUrl: 'Server URL',
@@ -544,7 +541,6 @@ export const en = {
     urlPlaceholder: 'https://my-server.example:4319',
     addButton: 'Add library',
     urlRequired: 'Enter the server URL for this library.',
-    urlInvalid: 'That doesn’t look like a valid URL.',
     removeLibrary: 'Remove {name}',
     thisDevice: 'This device',
     manage: 'Manage libraries…',

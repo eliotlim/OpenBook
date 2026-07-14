@@ -51,7 +51,7 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
       return;
     }
     if (!isSafeServerUrl(trimmed)) {
-      setUrlError(t('library.urlInvalid'));
+      setUrlError(t('library.urlUnsafe'));
       return;
     }
     setUrlError(null);
@@ -174,7 +174,7 @@ function AddLibraryRow() {
       return;
     }
     if (!isSafeServerUrl(trimmed)) {
-      setError(t('library.urlInvalid'));
+      setError(t('library.urlUnsafe'));
       return;
     }
     addLibrary({name, serverUrl: trimmed, icon});

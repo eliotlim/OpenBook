@@ -362,9 +362,6 @@ export const ja: PartialMessages = {
   },
   library: {
     libraries: 'ライブラリ',
-    addLibrary: 'ライブラリを追加…',
-    addTitle: 'ライブラリを追加',
-    addDescription: '別の OpenBook サーバーに接続します。切り替えるとこのデバイスはそのサーバーを参照します。',
     icon: 'アイコン',
     name: '名前',
     serverUrl: 'サーバー URL',
@@ -372,7 +369,6 @@ export const ja: PartialMessages = {
     urlPlaceholder: 'https://my-server.example:4319',
     addButton: 'ライブラリを追加',
     urlRequired: 'このライブラリのサーバー URL を入力してください。',
-    urlInvalid: '有効な URL ではないようです。',
     removeLibrary: '{name} を削除',
     thisDevice: 'このデバイス',
   },
