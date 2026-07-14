@@ -355,6 +355,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       // resolution in the principal middleware below, so a garbage/disabled PAT never
       // gets served here; it just isn't rejected by THIS gate.
       if (bearerAgentToken(c)) return next();
+      if (isLocalOwnerRequest(c, opts.localOwnerSecret)) return next(); // loopback owner satisfies the LAN reachability gate
       const auth = c.req.header('Authorization') ?? '';
       const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
       const provided = bearer || c.req.query('token') || '';
