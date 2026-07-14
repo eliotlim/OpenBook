@@ -21,9 +21,13 @@ import {
   AGENT_API_SETTING_KEY,
   AGENT_TOKEN_CAP,
   DEFAULT_AGENT_TOKEN_EXPIRY_DAYS,
+  DEFAULT_REMOTE_AGENT_TOKEN_EXPIRY_DAYS,
+  MAX_REMOTE_AGENT_TOKEN_EXPIRY_DAYS,
   agentApiKillSwitchOn,
+  agentMcpRemoteKillSwitchOn,
   generateAgentToken,
   isAgentApiEnabled,
+  isAgentRemoteEnabled,
   type AgentApiSetting,
 } from './agentTokens';
 
@@ -50,21 +54,36 @@ export function mountAgentTokenRoutes(app: Hono<AppEnv>, store: PageStore, logEd
   // setting so an admin can see + manage the surface (and turn it on).
   app.get(API.agentTokens, async (c) => {
     await requireInstanceAdmin(c, store);
-    const [enabled, tokens] = await Promise.all([isAgentApiEnabled(store), store.listAgentTokens()]);
-    return c.json({enabled, tokens});
+    const [enabled, remote, tokens] = await Promise.all([
+      isAgentApiEnabled(store),
+      isAgentRemoteEnabled(store),
+      store.listAgentTokens(),
+    ]);
+    return c.json({enabled, remote, tokens});
   });
 
-  // Toggle the dark `agentApi` setting. Reachable regardless (this is how an admin
-  // enables it). The `OPENBOOK_AGENT_API=0` kill-switch still wins at resolution, so
-  // the returned `enabled` reflects the EFFECTIVE state (setting AND not-killed).
+  // Toggle the dark `agentApi` setting (+ the `agentApi.remote` remote-MCP opt-in).
+  // Reachable regardless (this is how an admin enables it). The `OPENBOOK_AGENT_API=0`
+  // kill-switch still wins at resolution, so the returned `enabled`/`remote` reflect the
+  // EFFECTIVE state (setting AND not-killed). `remote` is forced off whenever `enabled`
+  // is off (remote is dark on top of an already-dark local feature — no dormant remote).
   app.put(API.agentTokens, async (c) => {
     await requireInstanceAdmin(c, store);
-    const body = await c.req.json<{enabled?: unknown}>().catch(() => ({}) as {enabled?: unknown});
+    const body = await c.req
+      .json<{enabled?: unknown; remote?: unknown}>()
+      .catch(() => ({}) as {enabled?: unknown; remote?: unknown});
     const enabled = body.enabled === true;
-    const setting: AgentApiSetting = {enabled};
+    // `remote` may only be true when the whole feature is on; a `remote` field absent
+    // from the body preserves nothing (this is a full replace) — the caller must send
+    // `remote: true` each time to keep it on. Default off.
+    const remote = enabled && body.remote === true;
+    const setting: AgentApiSetting = {enabled, remote};
     await store.setSetting(AGENT_API_SETTING_KEY, setting);
-    logEdit(c, null, 'agent.api', enabled ? 'enabled' : 'disabled');
-    return c.json({enabled: enabled && !agentApiKillSwitchOn()});
+    logEdit(c, null, 'agent.api', `${enabled ? 'enabled' : 'disabled'}${remote ? ' remote' : ''}`);
+    return c.json({
+      enabled: enabled && !agentApiKillSwitchOn(),
+      remote: remote && !agentApiKillSwitchOn() && !agentMcpRemoteKillSwitchOn(),
+    });
   });
 
   // Mint a token. 404 while `agentApi` is off (hide the surface's existence when
@@ -75,8 +94,8 @@ export function mountAgentTokenRoutes(app: Hono<AppEnv>, store: PageStore, logEd
       return c.json({error: 'agent API is disabled on this instance'}, 404);
     }
     const body = await c.req
-      .json<{name?: unknown; scope?: unknown; expiresInDays?: unknown}>()
-      .catch(() => ({}) as {name?: unknown; scope?: unknown; expiresInDays?: unknown});
+      .json<{name?: unknown; scope?: unknown; expiresInDays?: unknown; remote?: unknown}>()
+      .catch(() => ({}) as {name?: unknown; scope?: unknown; expiresInDays?: unknown; remote?: unknown});
     const name = typeof body.name === 'string' ? body.name.trim().slice(0, MAX_NAME_LEN) : '';
     if (!name) return c.json({error: 'a token name is required'}, 400);
     if (body.scope !== undefined && body.scope !== 'read' && body.scope !== 'write') {
@@ -84,14 +103,31 @@ export function mountAgentTokenRoutes(app: Hono<AppEnv>, store: PageStore, logEd
     }
     const scope: AgentTokenScope = body.scope === 'write' ? 'write' : 'read';
 
-    // Expiry: default 90 days; `null` ⇒ no expiry (allowed, with a UI warning); a
-    // finite positive number ⇒ that many days from now.
+    // Remote opt-in (AGENT-7, L7). Minting a REMOTE token requires the instance's
+    // `agentApi.remote` setting to ALREADY be on — no dormant remote tokens on a
+    // non-remote instance (fail 409). Default false.
+    const remote = body.remote === true;
+    if (remote && !(await isAgentRemoteEnabled(store))) {
+      return c.json({error: 'remote MCP is not enabled on this instance; enable it before minting a remote token'}, 409);
+    }
+
+    // Expiry. Local tokens keep today's rules: default 90 days; `null` ⇒ no expiry
+    // (allowed, with a UI warning). REMOTE tokens (Q-a) are self-limiting: default 30
+    // days, MAX 90 days, and `null` (no-expiry) is REJECTED — an internet-valid bearer
+    // credential must expire.
+    const defaultDays = remote ? DEFAULT_REMOTE_AGENT_TOKEN_EXPIRY_DAYS : DEFAULT_AGENT_TOKEN_EXPIRY_DAYS;
     let expiresAt: Date | null;
     if (body.expiresInDays === null) {
+      if (remote) {
+        return c.json({error: 'a remote token must have an expiry (no-expiry is not allowed for remote tokens)'}, 400);
+      }
       expiresAt = null;
     } else if (body.expiresInDays === undefined) {
-      expiresAt = new Date(Date.now() + DEFAULT_AGENT_TOKEN_EXPIRY_DAYS * 86_400_000);
+      expiresAt = new Date(Date.now() + defaultDays * 86_400_000);
     } else if (typeof body.expiresInDays === 'number' && Number.isFinite(body.expiresInDays) && body.expiresInDays > 0) {
+      if (remote && body.expiresInDays > MAX_REMOTE_AGENT_TOKEN_EXPIRY_DAYS) {
+        return c.json({error: `a remote token may live at most ${MAX_REMOTE_AGENT_TOKEN_EXPIRY_DAYS} days`}, 400);
+      }
       expiresAt = new Date(Date.now() + body.expiresInDays * 86_400_000);
     } else {
       return c.json({error: 'expiresInDays must be a positive number or null'}, 400);
@@ -103,8 +139,8 @@ export function mountAgentTokenRoutes(app: Hono<AppEnv>, store: PageStore, logEd
 
     const {token, hash, preview} = generateAgentToken();
     const {subject, issuer, createdBy} = minterBinding(c);
-    const meta = await store.createAgentToken({name, tokenHash: hash, preview, subject, issuer, scope, createdBy, expiresAt});
-    logEdit(c, null, 'agent.mint', `${scope} ${name}`);
+    const meta = await store.createAgentToken({name, tokenHash: hash, preview, subject, issuer, scope, createdBy, expiresAt, remoteOk: remote});
+    logEdit(c, null, 'agent.mint', `${remote ? 'remote ' : ''}${scope} ${name}`);
     // The plaintext is returned HERE and NOWHERE ELSE — the store keeps only the hash.
     return c.json({token, meta}, 201);
   });

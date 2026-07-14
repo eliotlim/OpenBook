@@ -266,12 +266,12 @@ describe('authorize pat rungs', () => {
     await claim();
     await store.addMember({subject: `${ISS}#admin`, role: 'admin', status: 'active'});
     const config = await store.getInstanceConfig();
-    const p = agentPrincipal({id: 't', name: 'a', subject: `${ISS}#admin`, issuer: ISS, scope: 'write'});
+    const p = agentPrincipal({id: 't', name: 'a', subject: `${ISS}#admin`, issuer: ISS, scope: 'write', remoteOk: false});
     expect(await store.resolveMemberRole(p, config)).toBeNull();
   });
 
   it('verifiedSubject stays jws-only (a PAT can never forge verified authorship)', () => {
-    const p = agentPrincipal({id: 't', name: 'a', subject: OWNER, issuer: ISS, scope: 'write'});
+    const p = agentPrincipal({id: 't', name: 'a', subject: OWNER, issuer: ISS, scope: 'write', remoteOk: false});
     expect(verifiedSubject(p)).toBe('');
   });
 

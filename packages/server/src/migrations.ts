@@ -394,6 +394,20 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS agent_tokens_active_idx ON agent_tokens (created_at DESC) WHERE revoked_at IS NULL',
     ],
   },
+  {
+    // Per-token REMOTE opt-in (AGENT-7 / AGENT-10). A default-false flag that gates
+    // whether a token may authenticate a FORWARDED `/api/mcp` request over the public
+    // `*.book.cloud` edge (L7 in the remote-MCP defence-in-depth stack). Every
+    // pre-existing token is local-only FOREVER unless re-minted with `remote:true` —
+    // the origin's conjunctive forwarded-guard rejects a forwarded PAT whose row lacks
+    // this flag. Purely additive + idempotent: a live workspace behaves exactly as
+    // before (no forwarded PAT was ever admitted pre-0017), and a code rollback simply
+    // stops reading the column.
+    name: '0017_agent_token_remote',
+    statements: [
+      'ALTER TABLE agent_tokens ADD COLUMN IF NOT EXISTS remote_ok BOOLEAN NOT NULL DEFAULT FALSE',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

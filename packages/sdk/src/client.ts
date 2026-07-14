@@ -53,6 +53,11 @@ export interface CreateAgentTokenInput {
   name: string;
   scope?: AgentTokenScope;
   expiresInDays?: number | null;
+  /** Mint a REMOTE-capable token (AGENT-7): usable over a forwarded `/api/mcp`
+   *  request via the public edge. Default false. Requires the instance's
+   *  `agentApi.remote` setting to already be on (else the mint 409s), and forces a
+   *  finite TTL (30 d default, 90 d max; no-expiry rejected). */
+  remote?: boolean;
 }
 
 /** The one-time create response: the plaintext `token` (shown ONCE) + its meta. */
@@ -64,6 +69,9 @@ export interface CreatedAgentToken {
 /** The agent-token management view: the dark `agentApi` on/off state + the list. */
 export interface AgentTokenList {
   enabled: boolean;
+  /** Whether REMOTE MCP is effectively enabled (AGENT-7): the `agentApi.remote`
+   *  setting AND the local feature on AND neither kill-switch set. */
+  remote: boolean;
   tokens: AgentTokenMeta[];
 }
 
@@ -323,8 +331,10 @@ export interface DataClient {
   // ── Agent access: PAT credential management (AGENT-6; admin-only) ─────────────
   /** List minted agent tokens (redacted) plus the dark `agentApi` on/off state. */
   listAgentTokens(): Promise<AgentTokenList>;
-  /** Toggle the dark `agentApi` setting on/off. Returns the new state. */
-  setAgentApiEnabled(enabled: boolean): Promise<{enabled: boolean}>;
+  /** Toggle the dark `agentApi` setting on/off (+ the `agentApi.remote` remote-MCP
+   *  opt-in, AGENT-7). `remote` is forced off when `enabled` is off. Returns the new
+   *  effective state. */
+  setAgentApiEnabled(enabled: boolean, remote?: boolean): Promise<{enabled: boolean; remote: boolean}>;
   /** Mint a token (requires `agentApi` enabled). The plaintext `token` comes back
    *  exactly ONCE — store it now; only its hash is kept server-side. */
   createAgentToken(input: CreateAgentTokenInput): Promise<CreatedAgentToken>;
@@ -1171,8 +1181,8 @@ export class HttpDataClient implements DataClient {
     return this.request<AgentTokenList>('GET', API.agentTokens);
   }
 
-  async setAgentApiEnabled(enabled: boolean): Promise<{enabled: boolean}> {
-    return this.request<{enabled: boolean}>('PUT', API.agentTokens, {enabled});
+  async setAgentApiEnabled(enabled: boolean, remote = false): Promise<{enabled: boolean; remote: boolean}> {
+    return this.request<{enabled: boolean; remote: boolean}>('PUT', API.agentTokens, {enabled, remote});
   }
 
   async createAgentToken(input: CreateAgentTokenInput): Promise<CreatedAgentToken> {
@@ -1180,6 +1190,7 @@ export class HttpDataClient implements DataClient {
       name: input.name,
       scope: input.scope,
       expiresInDays: input.expiresInDays,
+      remote: input.remote,
     });
   }
 

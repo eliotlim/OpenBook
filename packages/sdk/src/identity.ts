@@ -79,6 +79,11 @@ export interface AgentTokenMeta {
   preview: string;
   /** True once revoked (kept listed briefly for provenance; never resolves). */
   revoked: boolean;
+  /** True when the token may authenticate a FORWARDED `/api/mcp` request over the
+   *  public edge (AGENT-7 remote MCP, L7). Default false — a local-only token can
+   *  never be replayed remotely. Set at mint only, requires the instance's
+   *  `agentApi.remote` setting to already be on. */
+  remote: boolean;
 }
 
 /** The actor behind a request, resolved by the server and stamped onto changes. */

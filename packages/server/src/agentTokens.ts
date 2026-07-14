@@ -43,6 +43,12 @@ export const AGENT_TOKEN_CAP = 25;
 /** Default token lifetime, in days. `null` mints a no-expiry token (with a UI warning). */
 export const DEFAULT_AGENT_TOKEN_EXPIRY_DAYS = 90;
 
+/** Default lifetime for a REMOTE-flagged token (AGENT-7, Q-a). Shorter than a local
+ *  token: an internet-valid bearer credential must be self-limiting. */
+export const DEFAULT_REMOTE_AGENT_TOKEN_EXPIRY_DAYS = 30;
+/** Hard maximum lifetime for a REMOTE-flagged token (Q-a). No-expiry is REJECTED. */
+export const MAX_REMOTE_AGENT_TOKEN_EXPIRY_DAYS = 90;
+
 /** Per-token request budget (fixed window) before a 429. */
 export const AGENT_TOKEN_RATE_LIMIT = 120;
 /** Per-IP FAILED-PAT budget (fixed window) so the hash space can't be brute-forced. */
@@ -53,6 +59,11 @@ export const AGENT_RATE_WINDOW_MS = 60_000;
 /** The persisted shape of the dark `agentApi` setting. */
 export interface AgentApiSetting {
   enabled?: boolean;
+  /** Whether REMOTE MCP (a forwarded `/api/mcp` over the public edge) is admitted on
+   *  this instance (AGENT-7, L6). Default absent ⇒ OFF. Independent second opt-in on
+   *  top of {@link enabled} — remote is DARK unless BOTH are on (and the remote
+   *  kill-switch env is unset). */
+  remote?: boolean;
 }
 
 /** The minimal store surface these helpers read (keeps the module store-agnostic). */
@@ -67,6 +78,9 @@ export interface AgentTokenRow {
   subject: string;
   issuer: string;
   scope: AgentTokenScope;
+  /** L7: whether this token may authenticate a FORWARDED `/api/mcp` request. Every
+   *  pre-0017 token resolves to `false` (the column defaults false). */
+  remoteOk: boolean;
 }
 
 /** True when the hard kill-switch env is set — a fleet-wide off switch that wins
@@ -84,6 +98,54 @@ export async function isAgentApiEnabled(store: SettingReader): Promise<boolean> 
   if (agentApiKillSwitchOn()) return false;
   const setting = await store.getSetting<AgentApiSetting>(AGENT_API_SETTING_KEY);
   return setting?.enabled === true;
+}
+
+/** True when the DEDICATED remote kill-switch env is set — an off-switch for REMOTE
+ *  MCP only (`OPENBOOK_AGENT_MCP_REMOTE=0`) that needs no DB write. The existing
+ *  `OPENBOOK_AGENT_API=0` still kills ALL PAT auth (including remote) via
+ *  {@link agentApiKillSwitchOn}; this one leaves local PAT auth intact. */
+export function agentMcpRemoteKillSwitchOn(): boolean {
+  return process.env.OPENBOOK_AGENT_MCP_REMOTE === '0';
+}
+
+/**
+ * Whether REMOTE MCP (a forwarded `/api/mcp` over the public edge) is live on this
+ * instance (AGENT-7, L5 + L6). Requires the WHOLE local PAT stack to be on
+ * ({@link isAgentApiEnabled}) AND the `agentApi.remote` setting AND the remote
+ * kill-switch env unset. Default (setting absent) ⇒ OFF — remote is dark on top of an
+ * already-dark local feature. This is the ONLY setting read for the remote decision;
+ * the per-token `remote_ok` flag (L7) is the other conjunct, checked at resolution.
+ */
+export async function isAgentRemoteEnabled(store: SettingReader): Promise<boolean> {
+  if (agentMcpRemoteKillSwitchOn()) return false;
+  if (!(await isAgentApiEnabled(store))) return false;
+  const setting = await store.getSetting<AgentApiSetting>(AGENT_API_SETTING_KEY);
+  return setting?.remote === true;
+}
+
+/** True when the self-host direct-dial hardening env is set (`OPENBOOK_REQUIRE_REMOTE_FLAG`).
+ *  When set, the origin requires the remote conjunction (remote-enabled + `remote_ok`)
+ *  for a PAT EVEN IF the forwarded marker is absent — closing the residual where a PAT
+ *  is dialed straight at an internet-exposed self-host origin that never crosses the
+ *  edge (T2). Default off (back-compatible): a self-hoster opts in. Does NOT narrow the
+ *  path (unlike a forwarded request), so an admitted remote token's in-process
+ *  loop-back calls to `/api/pages` etc. still resolve. */
+export function agentRequireRemoteFlagOn(): boolean {
+  const v = process.env.OPENBOOK_REQUIRE_REMOTE_FLAG;
+  return v !== undefined && v !== '' && v !== '0';
+}
+
+/**
+ * The REMOTE-MCP admission predicate, shared by the principal middleware and the
+ * `/api/mcp` handler so the two enforcement points can NEVER drift (design §3.4.5).
+ * A forwarded PAT is admitted ONLY on the exact `/api/mcp` path (never a sub-path or
+ * a prefix sibling), ONLY when remote MCP is enabled on the instance, and ONLY for a
+ * token whose row carries `remote_ok`. Any leg false ⇒ not admitted.
+ */
+export async function remoteMcpAdmitted(c: Context, store: SettingReader, remoteOk: boolean): Promise<boolean> {
+  if (c.req.path !== API.mcp) return false;
+  if (!remoteOk) return false;
+  return isAgentRemoteEnabled(store);
 }
 
 /** SHA-256 hex of a presented token — the at-rest lookup key. The token is the
@@ -219,6 +281,17 @@ export function agentScopeAllows(scope: AgentTokenScope, method: string, path: s
 export class FixedWindowLimiter {
   private readonly hits = new Map<string, {count: number; resetAt: number}>();
   constructor(private readonly limit: number, private readonly windowMs: number) {}
+
+  /**
+   * Read-only: is `key` ALREADY over the limit in the current window, WITHOUT
+   * recording a hit? Used for the remote-MCP early-429 (design §3.4.7) so a
+   * garbage-PAT flood is shed BEFORE the expensive SHA-256 + DB lookup, while a
+   * VALID token's traffic never touches (increments) the failed-PAT bucket.
+   */
+  peek(key: string, now: number = Date.now()): boolean {
+    const cur = this.hits.get(key);
+    return !!cur && now < cur.resetAt && cur.count > this.limit;
+  }
 
   /** Record one hit for `key`; returns true when it is now OVER the limit. */
   exceeded(key: string, now: number = Date.now()): boolean {
