@@ -120,7 +120,7 @@ const currentIdFor = (list: Library[]): string => {
 /** `null` (this device) or a well-formed http(s) URL — never a `javascript:`,
  *  `file:`, or otherwise unexpected scheme that a synced/poisoned blob could use
  *  to re-point the data client somewhere hostile when the library is selected. */
-const isSafeServerUrl = (u: unknown): boolean => {
+export const isSafeServerUrl = (u: unknown): boolean => {
   if (u === null) return true;
   if (typeof u !== 'string') return false;
   try {
