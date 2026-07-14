@@ -360,9 +360,6 @@ export const zh: PartialMessages = {
   },
   library: {
     libraries: '资料库',
-    addLibrary: '添加资料库…',
-    addTitle: '添加资料库',
-    addDescription: '连接到另一个 OpenBook 服务器。切换后本设备将指向该服务器。',
     icon: '图标',
     name: '名称',
     serverUrl: '服务器 URL',
@@ -370,7 +367,6 @@ export const zh: PartialMessages = {
     urlPlaceholder: 'https://my-server.example:4319',
     addButton: '添加资料库',
     urlRequired: '请输入此资料库的服务器 URL。',
-    urlInvalid: '这看起来不是有效的 URL。',
     removeLibrary: '移除 {name}',
     thisDevice: '本设备',
   },

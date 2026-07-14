@@ -534,9 +534,6 @@ export const en = {
   },
   library: {
     libraries: 'Libraries',
-    addLibrary: 'Add a library…',
-    addTitle: 'Add a library',
-    addDescription: 'Connect to another OpenBook server. Switching to it re-points this device at that server.',
     icon: 'Icon',
     name: 'Name',
     serverUrl: 'Server URL',
@@ -544,10 +541,23 @@ export const en = {
     urlPlaceholder: 'https://my-server.example:4319',
     addButton: 'Add library',
     urlRequired: 'Enter the server URL for this library.',
-    urlInvalid: 'That doesn’t look like a valid URL.',
     removeLibrary: 'Remove {name}',
     thisDevice: 'This device',
     manage: 'Manage libraries…',
+    // The switcher's connect-to-a-server action (the add-a-library flow is the
+    // connect flow — it adds the server and switches this device onto it).
+    connectAction: 'Connect to a library…',
+    connectTitle: 'Connect to a library',
+    connectDescription:
+      'Enter another OpenBook server’s address. This device connects to it and reloads onto that library.',
+    connectButton: 'Connect',
+    urlUnsafe: 'Enter an http:// or https:// server URL.',
+    mixedContentBlocked:
+      'This app is served over https, so it can’t reach a plain http:// address. Use the server’s https:// forwarding address instead.',
+    fromAccount: 'From your account',
+    onThisDevice: 'On this device',
+    connectFromAccount: 'Connect',
+    accountSyncedHint: 'Synced to your account and available on your other devices.',
     status: {
       connected: 'Connected',
       reachable: 'Reachable',

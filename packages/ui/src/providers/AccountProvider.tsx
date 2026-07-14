@@ -116,6 +116,14 @@ interface AccountContextValue {
   /** Whether the active account's service issues identities at all — see
    *  {@link IdentityIssuance}. `unconfigured` means a refresh can never succeed. */
   identityIssuance: IdentityIssuance;
+
+  // ── Signed-in library discovery (LM-4) ──────────────────────────────────────
+  /** The active account's synced library list — the libraries the user has
+   *  configured across their devices, as last pulled from / pushed to the account
+   *  service. Empty when signed out. MVP: read straight off the synced settings
+   *  blob (no dedicated account directory API). The switcher uses it to show a
+   *  "From your account" group and to connect a library that isn't local yet. */
+  syncedLibraries: Library[];
 }
 
 const AccountContext = createContext<AccountContextValue | null>(null);
@@ -417,6 +425,11 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
   const [error, setError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<StoredIndexRow[]>(() => readIndex());
   const [activeAccountId, setActiveAccountId] = useState<string | null>(() => readActiveId());
+  // The active account's synced library list (LM-4). Tracked separately from the
+  // live LibraryProvider list so the switcher can label which libraries are
+  // account-backed and offer to connect ones from another device. Reset on
+  // sign-out; refreshed on every reconcile/push of the active account.
+  const [syncedLibraries, setSyncedLibraries] = useState<Library[]>([]);
 
   const client = useMemo(() => new AccountClient(), []);
   const accountUrlDefault = useMemo(() => resolveAccountUrl(), []);
@@ -528,16 +541,23 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
           const blob = currentBlob();
           const res = await client.putSettings(tok, blob as unknown as Record<string, unknown>);
           lastSyncedBlob.current = JSON.stringify(blob);
+          // The account now holds our local list — it IS the synced set (LM-4).
+          setSyncedLibraries(blob.libraries);
           return res.updatedAt;
         }
         lastSyncedBlob.current = JSON.stringify(currentBlob());
+        // A truly empty remote carries no libraries to surface (LM-4).
+        setSyncedLibraries([]);
         return updatedAt;
       }
       // Baseline against the LOCAL shape adopt just applied (its return value), not
       // the raw server blob: adopt normalizes both sections, so the server JSON rarely
       // byte-matches the push's local serialization — a stale baseline fired one
       // redundant putSettings per activation (ER-9).
-      lastSyncedBlob.current = JSON.stringify(adopt(settings));
+      const adopted = adopt(settings);
+      lastSyncedBlob.current = JSON.stringify(adopted);
+      // Surface the account's library list for signed-in discovery (LM-4).
+      setSyncedLibraries(adopted.libraries);
       return updatedAt;
     },
     [client, currentBlob, adopt],
@@ -652,6 +672,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       setToken(null);
       setLastSyncedAt(null);
       commitActiveId(null);
+      setSyncedLibraries([]); // signed out — nothing to discover (LM-4)
       setStatus('disconnected');
     },
     [commitIndex, commitActiveId, clearIdentity],
@@ -901,6 +922,8 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
           setLastSyncedAt(res.updatedAt);
           setStatus('connected');
           setError(null);
+          // Keep the discovery list in step with what the account now holds (LM-4).
+          setSyncedLibraries(blob.libraries);
           const aid = activeIdRef.current;
           if (aid) patchRow(aid, {lastServerUpdatedAt: res.updatedAt});
         })
@@ -1050,6 +1073,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       removeAccount,
       remintIdentity,
       identityIssuance,
+      syncedLibraries,
     }),
     [
       status,
@@ -1069,6 +1093,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
       removeAccount,
       remintIdentity,
       identityIssuance,
+      syncedLibraries,
     ],
   );
 

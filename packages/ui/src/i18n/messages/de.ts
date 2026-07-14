@@ -363,9 +363,6 @@ export const de: PartialMessages = {
   },
   library: {
     libraries: 'Bibliotheken',
-    addLibrary: 'Bibliothek hinzufügen…',
-    addTitle: 'Bibliothek hinzufügen',
-    addDescription: 'Mit einem anderen OpenBook-Server verbinden. Beim Wechsel zeigt dieses Gerät auf jenen Server.',
     icon: 'Symbol',
     name: 'Name',
     serverUrl: 'Server-URL',
@@ -373,7 +370,6 @@ export const de: PartialMessages = {
     urlPlaceholder: 'https://mein-server.example:4319',
     addButton: 'Bibliothek hinzufügen',
     urlRequired: 'Gib die Server-URL für diese Bibliothek ein.',
-    urlInvalid: 'Das sieht nicht nach einer gültigen URL aus.',
     removeLibrary: '{name} entfernen',
     thisDevice: 'Dieses Gerät',
   },
