@@ -1,7 +1,9 @@
 import {Image as ImageIcon, Trash2} from 'lucide-react';
 import {useEffect, useMemo, useState, type CSSProperties} from 'react';
-import {useTheme, useTranslation} from '@/providers';
+import {useNavigation, useTheme, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
+import {Switch} from '@/components/ui/switch';
+import {usePageFullWidth, writePageFullWidth} from '@/lib/pageFullWidth';
 import {getTheme, mergeAppearance, PAGE_BACKGROUNDS, type AppearanceOverride} from '@/lib/themes';
 import {composePageAppearance, hasPageTheme, usePageTheme, writePageTheme} from '@/lib/pageTheme';
 import {FONT_PRESETS, readPageFonts, usePageFonts, writePageFonts, type PageFonts} from '@/lib/pageFont';
@@ -182,11 +184,15 @@ function PresetPicker({pageId, scheme}: {pageId: string; scheme: 'light' | 'dark
  * fonts via {@link writePageFonts}, cover via {@link writePageCover}); the app
  * chrome is out of scope — a page override only restyles that page.
  */
-export function PageAppearanceControls({pageId}: {pageId: string}) {
+export function PageAppearanceControls({pageId, isDatabase = false}: {pageId: string; isDatabase?: boolean}) {
   const {appearance, colorScheme} = useTheme();
   const override = usePageTheme(pageId);
   const fonts = usePageFonts(pageId);
   const {t} = useTranslation();
+
+  // Database-hosting pages default to full width (wide tables/boards read better
+  // full-bleed); the switch reflects that default until the user overrides it.
+  const fullWidth = usePageFullWidth(pageId, isDatabase);
 
   const active = (!!override && Object.keys(override).length > 0) || !!fonts;
   const eff = mergeAppearance(appearance, override);
@@ -256,6 +262,18 @@ export function PageAppearanceControls({pageId}: {pageId: string}) {
       <Field label={t('appearance.cover')} hint={t('appearance.coverHint')}>
         <CoverField pageId={pageId} />
       </Field>
+
+      <label className="flex cursor-pointer items-center justify-between gap-4">
+        <span className="flex flex-col gap-1">
+          <span className="text-sm font-medium">{t('appearance.fullWidth')}</span>
+          <span className="text-xs text-muted-foreground">{t('appearance.fullWidthHint')}</span>
+        </span>
+        <Switch
+          checked={fullWidth}
+          onCheckedChange={(value) => writePageFullWidth(pageId, value, isDatabase)}
+          aria-label={t('appearance.fullWidth')}
+        />
+      </label>
     </div>
   );
 }
@@ -268,8 +286,13 @@ export function PageAppearanceControls({pageId}: {pageId: string}) {
  */
 export function PageCustomiseBody() {
   const {t} = useTranslation();
+  const {pages} = useNavigation();
   const [pageId, setPageId] = useState<string | null>(getPageCustomiseTarget());
   useEffect(() => subscribePageCustomise(() => setPageId(getPageCustomiseTarget())), []);
+  // Nav-list derivation (covers any target page id); can briefly lag a just-
+  // created DB page, so the full-width switch may momentarily read OFF while the
+  // page renders full-width off its reliable prop. Heals on next list refresh.
+  const isDatabase = !!pageId && !!pages.find((p) => p.id === pageId)?.hostedDatabaseId;
 
   return (
     <div className="flex h-full flex-col">
@@ -281,7 +304,7 @@ export function PageCustomiseBody() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
         {pageId ? (
-          <PageAppearanceControls pageId={pageId} />
+          <PageAppearanceControls pageId={pageId} isDatabase={isDatabase} />
         ) : (
           <p className="text-xs text-muted-foreground">{t('appearance.pageCustomiseEmpty')}</p>
         )}
