@@ -223,7 +223,12 @@ export const RowContextMenu: React.FC<{db: UseDatabase; rowId: string; children:
   const copyLink = useCopyPageLink();
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      {/* `data-row-anchor` marks the row's DOM node so a copied row link
+          (`?page=<hostDb>&row=<id>`) can scroll to + flash it on load. asChild
+          forwards the attribute onto the wrapped card/row element (Radix Slot). */}
+      <ContextMenuTrigger asChild data-row-anchor={rowId}>
+        {children}
+      </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
         <ContextMenuItem onSelect={() => db.openRow(rowId)}>
           <PanelRightOpen className="mr-2 h-3.5 w-3.5" /> Open
@@ -236,7 +241,9 @@ export const RowContextMenu: React.FC<{db: UseDatabase; rowId: string; children:
           <AppWindow className="mr-2 h-3.5 w-3.5" /> Open in new window
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => copyLink(rowId)}>
+        {/* Anchor at the host database page, not the row-as-standalone-page, so
+            the link reopens the row IN CONTEXT (scrolled to + highlighted). */}
+        <ContextMenuItem onSelect={() => copyLink(db.hostPageId, {row: rowId})}>
           <Link2 className="mr-2 h-3.5 w-3.5" /> Copy link
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => void db.addRowAfter(rowId)}>
@@ -316,6 +323,7 @@ export const GroupContextMenu: React.FC<{
   children: React.ReactNode;
 }> = ({db, group, prop, groupByParent, collapsed, onToggle, onCollapseAll, onExpandAll, children}) => {
   const {renamePage} = useNavigation();
+  const copyLink = useCopyPageLink();
   const [renaming, setRenaming] = useState(false);
 
   const sentinel = GROUP_SENTINELS.has(group.key);
@@ -351,8 +359,10 @@ export const GroupContextMenu: React.FC<{
 
   return (
     <ContextMenu onOpenChange={(next) => !next && setRenaming(false)}>
-      {/* stopPropagation so a group right-click doesn't also bubble to the DB-level menu. */}
-      <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
+      {/* stopPropagation so a group right-click doesn't also bubble to the DB-level menu.
+          `data-group-anchor` marks the header so a copied group link
+          (`?page=<hostDb>&group=<key>`) can scroll to + flash it on load. */}
+      <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()} data-group-anchor={group.key}>
         {children}
       </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
@@ -420,6 +430,18 @@ export const GroupContextMenu: React.FC<{
             </ContextMenuItem>
             <ContextMenuItem onSelect={onExpandAll}>
               <ChevronsUpDown className="mr-2 h-3.5 w-3.5" /> Expand all
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            {/* A group link anchors at the host db page (`?page=<hostDb>&group=<key>`),
+                reopening the database scrolled to + highlighting this group. The
+                ungrouped/"No value" sentinels have no stable key to anchor, so their
+                copy-link disables. */}
+            <ContextMenuItem
+              disabled={sentinel}
+              title={sentinel ? 'This group has no stable link' : undefined}
+              onSelect={() => copyLink(db.hostPageId, {group: group.key})}
+            >
+              <Link2 className="mr-2 h-3.5 w-3.5" /> Copy link
             </ContextMenuItem>
             {isOptionGroup && (
               <>

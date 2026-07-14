@@ -22,6 +22,7 @@ afterEach(() => {
 
 const makeDb = (): UseDatabase =>
   ({
+    hostPageId: 'db-host',
     openRow: vi.fn(),
     openRowIn: vi.fn(),
     addRowAfter: vi.fn().mockResolvedValue(undefined),
@@ -70,10 +71,17 @@ describe('RowContextMenu', () => {
     expect(db.openRow).toHaveBeenCalledWith('row-1');
   });
 
-  it('copies a link to the row through useCopyPageLink', () => {
+  it('copies an in-context row link (host db page + ?row= anchor) through useCopyPageLink', () => {
     renderMenu(makeDb());
     fireEvent.click(screen.getByText('Copy link'));
-    expect(copyLink).toHaveBeenCalledWith('row-1');
+    // Anchored at the host database page, not the row-as-standalone-page.
+    expect(copyLink).toHaveBeenCalledWith('db-host', {row: 'row-1'});
+  });
+
+  it('marks the row element with data-row-anchor so a ?row= link can scroll to it', () => {
+    // The scroll-to target lands on the wrapped card/row via asChild (Radix Slot).
+    renderMenu(makeDb());
+    expect(screen.getByTestId('card').getAttribute('data-row-anchor')).toBe('row-1');
   });
 
   it('still exposes the existing row mutations', () => {

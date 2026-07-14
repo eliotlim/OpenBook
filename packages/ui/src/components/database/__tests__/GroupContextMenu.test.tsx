@@ -17,10 +17,18 @@ const {renamePage} = vi.hoisted(() => ({renamePage: vi.fn()}));
 vi.mock('@/providers', () => ({
   useNavigation: () => ({renamePage}),
 }));
+// The group menu copies a group link through useCopyPageLink — mock it (a hoisted
+// spy) so the copy-link test can assert the host page + group key it was handed,
+// and so the hook's provider dependencies don't need the full tree.
+const {copyLink} = vi.hoisted(() => ({copyLink: vi.fn()}));
+vi.mock('@/lib/useCopyPageLink', () => ({
+  useCopyPageLink: () => copyLink,
+}));
 
 afterEach(() => {
   cleanup();
   renamePage.mockClear();
+  copyLink.mockClear();
 });
 
 const prop: DatabaseProperty = {
@@ -38,7 +46,7 @@ const sentinelGroup: RowGroup = {key: '__none__', label: 'No value', color: unde
 const pageGroup: RowGroup = {key: 'page-123', label: 'Linked page', color: undefined, rows: []};
 
 const makeDb = (): UseDatabase =>
-  ({updateProperty: vi.fn().mockResolvedValue(undefined)}) as unknown as UseDatabase;
+  ({hostPageId: 'db-host', updateProperty: vi.fn().mockResolvedValue(undefined)}) as unknown as UseDatabase;
 
 interface MenuOverrides {
   prop?: DatabaseProperty | undefined;
@@ -188,5 +196,22 @@ describe('GroupContextMenu', () => {
     expect(screen.getByText('Rename group').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
     // A sentinel group is not an editable option, so Delete is not offered at all.
     expect(screen.queryByText('Delete group')).toBeNull();
+  });
+
+  it('copies an in-context group link (host db page + ?group= anchor)', () => {
+    renderMenu(optionGroup, makeDb());
+    fireEvent.click(screen.getByText('Copy link'));
+    expect(copyLink).toHaveBeenCalledWith('db-host', {group: 'opt1'});
+  });
+
+  it('disables copy-link for a sentinel group (no stable key to anchor)', () => {
+    renderMenu(sentinelGroup, makeDb());
+    expect(screen.getByText('Copy link').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+  });
+
+  it('marks the group header with data-group-anchor so a ?group= link can scroll to it', () => {
+    // The scroll-to target lands on the wrapped header via asChild (Radix Slot).
+    renderMenu(optionGroup, makeDb());
+    expect(screen.getByTestId('hdr').getAttribute('data-group-anchor')).toBe('opt1');
   });
 });
