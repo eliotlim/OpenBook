@@ -56,23 +56,27 @@ test('backup: export downloads a bundle and restore brings pages back', {tag: ['
   expect(bundle.suggestedFilename()).toContain('.openbook.json');
 
   await page.setInputFiles('input[type=file]', await bundle.path());
-  const dialog = page.getByRole('dialog');
+  // The Settings panel is itself a role=dialog (and carries a "Restore backup…"
+  // button), so scope to the restore dialog by its unique summary copy.
+  const dialog = page.getByRole('dialog').filter({hasText: 'Pick what to restore'});
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText('Restore backup')).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: restore dialog
 
   const beforePages = (await (await request.get(`${SERVER}/api/pages`)).json()) as {id: string}[];
   await dialog.getByRole('button', {name: /^Restore/}).click();
-  // Restore copies the WHOLE workspace; the load-bearing proof is that the
-  // clashing page comes back as a name-suffixed twin (copy mode). Assert that
-  // directly rather than a raw count delta, and give the restore room on a slow
-  // long-lived dev server (the flake was a too-tight poll window).
-  await expect
-    .poll(async () => ((await (await request.get(`${SERVER}/api/pages`)).json()) as {name: string}[]).some((p) => /Backup Spec Page \(imported\)/.test(p.name)), {timeout: 20_000})
-    .toBe(true);
-  await expect
-    .poll(async () => ((await (await request.get(`${SERVER}/api/pages`)).json()) as unknown[]).length, {timeout: 20_000})
-    .toBeGreaterThan(beforePages.length);
+  // Deterministic completion signal: the restore dialog only closes and the
+  // settings status line only renders "Restored N pages…" once importLibrary
+  // has fully resolved server-side. Gate on that instead of a timed poll (the
+  // old flake was a race between a fixed poll window and a slow long-lived dev
+  // server).
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText(/^Restored \d+ pages/)).toBeVisible();
+  // With restore provably applied, the copies now exist: the clashing page came
+  // back as a name-suffixed twin (copy mode) and the page count grew.
+  const afterRestore = (await (await request.get(`${SERVER}/api/pages`)).json()) as {name: string}[];
+  expect(afterRestore.some((p) => /Backup Spec Page \(imported\)/.test(p.name))).toBe(true);
+  expect(afterRestore.length).toBeGreaterThan(beforePages.length);
 
   // The restore just copied the WHOLE workspace. Against a long-lived dev
   // server that doubles the page count every run (and the "X (imported)"

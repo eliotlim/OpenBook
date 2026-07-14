@@ -88,33 +88,53 @@ test('dependencies: link a row to another row', {tag: ['@database']}, async ({pa
   await expect(page.getByRole('button', {name: 'Remove dependency'})).toBeVisible();
 });
 
-// A timeline bar can be dragged to reschedule the row's date.
-test('timeline drag: dragging a bar reschedules the row', {tag: ['@database', '@flaky']}, async ({page}) => {
-  await newDatabase(page);
-  await addColumn(page, 'When', 'date');
-
-  const when = dayFromToday(0);
-  await page.getByRole('button', {name: 'New row'}).click();
-  await page.getByLabel('When').first().fill(when);
-
-  await openTimeline(page);
-
-  // Drag the bar to the right (later in time). The bar can sit below the fold
-  // (header + properties + editor above the view) — reveal it before measuring.
-  const bar = page.getByTitle(/drag to reschedule/);
+/** Reliable body-drag on a timeline bar. The drag handler binds its
+ *  `pointermove`/`pointerup` listeners on `window` in a React effect that only
+ *  runs *after* the pointerdown-driven re-render, so a single fast move can be
+ *  missed. Land the press, nudge past the 3px move threshold to force the state
+ *  update (and give the effect a tick to attach), then walk to the target in
+ *  steps before releasing. */
+async function dragBarBy(page: import('@playwright/test').Page, bar: import('@playwright/test').Locator, dx: number): Promise<void> {
+  // The bar can sit below the fold (header + properties + editor above the
+  // view) — mouse coordinates only hit what's inside the viewport.
   await expect(bar).toBeVisible();
   await bar.scrollIntoViewIfNeeded();
   const box = (await bar.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  await page.mouse.move(cx, cy);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2 + 170, box.y + box.height / 2, {steps: 12});
+  // Nudge to trip the move threshold and let the window listener attach.
+  await page.mouse.move(cx + 8, cy, {steps: 3});
+  await page.mouse.move(cx + dx, cy, {steps: 12});
   await page.mouse.up();
+}
 
-  // Back in the table, the date has moved off its original value (dated cells
-  // render as text; click to reveal the native input).
-  await page.getByRole('button', {name: 'Table', exact: true}).click();
-  await page.getByLabel('When').first().click();
-  await expect(page.getByLabel('When').first()).not.toHaveValue(when);
+// A timeline bar can be dragged to reschedule the row's date. Built on the API
+// (like the two-property sibling below) so verification is deterministic: poll
+// the row's stored date rather than round-tripping through the table cell.
+test('timeline drag: dragging a bar reschedules the row', {tag: ['@database']}, async ({page, request}) => {
+  const schema = {
+    properties: [{id: 'p_when', name: 'When', type: 'date'}],
+    views: [{id: 'v_tl', name: 'Timeline', type: 'timeline', filters: [], sorts: [], datePropertyId: 'p_when'}],
+  };
+  const p = await request.post(`${SERVER}/api/pages`, {data: {name: `Drag ${Date.now()}`, data: {editorjs: {blocks: []}, values: [], names: []}}});
+  const pageId = ((await p.json()) as {id: string}).id;
+  const d = await request.post(`${SERVER}/api/databases`, {data: {pageId, name: 'T', schema}});
+  const dbId = ((await d.json()) as {id: string}).id;
+  const when = dayFromToday(0); // today → bar renders near centre, visible without scroll
+  await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {name: `Row ${dbId.slice(0, 8)}`, properties: {p_when: when}}});
+
+  await page.goto(`/?page=${pageId}`);
+  await dragBarBy(page, page.getByTitle(/drag to reschedule/), 170);
+
+  // The stored date has moved later off its original value.
+  await expect
+    .poll(async () => {
+      const rows = (await (await request.get(`${SERVER}/api/databases/${dbId}/rows`)).json()) as Array<{properties: Record<string, string>}>;
+      return rows[0]?.properties.p_when;
+    })
+    .not.toBe(when);
 });
 
 // Drag from one bar's link handle onto another to create a dependency edge.
