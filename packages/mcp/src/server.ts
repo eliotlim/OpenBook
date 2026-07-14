@@ -167,7 +167,7 @@ function setBlockTextInSnapshot(data: PageSnapshot, blockId: string, text: strin
 }
 
 /**
- * The OpenBook MCP server: exposes a workspace to any MCP client (Claude
+ * The OpenBook MCP server: exposes a library to any MCP client (Claude
  * Desktop, Claude Code, …) as a set of tools over the same `@book.dev/sdk`
  * contract the apps use. Read tools degrade gracefully (search is lexical
  * BM25 even with the AI engine off). Write tools that MUTATE existing content
@@ -255,18 +255,18 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
 
   /** The tool result a queued (not applied) suggestion returns to the client. */
   const suggested = (summary: string, s: StoredSuggestion) =>
-    text(`Suggested for review (not applied): ${summary}. It is queued in the review pane (suggestion ${s.id}); a human must accept it before it changes the workspace.`);
+    text(`Suggested for review (not applied): ${summary}. It is queued in the review pane (suggestion ${s.id}); a human must accept it before it changes the library.`);
 
   server.registerTool(
     'list_pages',
     {
       title: 'List pages',
-      description: 'List workspace pages (id and title), most recently updated first.',
+      description: 'List library pages (id and title), most recently updated first.',
       inputSchema: {},
     },
     async () => {
       const pages = await client.listPages();
-      if (pages.length === 0) return text('The workspace has no pages yet.');
+      if (pages.length === 0) return text('The library has no pages yet.');
       return text(pages.map((p) => `- [${p.id}] ${p.name ?? 'Untitled'}`).join('\n'));
     },
   );
@@ -290,7 +290,7 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
     {
       title: 'Search notes',
       description:
-        'Search every note/page in the workspace; returns ranked matches with snippets. Works without an AI model (keyword ranking) and upgrades to semantic ranking when the server has one.',
+        'Search every note/page in the library; returns ranked matches with snippets. Works without an AI model (keyword ranking) and upgrades to semantic ranking when the server has one.',
       inputSchema: {
         query: z.string().describe('What to look for.'),
         limit: z.number().int().min(1).max(25).optional().describe('Max results (default 8).'),
@@ -525,7 +525,7 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
   // a reviewable SUGGESTION (StoredSuggestion) instead of applying the change —
   // the same review layer the in-app agent uses (packages/server/src/ai/agent.ts),
   // with matching kind/target/payload — so nothing an MCP client writes lands in
-  // the workspace until a human accepts it. A trusted deployment can restore
+  // the library until a human accepts it. A trusted deployment can restore
   // direct mutation with `allowDirectEdits` (OpenBookMcpOptions / an env flag in
   // bin.ts). Pure CREATION tools above (create_page, create_artifact_page,
   // create_database_row) stay immediate — they add new, non-destructive content

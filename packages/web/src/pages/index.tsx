@@ -211,7 +211,7 @@ export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSid
     <>
       <Head>
         <title>OpenBook</title>
-        <meta name="description" content="OpenBook — a local-first block workspace" />
+        <meta name="description" content="OpenBook — a local-first block library" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         {/* SVG mark first (modern browsers); .ico stays as the fallback. */}
         <link rel="icon" type="image/svg+xml" href="/icon.svg" />
