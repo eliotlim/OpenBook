@@ -118,6 +118,23 @@ const EMPTY_SCHEMA: DatabaseSchema = {properties: [], views: []};
  */
 export const PAGE_VERSION_COALESCE_SECONDS = 45;
 
+/**
+ * PVH-2: retention for captured page versions, pruned by the periodic sweep (NOT
+ * on the hot save path — PGlite has no autovacuum, so per-save deletes would only
+ * add write-amp; OB-164). The capture side coalesces to ≤1 version/45s, but a
+ * long-lived page still accumulates unboundedly, so the sweep bounds each page's
+ * history by TWO limits applied together:
+ *   • keep-N ({@link PAGE_VERSION_KEEP}): retain only the newest N versions.
+ *   • max-age ({@link PAGE_VERSION_MAX_AGE_MS}): drop versions older than this.
+ * with a floor ({@link PAGE_VERSION_KEEP_MIN}): the newest few are ALWAYS kept,
+ * even past max-age, so a page that hasn't been touched in a year still offers a
+ * short rollback trail rather than an empty history. A page within both limits is
+ * left untouched.
+ */
+export const PAGE_VERSION_KEEP = 50;
+export const PAGE_VERSION_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+export const PAGE_VERSION_KEEP_MIN = 3;
+
 // Timestamps come back as Date (postgres) or ISO string (pglite); normalize.
 const toIso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -1778,6 +1795,54 @@ export class PageStore {
       [versionId, pageId],
     );
     return rows.length > 0 ? pageVersionFromRow(rows[0]) : null;
+  }
+
+  /**
+   * PVH-2: bound each page's captured version history, run by the periodic cleanup
+   * sweep (never on the save path — a per-save delete would only add write-amp to
+   * the autovacuum-less embedded store, OB-164). Per page, a version is pruned when
+   * it is BOTH past the keep-min floor AND (beyond the newest {@link PAGE_VERSION_KEEP}
+   * OR older than `maxAgeMs`):
+   *   • keep-N — anything ranked past the newest N is dropped, even if recent.
+   *   • max-age — anything older than `maxAgeMs` is dropped…
+   *   • …EXCEPT the newest {@link PAGE_VERSION_KEEP_MIN} are always retained, so a
+   *     page whose whole history predates the age cutoff keeps a short rollback trail
+   *     instead of losing it entirely.
+   * A page inside both limits is untouched. `maxAgeMs <= 0` disables the age cut
+   * (keep-N still applies); `keep <= 0` is treated as the floor. One set-based
+   * DELETE over a `ROW_NUMBER()` window — no per-row loop. Returns rows pruned.
+   */
+  async prunePageVersions(
+    keep = PAGE_VERSION_KEEP,
+    maxAgeMs = PAGE_VERSION_MAX_AGE_MS,
+  ): Promise<number> {
+    const keepMin = PAGE_VERSION_KEEP_MIN;
+    const keepN = Math.max(keepMin, Math.trunc(keep) > 0 ? Math.trunc(keep) : keepMin);
+    const ageMs = maxAgeMs > 0 ? Math.trunc(maxAgeMs) : 0;
+    const rows = await this.db.query<{id: string}>(
+      // Rank each page's versions newest-first, then delete those beyond the floor
+      // that also breach keep-N or (when enabled) max-age. The floor (`rn > $2`)
+      // guards the age branch so the newest few survive even if all are old; the
+      // keep-N branch (`rn > $1`) drops surplus recent rows regardless of age.
+      `DELETE FROM page_versions
+       WHERE id IN (
+         SELECT id FROM (
+           SELECT id,
+                  created_at,
+                  ROW_NUMBER() OVER (PARTITION BY page_id ORDER BY created_at DESC) AS rn
+           FROM page_versions
+         ) ranked
+         WHERE rn > $2
+           AND (
+             rn > $1
+             OR ($3::bigint > 0
+                 AND created_at <= now() - ($3::bigint * interval '1 millisecond'))
+           )
+       )
+       RETURNING id`,
+      [keepN, keepMin, ageMs],
+    );
+    return rows.length;
   }
 
   // ── Generic settings key/value ───────────────────────────────────────────────
