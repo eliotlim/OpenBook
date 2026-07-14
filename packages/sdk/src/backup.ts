@@ -72,8 +72,15 @@ export const BACKUP_CADENCE_MS: Record<BackupCadence, number> = {
 
 /** Scheduled-backup policy, persisted server-side in the `settings` table. */
 export interface BackupConfig {
-  /** Master switch — when false the scheduler is idle (the default). */
+  /** Master switch — backups run when true (the default; opt-out). */
   enabled: boolean;
+  /**
+   * True once the user has explicitly set the master switch (via `PUT /api/backups`).
+   * Until then the switch follows the current default, so the default-on migration
+   * can re-enable never-configured instances without overriding a real opt-out.
+   * Absent/false in legacy configs written before this marker existed.
+   */
+  userSetEnabled?: boolean;
   /** Where backups are written; `null` = the server default (`<dataDir>/backups`). */
   dir: string | null;
   /** Which cadences are active. */
@@ -85,7 +92,7 @@ export interface BackupConfig {
 }
 
 export const DEFAULT_BACKUP_CONFIG: BackupConfig = {
-  enabled: false,
+  enabled: true,
   dir: null,
   cadences: {daily: true, weekly: true, monthly: true, yearly: true},
   keep: {daily: 7, weekly: 5, monthly: 12, yearly: 3},

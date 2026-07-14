@@ -56,9 +56,56 @@ describe('BackupScheduler', () => {
     expect(parsed.pages.some((p) => p.name === `bk-${seq}`)).toBe(true);
   });
 
-  it('does nothing while disabled (the default)', async () => {
+  it('backs up on a fresh install without configuration (default-on / opt-out)', async () => {
+    await scheduler().tick();
+    expect(await listSnapshots('daily')).toHaveLength(1);
+    // A never-configured instance reads as enabled.
+    expect((await store.getBackupConfig()).enabled).toBe(true);
+  });
+
+  it('does nothing after an explicit opt-out (and the opt-out persists)', async () => {
+    await store.updateBackupConfig({enabled: false});
     await scheduler().tick();
     expect(await listSnapshots('daily')).toHaveLength(0);
+    // Re-reading keeps the user's off decision (marker set), not the default-on.
+    expect((await store.getBackupConfig()).enabled).toBe(false);
+  });
+
+  const seedRawBackupRow = async (config: Record<string, unknown>) => {
+    const db = (store as unknown as {db: {query(sql: string, params: unknown[]): Promise<unknown>}}).db;
+    await db.query(
+      `INSERT INTO settings (key, value) VALUES ('backups', $1::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(config)],
+    );
+  };
+
+  it('honours a stored enabled:false row (no user marker) — an explicit off is NOT re-enabled', async () => {
+    // A row already exists (the only writer is `updateBackupConfig`, so its presence
+    // means the user touched the toggle). The default-on override must not apply.
+    await seedRawBackupRow({
+      enabled: false,
+      dir: null,
+      cadences: {daily: true, weekly: true, monthly: true, yearly: true},
+      keep: {daily: 7, weekly: 5, monthly: 12, yearly: 3},
+      lastRun: {},
+    });
+    expect((await store.getBackupConfig()).enabled).toBe(false);
+    await scheduler().tick();
+    expect(await listSnapshots('daily')).toHaveLength(0);
+  });
+
+  it('honours a stored enabled:true row (no user marker) — stays on', async () => {
+    await seedRawBackupRow({
+      enabled: true,
+      dir: null,
+      cadences: {daily: true, weekly: true, monthly: true, yearly: true},
+      keep: {daily: 7, weekly: 5, monthly: 12, yearly: 3},
+      lastRun: {},
+    });
+    expect((await store.getBackupConfig()).enabled).toBe(true);
+    await scheduler().tick();
+    expect(await listSnapshots('daily')).toHaveLength(1);
   });
 
   it('runs a cadence when due and skips it when not', async () => {
@@ -130,7 +177,18 @@ describe('backup HTTP routes', () => {
 
     const status = await (await app.request('/api/backups')).json();
     expect(status.resolvedDir).toBe(backupDir);
-    expect(status.config.enabled).toBe(false);
+    expect(status.config.enabled).toBe(true); // default-on (opt-out)
+
+    // Toggling off is an explicit choice that survives a reload (marker persisted).
+    const disabled = await (
+      await app.request('/api/backups', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({enabled: false}),
+      })
+    ).json();
+    expect(disabled.config.enabled).toBe(false);
+    expect((await (await app.request('/api/backups')).json()).config.enabled).toBe(false);
 
     const enabled = await (
       await app.request('/api/backups', {
