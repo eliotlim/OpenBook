@@ -16,7 +16,7 @@ import {cn} from '@/lib/utils';
 import {Select} from '@/components/ui/select';
 import type {UseDatabase} from './useDatabase';
 import {dotStyle, swatchColor} from './databaseColors';
-import {groupCollapsed, groupGlyph, groupHeading, RowChips, RowContextMenu, useRelationGroupTitles} from './databaseLayouts';
+import {groupCollapsed, GroupContextMenu, groupGlyph, groupHeading, RowChips, RowContextMenu, setAllGroupsCollapsed, useRelationGroupTitles} from './databaseLayouts';
 import {ViewSetupCard} from './ViewSetupCard';
 
 const DAY_MS = 86_400_000;
@@ -656,54 +656,65 @@ const TimelineCanvas: React.FC<{
                 className={cn(overRowBand === g.key && 'bg-accent/40 ring-1 ring-inset ring-brand/40')}
               >
                 {grouped && (
-                  <div
-                    data-band-key={g.key}
-                    onDragOver={(e) => {
-                      if (dragBand && isBandOption(g.key)) {
-                        e.preventDefault();
-                        setOverBand(g.key);
-                      }
-                    }}
-                    onDrop={() => dragBand && reorderBand(dragBand, g.key)}
-                    className={cn(
-                      'flex w-full items-center border-b border-border/60 bg-muted/20 text-xs font-medium text-muted-foreground transition-colors',
-                      dragBand === g.key && 'opacity-40',
-                      overBand === g.key && 'ring-1 ring-inset ring-brand/40',
-                    )}
-                    style={{height: BAND_H}}
+                  <GroupContextMenu
+                    db={db}
+                    group={g}
+                    prop={groupProp}
+                    groupByParent={groupByParent}
+                    collapsed={collapsed}
+                    onToggle={() => toggleBand(g.key)}
+                    onCollapseAll={() => setCollapsedBands(setAllGroupsCollapsed(groups, true, collapseEmpty))}
+                    onExpandAll={() => setCollapsedBands(setAllGroupsCollapsed(groups, false, collapseEmpty))}
                   >
-                    {isBandOption(g.key) && (
-                      <span
-                        draggable
-                        onDragStart={(e) => {
-                          e.stopPropagation();
-                          setDragBand(g.key);
-                        }}
-                        onDragEnd={() => {
-                          setDragBand(null);
-                          setOverBand(null);
-                        }}
-                        aria-label={`Reorder ${heading} band`}
-                        className="flex h-full cursor-grab items-center pl-1 text-muted-foreground/30 transition-colors hover:text-muted-foreground active:cursor-grabbing"
-                      >
-                        <GripVertical className="h-3.5 w-3.5" />
-                      </span>
-                    )}
-                    <button
-                      onClick={() => toggleBand(g.key)}
-                      aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${heading} band`}
+                    <div
+                      data-band-key={g.key}
+                      onDragOver={(e) => {
+                        if (dragBand && isBandOption(g.key)) {
+                          e.preventDefault();
+                          setOverBand(g.key);
+                        }
+                      }}
+                      onDrop={() => dragBand && reorderBand(dragBand, g.key)}
                       className={cn(
-                        'flex h-full flex-1 items-center gap-1 px-2 text-left transition-colors hover:bg-hover hover:text-foreground',
-                        isBandOption(g.key) && 'pl-1',
+                        'flex w-full items-center border-b border-border/60 bg-muted/20 text-xs font-medium text-muted-foreground transition-colors',
+                        dragBand === g.key && 'opacity-40',
+                        overBand === g.key && 'ring-1 ring-inset ring-brand/40',
                       )}
+                      style={{height: BAND_H}}
                     >
-                      <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
-                      {g.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(g.color)} />}
-                      {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
-                      <span className="truncate">{heading}</span>
-                      <span className="ml-auto shrink-0 text-muted-foreground/60">{g.rows.length}</span>
-                    </button>
-                  </div>
+                      {isBandOption(g.key) && (
+                        <span
+                          draggable
+                          onDragStart={(e) => {
+                            e.stopPropagation();
+                            setDragBand(g.key);
+                          }}
+                          onDragEnd={() => {
+                            setDragBand(null);
+                            setOverBand(null);
+                          }}
+                          aria-label={`Reorder ${heading} band`}
+                          className="flex h-full cursor-grab items-center pl-1 text-muted-foreground/30 transition-colors hover:text-muted-foreground active:cursor-grabbing"
+                        >
+                          <GripVertical className="h-3.5 w-3.5" />
+                        </span>
+                      )}
+                      <button
+                        onClick={() => toggleBand(g.key)}
+                        aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${heading} band`}
+                        className={cn(
+                          'flex h-full flex-1 items-center gap-1 px-2 text-left transition-colors hover:bg-hover hover:text-foreground',
+                          isBandOption(g.key) && 'pl-1',
+                        )}
+                      >
+                        <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', !collapsed && 'rotate-90')} />
+                        {g.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(g.color)} />}
+                        {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
+                        <span className="truncate">{heading}</span>
+                        <span className="ml-auto shrink-0 text-muted-foreground/60">{g.rows.length}</span>
+                      </button>
+                    </div>
+                  </GroupContextMenu>
                 )}
                 {!collapsed &&
                   g.rows.map((row) => (

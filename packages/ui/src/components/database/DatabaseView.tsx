@@ -58,6 +58,7 @@ import {
   CalendarView,
   GalleryView,
   groupCollapsed,
+  GroupContextMenu,
   groupGlyph,
   groupHeading,
   rowColor,
@@ -811,15 +812,26 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                 <tbody key={group.key} className="border-b border-border">
                   <tr className="bg-muted/20">
                     <td colSpan={colSpan} className="px-2 py-1">
-                      <button onClick={() => toggleGroup(group.key)} className="flex items-center gap-1.5 text-xs font-medium">
-                        <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
-                        {group.color && (
-                          <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
-                        )}
-                        {glyph && <span className="text-sm leading-none">{glyph}</span>}
-                        <span>{groupHeading(group, groupProp)}</span>
-                        <span className="text-muted-foreground/60">{group.rows.length}</span>
-                      </button>
+                      <GroupContextMenu
+                        db={db}
+                        group={group}
+                        prop={groupProp}
+                        groupByParent={groupByParent}
+                        collapsed={isCollapsed}
+                        onToggle={() => toggleGroup(group.key)}
+                        onCollapseAll={() => setCollapsed(setAllGroupsCollapsed(groups, true, collapseEmpty))}
+                        onExpandAll={() => setCollapsed(setAllGroupsCollapsed(groups, false, collapseEmpty))}
+                      >
+                        <button onClick={() => toggleGroup(group.key)} className="flex items-center gap-1.5 text-xs font-medium">
+                          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
+                          {group.color && (
+                            <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
+                          )}
+                          {glyph && <span className="text-sm leading-none">{glyph}</span>}
+                          <span>{groupHeading(group, groupProp)}</span>
+                          <span className="text-muted-foreground/60">{group.rows.length}</span>
+                        </button>
+                      </GroupContextMenu>
                     </td>
                   </tr>
                   {!isCollapsed &&
@@ -936,15 +948,26 @@ const ListView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, vi
           const glyph = groupGlyph(group, groupProp, groupByParent);
           return (
             <div key={group.key} className="overflow-hidden rounded-md border border-border">
-              <button onClick={() => toggle(group.key)} className="flex w-full items-center gap-1.5 bg-muted/20 px-3 py-1.5 text-xs font-medium">
-                <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
-                {group.color && (
-                  <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
-                )}
-                {glyph && <span className="text-sm leading-none">{glyph}</span>}
-                <span>{groupHeading(group, groupProp)}</span>
-                <span className="text-muted-foreground/60">{group.rows.length}</span>
-              </button>
+              <GroupContextMenu
+                db={db}
+                group={group}
+                prop={groupProp}
+                groupByParent={groupByParent}
+                collapsed={isCollapsed}
+                onToggle={() => toggle(group.key)}
+                onCollapseAll={() => setCollapsed(setAllGroupsCollapsed(groups, true, collapseEmpty))}
+                onExpandAll={() => setCollapsed(setAllGroupsCollapsed(groups, false, collapseEmpty))}
+              >
+                <button onClick={() => toggle(group.key)} className="flex w-full items-center gap-1.5 bg-muted/20 px-3 py-1.5 text-xs font-medium">
+                  <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', !isCollapsed && 'rotate-90')} />
+                  {group.color && (
+                    <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
+                  )}
+                  {glyph && <span className="text-sm leading-none">{glyph}</span>}
+                  <span>{groupHeading(group, groupProp)}</span>
+                  <span className="text-muted-foreground/60">{group.rows.length}</span>
+                </button>
+              </GroupContextMenu>
               {!isCollapsed && group.rows.map((row) => <ListRow key={row.id} db={db} columns={columns} row={row} />)}
             </div>
           );
