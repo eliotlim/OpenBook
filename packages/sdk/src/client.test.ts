@@ -422,6 +422,77 @@ describe('LiveStream identity re-mint (cross-server blank pages)', () => {
 
     unsub();
   });
+
+  // An open PAGE that is no longer readable under the new identity must be CLEARED,
+  // not left rendered — otherwise account-A's body lingers under account-B until
+  // the user navigates. The identity-scoped resync fires `onDeleted` for it.
+  function makePageClient(pageStatusFor: (jws: string | undefined) => number) {
+    let jws: string | undefined;
+    let onChange: (() => void) | null = null;
+    const sources: FakeSource[] = [];
+    const client = new HttpDataClient('https://remote.example', undefined, {
+      fetchImpl: (input: string): Promise<Response> => {
+        if (input.includes('/api/pages/')) {
+          const status = pageStatusFor(jws);
+          const body = status === 200 ? JSON.stringify({id: 'p1', name: 'x', data: {}, updatedAt: 't'}) : '{}';
+          return Promise.resolve(new Response(body, {status, headers: {'content-type': 'application/json'}}));
+        }
+        return Promise.resolve(new Response('[]', {status: 200, headers: {'content-type': 'application/json'}}));
+      },
+      createLiveSource: () => {
+        const source = new FakeSource();
+        sources.push(source);
+        return source;
+      },
+      getIdentity: () => ({jws}),
+      subscribeIdentity: (cb) => {
+        onChange = cb;
+        return () => void (onChange = null);
+      },
+    });
+    return {
+      client,
+      sources,
+      setIdentity: (v: string | undefined): void => void (jws = v),
+      fireChange: (): void => onChange?.(),
+    };
+  }
+
+  it('clears an open page that is unreadable under the new identity (drops stale content)', async () => {
+    // p1 reads under jws-A, is hidden (404) under jws-B.
+    const h = makePageClient((jws) => (jws === 'jws-A' ? 200 : 404));
+    h.setIdentity('jws-A');
+    const deleted: string[] = [];
+    const unsub = h.client.subscribePage('p1', {onPage: () => {}, onDeleted: (id) => deleted.push(id)});
+    h.sources[0].emit('open');
+
+    // Identity lapses/switches to B → the identity-scoped resync finds p1 now 404 and
+    // clears it (never leaving A's body under B).
+    h.setIdentity('jws-B');
+    h.fireChange();
+    await vi.waitFor(() => expect(deleted).toContain('p1'));
+
+    unsub();
+  });
+
+  it('a transient reconnect resync does NOT clear a briefly-failing page (only a credential change does)', async () => {
+    // The page 200s under the (unchanged) identity, then briefly 404s during a
+    // server restart. A reconnect resync must NOT treat that as a loss of access.
+    let status = 200;
+    const h = makePageClient(() => status);
+    h.setIdentity('jws-A');
+    const deleted: string[] = [];
+    const unsub = h.client.subscribePage('p1', {onPage: () => {}, onDeleted: (id) => deleted.push(id)});
+    h.sources[0].emit('open');
+
+    status = 404; // server momentarily can't serve
+    h.sources[0].emit('error'); // a drop…
+    h.sources[0].emit('open'); // …then reopen → reconnect resync (clearUnreadable=false)
+    await new Promise((r) => setTimeout(r, 20));
+    expect(deleted).toHaveLength(0); // stale content kept; the next event heals it
+
+    unsub();
+  });
 });
 
 /**

@@ -135,9 +135,18 @@ interface AccountContextValue {
 
 const AccountContext = createContext<AccountContextValue | null>(null);
 
-/** Backoff before retrying a FAILED identity refresh, so a transient outage can't
- *  kill the refresh loop and let the JWS silently expire (cross-server blank pages). */
+/** Base backoff before retrying a FAILED identity refresh, so a transient outage
+ *  can't kill the refresh loop and let the JWS silently expire (cross-server blank
+ *  pages). Jittered per attempt — see {@link identityRetryDelay}. */
 const IDENTITY_RETRY_MS = 20_000;
+
+/** The retry backoff with ±30% random jitter per attempt, so a correlated mass
+ *  token-expiry (many clients whose tokens lapse together) doesn't retry the
+ *  account mint endpoint in lockstep and stampede it. */
+function identityRetryDelay(): number {
+  const jitter = (Math.random() * 2 - 1) * 0.3; // ∈ [-0.3, +0.3]
+  return Math.round(IDENTITY_RETRY_MS * (1 + jitter));
+}
 
 const DEVICE_ID_KEY = 'openbook.deviceId';
 /** The account list (non-secret metadata only). */
@@ -657,7 +666,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
         if (stillValid) {
           // The current JWS is still comfortably within its window: keep presenting
           // it and retry soon — a transient blip must not demote a verified user.
-          identityTimer.current = setTimeout(() => void refreshRef.current(tok), IDENTITY_RETRY_MS);
+          identityTimer.current = setTimeout(() => void refreshRef.current(tok), identityRetryDelay());
           return null;
         }
         // The JWS is gone / expired / about to expire, or the device token itself was
@@ -670,7 +679,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
         setIdentityExpired(true);
         // A revoked device token can't self-heal (it needs a fresh sign-in), so don't
         // spin a retry on it; a transient failure whose token merely expired retries.
-        if (!revoked) identityTimer.current = setTimeout(() => void refreshRef.current(tok), IDENTITY_RETRY_MS);
+        if (!revoked) identityTimer.current = setTimeout(() => void refreshRef.current(tok), identityRetryDelay());
         return null;
       }
     },

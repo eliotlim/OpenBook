@@ -520,9 +520,13 @@ class LiveStream {
    * frozen into the EventSource URL when it first opened (the cross-server
    * "titles show, content blank" divergence). A no-op when the URL is unchanged,
    * so an unrelated re-subscribe never churns the connection. Listeners survive
-   * (they live in the Sets, not the source); a resync then re-fetches every open
-   * subscription's snapshot under the new credential, so a weaker identity
-   * immediately drops now-unreadable content and a restored one repopulates it.
+   * (they live in the Sets, not the source); an identity-scoped resync then
+   * re-fetches every open subscription under the NEW credential and, unlike a
+   * transient reconnect resync, CLEARS any open page that is no longer readable
+   * (a 404/null or a 401) by firing its `onDeleted` — so a weaker identity or an
+   * account switch drops the now-unreadable body (never leaving account-A's
+   * content rendered under account-B) instead of leaving it stale until
+   * navigation, while a still-readable page repopulates.
    */
   updateUrl(url: string): void {
     if (url === this.liveUrl) return;
@@ -539,7 +543,7 @@ class LiveStream {
     this.preOpenErrors = 0;
     this.sawError = false;
     this.ensureOpen();
-    void this.resync();
+    void this.resync(true); // credential changed → clear pages unreadable under it
   }
 
   private dispatch(raw: string): void {
@@ -678,8 +682,18 @@ class LiveStream {
     }
   }
 
-  /** Re-fetch and re-dispatch every open subscription after a reconnect or poll. */
-  private async resync(): Promise<void> {
+  /**
+   * Re-fetch and re-dispatch every open subscription after a reconnect or poll.
+   *
+   * `clearUnreadable` distinguishes the two callers. A transient reconnect/poll
+   * resync (`false`) treats a null/failed page as "server still catching up" and
+   * leaves the current content in place — the next event heals it. An
+   * identity-change resync (`true`, from {@link updateUrl}) instead treats a page
+   * that is now a 404/null or a 401 as no-longer-readable UNDER THE NEW CREDENTIAL
+   * and CLEARS it (fires `onDeleted`), so an identity lapse or account switch drops
+   * the stale body rather than leaving account-A's content rendered under account-B.
+   */
+  private async resync(clearUnreadable = false): Promise<void> {
     // One resync at a time: a slow refetch must not overlap the next poll tick
     // (or a reconnect resync) and double-dispatch.
     if (this.resyncing) return;
@@ -695,8 +709,13 @@ class LiveStream {
         try {
           const page = await this.fetchers.getPage(id);
           if (page) this.pageListeners.get(id)?.forEach((s) => s.onPage?.(page));
+          // Gone/hidden under the new credential (404 → null): drop the stale body.
+          else if (clearUnreadable) this.pageListeners.get(id)?.forEach((s) => s.onDeleted?.(id));
         } catch {
-          /* keep going */
+          // A rejected identity (401) or other read failure: on a credential change
+          // this page is no longer ours to show — clear it; on a transient resync
+          // keep the current content and let the next event heal it.
+          if (clearUnreadable) this.pageListeners.get(id)?.forEach((s) => s.onDeleted?.(id));
         }
       }
       for (const dbId of [...this.rowsListeners.keys()]) {
