@@ -1281,6 +1281,11 @@ export const en = {
       syncFailed: 'Sync failed — will retry on the next change.',
       invalidCode: 'That doesn’t look like a valid code. Paste the code (or the whole openbook:// link) from the browser.',
     },
+    reauth: {
+      title: 'Reconnect your account',
+      body: 'Your verified sign-in expired and couldn’t refresh, so pages on a connected server may not load. Reconnect to restore access.',
+      reconnect: 'Reconnect',
+    },
     nudge: {
       title: 'Sync and publish',
       body: 'Sign up free to keep your preferences and libraries in sync across devices — then publish your work to the web. Local-first stays the default.',

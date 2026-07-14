@@ -505,10 +505,42 @@ class LiveStream {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
-    private readonly liveUrl: string,
+    // NOT readonly: the URL bakes the identity/token credential (an EventSource
+    // can't send headers), and {@link updateUrl} re-points it when that credential
+    // changes so the stream can't keep asserting a stale identity — see below.
+    private liveUrl: string,
     private readonly fetchers: ResyncFetchers,
     private readonly createSource: (url: string) => LiveSourceLike,
   ) {}
+
+  /**
+   * Re-point the stream at a new URL (a changed identity/token credential) and,
+   * when a source is already open, tear it down and reopen against the new URL —
+   * so the streamed nav list re-asserts the CURRENT identity instead of the one
+   * frozen into the EventSource URL when it first opened (the cross-server
+   * "titles show, content blank" divergence). A no-op when the URL is unchanged,
+   * so an unrelated re-subscribe never churns the connection. Listeners survive
+   * (they live in the Sets, not the source); a resync then re-fetches every open
+   * subscription's snapshot under the new credential, so a weaker identity
+   * immediately drops now-unreadable content and a restored one repopulates it.
+   */
+  updateUrl(url: string): void {
+    if (url === this.liveUrl) return;
+    this.liveUrl = url;
+    if (!this.source) return; // not open yet — the next ensureOpen() uses the new URL
+    this.source.close();
+    this.source = null;
+    // Reset the transport state machine so the reopen is evaluated from scratch
+    // (a fresh grace window, no inherited poll/error state).
+    this.clearGraceTimer();
+    this.stopPolling();
+    this.clearReconnectTimer();
+    this.hasOpened = false;
+    this.preOpenErrors = 0;
+    this.sawError = false;
+    this.ensureOpen();
+    void this.resync();
+  }
 
   private dispatch(raw: string): void {
     let ev: {type: string; [k: string]: unknown};
@@ -806,11 +838,37 @@ export interface HttpDataClientOptions {
    * instance reachability secret. Omit for a legacy anonymous client.
    */
   getIdentity?: () => IdentityCredential | null | undefined;
+  /**
+   * Subscribe to identity-credential changes (returns an unsubscribe). Wired to
+   * `onIdentityChange` from `connection.ts`, this lets the client rebuild its live
+   * stream when the identity actually changes — an EventSource bakes the identity
+   * into its URL when it opens and can't refresh it, so without this the streamed
+   * nav list keeps asserting a stale identity while one-shot content fetches use
+   * the current one (the cross-server "titles show, content blank" bug). Omit and
+   * the stream still reconciles on the next re-subscribe, just not proactively.
+   */
+  subscribeIdentity?: (onChange: () => void) => () => void;
 }
 
 /** Identity header names (kept in sync with the server's `principal.ts`). */
 const IDENTITY_HEADER = 'X-OpenBook-Identity';
 const GUEST_NAME_HEADER = 'X-OpenBook-Guest-Name';
+
+/**
+ * The data server REJECTED the caller's identity assertion (HTTP 401): the JWS is
+ * expired, scoped to a different audience, revoked, or from an untrusted issuer.
+ * Deliberately DISTINCT from a 404 (the page is genuinely gone or hidden from this
+ * principal, which reads as an empty document) so a caller can offer a re-auth
+ * affordance instead of silently rendering a blank page — the cross-server
+ * lapsed-identity bug. Thrown by {@link HttpDataClient.getPage}.
+ */
+export class IdentityRejectedError extends Error {
+  readonly status = 401 as const;
+  constructor(detail?: string) {
+    super(`identity rejected by the data server (401)${detail ? `: ${detail}` : ''}`);
+    this.name = 'IdentityRejectedError';
+  }
+}
 
 /**
  * {@link DataClient} backed by an OpenBook server's HTTP API. Isomorphic, and
@@ -825,6 +883,8 @@ export class HttpDataClient implements DataClient {
   private readonly createLiveSource: (url: string) => LiveSourceLike;
   private readonly getIdentity?: () => IdentityCredential | null | undefined;
   private live: LiveStream | null = null;
+  /** Unsubscribe from identity-change notifications (see {@link dispose}). */
+  private readonly identityUnsub?: () => void;
 
   /**
    * @param baseUrl  Server base URL. May be empty when a `fetchImpl` resolves
@@ -841,6 +901,22 @@ export class HttpDataClient implements DataClient {
     this.fetchImpl = opts.fetchImpl ?? globalFetch;
     this.createLiveSource = opts.createLiveSource ?? ((url) => new EventSource(url) as unknown as LiveSourceLike);
     this.getIdentity = opts.getIdentity;
+    // Rebuild the live stream the moment the identity credential changes, so the
+    // baked-in EventSource URL can't keep asserting a stale identity while one-shot
+    // content fetches use the current one. Guarded to a real change by the setters
+    // in connection.ts, so this never churns the connection on a no-op set.
+    this.identityUnsub = opts.subscribeIdentity?.(() => this.live?.updateUrl(this.buildLiveUrl()));
+  }
+
+  /**
+   * Release the identity-change subscription. Call when discarding a client (e.g.
+   * the web shell swapping to a different server), so a stale client doesn't keep
+   * reacting to identity changes for a connection nothing is watching. The live
+   * stream itself is torn down when its last listener unsubscribes (React unmount).
+   * Safe to call more than once.
+   */
+  dispose(): void {
+    this.identityUnsub?.();
   }
 
   /**
@@ -858,19 +934,27 @@ export class HttpDataClient implements DataClient {
     return this.fetchImpl(input, {...init, headers});
   }
 
-  /** Lazily create the shared live connection (browser-only). */
+  /**
+   * The `/api/live` URL for the CURRENT credential. An EventSource can't send
+   * headers, so the access token and the identity assertion both ride the query
+   * string (the server reads `?token=` / `?identity=`). Read fresh each call so a
+   * rebuilt stream picks up a refreshed / dropped identity.
+   */
+  private buildLiveUrl(): string {
+    const params = new URLSearchParams();
+    if (this.token) params.set('token', this.token);
+    const id = this.getIdentity?.();
+    if (id?.jws) params.set('identity', id.jws);
+    const query = params.toString();
+    return `${this.baseUrl}${API.live}${query ? `?${query}` : ''}`;
+  }
+
+  /** Lazily create — or re-point — the shared live connection (browser-only). */
   private liveStream(): LiveStream {
+    const url = this.buildLiveUrl();
     if (!this.live) {
-      // EventSource can't send headers, so the access token and the identity
-      // assertion both ride the URL (the server reads `?token=` / `?identity=`).
-      const params = new URLSearchParams();
-      if (this.token) params.set('token', this.token);
-      const id = this.getIdentity?.();
-      if (id?.jws) params.set('identity', id.jws);
-      const query = params.toString();
-      const liveUrl = `${this.baseUrl}${API.live}${query ? `?${query}` : ''}`;
       this.live = new LiveStream(
-        liveUrl,
+        url,
         {
           listPages: () => this.listPages(),
           getPage: (id) => this.getPage(id),
@@ -878,6 +962,12 @@ export class HttpDataClient implements DataClient {
         },
         this.createLiveSource,
       );
+    } else {
+      // A credential change since the stream opened (identity refresh / account
+      // switch / sign-out) re-points it, so the streamed nav list can't keep
+      // asserting a stale identity a new subscription would then out-rank. A no-op
+      // when the URL is unchanged.
+      this.live.updateUrl(url);
     }
     return this.live;
   }
@@ -888,7 +978,12 @@ export class HttpDataClient implements DataClient {
 
   async getPage(id: string): Promise<StoredPage | null> {
     const res = await this.authFetch(`${this.baseUrl}${API.page(id)}`, {cache: 'no-store'});
+    // 404 = genuinely gone / hidden from this principal → an empty document, not
+    // an error. 401 = the identity was REJECTED (expired / wrong audience /
+    // revoked) → an auth problem the caller must surface (re-auth), never
+    // collapsed into "no content" (the blank-content-on-a-lapsed-identity bug).
     if (res.status === 404) return null;
+    if (res.status === 401) throw new IdentityRejectedError(await readErrorDetail(res));
     await throwIfNotOk(res);
     return (await res.json()) as StoredPage;
   }
@@ -1520,12 +1615,16 @@ function base64ToBytes(b64: string): Uint8Array {
 
 async function throwIfNotOk(res: Response): Promise<void> {
   if (res.ok) return;
-  let detail = '';
+  const detail = await readErrorDetail(res);
+  throw new Error(`OpenBook request failed (${res.status} ${res.statusText})${detail ? `: ${detail}` : ''}`);
+}
+
+/** The server's `{error}` message from a non-ok response body, or `''`. */
+async function readErrorDetail(res: Response): Promise<string> {
   try {
     const data = (await res.json()) as ApiError;
-    detail = data?.error ? `: ${data.error}` : '';
+    return data?.error ? String(data.error) : '';
   } catch {
-    // Non-JSON error body; ignore.
+    return ''; // non-JSON error body
   }
-  throw new Error(`OpenBook request failed (${res.status} ${res.statusText})${detail}`);
 }

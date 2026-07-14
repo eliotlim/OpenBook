@@ -1,6 +1,7 @@
 import {afterEach, describe, expect, it, vi} from 'vitest';
 import {
   HttpDataClient,
+  IdentityRejectedError,
   LIVE_OPEN_GRACE_MS,
   LIVE_POLL_AFTER_ERRORS,
   LIVE_POLL_INTERVAL_MS,
@@ -336,5 +337,118 @@ describe('HttpDataClient assets (base64-JSON is byte-exact on the http path)', (
     const got = await client.getAsset(id);
     expect(got!.bytes.length).toBe(bytes.length);
     expect(Array.from(got!.bytes)).toEqual(Array.from(bytes)); // byte-exact end to end
+  });
+});
+
+/**
+ * The live nav stream bakes the identity into its EventSource URL when it opens
+ * (an EventSource can't send headers, so the JWS rides `?identity=`) and can never
+ * refresh it afterwards, while one-shot content fetches read the identity fresh
+ * per request. So a stale/stronger streamed identity kept the nav list showing
+ * page TITLES whose bodies then 401/404'd — the cross-server blank-content bug.
+ * The client rebuilds the stream when the identity credential ACTUALLY changes.
+ */
+describe('LiveStream identity re-mint (cross-server blank pages)', () => {
+  function makeIdentityClient() {
+    let jws: string | undefined;
+    let onChange: (() => void) | null = null;
+    const sources: Array<{url: string; source: FakeSource}> = [];
+    const client = new HttpDataClient('https://remote.example', undefined, {
+      fetchImpl: () => Promise.resolve(new Response('[]', {status: 200, headers: {'content-type': 'application/json'}})),
+      createLiveSource: (url) => {
+        const source = new FakeSource();
+        sources.push({url, source});
+        return source;
+      },
+      getIdentity: () => ({jws}),
+      subscribeIdentity: (cb) => {
+        onChange = cb;
+        return () => void (onChange = null);
+      },
+    });
+    return {
+      client,
+      sources,
+      setIdentity: (v: string | undefined): void => void (jws = v),
+      fireChange: (): void => onChange?.(),
+    };
+  }
+
+  it('rebuilds the stream with the new identity when the credential changes', () => {
+    const h = makeIdentityClient();
+    h.setIdentity('jws-A');
+    const unsub = h.client.subscribePages(() => {});
+    expect(h.sources).toHaveLength(1);
+    expect(h.sources[0].url).toContain('identity=jws-A');
+    h.sources[0].source.emit('open'); // establish the connection
+
+    // The account refreshes the identity to a new JWS → the stream is rebuilt so it
+    // can't keep asserting the old one after content fetches move to the new one.
+    h.setIdentity('jws-B');
+    h.fireChange();
+    expect(h.sources[0].source.closed).toBe(true); // old source torn down
+    expect(h.sources).toHaveLength(2);
+    expect(h.sources[1].url).toContain('identity=jws-B');
+
+    unsub();
+  });
+
+  it('does not churn the connection when the credential is unchanged', () => {
+    const h = makeIdentityClient();
+    h.setIdentity('jws-A');
+    const unsub = h.client.subscribePages(() => {});
+    h.sources[0].source.emit('open');
+
+    h.fireChange(); // same identity — a no-op set fired the listener
+    expect(h.sources).toHaveLength(1);
+    expect(h.sources[0].source.closed).toBe(false);
+
+    unsub();
+  });
+
+  it('drops the identity from the stream URL when it lapses to guest', () => {
+    const h = makeIdentityClient();
+    h.setIdentity('jws-A');
+    const unsub = h.client.subscribePages(() => {});
+    h.sources[0].source.emit('open');
+
+    // The verified identity lapses (refresh cleared it): the rebuilt stream must
+    // stop asserting it, so the streamed list degrades to guest in lockstep with
+    // the content fetches rather than out-ranking them.
+    h.setIdentity(undefined);
+    h.fireChange();
+    expect(h.sources).toHaveLength(2);
+    expect(h.sources[1].url).not.toContain('identity=');
+
+    unsub();
+  });
+});
+
+/**
+ * `getPage` must tell a REJECTED identity (401) from a page that's genuinely gone
+ * or hidden (404): 404 → an empty document, 401 → an auth error a caller surfaces
+ * as re-auth. Collapsing 401 into "no content" is what rendered a blank page when
+ * a remote-server identity lapsed.
+ */
+describe('HttpDataClient.getPage — 401 vs 404', () => {
+  it('returns null on 404 (gone or hidden from this principal)', async () => {
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: () => Promise.resolve(new Response('{}', {status: 404, headers: {'content-type': 'application/json'}})),
+    });
+    await expect(client.getPage('p1')).resolves.toBeNull();
+  });
+
+  it('throws IdentityRejectedError on 401 (auth problem, not empty content)', async () => {
+    const client = new HttpDataClient('https://x', undefined, {
+      fetchImpl: () =>
+        Promise.resolve(
+          new Response(JSON.stringify({error: 'identity rejected: expired'}), {
+            status: 401,
+            headers: {'content-type': 'application/json'},
+          }),
+        ),
+    });
+    await expect(client.getPage('p1')).rejects.toBeInstanceOf(IdentityRejectedError);
+    await expect(client.getPage('p1')).rejects.toMatchObject({status: 401});
   });
 });
