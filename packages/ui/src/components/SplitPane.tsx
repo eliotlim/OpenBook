@@ -4,10 +4,11 @@ import {ScrollArea} from '@/components/ui/scroll-area';
 import {IconButton} from '@/components/ui/icon-button';
 import PageActionsCluster from '@/components/PageActionsCluster';
 import {ConnectedPageDocument, DataflowView, HomeScreen} from '@/screens';
-import {AGENT_PANE_ID, CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {AGENT_PANE_ID, CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
 import {closeKitPanel, getKitPanel, setKitPanelHost, subscribeKitPanel} from '@/blockeditor/kit/kitPanel';
 import {PageCustomiseBody} from '@/components/appearance/PageCustomiseBody';
 import {ReviewPaneBody} from '@/components/review/ReviewPaneBody';
+import {HistoryPaneBody} from '@/components/history/HistoryPaneBody';
 import {AgentPanel} from '@/components/AgentPanel';
 import {useNavigation, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
@@ -94,7 +95,8 @@ export function SplitPane() {
   const isCustomise = pane.pageId === CUSTOMISE_PANE_ID;
   const isReview = pane.pageId === REVIEW_PANE_ID;
   const isAgent = pane.pageId === AGENT_PANE_ID;
-  const isPage = !isFlow && !isConfig && !isCustomise && !isReview && !isAgent; // a real document — gets make-main + the actions cluster
+  const isHistory = pane.pageId === HISTORY_PANE_ID;
+  const isPage = !isFlow && !isConfig && !isCustomise && !isReview && !isAgent && !isHistory; // a real document — gets make-main + the actions cluster
 
   return (
     <aside
@@ -157,6 +159,10 @@ export function SplitPane() {
       ) : isReview ? (
         <div className="min-h-0 flex-1">
           <ReviewPaneBody />
+        </div>
+      ) : isHistory ? (
+        <div className="min-h-0 flex-1">
+          <HistoryPaneBody />
         </div>
       ) : isAgent ? (
         <div className="min-h-0 flex-1">

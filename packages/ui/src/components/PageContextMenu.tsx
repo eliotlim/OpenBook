@@ -13,6 +13,7 @@ import {
   FileText,
   FileType,
   GitFork,
+  History,
   Link2,
   Maximize2,
   Monitor,
@@ -59,9 +60,10 @@ import {
   subscribePageDocActions,
   type ExportKind,
 } from '@/lib/pageDocActions';
-import {CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
 import {setReviewTarget} from '@/lib/reviewPane';
+import {setHistoryTarget} from '@/lib/historyPane';
 import type {TKey} from '@/i18n';
 
 /** Menu copy + icon per export format, in display order. */
@@ -261,6 +263,17 @@ export function PageMenuItems({
           >
             <ClipboardCheck className="mr-2 h-4 w-4" />
             {t('command.reviewSuggestions')}
+          </C.Item>
+          <C.Item
+            disabled={!pageScoped}
+            onSelect={() => {
+              if (!id) return;
+              setHistoryTarget(id);
+              openInSplit(HISTORY_PANE_ID);
+            }}
+          >
+            <History className="mr-2 h-4 w-4" />
+            {t('command.versionHistory')}
           </C.Item>
         </>
       )}

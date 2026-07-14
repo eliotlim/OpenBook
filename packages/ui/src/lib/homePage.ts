@@ -46,6 +46,17 @@ export const REVIEW_PANE_ID = 'review';
  */
 export const AGENT_PANE_ID = 'agent';
 
+/**
+ * The Version-history split-pane mode — a pseudo-page hosting a page's captured
+ * version list (PVH), a read-only preview of any picked version, and the
+ * restore-with-confirm action. Like {@link CUSTOMISE_PANE_ID} / {@link
+ * REVIEW_PANE_ID} it reuses the side pane and acts on a specific page, so it
+ * persists as `?split=history&paneTarget=<pageId>` (round-tripped through the
+ * URL via `lib/paneTarget.ts`). The page it targets is tracked in
+ * `lib/historyPane.ts`.
+ */
+export const HISTORY_PANE_ID = 'history';
+
 /** Which Home widgets are shown. All on by default; configurable per device. */
 export interface HomeWidgets {
   actions: boolean;
