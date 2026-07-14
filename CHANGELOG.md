@@ -1,3 +1,21 @@
+# 3.0.0 (2026-07-14)
+
+### 🚀 Features
+
+- **backups:** scheduled backups on by default (opt-out) with opt-out-preserving migration (B3) ([#156](https://github.com/eliotlim/OpenBook/pull/156))
+- ⚠️  **server:** remote MCP origin — conjunctive forwarded-guard + remote_ok tokens + R2/R4/R5/R6 (AGENT-10) ([#157](https://github.com/eliotlim/OpenBook/pull/157))
+- **ui:** dual-read/write `libraries`↔`workspaces` account-sync key (LIB-6) ([#158](https://github.com/eliotlim/OpenBook/pull/158))
+- **ui:** Library-folder relabel + Export to folder/backup actions with in-place feedback (B1/B2) ([#159](https://github.com/eliotlim/OpenBook/pull/159))
+
+### ⚠️  Breaking Changes
+
+- **server:** remote MCP origin — conjunctive forwarded-guard + remote_ok tokens + R2/R4/R5/R6 (AGENT-10)  ([#157](https://github.com/eliotlim/OpenBook/pull/157))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 2.2.0 (2026-07-13)
 
 ### 🚀 Features
