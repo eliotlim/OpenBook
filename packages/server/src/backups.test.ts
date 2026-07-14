@@ -71,22 +71,38 @@ describe('BackupScheduler', () => {
     expect((await store.getBackupConfig()).enabled).toBe(false);
   });
 
-  it('migrates a legacy default-false config (no user marker) to on', async () => {
-    // Simulate a config persisted by the old code: enabled:false, no `userSetEnabled`.
+  const seedRawBackupRow = async (config: Record<string, unknown>) => {
     const db = (store as unknown as {db: {query(sql: string, params: unknown[]): Promise<unknown>}}).db;
     await db.query(
       `INSERT INTO settings (key, value) VALUES ('backups', $1::jsonb)
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-      [
-        JSON.stringify({
-          enabled: false,
-          dir: null,
-          cadences: {daily: true, weekly: true, monthly: true, yearly: true},
-          keep: {daily: 7, weekly: 5, monthly: 12, yearly: 3},
-          lastRun: {},
-        }),
-      ],
+      [JSON.stringify(config)],
     );
+  };
+
+  it('honours a stored enabled:false row (no user marker) — an explicit off is NOT re-enabled', async () => {
+    // A row already exists (the only writer is `updateBackupConfig`, so its presence
+    // means the user touched the toggle). The default-on override must not apply.
+    await seedRawBackupRow({
+      enabled: false,
+      dir: null,
+      cadences: {daily: true, weekly: true, monthly: true, yearly: true},
+      keep: {daily: 7, weekly: 5, monthly: 12, yearly: 3},
+      lastRun: {},
+    });
+    expect((await store.getBackupConfig()).enabled).toBe(false);
+    await scheduler().tick();
+    expect(await listSnapshots('daily')).toHaveLength(0);
+  });
+
+  it('honours a stored enabled:true row (no user marker) — stays on', async () => {
+    await seedRawBackupRow({
+      enabled: true,
+      dir: null,
+      cadences: {daily: true, weekly: true, monthly: true, yearly: true},
+      keep: {daily: 7, weekly: 5, monthly: 12, yearly: 3},
+      lastRun: {},
+    });
     expect((await store.getBackupConfig()).enabled).toBe(true);
     await scheduler().tick();
     expect(await listSnapshots('daily')).toHaveLength(1);

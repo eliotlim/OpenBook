@@ -1970,13 +1970,14 @@ export class PageStore {
       keep: {...DEFAULT_BACKUP_CONFIG.keep, ...stored.keep},
       lastRun: {...stored.lastRun},
     };
-    // Default-on migration (opt-out): backups now default enabled. Legacy configs
-    // were persisted with `enabled:false` before the switch carried a user-decided
-    // marker, so a stored `enabled` is only honoured once `userSetEnabled` proves the
-    // user chose it. Until then the master switch follows the current default — this
-    // re-enables never-configured instances and preserves any explicit opt-out made
-    // after this change.
-    if (!stored.userSetEnabled) config.enabled = DEFAULT_BACKUP_CONFIG.enabled;
+    // Default-on (opt-out): backups now default enabled. The `backups` settings row
+    // is written at a single site — `updateBackupConfig` (owner-gated PUT /api/backups
+    // or the scheduler's `lastRun`) — and nothing seeds it on install/import, so "no
+    // row" is exactly "never configured". Apply the default-on override ONLY when no
+    // row exists; once a row is present its stored `enabled` is honoured as-is. This
+    // enables never-configured instances without silently re-enabling anyone who
+    // deliberately toggled backups off (their row carries `enabled:false`).
+    if (rows.length === 0) config.enabled = DEFAULT_BACKUP_CONFIG.enabled;
     return config;
   }
 
