@@ -107,6 +107,17 @@ interface DatabaseRowRecord {
 const EMPTY_SNAPSHOT: PageSnapshot = {editorjs: {blocks: []}, values: [], names: []};
 const EMPTY_SCHEMA: DatabaseSchema = {properties: [], views: []};
 
+/**
+ * PVH-1: minimum gap (seconds) between captured page versions. A save that
+ * changes `data` within this window of the page's newest existing version is
+ * COALESCED — it updates the page but writes no new version — so the 600ms
+ * collab saver and typing bursts can't spam one row per keystroke-burst. This
+ * bounds write-amplification on the autovacuum-less embedded store (OB-164).
+ * 45s is a deliberate middle ground: fine-grained enough to keep a useful undo
+ * trail, coarse enough that a burst of edits collapses to a single snapshot.
+ */
+export const PAGE_VERSION_COALESCE_SECONDS = 45;
+
 // Timestamps come back as Date (postgres) or ISO string (pglite); normalize.
 const toIso = (value: Date | string): string =>
   value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -897,6 +908,39 @@ export class PageStore {
     const data = authorsByBlock
       ? stampSnapshotAuthorsPerBlock(priorData, stamped, authorsByBlock)
       : stampSnapshotAuthors(priorData, stamped, verifiedSubject(author));
+    // PVH-1: snapshot the state being REPLACED (the prior `data`) into
+    // `page_versions` — a row = "what the page was before this save", the state you
+    // can roll back TO. Runs BEFORE the upsert, in the same transaction, reading the
+    // still-current `pages.data`. The guards mirror the no-op skip below exactly:
+    //   • `p.data IS DISTINCT FROM $2::jsonb` — the SAME normalized-jsonb change
+    //     signal, so a no-op save (or a name-only change) writes NO version.
+    //   • the coalesce `NOT EXISTS` — skip when a version was captured within the
+    //     last PAGE_VERSION_COALESCE_SECONDS, so a burst of saves collapses to one.
+    // A brand-new page matches no `p.id` row, so a create captures nothing (it
+    // replaces no prior state). Author is the verified saving principal (who
+    // superseded the captured state); a server-merged checkpoint has no single save
+    // principal, so its columns are null (per-block authorship lives in the snapshot).
+    await tx.query(
+      `INSERT INTO page_versions (id, page_id, data, author_subject, author_issuer, author_name)
+       SELECT $1, p.id, p.data, $4, $5, $6
+       FROM pages p
+       WHERE p.id = $3
+         AND p.data IS DISTINCT FROM $2::jsonb
+         AND NOT EXISTS (
+           SELECT 1 FROM page_versions v
+           WHERE v.page_id = p.id
+             AND v.created_at > now() - ($7::int * interval '1 second')
+         )`,
+      [
+        randomUUID(),
+        JSON.stringify(data),
+        id,
+        author?.subject ?? null,
+        author?.issuer ?? null,
+        author?.name ?? null,
+        PAGE_VERSION_COALESCE_SECONDS,
+      ],
+    );
     const rows = await tx.query<PageRow>(
       // A new page is appended to the bottom of its sibling group (one past the
       // current max position). Like `parent_id`, `position` is set only on
@@ -1705,6 +1749,35 @@ export class PageStore {
         [cap],
       );
     return rows.map(editFromRow);
+  }
+
+  // ── Page version history (PVH-1, OB-26) ──────────────────────────────────────
+  //
+  // Read-side of the snapshot-on-save history captured in `upsertPageTx`. The
+  // capture (schema + coalescing) is the PVH-1 foundation; the routes/SDK (PVH-3),
+  // retention (PVH-2), and restore/UI (PVH-4+) build on these helpers.
+
+  /** List a page's captured versions, newest first (metadata only — no snapshot
+   *  payload, so a history list stays cheap). */
+  async listPageVersions(pageId: string, limit = 100): Promise<PageVersionMeta[]> {
+    const cap = Math.max(1, Math.min(1000, Math.trunc(limit)));
+    const rows = await this.db.query<PageVersionRow>(
+      `SELECT id, page_id, author_subject, author_issuer, author_name, created_at
+       FROM page_versions WHERE page_id = $1 ORDER BY created_at DESC LIMIT $2`,
+      [pageId, cap],
+    );
+    return rows.map(pageVersionMetaFromRow);
+  }
+
+  /** Read one captured version WITH its snapshot payload (the state to roll back
+   *  to), or `null` when it doesn't exist / isn't that page's. */
+  async getPageVersion(pageId: string, versionId: string): Promise<StoredPageVersion | null> {
+    const rows = await this.db.query<PageVersionRow>(
+      `SELECT id, page_id, data, author_subject, author_issuer, author_name, created_at
+       FROM page_versions WHERE id = $1 AND page_id = $2`,
+      [versionId, pageId],
+    );
+    return rows.length > 0 ? pageVersionFromRow(rows[0]) : null;
   }
 
   // ── Generic settings key/value ───────────────────────────────────────────────
@@ -3094,4 +3167,46 @@ function editFromRow(row: EditRow): StoredEdit {
     summary: row.summary ?? '',
     createdAt: toIso(row.created_at),
   };
+}
+
+// ── Page version row mapper (PVH-1) ──────────────────────────────────────────
+
+/** Metadata for one captured page version (no snapshot payload). */
+export interface PageVersionMeta {
+  id: string;
+  pageId: string;
+  authorSubject: string | null;
+  authorIssuer: string | null;
+  authorName: string | null;
+  createdAt: string;
+}
+
+/** A captured page version WITH its snapshot payload — the state to restore. */
+export interface StoredPageVersion extends PageVersionMeta {
+  data: PageSnapshot;
+}
+
+interface PageVersionRow {
+  id: string;
+  page_id: string;
+  data?: PageSnapshot | string | null;
+  author_subject: string | null;
+  author_issuer: string | null;
+  author_name: string | null;
+  created_at: Date | string;
+}
+
+function pageVersionMetaFromRow(row: PageVersionRow): PageVersionMeta {
+  return {
+    id: row.id,
+    pageId: row.page_id,
+    authorSubject: row.author_subject ?? null,
+    authorIssuer: row.author_issuer ?? null,
+    authorName: row.author_name ?? null,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function pageVersionFromRow(row: PageVersionRow): StoredPageVersion {
+  return {...pageVersionMetaFromRow(row), data: parseSnapshot(row.data)};
 }
