@@ -129,7 +129,6 @@ export const de: PartialMessages = {
     addDatabase: 'Datenbank hinzufügen',
     moveTo: 'Verschieben nach…',
     moveToTrash: 'In den Papierkorb',
-    viewOptions: 'Ansichtsoptionen',
     options: 'Menü',
     fullWidth: 'Volle Breite',
     favourite: 'Favorit',

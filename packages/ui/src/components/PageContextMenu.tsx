@@ -1,6 +1,7 @@
 import React, {useCallback, useSyncExternalStore} from 'react';
 import {
   AppWindow,
+  Archive,
   ClipboardCheck,
   Columns2,
   CopyPlus,
@@ -265,19 +266,19 @@ export function PageMenuItems({
       )}
 
       <C.Separator />
-      <C.Item disabled={!id} onSelect={onRename}>
+      <C.Item disabled={!pageScoped} onSelect={onRename}>
         <Pencil className="mr-2 h-4 w-4" />
         {t('menu.rename')}
       </C.Item>
-      <C.Item disabled={!id} onSelect={() => id && copyLink(id)}>
+      <C.Item disabled={!pageScoped} onSelect={() => id && copyLink(id)}>
         <Link2 className="mr-2 h-4 w-4" />
         {t('menu.copyLink')}
       </C.Item>
-      <C.Item disabled={!id} onSelect={() => id && void duplicatePage(id)}>
+      <C.Item disabled={!pageScoped} onSelect={() => id && void duplicatePage(id)}>
         <CopyPlus className="mr-2 h-4 w-4" />
         {t('menu.duplicate')}
       </C.Item>
-      <C.Item disabled={!id} onSelect={() => id && requestMovePage(id)}>
+      <C.Item disabled={!pageScoped} onSelect={() => id && requestMovePage(id)}>
         <CornerUpRight className="mr-2 h-4 w-4" />
         {t('menu.moveTo')}
       </C.Item>
@@ -374,7 +375,7 @@ export function PageMenuItems({
               })
             }
           >
-            <Trash2 className="mr-2 h-4 w-4" />
+            <Archive className="mr-2 h-4 w-4" />
             {t('nav.trash')}
             <C.Shortcut>{formatShortcut(SHORTCUTS.openTrash)}</C.Shortcut>
           </C.Item>
@@ -406,7 +407,7 @@ export function PageContextMenu({pageId, children}: {pageId: string; children: R
       <ContextMenuTrigger asChild>
         <div className="contents">{children}</div>
       </ContextMenuTrigger>
-      <ContextMenuContent className="w-56">
+      <ContextMenuContent className="w-60">
         <PageMenuItems pageId={pageId} surface="page" />
       </ContextMenuContent>
     </ContextMenu>
