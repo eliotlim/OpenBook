@@ -353,31 +353,36 @@ export const GroupContextMenu: React.FC<{
             </ContextMenuLabel>
             <ContextMenuItem
               disabled={!canRename}
+              // A page group's "rename" reaches the linked page app-wide, so name
+              // the action + its scope; the sentinel groups say why they're inert.
+              title={!canRename ? 'Only option or linked-page groups can be renamed' : isPage ? 'Renames the linked page everywhere' : undefined}
               onSelect={(e) => {
                 e.preventDefault();
                 setRenaming(true);
               }}
             >
-              <Pencil className="mr-2 h-3.5 w-3.5" /> Rename group
+              <Pencil className="mr-2 h-3.5 w-3.5" /> {isPage ? 'Rename page' : 'Rename group'}
             </ContextMenuItem>
             <ContextMenuSub>
-              <ContextMenuSubTrigger disabled={!isOptionGroup}>
+              <ContextMenuSubTrigger
+                disabled={!isOptionGroup}
+                title={isOptionGroup ? undefined : isPage ? 'Linked page groups have no colour' : 'Only option groups have a colour'}
+              >
                 <Palette className="mr-2 h-3.5 w-3.5" /> Change colour
               </ContextMenuSubTrigger>
               <ContextMenuSubContent className="p-2">
+                {/* Swatches are ContextMenuItems (not raw buttons) so Radix's
+                    roving tabindex collects them and arrow keys + Enter reach
+                    every colour; the round swatch look overrides the item padding. */}
                 <div className="grid grid-cols-5 gap-1.5">
                   {SELECT_COLORS.map((c) => (
-                    <button
+                    <ContextMenuItem
                       key={c}
-                      type="button"
-                      onClick={() => {
-                        patchOption({color: c});
-                        dismiss();
-                      }}
+                      onSelect={() => patchOption({color: c})}
                       aria-label={c}
                       title={c}
                       className={cn(
-                        'h-5 w-5 rounded-full border border-black/10 transition-shadow hover:ring-2 hover:ring-foreground/30 hover:ring-offset-1 dark:border-white/15',
+                        'h-5 w-5 justify-center rounded-full border border-black/10 p-0 transition-shadow hover:ring-2 hover:ring-foreground/30 hover:ring-offset-1 focus:ring-2 focus:ring-foreground/30 focus:ring-offset-1 dark:border-white/15',
                         (option?.color ?? 'gray') === c && 'ring-2 ring-foreground/50 ring-offset-1',
                       )}
                       style={{backgroundColor: swatchColor(c)}}
