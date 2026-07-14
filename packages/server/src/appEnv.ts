@@ -15,8 +15,12 @@ export type AppVariables = {
    * token id + its read/write scope. Presence of this var is what the scope-gate
    * middleware keys on to confine a `pat` request to its default-deny allowlist; a
    * PAT-bearing request deliberately never also gets {@link localOwner}.
+   *
+   * `remote` is the resolved row's `remote_ok` flag (AGENT-7, L7): whether the token
+   * may authenticate a FORWARDED `/api/mcp` request. Carried here so the `/api/mcp`
+   * handler's belt-and-braces re-check needs no extra DB round trip.
    */
-  agentToken?: {id: string; scope: AgentTokenScope};
+  agentToken?: {id: string; scope: AgentTokenScope; remote: boolean};
 };
 
 /** The Hono environment shared by the app and its mounted route groups. */

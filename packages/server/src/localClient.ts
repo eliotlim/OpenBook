@@ -499,7 +499,7 @@ export class LocalDataClient implements DataClient {
     );
   }
 
-  setAgentApiEnabled(): Promise<{enabled: boolean}> {
+  setAgentApiEnabled(): Promise<{enabled: boolean; remote: boolean}> {
     return Promise.reject(
       new Error('Agent tokens run on the desktop app or a connected server — not in the browser.'),
     );

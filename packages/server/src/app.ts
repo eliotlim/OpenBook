@@ -43,11 +43,13 @@ import {
   AGENT_TOKEN_RATE_LIMIT,
   FixedWindowLimiter,
   agentPrincipal,
+  agentRequireRemoteFlagOn,
   agentScopeAllows,
   bearerAgentToken,
   clientIpKey,
   hashAgentToken,
   isAgentApiEnabled,
+  isAgentRemoteEnabled,
 } from './agentTokens';
 import {mountAgentTokenRoutes} from './agentTokenRoutes';
 import {mountMcpHttp} from './mcpHttp';
@@ -407,17 +409,36 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
     let principal: Principal;
     if (pat) {
-      // Loopback/LAN-only (Wave-2): a FORWARDED PAT never resolves. The forwarded
-      // backstop above only refuses forwarded traffic on an UNCLAIMED instance; on a
-      // claimed one a forwarded `Bearer obat_` would otherwise pass origin (only the
-      // edge SSO gate — a different repo — blocks it). Refuse it here, regardless of
-      // claimed status, so the REST PAT surface is structurally local-only now
-      // (*.book.cloud is deferred to its own security review; AGENT-5's `/api/mcp`
-      // inherits this refusal). Belt-and-braces: the tunnel also strips/marks this
-      // header, and it is never client-suppliable.
-      if (c.req.header(FORWARDED_HEADER)) {
-        return c.json({error: 'agent tokens are not accepted over a forwarded connection'}, 403);
+      const forwarded = !!c.req.header(FORWARDED_HEADER);
+      // Whether this request must satisfy the REMOTE-MCP conjunction (AGENT-7). A
+      // FORWARDED PAT always must; when `OPENBOOK_REQUIRE_REMOTE_FLAG` is set a
+      // MARKER-LESS PAT must too (R4 — closes the direct-to-origin self-host residual
+      // where a PAT is dialed straight at an internet-exposed origin that never crosses
+      // the edge, so no marker is ever stamped).
+      const requireRemoteFlag = agentRequireRemoteFlagOn();
+      const remoteGated = forwarded || requireRemoteFlag;
+
+      // ── Conjunctive forwarded-guard (AGENT-7, replaces the old unconditional 403) ──
+      // A forwarded PAT is admitted ONLY on the exact `/api/mcp` path of a
+      // remote-enabled instance; every OTHER forwarded `/api/*` path 403s exactly as
+      // before. The CHEAP legs (path, instance setting) run BEFORE the DB token lookup
+      // so a forwarded flood on a non-`/api/mcp` path (or a remote-off instance) is
+      // rejected without hash+DB work; the per-token `remote_ok` leg necessarily runs
+      // after resolution (below). The unclaimed-instance backstop above already ran.
+      if (forwarded) {
+        if (c.req.path !== API.mcp || !(await isAgentRemoteEnabled(store))) {
+          return c.json({error: 'agent tokens are not accepted over a forwarded connection'}, 403);
+        }
+      } else if (requireRemoteFlag) {
+        // R4: a marker-less PAT on a require-remote-flag instance must ALSO be
+        // remote-enabled. Unlike a forwarded request this does NOT narrow the path — an
+        // admitted remote token's in-process loop-back calls (`/api/pages`, …) must
+        // still resolve. The `remote_ok` leg runs after resolution (below).
+        if (!(await isAgentRemoteEnabled(store))) {
+          return c.json({error: 'this agent token is not enabled for remote access'}, 403);
+        }
       }
+
       // Agent-PAT resolution. DARK by default: a PAT only resolves when the admin has
       // enabled `agentApi` AND the `OPENBOOK_AGENT_API=0` kill-switch env is unset —
       // otherwise the token is treated as invalid and HARD-401s (never a silent
@@ -427,16 +448,30 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       if (!(await isAgentApiEnabled(store))) {
         return c.json({error: 'unauthorized'}, 401);
       }
+      // R2 early-429 (design §3.4.7): if the failed-PAT bucket is ALREADY over the
+      // limit, shed the request BEFORE the expensive SHA-256 + row lookup — this stops
+      // a garbage-PAT flood (through the tunnel or a direct-dial self-host origin) from
+      // churning DB work per request. `peek` never increments, so a valid token's
+      // traffic (keyed on `row.id` at the per-token limiter) is untouched.
+      if (patFailLimiter.peek(clientIpKey(c))) {
+        return c.json({error: 'too many failed attempts'}, 429);
+      }
       const row = await store.resolveAgentToken(hashAgentToken(pat));
       if (!row) {
         const over = patFailLimiter.exceeded(clientIpKey(c));
         return c.json({error: over ? 'too many failed attempts' : 'unauthorized'}, over ? 429 : 401);
       }
+      // Final remote conjunct (L7): a remote-gated request needs a `remote_ok` token. A
+      // valid-but-non-remote token gets a distinct 403 (not an oracle — the caller
+      // already holds the token; the message drives the right operator action).
+      if (remoteGated && !row.remoteOk) {
+        return c.json({error: 'this agent token is not enabled for remote access'}, 403);
+      }
       if (patTokenLimiter.exceeded(row.id)) {
         return c.json({error: 'rate limit exceeded'}, 429);
       }
       principal = agentPrincipal(row);
-      c.set('agentToken', {id: row.id, scope: row.scope});
+      c.set('agentToken', {id: row.id, scope: row.scope, remote: row.remoteOk});
       void store.touchAgentTokenUsed(row.id).catch(() => {});
     } else {
       const resolved = await resolvePrincipal(c, opts.identity);

@@ -42,7 +42,7 @@ import {createOpenBookMcpServer} from '@book.dev/mcp';
 import {API, FORWARDED_HEADER, HttpDataClient, type FetchLike} from '@book.dev/sdk';
 import type {AppEnv} from './appEnv';
 import type {PageStore} from './store';
-import {bearerAgentToken, isAgentApiEnabled} from './agentTokens';
+import {bearerAgentToken, isAgentApiEnabled, remoteMcpAdmitted} from './agentTokens';
 
 /**
  * Max inbound body for a JSON-RPC tool call (DoS parity with the asset/relay/awareness
@@ -80,27 +80,35 @@ export function mountMcpHttp(app: Hono<AppEnv>, store: PageStore): void {
           : c.json({error: 'not found'}, 404);
       }
 
-      // 2. Belt-and-braces forwarded reject (MEDIUM-1). A forwarded PAT is already 403'd at
-      //    PAT resolution and so never reaches here with `agentToken` set; this second line
-      //    keeps `/api/mcp` structurally loopback/LAN-only even if that ever changes.
-      //    *.book.cloud edge exposure is deferred to its own review.
-      if (c.req.header(FORWARDED_HEADER)) {
+      // 2. Belt-and-braces forwarded guard (AGENT-7, shared with the principal mw via
+      //    `remoteMcpAdmitted` so the two can never drift). A forwarded request reaches
+      //    here ONLY when the principal mw already admitted it (path `/api/mcp` +
+      //    remote-enabled + a `remote_ok` token); re-assert the SAME conjunction as a
+      //    second line if the mount order ever changes. A forwarded request that fails
+      //    the conjunction (or a marker present with remote OFF / a non-remote token)
+      //    403s exactly as the loopback/LAN-only feature did before AGENT-7.
+      if (c.req.header(FORWARDED_HEADER) && !(await remoteMcpAdmitted(c, store, agentToken.remote))) {
         return c.json({error: 'the MCP endpoint is not accessible over a forwarded connection'}, 403);
       }
 
-      // 3. The loop-back fetch: re-enter THIS app carrying ONLY the same PAT (+ a
-      //    preserved forwarded marker, never present in practice per step 2). Headers are
+      // 3. The loop-back fetch: re-enter THIS app carrying ONLY the same PAT. Headers are
       //    built from scratch on top of the SDK client's own request headers (its
       //    Content-Type for a JSON body) — the inbound MCP request's headers are NEVER
-      //    spread in, and no LOCAL_OWNER_HEADER / identity JWS is ever attached. This is
-      //    the whole security model: each tool call re-runs every gate under the PAT.
-      const forwarded = c.req.header(FORWARDED_HEADER);
+      //    spread in, and no LOCAL_OWNER_HEADER / identity JWS is ever attached. The
+      //    inbound FORWARDED marker is deliberately DROPPED (AGENT-7 §3.4.6): the inner
+      //    `app.request` calls are trusted in-process function calls, not a network hop,
+      //    and keeping the marker would make every inner non-`/api/mcp` tool call (e.g.
+      //    `GET /api/pages`) hit the conjunctive forwarded-guard on a non-MCP path and
+      //    403, bricking every tool. Dropped, each inner call resolves as a plain LOCAL
+      //    PAT: dark gate → hash lookup → per-token limiter → scope-gate → per-page
+      //    authorize() — identical to a LAN MCP call, inheriting every local confinement
+      //    and NEVER the local-owner hatch (no LOCAL_OWNER_HEADER, never claimable by a
+      //    PAT-bearing request). This is the whole security model.
       const fetchImpl: FetchLike = async (input, init = {}) => {
         const headers: Record<string, string> = {
           ...(init.headers as Record<string, string> | undefined),
           Authorization: `Bearer ${pat}`,
         };
-        if (forwarded) headers[FORWARDED_HEADER] = forwarded;
         return app.request(input, {...init, headers});
       };
 

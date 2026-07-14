@@ -138,6 +138,7 @@ interface AgentTokenDbRow {
   expires_at: Date | string | null;
   last_used_at: Date | string | null;
   revoked_at: Date | string | null;
+  remote_ok: boolean;
 }
 
 const agentTokenMetaFromRow = (row: AgentTokenDbRow): AgentTokenMeta => ({
@@ -152,6 +153,7 @@ const agentTokenMetaFromRow = (row: AgentTokenDbRow): AgentTokenMeta => ({
   lastUsedAt: toIsoOrNull(row.last_used_at),
   preview: row.preview,
   revoked: row.revoked_at != null,
+  remote: row.remote_ok === true,
 });
 
 const metaFromRow = (row: PageRow): PageMeta => ({
@@ -1745,12 +1747,15 @@ export class PageStore {
     scope: AgentTokenScope;
     createdBy: string;
     expiresAt: Date | null;
+    /** L7 remote opt-in (AGENT-7). Default false; a remote token is minted only on a
+     *  remote-enabled instance (the route enforces that). */
+    remoteOk?: boolean;
   }): Promise<AgentTokenMeta> {
     const rows = await this.db.query<AgentTokenDbRow>(
-      `INSERT INTO agent_tokens (id, name, token_hash, preview, subject, issuer, scope, created_by, expires_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, name, preview, subject, issuer, scope, created_by, created_at, expires_at, last_used_at, revoked_at`,
-      [randomUUID(), input.name, input.tokenHash, input.preview, input.subject, input.issuer, input.scope, input.createdBy, input.expiresAt],
+      `INSERT INTO agent_tokens (id, name, token_hash, preview, subject, issuer, scope, created_by, expires_at, remote_ok)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id, name, preview, subject, issuer, scope, created_by, created_at, expires_at, last_used_at, revoked_at, remote_ok`,
+      [randomUUID(), input.name, input.tokenHash, input.preview, input.subject, input.issuer, input.scope, input.createdBy, input.expiresAt, input.remoteOk === true],
     );
     return agentTokenMetaFromRow(rows[0]);
   }
@@ -1767,7 +1772,7 @@ export class PageStore {
    *  flagged, for provenance. The secret hash is never selected. */
   async listAgentTokens(): Promise<AgentTokenMeta[]> {
     const rows = await this.db.query<AgentTokenDbRow>(
-      `SELECT id, name, preview, subject, issuer, scope, created_by, created_at, expires_at, last_used_at, revoked_at
+      `SELECT id, name, preview, subject, issuer, scope, created_by, created_at, expires_at, last_used_at, revoked_at, remote_ok
        FROM agent_tokens ORDER BY created_at DESC`,
     );
     return rows.map(agentTokenMetaFromRow);
@@ -1779,14 +1784,14 @@ export class PageStore {
    * so the caller HARD-401s rather than downgrading to a guest.
    */
   async resolveAgentToken(tokenHash: string): Promise<AgentTokenRow | null> {
-    const rows = await this.db.query<{id: string; name: string; subject: string; issuer: string; scope: string}>(
-      `SELECT id, name, subject, issuer, scope FROM agent_tokens
+    const rows = await this.db.query<{id: string; name: string; subject: string; issuer: string; scope: string; remote_ok: boolean}>(
+      `SELECT id, name, subject, issuer, scope, remote_ok FROM agent_tokens
        WHERE token_hash = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())`,
       [tokenHash],
     );
     if (rows.length === 0) return null;
     const r = rows[0];
-    return {id: r.id, name: r.name, subject: r.subject, issuer: r.issuer, scope: r.scope as AgentTokenScope};
+    return {id: r.id, name: r.name, subject: r.subject, issuer: r.issuer, scope: r.scope as AgentTokenScope, remoteOk: r.remote_ok === true};
   }
 
   /** Best-effort debounced `last_used_at` touch (skips a write within ~60s of the
