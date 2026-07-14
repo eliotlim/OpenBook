@@ -1962,7 +1962,7 @@ export class PageStore {
       'SELECT value FROM settings WHERE key = \'backups\'',
     );
     const stored = rows.length > 0 ? parseJson<Partial<BackupConfig>>(rows[0].value, {}) : {};
-    return {
+    const config: BackupConfig = {
       ...DEFAULT_BACKUP_CONFIG,
       ...stored,
       // Nested records merge so a newly-added cadence keeps its default.
@@ -1970,6 +1970,14 @@ export class PageStore {
       keep: {...DEFAULT_BACKUP_CONFIG.keep, ...stored.keep},
       lastRun: {...stored.lastRun},
     };
+    // Default-on migration (opt-out): backups now default enabled. Legacy configs
+    // were persisted with `enabled:false` before the switch carried a user-decided
+    // marker, so a stored `enabled` is only honoured once `userSetEnabled` proves the
+    // user chose it. Until then the master switch follows the current default — this
+    // re-enables never-configured instances and preserves any explicit opt-out made
+    // after this change.
+    if (!stored.userSetEnabled) config.enabled = DEFAULT_BACKUP_CONFIG.enabled;
+    return config;
   }
 
   /** Shallow-merge a patch into the backup policy and persist it. */
@@ -1981,6 +1989,10 @@ export class PageStore {
       cadences: {...current.cadences, ...patch.cadences},
       keep: {...current.keep, ...patch.keep},
       lastRun: {...current.lastRun, ...patch.lastRun},
+      // The moment the user sets the master switch, record that so the default-on
+      // migration above never overrides their choice on the next read. Non-switch
+      // patches (e.g. the scheduler recording `lastRun`) don't flip the marker.
+      userSetEnabled: current.userSetEnabled || patch.enabled !== undefined,
     };
     await this.db.query(
       `INSERT INTO settings (key, value) VALUES ('backups', $1::jsonb)
