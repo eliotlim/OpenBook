@@ -205,7 +205,6 @@ export const en = {
     addDatabase: 'Add database',
     moveTo: 'Move to…',
     moveToTrash: 'Move to trash',
-    viewOptions: 'View options',
     options: 'Menu',
     fullWidth: 'Full width',
     favourite: 'Favourite',

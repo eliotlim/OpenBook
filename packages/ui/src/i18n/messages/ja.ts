@@ -128,7 +128,6 @@ export const ja: PartialMessages = {
     addDatabase: 'データベースを追加',
     moveTo: '移動…',
     moveToTrash: 'ゴミ箱へ移動',
-    viewOptions: '表示オプション',
     options: 'メニュー',
     fullWidth: '全幅',
     favourite: 'お気に入り',
