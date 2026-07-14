@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import {Select} from '@/components/ui/select';
-import {ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Copy, GripVertical, Palette, PanelRightOpen, Pencil, Plus, Trash2} from 'lucide-react';
+import {AppWindow, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Copy, ExternalLink, GripVertical, Link2, Palette, PanelRightOpen, Pencil, Plus, Trash2} from 'lucide-react';
 import {
   dateEnd,
   dateStart,
@@ -36,6 +36,7 @@ import {cn} from '@/lib/utils';
 import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
 import {pageLinks, subscribePageLinks} from '@/lib/pageLinks';
+import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {useData} from '@/data';
 import {useNavigation} from '@/providers';
 import type {UseDatabase} from './useDatabase';
@@ -212,28 +213,46 @@ export function rowColor(row: DatabaseRow, view: DbView, properties: DatabasePro
 
 /**
  * Right-click any card (board / gallery) for the same quick row actions as the
- * table — open, insert below, duplicate, delete — without opening the row first.
+ * table — open (in the split, a new tab, or a new window), copy a link to the
+ * row, insert below, duplicate, delete — without opening the row first. A row is
+ * a page, so the open targets and the copied link mirror the page menus exactly
+ * ({@link PageMenuItems}); `openRowIn` seeds the title hint so a freshly opened
+ * surface shows the row's name at once.
  */
-export const RowContextMenu: React.FC<{db: UseDatabase; rowId: string; children: React.ReactNode}> = ({db, rowId, children}) => (
-  <ContextMenu>
-    <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
-    <ContextMenuContent className="w-48">
-      <ContextMenuItem onSelect={() => db.openRow(rowId)}>
-        <PanelRightOpen className="mr-2 h-3.5 w-3.5" /> Open
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => void db.addRowAfter(rowId)}>
-        <Plus className="mr-2 h-3.5 w-3.5" /> Insert below
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => void db.duplicateRow(rowId)}>
-        <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => void db.deleteRow(rowId)} className="text-destructive focus:text-destructive">
-        <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
-      </ContextMenuItem>
-    </ContextMenuContent>
-  </ContextMenu>
-);
+export const RowContextMenu: React.FC<{db: UseDatabase; rowId: string; children: React.ReactNode}> = ({db, rowId, children}) => {
+  const copyLink = useCopyPageLink();
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuContent className="w-52">
+        <ContextMenuItem onSelect={() => db.openRow(rowId)}>
+          <PanelRightOpen className="mr-2 h-3.5 w-3.5" /> Open
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => db.openRowIn(rowId, 'tab')}>
+          <ExternalLink className="mr-2 h-3.5 w-3.5" /> Open in new tab
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => db.openRowIn(rowId, 'window')}>
+          <AppWindow className="mr-2 h-3.5 w-3.5" /> Open in new window
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => copyLink(rowId)}>
+          <Link2 className="mr-2 h-3.5 w-3.5" /> Copy link
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void db.addRowAfter(rowId)}>
+          <Plus className="mr-2 h-3.5 w-3.5" /> Insert below
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => void db.duplicateRow(rowId)}>
+          <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => void db.deleteRow(rowId)} className="text-destructive focus:text-destructive">
+          <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};
 
 /** The in-menu rename field: an input pre-filled with the group's label, committing
  *  on Enter/blur and cancelling on Escape (a `done` latch prevents the unmount blur

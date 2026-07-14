@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, Download, EyeOff, Filter as FilterIcon, GripVertical, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, Upload, X} from 'lucide-react';
+import {AppWindow, ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, Download, ExternalLink, EyeOff, Filter as FilterIcon, GripVertical, Link2, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, Upload, X} from 'lucide-react';
 import {
   buildRowTree,
   dateStart,
@@ -47,6 +47,7 @@ import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {showToast} from '@/components/ui/toast';
 import {readPageIcon} from '@/lib/pageIcon';
+import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 import {downloadText, safeFilename} from '@/lib/download';
@@ -262,6 +263,7 @@ const CellContextMenu: React.FC<{
   children: React.ReactNode;
 }> = ({db, view, row, property, value, children}) => {
   const filter = property && view ? quickFilter(property, value) : null;
+  const copyLink = useCopyPageLink();
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>
@@ -311,6 +313,17 @@ const CellContextMenu: React.FC<{
         )}
         <ContextMenuItem onSelect={() => db.openRow(row.id)}>
           <PanelRightOpen className="mr-2 h-3.5 w-3.5" /> Open
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => db.openRowIn(row.id, 'tab')}>
+          <ExternalLink className="mr-2 h-3.5 w-3.5" /> Open in new tab
+        </ContextMenuItem>
+        <ContextMenuItem onSelect={() => db.openRowIn(row.id, 'window')}>
+          <AppWindow className="mr-2 h-3.5 w-3.5" /> Open in new window
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem onSelect={() => copyLink(row.id)}>
+          <Link2 className="mr-2 h-3.5 w-3.5" /> Copy link
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => void db.addRowAfter(row.id)}>
           <Plus className="mr-2 h-3.5 w-3.5" /> Insert below
