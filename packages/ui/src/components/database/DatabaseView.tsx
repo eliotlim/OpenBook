@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {AppWindow, ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Columns2, Copy, Download, ExternalLink, EyeOff, Filter as FilterIcon, GripVertical, Link2, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, Upload, X} from 'lucide-react';
+import {AppWindow, ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, Download, ExternalLink, EyeOff, Filter as FilterIcon, GripVertical, Link2, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, Upload, X} from 'lucide-react';
 import {
   buildRowTree,
   dateStart,
@@ -315,9 +315,6 @@ const CellContextMenu: React.FC<{
           <PanelRightOpen className="mr-2 h-3.5 w-3.5" /> Open
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => db.openRowIn(row.id, 'split')}>
-          <Columns2 className="mr-2 h-3.5 w-3.5" /> Open in split view
-        </ContextMenuItem>
         <ContextMenuItem onSelect={() => db.openRowIn(row.id, 'tab')}>
           <ExternalLink className="mr-2 h-3.5 w-3.5" /> Open in new tab
         </ContextMenuItem>

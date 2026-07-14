@@ -42,7 +42,6 @@ describe('RowContextMenu', () => {
   it('offers open targets, copy link, and the row actions', () => {
     renderMenu(makeDb());
     expect(screen.getByText('Open')).toBeTruthy();
-    expect(screen.getByText('Open in split view')).toBeTruthy();
     expect(screen.getByText('Open in new tab')).toBeTruthy();
     expect(screen.getByText('Open in new window')).toBeTruthy();
     expect(screen.getByText('Copy link')).toBeTruthy();
@@ -51,23 +50,17 @@ describe('RowContextMenu', () => {
     expect(screen.getByText('Delete')).toBeTruthy();
   });
 
-  it('routes each open target through openRowIn (a row is a page)', () => {
+  it('routes the tab/window open targets through openRowIn (a row is a page)', () => {
     const db = makeDb();
     renderMenu(db);
-    fireEvent.click(screen.getByText('Open in split view'));
-    expect(db.openRowIn).toHaveBeenCalledWith('row-1', 'split');
+    fireEvent.click(screen.getByText('Open in new tab'));
+    expect(db.openRowIn).toHaveBeenCalledWith('row-1', 'tab');
 
     cleanup();
     const db2 = makeDb();
     renderMenu(db2);
-    fireEvent.click(screen.getByText('Open in new tab'));
-    expect(db2.openRowIn).toHaveBeenCalledWith('row-1', 'tab');
-
-    cleanup();
-    const db3 = makeDb();
-    renderMenu(db3);
     fireEvent.click(screen.getByText('Open in new window'));
-    expect(db3.openRowIn).toHaveBeenCalledWith('row-1', 'window');
+    expect(db2.openRowIn).toHaveBeenCalledWith('row-1', 'window');
   });
 
   it('keeps the primary Open opening the row in the split pane', () => {

@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import {Select} from '@/components/ui/select';
-import {AppWindow, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Columns2, Copy, ExternalLink, GripVertical, Link2, Palette, PanelRightOpen, Pencil, Plus, Trash2} from 'lucide-react';
+import {AppWindow, ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Copy, ExternalLink, GripVertical, Link2, Palette, PanelRightOpen, Pencil, Plus, Trash2} from 'lucide-react';
 import {
   dateEnd,
   dateStart,
@@ -229,9 +229,6 @@ export const RowContextMenu: React.FC<{db: UseDatabase; rowId: string; children:
           <PanelRightOpen className="mr-2 h-3.5 w-3.5" /> Open
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => db.openRowIn(rowId, 'split')}>
-          <Columns2 className="mr-2 h-3.5 w-3.5" /> Open in split view
-        </ContextMenuItem>
         <ContextMenuItem onSelect={() => db.openRowIn(rowId, 'tab')}>
           <ExternalLink className="mr-2 h-3.5 w-3.5" /> Open in new tab
         </ContextMenuItem>
