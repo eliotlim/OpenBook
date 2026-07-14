@@ -548,6 +548,16 @@ export const en = {
     removeLibrary: 'Remove {name}',
     thisDevice: 'This device',
     manage: 'Manage libraries…',
+    // The switcher's connect-to-a-server action (the add-a-library flow is the
+    // connect flow — it adds the server and switches this device onto it).
+    connectAction: 'Connect to a library…',
+    connectTitle: 'Connect to a library',
+    connectDescription:
+      'Enter another OpenBook server’s address. This device connects to it and reloads onto that library.',
+    connectButton: 'Connect',
+    urlUnsafe: 'Enter an http:// or https:// server URL.',
+    mixedContentBlocked:
+      'This app is served over https, so it can’t reach a plain http:// address. Use the server’s https:// forwarding address instead.',
     status: {
       connected: 'Connected',
       reachable: 'Reachable',

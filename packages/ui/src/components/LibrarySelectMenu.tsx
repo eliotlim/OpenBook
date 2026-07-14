@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {getServerUrlOverride, setServerUrlOverride, isMixedContentBlocked} from '@book.dev/sdk';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,14 +25,26 @@ import {ChevronUpDownIcon, Cog6ToothIcon, PlusIcon} from '@heroicons/react/24/ou
 import {CheckIcon, GlobeIcon} from '@radix-ui/react-icons';
 import {Trash2} from 'lucide-react';
 import {LibraryStatusDot} from '@/components/LibraryStatusDot';
-import {usePlatformCapabilities, useTranslation, useLibrary, useHud, libraryHostLabel} from '@/providers';
+import {
+  usePlatformCapabilities,
+  useTranslation,
+  useLibrary,
+  useHud,
+  isSafeServerUrl,
+  libraryHostLabel,
+} from '@/providers';
 
 /**
  * The library switcher. `variant` controls the trigger only:
  *  - `sidebar` (default) — the full-width, two-line button at the top of the
  *    sidebar (web);
  *  - `titlebar` — a compact icon + name button for the desktop titlebar.
- * The dropdown contents (library list + "add a library") are identical.
+ * The dropdown contents (library list + "connect to a library") are identical.
+ *
+ * Connect (LM-3): "Connect to a library…" opens the add-a-server dialog; on
+ * submit it adds the server AND switches this device onto it (reload-switch),
+ * enforcing the safe-URL + mixed-content guards. The add-a-library flow IS the
+ * connect flow — reachable identically from the desktop titlebar switcher.
  */
 export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sidebar' | 'titlebar'}) {
   const {libraries, library, selectLibrary, addLibrary, removeLibrary} = useLibrary();
@@ -65,20 +78,38 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
     resetForm();
   };
 
-  const submitAdd = () => {
+  // Add a server to the list AND switch this device onto it (reload-switch),
+  // mirroring `selectLibrary`'s server re-point. `addLibrary` persists the named
+  // entry; even if its write hasn't flushed before the reload, the connection is
+  // still represented after reload (the provider synthesizes an entry for the
+  // active override), so the switch is never lost.
+  const connectTo = (url: string, meta: {name?: string; icon?: string}) => {
+    addLibrary({name: meta.name ?? '', serverUrl: url, icon: meta.icon});
+    // Already talking to this server — no reload needed; just reflect it.
+    if ((url || null) === getServerUrlOverride()) return;
+    setServerUrlOverride(url);
+    if (typeof window !== 'undefined') window.location.reload();
+  };
+
+  const submitConnect = () => {
     const url = serverUrl.trim();
     if (!url) {
       setError(t('library.urlRequired'));
       return;
     }
-    try {
-      // Validate the URL shape early so a typo doesn't silently fail on connect.
-      new URL(url);
-    } catch {
-      setError(t('library.urlInvalid'));
+    // Reject anything that isn't a well-formed http(s) URL before it can re-point
+    // the data client (a poisoned/typo'd scheme never reaches the connection).
+    if (!isSafeServerUrl(url)) {
+      setError(t('library.urlUnsafe'));
       return;
     }
-    addLibrary({name, serverUrl: url, icon});
+    // An https app can't reach a plain http:// LAN address — block it with an
+    // explanation rather than let it fail with an opaque browser error.
+    if (isMixedContentBlocked(url)) {
+      setError(t('library.mixedContentBlocked'));
+      return;
+    }
+    connectTo(url, {name, icon});
     closeAdd();
   };
 
@@ -163,7 +194,7 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
             }}
           >
             <PlusIcon className="mr-2 h-4 w-4" />
-            {t('library.addLibrary')}
+            {t('library.connectAction')}
           </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={(e) => {
@@ -184,8 +215,8 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
       <Dialog open={addOpen} onOpenChange={(open) => (open ? setAddOpen(true) : closeAdd())}>
         <DialogContent className="sm:max-w-[440px]">
           <DialogHeader>
-            <DialogTitle>{t('library.addTitle')}</DialogTitle>
-            <DialogDescription>{t('library.addDescription')}</DialogDescription>
+            <DialogTitle>{t('library.connectTitle')}</DialogTitle>
+            <DialogDescription>{t('library.connectDescription')}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4 py-1">
             <div className="flex gap-3">
@@ -216,11 +247,14 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
                 id="ws-url"
                 value={serverUrl}
                 placeholder={t('library.urlPlaceholder')}
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 onChange={(e) => {
                   setServerUrl(e.target.value);
                   setError(null);
                 }}
-                onKeyDown={(e) => e.key === 'Enter' && submitAdd()}
+                onKeyDown={(e) => e.key === 'Enter' && submitConnect()}
               />
               {error && <p className="text-xs text-destructive">{error}</p>}
             </div>
@@ -229,7 +263,7 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
             <Button variant="ghost" onClick={closeAdd}>
               {t('common.cancel')}
             </Button>
-            <Button onClick={submitAdd}>{t('library.addButton')}</Button>
+            <Button onClick={submitConnect}>{t('library.connectButton')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
