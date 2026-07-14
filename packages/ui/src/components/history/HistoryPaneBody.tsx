@@ -10,6 +10,7 @@ import {showToast} from '@/components/ui/toast';
 import {cn} from '@/lib/utils';
 import {PresentBlocks} from '@/blockeditor/PresentBlocks';
 import {decodeSnapshot, rootBlocks, type BlockDocSnapshot, type BlockMap} from '@/blockeditor/model';
+import {VersionDiff} from './VersionDiff';
 
 /** Relative "3m ago" style label; falls back to "just now" under a minute. */
 function timeAgo(iso: string, locale: string, justNow: string): string {
@@ -137,6 +138,10 @@ export function HistoryPaneBody() {
   const [error, setError] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(CURRENT_ID);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  // Preview (read-only) ⇄ Compare (block/word diff vs. current) for the picked
+  // version. Only meaningful for a captured version — the live "Current" row has
+  // nothing to compare against, so it always renders the preview.
+  const [mode, setMode] = useState<'preview' | 'compare'>('preview');
 
   const refetch = useCallback(async () => {
     if (!pageId) {
@@ -216,6 +221,9 @@ export function HistoryPaneBody() {
     ];
   }, [versions, locale, t]);
   const selectedItem = items.find((it) => it.id === selectedId) ?? null;
+  // Compare only applies to a captured version; the live "Current" row falls back
+  // to the read-only preview regardless of the toggle.
+  const comparing = selectedItem?.kind === 'version' && mode === 'compare';
 
   // Single-select listbox nav (mirrors SlashMenu): arrows move the selection,
   // Home/End jump to the ends. Selection *is* the active option (aria-activedescendant).
@@ -327,14 +335,20 @@ export function HistoryPaneBody() {
                     <p className="truncate text-[11px] font-medium text-muted-foreground">
                       {selectedItem.kind === 'current'
                         ? t('history.currentVersion')
-                        : t('history.previewing', {when: selectedItem.when, who: selectedItem.who})}
+                        : comparing
+                          ? t('history.comparing', {when: selectedItem.when})
+                          : t('history.previewing', {when: selectedItem.when, who: selectedItem.who})}
                     </p>
                   </div>
                   <div className="p-4">
-                    <VersionPreview
-                      pageId={pageId}
-                      versionId={selectedItem.kind === 'current' ? null : selectedItem.version.id}
-                    />
+                    {comparing && selectedItem.kind === 'version' ? (
+                      <VersionDiff pageId={pageId} versionId={selectedItem.version.id} />
+                    ) : (
+                      <VersionPreview
+                        pageId={pageId}
+                        versionId={selectedItem.kind === 'current' ? null : selectedItem.version.id}
+                      />
+                    )}
                   </div>
                 </>
               ) : (
@@ -348,17 +362,34 @@ export function HistoryPaneBody() {
                 entry is not (you're already on it), so its footer is omitted. */}
             {selectedItem?.kind === 'version' && (
               <div className="flex shrink-0 items-center gap-2 border-t border-border p-2.5">
-                {/* PVH-6: the block-level diff (vs. current) lands here — this disabled
-                    placeholder reserves its spot beside Restore. */}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="shrink-0 text-muted-foreground"
-                  disabled
-                  title={t('history.compareSoon')}
+                {/* PVH-6: Preview ⇄ Compare. Preview keeps the read-only render;
+                    Compare swaps in the block/word diff of this version vs. current. */}
+                <div
+                  role="group"
+                  aria-label={t('history.viewMode')}
+                  className="flex shrink-0 items-center rounded-md border border-border p-0.5"
                 >
-                  {t('history.compareSoon')}
-                </Button>
+                  <Button
+                    size="sm"
+                    variant={mode === 'preview' ? 'secondary' : 'ghost'}
+                    className="h-6 px-2 text-[11px]"
+                    aria-pressed={mode === 'preview'}
+                    title={t('history.previewTitle')}
+                    onClick={() => setMode('preview')}
+                  >
+                    {t('history.preview')}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={mode === 'compare' ? 'secondary' : 'ghost'}
+                    className="h-6 px-2 text-[11px]"
+                    aria-pressed={mode === 'compare'}
+                    title={t('history.compareTitle')}
+                    onClick={() => setMode('compare')}
+                  >
+                    {t('history.compare')}
+                  </Button>
+                </div>
                 <Button
                   size="sm"
                   variant="outline"
