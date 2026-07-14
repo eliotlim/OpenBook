@@ -1,4 +1,5 @@
 import {test, expect, takeSnapshot, chooseValue} from './fixtures';
+import {newPage} from './seed';
 
 // Per-test workspace reset: each test builds a fresh database and some seed
 // fixed row titles, so a clean workspace before each test keeps them
@@ -150,6 +151,64 @@ test('database view in URL: switching reflects ?view= and a deep link restores i
   await page.goto(boardUrl);
   await expect(page.getByText('In progress', {exact: true})).toBeVisible();
   await expect(page).toHaveURL(/[?&]view=/);
+});
+
+// A `?view=` that names no real view of the database is ignored: the db opens on
+// its default (Table) view with no flash of a wrong layout, and the garbage param
+// is scrubbed from the URL so it can't linger on a copied link.
+test('database view in URL: an invalid ?view= scrubs to the default view', {tag: ['@database']}, async ({page}) => {
+  await newDatabase(page);
+  const pageId = new URL(page.url()).searchParams.get('page');
+  expect(pageId).toBeTruthy();
+
+  // Deep-link the db page with a bogus view id.
+  await page.goto(`/?page=${pageId}&view=not-a-real-view`);
+
+  // It settles on the default Table view (a <table>; Board/Gallery have none) and
+  // the unresolvable param is dropped from the URL.
+  await expect(page.getByRole('table')).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Add column'})).toBeVisible();
+  await expect(page).not.toHaveURL(/[?&]view=/);
+});
+
+// Per-db last-view memory (localStorage) still works with no param: a plain reopen
+// (no `?view=`) restores the last-used view, and because it came from memory — not
+// a deep link — the URL stays clean (no `?view=` written back).
+test('database view in URL: a plain reopen restores the last view from localStorage', {tag: ['@database']}, async ({page}) => {
+  await newDatabase(page);
+  const plainUrl = page.url(); // ?page=<id>, no ?view=
+  await expect(page).not.toHaveURL(/[?&]view=/);
+
+  // Switch to Board (records it as the db's last-used view).
+  await page.getByRole('button', {name: 'Board', exact: true}).click();
+  await expect(page.getByText('In progress', {exact: true})).toBeVisible();
+
+  // Reopen the bare page URL: memory restores Board, and no ?view= is written.
+  await page.goto('/');
+  await page.goto(plainUrl);
+  await expect(page.getByText('In progress', {exact: true})).toBeVisible();
+  await expect(page).not.toHaveURL(/[?&]view=/);
+});
+
+// `?view=` is scoped to the primary pane's page-level database. A database opened
+// in the split pane opts out entirely: switching its view never writes ?view=, so
+// it can't fight the primary page for the param.
+test('database view in URL: a split-pane database never writes ?view=', {tag: ['@database']}, async ({page, request}) => {
+  await newDatabase(page);
+  const dbPageId = new URL(page.url()).searchParams.get('page');
+  expect(dbPageId).toBeTruthy();
+
+  // A plain primary document, with the database docked in the split pane.
+  const primary = await newPage(request, 'Split Primary Doc');
+  await page.goto(`/?page=${primary}&split=${dbPageId}`);
+  const pane = page.locator('[data-split-pane]');
+  await expect(pane).toBeVisible();
+
+  // Switch the split-pane database's view: it renders Board, but the URL keeps
+  // only ?page=&split= — a non-primary database never owns ?view=.
+  await pane.getByRole('button', {name: 'Board', exact: true}).click();
+  await expect(pane.getByText('In progress', {exact: true})).toBeVisible();
+  await expect(page).not.toHaveURL(/[?&]view=/);
 });
 
 // Inline-database embedding (linking an existing database into a document) is

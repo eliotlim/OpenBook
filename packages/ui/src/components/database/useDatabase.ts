@@ -224,6 +224,11 @@ export function useDatabase(
   // `?view=` is scoped to the primary (`?page='d`) page: only that page's
   // page-level database reads and writes it. A database in the split pane, an
   // inline embed, or a row's mini-schema never touches the URL.
+  // Edge case: the *same* db page open in BOTH the primary and split panes means
+  // two `useDatabase` instances have `pageId === primaryPageId` and both "own"
+  // `?view=`. They converge benignly — both read the shared `viewParam` state and
+  // write the same single localStorage key, so a switch in either lands the same
+  // value in both places (no ping-pong, no thrash).
   const ownsUrlView = !!opts?.syncViewToUrl && pageId === primaryPageId;
 
   const [database, setDatabase] = useState<StoredDatabase | null>(null);
