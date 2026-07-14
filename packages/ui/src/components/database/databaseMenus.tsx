@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useImperativeHandle, useState} from 'react';
 import {Select} from '@/components/ui/select';
 import {
   ArrowDownAZ,
@@ -64,7 +64,7 @@ import {
 } from '@book.dev/sdk';
 import {useNavigation, useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
-import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
+import {Popover, PopoverAnchor, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -620,22 +620,47 @@ const RollupEditor: React.FC<{property: DatabaseProperty; db: UseDatabase}> = ({
   );
 };
 
+/** Imperative handle so a column header can open its PropertyMenu on right-click. */
+export interface PropertyMenuHandle {
+  /** Open the menu anchored at the pointer (right-click parity with the `⋯` click). */
+  openAtPointer: (e: {clientX: number; clientY: number}) => void;
+}
+
 /**
  * Per-column header editor: rename, change type, edit select options / formula /
  * number format, reorder, and delete the property. Opens from the `⋯` in a
- * column header.
+ * column header (left-click), or by right-clicking the column header — both
+ * routes drive the same menu (see {@link PropertyMenuHandle}).
  */
-export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase; index: number; count: number}> = ({
-  property,
-  db,
-  index,
-  count,
-}) => {
+export const PropertyMenu = React.forwardRef<
+  PropertyMenuHandle,
+  {property: DatabaseProperty; db: UseDatabase; index: number; count: number}
+>(({property, db, index, count}, ref) => {
   const [open, setOpen] = useState(false);
+  // When set, the menu anchors here (a right-click point) instead of the `⋯`
+  // trigger button. Cleared on close so a later `⋯` click re-anchors normally.
+  const [pointer, setPointer] = useState<{x: number; y: number} | null>(null);
   const numeric = property.type === 'number' || property.type === 'formula' || property.type === 'expr' || property.type === 'rollup';
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      openAtPointer: (e) => {
+        setPointer({x: e.clientX, y: e.clientY});
+        setOpen(true);
+      },
+    }),
+    [],
+  );
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setPointer(null);
+      }}
+    >
       <PopoverTrigger asChild>
         <button
           className="rounded p-0.5 text-muted-foreground/60 opacity-0 transition hover:bg-hover hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
@@ -644,6 +669,11 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
           <MoreHorizontal className="h-3.5 w-3.5" />
         </button>
       </PopoverTrigger>
+      {pointer && (
+        <PopoverAnchor asChild>
+          <div style={{position: 'fixed', left: pointer.x, top: pointer.y}} aria-hidden />
+        </PopoverAnchor>
+      )}
       <PopoverContent align="start" className="w-64 space-y-2 p-2.5">
         <input
           defaultValue={property.name}
@@ -917,7 +947,8 @@ export const PropertyMenu: React.FC<{property: DatabaseProperty; db: UseDatabase
       </PopoverContent>
     </Popover>
   );
-};
+});
+PropertyMenu.displayName = 'PropertyMenu';
 
 interface MenuProps {
   database: StoredDatabase;

@@ -55,6 +55,7 @@ import {downloadText, safeFilename} from '@/lib/download';
 import {useDatabase, type UseDatabase} from './useDatabase';
 import {cellValue, PropertyValueCell, rowsToCsv} from './databaseCells';
 import {AddPropertyMenu, AddViewMenu, FieldsMenu, FilterChips, FilterMenu, GroupChips, GroupMenu, importCsvFile, MetricsBar, PropertyMenu, SortChips, SortMenu, SummaryPicker, ViewOptionsMenu, viewIcon, VIEW_TYPES} from './databaseMenus';
+import type {PropertyMenuHandle} from './databaseMenus';
 import {
   BoardView,
   CalendarView,
@@ -343,10 +344,21 @@ const CellContextMenu: React.FC<{
 
 /**
  * Right-click a column header for quick column actions — sort, group by, hide,
- * duplicate, delete — without opening the property "⋯" menu (which stays for
- * detailed editing: name, type, options, format).
+ * duplicate, delete — plus an "Edit property…" item that opens the full
+ * PropertyMenu editor (name, type, options, format) at the pointer, the same
+ * form reachable from the header's `⋯` click.
  */
-const ColumnContextMenu: React.FC<{db: UseDatabase; view: DbView; property: DatabaseProperty; children: React.ReactNode}> = ({db, view, property, children}) => {
+const ColumnContextMenu: React.FC<{
+  db: UseDatabase;
+  view: DbView;
+  property: DatabaseProperty;
+  /** Opens the full PropertyMenu editor anchored at the right-click point. */
+  onEditProperty: (pt: {clientX: number; clientY: number}) => void;
+  children: React.ReactNode;
+}> = ({db, view, property, onEditProperty, children}) => {
+  // The right-click point, captured so "Edit property…" can anchor the full
+  // editor where the user clicked (parity with the `⋯` button position).
+  const pointer = useRef({clientX: 0, clientY: 0});
   const hide = (): void => {
     const all = db.database!.schema.properties.map((p) => p.id);
     const current = view.visiblePropertyIds?.length ? view.visiblePropertyIds : all;
@@ -354,7 +366,14 @@ const ColumnContextMenu: React.FC<{db: UseDatabase; view: DbView; property: Data
   };
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
+      <ContextMenuTrigger
+        asChild
+        onContextMenu={(e) => {
+          pointer.current = {clientX: e.clientX, clientY: e.clientY};
+        }}
+      >
+        {children}
+      </ContextMenuTrigger>
       <ContextMenuContent className="w-52">
         <ContextMenuItem onSelect={() => void db.updateView(view.id, {sorts: [{propertyId: property.id, direction: 'asc'}]})}>
           <ArrowDownAZ className="mr-2 h-3.5 w-3.5" /> Sort ascending
@@ -381,6 +400,17 @@ const ColumnContextMenu: React.FC<{db: UseDatabase; view: DbView; property: Data
         <ContextMenuSeparator />
         <ContextMenuItem onSelect={() => void db.deleteProperty(property.id)} className="text-destructive focus:text-destructive">
           <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete
+        </ContextMenuItem>
+        <ContextMenuSeparator />
+        <ContextMenuItem
+          onSelect={() => {
+            // Defer a tick so the ContextMenu's dismiss doesn't race the
+            // PropertyMenu Popover open (both react to the same interaction).
+            const pt = pointer.current;
+            setTimeout(() => onEditProperty(pt), 0);
+          }}
+        >
+          <Pencil className="mr-2 h-3.5 w-3.5" /> Edit property…
         </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
@@ -580,6 +610,10 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
   const [collapsedRows, setCollapsedRows] = useState<Set<string>>(new Set());
   const [dragCol, setDragCol] = useState<string | null>(null);
   const [overCol, setOverCol] = useState<string | null>(null);
+  // Right-clicking a column header opens its quick-actions ColumnContextMenu;
+  // the trailing "Edit property…" item opens that column's PropertyMenu at the
+  // pointer (parity with its `⋯` click) — one imperative handle per column.
+  const propertyMenuRefs = useRef(new Map<string, PropertyMenuHandle | null>());
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // True once the table is horizontally scrolled (drives the frozen-column shadow).
   const [hScrolled, setHScrolled] = useState(false);
@@ -792,14 +826,28 @@ const TableView: React.FC<ViewProps & {view: DbView}> = ({db, columns, schema, v
                       overCol === property.id && dragCol !== property.id && 'border-l-2 border-l-brand/60',
                     )}
                   >
-                    <ColumnContextMenu db={db} view={view} property={property}>
+                    <ColumnContextMenu
+                      db={db}
+                      view={view}
+                      property={property}
+                      onEditProperty={(pt) => propertyMenuRefs.current.get(property.id)?.openAtPointer(pt)}
+                    >
                       <span className="flex items-center justify-between gap-1">
                         <span className="flex min-w-0 items-center gap-1">
                           <span className="truncate">{property.name}</span>
                           {sortDir === 'asc' && <ArrowUp className="h-3 w-3 shrink-0 text-muted-foreground/60" />}
                           {sortDir === 'desc' && <ArrowDown className="h-3 w-3 shrink-0 text-muted-foreground/60" />}
                         </span>
-                        <PropertyMenu property={property} db={db} index={i} count={columns.length} />
+                        <PropertyMenu
+                          ref={(handle) => {
+                            if (handle) propertyMenuRefs.current.set(property.id, handle);
+                            else propertyMenuRefs.current.delete(property.id);
+                          }}
+                          property={property}
+                          db={db}
+                          index={i}
+                          count={columns.length}
+                        />
                       </span>
                     </ColumnContextMenu>
                   </th>
