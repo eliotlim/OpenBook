@@ -81,7 +81,7 @@ export async function requireInstanceAdmin(c: Ctx, store: PageStore): Promise<vo
   const isOwner = principal.verifiedVia === 'jws' && principal.subject === config.ownerSubject;
   const role = isOwner ? null : await store.resolveMemberRole(principal, config);
   if (isOwner || role === 'admin') return;
-  throw new HTTPException(403, {message: 'only the instance owner or an admin can export or import the whole workspace'});
+  throw new HTTPException(403, {message: 'only the instance owner or an admin can export or import the whole library'});
 }
 
 /**
