@@ -2,7 +2,7 @@
  *  Preferences = how the app behaves and looks; Account = who you are
  *  (identity first); Library = this library's server and capabilities. */
 export const SETTINGS_SECTIONS = [
-  {id: 'preferences', tabs: ['general', 'appearance', 'customisation']},
+  {id: 'preferences', tabs: ['general', 'libraries', 'appearance', 'customisation']},
   {id: 'account', tabs: ['profile', 'signin']},
   {id: 'library', tabs: ['connection', 'sharing', 'extensions', 'ai', 'admin', 'agents', 'diagnostics']},
 ] as const;

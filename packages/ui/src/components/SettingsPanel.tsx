@@ -7,7 +7,7 @@ import {
   MixerHorizontalIcon,
   UpdateIcon,
 } from '@radix-ui/react-icons';
-import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, KeyIcon, LifebuoyIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, WrenchIcon} from '@heroicons/react/24/outline';
+import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, KeyIcon, LifebuoyIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, Square3Stack3DIcon, WrenchIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
 import AppearanceSettings from '@/components/AppearanceSettings';
 import GeneralSettings from '@/components/GeneralSettings';
@@ -17,6 +17,7 @@ import ProfileSettings from '@/components/settings/ProfileSettings';
 import {ProfileAvatar} from '@/components/ProfileAvatar';
 import CustomisationSettings from '@/components/settings/CustomisationSettings';
 import ConnectionSettings from '@/components/settings/ConnectionSettings';
+import LibrarySettings from '@/components/settings/LibrarySettings';
 import SharingPublishingSettings from '@/components/settings/SharingPublishingSettings';
 import AdminSettings from '@/components/settings/AdminSettings';
 import AccountSettings from '@/components/settings/AccountSettings';
@@ -29,6 +30,7 @@ import {SETTINGS_SECTIONS, type SettingsMode, type SettingsTab} from '@/lib/hud'
 
 const TAB_META: Record<SettingsTab, {labelKey: TKey; icon: ComponentType<{className?: string}>}> = {
   general: {labelKey: 'settings.tab.general', icon: WrenchIcon},
+  libraries: {labelKey: 'settings.tab.libraries', icon: Square3Stack3DIcon},
   profile: {labelKey: 'settings.tab.profile', icon: PersonIcon},
   appearance: {labelKey: 'settings.tab.appearance', icon: PaintBrushIcon},
   customisation: {labelKey: 'settings.tab.customisation', icon: MixerHorizontalIcon},
@@ -50,6 +52,7 @@ const SECTION_LABEL: Record<(typeof SETTINGS_SECTIONS)[number]['id'], TKey> = {
 
 const PANELS: Record<SettingsTab, ComponentType> = {
   general: GeneralSettings,
+  libraries: LibrarySettings,
   ai: AiSettings,
   profile: ProfileSettings,
   appearance: AppearanceSettings,
