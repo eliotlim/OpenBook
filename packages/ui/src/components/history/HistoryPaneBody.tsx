@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useState} from 'react';
+import {useCallback, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent} from 'react';
 import * as Y from 'yjs';
 import {History, RotateCcw} from 'lucide-react';
 import type {PageVersionMeta} from '@book.dev/sdk';
@@ -22,16 +22,23 @@ function timeAgo(iso: string, locale: string, justNow: string): string {
   return new Date(iso).toLocaleDateString(locale);
 }
 
+/** Sentinel id for the synthetic "Current" row that stands for the live document. */
+const CURRENT_ID = '__current__';
+
 /**
- * The read-only preview of a picked version: decode its snapshot into a fresh,
+ * The read-only preview of a picked entry: decode its snapshot into a fresh,
  * throwaway Y.Doc and render its top-level blocks through {@link PresentBlocks}
  * (the same locked, read-only surface Present mode uses). The doc is local to
  * this preview — it never touches the live document or its persistence.
  *
- * PVH-6 (a block-level diff against the current content) plugs in here: swap this
- * preview for a diff view, or add a "Compare" toggle beside the header.
+ * `versionId === null` previews the LIVE document (the synthetic "Current" row):
+ * we read the page's current `data` via {@link DataClient.getPage} instead of a
+ * captured version, decoding the identical `blockdoc` shape both carry.
+ *
+ * PVH-6 (a block-level diff against the current content) plugs in beside this — see
+ * the disabled "Compare" placeholder in the footer.
  */
-function VersionPreview({pageId, versionId}: {pageId: string; versionId: string}) {
+function VersionPreview({pageId, versionId}: {pageId: string; versionId: string | null}) {
   const client = useData();
   const {t} = useTranslation();
   const [blocks, setBlocks] = useState<BlockMap[] | null>(null);
@@ -48,13 +55,17 @@ function VersionPreview({pageId, versionId}: {pageId: string; versionId: string}
     setDoc(null);
     void (async () => {
       try {
-        const version = await client.getVersion(pageId, versionId);
+        // `getPage` (live document) and `getVersion` (a captured past state) both
+        // return a record whose `data` carries the same `blockdoc` snapshot.
+        const source = versionId
+          ? await client.getVersion(pageId, versionId)
+          : await client.getPage(pageId);
         if (cancelled) return;
-        if (!version) {
+        if (!source) {
           setError(true);
           return;
         }
-        const snapshot = (version.data as {blockdoc?: unknown}).blockdoc as
+        const snapshot = (source.data as {blockdoc?: unknown}).blockdoc as
           | BlockDocSnapshot
           | undefined;
         created = decodeSnapshot(snapshot);
@@ -95,9 +106,18 @@ function authorLabel(v: PageVersionMeta, serverAuthor: string, unknown: string):
   return unknown;
 }
 
+/** One row in the list: the synthetic live "Current" entry, or a captured version. */
+type HistoryItem =
+  | {kind: 'current'; id: typeof CURRENT_ID}
+  | {kind: 'version'; id: string; version: PageVersionMeta; when: string; who: string};
+
 /**
- * The Version-history side-pane body (PVH-5): lists a page's captured versions
- * newest-first (relative time + author) and previews the picked one read-only.
+ * The Version-history side-pane body (PVH-5): lists a page's history and previews
+ * the picked entry read-only. The version-capture model (PVH-1) stores the state
+ * each save *replaced*, so every `page_versions` row is a restorable PAST state and
+ * the live document is never itself a row. So the list leads with a synthetic
+ * "Current" entry (the live doc, non-restorable — you're already on it), followed
+ * by every captured version, each restorable (relative time + author).
  * Reads the target page from the `historyPane` bridge (set by the "Version
  * history" affordance), mirroring how the Review pane reads `reviewPane`.
  * Mounted by SplitPane for the {@link HISTORY_PANE_ID} pseudo-pane.
@@ -115,7 +135,7 @@ export function HistoryPaneBody() {
   const [versions, setVersions] = useState<PageVersionMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(CURRENT_ID);
   const [restoringId, setRestoringId] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
@@ -128,8 +148,13 @@ export function HistoryPaneBody() {
     try {
       const list = await client.listVersions(pageId, {limit: 100});
       setVersions(list);
-      // Keep the current selection if it still exists, else default to newest.
-      setSelectedId((prev) => (prev && list.some((v) => v.id === prev) ? prev : list[0]?.id ?? null));
+      // Keep the current selection if it still resolves; otherwise default to the
+      // live "Current" entry (present whenever there is any history to show).
+      setSelectedId((prev) => {
+        if (list.length === 0) return null;
+        if (prev === CURRENT_ID || list.some((v) => v.id === prev)) return prev;
+        return CURRENT_ID;
+      });
     } catch {
       setError(true);
       setVersions([]);
@@ -173,17 +198,46 @@ export function HistoryPaneBody() {
     [client, confirm, pageId, refetch, t],
   );
 
-  const items = useMemo(
-    () =>
-      versions.map((v, i) => ({
-        version: v,
-        when: timeAgo(v.createdAt, locale, t('home.justNow')),
-        who: authorLabel(v, t('history.serverAuthor'), t('history.unknownAuthor')),
-        isCurrent: i === 0,
-      })),
-    [versions, locale, t],
+  // The synthetic "Current" entry only makes sense once there is history to show;
+  // with zero versions the list falls through to its empty state instead.
+  const items = useMemo<HistoryItem[]>(() => {
+    if (versions.length === 0) return [];
+    return [
+      {kind: 'current', id: CURRENT_ID},
+      ...versions.map(
+        (v): HistoryItem => ({
+          kind: 'version',
+          id: v.id,
+          version: v,
+          when: timeAgo(v.createdAt, locale, t('home.justNow')),
+          who: authorLabel(v, t('history.serverAuthor'), t('history.unknownAuthor')),
+        }),
+      ),
+    ];
+  }, [versions, locale, t]);
+  const selectedItem = items.find((it) => it.id === selectedId) ?? null;
+
+  // Single-select listbox nav (mirrors SlashMenu): arrows move the selection,
+  // Home/End jump to the ends. Selection *is* the active option (aria-activedescendant).
+  const orderedIds = useMemo(() => items.map((it) => it.id), [items]);
+  const onListKeyDown = useCallback(
+    (e: ReactKeyboardEvent) => {
+      if (orderedIds.length === 0) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const cur = selectedId && orderedIds.includes(selectedId) ? orderedIds.indexOf(selectedId) : 0;
+        const delta = e.key === 'ArrowDown' ? 1 : -1;
+        setSelectedId(orderedIds[(cur + delta + orderedIds.length) % orderedIds.length]);
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        setSelectedId(orderedIds[0]);
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        setSelectedId(orderedIds[orderedIds.length - 1]);
+      }
+    },
+    [orderedIds, selectedId],
   );
-  const selectedItem = items.find((it) => it.version.id === selectedId) ?? null;
 
   return (
     <div className="flex h-full flex-col">
@@ -200,8 +254,15 @@ export function HistoryPaneBody() {
         </div>
       ) : (
         <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,2fr)_minmax(0,3fr)]">
-          {/* The version list. */}
-          <div className="min-h-0 overflow-y-auto border-b border-border p-2">
+          {/* The history list — a single-select listbox (Current + versions). */}
+          <div
+            role="listbox"
+            aria-label={t('history.title')}
+            tabIndex={0}
+            aria-activedescendant={selectedId ? `history-opt-${selectedId}` : undefined}
+            onKeyDown={onListKeyDown}
+            className="min-h-0 overflow-y-auto border-b border-border p-2 outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
             {loading && versions.length === 0 && (
               <p className="px-2 py-1.5 text-xs text-muted-foreground">{t('history.loading')}</p>
             )}
@@ -222,49 +283,86 @@ export function HistoryPaneBody() {
                 </p>
               </div>
             )}
-            {items.map(({version, when, who, isCurrent}) => (
-              <button
-                key={version.id}
-                type="button"
-                onClick={() => setSelectedId(version.id)}
-                aria-pressed={selectedId === version.id}
-                className={cn(
-                  'flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors',
-                  selectedId === version.id ? 'bg-accent' : 'hover:bg-accent/60',
-                )}
-              >
-                <span className="flex w-full items-center gap-2">
-                  <span className="truncate text-xs font-medium">{when}</span>
-                  {isCurrent && (
-                    <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
-                      {t('history.current')}
-                    </span>
+            {items.map((item) => {
+              const selected = selectedId === item.id;
+              const isCurrent = item.kind === 'current';
+              return (
+                <div
+                  key={item.id}
+                  id={`history-opt-${item.id}`}
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => setSelectedId(item.id)}
+                  className={cn(
+                    'flex w-full cursor-pointer flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left transition-colors',
+                    selected ? 'bg-accent' : 'hover:bg-accent/60',
                   )}
-                </span>
-                <span className="truncate text-[11px] text-muted-foreground">{who}</span>
-              </button>
-            ))}
+                >
+                  <span className="flex w-full items-center gap-2">
+                    <span className="truncate text-xs font-medium">
+                      {isCurrent ? t('history.currentVersion') : item.when}
+                    </span>
+                    {isCurrent && (
+                      <span className="rounded-sm bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                        {t('history.current')}
+                      </span>
+                    )}
+                  </span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {isCurrent ? t('history.currentHint') : item.who}
+                  </span>
+                </div>
+              );
+            })}
           </div>
 
-          {/* The read-only preview of the picked version + its restore action. */}
+          {/* The read-only preview of the picked entry + its restore action. */}
           <div className="flex min-h-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              {selectedId ? (
-                <VersionPreview pageId={pageId} versionId={selectedId} />
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {selectedItem ? (
+                <>
+                  {/* Sticky context header: what you're previewing, kept in view as
+                      the list/preview scroll (nit #2). */}
+                  <div className="sticky top-0 z-10 border-b border-border bg-background/95 px-4 py-2 backdrop-blur">
+                    <p className="truncate text-[11px] font-medium text-muted-foreground">
+                      {selectedItem.kind === 'current'
+                        ? t('history.currentVersion')
+                        : t('history.previewing', {when: selectedItem.when, who: selectedItem.who})}
+                    </p>
+                  </div>
+                  <div className="p-4">
+                    <VersionPreview
+                      pageId={pageId}
+                      versionId={selectedItem.kind === 'current' ? null : selectedItem.version.id}
+                    />
+                  </div>
+                </>
               ) : (
-                !loading && (
-                  <p className="text-xs text-muted-foreground">{t('history.selectHint')}</p>
+                !loading &&
+                items.length > 0 && (
+                  <p className="p-4 text-xs text-muted-foreground">{t('history.selectHint')}</p>
                 )
               )}
             </div>
-            {selectedItem && !selectedItem.isCurrent && (
-              <div className="shrink-0 border-t border-border p-2.5">
-                {/* PVH-6: a "Compare" toggle (diff vs. current) plugs in here,
-                    beside Restore. */}
+            {/* Every captured version is a restorable past state; the live "Current"
+                entry is not (you're already on it), so its footer is omitted. */}
+            {selectedItem?.kind === 'version' && (
+              <div className="flex shrink-0 items-center gap-2 border-t border-border p-2.5">
+                {/* PVH-6: the block-level diff (vs. current) lands here — this disabled
+                    placeholder reserves its spot beside Restore. */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="shrink-0 text-muted-foreground"
+                  disabled
+                  title={t('history.compareSoon')}
+                >
+                  {t('history.compareSoon')}
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="w-full"
+                  className="flex-1"
                   disabled={restoringId !== null}
                   onClick={() => void restore(selectedItem.version)}
                 >
