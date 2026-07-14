@@ -1,3 +1,19 @@
+## 3.2.0 (2026-07-14)
+
+### 🚀 Features
+
+- **ui:** database views full-width by default + switch control for full width ([#178](https://github.com/eliotlim/OpenBook/pull/178))
+
+### 🩹 Fixes
+
+- **identity:** keep remote-reader content credential alive (cross-server blank pages) ([#179](https://github.com/eliotlim/OpenBook/pull/179))
+- **mcp:** local MCP over LAN — loopback-owner gate + owner-subject binding ([#177](https://github.com/eliotlim/OpenBook/pull/177))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.1.0 (2026-07-14)
 
 ### 🚀 Features
