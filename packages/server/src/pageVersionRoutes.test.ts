@@ -10,12 +10,14 @@ import {
   type IdentityKeypair,
   type Jwks,
   type PageSnapshot,
+  type Principal,
 } from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import type {Db} from './dbCore';
 import {PageStore, PAGE_VERSION_COALESCE_SECONDS} from './store';
 import {PageHub} from './hub';
 import {createApp} from './app';
+import {AiUsageLog} from './ai/usage';
 import {IdentityService} from './instanceConfig';
 import {IDENTITY_HEADER} from './principal';
 
@@ -131,6 +133,43 @@ describe('PVH-3 — list / get / restore end-to-end via the SDK (unclaimed insta
     expect(texts.some((t) => t.includes('first'))).toBe(true); // the original version still there
   });
 
+  it('restore WITHIN the coalesce window still captures the pre-restore state (force-capture)', async () => {
+    // The MEDIUM this fixes: edit A→B captures A, then the user IMMEDIATELY restores A
+    // (no aging — well inside PAGE_VERSION_COALESCE_SECONDS). A coalesced capture would
+    // be skipped here, silently losing B and making the restore destructive. The
+    // restore route force-captures, so the pre-restore B is still preserved.
+    const c = client();
+    const {id} = await c.savePage({name: 'p', data: snapshot('first')});
+    await c.savePage({id, name: 'p', data: snapshot('second')}); // captures 'first' (< 45s ago)
+    const [v1] = await c.listVersions(id);
+
+    // NO agePastCoalesce() — this is the exact within-window case the other test avoids.
+    const restored = await c.restoreVersion(id, v1.id);
+    expect(restored).not.toBeNull();
+    expect(JSON.stringify(restored!.data)).toContain('first'); // rolled back
+
+    // Non-destructive even within the window: the pre-restore 'second' is now a version.
+    const after = await c.listVersions(id);
+    expect(after).toHaveLength(2);
+    const texts = (await Promise.all(after.map((v) => c.getVersion(id, v.id)))).map((p) => JSON.stringify(p!.data));
+    expect(texts.some((t) => t.includes('second'))).toBe(true); // pre-restore state preserved
+    expect(texts.some((t) => t.includes('first'))).toBe(true); // original version still there
+  });
+
+  it('restoring identical data captures no version even when forced (IS DISTINCT FROM guard holds)', async () => {
+    // Force-capture only bypasses the coalesce window, NOT the no-op guard: restoring a
+    // version whose payload equals the live page must write no new version.
+    const c = client();
+    const {id} = await c.savePage({name: 'p', data: snapshot('first')});
+    await c.savePage({id, name: 'p', data: snapshot('second')}); // captures 'first'
+    const [v1] = await c.listVersions(id);
+    await c.restoreVersion(id, v1.id); // rolls back to 'first', captures 'second' (force)
+    expect(await c.listVersions(id)).toHaveLength(2);
+    // Restore the SAME version again — the live page already IS 'first', so no capture.
+    await c.restoreVersion(id, v1.id);
+    expect(await c.listVersions(id)).toHaveLength(2); // unchanged — identical-data skip held
+  });
+
   it('getVersion is page-scoped — a version id from another page never resolves (no cross-page leak)', async () => {
     const c = client();
     const {id: a} = await c.savePage({name: 'a', data: snapshot('a1')});
@@ -189,6 +228,56 @@ describe('PVH-3 — version access is page-capability-gated (claimed instance)',
     const owner = await idFor('owner');
     expect((await get(a, `/api/pages/${mem}/versions`, owner)).status).toBe(200);
     expect((await post(a, `/api/pages/${mem}/versions/${vid}/restore`, owner)).status).toBe(200);
+  });
+});
+
+describe('PVH-3 — ?limit= is parsed + clamped', () => {
+  it('honours a valid limit, clamps negative/oversized, and ignores NaN (default)', async () => {
+    const id = randomUUID();
+    await store.upsertPage({id, name: 'p', data: snapshot('v0')}); // create — no capture
+    for (let i = 1; i <= 3; i++) {
+      await store.upsertPage({id, name: 'p', data: snapshot(`v${i}`)}); // captures the prior state
+      await agePastCoalesce(); // so the NEXT change captures rather than coalescing
+    }
+    expect(await store.listPageVersions(id)).toHaveLength(3); // v0, v1, v2 captured
+
+    const a = makeApp();
+    const list = async (q: string): Promise<unknown[]> =>
+      (await (await a.request(`/api/pages/${id}/versions${q}`)).json()) as unknown[];
+    expect(await list('?limit=1')).toHaveLength(1); // honoured
+    expect(await list('?limit=-5')).toHaveLength(1); // negative clamps up to the 1 floor
+    expect(await list('?limit=99999')).toHaveLength(3); // >1000 clamps down; all 3 returned
+    expect(await list('?limit=abc')).toHaveLength(3); // NaN ignored → default 100 → all 3
+  });
+});
+
+describe('PVH-3 — restore rejects a server-managed page (403)', () => {
+  const principal = (sub: string): Principal => ({
+    kind: 'user',
+    subject: `${ISS}#${sub}`,
+    issuer: ISS,
+    name: sub,
+    verifiedVia: 'jws',
+  });
+
+  it('the AI-usage host page rejects restore with 403 (managed, before the version lookup)', async () => {
+    // Lazily create the server-managed usage DB + its host page via a first log().
+    const usage = new AiUsageLog(store);
+    await usage.load();
+    await usage.log({
+      provider: 'mock',
+      model: 'm',
+      kind: 'generate',
+      usage: {inputTokens: 1, outputTokens: 1},
+      principal: principal('owner'),
+    });
+    const hostPage = usage.hostPage;
+    expect(hostPage).not.toBeNull();
+
+    const a = createApp(store, undefined, new PageHub(), {identity: new IdentityService(store), aiUsage: usage});
+    // rejectManagedPage runs before the version lookup, so any vid is rejected 403.
+    const res = await a.request(`/api/pages/${hostPage}/versions/${randomUUID()}/restore`, {method: 'POST'});
+    expect(res.status).toBe(403);
   });
 });
 

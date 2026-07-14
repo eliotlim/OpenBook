@@ -159,10 +159,16 @@ export class LocalDataClient implements DataClient {
     if (!version) return null;
     // Preserve the page's current name — only the document content rolls back.
     // Writing the old snapshot back captures the current state as a fresh version
-    // (PVH-1), so a restore is non-destructive. Mirrors savePage's publish wiring.
+    // (PVH-1), so a restore is non-destructive. `captureMode: 'force'` bypasses the
+    // 45s coalesce window so restoring right after a save can't lose the pre-restore
+    // state (parity with the HTTP restore route). Mirrors savePage's publish wiring.
     const existing = await this.store.getPage(pageId);
     if (!existing) return null;
-    const page = await this.store.upsertPage({id: pageId, name: existing.name, data: version.data}, localPrincipal());
+    const page = await this.store.upsertPage(
+      {id: pageId, name: existing.name, data: version.data},
+      localPrincipal(),
+      {captureMode: 'force'},
+    );
     this.hub.publishPage(page);
     await this.broadcastList();
     if (page.databaseId) await this.broadcastRows(page.databaseId);

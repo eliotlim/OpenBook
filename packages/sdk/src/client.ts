@@ -108,6 +108,11 @@ export interface DataClient {
    * history list stays cheap), newest first. `opts.limit` caps the page (server
    * clamps 1..1000; default 100). Version access inherits the page's READ
    * capability — a caller who can't read the page can't list its versions.
+   *
+   * Asymmetry (intentional): unlike {@link getVersion}/{@link restoreVersion}, which
+   * return `null` on a 404, this THROWS on a non-OK response. A missing/unreadable
+   * page surfaces as a 403/404 error rather than an empty list, so a caller can't
+   * mistake "you can't see this page" for "this page has no history".
    */
   listVersions(pageId: string, opts?: {limit?: number}): Promise<PageVersionMeta[]>;
   /**

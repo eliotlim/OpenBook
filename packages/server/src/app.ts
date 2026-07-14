@@ -1005,8 +1005,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // Roll the page back to a captured version. Write-gated on the page. Non-destructive
   // by construction: writing the old snapshot back through `upsertPage` captures the
   // CURRENT (pre-restore) state as a fresh version first (PVH-1), so a restore is
-  // itself undoable. The page's name is untouched (name isn't versioned). Mirrors the
-  // `PUT /api/pages/:id` publish wiring.
+  // itself undoable. `captureMode: 'force'` bypasses the 45s coalesce window so that
+  // capture ALWAYS happens — a restore landing right after a save would otherwise
+  // coalesce the pre-restore state away and silently lose it. The page's name is
+  // untouched (name isn't versioned). Mirrors the `PUT /api/pages/:id` publish wiring.
   app.post(`${API.pages}/:id/versions/:vid/restore`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
@@ -1016,7 +1018,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // Preserve the page's current name — only the document content rolls back.
     const existing = await store.getPage(id);
     if (!existing) return c.json({error: 'page not found'}, 404);
-    const page = await store.upsertPage({id, name: existing.name, data: version.data}, c.get('principal'));
+    const page = await store.upsertPage({id, name: existing.name, data: version.data}, c.get('principal'), {captureMode: 'force'});
     hub.publishPage(page);
     await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);
