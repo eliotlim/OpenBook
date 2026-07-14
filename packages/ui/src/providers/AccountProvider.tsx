@@ -25,7 +25,11 @@ import {t} from '@/i18n';
  * here. The token is then a bearer for `/api/settings`.
  *
  * Sync: pull on connect / app open (remote wins), then push the
- * `{preferences, workspaces}` blob on local change (debounced, last-writer-wins).
+ * `{preferences, libraries}` blob on local change (debounced, last-writer-wins).
+ * The library list is written under BOTH `libraries` (new wire key, LIB-6) and
+ * the legacy `workspaces` key, and read back as `libraries ?? workspaces`, so a
+ * client and an account server on either side of the rename interoperate with no
+ * data loss (the account service mirrors the two keys as well).
  *
  * Multi-account (OB-194): the client holds a **list** of connected accounts and
  * an **active** one. Sign-in *adds* an account rather than replacing the current
@@ -357,12 +361,33 @@ function clearPendingState(): void {
   }
 }
 
-/** The blob mirrored to account.book.pub. */
+/** The blob mirrored to account.book.pub.
+ *
+ *  The library list is DUAL-WRITTEN under two wire keys that are mid-rename with
+ *  the account service (LIB-6): `libraries` (new canonical) and `workspaces`
+ *  (legacy). Both always hold the same value, so an old server — which stores the
+ *  blob verbatim — still exposes `workspaces` to an old client, and an old client
+ *  reading a new server's mirrored blob still finds its key. Incoming blobs are
+ *  read as `libraries ?? workspaces` (prefer new). */
 interface SyncBlob {
   preferences: Preferences;
-  // `workspaces` is the account-sync wire key (shared with the account service);
-  // keep the key name even though the value is the library list.
+  libraries: Library[];
+  /** Legacy alias of {@link SyncBlob.libraries}; always kept equal for back-compat. */
   workspaces: Library[];
+}
+
+/** The library list carried by an incoming (possibly old- or new-keyed) blob:
+ *  prefer the new `libraries` key, fall back to the legacy `workspaces`. Returns
+ *  null when neither key carries an array (so the caller leaves locals as-is). */
+function readIncomingLibraries(settings: Record<string, unknown>): Library[] | null {
+  if (Array.isArray(settings.libraries)) return settings.libraries as Library[];
+  if (Array.isArray(settings.workspaces)) return settings.workspaces as Library[];
+  return null;
+}
+
+/** Build the outgoing blob, dual-writing the library list under both wire keys. */
+function makeSyncBlob(preferences: Preferences, libraries: Library[]): SyncBlob {
+  return {preferences, libraries, workspaces: libraries};
 }
 
 /**
@@ -419,10 +444,10 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
   // recursion. A ref (not state) so toggling it triggers no extra render.
   const activatingDepth = useRef(0);
 
-  // Latest preferences/workspaces, read inside async callbacks without re-binding.
-  const blobRef = useRef<SyncBlob>({preferences, workspaces: libraries});
-  blobRef.current = {preferences, workspaces: libraries};
-  const currentBlob = useCallback((): SyncBlob => ({preferences: blobRef.current.preferences, workspaces: blobRef.current.workspaces}), []);
+  // Latest preferences/libraries, read inside async callbacks without re-binding.
+  const blobRef = useRef<SyncBlob>(makeSyncBlob(preferences, libraries));
+  blobRef.current = makeSyncBlob(preferences, libraries);
+  const currentBlob = useCallback((): SyncBlob => makeSyncBlob(blobRef.current.preferences, blobRef.current.libraries), []);
 
   // ── The account index (metadata) + active id, mirrored to localStorage. ──────
   const indexRef = useRef<StoredIndexRow[]>(accounts);
@@ -451,12 +476,12 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
   /** Adopt a pulled blob into the live providers. */
   const adopt = useCallback(
     (settings: Record<string, unknown>): SyncBlob => {
-      // Apply the server settings AND return the exact local {preferences, workspaces}
+      // Apply the server settings AND return the exact local {preferences, libraries}
       // shape they normalize to, so the caller can record it as the sync baseline
       // (ER-9). The debounced push compares JSON.stringify of the LOCAL state, which
       // adopt re-keys through updatePreferences (always {profile,general,features}
       // merged over current) + replaceLibraries (filters, guarantees a local
-      // workspace, may synth one with a RANDOM id) — so the raw server blob rarely
+      // library, may synth one with a RANDOM id) — so the raw server blob rarely
       // byte-matches it. blobRef still holds the pre-adopt values here (the setStates
       // below land on the next render), so derive the post-adopt blob from the same
       // merge helper, and capture replaceLibraries' exact (non-deterministic) output
@@ -467,11 +492,15 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
         preferences = mergePreferences(preferences, patch);
         updatePreferences(patch);
       }
-      let workspaces = blobRef.current.workspaces;
-      if (Array.isArray(settings.workspaces)) {
-        workspaces = replaceLibraries(settings.workspaces as Library[]);
+      // Dual-read the library list: prefer the new `libraries` key, fall back to
+      // the legacy `workspaces` key (LIB-6). Either resolves through the same
+      // replaceLibraries normalization so the baseline matches a later push.
+      let libraries = blobRef.current.libraries;
+      const incoming = readIncomingLibraries(settings);
+      if (incoming) {
+        libraries = replaceLibraries(incoming);
       }
-      return {preferences, workspaces};
+      return makeSyncBlob(preferences, libraries);
     },
     [updatePreferences, replaceLibraries],
   );
@@ -483,7 +512,10 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
   const reconcileSettings = useCallback(
     async (tok: string, seedFromLocal: boolean): Promise<string | null> => {
       const {settings, updatedAt} = await client.getSettings(tok); // 401 ⇒ AccountError
-      const remoteEmpty = updatedAt === null || (!settings.preferences && !settings.workspaces);
+      // Remote is "empty" only when it carries neither preferences nor a library
+      // list under EITHER wire key (`libraries` new / `workspaces` legacy, LIB-6).
+      const remoteEmpty =
+        updatedAt === null || (!settings.preferences && !settings.workspaces && !settings.libraries);
       if (remoteEmpty) {
         // Seed the server blob from the local providers ONLY for the genuine first
         // account ever connected — the "upload my pre-sign-in local state" path.
@@ -853,7 +885,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     // would upload A's blob under B's token (OB-194 switch-race). The reconcile
     // records the new account's synced baseline; the next real edit pushes cleanly.
     if (activatingDepth.current > 0) return;
-    const blob: SyncBlob = {preferences, workspaces: libraries};
+    const blob = makeSyncBlob(preferences, libraries);
     const json = JSON.stringify(blob);
     if (json === lastSyncedBlob.current) return;
     const id = setTimeout(() => {

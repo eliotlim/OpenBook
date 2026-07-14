@@ -5,7 +5,7 @@ import {decodeIdentity, getIdentityCredential, setForwardingAudience, setIdentit
 import {AccountProvider, useAccount} from '../AccountProvider';
 import {PlatformCapabilitiesProvider, type AccountSecretStore, type PlatformCapabilities} from '../PlatformCapabilitiesProvider';
 import {PreferencesProvider} from '../PreferencesProvider';
-import {LibraryProvider} from '../LibraryProvider';
+import {LibraryProvider, useLibrary} from '../LibraryProvider';
 
 // ── A fake account.book.pub, keyed by device token. Each token resolves to a
 //    distinct identity (issuer#sub + persona email), so the provider can label
@@ -32,6 +32,10 @@ const settingsValid = (tok: string): boolean => !!PERSONAS[tok] || tok === NO_ID
 //  • failIdentityMint — tokens whose identity mint 503s (a transient failure).
 //  • identityMintUrls — every /api/identity/token URL requested, in order.
 let settingsPuts: Array<{token: string; settings: Record<string, unknown>}> = [];
+//  • serverBlobs — a per-token stored settings blob the GET returns (defaults to an
+//    empty blob). Lets an interop test stand up a server holding only the legacy
+//    `workspaces` key, or the new `libraries` key, and assert the client dual-reads.
+const serverBlobs = new Map<string, {settings: Record<string, unknown>; updatedAt: string}>();
 const failSettingsGet = new Set<string>();
 let rejectAudMints = false;
 const failIdentityMint = new Set<string>();
@@ -83,6 +87,8 @@ function installFetchStub(): void {
         }
         if (failSettingsGet.has(tok)) return jsonResponse(500, {}); // forced transient failure
         if (!settingsValid(tok)) return jsonResponse(401, {}); // unknown/rejected token
+        const seeded = serverBlobs.get(tok);
+        if (seeded) return jsonResponse(200, seeded);
         return jsonResponse(200, {settings: {}, updatedAt: new Date().toISOString()});
       }
       return jsonResponse(404, {});
@@ -127,6 +133,7 @@ beforeEach(() => {
   sessionStorage.clear();
   setIdentityToken(null);
   settingsPuts = [];
+  serverBlobs.clear();
   failSettingsGet.clear();
   rejectAudMints = false;
   failIdentityMint.clear();
@@ -377,5 +384,90 @@ describe('AccountProvider — identity mint resilience', () => {
     // issuance verdict didn't flip on a blip.
     expect(getIdentityCredential().jws).toBe(before);
     expect(result.current.identityIssuance).toBe('ok');
+  });
+});
+
+// ── LIB-6: the account-sync wire key rename `workspaces` → `libraries`. The client
+//    DUAL-WRITES the library list under both keys and DUAL-READS `libraries ??
+//    workspaces`, so it interoperates with an account server on either side of the
+//    rename with no data loss. These exercise the three cross-version pairings. ───
+describe('AccountProvider — LIB-6 library sync-key dual-read/write', () => {
+  // Observe both the account status AND the adopted library list.
+  const renderBoth = () =>
+    renderHook(() => ({account: useAccount(), library: useLibrary()}), {wrapper: makeWrapper()});
+  type BothHook = ReturnType<typeof renderBoth>['result'];
+  const connect = async (result: BothHook, tok: string): Promise<void> => {
+    act(() => result.current.account.submitCode(tok));
+    await waitFor(() => expect(result.current.account.status).toBe('connected'));
+    await waitFor(() => expect(result.current.account.token).toBe(tok));
+  };
+  const libNames = (result: BothHook): string[] => result.current.library.libraries.map((l) => l.name);
+
+  it('new client ↔ new server: writes BOTH keys (dual-write), equal values', async () => {
+    // A distinctive local library the genuine first sign-in seeds to the server.
+    localStorage.setItem(
+      'openbook.workspaces',
+      JSON.stringify([{id: 'ws-acme', icon: '🅰️', name: 'Acme Corp', serverUrl: 'https://acme.example'}]),
+    );
+    const {result} = renderBoth();
+    await waitFor(() => expect(result.current.account.status).toBe('disconnected'));
+    await connect(result, 'tok-work');
+
+    const pushed = putsFor('tok-work');
+    expect(pushed.length).toBeGreaterThan(0);
+    const {settings} = pushed[0];
+    // The library list is written under BOTH wire keys…
+    expect(Array.isArray(settings.libraries)).toBe(true);
+    expect(Array.isArray(settings.workspaces)).toBe(true);
+    // …carrying the same value, and containing the local library.
+    expect(JSON.stringify(settings.libraries)).toContain('Acme Corp');
+    expect(settings.workspaces).toEqual(settings.libraries);
+  });
+
+  it('new client ↔ OLD server: server holds only `workspaces` ⇒ client dual-reads it', async () => {
+    // An old account server stored the blob under the legacy key only.
+    serverBlobs.set('tok-work', {
+      settings: {workspaces: [{id: 'ws-legacy', icon: '📼', name: 'Legacy Only', serverUrl: 'https://legacy.example'}]},
+      updatedAt: new Date().toISOString(),
+    });
+    const {result} = renderBoth();
+    await connect(result, 'tok-work');
+
+    // The client adopted the legacy-keyed library list (fallback read succeeded).
+    await waitFor(() => expect(libNames(result)).toContain('Legacy Only'));
+  });
+
+  it('new client prefers `libraries` when a server emits BOTH keys', async () => {
+    // A new/mirroring server exposes both keys; the NEW key must win.
+    serverBlobs.set('tok-work', {
+      settings: {
+        libraries: [{id: 'ws-new', icon: '📗', name: 'New Key Wins', serverUrl: 'https://new.example'}],
+        workspaces: [{id: 'ws-old', icon: '📕', name: 'Old Key Loses', serverUrl: 'https://old.example'}],
+      },
+      updatedAt: new Date().toISOString(),
+    });
+    const {result} = renderBoth();
+    await connect(result, 'tok-work');
+
+    await waitFor(() => expect(libNames(result)).toContain('New Key Wins'));
+    expect(libNames(result)).not.toContain('Old Key Loses');
+  });
+
+  it('old client ↔ new server: a legacy-only local push still round-trips (no data loss)', async () => {
+    // Model the reverse direction: the mirrored blob a NEW server would serve back
+    // after an old client wrote only `workspaces` still carries `libraries` too, so
+    // this (new) client reads it. Proves the server-side mirror closes the loop.
+    serverBlobs.set('tok-personal', {
+      settings: {
+        // What the account service stores after mirroring an old client's write.
+        libraries: [{id: 'ws-x', icon: '🔁', name: 'Round Trips', serverUrl: 'https://x.example'}],
+        workspaces: [{id: 'ws-x', icon: '🔁', name: 'Round Trips', serverUrl: 'https://x.example'}],
+      },
+      updatedAt: new Date().toISOString(),
+    });
+    const {result} = renderBoth();
+    await connect(result, 'tok-personal');
+
+    await waitFor(() => expect(libNames(result)).toContain('Round Trips'));
   });
 });
