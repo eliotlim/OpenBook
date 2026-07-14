@@ -50,11 +50,13 @@ export default function AgentTokensSettings() {
   const [canManage, setCanManage] = useState<boolean | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  const [remoteEnabled, setRemoteEnabled] = useState(false);
   const [tokens, setTokens] = useState<AgentTokenMeta[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [name, setName] = useState('');
   const [scope, setScope] = useState<AgentTokenScope>('read');
+  const [remote, setRemote] = useState(false);
   const [expiry, setExpiry] = useState<Expiry>('90');
   const [creating, setCreating] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -67,6 +69,8 @@ export default function AgentTokensSettings() {
     try {
       const res = await client.listAgentTokens();
       setEnabled(res.enabled);
+      setRemoteEnabled(res.remote);
+      if (!res.remote) setRemote(false); // can't mint remote while remote MCP is off
       setTokens(res.tokens);
       setCanManage(true);
       setLoadError(null);
@@ -92,8 +96,25 @@ export default function AgentTokensSettings() {
     setToggling(true);
     setActionError(null);
     try {
-      const res = await client.setAgentApiEnabled(next);
+      // Turning the whole feature off also forces remote off (server enforces this).
+      const res = await client.setAgentApiEnabled(next, next && remoteEnabled);
       setEnabled(res.enabled);
+      setRemoteEnabled(res.remote);
+      await refresh();
+    } catch (e) {
+      setActionError(cleanError(e));
+    } finally {
+      setToggling(false);
+    }
+  };
+
+  const toggleRemote = async (next: boolean) => {
+    setToggling(true);
+    setActionError(null);
+    try {
+      const res = await client.setAgentApiEnabled(enabled, next);
+      setRemoteEnabled(res.remote);
+      if (!res.remote) setRemote(false);
       await refresh();
     } catch (e) {
       setActionError(cleanError(e));
@@ -109,7 +130,10 @@ export default function AgentTokensSettings() {
     setCreated(null);
     setCopied(false);
     try {
-      const res = await client.createAgentToken({name: name.trim(), scope, expiresInDays: EXPIRY_DAYS[expiry]});
+      // Remote tokens must expire (server rejects `null`); coerce a lingering "never"
+      // selection to the 30-day default.
+      const expiresInDays = remote && EXPIRY_DAYS[expiry] === null ? 30 : EXPIRY_DAYS[expiry];
+      const res = await client.createAgentToken({name: name.trim(), scope, expiresInDays, remote});
       setCreated(res);
       setName('');
       await refresh();
@@ -166,6 +190,16 @@ export default function AgentTokensSettings() {
             disabled={toggling}
           />
 
+          {enabled && (
+            <SettingsToggle
+              label={t('agents.remoteTitle')}
+              hint={t('agents.remoteHint')}
+              checked={remoteEnabled}
+              onCheckedChange={(v) => void toggleRemote(v)}
+              disabled={toggling}
+            />
+          )}
+
           {loadError && (
             <p role="alert" className="text-xs text-destructive">
               {loadError}
@@ -196,18 +230,39 @@ export default function AgentTokensSettings() {
                 </SettingsField>
                 <SettingsField label={t('agents.expiryLabel')} className="min-w-[140px]">
                   <Select
-                    value={expiry}
+                    value={remote && expiry === 'never' ? '30' : expiry}
                     aria-label={t('agents.expiryLabel')}
                     onChange={(e) => setExpiry(e.target.value as Expiry)}
                     disabled={creating}
                   >
                     <option value="90">{t('agents.expiry90')}</option>
                     <option value="30">{t('agents.expiry30')}</option>
-                    <option value="never">{t('agents.expiryNever')}</option>
+                    {/* Remote tokens must expire — hide "Never" when remote is selected. */}
+                    {!remote && <option value="never">{t('agents.expiryNever')}</option>}
                   </Select>
                 </SettingsField>
+                {remoteEnabled && (
+                  <SettingsField label={t('agents.remoteScopeLabel')} className="min-w-[180px]">
+                    <Select
+                      value={remote ? 'remote' : 'local'}
+                      aria-label={t('agents.remoteScopeLabel')}
+                      onChange={(e) => {
+                        const isRemote = e.target.value === 'remote';
+                        setRemote(isRemote);
+                        // A remote token defaults to the read scope (Q-d) — the safer
+                        // default for an internet-reachable credential.
+                        if (isRemote) setScope('read');
+                      }}
+                      disabled={creating}
+                    >
+                      <option value="local">{t('agents.remoteScopeLocal')}</option>
+                      <option value="remote">{t('agents.remoteScopeRemote')}</option>
+                    </Select>
+                  </SettingsField>
+                )}
               </div>
-              {expiry === 'never' && <p className="text-xs text-muted-foreground">{t('agents.expiryNeverWarn')}</p>}
+              {!remote && expiry === 'never' && <p className="text-xs text-muted-foreground">{t('agents.expiryNeverWarn')}</p>}
+              {remote && <p className="text-xs text-muted-foreground">{t('agents.remoteExpiryNote')}</p>}
               <div>
                 <Button onClick={() => void create()} disabled={creating || !name.trim()}>
                   {creating ? t('agents.creating') : t('agents.createButton')}
@@ -259,6 +314,11 @@ export default function AgentTokensSettings() {
                         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                           {tok.scope === 'write' ? t('agents.scopeWrite') : t('agents.scopeRead')}
                         </span>
+                        {tok.remote && (
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary">
+                            {t('agents.remoteBadge')}
+                          </span>
+                        )}
                         {tok.revoked && (
                           <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
                             {t('agents.revokedLabel')}
