@@ -1,6 +1,7 @@
 import {useState} from 'react';
 import {Trash2} from 'lucide-react';
 import {PlusIcon} from '@heroicons/react/24/outline';
+import {setServerUrlOverride} from '@book.dev/sdk';
 import {
   useTranslation,
   useLibrary,
@@ -29,8 +30,19 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
   const confirm = useConfirm();
   const isLocal = library.serverUrl === null;
 
+  const [nameDraft, setNameDraft] = useState(library.name);
   const [urlDraft, setUrlDraft] = useState(library.serverUrl ?? '');
   const [urlError, setUrlError] = useState<string | null>(null);
+
+  // Commit the name on blur (not per keystroke) so a half-cleared field never
+  // leaves a nameless card/switcher row. Blank falls back the same way
+  // `addLibrary` does — the host label, or "Local library" for this device.
+  const commitName = () => {
+    const trimmed = nameDraft.trim();
+    const next = trimmed || (isLocal ? t('librarySettings.localFallback') : libraryHostLabel(library.serverUrl));
+    if (next !== nameDraft) setNameDraft(next);
+    if (next !== library.name) updateLibrary(library.id, {name: next});
+  };
 
   const commitUrl = () => {
     const trimmed = urlDraft.trim();
@@ -44,6 +56,14 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
     }
     setUrlError(null);
     updateLibrary(library.id, {serverUrl: trimmed});
+    // Rewriting the stored list isn't enough for the ACTIVE library — the data
+    // client keeps talking to the old server and "active" silently desyncs.
+    // Reconnect through the same path `selectLibrary` uses (setServerUrlOverride
+    // + reload) so the edit actually re-points the connection.
+    if (active) {
+      setServerUrlOverride(trimmed);
+      if (typeof window !== 'undefined') window.location.reload();
+    }
   };
 
   const onRemove = async () => {
@@ -80,9 +100,11 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
           </Label>
           <Input
             id={`lib-name-${library.id}`}
-            value={library.name}
+            value={nameDraft}
             placeholder={t('library.namePlaceholder')}
-            onChange={(e) => updateLibrary(library.id, {name: e.target.value})}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={(e) => e.key === 'Enter' && commitName()}
           />
         </div>
         <div className="flex items-center gap-2 pt-6">
@@ -228,6 +250,7 @@ export default function LibrarySettings() {
   return (
     <SettingsScreen title={t('librarySettings.title')} description={t('librarySettings.description')} scope="device">
       <SettingsSection title={t('librarySettings.yourLibraries')}>
+        <p className="text-xs text-muted-foreground">{t('librarySettings.connectionHint')}</p>
         <div className="flex flex-col gap-3">
           {libraries.map((lib) => (
             <LibraryRow key={lib.id} library={lib} active={lib.id === library.id} />

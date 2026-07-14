@@ -562,6 +562,8 @@ export const en = {
     description:
       'Every server this device can open. Switch between them from the library menu; add, rename, or remove them here.',
     yourLibraries: 'Your libraries',
+    connectionHint: 'The Connection tab sets this device’s active server directly; switching libraries here re-points it too.',
+    localFallback: 'Local library',
     active: 'Active',
     thisDeviceHint: 'This device — always available. It can’t be removed or pointed at another server.',
     addTitle: 'Add a library',

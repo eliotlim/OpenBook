@@ -1,4 +1,4 @@
-import {useLibrary, useTranslation} from '@/providers';
+import {useTranslation} from '@/providers';
 import {useLibraryStatus, type LibraryStatus} from '@/lib/libraryReachability';
 import {cn} from '@/lib/utils';
 
@@ -35,10 +35,4 @@ export function LibraryStatusDot({serverUrl, active, className}: {serverUrl: str
       className={cn('h-2 w-2 shrink-0 rounded-full', DOT_CLASS[status], className)}
     />
   );
-}
-
-/** Convenience wrapper that resolves `active` against the current library. */
-export function LibraryStatusDotFor({library, className}: {library: {id: string; serverUrl: string | null}; className?: string}) {
-  const {library: current} = useLibrary();
-  return <LibraryStatusDot serverUrl={library.serverUrl} active={library.id === current.id} className={className} />;
 }
