@@ -62,6 +62,22 @@ describe('access-token auth', () => {
     expect((await app.request('/api/pages')).status).toBe(200);
   });
 
+  it('accepts a loopback-owner request (host secret, no bearer) past the access-token gate', async () => {
+    const SECRET = 'loopback-owner-secret-xyz789';
+    const app = createApp(store, undefined, new PageHub(), {accessToken: TOKEN, localOwnerSecret: SECRET});
+    const res = await app.request('/api/pages', {headers: {'X-OpenBook-Local': SECRET}});
+    expect(res.status).toBe(200);
+  });
+
+  it('does NOT grant the loopback-owner exemption to a forwarded request', async () => {
+    const SECRET = 'loopback-owner-secret-xyz789';
+    const app = createApp(store, undefined, new PageHub(), {accessToken: TOKEN, localOwnerSecret: SECRET});
+    const res = await app.request('/api/pages', {
+      headers: {'X-OpenBook-Local': SECRET, 'X-OpenBook-Forwarded': '1'},
+    });
+    expect(res.status).toBe(401);
+  });
+
   it('gates writes too, not just reads', async () => {
     const app = createApp(store, undefined, new PageHub(), {accessToken: TOKEN});
     const body = JSON.stringify({name: `n-${seq}`, data: {editorjs: {blocks: []}, values: [], names: []}});

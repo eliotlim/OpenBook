@@ -2677,10 +2677,25 @@ export class PageStore {
    */
   private blanketRead(principal: Principal, base: AccessBase): boolean | null {
     const {config} = base;
-    const privileged = principal.verifiedVia === 'jws' || principal.verifiedVia === 'local';
+    // A PAT rides the same page-independent rungs `authorize()` grants it: the
+    // unclaimed rule-0 short-circuit (privileged), and — when bound to the owner
+    // subject — the owner rung. Kept in lock-step with authorize's rule-0
+    // `privileged = isJws || isLocal || isPat` and its owner check
+    // `(isJws || isPat) && subject===ownerSubject`, so this fast-path never diverges
+    // from the per-page decision (e.g. a PAT on an unclaimed `guestAccess='off'`
+    // instance: authorize grants via rule 0, so blanketRead must too).
+    const privileged =
+      principal.verifiedVia === 'jws' ||
+      principal.verifiedVia === 'local' ||
+      principal.verifiedVia === 'pat';
     if (config.ownerSubject === undefined) return config.guestAccess !== 'off' || privileged;
     if (principal.verifiedVia === 'local') return true;
-    if (principal.verifiedVia === 'jws' && principal.subject === config.ownerSubject) return true;
+    if (
+      (principal.verifiedVia === 'jws' || principal.verifiedVia === 'pat') &&
+      principal.subject === config.ownerSubject
+    ) {
+      return true;
+    }
     if (base.role === 'admin') return true;
     return null;
   }

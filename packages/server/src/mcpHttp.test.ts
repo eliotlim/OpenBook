@@ -365,3 +365,57 @@ describe('mcpHttp inbound identity / local-owner headers do NOT propagate to the
     expect(await store.listSuggestions(ownerPage.id)).toHaveLength(0);
   });
 });
+
+// ── The LAN-owner path: a hatch-minted PAT sees the owner's members-scope pages ────
+//
+// The regression this pins (empty page list over LAN): the local MCP bridge mints a
+// PAT through the loopback-owner hatch (the machine owner is signed-out — no identity
+// JWS). Pre-fix the mint bound the synthetic `local:owner`, which is NOT the claimed
+// instance's `ownerSubject`, so authorize() gave it no role → every default-visibility
+// (`members`) page was filtered out → `list_pages` came back EMPTY though pages exist.
+// This mints EXACTLY as the bridge does (through the real POST /api/agent-tokens over
+// the hatch — NOT the test's `mintPat` shortcut that pre-sets subject=OWNER), then
+// drives `list_pages` and asserts the owner's pages return.
+
+describe('mcpHttp local-owner-minted PAT lists the owner members-scope pages (LAN empty-list regression)', () => {
+  const SECRET = 'the-machine-owner-hatch-secret';
+  const appWithHatch = () => createApp(store, undefined, new PageHub(), {identity: new IdentityService(store), localOwnerSecret: SECRET});
+
+  beforeEach(async () => {
+    await claim();
+    await enableAgentApi();
+  });
+
+  /** Mint a PAT the way the LAN bridge does: POST /api/agent-tokens over the loopback
+   *  hatch, with NO identity JWS (a signed-out machine owner). Returns the plaintext. */
+  async function mintViaHatch(a: App, scope: AgentTokenScope = 'read'): Promise<string> {
+    const res = await a.request('/api/agent-tokens', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', [LOCAL_OWNER_HEADER]: SECRET},
+      body: JSON.stringify({name: 'lan-bridge', scope}),
+    });
+    expect(res.status).toBe(201);
+    return ((await res.json()) as {token: string}).token;
+  }
+
+  it('list_pages returns the owner default-visibility (members) pages — NOT an empty list', async () => {
+    const a = appWithHatch();
+    // Seed pages at the CLAIMED default visibility (`members`): upsertPage leaves
+    // visibility 'inherit', which resolves to the instance defaultVisibility set by the
+    // claim (members). These are exactly the pages a non-owner PAT cannot read.
+    const p1 = await store.upsertPage({name: `LAN-A-${seq}`, data: snapshot()});
+    const p2 = await store.upsertPage({name: `LAN-B-${seq}`, data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'lan body'}}]}, values: [], names: []}});
+
+    const pat = await mintViaHatch(a);
+    const list = await rpc(a, pat, callMsg('list_pages'));
+    const text = toolText(list.json);
+    // Pre-fix (synthetic local:owner binding) this list is EMPTY — both assertions fail.
+    expect(text).toContain(p1.id);
+    expect(text).toContain(p2.id);
+
+    // And a direct read of a members page works too (the owner rung, end to end).
+    const read = await rpc(a, pat, callMsg('read_page', {pageId: p2.id}));
+    expect(toolIsError(read.json)).toBe(false);
+    expect(toolText(read.json)).toContain('lan body');
+  });
+});

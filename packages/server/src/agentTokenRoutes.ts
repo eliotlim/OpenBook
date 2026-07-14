@@ -7,13 +7,14 @@
  * list PATs.
  *
  * Each minted token is BOUND to the minter's OWN verified subject (never a
- * client-chosen value); a hatch / local-owner minter binds `local:owner`. The
+ * client-chosen value); a hatch / local-owner minter binds the real `ownerSubject`
+ * on a claimed instance (else the synthetic `local:owner` on an unclaimed one). The
  * plaintext secret is returned exactly ONCE (on create) and never stored — only its
  * SHA-256 hash + a non-secret preview live at rest.
  */
 
 import {Hono, type Context} from 'hono';
-import {API, type AgentTokenScope, type Principal} from '@book.dev/sdk';
+import {API, DEFAULT_ACCOUNT_URL, type AgentTokenScope, type InstanceConfig, type Principal} from '@book.dev/sdk';
 import type {AppEnv} from './appEnv';
 import type {PageStore} from './store';
 import {requireInstanceAdmin} from './access';
@@ -37,15 +38,36 @@ const MAX_NAME_LEN = 120;
 
 /** Resolve the subject/issuer to bind a minted token to — ALWAYS the minter's own
  *  verified identity, never anything from the request body. A hatch / in-process
- *  local-owner minter binds the machine-owner subject. */
-function minterBinding(c: Context<AppEnv>): {
+ *  local-owner minter binds the machine owner.
+ *
+ *  On a CLAIMED instance (an `ownerSubject` exists) the local-owner mint binds to
+ *  that REAL account owner subject + the instance's authority issuer, so the PAT
+ *  rides the owner rung of `authorize()` (`subject===ownerSubject`) instead of the
+ *  synthetic `'local:owner'`, which holds no role and reads no `members`-scope page
+ *  (that mismatch is the "empty page list over LAN" bug). The binding only names the
+ *  owner subject; it grants no remote reach and no direct-edit power — the forwarded
+ *  reject + remote conjunction gate remote MCP independently of subject, and a PAT is
+ *  minted `allowDirectEdits:false` (writes stay reviewable suggestions).
+ *
+ *  On an UNCLAIMED instance (no `ownerSubject`) the legacy synthetic `'local:owner'`
+ *  binding is preserved — the single-user local experience is unchanged. */
+function minterBinding(c: Context<AppEnv>, config: InstanceConfig): {
   subject: string;
   issuer: string;
   createdBy: string;
 } {
   const principal = c.get('principal');
   const isLocalOwner = c.get('localOwner') === true || principal.verifiedVia === 'local';
-  if (isLocalOwner) return {subject: 'local:owner', issuer: 'local', createdBy: 'Local owner'};
+  if (isLocalOwner) {
+    if (config.ownerSubject) {
+      return {
+        subject: config.ownerSubject,
+        issuer: config.emailAuthority ?? DEFAULT_ACCOUNT_URL,
+        createdBy: 'Local owner',
+      };
+    }
+    return {subject: 'local:owner', issuer: 'local', createdBy: 'Local owner'};
+  }
   return {subject: principal.subject, issuer: principal.issuer, createdBy: principal.name || principal.subject};
 }
 
@@ -138,7 +160,7 @@ export function mountAgentTokenRoutes(app: Hono<AppEnv>, store: PageStore, logEd
     }
 
     const {token, hash, preview} = generateAgentToken();
-    const {subject, issuer, createdBy} = minterBinding(c);
+    const {subject, issuer, createdBy} = minterBinding(c, await store.getInstanceConfig());
     const meta = await store.createAgentToken({name, tokenHash: hash, preview, subject, issuer, scope, createdBy, expiresAt, remoteOk: remote});
     logEdit(c, null, 'agent.mint', `${remote ? 'remote ' : ''}${scope} ${name}`);
     // The plaintext is returned HERE and NOWHERE ELSE — the store keeps only the hash.
