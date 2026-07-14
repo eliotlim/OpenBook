@@ -7,6 +7,7 @@ import ImportDialog from '@/components/ImportDialog';
 import MovePageDialog from '@/components/MovePageDialog';
 import {ToastHost} from '@/components/ui/toast';
 import {AiSearchDialog} from '@/components/AiSearchDialog';
+import {ShareDialogHost} from '@/components/ShareDialog';
 import {SplitPane} from '@/components/SplitPane';
 import PluginBoot from '@/components/PluginBoot';
 import UpdateScheduler from '@/components/UpdateScheduler';
@@ -86,6 +87,7 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <UpdateScheduler/>
           <WindowTitle/>
           <CommandMenu/>
+          <ShareDialogHost/>
           <Settings/>
           <PresentMode/>
           <TemplateGallery/>
