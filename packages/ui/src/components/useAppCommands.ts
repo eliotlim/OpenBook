@@ -63,7 +63,9 @@ export interface AppCommand {
  *  otherwise match a natural query (e.g. "account" → the `signin` pane). */
 const SETTINGS_KEYWORDS: Partial<Record<SettingsTab, string>> = {
   signin: 'account sync sign in login',
-  connection: 'server remote connect',
+  // `connection` folded into the Libraries screen (SET2-1): keep its search terms
+  // so "server / remote / connect" still lands on the one place to set a server.
+  libraries: 'libraries servers server remote connect connection',
   admin: 'data backups backup export storage',
   customisation: 'customisation customization shortcuts layout',
   sharing: 'sharing publishing publish',

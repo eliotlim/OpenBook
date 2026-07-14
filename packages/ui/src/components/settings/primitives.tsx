@@ -1,8 +1,17 @@
-import {type ReactNode, type Ref} from 'react';
+import {useState, type ReactNode, type Ref} from 'react';
+import {ChevronDown, ChevronRight} from 'lucide-react';
 import {Switch} from '@/components/ui/switch';
 import {useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
 import {cn} from '@/lib/utils';
+
+/** The house-style class for bare text inputs / textareas / native selects in a
+ *  settings panel (SET2-5). One source of truth, replacing the per-file
+ *  `fieldClass` consts that had drifted (`AiSettings`, `McpSettings`). Prefer the
+ *  `Input` primitive where a plain text field will do; use this for textareas and
+ *  the handful of native controls that can't. */
+export const SETTINGS_CONTROL_CLASS =
+  'w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring';
 
 /** Where a setting takes effect: only this browser/device, the whole library
  *  (server-side, shared by everyone), or your account across devices. */
@@ -129,7 +138,10 @@ export function SettingsField({
   );
 }
 
-/** A horizontal row — label + hint on the left, a Switch on the right. */
+/** A horizontal row — label + hint on the left, a Switch on the right. The one
+ *  house-style boolean control (SET2-5); every settings toggle routes through it
+ *  so the bordered row is identical app-wide. `label` accepts a node (not just a
+ *  string) so a control can ride a small status badge alongside its text. */
 export function SettingsToggle({
   label,
   hint,
@@ -137,8 +149,8 @@ export function SettingsToggle({
   onCheckedChange,
   disabled,
 }: {
-  label: string;
-  hint?: string;
+  label: ReactNode;
+  hint?: ReactNode;
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   disabled?: boolean;
@@ -156,5 +168,54 @@ export function SettingsToggle({
       </span>
       <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} />
     </label>
+  );
+}
+
+/**
+ * Progressive disclosure (SET2-8): a bordered, collapsible section for advanced or
+ * rarely-touched knobs (LAN publish, storage compaction, provider tails). Closed
+ * by default so the common path stays quiet; a header row toggles it. Generalizes
+ * the one-off accordion that used to live only in the AI panel. NOTE: danger zones
+ * are NOT hidden in here — they stay visible, last, and destructive-bordered.
+ */
+export function SettingsAdvancedSection({
+  id,
+  title,
+  description,
+  defaultOpen = false,
+  children,
+  className,
+}: {
+  /** A DOM id, so a deep-link can scroll straight to this section. */
+  id?: string;
+  title: string;
+  description?: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <section id={id} className={cn('scroll-mt-4 rounded-lg border border-border', className)}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-lg px-3.5 py-2.5 text-left transition-colors hover:bg-hover"
+      >
+        {open ? (
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        ) : (
+          <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        )}
+        <span className="text-sm font-medium">{title}</span>
+      </button>
+      {open && (
+        <div className="flex flex-col gap-3 border-t border-border px-3.5 py-3">
+          {description && <p className="text-sm text-muted-foreground">{description}</p>}
+          {children}
+        </div>
+      )}
+    </section>
   );
 }

@@ -30,7 +30,6 @@ export const de: PartialMessages = {
       customisation: 'Anpassung',
       signin: 'Konto & Sync',
       sharing: 'Teilen & Veröffentlichen',
-      connection: 'Verbindung',
       extensions: 'Erweiterungen',
 
       ai: 'KI',

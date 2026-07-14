@@ -23,11 +23,12 @@ function renderPanel(tab: Parameters<typeof SettingsPanel>[0]['tab']) {
 describe('SettingsPanel', () => {
   afterEach(() => cleanup());
 
-  it('renders the three grouped section headers in the nav', () => {
+  it('renders the four grouped section headers in the nav', () => {
     renderPanel('general');
     expect(screen.getByText('Preferences')).toBeTruthy();
     expect(screen.getByText('Account')).toBeTruthy();
     expect(screen.getByText('Library')).toBeTruthy();
+    expect(screen.getByText('Advanced')).toBeTruthy();
   });
 
   it('renders the active panel (General) and its sections', () => {

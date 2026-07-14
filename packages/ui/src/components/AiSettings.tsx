@@ -1,7 +1,7 @@
 import {useCallback, useEffect, useState, type ReactNode} from 'react';
 import {ChevronDown, ChevronRight, Trash2} from 'lucide-react';
 import {providerSettings, type AiConfig, type AiEffort, type AiProvider, type AiProviderSettings, type AiSkill, type AiStatus} from '@book.dev/sdk';
-import {ScopeChip, SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
+import {ScopeChip, SettingsField, SettingsScreen, SettingsSection, SettingsToggle, SETTINGS_CONTROL_CLASS} from '@/components/settings/primitives';
 import AiUsageSettings from '@/components/settings/AiUsageSettings';
 import McpSettings from '@/components/settings/McpSettings';
 import {Button} from '@/components/ui/button';
@@ -10,9 +10,6 @@ import {useData} from '@/data';
 import {useConfirm, usePreferences, useTranslation} from '@/providers';
 import {AI_FEATURES, type FeatureVisibility} from '@/lib/aiFeatures';
 import {cn} from '@/lib/utils';
-
-const fieldClass =
-  'w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring';
 
 /** Providers that carry connection settings (everything except off/mock). */
 const CONFIGURABLE: AiProvider[] = ['llama', 'mlx', 'openai', 'claude'];
@@ -149,7 +146,7 @@ export default function AiSettings() {
   const modelInput = (p: AiProvider, placeholder: string, hint: string) => (
     <SettingsField label={t('ai.modelName')} hint={hint}>
       <input
-        className={fieldClass}
+        className={SETTINGS_CONTROL_CLASS}
         value={providerSettings(draft, p).model ?? ''}
         placeholder={placeholder}
         onChange={(e) => setDraft(set(p, {model: e.target.value}))}
@@ -174,7 +171,7 @@ export default function AiSettings() {
           <>
             <SettingsField label={t('ai.modelFile')} hint={t('ai.modelFileHint')}>
               <input
-                className={fieldClass}
+                className={SETTINGS_CONTROL_CLASS}
                 value={s.model ?? ''}
                 placeholder="qwen2.5-1.5b-instruct-q4_k_m.gguf"
                 onChange={(e) => setDraft(set(p, {model: e.target.value}))}
@@ -198,7 +195,7 @@ export default function AiSettings() {
           <>
             <SettingsField label={t('ai.baseUrl')} hint={t('ai.mlxUrlHint')}>
               <input
-                className={fieldClass}
+                className={SETTINGS_CONTROL_CLASS}
                 value={s.baseUrl ?? ''}
                 placeholder="http://127.0.0.1:8080"
                 onChange={(e) => setDraft(set(p, {baseUrl: e.target.value}))}
@@ -212,7 +209,7 @@ export default function AiSettings() {
           <>
             <SettingsField label={t('ai.baseUrl')} hint={t('ai.openaiUrlHint')}>
               <input
-                className={fieldClass}
+                className={SETTINGS_CONTROL_CLASS}
                 value={s.baseUrl ?? ''}
                 placeholder="http://127.0.0.1:11434"
                 onChange={(e) => setDraft(set(p, {baseUrl: e.target.value}))}
@@ -241,7 +238,7 @@ export default function AiSettings() {
                     autoComplete="off"
                     aria-label={t('ai.apiKey')}
                     aria-describedby={showKeySet ? keyStatusId : undefined}
-                    className={fieldClass}
+                    className={SETTINGS_CONTROL_CLASS}
                     value={typed}
                     placeholder={showKeySet ? t('ai.apiKeySet') : 'sk-ant-…'}
                     onChange={(e) => setDraft(set(p, {apiKey: e.target.value}))}
@@ -462,11 +459,11 @@ function SkillsEditor({
       {adding ? (
         <div className="flex flex-col gap-2 rounded-md border border-border px-3 py-3">
           <SettingsField label={t('ai.skillName')}>
-            <input className={fieldClass} value={name} placeholder={t('ai.skillNamePlaceholder')} onChange={(e) => setName(e.target.value)} />
+            <input className={SETTINGS_CONTROL_CLASS} value={name} placeholder={t('ai.skillNamePlaceholder')} onChange={(e) => setName(e.target.value)} />
           </SettingsField>
           <SettingsField label={t('ai.skillDescription')}>
             <input
-              className={fieldClass}
+              className={SETTINGS_CONTROL_CLASS}
               value={description}
               placeholder={t('ai.skillDescriptionPlaceholder')}
               onChange={(e) => setDescription(e.target.value)}
@@ -474,7 +471,7 @@ function SkillsEditor({
           </SettingsField>
           <SettingsField label={t('ai.skillInstructions')}>
             <textarea
-              className={cn(fieldClass, 'min-h-24 resize-y')}
+              className={cn(SETTINGS_CONTROL_CLASS, 'min-h-24 resize-y')}
               value={instructions}
               placeholder={t('ai.skillInstructionsPlaceholder')}
               onChange={(e) => setInstructions(e.target.value)}

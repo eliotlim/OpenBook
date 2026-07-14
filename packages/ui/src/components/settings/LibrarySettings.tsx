@@ -1,7 +1,12 @@
 import {useState} from 'react';
 import {Trash2} from 'lucide-react';
 import {PlusIcon} from '@heroicons/react/24/outline';
-import {setServerUrlOverride} from '@book.dev/sdk';
+import {
+  setServerUrlOverride,
+  getServerTokenOverride,
+  setServerTokenOverride,
+  isMixedContentBlocked,
+} from '@book.dev/sdk';
 import {
   useTranslation,
   useLibrary,
@@ -19,20 +24,28 @@ import {SettingsScreen, SettingsSection, SettingsField} from '@/components/setti
 import {cn} from '@/lib/utils';
 
 /**
- * One editable library row. Name and icon commit live; the server URL commits on
+ * One editable library row — the one place to set a server (SET2-1 folded the old
+ * Connection tab in here). Name and icon commit live; the server URL commits on
  * blur (or Enter) so a half-typed value never re-points the connection, and an
- * unsafe/malformed URL is rejected inline. The local library (`serverUrl: null`)
- * is this device — its URL is locked and it can't be removed.
+ * unsafe/malformed URL is rejected inline. Editing the URL no longer force-reloads
+ * the app: the ACTIVE remote library gets an explicit Reconnect button (with the
+ * access-token field beside it), so the reconnect is intentional. The local
+ * library (`serverUrl: null`) is this device — its URL is locked and unremovable.
  */
 function LibraryRow({library, active}: {library: Library; active: boolean}) {
   const {t} = useTranslation();
   const {updateLibrary, removeLibrary} = useLibrary();
   const confirm = useConfirm();
   const isLocal = library.serverUrl === null;
+  // The connection controls (token + Reconnect) belong on the active remote row:
+  // the access token is a single device-global override that only applies to the
+  // server this device is actually talking to.
+  const isConnection = active && !isLocal;
 
   const [nameDraft, setNameDraft] = useState(library.name);
   const [urlDraft, setUrlDraft] = useState(library.serverUrl ?? '');
   const [urlError, setUrlError] = useState<string | null>(null);
+  const [tokenDraft, setTokenDraft] = useState(() => getServerTokenOverride() ?? '');
 
   // Commit the name on blur (not per keystroke) so a half-cleared field never
   // leaves a nameless card/switcher row. Blank falls back the same way
@@ -44,6 +57,9 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
     if (next !== library.name) updateLibrary(library.id, {name: next});
   };
 
+  // Persist the URL to the stored list on blur. This no longer reconnects the
+  // active library on its own — that's the explicit Reconnect button below — so a
+  // stray edit-and-click-away never yanks the whole app into a reload.
   const commitUrl = () => {
     const trimmed = urlDraft.trim();
     if (trimmed === (library.serverUrl ?? '')) {
@@ -56,14 +72,26 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
     }
     setUrlError(null);
     updateLibrary(library.id, {serverUrl: trimmed});
-    // Rewriting the stored list isn't enough for the ACTIVE library — the data
-    // client keeps talking to the old server and "active" silently desyncs.
-    // Reconnect through the same path `selectLibrary` uses (setServerUrlOverride
-    // + reload) so the edit actually re-points the connection.
-    if (active) {
-      setServerUrlOverride(trimmed);
-      if (typeof window !== 'undefined') window.location.reload();
+  };
+
+  // An https page can't reach a plain http:// LAN server — the browser blocks it
+  // as mixed content before CORS. Warn and guard rather than fail opaquely.
+  const trimmedUrl = urlDraft.trim();
+  const urlBlocked = isMixedContentBlocked(trimmedUrl);
+
+  // Apply the (possibly edited) URL + token and re-point the live connection the
+  // same way `selectLibrary` does: persist the record, set the overrides, reload.
+  const reconnect = () => {
+    if (!isSafeServerUrl(trimmedUrl)) {
+      setUrlError(t('library.urlUnsafe'));
+      return;
     }
+    if (urlBlocked) return; // guarded; the warning explains why
+    setUrlError(null);
+    updateLibrary(library.id, {serverUrl: trimmedUrl});
+    setServerTokenOverride(tokenDraft.trim() || null);
+    setServerUrlOverride(trimmedUrl);
+    if (typeof window !== 'undefined') window.location.reload();
   };
 
   const onRemove = async () => {
@@ -147,13 +175,45 @@ function LibraryRow({library, active}: {library: Library; active: boolean}) {
                 setUrlError(null);
               }}
               onBlur={commitUrl}
-              onKeyDown={(e) => e.key === 'Enter' && commitUrl()}
+              onKeyDown={(e) => e.key === 'Enter' && (isConnection ? reconnect() : commitUrl())}
             />
             <p className="mt-1 text-xs text-muted-foreground">{libraryHostLabel(library.serverUrl)}</p>
             {urlError && <p className="mt-1 text-xs text-destructive">{urlError}</p>}
           </>
         )}
       </SettingsField>
+
+      {/* Connection controls for the active remote library: the access token and
+          an explicit Reconnect (SET2-1 folded the old Connection tab in here). */}
+      {isConnection && (
+        <>
+          <SettingsField label={t('connection.accessToken')} htmlFor={`lib-token-${library.id}`}>
+            <Input
+              id={`lib-token-${library.id}`}
+              type="password"
+              value={tokenDraft}
+              placeholder={t('connection.remoteTokenPlaceholder')}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              onChange={(e) => setTokenDraft(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && reconnect()}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">{t('connection.remoteTokenHint')}</p>
+          </SettingsField>
+          {urlBlocked && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
+              {t('connection.mixedContentWarning')}
+            </p>
+          )}
+          <div>
+            <Button variant="outline" size="sm" onClick={reconnect} disabled={!trimmedUrl || urlBlocked}>
+              {t('librarySettings.reconnect')}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -250,7 +310,6 @@ export default function LibrarySettings() {
   return (
     <SettingsScreen title={t('librarySettings.title')} description={t('librarySettings.description')} scope="device">
       <SettingsSection title={t('librarySettings.yourLibraries')}>
-        <p className="text-xs text-muted-foreground">{t('librarySettings.connectionHint')}</p>
         <div className="flex flex-col gap-3">
           {libraries.map((lib) => (
             <LibraryRow key={lib.id} library={lib} active={lib.id === library.id} />

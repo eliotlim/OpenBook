@@ -1,10 +1,13 @@
-/** The settings sidebar: three sections, each with its sub-screens, in order.
- *  Preferences = how the app behaves and looks; Account = who you are
- *  (identity first); Library = this library's server and capabilities. */
+/** The settings sidebar: four sections, each with its sub-screens, in order
+ *  (SET2-6). Preferences = how the app behaves and looks; Account = who you are
+ *  (identity first); Library = this library's policy + capabilities (Sharing
+ *  leads — the most-used surface); Advanced = mixed-scope plumbing/admin/support
+ *  that's rarely touched (the scope chips carry the truth for these). */
 export const SETTINGS_SECTIONS = [
-  {id: 'preferences', tabs: ['general', 'libraries', 'appearance', 'customisation']},
+  {id: 'preferences', tabs: ['general', 'appearance', 'customisation']},
   {id: 'account', tabs: ['profile', 'signin']},
-  {id: 'library', tabs: ['connection', 'sharing', 'extensions', 'ai', 'admin', 'agents', 'diagnostics']},
+  {id: 'library', tabs: ['sharing', 'ai', 'extensions', 'admin']},
+  {id: 'advanced', tabs: ['libraries', 'agents', 'diagnostics']},
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]['id'];
@@ -29,9 +32,12 @@ export const isSettingsTab = (value: unknown): value is SettingsTab =>
 /** Sub-screens that were renamed/merged when the flat tabs became grouped
  *  sections, plus the retired "coming soon" stubs (signup/support/integrations)
  *  mapped to their nearest real screen. `members` folded into the Sharing tab
- *  (SHR-5) — its roster is now the People section there. */
+ *  (SHR-5) — its roster is now the People section there. `connection` folded into
+ *  the Libraries screen (SET2-1) — the per-library rows are the one place to set
+ *  a server + token; `server`/`connection` both resolve there now. */
 const LEGACY_TAB_MAP: Record<string, SettingsTab> = {
-  server: 'connection',
+  server: 'libraries',
+  connection: 'libraries',
   backup: 'admin',
   signup: 'signin',
   support: 'profile',
@@ -59,10 +65,10 @@ export const isTabParam = (value: unknown): boolean =>
   isSettingsTab(value) || (typeof value === 'string' && value in LEGACY_TAB_MAP);
 
 /**
- * Resolve a persisted tab id to a current one: map renamed legacy ids
- * (`server`→`connection`, `backup`→`admin`, retired stubs → their nearest real
- * screen) and fall back to the default for anything no longer a valid tab, so
- * an old `settings.tab` never dead-ends.
+ * Resolve a persisted tab id to a current one: map renamed/merged legacy ids
+ * (`connection`/`server`→`libraries`, `backup`→`admin`, retired stubs → their
+ * nearest real screen) and fall back to the default for anything no longer a
+ * valid tab, so an old `settings.tab` never dead-ends.
  */
 export const normalizeTab = (value: unknown): SettingsTab => {
   if (isSettingsTab(value)) return value;

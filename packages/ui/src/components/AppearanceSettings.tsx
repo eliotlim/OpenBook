@@ -2,9 +2,8 @@ import {type ComponentType} from 'react';
 import {SunIcon} from '@heroicons/react/24/outline';
 import {MoonIcon, DesktopIcon} from '@radix-ui/react-icons';
 import {ColorMode, useTheme, useTranslation} from '@/providers';
-import {Switch} from '@/components/ui/switch';
 import {AccentPicker, Field, LevelPicker, Segmented} from '@/components/appearance/AppearanceControls';
-import {SettingsScreen} from '@/components/settings/primitives';
+import {SettingsScreen, SettingsToggle} from '@/components/settings/primitives';
 import type {TKey} from '@/i18n';
 
 const MODES: Array<{value: ColorMode; key: TKey; icon: ComponentType<{className?: string}>}> = [
@@ -86,16 +85,12 @@ export default function AppearanceSettings() {
         />
       </Field>
 
-      <label className="flex cursor-pointer items-center justify-between gap-4">
-        <span className="flex flex-col gap-1">
-          <span className="text-sm font-medium">{t('appearance.blurOverlays')}</span>
-          <span className="text-xs text-muted-foreground">{t('appearance.blurOverlaysHint')}</span>
-        </span>
-        <Switch
-          checked={appearance.blurOverlays ?? false}
-          onCheckedChange={(blurOverlays) => setAppearance({blurOverlays})}
-        />
-      </label>
+      <SettingsToggle
+        label={t('appearance.blurOverlays')}
+        hint={t('appearance.blurOverlaysHint')}
+        checked={appearance.blurOverlays ?? false}
+        onCheckedChange={(blurOverlays) => setAppearance({blurOverlays})}
+      />
     </SettingsScreen>
   );
 }
