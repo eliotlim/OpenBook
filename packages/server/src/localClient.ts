@@ -31,7 +31,9 @@ import type {
   PageAcl,
   PageInput,
   PageMeta,
+  PageVersionMeta,
   PageSubscription,
+  StoredPageVersion,
   PageVisibility,
   PluginPackage,
   RowInput,
@@ -140,6 +142,37 @@ export class LocalDataClient implements DataClient {
 
   listBacklinks(id: string): Promise<PageMeta[]> {
     return this.store.listBacklinks(id);
+  }
+
+  // ── Page version history (PVH-3) ─────────────────────────────────────────────
+
+  listVersions(pageId: string, opts?: {limit?: number}): Promise<PageVersionMeta[]> {
+    return this.store.listPageVersions(pageId, opts?.limit);
+  }
+
+  getVersion(pageId: string, versionId: string): Promise<StoredPageVersion | null> {
+    return this.store.getPageVersion(pageId, versionId);
+  }
+
+  async restoreVersion(pageId: string, versionId: string): Promise<StoredPage | null> {
+    const version = await this.store.getPageVersion(pageId, versionId);
+    if (!version) return null;
+    // Preserve the page's current name — only the document content rolls back.
+    // Writing the old snapshot back captures the current state as a fresh version
+    // (PVH-1), so a restore is non-destructive. `captureMode: 'force'` bypasses the
+    // 45s coalesce window so restoring right after a save can't lose the pre-restore
+    // state (parity with the HTTP restore route). Mirrors savePage's publish wiring.
+    const existing = await this.store.getPage(pageId);
+    if (!existing) return null;
+    const page = await this.store.upsertPage(
+      {id: pageId, name: existing.name, data: version.data},
+      localPrincipal(),
+      {captureMode: 'force'},
+    );
+    this.hub.publishPage(page);
+    await this.broadcastList();
+    if (page.databaseId) await this.broadcastRows(page.databaseId);
+    return page;
   }
 
   async movePage(id: string, move: {parentId: string | null; orderedIds: string[]}): Promise<StoredPage> {

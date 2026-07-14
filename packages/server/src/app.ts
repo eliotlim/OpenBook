@@ -971,6 +971,61 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.json(await store.filterReadablePages(c.get('principal'), backlinks));
   });
 
+  // ── Page version history (PVH-3) ───────────────────────────────────────────────
+  //
+  // Read/restore of the snapshot-on-save history captured in the page upsert (PVH-1).
+  // Version access INHERITS the page's capability — the routes gate on the PAGE id
+  // with the SAME `requireAccess` default-deny gate every page route uses (read for
+  // list/get, write for restore). So a caller who can't read the page 404s (existence
+  // hidden), and one who can read but not write can't restore (403). The store's
+  // `page_id`-scoped queries also mean a version id from another page never resolves
+  // here — no cross-page leak even for a caller who could read both pages.
+
+  // List a page's captured versions (metadata only — no snapshot payload), newest
+  // first. `?limit=` caps the page (store clamps 1..1000; default 100). Read-gated.
+  app.get(`${API.pages}/:id/versions`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'read', id);
+    const limitRaw = c.req.query('limit');
+    const limit = limitRaw !== undefined && Number.isFinite(Number(limitRaw)) ? Number(limitRaw) : undefined;
+    return c.json(await store.listPageVersions(id, limit));
+  });
+
+  // Read one captured version WITH its snapshot payload (the state to roll back to).
+  // Read-gated on the page; 404 when the version id isn't this page's (the store's
+  // `AND page_id = $2` guard means a valid id under a DIFFERENT page resolves null —
+  // no cross-page leak).
+  app.get(`${API.pages}/:id/versions/:vid`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'read', id);
+    const version = await store.getPageVersion(id, c.req.param('vid'));
+    return version ? c.json(version) : c.json({error: 'version not found'}, 404);
+  });
+
+  // Roll the page back to a captured version. Write-gated on the page. Non-destructive
+  // by construction: writing the old snapshot back through `upsertPage` captures the
+  // CURRENT (pre-restore) state as a fresh version first (PVH-1), so a restore is
+  // itself undoable. `captureMode: 'force'` bypasses the 45s coalesce window so that
+  // capture ALWAYS happens — a restore landing right after a save would otherwise
+  // coalesce the pre-restore state away and silently lose it. The page's name is
+  // untouched (name isn't versioned). Mirrors the `PUT /api/pages/:id` publish wiring.
+  app.post(`${API.pages}/:id/versions/:vid/restore`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
+    const version = await store.getPageVersion(id, c.req.param('vid'));
+    if (!version) return c.json({error: 'version not found'}, 404);
+    // Preserve the page's current name — only the document content rolls back.
+    const existing = await store.getPage(id);
+    if (!existing) return c.json({error: 'page not found'}, 404);
+    const page = await store.upsertPage({id, name: existing.name, data: version.data}, c.get('principal'), {captureMode: 'force'});
+    hub.publishPage(page);
+    await broadcastList();
+    if (page.databaseId) await broadcastRows(page.databaseId);
+    logEdit(c, page.id, 'page.version.restore', c.req.param('vid'));
+    return c.json(page);
+  });
+
   // Reorder / re-nest a page in the sidebar tree: set its parent and the new
   // ordered sibling list under that parent. 404 if the page is gone, 409 if the
   // move would create a cycle (nesting a page under itself or a descendant).

@@ -25,7 +25,9 @@ import type {
   PageInput,
   PageMeta,
   PageSnapshot,
+  PageVersionMeta,
   PageVisibility,
+  StoredPageVersion,
   Principal,
   RowInput,
   StoredComment,
@@ -134,6 +136,22 @@ export const PAGE_VERSION_COALESCE_SECONDS = 45;
 export const PAGE_VERSION_KEEP = 50;
 export const PAGE_VERSION_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
 export const PAGE_VERSION_KEEP_MIN = 3;
+
+/**
+ * How {@link PageStore.upsertPage} snapshots the state it replaces (PVH-1):
+ *   • `'coalesced'` (default, every routine save) — skip the capture when a version
+ *     already exists within {@link PAGE_VERSION_COALESCE_SECONDS}, so bursts collapse.
+ *   • `'force'` (the restore route) — always capture the pre-restore state, bypassing
+ *     the coalesce window, so a restore is never destructive even when it lands within
+ *     45s of the last save. The identical-data (`IS DISTINCT FROM`) guard still holds.
+ */
+export type CaptureMode = 'coalesced' | 'force';
+
+/** Options for {@link PageStore.upsertPage}. */
+export interface UpsertPageOptions {
+  /** Version-capture behaviour for the state this save replaces. Default `'coalesced'`. */
+  captureMode?: CaptureMode;
+}
 
 // Timestamps come back as Date (postgres) or ISO string (pglite); normalize.
 const toIso = (value: Date | string): string =>
@@ -859,7 +877,8 @@ export class PageStore {
    * unrelated keyless callers collide. (Anonymous guests share one subject and are
    * the write-excluded class under a locked instance, so they're not relied on here.)
    */
-  async upsertPage(input: PageInput, author?: Principal): Promise<StoredPage> {
+  async upsertPage(input: PageInput, author?: Principal, opts?: UpsertPageOptions): Promise<StoredPage> {
+    const captureMode = opts?.captureMode ?? 'coalesced';
     const clientKey = input.idempotencyKey?.trim();
     const subject = author?.subject;
     if (!input.id && clientKey && subject) {
@@ -885,13 +904,13 @@ export class PageStore {
           if (rows.length > 0) return pageFromRow(rows[0]);
           // The keyed page was hard-purged — re-create it under its recorded id so
           // the key stays consistent across any further replays (rare edge).
-          return this.upsertPageTx(tx, keyedId, input, author);
+          return this.upsertPageTx(tx, keyedId, input, author, undefined, captureMode);
         }
-        return this.upsertPageTx(tx, newId, input, author);
+        return this.upsertPageTx(tx, newId, input, author, undefined, captureMode);
       });
     }
     const id = input.id ?? randomUUID();
-    return this.db.begin((tx) => this.upsertPageTx(tx, id, input, author));
+    return this.db.begin((tx) => this.upsertPageTx(tx, id, input, author, undefined, captureMode));
   }
 
   /**
@@ -911,6 +930,7 @@ export class PageStore {
     input: PageInput,
     author?: Principal,
     authorsByBlock?: ReadonlyMap<string, string>,
+    captureMode: CaptureMode = 'coalesced',
   ): Promise<StoredPage> {
     // Stamp per-block mtimes relative to the page's prior content so an
     // unchanged block keeps its timestamp and a changed one is restamped — the
@@ -928,35 +948,47 @@ export class PageStore {
     // PVH-1: snapshot the state being REPLACED (the prior `data`) into
     // `page_versions` — a row = "what the page was before this save", the state you
     // can roll back TO. Runs BEFORE the upsert, in the same transaction, reading the
-    // still-current `pages.data`. The guards mirror the no-op skip below exactly:
+    // still-current `pages.data`. The guards mirror the no-op skip below:
     //   • `p.data IS DISTINCT FROM $2::jsonb` — the SAME normalized-jsonb change
-    //     signal, so a no-op save (or a name-only change) writes NO version.
+    //     signal, so a no-op save (or a name-only change) writes NO version. ALWAYS
+    //     applied, in both capture modes.
     //   • the coalesce `NOT EXISTS` — skip when a version was captured within the
     //     last PAGE_VERSION_COALESCE_SECONDS, so a burst of saves collapses to one.
+    //     Applied only in `'coalesced'` mode (the default, every routine save).
+    // `captureMode: 'force'` (PVH-3, the restore route) OMITS the coalesce clause so
+    // the pre-restore state is ALWAYS snapshotted, even when the user restores within
+    // 45s of the last capture — otherwise the restore would be destructive and not
+    // undoable (contra the non-destructive guarantee). The `IS DISTINCT FROM` guard
+    // still holds, so restoring identical data still writes no version.
     // A brand-new page matches no `p.id` row, so a create captures nothing (it
     // replaces no prior state). Author is the verified saving principal (who
     // superseded the captured state); a server-merged checkpoint has no single save
     // principal, so its columns are null (per-block authorship lives in the snapshot).
+    const captureParams: unknown[] = [
+      randomUUID(),
+      JSON.stringify(data),
+      id,
+      author?.subject ?? null,
+      author?.issuer ?? null,
+      author?.name ?? null,
+    ];
+    const coalesceClause =
+      captureMode === 'force'
+        ? ''
+        : `AND NOT EXISTS (
+             SELECT 1 FROM page_versions v
+             WHERE v.page_id = p.id
+               AND v.created_at > now() - ($7::int * interval '1 second')
+           )`;
+    if (captureMode !== 'force') captureParams.push(PAGE_VERSION_COALESCE_SECONDS);
     await tx.query(
       `INSERT INTO page_versions (id, page_id, data, author_subject, author_issuer, author_name)
        SELECT $1, p.id, p.data, $4, $5, $6
        FROM pages p
        WHERE p.id = $3
          AND p.data IS DISTINCT FROM $2::jsonb
-         AND NOT EXISTS (
-           SELECT 1 FROM page_versions v
-           WHERE v.page_id = p.id
-             AND v.created_at > now() - ($7::int * interval '1 second')
-         )`,
-      [
-        randomUUID(),
-        JSON.stringify(data),
-        id,
-        author?.subject ?? null,
-        author?.issuer ?? null,
-        author?.name ?? null,
-        PAGE_VERSION_COALESCE_SECONDS,
-      ],
+         ${coalesceClause}`,
+      captureParams,
     );
     const rows = await tx.query<PageRow>(
       // A new page is appended to the bottom of its sibling group (one past the
@@ -3235,21 +3267,9 @@ function editFromRow(row: EditRow): StoredEdit {
 }
 
 // ── Page version row mapper (PVH-1) ──────────────────────────────────────────
-
-/** Metadata for one captured page version (no snapshot payload). */
-export interface PageVersionMeta {
-  id: string;
-  pageId: string;
-  authorSubject: string | null;
-  authorIssuer: string | null;
-  authorName: string | null;
-  createdAt: string;
-}
-
-/** A captured page version WITH its snapshot payload — the state to restore. */
-export interface StoredPageVersion extends PageVersionMeta {
-  data: PageSnapshot;
-}
+//
+// The wire types {@link PageVersionMeta}/{@link StoredPageVersion} are the SDK's
+// (one source of truth shared with the client); this maps a DB row onto them.
 
 interface PageVersionRow {
   id: string;
