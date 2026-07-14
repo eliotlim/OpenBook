@@ -1,11 +1,12 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import * as Y from 'yjs';
-import {History} from 'lucide-react';
+import {History, RotateCcw} from 'lucide-react';
 import type {PageVersionMeta} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {getHistoryTarget, subscribeHistoryPane} from '@/lib/historyPane';
-import {useNavigation, useTranslation} from '@/providers';
+import {useConfirm, useNavigation, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
+import {showToast} from '@/components/ui/toast';
 import {cn} from '@/lib/utils';
 import {PresentBlocks} from '@/blockeditor/PresentBlocks';
 import {decodeSnapshot, rootBlocks, type BlockDocSnapshot, type BlockMap} from '@/blockeditor/model';
@@ -107,6 +108,7 @@ export function HistoryPaneBody() {
 
   const pageId = target.pageId;
   const client = useData();
+  const confirm = useConfirm();
   const {pageLabel} = useNavigation();
   const {t, locale} = useTranslation();
 
@@ -114,6 +116,7 @@ export function HistoryPaneBody() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
   const refetch = useCallback(async () => {
     if (!pageId) {
@@ -141,6 +144,35 @@ export function HistoryPaneBody() {
     void refetch();
   }, [refetch, target.revision]);
 
+  // Restore is non-destructive: the server captures the current (pre-restore)
+  // state as a fresh version first, so a restore is itself undoable. The restore
+  // rides the normal save/broadcast, so the live document updates on its own SSE;
+  // here we just confirm, call, and refetch the list (which now leads with the
+  // freshly-captured pre-restore version).
+  const restore = useCallback(
+    async (version: PageVersionMeta) => {
+      if (!pageId) return;
+      const ok = await confirm({
+        title: t('history.confirmTitle'),
+        description: t('history.confirmBody'),
+        confirmText: t('history.confirmAction'),
+      });
+      if (!ok) return;
+      setRestoringId(version.id);
+      try {
+        const restored = await client.restoreVersion(pageId, version.id);
+        if (!restored) throw new Error('restore returned null');
+        await refetch();
+        showToast({message: t('history.restored')});
+      } catch {
+        showToast({message: t('history.restoreError')});
+      } finally {
+        setRestoringId(null);
+      }
+    },
+    [client, confirm, pageId, refetch, t],
+  );
+
   const items = useMemo(
     () =>
       versions.map((v, i) => ({
@@ -151,6 +183,7 @@ export function HistoryPaneBody() {
       })),
     [versions, locale, t],
   );
+  const selectedItem = items.find((it) => it.version.id === selectedId) ?? null;
 
   return (
     <div className="flex h-full flex-col">
@@ -213,14 +246,34 @@ export function HistoryPaneBody() {
             ))}
           </div>
 
-          {/* The read-only preview of the picked version. */}
-          <div className="min-h-0 overflow-y-auto p-4">
-            {selectedId ? (
-              <VersionPreview pageId={pageId} versionId={selectedId} />
-            ) : (
-              !loading && (
-                <p className="text-xs text-muted-foreground">{t('history.selectHint')}</p>
-              )
+          {/* The read-only preview of the picked version + its restore action. */}
+          <div className="flex min-h-0 flex-col">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              {selectedId ? (
+                <VersionPreview pageId={pageId} versionId={selectedId} />
+              ) : (
+                !loading && (
+                  <p className="text-xs text-muted-foreground">{t('history.selectHint')}</p>
+                )
+              )}
+            </div>
+            {selectedItem && !selectedItem.isCurrent && (
+              <div className="shrink-0 border-t border-border p-2.5">
+                {/* PVH-6: a "Compare" toggle (diff vs. current) plugs in here,
+                    beside Restore. */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                  disabled={restoringId !== null}
+                  onClick={() => void restore(selectedItem.version)}
+                >
+                  <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                  {restoringId === selectedItem.version.id
+                    ? t('history.restoring')
+                    : t('history.restore')}
+                </Button>
+              </div>
             )}
           </div>
         </div>
