@@ -1018,15 +1018,27 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // Preserve the page's current name — only the document content rolls back.
     const existing = await store.getPage(id);
     if (!existing) return c.json({error: 'page not found'}, 404);
-    const page = await store.upsertPage({id, name: existing.name, data: version.data}, c.get('principal'), {captureMode: 'force'});
     // A restore writes the old snapshot straight through `upsertPage` — an EXTERNAL write
     // that bypasses the /updates collab stream. Any live collab doc for this page still
-    // holds the PRE-restore state, so reseed both so connected clients converge onto the
-    // restored content (PVH-8):
-    relay.forget(id); // Collab T1: drop the relay doc so a late-joiner /sync reseeds from the restored snapshot
-    persister?.reseed(id); // Collab T9: drop the canonical doc so the next access reseeds from the restored
-    // pages.data (restore wins; a client mid-edit rebases on its next /sync). Called only here, never from
-    // the checkpoint path (saveServerDoc), so the checkpoint can't self-invalidate — no feedback loop.
+    // holds the PRE-restore state, so we make the restore's write the LAST durable write the
+    // persister allows for the page, then reseed so connected clients converge onto the
+    // restored content (PVH-8). Order matters — quiesce BEFORE the write, reseed AFTER it:
+    //  • quiesce: freeze new checkpoints, cancel the debounce, and DRAIN any in-flight
+    //    checkpoint so a stale pre-restore write lands (or is refused) BEFORE this write —
+    //    never behind it on the write mutex, where it would durably clobber the restore.
+    //  • upsertPage: the restore write, now the final durable write for the page.
+    //  • reseed: drop the canonical doc (next access reseeds from the restored pages.data)
+    //    and clear the freeze. Runs in `finally` so a failed write never leaks the freeze.
+    await persister?.quiesce(id);
+    let page: Awaited<ReturnType<typeof store.upsertPage>>;
+    try {
+      page = await store.upsertPage({id, name: existing.name, data: version.data}, c.get('principal'), {captureMode: 'force'});
+    } finally {
+      relay.forget(id); // Collab T1: drop the relay doc so a late-joiner /sync reseeds from the restored snapshot
+      persister?.reseed(id); // Collab T9: drop the canonical doc + clear the restore freeze (restore wins; a
+      // still-connected client's edits are CRDT deltas that re-merge on its next /sync). Called only here, never
+      // from the checkpoint path (saveServerDoc), so the checkpoint can't self-invalidate — no feedback loop.
+    }
     hub.publishPage(page);
     await broadcastList();
     if (page.databaseId) await broadcastRows(page.databaseId);

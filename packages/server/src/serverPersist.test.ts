@@ -101,6 +101,17 @@ async function waitFor(predicate: () => Promise<boolean>, ms = 3000): Promise<vo
   }
 }
 
+// Poll `predicate` for up to `ms`, resolving `true` the moment it holds, else `false` when the
+// window elapses. Used to assert a durable write does NOT land within a generous window.
+async function within(ms: number, predicate: () => Promise<boolean>): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < ms) {
+    if (await predicate()) return true;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  return false;
+}
+
 describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
   it('durably persists FROM the server doc on a /updates alone (no client PUT)', async () => {
     const store = await freshStore();
@@ -231,6 +242,108 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     await postUpdate(app, id, Y.encodeStateAsUpdate(client2, before2), client2.clientID);
     await waitFor(async () => (await textOf(store, id)).includes('-AGAIN'));
     expect(await textOf(store, id)).toBe('RESTORED-AGAIN'); // reseeded from the restore, no 'LIVE' clobber
+
+    client.destroy();
+    client2.destroy();
+  });
+
+  // PVH-8 (review BLOCK): the DOMINANT race the liveness fence alone missed. A checkpoint of
+  // PRE-restore content that is armed and IN FLIGHT while the restore runs would — unfenced —
+  // capture the pre-restore blockdoc, pass the liveness fence (the canonical doc is still live
+  // because the drop hasn't happened yet), and queue its `saveServerDoc` (W2) BEHIND the
+  // restore's `upsertPage` (W1) on the single-connection PGlite write mutex, committing LAST
+  // and durably clobbering the restore. `quiesce` (called BEFORE the restore write) DRAINS that
+  // in-flight checkpoint so it lands FIRST and FREEZES new checkpoints — so the restore write
+  // is the LAST durable write for the page. This test forces the interleaving DETERMINISTICALLY:
+  // it holds a pre-restore checkpoint write open, then proves the restore's own write is blocked
+  // BEHIND it (never races ahead + gets clobbered), and that a late edit during the frozen window
+  // can't arm a checkpoint either.
+  it('a pre-restore checkpoint IN FLIGHT during a restore does NOT clobber it (quiesce drains + freezes)', async () => {
+    const store = await freshStore();
+    const app = createApp(store, undefined, new PageHub(), {serverPersist: true});
+    const persister = (app as AppWithCollab).collabPersist!;
+
+    // Durable history: RESTORED (the version we roll back to), then LIVE (current content).
+    const created = await store.upsertPage({name: 'restore-race', data: snap('RESTORED')});
+    const id = created.id;
+    await store.upsertPage({id, name: 'restore-race', data: snap('LIVE')});
+    const vid = (await store.listPageVersions(id))[0].id;
+
+    // Gate the FIRST server checkpoint write so it is held IN FLIGHT (persistChain pending)
+    // when the restore fires — a pre-restore ('LIVE-EDIT') write that, unquiesced, would race
+    // the restore write on the mutex. Later checkpoints (post-restore convergence) run ungated.
+    let releaseCheckpoint!: () => void;
+    const checkpointHeld = new Promise<void>((r) => (releaseCheckpoint = r));
+    let reachedCheckpoint!: () => void;
+    const checkpointStarted = new Promise<void>((r) => (reachedCheckpoint = r));
+    const realSaveServerDoc = store.saveServerDoc.bind(store);
+    let gated = false;
+    (store as unknown as {saveServerDoc: PageStore['saveServerDoc']}).saveServerDoc = (async (...args) => {
+      if (!gated) {
+        gated = true;
+        reachedCheckpoint();
+        await checkpointHeld; // hold the pre-restore checkpoint write open
+      }
+      return realSaveServerDoc(...(args as Parameters<PageStore['saveServerDoc']>));
+    }) as PageStore['saveServerDoc'];
+
+    // Arm the pre-restore checkpoint: fork the durable LIVE doc, type '-EDIT', drive /updates.
+    const liveBytes = Buffer.from(((await store.getPage(id))!.data as {blockdoc: {update: string}}).blockdoc.update, 'base64');
+    const client = new Y.Doc();
+    Y.applyUpdate(client, liveBytes);
+    const clientText = client.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text;
+    const origin = Y.encodeStateVector(client);
+    clientText.insert(clientText.length, '-EDIT');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client, origin), client.clientID);
+
+    // The debounce fires and the pre-restore checkpoint write reaches the store — now held.
+    await checkpointStarted;
+    expect(persister.size()).toBe(1); // a live canonical doc + its pre-restore write in flight
+
+    // Fire the restore WHILE that pre-restore checkpoint write is in flight. On the fixed path
+    // `quiesce` blocks the restore route here DRAINING that write (await persistChain), so the
+    // restore's own `upsertPage` cannot run yet.
+    const restoreP = app.request(`/api/pages/${id}/versions/${vid}/restore`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: '{}',
+    });
+
+    // A late /updates carrying MORE pre-restore-derived content arrives during the frozen
+    // quiesce window — `schedule`'s frozen guard must refuse to arm a clobbering checkpoint.
+    clientText.insert(clientText.length, '-CLOBBER');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client, origin), client.clientID);
+
+    // DETERMINISTIC DISCRIMINATOR: while the pre-restore checkpoint write is still held, the
+    // restore's durable write must NOT have landed. On the buggy ordering the restore's
+    // `upsertPage` is unquiesced and commits RESTORED immediately (then the held pre-restore
+    // write clobbers it on release); on the fixed path the restore write is drained BEHIND the
+    // checkpoint and can't land while it's held. Poll for a generous window — RESTORED landing
+    // here is the bug.
+    const landedWhileHeld = await within(500, async () => (await textOf(store, id)) === 'RESTORED');
+    expect(landedWhileHeld).toBe(false); // the restore write waits for the drained checkpoint
+
+    // Release the held pre-restore write: it lands FIRST (drained), THEN the restore's
+    // upsertPage commits — the restore is the last durable write, not the checkpoint.
+    releaseCheckpoint();
+    const res = await restoreP;
+    expect(res.status).toBe(200);
+
+    // Invariant: the durable snapshot is the RESTORE, never the pre-restore ('LIVE-EDIT') nor
+    // the frozen-blocked ('-CLOBBER') content — no checkpoint write committed after the restore.
+    expect(await textOf(store, id)).toBe('RESTORED');
+
+    // Convergence: a fresh /updates forked from RESTORED reseeds the canonical doc from the
+    // restore and checkpoints on top — the durable state stays RESTORED-derived.
+    const restoredBytes = Buffer.from(((await store.getPage(id))!.data as {blockdoc: {update: string}}).blockdoc.update, 'base64');
+    const client2 = new Y.Doc();
+    Y.applyUpdate(client2, restoredBytes);
+    const client2Text = client2.getArray<Y.Map<unknown>>('blocks').get(0).get('text') as Y.Text;
+    const before2 = Y.encodeStateVector(client2);
+    client2Text.insert(client2Text.length, '-AGAIN');
+    await postUpdate(app, id, Y.encodeStateAsUpdate(client2, before2), client2.clientID);
+    await waitFor(async () => (await textOf(store, id)).includes('-AGAIN'));
+    expect(await textOf(store, id)).toBe('RESTORED-AGAIN'); // reseeded from the restore, no clobber
 
     client.destroy();
     client2.destroy();
