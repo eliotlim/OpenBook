@@ -75,6 +75,15 @@ export interface NavigationContextValue {
   setPageHint: (id: string, name: string | null) => void;
 
   // ── Single-page navigation ──────────────────────────────────────────────────
+  // ── Active database view (URL `?view=`) ─────────────────────────────────────
+  /** The `?view=` param, scoped to the PRIMARY page's database. `null` when the
+   *  primary page has no view param (or has navigated away). Consumers should
+   *  still confirm it names a real view of *their* database before honouring it. */
+  activeViewParam: string | null;
+  /** Reflect the primary database's active view id into the URL (`?view=`), or
+   *  clear it with `null`. No-op'd by callers that don't own the primary page. */
+  setActiveViewParam: (viewId: string | null) => void;
+
   /** Navigate the focused pane to a page. */
   selectPage: (id: string) => void;
   /** Navigate (and focus) a SPECIFIC pane, regardless of which is focused. All
@@ -126,18 +135,23 @@ const LAST_PAGE_KEY = 'openbook.currentPageId';
 // A window's pages live in the query string so it restores on refresh and new
 // native tabs open by URL: `?page=<primary>&split=<secondary>`.
 
-const readUrl = (): {page: string | null; split: string | null} => {
-  if (typeof window === 'undefined') return {page: null, split: null};
+const readUrl = (): {page: string | null; split: string | null; view: string | null} => {
+  if (typeof window === 'undefined') return {page: null, split: null, view: null};
   const params = new URLSearchParams(window.location.search);
-  return {page: params.get('page'), split: params.get('split')};
+  return {page: params.get('page'), split: params.get('split'), view: params.get('view')};
 };
 
-const writeUrl = (primary: string, split: string | null): void => {
+const writeUrl = (primary: string, split: string | null, view: string | null): void => {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
   url.searchParams.set('page', primary);
   if (split) url.searchParams.set('split', split);
   else url.searchParams.delete('split');
+  // `?view=` names the active database view of the `?page='d database, so a chosen
+  // board/timeline is shareable. It is scoped to the primary page — dropped when
+  // the pane navigates elsewhere (see the provider's view-param reconciliation).
+  if (view) url.searchParams.set('view', view);
+  else url.searchParams.delete('view');
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   try {
     localStorage.setItem(LAST_PAGE_KEY, primary);
@@ -151,6 +165,7 @@ const pageUrl = (id: string): string => {
   const url = new URL(window.location.href);
   url.searchParams.set('page', id);
   url.searchParams.delete('split');
+  url.searchParams.delete('view'); // a fresh page opens on its own default view
   return url.toString();
 };
 
@@ -170,9 +185,15 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const [titleHints, setTitleHints] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // The active database view of the primary page, mirrored to `?view=`. Seeded
+  // from the URL so a deep link (`?page=…&view=…`) lands on that view.
+  const [viewParam, setViewParam] = useState<string | null>(() => readUrl().view);
 
   const initRef = useRef<Promise<void> | null>(null);
   const prevTopLevelIds = useRef<Set<string>>(new Set());
+  // The primary page id `viewParam` was last reconciled against — lets us drop a
+  // stale `?view=` the moment the primary pane navigates to a different page.
+  const prevPrimaryRef = useRef<string | null>(null);
 
   // Mirror the window into the URL whenever it changes. The block-settings,
   // customise, review, and agent panes are ephemeral (their state lives in
@@ -183,8 +204,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     const split = W.activeTab(win).split;
     const ephemeral =
       split === CONFIG_PANE_ID || split === CUSTOMISE_PANE_ID || split === REVIEW_PANE_ID || split === AGENT_PANE_ID;
-    writeUrl(W.primaryPage(win), ephemeral ? null : split);
-  }, [win]);
+    writeUrl(W.primaryPage(win), ephemeral ? null : split, viewParam);
+  }, [win, viewParam]);
 
   const update = useCallback((fn: (w: WindowState) => WindowState) => {
     setWin((prev) => (prev ? fn(prev) : prev));
@@ -527,6 +548,27 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const currentPageId = win ? W.currentPageId(win) : null;
   const primaryPageId = win ? W.primaryPage(win) : null;
 
+  // A `?view=` names a view of the PRIMARY page's database, so it only survives
+  // while that page stays put. When the primary pane navigates to a different
+  // page (a non-db page, or another database) the param is stale — drop it. The
+  // first observation (init) is preserved so a deep-linked `?view=` still lands.
+  useEffect(() => {
+    if (primaryPageId === null) return; // window not ready yet
+    const prev = prevPrimaryRef.current;
+    prevPrimaryRef.current = primaryPageId;
+    if (prev !== null && prev !== primaryPageId) setViewParam(null);
+  }, [primaryPageId]);
+
+  const setActiveViewParam = useCallback(
+    (viewId: string | null) => {
+      // The caller owns the primary page; anchor the param to it so the
+      // reconciliation effect above doesn't immediately treat it as stale.
+      prevPrimaryRef.current = primaryPageId;
+      setViewParam(viewId);
+    },
+    [primaryPageId],
+  );
+
   // Track the focused page as "recently visited" (drives the palette's Recent
   // group). Covers every entry point — sidebar, palette, tabs, back/forward.
   useEffect(() => {
@@ -575,6 +617,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       closePage,
       pageLabel,
       setPageHint,
+      activeViewParam: viewParam,
+      setActiveViewParam,
       selectPage,
       selectPageInPane,
       goBack,
@@ -593,7 +637,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [
       pages, currentPageId, primaryPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
       panes, focusedPaneId, splitOpen, focusPane, openInSplit,
-      closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, selectPage, selectPageInPane, goBack,
+      closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, viewParam, setActiveViewParam,
+      selectPage, selectPageInPane, goBack,
       goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, duplicatePage, deletePage, renamePage,
       movePage, reload,
     ],

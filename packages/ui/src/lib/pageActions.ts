@@ -53,6 +53,10 @@ export function pageLinkUrl(pageId: string): string {
   const url = new URL(window.location.href);
   url.searchParams.set('page', pageId);
   url.searchParams.delete('split');
+  // Drop any `?view=` (a per-page db-view id): it belongs to whatever db page is
+  // currently open, not necessarily `pageId`, so carrying it over would pin a
+  // stale/foreign view onto the copied link. Matches `pageUrl` in useDatabase.ts.
+  url.searchParams.delete('view');
   return url.toString();
 }
 

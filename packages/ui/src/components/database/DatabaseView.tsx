@@ -1420,7 +1420,10 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
   databaseIdHint,
   inline,
 }) => {
-  const db = useDatabase(pageId, databaseIdHint);
+  // A page-level database (the `?page='d host, not an inline embed) mirrors its
+  // active view into the URL (`?view=`); the hook further gates on this being
+  // the primary pane, so a split-pane database never fights for the param.
+  const db = useDatabase(pageId, databaseIdHint, {syncViewToUrl: !inline});
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
   const [expiryOpen, setExpiryOpen] = useState(false);
   // Add a view. When its layout still needs a property picked (fresh DB with no
