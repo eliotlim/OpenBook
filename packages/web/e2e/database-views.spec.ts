@@ -127,5 +127,30 @@ test('database quick search: filters rows by text', {tag: ['@database']}, async 
   await expect(page.getByRole('table').getByPlaceholder('Untitled')).toHaveCount(1);
 });
 
+// Switching a database's view is addressable in the URL (`?view=`), so a chosen
+// board/timeline is shareable and survives a reload (URL over localStorage).
+test('database view in URL: switching reflects ?view= and a deep link restores it', {tag: ['@database']}, async ({page}) => {
+  await newDatabase(page);
+  await page.getByRole('button', {name: 'New row'}).click();
+
+  // The plain (no ?view=) load opens the default Table view.
+  await expect(page).not.toHaveURL(/[?&]view=/);
+
+  // Switch to the Board view → the id lands in the URL alongside ?page=.
+  await page.getByRole('button', {name: 'Board', exact: true}).click();
+  await expect(page.getByText('In progress', {exact: true})).toBeVisible();
+  await expect(page).toHaveURL(/[?&]view=/);
+  const boardUrl = page.url();
+
+  // Navigating away drops the now-stale ?view= (it named the db's view).
+  await page.goto('/');
+  await expect(page).not.toHaveURL(/[?&]view=/);
+
+  // Opening the captured link lands straight back on the Board view.
+  await page.goto(boardUrl);
+  await expect(page.getByText('In progress', {exact: true})).toBeVisible();
+  await expect(page).toHaveURL(/[?&]view=/);
+});
+
 // Inline-database embedding (linking an existing database into a document) is
 // covered by database-parity.spec.ts ("linked database block").

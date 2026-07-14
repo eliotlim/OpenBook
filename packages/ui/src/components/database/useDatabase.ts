@@ -208,15 +208,36 @@ export interface UseDatabase {
  * every ordinary page), a string fetches that database by id, and `undefined`
  * falls back to looking it up by page.
  */
-export function useDatabase(pageId: string, databaseIdHint?: string | null): UseDatabase {
+export function useDatabase(
+  pageId: string,
+  databaseIdHint?: string | null,
+  opts?: {
+    /** Mirror this database's active view into the URL (`?view=`). Only the
+     *  page-level view of the primary page owns the param (see `ownsUrlView`);
+     *  inline embeds and the split pane pass `false`/omit it. */
+    syncViewToUrl?: boolean;
+  },
+): UseDatabase {
   const client = useData();
-  const {openInSplit, setPageHint} = useNavigation();
+  const {openInSplit, setPageHint, primaryPageId, activeViewParam, setActiveViewParam} = useNavigation();
+
+  // `?view=` is scoped to the primary (`?page='d`) page: only that page's
+  // page-level database reads and writes it. A database in the split pane, an
+  // inline embed, or a row's mini-schema never touches the URL.
+  const ownsUrlView = !!opts?.syncViewToUrl && pageId === primaryPageId;
 
   const [database, setDatabase] = useState<StoredDatabase | null>(null);
   const [rows, setRows] = useState<DatabaseRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeViewId, setActiveViewIdState] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+
+  // Read the latest URL-view / ownership inside the DB-resolution effect without
+  // making it a dependency (which would refetch the database on every switch).
+  const ownsUrlViewRef = useRef(ownsUrlView);
+  ownsUrlViewRef.current = ownsUrlView;
+  const activeViewParamRef = useRef(activeViewParam);
+  activeViewParamRef.current = activeViewParam;
 
   // Latest rows for read-modify-write of a single row's properties.
   const rowsRef = useRef<DatabaseRow[]>(rows);
@@ -243,9 +264,13 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
         if (cancelled) return;
         setDatabase(db);
         if (db) {
+          const has = (id: string | null): boolean => !!id && db.schema.views.some((v) => v.id === id);
+          // Precedence: a `?view=` deep link wins over the per-db last-view
+          // memory, which wins over the first view. Only the URL-owning page
+          // honours the param; others fall straight through to localStorage.
+          const urlView = ownsUrlViewRef.current && has(activeViewParamRef.current) ? activeViewParamRef.current : null;
           const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(activeViewKey(db.id)) : null;
-          const valid = saved && db.schema.views.some((v) => v.id === saved) ? saved : db.schema.views[0]?.id ?? null;
-          setActiveViewIdState(valid);
+          setActiveViewIdState(urlView ?? (has(saved) ? saved : db.schema.views[0]?.id ?? null));
         }
       })
       .catch(() => undefined)
@@ -393,10 +418,22 @@ export function useDatabase(pageId: string, databaseIdHint?: string | null): Use
   const setActiveViewId = useCallback(
     (viewId: string) => {
       setActiveViewIdState(viewId);
+      // Keep the per-db last-view memory so a plain (no-`?view=`) reopen restores
+      // the last-used view; the URL param is the shareable, higher-precedence layer.
       if (database && typeof localStorage !== 'undefined') localStorage.setItem(activeViewKey(database.id), viewId);
+      if (ownsUrlView) setActiveViewParam(viewId);
     },
-    [database],
+    [database, ownsUrlView, setActiveViewParam],
   );
+
+  // Honour a `?view=` that changes after load (a deep link opened into an
+  // already-mounted db, or the initial param resolving once the db arrives).
+  // The URL wins; a param naming no real view is dropped so it can't linger.
+  useEffect(() => {
+    if (!ownsUrlView || !database || !activeViewParam) return;
+    if (database.schema.views.some((v) => v.id === activeViewParam)) setActiveViewIdState(activeViewParam);
+    else setActiveViewParam(null);
+  }, [ownsUrlView, database, activeViewParam, setActiveViewParam]);
 
   // Rows are pages too: their icons (page.properties[sys_icon]) aren't in the
   // sidebar list, so hydrate them from the loaded rows for the views that show
