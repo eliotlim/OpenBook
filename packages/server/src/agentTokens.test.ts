@@ -13,6 +13,7 @@ import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {
   FORWARDED_HEADER,
+  LOCAL_OWNER_HEADER,
   mintIdentityKeypair,
   signIdentity,
   verifiedSubject,
@@ -68,6 +69,13 @@ afterEach(async () => {
 });
 
 const app = () => createApp(store, undefined, new PageHub(), {identity: new IdentityService(store)});
+
+// A claimed instance WITH a configured local-owner hatch secret, so a request
+// carrying LOCAL_OWNER_HEADER=SECRET resolves as the machine owner (localOwner) — the
+// exact path the desktop app / LAN MCP bridge mints through.
+const HATCH_SECRET = 'machine-owner-hatch-secret';
+const appWithHatch = () =>
+  createApp(store, undefined, new PageHub(), {identity: new IdentityService(store), localOwnerSecret: HATCH_SECRET});
 
 const claim = () =>
   store.updateInstanceConfig({trustedIssuers: [{issuer: ISS, jwks}], ownerSubject: OWNER});
@@ -338,6 +346,29 @@ describe('minting', () => {
     expect((await req(a, '/api/pages', {headers: bearer(body.token)})).status).toBe(200);
   });
 
+  it('a LOCAL-OWNER hatch mint on a CLAIMED instance binds the REAL ownerSubject (not local:owner)', async () => {
+    // Regression for the "empty page list over LAN" bug: the LAN MCP bridge mints
+    // through the loopback-owner hatch (no identity JWS — a signed-out machine owner).
+    // Pre-fix it bound the synthetic `local:owner`, which holds no owner role on a
+    // claimed instance, so a `members`-scope page list came back empty. Post-fix it
+    // binds the account owner subject so the PAT rides authorize()'s owner rung.
+    const a = appWithHatch();
+    const res = await req(a, '/api/agent-tokens', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', [LOCAL_OWNER_HEADER]: HATCH_SECRET},
+      body: JSON.stringify({name: 'lan', scope: 'read'}),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {token: string; meta: {subject: string; issuer: string}};
+    expect(body.meta.subject).toBe(OWNER);
+    expect(body.meta.subject).not.toBe('local:owner');
+    expect(body.meta.issuer).toBe(ISS); // the instance authority issuer, not 'local'
+
+    // End-to-end: the freshly minted PAT reads a members-scope (default-visibility) page.
+    const pid = (await store.upsertPage({name: `m-${seq}`, data: snapshot()})).id; // inherits default 'members'
+    expect((await req(a, `/api/pages/${pid}`, {headers: bearer(body.token)})).status).toBe(200);
+  });
+
   it('enforces the 25-token cap (409)', async () => {
     const a = app();
     for (let i = 0; i < 25; i += 1) await mintPat();
@@ -359,6 +390,47 @@ describe('minting', () => {
     });
     expect(del.status).toBe(200);
     expect((await req(a, '/api/pages', {headers: bearer(token)})).status).toBe(401);
+  });
+});
+
+// ── UNCLAIMED instance: the synthetic hatch binding is preserved ──────────────────
+
+describe('local-owner mint on an UNCLAIMED instance', () => {
+  beforeEach(async () => {
+    await enableAgentApi(); // NB: no claim() — no ownerSubject exists
+  });
+
+  it('binds the synthetic local:owner (legacy single-user behaviour, unchanged)', async () => {
+    const a = appWithHatch();
+    const res = await req(a, '/api/agent-tokens', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', [LOCAL_OWNER_HEADER]: HATCH_SECRET},
+      body: JSON.stringify({name: 'local', scope: 'read'}),
+    });
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as {meta: {subject: string; issuer: string}};
+    expect(body.meta.subject).toBe('local:owner');
+    expect(body.meta.issuer).toBe('local');
+  });
+
+  it('an unclaimed guestAccess=off instance still admits the PAT to read (blanketRead ⇄ authorize parity)', async () => {
+    // On an unclaimed instance `authorize` rule-0 admits a PAT (`privileged`), so the
+    // list fast-path `blanketRead` must agree — else `list_pages` would come back empty
+    // while a direct `read_page` succeeds. Guards that divergence.
+    await store.updateInstanceConfig({guestAccess: 'off'});
+    const a = appWithHatch();
+    const mint = await req(a, '/api/agent-tokens', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', [LOCAL_OWNER_HEADER]: HATCH_SECRET},
+      body: JSON.stringify({name: 'local', scope: 'read'}),
+    });
+    const {token} = (await mint.json()) as {token: string};
+    const pid = (await store.upsertPage({name: `u-${seq}`, data: snapshot()})).id;
+    // The list fast-path returns the page…
+    const list = (await (await req(a, '/api/pages', {headers: bearer(token)})).json()) as Array<{id: string}>;
+    expect(list.some((p) => p.id === pid)).toBe(true);
+    // …and a direct read agrees.
+    expect((await req(a, `/api/pages/${pid}`, {headers: bearer(token)})).status).toBe(200);
   });
 });
 

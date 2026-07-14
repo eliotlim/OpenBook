@@ -62,10 +62,12 @@ export interface AgentTokenMeta {
   /** Human label the minter gave the token. */
   name: string;
   scope: AgentTokenScope;
-  /** The verified subject the token is bound to (the minter's own subject, or
-   *  `local:owner` for a hatch/local-owner minter). */
+  /** The verified subject the token is bound to (the minter's own subject; a
+   *  hatch/local-owner minter binds the instance `ownerSubject` on a claimed
+   *  instance, else the synthetic `local:owner` on an unclaimed one). */
   subject: string;
-  /** The issuer that vouched for {@link subject} (empty / `local` for the hatch). */
+  /** The issuer that vouched for {@link subject} (the instance authority issuer for
+   *  a claimed-instance hatch mint; `local` for an unclaimed one). */
   issuer: string;
   /** Who minted it (a display label). */
   createdBy: string;
