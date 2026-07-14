@@ -20,10 +20,11 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import LibraryInfo from '@/components/LibraryInfo';
 import {IconPicker} from '@/components/IconPicker';
-import {ChevronUpDownIcon, PlusIcon} from '@heroicons/react/24/outline';
+import {ChevronUpDownIcon, Cog6ToothIcon, PlusIcon} from '@heroicons/react/24/outline';
 import {CheckIcon, GlobeIcon} from '@radix-ui/react-icons';
 import {Trash2} from 'lucide-react';
-import {usePlatformCapabilities, useTranslation, useLibrary, libraryHostLabel} from '@/providers';
+import {LibraryStatusDot} from '@/components/LibraryStatusDot';
+import {usePlatformCapabilities, useTranslation, useLibrary, useHud, libraryHostLabel} from '@/providers';
 
 /**
  * The library switcher. `variant` controls the trigger only:
@@ -34,6 +35,7 @@ import {usePlatformCapabilities, useTranslation, useLibrary, libraryHostLabel} f
  */
 export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sidebar' | 'titlebar'}) {
   const {libraries, library, selectLibrary, addLibrary, removeLibrary} = useLibrary();
+  const {setHud} = useHud();
   const {t} = useTranslation();
   // On a forwarded `<prefix>.book.cloud` site the app talks to the owner's
   // instance same-origin, so the local/default library (no server override)
@@ -128,7 +130,11 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
                     </span>
                   )}
                 </span>
-                {active && <CheckIcon className="h-4 w-4 shrink-0 text-brand" />}
+                {active ? (
+                  <CheckIcon className="h-4 w-4 shrink-0 text-brand" />
+                ) : (
+                  <LibraryStatusDot serverUrl={ws.serverUrl} active={false} className="mr-1" />
+                )}
                 {canRemove && (
                   <button
                     type="button"
@@ -158,6 +164,19 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
           >
             <PlusIcon className="mr-2 h-4 w-4" />
             {t('library.addLibrary')}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              setHud((draft) => {
+                draft.settings.open = true;
+                draft.settings.tab = 'libraries';
+                return draft;
+              });
+            }}
+          >
+            <Cog6ToothIcon className="mr-2 h-4 w-4" />
+            {t('library.manage')}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
