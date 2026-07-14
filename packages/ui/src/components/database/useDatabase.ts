@@ -88,6 +88,10 @@ export interface PropertyPatch {
 
 export interface UseDatabase {
   database: StoredDatabase | null;
+  /** The page that hosts this database — the anchor for row/group deep links
+   *  (`?page=<hostPageId>&row=…` / `&group=…`), which reopen the database IN
+   *  CONTEXT rather than the row-as-standalone-page. */
+  hostPageId: string;
   loading: boolean;
   /** All rows (unfiltered), in manual order. */
   rows: DatabaseRow[];
@@ -1098,6 +1102,7 @@ export function useDatabase(
 
   return {
     database,
+    hostPageId: pageId,
     loading,
     rows,
     rollupRows,

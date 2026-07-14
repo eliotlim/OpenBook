@@ -85,6 +85,20 @@ export interface NavigationContextValue {
    *  clear it with `null`. No-op'd by callers that don't own the primary page. */
   setActiveViewParam: (viewId: string | null) => void;
 
+  // ── One-shot database anchors (URL `?row=` / `?group=`) ─────────────────────
+  /** A pending "scroll to this row" request from a copied row link
+   *  (`?page=<hostDb>&row=<rowId>`), captured at init and cleared on the URL's
+   *  first mirror. `null` once there's nothing to anchor. The DatabaseView owning
+   *  the row honours it (scroll + transient highlight), then calls {@link clearRowAnchor}. */
+  rowAnchor: string | null;
+  /** A pending "scroll to this group header" request from a copied group link
+   *  (`?page=<hostDb>&group=<groupKey>`). See {@link rowAnchor}. */
+  groupAnchor: string | null;
+  /** Consume {@link rowAnchor} once the row has been scrolled into view. */
+  clearRowAnchor: () => void;
+  /** Consume {@link groupAnchor} once the group header has been scrolled into view. */
+  clearGroupAnchor: () => void;
+
   /** Navigate the focused pane to a page. */
   selectPage: (id: string) => void;
   /** Navigate (and focus) a SPECIFIC pane, regardless of which is focused. All
@@ -136,14 +150,23 @@ const LAST_PAGE_KEY = 'openbook.currentPageId';
 // A window's pages live in the query string so it restores on refresh and new
 // native tabs open by URL: `?page=<primary>&split=<secondary>`.
 
-const readUrl = (): {page: string | null; split: string | null; view: string | null; paneTarget: string | null} => {
-  if (typeof window === 'undefined') return {page: null, split: null, view: null, paneTarget: null};
+const readUrl = (): {
+  page: string | null;
+  split: string | null;
+  view: string | null;
+  paneTarget: string | null;
+  row: string | null;
+  group: string | null;
+} => {
+  if (typeof window === 'undefined') return {page: null, split: null, view: null, paneTarget: null, row: null, group: null};
   const params = new URLSearchParams(window.location.search);
   return {
     page: params.get('page'),
     split: params.get('split'),
     view: params.get('view'),
     paneTarget: params.get('paneTarget'),
+    row: params.get('row'),
+    group: params.get('group'),
   };
 };
 
@@ -163,6 +186,11 @@ const writeUrl = (primary: string, split: string | null, view: string | null, pa
   // page. Omitted when the pane targets the primary page (the restore default).
   if (paneTarget) url.searchParams.set('paneTarget', paneTarget);
   else url.searchParams.delete('paneTarget');
+  // `?row=`/`?group=` are one-shot scroll-to anchors (a copied row/group link).
+  // They're consumed into provider state at init, then dropped here on the first
+  // window mirror so the anchor fires exactly once and the address bar stays clean.
+  url.searchParams.delete('row');
+  url.searchParams.delete('group');
   window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   try {
     localStorage.setItem(LAST_PAGE_KEY, primary);
@@ -178,6 +206,8 @@ const pageUrl = (id: string): string => {
   url.searchParams.delete('split');
   url.searchParams.delete('view'); // a fresh page opens on its own default view
   url.searchParams.delete('paneTarget'); // no side pane carried into a new tab
+  url.searchParams.delete('row'); // a new tab isn't a one-shot scroll-to anchor
+  url.searchParams.delete('group');
   return url.toString();
 };
 
@@ -200,6 +230,13 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   // The active database view of the primary page, mirrored to `?view=`. Seeded
   // from the URL so a deep link (`?page=…&view=…`) lands on that view.
   const [viewParam, setViewParam] = useState<string | null>(() => readUrl().view);
+  // One-shot db anchors from a copied row/group link. Seeded synchronously from
+  // the URL (before the window-mirror effect strips them) so the anchor survives
+  // the URL cleanup; consumed by the DatabaseView that owns the row/group.
+  const [rowAnchor, setRowAnchor] = useState<string | null>(() => readUrl().row);
+  const [groupAnchor, setGroupAnchor] = useState<string | null>(() => readUrl().group);
+  const clearRowAnchor = useCallback(() => setRowAnchor(null), []);
+  const clearGroupAnchor = useCallback(() => setGroupAnchor(null), []);
   // Mirror of each pane-target store (customise/review), so the URL-sync effect
   // re-runs — and re-writes `?paneTarget=` — the instant a pane's target page
   // changes. A monotonic tick is enough; the effect reads the fresh value.
@@ -663,6 +700,10 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       setPageHint,
       activeViewParam: viewParam,
       setActiveViewParam,
+      rowAnchor,
+      groupAnchor,
+      clearRowAnchor,
+      clearGroupAnchor,
       selectPage,
       selectPageInPane,
       goBack,
@@ -682,6 +723,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       pages, currentPageId, primaryPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
       panes, focusedPaneId, splitOpen, focusPane, openInSplit,
       closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, viewParam, setActiveViewParam,
+      rowAnchor, groupAnchor, clearRowAnchor, clearGroupAnchor,
       selectPage, selectPageInPane, goBack,
       goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, duplicatePage, deletePage, renamePage,
       movePage, reload,

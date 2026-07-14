@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {AppWindow, ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, Download, ExternalLink, EyeOff, Filter as FilterIcon, GripVertical, Link2, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, Upload, X} from 'lucide-react';
 import {
   buildRowTree,
@@ -48,6 +48,7 @@ import {Select} from '@/components/ui/select';
 import {showToast} from '@/components/ui/toast';
 import {readPageIcon} from '@/lib/pageIcon';
 import {useCopyPageLink} from '@/lib/useCopyPageLink';
+import {useNavigation} from '@/providers';
 import {PageIcon} from '@/components/PageIcon';
 import {cn} from '@/lib/utils';
 import {downloadText, safeFilename} from '@/lib/download';
@@ -322,7 +323,7 @@ const CellContextMenu: React.FC<{
           <AppWindow className="mr-2 h-3.5 w-3.5" /> Open in new window
         </ContextMenuItem>
         <ContextMenuSeparator />
-        <ContextMenuItem onSelect={() => copyLink(row.id)}>
+        <ContextMenuItem onSelect={() => copyLink(db.hostPageId, {row: row.id})}>
           <Link2 className="mr-2 h-3.5 w-3.5" /> Copy link
         </ContextMenuItem>
         <ContextMenuItem onSelect={() => void db.addRowAfter(row.id)}>
@@ -409,6 +410,9 @@ const DataRow: React.FC<ViewProps & {row: DatabaseRow; drag: DragApi; tree?: Row
 
   return (
     <tr
+      // Marks the row for a copied row link's scroll-to (the table doesn't wrap
+      // rows in RowContextMenu, so the anchor attribute lives here directly).
+      data-row-anchor={row.id}
       onDragOver={(e) => {
         if (drag.canReorder && drag.dragRow) {
           e.preventDefault();
@@ -1428,6 +1432,61 @@ const AutoExpiryDialog: React.FC<{db: UseDatabase; open: boolean; onOpenChange: 
   </Dialog>
 );
 
+/**
+ * Honour a one-shot `?row=`/`?group=` deep link: once this database's host page
+ * is the primary page and its rows have loaded, scroll the targeted row/group
+ * header into view and briefly highlight it, then consume the anchor so it fires
+ * exactly once. Only the page-level database (not an inline embed, and only when
+ * it owns the primary page) claims the anchor — the link addressed THIS page.
+ *
+ * Best-effort: a row filtered out of the active view, or a group header for a
+ * grouping the view no longer uses, simply won't be found — the anchor is cleared
+ * anyway (after a few frames' grace for async layout) so it never re-fires.
+ */
+function useDatabaseAnchor(pageId: string, inline: boolean | undefined, loading: boolean): void {
+  const {rowAnchor, groupAnchor, clearRowAnchor, clearGroupAnchor, primaryPageId} = useNavigation();
+  useEffect(() => {
+    if (inline || pageId !== primaryPageId || loading) return;
+    const target = rowAnchor
+      ? {attr: 'data-row-anchor', value: rowAnchor, clear: clearRowAnchor}
+      : groupAnchor
+        ? {attr: 'data-group-anchor', value: groupAnchor, clear: clearGroupAnchor}
+        : null;
+    if (!target) return;
+    // Escape the value for an attribute-equals selector (row ids are safe, but a
+    // group key can be an arbitrary cell value with quotes/backslashes).
+    const selector = `[${target.attr}="${target.value.replace(/["\\]/g, '\\$&')}"]`;
+    let tries = 0;
+    let raf = 0;
+    let timer = 0;
+    const attempt = (): void => {
+      const el = document.querySelector(selector);
+      if (el) {
+        const reduce =
+          typeof window !== 'undefined' &&
+          window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        el.scrollIntoView({behavior: reduce ? 'auto' : 'smooth', block: 'center'});
+        el.classList.add('ob-anchor-flash');
+        timer = window.setTimeout(() => el.classList.remove('ob-anchor-flash'), 1800);
+        target.clear();
+        return;
+      }
+      // Give async layouts (board columns, timeline bands) a few frames to render
+      // before giving up; then clear so a missing target doesn't re-fire forever.
+      if (++tries > 20) {
+        target.clear();
+        return;
+      }
+      raf = requestAnimationFrame(attempt);
+    };
+    raf = requestAnimationFrame(attempt);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (timer) clearTimeout(timer);
+    };
+  }, [rowAnchor, groupAnchor, clearRowAnchor, clearGroupAnchor, pageId, primaryPageId, inline, loading]);
+}
+
 export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | null; inline?: boolean}> = ({
   pageId,
   databaseIdHint,
@@ -1437,6 +1496,7 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
   // active view into the URL (`?view=`); the hook further gates on this being
   // the primary pane, so a split-pane database never fights for the param.
   const db = useDatabase(pageId, databaseIdHint, {syncViewToUrl: !inline});
+  useDatabaseAnchor(pageId, inline, db.loading);
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
   const [expiryOpen, setExpiryOpen] = useState(false);
   // Add a view. When its layout still needs a property picked (fresh DB with no

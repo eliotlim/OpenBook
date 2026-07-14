@@ -1755,6 +1755,16 @@ a.obe-mention {
 }
 .obe-locate-flash { animation: obe-locate-flash 1.2s ease-out; border-radius: 8px; }
 
+/* Database deep links (`?row=`/`?group=`): the targeted row/group header holds a
+   soft tint + ring briefly, then fades — a transient "here it is" after scrolling
+   it into view. Works on both table `<tr>`s (background) and card/header `<div>`s
+   (background + ring). */
+@keyframes ob-anchor-flash {
+  0%, 45% { background-color: hsl(var(--primary) / 0.16); box-shadow: 0 0 0 2px hsl(var(--ring) / 0.55); }
+  100% { background-color: transparent; box-shadow: 0 0 0 2px transparent; }
+}
+.ob-anchor-flash { animation: ob-anchor-flash 1.8s ease-out both; border-radius: 6px; }
+
 /* Inline toolbar */
 .obe-toolbar {
   position: fixed;
