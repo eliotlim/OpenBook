@@ -1763,7 +1763,12 @@ a.obe-mention {
   0%, 45% { background-color: hsl(var(--primary) / 0.16); box-shadow: 0 0 0 2px hsl(var(--ring) / 0.55); }
   100% { background-color: transparent; box-shadow: 0 0 0 2px transparent; }
 }
-.ob-anchor-flash { animation: ob-anchor-flash 1.8s ease-out both; border-radius: 6px; }
+.ob-anchor-flash { border-radius: 6px; }
+/* Motion-safe only: the JS scroll already falls back to `auto` under
+   reduced-motion, so keep the flash animation off there too. */
+@media (prefers-reduced-motion: no-preference) {
+  .ob-anchor-flash { animation: ob-anchor-flash 1.8s ease-out both; }
+}
 
 /* Inline toolbar */
 .obe-toolbar {

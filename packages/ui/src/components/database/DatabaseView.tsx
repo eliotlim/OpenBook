@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
 import {AppWindow, ArrowDown, ArrowDownAZ, ArrowUp, ArrowUpAZ, CalendarClock, ChevronDown, ChevronRight, Copy, Download, ExternalLink, EyeOff, Filter as FilterIcon, GripVertical, Link2, MoreHorizontal, PanelRightOpen, Pencil, Plus, Rows3, Save, Search, Trash2, Upload, X} from 'lucide-react';
 import {
   buildRowTree,
@@ -1443,7 +1443,12 @@ const AutoExpiryDialog: React.FC<{db: UseDatabase; open: boolean; onOpenChange: 
  * grouping the view no longer uses, simply won't be found — the anchor is cleared
  * anyway (after a few frames' grace for async layout) so it never re-fires.
  */
-function useDatabaseAnchor(pageId: string, inline: boolean | undefined, loading: boolean): void {
+function useDatabaseAnchor(
+  pageId: string,
+  inline: boolean | undefined,
+  loading: boolean,
+  containerRef: React.RefObject<HTMLElement | null>,
+): void {
   const {rowAnchor, groupAnchor, clearRowAnchor, clearGroupAnchor, primaryPageId} = useNavigation();
   useEffect(() => {
     if (inline || pageId !== primaryPageId || loading) return;
@@ -1454,13 +1459,30 @@ function useDatabaseAnchor(pageId: string, inline: boolean | undefined, loading:
         : null;
     if (!target) return;
     // Escape the value for an attribute-equals selector (row ids are safe, but a
-    // group key can be an arbitrary cell value with quotes/backslashes).
-    const selector = `[${target.attr}="${target.value.replace(/["\\]/g, '\\$&')}"]`;
+    // group key can be an arbitrary cell value — including newlines or other chars
+    // that a hand-rolled quote/backslash escape would leave CSS-invalid, throwing
+    // SyntaxError in the rAF loop and leaving the anchor stuck). CSS.escape covers
+    // the full grammar; fall back to a manual escape where it's unavailable.
+    const escaped =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(target.value)
+        : target.value.replace(/["\\]/g, '\\$&');
+    const selector = `[${target.attr}="${escaped}"]`;
     let tries = 0;
     let raf = 0;
     let timer = 0;
     const attempt = (): void => {
-      const el = document.querySelector(selector);
+      // Scope to this pane's subtree so a database open in both split panes
+      // resolves to *this* copy, not whichever the global query hits first.
+      const root: ParentNode = containerRef.current ?? document;
+      let el: Element | null;
+      try {
+        el = root.querySelector(selector);
+      } catch {
+        // A selector we still couldn't make valid: clear so it doesn't re-fire.
+        target.clear();
+        return;
+      }
       if (el) {
         const reduce =
           typeof window !== 'undefined' &&
@@ -1484,7 +1506,7 @@ function useDatabaseAnchor(pageId: string, inline: boolean | undefined, loading:
       cancelAnimationFrame(raf);
       if (timer) clearTimeout(timer);
     };
-  }, [rowAnchor, groupAnchor, clearRowAnchor, clearGroupAnchor, pageId, primaryPageId, inline, loading]);
+  }, [rowAnchor, groupAnchor, clearRowAnchor, clearGroupAnchor, pageId, primaryPageId, inline, loading, containerRef]);
 }
 
 export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | null; inline?: boolean}> = ({
@@ -1496,7 +1518,8 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
   // active view into the URL (`?view=`); the hook further gates on this being
   // the primary pane, so a split-pane database never fights for the param.
   const db = useDatabase(pageId, databaseIdHint, {syncViewToUrl: !inline});
-  useDatabaseAnchor(pageId, inline, db.loading);
+  const anchorRootRef = useRef<HTMLDivElement>(null);
+  useDatabaseAnchor(pageId, inline, db.loading, anchorRootRef);
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
   const [expiryOpen, setExpiryOpen] = useState(false);
   // Add a view. When its layout still needs a property picked (fresh DB with no
@@ -1527,7 +1550,10 @@ export const DatabaseView: React.FC<{pageId: string; databaseIdHint?: string | n
         onConfigureExpiry={() => setExpiryOpen(true)}
         onAddView={addView}
       >
-        <div className={cn(inline ? 'rounded-lg border border-border p-3' : 'mt-6 border-t border-border pt-5')}>
+        <div
+          ref={anchorRootRef}
+          className={cn(inline ? 'rounded-lg border border-border p-3' : 'mt-6 border-t border-border pt-5')}
+        >
           {inline && (
             <input
               defaultValue={db.database.name ?? ''}
