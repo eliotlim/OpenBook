@@ -7,14 +7,14 @@ import {SettingsScreen, SettingsSection} from '@/components/settings/primitives'
 import {cn} from '@/lib/utils';
 
 /**
- * The "Diagnostics" settings screen: how this workspace resolves YOU — identity,
+ * The "Diagnostics" settings screen: how this library resolves YOU — identity,
  * ownership, and publishing/audience state — with the repairs for the common
  * lockouts surfaced right next to the check that detects them. Born from the
  * 2026-07 support cluster ("Export failed: you do not have write access", "only
  * the instance owner can change multi-user", the silent identity loss behind
  * both): every one of those was invisible without curl. The screen is read-only
  * except for two explicit actions — refresh identity, and the ownership repair
- * the server only permits from the workspace's own device (machine-owner
+ * the server only permits from the library's own device (machine-owner
  * authority, `InstanceInfo.localOwner`).
  */
 

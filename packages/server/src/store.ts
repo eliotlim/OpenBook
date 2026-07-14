@@ -262,7 +262,7 @@ const PAGE_FROM = 'pages p LEFT JOIN databases d ON d.page_id = p.id';
 /**
  * Stable content hash of an import bundle (ER-6). Re-applying a byte-identical
  * bundle yields the same key, so the second apply short-circuits to the recorded
- * result instead of duplicating the whole workspace. Pages/databases are sorted by
+ * result instead of duplicating the whole library. Pages/databases are sorted by
  * id first so a reordered-but-identical bundle still matches; a genuinely distinct
  * bundle hashes differently and imports normally. SHA-256 (no collision-overwrite
  * risk across distinct bundles); runs in Node ≥ 19 and the browser PGlite home via
@@ -443,7 +443,7 @@ export class PageStore {
   // ── Whole-space backup ───────────────────────────────────────────────────────
 
   /** Export every live page (full data, nesting, database membership) + every
-   *  database — the entire workspace as one bundle. */
+   *  database — the entire library as one bundle. */
   async exportAll(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
     const pageRows = await this.db.query<PageRow>(
       `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.deleted_at IS NULL ORDER BY p.created_at ASC`,
@@ -465,14 +465,14 @@ export class PageStore {
     // INSERTs the whole bundle as fresh pages on every call and the route appends
     // a `space.import` edit each time, so an idempotent re-apply (a future
     // workspace-sync/restore daemon re-POSTing its bundle — the OB-241 shape one
-    // level up) would otherwise duplicate the entire workspace and grow the edit
+    // level up) would otherwise duplicate the entire library and grow the edit
     // log unbounded.
     //
     // The whole import runs in ONE transaction that CLAIMS the bundle's content
     // hash FIRST. A separate `SELECT … then import` is a check-then-act race: two
     // overlapping imports of the same bundle would both see no prior row and both
     // apply (copy mode re-IDs, so there's no page-level conflict to stop the
-    // second) → the workspace is duplicated. Claiming the key up front closes that:
+    // second) → the library is duplicated. Claiming the key up front closes that:
     //  - winner: its `INSERT … RETURNING` yields the key → it imports, then writes
     //    the real result into the claimed row before commit.
     //  - loser: `ON CONFLICT DO NOTHING` yields no row → it re-reads the committed
@@ -480,7 +480,7 @@ export class PageStore {
     //    transactions; on real Postgres the unique-index lock on `import_log.key`
     //    makes the loser block on the winner, then dedupe. A genuinely *distinct*
     //    bundle hashes differently and imports normally.
-    // C1: a workspace restore must never rewrite the server-managed AI usage DB.
+    // C1: a library restore must never rewrite the server-managed AI usage DB.
     // A crafted overwrite bundle could otherwise re-home / rewrite its attribution
     // rows (user/cost/tokens), its restricted host page, or the database itself —
     // bypassing the `/api/pages` + `/api/databases` managed write-gates (an
@@ -2070,8 +2070,8 @@ export class PageStore {
   }
 
   /**
-   * Reconcile the bound workspace's roster into the local `members` table (OB-199)
-   * — the durable side of "instance ↔ workspace". The desired set (already
+   * Reconcile the bound library's roster into the local `members` table (OB-199)
+   * — the durable side of "instance ↔ library". The desired set (already
    * owner-reconciled + deduped + site-owner-filtered by the caller) is projected
    * onto `source='managed'` rows ONLY; `source='local'` rows (the OB-191 invite
    * path) are never read-for-write nor deleted, so a local invite and a managed
@@ -2081,7 +2081,7 @@ export class PageStore {
    *    existing managed row only the `role` is reconciled — `subject`/`status` are
    *    owned by the claim flow and never downgraded by a later sync);
    *  - **remove** managed rows no longer in the desired set (dropped from the
-   *    workspace) — never a local row;
+   *    library) — never a local row;
    *  - **skip** a desired entry whose identity a LOCAL row already covers (don't
    *    clobber the local invite, and don't collide on the unique index — coexist).
    *
@@ -2163,7 +2163,7 @@ export class PageStore {
         }
       }
 
-      // Remove managed rows the workspace dropped — local rows are untouched.
+      // Remove managed rows the library dropped — local rows are untouched.
       let removed = 0;
       for (const row of rows) {
         if (row.source !== 'managed' || kept.has(row.id)) continue;
@@ -2598,7 +2598,7 @@ export class PageStore {
    * storing a NEW asset that would push `SUM(size)` past the budget throws
    * {@link AssetBudgetError} (→ route 507) instead of inserting. A byte-identical
    * re-upload of already-stored content is always allowed — dedup adds no bytes, so
-   * the budget can never wedge a workspace out of re-saving content it already holds.
+   * the budget can never wedge a library out of re-saving content it already holds.
    * The check + insert are ONE statement so no window exists between reading `SUM`
    * and inserting on the embedded store (PGlite serializes every query through its
    * mutex). On real Postgres under READ COMMITTED two concurrent uploads can each
@@ -2852,11 +2852,11 @@ export interface ManagedMemberInput {
 
 /** Counts from a {@link PageStore.syncManagedRoster} reconcile (observability). */
 export interface RosterSyncResult {
-  /** Managed rows inserted (new workspace members). */
+  /** Managed rows inserted (new library members). */
   added: number;
   /** Managed rows whose role was reconciled. */
   updated: number;
-  /** Managed rows removed (dropped from the workspace). */
+  /** Managed rows removed (dropped from the library). */
   removed: number;
   /** Desired entries skipped because a local invite already covers them. */
   skipped: number;

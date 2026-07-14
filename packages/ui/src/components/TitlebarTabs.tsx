@@ -39,7 +39,7 @@ export default function TitlebarTabs() {
       <div data-tauri-drag-region className="shrink-0" style={{width: 'var(--ob-titlebar-pad-left, 0px)'}} />
 
       {/* Desktop-only leading controls (before the tabs), in place of the
-          sidebar / nav bar: sidebar toggle, then the workspace switcher, then
+          sidebar / nav bar: sidebar toggle, then the library switcher, then
           back/forward. Interactive, so not drag regions. */}
       <div className="flex shrink-0 items-center gap-0.5 pr-1">
         <SideNavToggle className="h-7 px-2" />

@@ -411,7 +411,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
         .map((p) => ({id: p.id, label: pageLabel(p.id), icon: readPageIcon(p.id), path: pagePathLabel(p, byId)}))
         .filter((r) => q === '' || r.label.toLowerCase().includes(q));
       // Exact title match first, then prefix matches, then by position; cap
-      // the list for the popover. Exact-first matters in big workspaces where
+      // the list for the popover. Exact-first matters in big libraries where
       // lookalikes ("Plan", "Plan (imported)", "Plan 2") share a prefix.
       const rank = (label: string): number => {
         const l = label.toLowerCase();
@@ -433,7 +433,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   // Initial load: list pages, then open the window described by the URL
   // (`?page`/`?split`), falling back to the last/first page. A brand-new
-  // (empty) workspace lands on Home — its guided start — rather than
+  // (empty) library lands on Home — its guided start — rather than
   // auto-creating a blank "Untitled" page nobody asked for. Runs exactly once
   // (the shared promise survives StrictMode's double-mount).
   useEffect(() => {

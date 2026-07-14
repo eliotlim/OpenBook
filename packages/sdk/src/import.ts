@@ -2,7 +2,7 @@
  * The **format-agnostic import core** — the spine every importer (Markdown,
  * HTML, Notion, …) targets. A parser's only job is to turn its source format
  * into an {@link ImportedDoc}; this module then writes that IR into the
- * workspace through the *existing* data paths, so importers never touch the
+ * library through the *existing* data paths, so importers never touch the
  * store, the CRDT, or the wire protocol directly.
  *
  * Two writers, picked by the document's size/shape (see {@link chooseStrategy}):

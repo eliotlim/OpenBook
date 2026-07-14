@@ -120,7 +120,7 @@ const SHOWN_SUGGESTED = 4;
 
 /**
  * Pages that changed recently but aren't in your recent trail — the "you
- * might be looking for this" shelf. Empty (and hidden) in a fresh workspace.
+ * might be looking for this" shelf. Empty (and hidden) in a fresh library.
  */
 export function SuggestedNav() {
   const {pages} = useNavigation();

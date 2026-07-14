@@ -40,7 +40,7 @@ export const CUSTOMISE_PANE_ID = 'customise';
 export const REVIEW_PANE_ID = 'review';
 
 /**
- * The Assistant split-pane mode — a pseudo-page hosting the workspace agent chat.
+ * The Assistant split-pane mode — a pseudo-page hosting the library agent chat.
  * Like {@link REVIEW_PANE_ID} it reuses the side pane (rather than a separate
  * docked panel) and is ephemeral — never persisted to the URL.
  */

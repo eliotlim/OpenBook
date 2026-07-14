@@ -10,10 +10,10 @@ import {SiteVisibilityControl} from '@/components/SiteVisibilityControl';
 import {useSharingCapability} from '@/components/ShareDialog';
 
 /**
- * The one Sharing tab — every control that decides who can reach this workspace,
+ * The one Sharing tab — every control that decides who can reach this library,
  * in one place (SHR-5 merged the former Members tab in as the People section):
  *   • Publish to the web (`✦.book.cloud` forwarding, desktop),
- *   • Default access (the workspace guest gate),
+ *   • Default access (the library guest gate),
  *   • People (the member roster: invite, roles, status),
  *   • Advanced — local network (the LAN listener + token).
  * Server *plumbing* (which server, remote URL, tokens) stays in Connection —
@@ -252,7 +252,7 @@ function LanPublishSection() {
 
 /**
  * The standalone web app's stand-in for the (desktop-only) publish sections
- * (P0-4): the workspace lives only in this browser, so instead of silently
+ * (P0-4): the library lives only in this browser, so instead of silently
  * hiding every publish control — leaving an intro that promises "publish it to
  * the web" with nothing below — say plainly that nothing outside this browser
  * can reach it and that publishing happens from the desktop app.
@@ -268,7 +268,7 @@ function BrowserLocalPointerSection() {
 
 export default function SharingPublishingSettings() {
   const {t} = useTranslation();
-  // The in-browser (PGlite) workspace: no publish affordance exists here and
+  // The in-browser (PGlite) library: no publish affordance exists here and
   // no one else can reach the data, so the intro must not promise publishing.
   const browserLocal = usePlatformCapabilities().browserLocalLibrary === true;
   return (

@@ -24,7 +24,7 @@
  * `allow-same-origin`, the frame runs at the APP's origin: the untrusted script
  * could then read `parent.document`, steal cookies / `localStorage`, call app
  * APIs with the user's session, and remove its own `sandbox` attribute — i.e.
- * turn any embedded artifact into stored XSS against the whole workspace.
+ * turn any embedded artifact into stored XSS against the whole library.
  * Omitting it forces an *opaque* origin: scripts run, but cross-origin rules
  * wall the frame off from the parent document, cookies, and same-origin
  * storage. This exclusion is the entire security guarantee of this module — do

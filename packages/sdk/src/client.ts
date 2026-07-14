@@ -119,12 +119,12 @@ export interface DataClient {
   aiComplete(text: string, onToken: (token: string) => void, opts?: {instruction?: string; signal?: AbortSignal}): Promise<string>;
   aiGenerate(prompt: string, onToken: (token: string) => void, opts?: {system?: string; maxTokens?: number; signal?: AbortSignal}): Promise<string>;
   /**
-   * Run the workspace agent on a conversation. `onEvent` fires once per step
+   * Run the library agent on a conversation. `onEvent` fires once per step
    * (tool call, tool result, reasoning, proposals, final answer, error);
    * resolves when the run ends. `opts` carries effort/thinking/skills overrides.
    */
   agentChat(messages: AgentChatMessage[], onEvent: (event: AgentChatEvent) => void, opts?: AgentChatOptions): Promise<void>;
-  /** List the workspace's prompt/recipe skills. */
+  /** List the library's prompt/recipe skills. */
   aiSkills(): Promise<AiSkill[]>;
   /** Create or replace a prompt/recipe skill (keyed on its slug). */
   aiSaveSkill(skill: AiSkill): Promise<AiSkill>;
@@ -135,7 +135,7 @@ export interface DataClient {
   /** Set the admin pricing override (admin only); returns the merged view. */
   setAiPricing(override: AiPricingTable): Promise<AiPricingResponse>;
   /** Read the admin-only AI usage view (recent rows + totals; admin only). Never
-   *  seeds the usage DB — a fresh workspace reports `exists:false`. */
+   *  seeds the usage DB — a fresh library reports `exists:false`. */
   getAiUsage(): Promise<AiUsageResponse>;
   /** Set the AI usage database's retention window in days (admin only). */
   setAiUsageRetention(days: number): Promise<{days: number}>;
@@ -150,7 +150,7 @@ export interface DataClient {
    *  returns secrets. */
   testMcpServer(server: McpServerConfig): Promise<McpTestResult>;
 
-  // ── Extensions (installed plugins, stored server-side per workspace) ───────
+  // ── Extensions (installed plugins, stored server-side per library) ───────
   listPlugins(): Promise<StoredPlugin[]>;
   installPlugin(pkg: PluginPackage): Promise<StoredPlugin>;
   setPluginEnabled(id: string, enabled: boolean): Promise<StoredPlugin>;
@@ -1352,7 +1352,7 @@ export class HttpDataClient implements DataClient {
     return this.request<{days: number}>('PUT', API.aiUsageRetention, {days});
   }
 
-  /** Run the workspace agent, surfacing each streamed step via `onEvent`. */
+  /** Run the library agent, surfacing each streamed step via `onEvent`. */
   async agentChat(
     messages: AgentChatMessage[],
     onEvent: (event: AgentChatEvent) => void,

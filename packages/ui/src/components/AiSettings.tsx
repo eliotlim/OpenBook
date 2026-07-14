@@ -343,7 +343,7 @@ export default function AiSettings() {
 
       <SettingsSection title={t('ai.features')} description={t('ai.featuresHint')}>
         {/* Feature visibility is stored locally, so it's a per-device exception
-            to this otherwise workspace-scoped screen. */}
+            to this otherwise library-scoped screen. */}
         <ScopeChip scope="device" />
         <div className="flex flex-col gap-2">
           {AI_FEATURES.map((f) => (

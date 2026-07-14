@@ -7,7 +7,7 @@ export interface LibraryInfoProps {
   icon?: string,
 }
 
-// A short, friendly label for the workspace's connection. An empty url means
+// A short, friendly label for the library's connection. An empty url means
 // the local/default server ("This device"); otherwise show the host (or the
 // decoded path for file:// URLs), falling back to the raw value if unparseable.
 function describeLocation(raw: string): string {
@@ -27,7 +27,7 @@ function describeLocation(raw: string): string {
 
 export default function LibraryInfo(props: LibraryInfoProps) {
   const location = describeLocation(props.url);
-  // A workspace named after its own server URL (the auto-name for a plain
+  // A library named after its own server URL (the auto-name for a plain
   // remote connection) would render the same string twice — drop the subtitle.
   const subtitle = location === props.name.trim() ? null : location;
   return (

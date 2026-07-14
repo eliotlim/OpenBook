@@ -5,7 +5,7 @@ import {HOME_PAGE_ID} from '@/lib/homePage';
 import {SIDEBAR_ACTIVE, SIDEBAR_HOVER} from '@/lib/sidebarStyles';
 import {cn} from '@/lib/utils';
 
-/** Sidebar launcher for the Home view — the workspace's new-tab page. */
+/** Sidebar launcher for the Home view — the library's new-tab page. */
 export default function HomeButton() {
   const {currentPageId, selectPageInPane} = useNavigation();
   const {t} = useTranslation();

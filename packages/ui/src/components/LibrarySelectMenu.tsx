@@ -38,7 +38,7 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
   // On a forwarded `<prefix>.book.cloud` site the app talks to the owner's
   // instance same-origin, so the local/default library (no server override)
   // has no host to name itself after — label it with the site host instead of
-  // the generic "My Workspace".
+  // the generic "My Library".
   const {forwardedHost} = usePlatformCapabilities();
   const isForwardedLocal = (ws: {serverUrl: string | null}): boolean =>
     Boolean(forwardedHost) && ws.serverUrl === null;

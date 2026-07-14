@@ -520,7 +520,7 @@ export const AccountProvider: React.FC<PropsWithChildren<unknown>> = ({children}
         // Seed the server blob from the local providers ONLY for the genuine first
         // account ever connected — the "upload my pre-sign-in local state" path.
         // For any later account the live blob belongs to the *previously active*
-        // account; pushing it here would bleed account A's workspaces/preferences
+        // account; pushing it here would bleed account A's libraries/preferences
         // into account B (OB-194 review). Treat an empty remote as empty instead:
         // never push, and record the live blob as the synced baseline so the
         // debounced push stays a no-op (no later upload of A's blob to B either).

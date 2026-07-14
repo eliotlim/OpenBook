@@ -48,7 +48,7 @@ interface ForwardingContextValue {
   /** The assigned `<prefix>.book.pub` host, once known. */
   host: string | null;
   /**
-   * The host at which the workspace is *currently reachable* by others — the
+   * The host at which the library is *currently reachable* by others — the
    * assigned host, but only while publishing is enabled and the tunnel is
    * actually online; `null` otherwise. The single publish predicate behind
    * both the share-link origin registry and the Share dialog's link hint.
@@ -265,7 +265,7 @@ export const ForwardingProvider: React.FC<PropsWithChildren> = ({children}) => {
   // Drop the tunnel if the platform goes away (shouldn't happen mid-session).
   useEffect(() => () => clientRef.current?.stop(), []);
 
-  // Where the workspace is currently reachable by others, or `null` (see the
+  // Where the library is currently reachable by others, or `null` (see the
   // context doc). Computed once so the registry effect below and every context
   // consumer (e.g. the Share dialog's link hint) share one publish predicate.
   const publishedHost = enabled && status === 'online' && host ? host : null;

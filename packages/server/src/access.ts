@@ -58,7 +58,7 @@ export async function requireCreate(c: Ctx, store: PageStore): Promise<void> {
 }
 
 /**
- * Gate instance ADMINISTRATION (whole-workspace export/import). Stricter than
+ * Gate instance ADMINISTRATION (whole-library export/import). Stricter than
  * {@link requireCreate} on a claimed instance — an acl-write member can create
  * pages but must not bulk-exfiltrate (or wholesale-overwrite) pages they can't
  * read — and simultaneously more forgiving to the machine owner: the loopback

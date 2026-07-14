@@ -34,7 +34,7 @@ export interface PluginApi {
   blocks: {register(def: PluginBlockDef): void};
   /** Register a command-palette command. */
   commands: {register(def: PluginCommandDef): void};
-  /** Read and write workspace pages (integration surface). */
+  /** Read and write library pages (integration surface). */
   pages: {
     list(): Promise<PageMeta[]>;
     get(id: string): Promise<StoredPage | null>;

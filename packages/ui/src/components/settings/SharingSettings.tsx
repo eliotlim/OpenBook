@@ -6,7 +6,7 @@ import {Select} from '@/components/ui/select';
 import {SettingsSection, SettingsField} from '@/components/settings/primitives';
 
 /**
- * Multi-user access policy (OB-165): who can read/edit this shared workspace
+ * Multi-user access policy (OB-165): who can read/edit this shared library
  * without signing in, plus who the server currently sees *you* as. Reads the
  * instance policy from the data server and lets the owner change the guest gate.
  *
@@ -51,7 +51,7 @@ export function SharingSection() {
   if (unavailable || !info) return null;
 
   // No claimed owner yet → anyone may set the policy (the first user claims the
-  // workspace); once claimed, only that owner.
+  // library); once claimed, only that owner.
   const isOwner = !info.ownerSubject || info.ownerSubject === info.you.subject;
   const you = info.you;
   const youLine =

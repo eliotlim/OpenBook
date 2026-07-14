@@ -75,9 +75,9 @@ export default function HomeScreen() {
   const client = useData();
   const seedingRef = useRef(false);
 
-  // A brand-new workspace: no pages at all. Home is the landing screen then
+  // A brand-new library: no pages at all. Home is the landing screen then
   // (NavigationProvider falls back to it), so it carries the guided start.
-  // An emptied-out workspace (everything in the trash) is NOT a newcomer:
+  // An emptied-out library (everything in the trash) is NOT a newcomer:
   // greet normally and lead with the recovery path instead of "Welcome".
   const firstRun = pages.length === 0;
   const [trashCount, setTrashCount] = useState(0);
@@ -145,7 +145,7 @@ export default function HomeScreen() {
 
   // First-run starters: the paths that teach the product (templates, the
   // interactive sample) get equal billing with a plain new page. When the
-  // workspace was emptied out rather than never used, recovery leads.
+  // library was emptied out rather than never used, recovery leads.
   const starterActions = [
     ...(emptiedOut
       ? [
