@@ -1,6 +1,6 @@
 import * as React from "react"
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu"
-import { ChevronRightIcon } from "@radix-ui/react-icons"
+import { CheckIcon, ChevronRightIcon } from "@radix-ui/react-icons"
 
 import { cn } from "@/lib/utils"
 
@@ -88,6 +88,29 @@ const ContextMenuItem = React.forwardRef<
 ))
 ContextMenuItem.displayName = ContextMenuPrimitive.Item.displayName
 
+const ContextMenuCheckboxItem = React.forwardRef<
+  React.ElementRef<typeof ContextMenuPrimitive.CheckboxItem>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.CheckboxItem>
+>(({ className, children, checked, ...props }, ref) => (
+  <ContextMenuPrimitive.CheckboxItem
+    ref={ref}
+    className={cn(
+      "relative flex cursor-pointer select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-hidden transition-colors focus:bg-hover focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50",
+      className
+    )}
+    checked={checked}
+    {...props}
+  >
+    <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+      <ContextMenuPrimitive.ItemIndicator>
+        <CheckIcon className="h-4 w-4" />
+      </ContextMenuPrimitive.ItemIndicator>
+    </span>
+    {children}
+  </ContextMenuPrimitive.CheckboxItem>
+))
+ContextMenuCheckboxItem.displayName = ContextMenuPrimitive.CheckboxItem.displayName
+
 const ContextMenuLabel = React.forwardRef<
   React.ElementRef<typeof ContextMenuPrimitive.Label>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Label> & {
@@ -132,6 +155,7 @@ export {
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuCheckboxItem,
   ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuShortcut,
