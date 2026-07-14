@@ -6,7 +6,7 @@
 
 // ── Share-link origin ───────────────────────────────────────────────────────
 // On the desktop, `window.location` is `tauri://localhost` — a copied link built
-// from it is dead for anyone else. While the workspace is published through the
+// from it is dead for anyone else. While the library is published through the
 // forwarding tunnel, the forwarded `https://<prefix>.book.cloud` host is the only
 // externally reachable address, so `ForwardingProvider` registers it here while
 // the tunnel is live (and clears it when it isn't). A module-level registry, not

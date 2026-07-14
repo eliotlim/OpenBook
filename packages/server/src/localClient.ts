@@ -550,7 +550,7 @@ export class LocalDataClient implements DataClient {
     );
   }
 
-  // ── Extensions (installed plugins, stored per workspace in the DB) ───────────
+  // ── Extensions (installed plugins, stored per library in the DB) ───────────
 
   listPlugins(): Promise<StoredPlugin[]> {
     return this.store.listPlugins();

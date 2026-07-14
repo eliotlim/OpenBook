@@ -18,7 +18,7 @@
  * can read it from the stored manifest JSON and surface it to the agent without
  * running any plugin code). The tool's `action` maps to a built-in write
  * primitive that the confirm-gate then applies — so a plugin tool can propose
- * workspace changes, but it cannot execute arbitrary server code. Signing
+ * library changes, but it cannot execute arbitrary server code. Signing
  * provides provenance, NOT sandboxing — see the module trust note.
  */
 export interface PluginAgentTool {

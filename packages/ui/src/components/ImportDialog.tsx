@@ -75,7 +75,7 @@ type Phase =
 
 /**
  * "Bring your content" — import a Notion export (.zip), a Markdown (.md), or an
- * HTML (.html) file into the workspace (OB-301/303). Format is auto-detected from
+ * HTML (.html) file into the library (OB-301/303). Format is auto-detected from
  * the file; the SDK importers (`notionExportToImportedDoc` / `markdownToImportedDoc`)
  * and the UI's `htmlToImportedDoc` parse to the format-agnostic IR, and `importDoc`
  * lands it through the existing data paths, picking the create-vs-bundle strategy
@@ -106,7 +106,7 @@ export default function ImportDialog() {
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
   const [pasteFormat, setPasteFormat] = useState<PasteFormat>('markdown');
-  // Opt-in: fetch each linked (http) image and store a copy in the workspace
+  // Opt-in: fetch each linked (http) image and store a copy in the library
   // (default off — a linked image is kept as a URL that loads from the web).
   const [downloadUrls, setDownloadUrls] = useState(false);
   // For a foreign `.html` file: land it as a sandboxed interactive artifact
@@ -296,7 +296,7 @@ export default function ImportDialog() {
         } else if (doc) {
           // Wire the image-rehydration seam: a Notion export uploads its embedded
           // bytes; a Markdown/HTML import preserves linked images as URLs unless the
-          // user opted to download a copy into the workspace.
+          // user opted to download a copy into the library.
           const assetOpts: RunImportAssetOptions =
             format === 'notion-zip' && zipBytes
               ? {resolveAssetBytes: notionAssetResolver(zipBytes)}

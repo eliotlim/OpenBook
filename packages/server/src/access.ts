@@ -58,7 +58,7 @@ export async function requireCreate(c: Ctx, store: PageStore): Promise<void> {
 }
 
 /**
- * Gate instance ADMINISTRATION (whole-workspace export/import). Stricter than
+ * Gate instance ADMINISTRATION (whole-library export/import). Stricter than
  * {@link requireCreate} on a claimed instance — an acl-write member can create
  * pages but must not bulk-exfiltrate (or wholesale-overwrite) pages they can't
  * read — and simultaneously more forgiving to the machine owner: the loopback
@@ -81,7 +81,7 @@ export async function requireInstanceAdmin(c: Ctx, store: PageStore): Promise<vo
   const isOwner = principal.verifiedVia === 'jws' && principal.subject === config.ownerSubject;
   const role = isOwner ? null : await store.resolveMemberRole(principal, config);
   if (isOwner || role === 'admin') return;
-  throw new HTTPException(403, {message: 'only the instance owner or an admin can export or import the whole workspace'});
+  throw new HTTPException(403, {message: 'only the instance owner or an admin can export or import the whole library'});
 }
 
 /**

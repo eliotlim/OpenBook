@@ -128,7 +128,7 @@ export interface RehydrateUrlOptions {
    * Rewrite an `http(s)` image placeholder into a URL `image` block (default
    * `true`). Set `false` to *keep* it a placeholder so a later
    * {@link rehydrateStoredImages} pass can download the bytes into the store
-   * (the opt-in "download into workspace" flow).
+   * (the opt-in "download into library" flow).
    */
   preserveHttpUrls?: boolean;
   /**

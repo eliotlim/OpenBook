@@ -3,7 +3,7 @@
  *
  * Exposes OpenBook's OWN MCP server (`@book.dev/mcp`) to external agents over
  * `ALL /api/mcp`, so a loopback/LAN MCP client (Claude Desktop, Cursor, …) can
- * drive a workspace through the same tool contract the stdio server uses. This is
+ * drive a library through the same tool contract the stdio server uses. This is
  * the outward, owner-gated surface — DARK by default and structurally loopback/
  * LAN-only. It carries NO authorization of its own; every guarantee is inherited
  * from the request pipeline the mount sits behind and from the loop-back below.

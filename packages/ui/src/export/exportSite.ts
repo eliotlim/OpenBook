@@ -49,7 +49,7 @@ export interface SiteBundle {
   space: LibrarySnapshot;
 }
 
-/** A safety cap so a densely linked workspace can't produce a runaway file. */
+/** A safety cap so a densely linked library can't produce a runaway file. */
 const MAX_PAGES = 400;
 
 /** Page ids a snapshot references: subpage/database blocks and inline `@`-mentions. */

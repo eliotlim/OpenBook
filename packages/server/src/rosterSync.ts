@@ -88,7 +88,7 @@ export interface RosterSyncStatus {
 }
 
 export interface RosterSyncerOptions {
-  /** Reads the bound workspace roster from the account. */
+  /** Reads the bound library roster from the account. */
   fetchRoster: RosterFetcher;
   /** How often to re-sync (ms). Default 5 min. */
   intervalMs?: number;

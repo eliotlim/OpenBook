@@ -15,7 +15,7 @@ import type {TKey} from '@/i18n';
 
 /**
  * The instance member roster (OB-204), rendered as the **People** section of the
- * merged Sharing tab (SHR-5). Lists who has a role on this workspace, and — for a
+ * merged Sharing tab (SHR-5). Lists who has a role on this library, and — for a
  * manager (loopback owner / admin / claimed owner, or any writer on a
  * still-unclaimed instance) — lets them invite by email, change a
  * member's role, and remove access. All driven by the OB-191 roster API
@@ -123,11 +123,11 @@ export function PeopleSection() {
   const {t} = useTranslation();
   const confirm = useConfirm();
   const {hud, setHud} = useHud();
-  // The standalone web app's in-browser workspace (P0-4): the roster stays
+  // The standalone web app's in-browser library (P0-4): the roster stays
   // fully editable (it persists with the data), but no one else can reach this
-  // workspace, so an invitation here can't let anyone in yet — say so.
+  // library, so an invitation here can't let anyone in yet — say so.
   const browserLocal = usePlatformCapabilities().browserLocalLibrary === true;
-  // The forwarded root address, known only while the workspace is published
+  // The forwarded root address, known only while the library is published
   // (P0-2). Inviting a member sends no email, so when there's a reachable
   // address we hand the owner that link to deliver by hand.
   const {publishedHost} = useForwarding();
@@ -292,7 +292,7 @@ export function PeopleSection() {
         <>
           {youLine && <p className="text-sm text-muted-foreground">{youLine}</p>}
 
-          {/* In-browser workspace disclosure (P0-4): invitations can't take
+          {/* In-browser library disclosure (P0-4): invitations can't take
               effect while nothing outside this browser can reach the data. */}
           {browserLocal && (
             <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
@@ -349,7 +349,7 @@ export function PeopleSection() {
                   </p>
                 )}
                 {/* Delivery help (P0-2): an invite writes a roster row but sends
-                    no email. Once the workspace is published AND someone is
+                    no email. Once the library is published AND someone is
                     actually awaiting first sign-in, hand the owner the forwarded
                     root to send and explain the sign-in they must relay. */}
                 {!browserLocal && publishedHost && members?.some((m) => m.status === 'invited') && (

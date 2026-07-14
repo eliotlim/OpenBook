@@ -14,7 +14,7 @@ import type {PageStore} from './store';
 /**
  * Scheduled, tiered backups (OB-166). On top of the ad-hoc export, the server
  * keeps a rolling set of whole-space snapshots per cadence (daily / weekly /
- * monthly / yearly) — a grandfather-father-son rotation — so a workspace
+ * monthly / yearly) — a grandfather-father-son rotation — so a library
  * self-protects without the user remembering to export.
  *
  * Reuses the server's periodic-job shape (a single low-frequency `setInterval`,

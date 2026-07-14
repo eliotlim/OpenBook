@@ -16,7 +16,7 @@ export type GuestAccess =
   | 'off'
   /** Guests may read, but not write. */
   | 'read'
-  /** Guests may read and write (the default — same as a no-login workspace today). */
+  /** Guests may read and write (the default — same as a no-login library today). */
   | 'write';
 
 /** An identity issuer this instance trusts (issuer-rooted federation). */
@@ -175,7 +175,7 @@ export interface InstanceInfo {
   /**
    * The audience scope a page's `visibility='inherit'` resolves to at the root once
    * the instance is claimed (OB-182 §2.4) — the TRUE effective default behind the
-   * Share dialog's "Workspace default". Exposed so a claimed instance can show what
+   * Share dialog's "Library default". Exposed so a claimed instance can show what
    * inheriting really means (e.g. "members only") instead of the guest-gate summary,
    * which only governs an *unclaimed* instance's rule-0 short-circuit. Never
    * `inherit`. Optional: absent on a pre-SHR-6 server / a test fixture — the client

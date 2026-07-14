@@ -8,7 +8,7 @@ import {requireCreate} from './access';
 const MAX_PLUGIN_BYTES = 2 * 1024 * 1024;
 
 /**
- * The `/api/plugins` surface: installed extensions, stored per workspace so
+ * The `/api/plugins` surface: installed extensions, stored per library so
  * every connected client runs the same set. The server validates SHAPE only
  * — signature verification happens client-side against the user's trusted
  * registry keys (the server never decides what the user trusts).

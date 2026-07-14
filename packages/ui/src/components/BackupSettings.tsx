@@ -66,7 +66,7 @@ function formatBytes(bytes: number): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
 }
 
-/** Backup & restore the whole workspace, from the Settings panel. */
+/** Backup & restore the whole library, from the Settings panel. */
 export default function BackupSettings() {
   const client = useData();
   const platform = usePlatformCapabilities();
@@ -120,7 +120,7 @@ export default function BackupSettings() {
     }
   }, [t]);
 
-  // Export the workspace as a folder of readable `.html` files (one per page,
+  // Export the library as a folder of readable `.html` files (one per page,
   // OB-134 layout) plus a lossless bundle. The desktop supplies a native dialog;
   // the web falls back to the File System Access API or a zip download.
   const onExportFolder = useCallback(async () => {

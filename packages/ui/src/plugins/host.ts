@@ -8,7 +8,7 @@ import {executePlugin} from './loader';
 import {buildPluginApi, hostModulesFor, type PluginModule} from './api';
 
 /**
- * The plugin host: loads the workspace's enabled plugins, activates each in
+ * The plugin host: loads the library's enabled plugins, activates each in
  * isolation (one plugin's crash never takes down another, or the app), and
  * tears contributions down on disable/remove. A module singleton — the same
  * set of plugins serves every editor on the page.

@@ -23,7 +23,7 @@ import {cn} from '@/lib/utils';
 import type {TKey} from '@/i18n';
 
 /** i18n label per visibility scope (escalating privacy). `inherit` is presented
- *  as "Workspace default" — the honest name for the unset/inherited state. */
+ *  as "Library default" — the honest name for the unset/inherited state. */
 const SCOPE_LABEL: Record<PageVisibility, {label: TKey; hint: TKey}> = {
   inherit: {label: 'share.scope.inherit', hint: 'share.scope.inheritHint'},
   public: {label: 'share.scope.public', hint: 'share.scope.publicHint'},
@@ -45,8 +45,8 @@ const LINK_HINT: Record<PageVisibility, TKey> = {
 /** Progressive-disclosure scope tiers (SHR-4). The picker used to show all five
  *  flat scopes — including dormant ones — as if equal choices. Instead surface
  *  the two that carry the everyday decision (`restricted` private vs `public`)
- *  up front, keep `inherit` ("Workspace default") primary too so "reset to the
- *  workspace default" is always reachable, tuck only the genuinely-obscure
+ *  up front, keep `inherit` ("Library default") primary too so "reset to the
+ *  library default" is always reachable, tuck only the genuinely-obscure
  *  `authenticated` behind a "More access options" reveal, and hide `members`
  *  entirely (it's dormant OSS surface). Whatever a page is *currently* set to is
  *  always offered too (see `scopeOptions`), so a stored `members`/`authenticated`
@@ -215,8 +215,8 @@ function InlinePublish() {
  * A manager sets the page's audience-scope visibility and grants individual
  * people read/edit access by email, all against the OB-191 per-page
  * API (`setPageVisibility`, `sharePage`/`listPageAcl`/`unsharePage`); it also
- * shows the *effective* workspace default behind `inherit` and links out to
- * the workspace-level Sharing tab (its top, and its People roster section). A non-manager
+ * shows the *effective* library default behind `inherit` and links out to
+ * the library-level Sharing tab (its top, and its People roster section). A non-manager
  * (`canManage: false`) gets the same dialog read-only. Rendered from the
  * page-actions cluster.
  */
@@ -227,14 +227,14 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
 
   // Where a copied link actually reaches (P0-1). On a desktop build
   // (`supported`), the link is `tauri://localhost` — dead off this device —
-  // UNLESS the workspace is published, in which case `pageLinkUrl` emits the
+  // UNLESS the library is published, in which case `pageLinkUrl` emits the
   // forwarded host (`publishedHost` is the same predicate that drives the
   // share-link origin registration in ForwardingProvider).
   const {supported: canPublish, publishedHost, siteVisibility, siteVisibilityBusy, setSiteVisibility} = useForwarding();
   const linkIsLocalOnly = canPublish && !publishedHost;
-  // The standalone web app's in-browser store (P0-4): the workspace lives only in
+  // The standalone web app's in-browser store (P0-4): the library lives only in
   // this browser profile, so nothing set here can reach another person and a
-  // copied link opens the *recipient's own* workspace, not this page. The dialog
+  // copied link opens the *recipient's own* library, not this page. The dialog
   // stays functional (settings persist) but must say so.
   const browserLocal = usePlatformCapabilities().browserLocalLibrary === true;
 
@@ -261,7 +261,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   //   • `'claimed'`: scopes are enforced on direct access; the forwarded-link
   //     caveat below applies (Parker #1).
   const [claimStatus, setClaimStatus] = useState<'loading' | 'claimed' | 'unclaimed'>('loading');
-  // The workspace guest gate — what `inherit` resolves to on an *unclaimed*
+  // The library guest gate — what `inherit` resolves to on an *unclaimed*
   // instance (rule-0 short-circuit). `null` until the instance lookup lands.
   const [guestAccess, setGuestAccess] = useState<GuestAccess | null>(null);
   // The root default scope `inherit` resolves to once *claimed* (SHR-6). `null`
@@ -408,7 +408,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   }, [pageId]);
 
   // The scope that ACTUALLY governs at the edge: `inherit` defers to the resolved
-  // workspace default (SHR-6), so an inherited-public page hits the same
+  // library default (SHR-6), so an inherited-public page hits the same
   // site-visibility mismatch as an explicitly-public one — the notice must cover
   // both (Quinn). `null` until the default resolves, in which case it can't fire.
   const effectiveScope = scope === 'inherit' ? defaultVisibility : scope;
@@ -430,8 +430,8 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
           <p className="text-sm text-destructive">{t('share.loadError')}</p>
         ) : (
           <div className="flex flex-col gap-5">
-            {/* In-browser workspace disclosure (P0-4): nothing outside this
-                browser can reach the workspace, so these settings can't take
+            {/* In-browser library disclosure (P0-4): nothing outside this
+                browser can reach the library, so these settings can't take
                 effect for anyone else — supersedes the claim disclosures below
                 (which presuppose a reachable instance). */}
             {browserLocal && (
@@ -489,7 +489,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                 </button>
               )}
               <p className="text-xs text-muted-foreground">{t(SCOPE_LABEL[scope].hint)}</p>
-              {/* What "Workspace default" resolves to right now, so `inherit` is
+              {/* What "Library default" resolves to right now, so `inherit` is
                   never a mystery box (SHR-6). On a CLAIMED instance that's the root
                   `defaultVisibility` (e.g. members only); only on an unclaimed one
                   does the legacy guest gate govern — reading the guest gate for a
@@ -549,7 +549,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                   </div>
                 )}
                 <SiteVisibilityControl />
-                {/* The address scope is workspace-global, not per-page — say so here,
+                {/* The address scope is library-global, not per-page — say so here,
                     in a per-page dialog, so it isn't misread as this page only (Devon F4). */}
                 <p className="text-xs text-muted-foreground">{t('share.siteGlobalHint')}</p>
               </div>
@@ -647,7 +647,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
 
             {/* Delivery help (P0-2): the instance invite path has NO mailer —
                 adding a person writes an ACL row but notifies no one. Once the
-                workspace is published we can hand the owner a real link to send
+                library is published we can hand the owner a real link to send
                 and spell out that each invitee must sign in with the email they
                 were invited as (claimMemberships binds the persona on first
                 request). The unpublished-desktop case is already covered by the
@@ -677,7 +677,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
               </div>
             )}
 
-            {/* Workspace-level surfaces this dialog summarizes, all now on the one
+            {/* Library-level surfaces this dialog summarizes, all now on the one
                 Sharing tab (SHR-5): the guest gate / publishing at its top, the
                 member roster in its People section. Managers get one-click paths so
                 "who can see this?" never requires knowing which surface applies. */}
@@ -721,7 +721,7 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
                 copy, so drive `enable()` right here instead of pointing at Settings.
                 Everywhere else the hint tells the truth about where the copied URL
                 reaches: in the standalone web app it opens the recipient's OWN
-                in-browser workspace, not this page (the worst lie of the batch); on
+                in-browser library, not this page (the worst lie of the batch); on
                 an unpublished desktop a non-manager (who can't publish) is told it's
                 local-only; once published it carries the forwarded address, so the
                 per-scope hint applies — plus the address itself. */}

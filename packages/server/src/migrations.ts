@@ -79,7 +79,7 @@ const MIGRATIONS: Migration[] = [
     // Manual sidebar ordering. `position` orders a page among its siblings (the
     // pages sharing its `parent_id`, NULL = top level); the sidebar tree lists
     // pages by it instead of by recency. Backfilled from the previous
-    // updated-at-desc order so existing workspaces keep their current layout.
+    // updated-at-desc order so existing libraries keep their current layout.
     // Drag-to-reorder / drag-to-nest renumbers a sibling group via `movePage`.
     name: '0005_page_order',
     statements: [
@@ -106,7 +106,7 @@ const MIGRATIONS: Migration[] = [
   {
     // Installed extensions: the whole package (manifest + TypeScript source
     // files + optional registry signature) lives in JSONB so every client of
-    // the workspace loads the same plugins.
+    // the library loads the same plugins.
     name: '0007_plugins',
     statements: [
       `CREATE TABLE IF NOT EXISTS plugins (
@@ -162,7 +162,7 @@ const MIGRATIONS: Migration[] = [
   },
   {
     // Multi-user provenance (OB-165). The server is single-tenant (one shared
-    // workspace), so this records *who* made each change, not data ownership.
+    // library), so this records *who* made each change, not data ownership.
     //
     // `edit_log` is an append-only trail — one row per mutating request — that
     // records what each user changed and which signed credential authorized it
@@ -214,14 +214,14 @@ const MIGRATIONS: Migration[] = [
     // SCHEMA ONLY — no authorization logic (OB-189) or enforcement/middleware
     // (OB-190) here. Purely additive + idempotent: absent roster rows + every
     // existing page defaulting to visibility='inherit' + the unclaimed-instance
-    // short-circuit means a live local workspace behaves exactly as before; no
+    // short-circuit means a live local library behaves exactly as before; no
     // backfill is required.
     //
     // `members` is the data-server-native roster (the instance owns subject→role).
     // A row is one of two shapes (§2.1): an EMAIL PERSONA (invited by email,
     // `subject` NULL until the invitee signs in and claims it) or a SUBJECT/handle
     // MEMBER (`email` NULL). One account `subject` may back several persona rows —
-    // one per verified email — each its own workspace member with its own role.
+    // one per verified email — each its own library member with its own role.
     // `issuer` PINS the email-authority for a persona so a federated issuer can
     // never satisfy an account.book.pub-scoped grant (B1); the CHECK enforces that
     // any email row carries that pin. The partial-unique indexes use `lower(email)`
@@ -272,7 +272,7 @@ const MIGRATIONS: Migration[] = [
   {
     // OB-199 — tag each roster row with its PROVENANCE. A row is now either a
     // `local` invite (the OB-191 path) or a `managed` row projected from the bound
-    // account workspace's roster by the periodic sync. The two coexist: the sync
+    // account library's roster by the periodic sync. The two coexist: the sync
     // only ever writes/removes `managed` rows, so a local invite is never clobbered
     // — and a managed row never masquerades as a hand-issued one. Additive +
     // idempotent: every pre-existing row is a `local` invite, which is exactly the
@@ -288,7 +288,7 @@ const MIGRATIONS: Migration[] = [
     //
     //  - `import_log` keys a whole-bundle `/api/import` by a content hash of the
     //    bundle. Re-applying the SAME bundle short-circuits to the recorded result
-    //    instead of re-INSERTing the entire workspace as fresh `copy`-mode pages +
+    //    instead of re-INSERTing the entire library as fresh `copy`-mode pages +
     //    appending N `page.synced` edit-log rows on every call (the trap a future
     //    workspace-sync/restore daemon would otherwise fall into).
     //
@@ -374,7 +374,7 @@ const MIGRATIONS: Migration[] = [
     // expired token never resolves — the presenter hard-401s, never a silent guest
     // downgrade). `last_used_at` is a debounced best-effort touch. Purely additive +
     // idempotent: absent on every existing instance until an admin enables the dark
-    // `agentApi` setting and mints one, so a live workspace behaves exactly as before.
+    // `agentApi` setting and mints one, so a live library behaves exactly as before.
     name: '0016_agent_tokens',
     statements: [
       `CREATE TABLE IF NOT EXISTS agent_tokens (
@@ -400,7 +400,7 @@ const MIGRATIONS: Migration[] = [
     // `*.book.cloud` edge (L7 in the remote-MCP defence-in-depth stack). Every
     // pre-existing token is local-only FOREVER unless re-minted with `remote:true` —
     // the origin's conjunctive forwarded-guard rejects a forwarded PAT whose row lacks
-    // this flag. Purely additive + idempotent: a live workspace behaves exactly as
+    // this flag. Purely additive + idempotent: a live library behaves exactly as
     // before (no forwarded PAT was ever admitted pre-0017), and a code rollback simply
     // stops reading the column.
     name: '0017_agent_token_remote',

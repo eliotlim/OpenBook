@@ -21,7 +21,7 @@ import {
 import {cn} from '@/lib/utils';
 
 /**
- * Settings → Extensions: the workspace's installed plugins. Install from a
+ * Settings → Extensions: the library's installed plugins. Install from a
  * zip of TypeScript source; each card shows provenance (verified by a
  * trusted registry / unverified) and activation state, with enable and
  * remove always one click away — VS Code's extension list, OpenBook's skin.

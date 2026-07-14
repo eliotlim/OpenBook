@@ -31,7 +31,7 @@ export type AiProvider = 'off' | 'mock' | 'llama' | 'mlx' | 'openai' | 'claude';
 export type AiEffort = 'low' | 'med' | 'high';
 
 /** Per-provider connection settings. Every provider is configured independently
- *  (in `AiConfig.providers`), so a workspace can have llama, mlx, openai and
+ *  (in `AiConfig.providers`), so a library can have llama, mlx, openai and
  *  claude all set up at once and switch between them per agent run. */
 export interface AiProviderSettings {
   /** Model identifier: a GGUF filename (llama), an MLX model id (mlx), a served
@@ -296,7 +296,7 @@ export type AgentChatEvent =
    *  - `direct_edits` — apply its edits DIRECTLY (without the review pane);
    *    granting makes subsequent edits apply immediately (see {@link apply}).
    *  - `external_tools` — call EXTERNAL MCP tools (`mcp__*`), which send inputs
-   *    off the workspace; granting lets the agent use them for this conversation.
+   *    off the library; granting lets the agent use them for this conversation.
    * The UI shows an allow / keep-reviewing prompt either way.
    */
   | {type: 'permission_request'; summary: string; kind?: 'direct_edits' | 'external_tools'}
@@ -424,7 +424,7 @@ export interface McpServerConfig {
 }
 
 /**
- * The workspace's external-tool (MCP client) configuration, persisted server-side
+ * The library's external-tool (MCP client) configuration, persisted server-side
  * under the `ai.mcp` settings key. Admin-managed. OFF and empty by default —
  * nothing connects until an admin adds a server, enables it, and flips the global
  * switch. A deployment env kill-switch (`OPENBOOK_MCP_CLIENTS=0`) hard-disables
@@ -464,11 +464,11 @@ export interface McpTestResult {
 /**
  * A user-authored prompt/recipe skill: markdown instructions the agent can
  * inline into its system prompt. No code — pure prompt engineering, editable
- * by the user. Stored per-workspace (in the `settings` table under `ai.skills`;
+ * by the user. Stored per-library (in the `settings` table under `ai.skills`;
  * see `ai/skills.ts`).
  */
 export interface AiSkill {
-  /** Stable slug (lowercase, hyphenated), unique per workspace. */
+  /** Stable slug (lowercase, hyphenated), unique per library. */
   name: string;
   /** Short one-line description shown in the catalogue. */
   description: string;

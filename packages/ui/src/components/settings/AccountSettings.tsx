@@ -6,7 +6,7 @@ import {useAccount, useTranslation} from '@/providers';
 
 /**
  * Account & sync: connect this device to account.book.pub (the deep-link OAuth
- * flow) and mirror preferences + the workspace list there. The data server is
+ * flow) and mirror preferences + the library list there. The data server is
  * untouched — only settings sync through the account service.
  *
  * With no account connected this is the sign-in surface; once at least one is

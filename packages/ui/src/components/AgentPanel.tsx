@@ -23,7 +23,7 @@ import {lastSelection} from '@/lib/selection';
 import {cn} from '@/lib/utils';
 
 /**
- * The workspace assistant: a docked chat panel over the server's agent
+ * The library assistant: a docked chat panel over the server's agent
  * harness. Each reply streams as steps — tool calls render as chips while
  * they run (click one to see what the tool returned), reasoning lands as a
  * collapsible block, and the grounded answer lands as an assistant bubble.

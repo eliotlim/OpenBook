@@ -85,7 +85,7 @@ export interface StartOptions {
    */
   assetGcGraceMs?: number;
   /**
-   * When set, mirror the workspace to a folder of HTML book files at this path
+   * When set, mirror the library to a folder of HTML book files at this path
    * (one folder per book) in near-realtime, watch it for external edits, and
    * re-import changes (DB-wins on conflict). Off when unset. See {@link BookMirror}.
    */
@@ -102,7 +102,7 @@ export interface StartOptions {
   /**
    * When set, require this access token on every `/api/*` request (header or
    * `?token=`). Used when the desktop publishes its server on the LAN so the
-   * unauthenticated workspace isn't open to anyone who can reach the port.
+   * unauthenticated library isn't open to anyone who can reach the port.
    */
   accessToken?: string;
   /**
@@ -282,7 +282,7 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   // AI usage attribution (C1): the admin-only usage database (host page + database
   // + 30-day auto-expiry, on a `restricted` host so only owner/admin/ACL can read
   // it) is created LAZILY on the first attribution write — NOT at startup — so a
-  // workspace that never uses AI keeps no usage page and a fresh workspace stays
+  // library that never uses AI keeps no usage page and a fresh library stays
   // empty. `load()` only re-adopts an already-created DB (from a prior run) so the
   // managed write-gate resolves immediately after a restart; it creates nothing.
   // Best-effort: a failed load/seed leaves the log inert, never blocking startup.

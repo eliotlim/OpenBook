@@ -402,7 +402,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
     // Loopback-owner hatch: a non-forwarded request presenting the host's per-run
     // secret is the machine owner's own app. Resolved once here; owner-gated routes
-    // (instance policy, ownership repair, whole-workspace export/import) also read
+    // (instance policy, ownership repair, whole-library export/import) also read
     // the flag, so a signed-in-but-drifted identity keeps machine-owner authority.
     const localOwner = !pat && isLocalOwnerRequest(c, opts.localOwnerSecret);
     if (localOwner) c.set('localOwner', true);
@@ -1073,7 +1073,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       audience: config.audience ?? null,
       requireAudience: config.requireAudience ?? false,
       // What `visibility='inherit'` resolves to at the root once claimed — so a
-      // client can show the TRUE effective default behind "Workspace default"
+      // client can show the TRUE effective default behind "Library default"
       // (SHR-6), not just the unclaimed-only guest gate. Never `inherit`.
       defaultVisibility: config.defaultVisibility ?? null,
       you: principal,
@@ -1089,7 +1089,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // Update the policy (guest gate, trusted issuers, owner). Once an owner is
   // claimed, only the owner may change it; before then (fresh instance) any
   // caller may set policy — matching the desktop single-user reality where the
-  // first user claims the workspace.
+  // first user claims the library.
   app.put(API.instance, async (c) => {
     const principal = c.get('principal');
     const current = await store.getInstanceConfig();

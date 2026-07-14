@@ -8,8 +8,8 @@ import type {Db} from '../db';
  *
  * Storage decision: a single row in the existing `settings` table under the
  * key `ai.skills` (a JSON array of {@link AiSkill}). This needs no schema
- * migration, travels with the workspace like the AI config, and matches the
- * scale (a handful of skills per workspace). A dedicated table would be
+ * migration, travels with the library like the AI config, and matches the
+ * scale (a handful of skills per library). A dedicated table would be
  * overkill for prompt snippets and would couple skills to a migration.
  */
 

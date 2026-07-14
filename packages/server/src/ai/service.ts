@@ -97,7 +97,7 @@ export class AiService {
   private indexedVersion = -1;
   private download: DownloadState | null = null;
   private loaded = false;
-  /** User-authored prompt/recipe skills (per-workspace markdown). */
+  /** User-authored prompt/recipe skills (per-library markdown). */
   readonly skills: SkillStore;
 
   constructor(

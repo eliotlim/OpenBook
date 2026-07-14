@@ -13,7 +13,7 @@ import OnboardingNudge from '@/components/OnboardingNudge';
 
 export default function SideNav() {
   const {hud} = useHud();
-  // On desktop the workspace switcher lives in the titlebar instead.
+  // On desktop the library switcher lives in the titlebar instead.
   const {inWindowTabs} = useNavigation();
   return (
     <Drawer open={hud.sideNav.open} docked={hud.sideNav.docked}>

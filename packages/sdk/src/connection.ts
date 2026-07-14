@@ -51,7 +51,7 @@ export function isMixedContentBlocked(url: string, pageProtocol?: string): boole
 /**
  * Access token for a published (LAN) server connection. Paired with
  * {@link getServerUrlOverride} when connecting to another machine's published
- * workspace — that server requires the token on every request.
+ * library — that server requires the token on every request.
  */
 const SERVER_TOKEN_KEY = 'openbook.serverToken';
 

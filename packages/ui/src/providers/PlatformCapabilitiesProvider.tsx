@@ -192,12 +192,12 @@ export interface PlatformCapabilities {
    *  supported" capability flag the UI keys the updates section off. */
   updates?: UpdatesPlatform;
   /**
-   * Declared by hosts whose workspace lives only in this browser profile — the
+   * Declared by hosts whose library lives only in this browser profile — the
    * standalone web app's embedded PGlite store (P0-4 sharing audit). Nothing
-   * outside this browser can reach that workspace and the build has no publish
+   * outside this browser can reach that library and the build has no publish
    * affordance, so the sharing surfaces (Share dialog, the Sharing tab and its
    * People roster) stay functional but say honestly that these settings can't
-   * reach anyone until a workspace is published from the desktop app. Leave
+   * reach anyone until a library is published from the desktop app. Leave
    * unset on desktop, on forwarded `<prefix>.book.cloud` sites and on
    * remote-server connections — those all reach a real shared instance.
    */
@@ -206,9 +206,9 @@ export interface PlatformCapabilities {
    * The host of a forwarded `<prefix>.book.cloud` site, when the app is being
    * served *through* the tunnel (the edge tagged the app-shell request with the
    * site prefix). Such a viewer talks to the owner's instance same-origin, so
-   * there is no server-URL override to name the connection after — the workspace
+   * there is no server-URL override to name the connection after — the library
    * switcher would otherwise fall back to the generic local default ("My
-   * Workspace"). The switcher shows this host instead, so a viewer sees which
+   * Library"). The switcher shows this host instead, so a viewer sees which
    * site they're on. Unset on the canonical app, on desktop, and on
    * override-configured remote connections (those already name themselves after
    * the configured host).

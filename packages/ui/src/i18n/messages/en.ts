@@ -232,7 +232,7 @@ export const en = {
     siteRestrictedNotice:
       'This page is set to anyone-with-the-link, but public access is off — turn it on so signed-out visitors can open it.',
     makeSitePublic: 'Enable Public Access',
-    // The address scope is workspace-global — shown here per-page, but it governs
+    // The address scope is library-global — shown here per-page, but it governs
     // every published page, so say so plainly to avoid a per-page misread.
     siteGlobalHint: 'Applies to your whole library, not just this page.',
     scopeLabel: 'Who can access',
@@ -1216,7 +1216,7 @@ export const en = {
   sharingScreen: {
     title: 'Sharing & publishing',
     description: 'Who can reach this library: publish it to the web, set the default access level for guests, or share it on your local network.',
-    // The standalone web app (in-browser workspace): no publish control exists
+    // The standalone web app (in-browser library): no publish control exists
     // here, so the intro must not promise one (P0-4).
     webDescription:
       'Who can reach this library. It lives only in this browser — publishing to the web or your local network happens from the OpenBook desktop app.',
@@ -1423,7 +1423,7 @@ export const en = {
     removeConfirm: 'Remove',
     actionError: 'Couldn’t update member — {error}',
     // Delivery help (P0-2): inviting a member notifies no one. When the
-    // workspace is published, give the owner the link to hand over and the
+    // library is published, give the owner the link to hand over and the
     // sign-in they must explain.
     deliver: {
       hint: 'Invites aren’t emailed. Send people this library link — each one opens it by signing in with the email you invited them as.',

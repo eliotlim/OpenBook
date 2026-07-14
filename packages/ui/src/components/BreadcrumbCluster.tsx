@@ -33,7 +33,7 @@ export default function BreadcrumbCluster() {
   }
 
   return (
-    // Phone widths show only the current-page crumb: the workspace name (often
+    // Phone widths show only the current-page crumb: the library name (often
     // a server URL) and ancestors don't fit, and an unshrinkable crumb row
     // collided with the save-status cluster on the right.
     <nav className="flex min-w-0 items-center text-sm" aria-label="Breadcrumb">

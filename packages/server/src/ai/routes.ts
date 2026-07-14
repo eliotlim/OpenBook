@@ -61,7 +61,7 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   });
 
   app.post(API.aiIndex, async (c) => {
-    // Rebuilding the whole-workspace index is an instance-wide maintenance action
+    // Rebuilding the whole-library index is an instance-wide maintenance action
     // (it reads every page), so gate it to an instance writer (owner/admin/loopback)
     // — a viewer/guest can't trigger a global re-index.
     await requireCreate(c, store);
@@ -160,7 +160,7 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     return c.json(await ai.startDownload(url));
   });
 
-  // The agent harness: runs the tool loop against the workspace and streams
+  // The agent harness: runs the tool loop against the library and streams
   // each step (tool call, tool result, reasoning, proposals, final answer) as
   // its own SSE frame.
   app.post(API.agentChat, async (c) => {
@@ -237,11 +237,11 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
     });
   });
 
-  // ── Prompt/recipe skills (per-workspace, user-authored markdown) ─────────────
+  // ── Prompt/recipe skills (per-library, user-authored markdown) ─────────────
   app.get(API.aiSkills, async (c) => c.json(await ai.skills.list()));
 
   app.put(API.aiSkills, async (c) => {
-    // Skills are workspace-shared prompt/recipe definitions injected into every
+    // Skills are library-shared prompt/recipe definitions injected into every
     // user's agent runs — mutations are instance-writer only.
     await requireCreate(c, store);
     const {skill} = (await c.req.json().catch(() => ({}))) as {skill?: AiSkill};
@@ -283,7 +283,7 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   app.get(API.aiUsage, async (c) => {
     // The usage rows carry per-user attribution + cost — instance ADMINISTRATION,
     // same gate as pricing (an acl-write member must not read the roster's spend).
-    // Reports without seeding: a workspace that has never used AI reports exists:false.
+    // Reports without seeding: a library that has never used AI reports exists:false.
     await requireInstanceAdmin(c, store);
     if (!aiUsage) return c.json({exists: false, databaseId: null, hostPageId: null, retentionDays: null});
     return c.json(await aiUsage.report());
@@ -303,7 +303,7 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
 
   // ── External tools (MCP client) — admin only ────────────────────────────────
   // Registering an external MCP server is host command-execution territory
-  // (a stdio server spawns a child; even an HTTP server sends workspace content
+  // (a stdio server spawns a child; even an HTTP server sends library content
   // off-box), so the whole surface is gated by `requireInstanceAdmin` — STRICTER
   // than the writer gate the engine config uses. Secrets (auth tokens) are
   // write-only across the wire, exactly like the provider apiKey.

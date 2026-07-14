@@ -10,8 +10,8 @@
  *     null: tokens are still logged, `cost_usd` stays empty).
  *
  *  2. The usage database — an ordinary OpenBook database created LAZILY on the
- *     first attribution write (never at startup: a workspace that never uses AI
- *     keeps no usage page, so a fresh workspace stays empty) on a `restricted` host
+ *     first attribution write (never at startup: a library that never uses AI
+ *     keeps no usage page, so a fresh library stays empty) on a `restricted` host
  *     page (owner/admin/ACL read only) and marked `managed` so the API rejects
  *     end-user writes. The server writes attribution rows straight through
  *     {@link PageStore.createRow}, bypassing the route gate. On a restart the
@@ -165,8 +165,8 @@ export class AiUsageLog {
   /**
    * Adopt an already-created usage DB (recorded in `settings` by a prior run)
    * WITHOUT creating one. Called at startup so the managed write-gates resolve
-   * immediately for a workspace that has previously logged AI usage — while a
-   * workspace that has NEVER used AI gets no usage DB/page (stays empty, lands on
+   * immediately for a library that has previously logged AI usage — while a
+   * library that has NEVER used AI gets no usage DB/page (stays empty, lands on
    * Home). Best-effort and cheap (a single settings read + existence check).
    */
   async load(): Promise<void> {
@@ -311,7 +311,7 @@ export class AiUsageLog {
   /**
    * Project the usage database into the admin viewer's shape: the most recent
    * `limit` rows (newest first) plus aggregate totals, and the current retention
-   * window. NEVER seeds — a workspace that has never used AI reports
+   * window. NEVER seeds — a library that has never used AI reports
    * `exists:false` (so merely opening the admin viewer can't create a phantom
    * usage page). The raw `p_*` property ids are resolved to named fields here so
    * the client never depends on the internal schema.

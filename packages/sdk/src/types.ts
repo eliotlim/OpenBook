@@ -184,7 +184,7 @@ export type MemberStatus = 'invited' | 'active' | 'suspended';
 
 /**
  * Where a roster row came from (OB-199). `local` = a locally-issued invite (the
- * OB-191 path); `managed` = projected from the bound account workspace's roster by
+ * OB-191 path); `managed` = projected from the bound account library's roster by
  * the periodic sync. The two coexist: the managed sync only ever touches `managed`
  * rows, so a local invite is never clobbered (and vice-versa).
  */
@@ -213,7 +213,7 @@ export interface Member {
   status: MemberStatus;
   /**
    * Provenance of the row (OB-199): `local` for a locally-issued invite (OB-191),
-   * `managed` for a row projected from the bound workspace roster. Defaults to
+   * `managed` for a row projected from the bound library roster. Defaults to
    * `local`; the managed sync only ever writes/removes `managed` rows.
    * Optional: absent (a pre-OB-199 row / a test fixture) is treated as `local`.
    */
@@ -253,7 +253,7 @@ export interface ServerInfo {
   managed: boolean;
   /**
    * Whether the server is published on the LAN (bound beyond loopback). When
-   * true, the workspace is reachable by other devices and an {@link accessToken}
+   * true, the library is reachable by other devices and an {@link accessToken}
    * is required. Off by default.
    */
   published?: boolean;

@@ -1,7 +1,7 @@
 /**
  * Per-request principal resolution and the guest-access gate (OB-165).
  *
- * The server is single-tenant: one shared workspace. This layer answers *who*
+ * The server is single-tenant: one shared library. This layer answers *who*
  * is making a request (a verified user, or a guest) and *whether* an
  * unauthenticated caller is allowed to proceed — it does not partition data.
  *
