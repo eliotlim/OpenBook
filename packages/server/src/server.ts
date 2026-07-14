@@ -2,7 +2,7 @@ import {serve, getRequestListener} from '@hono/node-server';
 import type {PGliteOptions} from '@electric-sql/pglite';
 import {createApp, type AppWithCollab} from './app';
 import {type Db, createPgliteDb, PostgresDb} from './db';
-import {PageStore} from './store';
+import {PageStore, PAGE_VERSION_KEEP, PAGE_VERSION_MAX_AGE_MS} from './store';
 import {PageHub} from './hub';
 import {BookMirror, MirrorLockedError, WriteBudgetError} from './mirror';
 import {AiService} from './ai/service';
@@ -68,6 +68,20 @@ export interface StartOptions {
    * growth on the autovacuum-less embedded store (OB-164).
    */
   idempotencyRetentionMs?: number;
+  /**
+   * How many captured page versions (PVH-2) to keep per page before the cleanup
+   * job prunes the oldest surplus. Defaults to {@link PAGE_VERSION_KEEP} (50). The
+   * newest few are always retained even past {@link pageVersionMaxAgeMs}. Bounds
+   * per-page history growth on the autovacuum-less embedded store (OB-164).
+   */
+  pageVersionKeep?: number;
+  /**
+   * How old a captured page version (PVH-2) may be before the cleanup job prunes
+   * it, in milliseconds. Defaults to {@link PAGE_VERSION_MAX_AGE_MS} (90 days);
+   * `<= 0` disables the age cut (keep-N still applies). A short rollback trail (the
+   * newest few) survives regardless of age.
+   */
+  pageVersionMaxAgeMs?: number;
   /**
    * Embedded (PGlite) only: how often the maintenance job runs CHECKPOINT +
    * VACUUM (ANALYZE), in milliseconds. Defaults to 5 minutes; `<= 0` disables.
@@ -296,6 +310,8 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const cleanupIntervalMs = opts.trashCleanupIntervalMs ?? DEFAULT_TRASH_CLEANUP_INTERVAL_MS;
   const editLogRetentionMs = opts.editLogRetentionMs ?? DEFAULT_EDIT_LOG_RETENTION_MS;
   const idempotencyRetentionMs = opts.idempotencyRetentionMs ?? DEFAULT_IDEMPOTENCY_RETENTION_MS;
+  const pageVersionKeep = opts.pageVersionKeep ?? PAGE_VERSION_KEEP;
+  const pageVersionMaxAgeMs = opts.pageVersionMaxAgeMs ?? PAGE_VERSION_MAX_AGE_MS;
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   const sweepTrash = async (): Promise<void> => {
     try {
@@ -309,6 +325,11 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
       // same sweep — the retention doubles as the replay-dedup window.
       const prunedKeys = await store.purgeOldIdempotencyKeys(idempotencyRetentionMs);
       if (prunedKeys > 0) console.log(`OpenBook idempotency cleanup: pruned ${prunedKeys} old key(s)`);
+      // Bound per-page version history (PVH-2) in the same sweep: keep-N + max-age,
+      // off the hot save path (a per-save delete would only add write-amp on the
+      // autovacuum-less embedded store, OB-164).
+      const prunedVersions = await store.prunePageVersions(pageVersionKeep, pageVersionMaxAgeMs);
+      if (prunedVersions > 0) console.log(`OpenBook page-version cleanup: pruned ${prunedVersions} old version(s)`);
       // Feature B: auto-expiry (TTL) — soft-delete rows older than each database's
       // configured window to the trash (restorable, not hard-deleted), where the
       // purge above eventually reaps them. No-op for databases without autoExpiry.
