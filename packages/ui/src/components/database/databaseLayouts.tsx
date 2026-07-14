@@ -1,6 +1,6 @@
 import React, {useState} from 'react';
 import {Select} from '@/components/ui/select';
-import {ChevronLeft, ChevronRight, Copy, GripVertical, PanelRightOpen, Plus, Trash2} from 'lucide-react';
+import {ChevronLeft, ChevronRight, ChevronsDownUp, ChevronsUpDown, Copy, GripVertical, Palette, PanelRightOpen, Pencil, Plus, Trash2} from 'lucide-react';
 import {
   dateEnd,
   dateStart,
@@ -10,10 +10,12 @@ import {
   PARENT_GROUP_ID,
   parseDay,
   rowMatchesCondition,
+  SELECT_COLORS,
   summarizeColumn,
   TITLE_PROPERTY_ID,
   type DatabaseProperty,
   type DatabaseRow,
+  type DatabaseSelectOption,
   type DatabaseView as DbView,
   type RowGroup,
   type SummaryType,
@@ -22,7 +24,11 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
@@ -229,6 +235,188 @@ export const RowContextMenu: React.FC<{db: UseDatabase; rowId: string; children:
   </ContextMenu>
 );
 
+/** The in-menu rename field: an input pre-filled with the group's label, committing
+ *  on Enter/blur and cancelling on Escape (a `done` latch prevents the unmount blur
+ *  from double-firing after Enter/Escape). Lives in the menu content so no dialog is
+ *  needed; `onKeyDown` stop-propagation keeps the menu's typeahead from stealing keys. */
+const GroupRenameField: React.FC<{initial: string; onCommit: (value: string) => void; onCancel: () => void}> = ({
+  initial,
+  onCommit,
+  onCancel,
+}) => {
+  const done = React.useRef(false);
+  const finish = (commit: boolean, value: string): void => {
+    if (done.current) return;
+    done.current = true;
+    if (commit) onCommit(value);
+    else onCancel();
+  };
+  return (
+    <div className="p-1" onKeyDown={(e) => e.stopPropagation()}>
+      <input
+        autoFocus
+        defaultValue={initial}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') finish(true, e.currentTarget.value);
+          else if (e.key === 'Escape') finish(false, '');
+        }}
+        onBlur={(e) => finish(true, e.target.value)}
+        onClick={(e) => e.stopPropagation()}
+        placeholder="Group name…"
+        aria-label="Rename group"
+        className="w-full rounded bg-accent/40 px-1.5 py-1 text-sm outline-hidden placeholder:text-muted-foreground/50"
+      />
+    </div>
+  );
+};
+
+/**
+ * Right-click a **group header** — in any grouped layout (table sections, board
+ * columns & swimlanes, list, gallery, timeline bands) — for group-scoped actions:
+ * rename the group, recolour it, collapse/expand it (or every group), and delete
+ * it. Without this, a group-header right-click bubbled up to the database-level
+ * menu ("Rename view"), so there was no way to act on the group itself (CM-1).
+ *
+ * `stopPropagation` on the trigger keeps a group right-click from ALSO opening the
+ * surrounding {@link DatabaseContextMenu}. Rename/recolour/delete apply to a
+ * `select`/`status` **option** group (mutating the option) or — rename only — a
+ * parent-item/relation **page** group (renaming the linked page). The "No value"
+ * and ungrouped sentinels aren't editable, so those actions disable.
+ */
+export const GroupContextMenu: React.FC<{
+  db: UseDatabase;
+  group: RowGroup;
+  /** The group-by property (undefined when grouping by parent item). */
+  prop: DatabaseProperty | undefined;
+  groupByParent: boolean;
+  /** Whether this group currently reads as collapsed (drives the toggle label). */
+  collapsed: boolean;
+  onToggle: () => void;
+  onCollapseAll: () => void;
+  onExpandAll: () => void;
+  children: React.ReactNode;
+}> = ({db, group, prop, groupByParent, collapsed, onToggle, onCollapseAll, onExpandAll, children}) => {
+  const {renamePage} = useNavigation();
+  const [renaming, setRenaming] = useState(false);
+
+  const sentinel = GROUP_SENTINELS.has(group.key);
+  const isOptionGroup = !sentinel && (prop?.type === 'select' || prop?.type === 'status');
+  const isPage = isPageGroup(group, prop, groupByParent);
+  const option = isOptionGroup ? prop?.options?.find((o) => o.id === group.key) : undefined;
+  const canRename = isOptionGroup || isPage;
+
+  // ContextMenuPrimitive.Root is uncontrolled (no `open` prop — it opens at the
+  // pointer on right-click), so we dismiss it by dispatching Escape, which the
+  // open menu's DismissableLayer catches on document. Used to close after an
+  // in-menu rename commit / colour pick, which aren't menu-item selects.
+  const dismiss = (): void => {
+    if (typeof document !== 'undefined') document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}));
+  };
+
+  const patchOption = (patch: Partial<DatabaseSelectOption>): void => {
+    if (!prop) return;
+    void db.updateProperty(prop.id, {options: (prop.options ?? []).map((o) => (o.id === group.key ? {...o, ...patch} : o))});
+  };
+  const commitRename = (value: string): void => {
+    setRenaming(false);
+    dismiss();
+    const name = value.trim();
+    if (!name) return;
+    if (isOptionGroup) patchOption({label: name});
+    else if (isPage) void renamePage(group.key, name);
+  };
+  const deleteGroup = (): void => {
+    if (!prop) return;
+    void db.updateProperty(prop.id, {options: (prop.options ?? []).filter((o) => o.id !== group.key)});
+  };
+
+  return (
+    <ContextMenu onOpenChange={(next) => !next && setRenaming(false)}>
+      {/* stopPropagation so a group right-click doesn't also bubble to the DB-level menu. */}
+      <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
+        {children}
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-52">
+        {renaming ? (
+          <GroupRenameField
+            initial={option?.label ?? groupHeading(group, prop)}
+            onCommit={commitRename}
+            onCancel={() => {
+              setRenaming(false);
+              dismiss();
+            }}
+          />
+        ) : (
+          <>
+            <ContextMenuLabel className="truncate text-xs font-medium text-muted-foreground">
+              {groupHeading(group, prop) || 'No value'}
+            </ContextMenuLabel>
+            <ContextMenuItem
+              disabled={!canRename}
+              // A page group's "rename" reaches the linked page app-wide, so name
+              // the action + its scope; the sentinel groups say why they're inert.
+              title={!canRename ? 'Only option or linked-page groups can be renamed' : isPage ? 'Renames the linked page everywhere' : undefined}
+              onSelect={(e) => {
+                e.preventDefault();
+                setRenaming(true);
+              }}
+            >
+              <Pencil className="mr-2 h-3.5 w-3.5" /> {isPage ? 'Rename page' : 'Rename group'}
+            </ContextMenuItem>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger
+                disabled={!isOptionGroup}
+                title={isOptionGroup ? undefined : isPage ? 'Linked page groups have no colour' : 'Only option groups have a colour'}
+              >
+                <Palette className="mr-2 h-3.5 w-3.5" /> Change colour
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="p-2">
+                {/* Swatches are ContextMenuItems (not raw buttons) so Radix's
+                    roving tabindex collects them and arrow keys + Enter reach
+                    every colour; the round swatch look overrides the item padding. */}
+                <div className="grid grid-cols-5 gap-1.5">
+                  {SELECT_COLORS.map((c) => (
+                    <ContextMenuItem
+                      key={c}
+                      onSelect={() => patchOption({color: c})}
+                      aria-label={c}
+                      title={c}
+                      className={cn(
+                        'h-5 w-5 justify-center rounded-full border border-black/10 p-0 transition-shadow hover:ring-2 hover:ring-foreground/30 hover:ring-offset-1 focus:ring-2 focus:ring-foreground/30 focus:ring-offset-1 dark:border-white/15',
+                        (option?.color ?? 'gray') === c && 'ring-2 ring-foreground/50 ring-offset-1',
+                      )}
+                      style={{backgroundColor: swatchColor(c)}}
+                    />
+                  ))}
+                </div>
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={onToggle}>
+              <ChevronRight className={cn('mr-2 h-3.5 w-3.5 transition-transform', !collapsed && 'rotate-90')} />
+              {collapsed ? 'Expand group' : 'Collapse group'}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={onCollapseAll}>
+              <ChevronsDownUp className="mr-2 h-3.5 w-3.5" /> Collapse all
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={onExpandAll}>
+              <ChevronsUpDown className="mr-2 h-3.5 w-3.5" /> Expand all
+            </ContextMenuItem>
+            {isOptionGroup && (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem onSelect={deleteGroup} className="text-destructive focus:text-destructive">
+                  <Trash2 className="mr-2 h-3.5 w-3.5" /> Delete group
+                </ContextMenuItem>
+              </>
+            )}
+          </>
+        )}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+};
+
 const NewRowButton: React.FC<{onClick: () => void; label?: string; className?: string}> = ({onClick, label, className}) => (
   <button
     onClick={onClick}
@@ -315,13 +503,24 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
           const glyph = groupGlyph(group, groupProp, groupByParent);
           return (
             <section key={group.key} data-group={group.key}>
-              <button onClick={() => toggle(group.key)} className="mb-2 flex w-full items-center gap-1.5 text-sm font-medium">
-                <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !isCollapsed && 'rotate-90')} />
-                {group.color && <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />}
-                {glyph && <span className="text-base leading-none">{glyph}</span>}
-                <span className="truncate">{groupHeading(group, groupProp)}</span>
-                <span className="text-muted-foreground/60">{group.rows.length}</span>
-              </button>
+              <GroupContextMenu
+                db={db}
+                group={group}
+                prop={groupProp}
+                groupByParent={groupByParent}
+                collapsed={isCollapsed}
+                onToggle={() => toggle(group.key)}
+                onCollapseAll={() => setCollapsed(setAllGroupsCollapsed(groups, true, collapseEmpty))}
+                onExpandAll={() => setCollapsed(setAllGroupsCollapsed(groups, false, collapseEmpty))}
+              >
+                <button onClick={() => toggle(group.key)} className="mb-2 flex w-full items-center gap-1.5 text-sm font-medium">
+                  <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !isCollapsed && 'rotate-90')} />
+                  {group.color && <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />}
+                  {glyph && <span className="text-base leading-none">{glyph}</span>}
+                  <span className="truncate">{groupHeading(group, groupProp)}</span>
+                  <span className="text-muted-foreground/60">{group.rows.length}</span>
+                </button>
+              </GroupContextMenu>
               {!isCollapsed && grid(group.rows)}
             </section>
           );
@@ -633,45 +832,56 @@ export const BoardView: React.FC<{
         const glyph = groupGlyph(group, groupProp, groupByParent);
         const heading = groupHeading(group, groupProp);
         return (
-          <div
+          <GroupContextMenu
             key={group.key}
-            data-col-key={group.key}
-            draggable={isOption(group.key)}
-            onDragStart={(e) => {
-              e.stopPropagation();
-              setDragCol(group.key);
-            }}
-            onDragEnd={() => {
-              setDragCol(null);
-              setOverKey(null);
-            }}
-            onDragOver={(e) => {
-              if (dragCol && isOption(group.key)) {
-                e.preventDefault();
-                setOverKey(cellKey(group.key, null));
-              }
-            }}
-            onDrop={() => dragCol && reorderColumn(dragCol, group.key)}
-            className={cn(
-              'flex shrink-0 items-center gap-1.5 rounded-md bg-muted/30 px-2 py-1.5 text-xs font-medium',
-              isCollapsed ? 'w-11 justify-center' : 'w-64',
-              isOption(group.key) && 'cursor-grab active:cursor-grabbing',
-              dragCol === group.key && 'opacity-40',
-              overKey === cellKey(group.key, null) && 'ring-1 ring-brand/40',
-            )}
+            db={db}
+            group={group}
+            prop={groupProp}
+            groupByParent={groupByParent}
+            collapsed={isCollapsed}
+            onToggle={() => toggleCol(group.key)}
+            onCollapseAll={() => setCollapsedCols(setAllGroupsCollapsed(groups, true, collapseEmpty))}
+            onExpandAll={() => setCollapsedCols(setAllGroupsCollapsed(groups, false, collapseEmpty))}
           >
-            {group.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(group.color)} />}
-            {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
-            {!isCollapsed && <span className="truncate">{heading}</span>}
-            <span className="text-muted-foreground/60">{group.rows.length}</span>
-            <button
-              onClick={() => toggleCol(group.key)}
-              aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${heading} column`}
-              className={cn('shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-hover hover:text-foreground', !isCollapsed && 'ml-auto')}
+            <div
+              data-col-key={group.key}
+              draggable={isOption(group.key)}
+              onDragStart={(e) => {
+                e.stopPropagation();
+                setDragCol(group.key);
+              }}
+              onDragEnd={() => {
+                setDragCol(null);
+                setOverKey(null);
+              }}
+              onDragOver={(e) => {
+                if (dragCol && isOption(group.key)) {
+                  e.preventDefault();
+                  setOverKey(cellKey(group.key, null));
+                }
+              }}
+              onDrop={() => dragCol && reorderColumn(dragCol, group.key)}
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 rounded-md bg-muted/30 px-2 py-1.5 text-xs font-medium',
+                isCollapsed ? 'w-11 justify-center' : 'w-64',
+                isOption(group.key) && 'cursor-grab active:cursor-grabbing',
+                dragCol === group.key && 'opacity-40',
+                overKey === cellKey(group.key, null) && 'ring-1 ring-brand/40',
+              )}
             >
-              {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
-            </button>
-          </div>
+              {group.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(group.color)} />}
+              {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
+              {!isCollapsed && <span className="truncate">{heading}</span>}
+              <span className="text-muted-foreground/60">{group.rows.length}</span>
+              <button
+                onClick={() => toggleCol(group.key)}
+                aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${heading} column`}
+                className={cn('shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-hover hover:text-foreground', !isCollapsed && 'ml-auto')}
+              >
+                {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          </GroupContextMenu>
         );
       })}
     </div>
@@ -735,53 +945,64 @@ export const BoardView: React.FC<{
                 {/* Full-width horizontal lane bar above the cards: a drag gutter,
                     chevron, dot, label, count. Spans every column so it reads as a
                     swimlane; drag the gutter to reorder the sub-group's options. */}
-                <div
-                  data-lane-key={lane.key}
-                  onDragOver={(e) => {
-                    if (dragLane && isLaneOption(lane.key)) {
-                      e.preventDefault();
-                      setOverLane(lane.key);
-                    }
-                  }}
-                  onDrop={() => dragLane && reorderLane(dragLane, lane.key)}
-                  className={cn(
-                    'flex w-full items-center rounded-md border-b border-border/70 bg-muted/40 text-xs font-medium transition-colors',
-                    dragLane === lane.key && 'opacity-40',
-                    overLane === lane.key && 'ring-1 ring-brand/40',
-                  )}
+                <GroupContextMenu
+                  db={db}
+                  group={lane}
+                  prop={subProp}
+                  groupByParent={subByParent}
+                  collapsed={laneCollapsed}
+                  onToggle={() => toggleLane(lane.key)}
+                  onCollapseAll={() => setCollapsedLanes(() => setAllGroupsCollapsed(lanes, true, collapseEmpty))}
+                  onExpandAll={() => setCollapsedLanes(() => setAllGroupsCollapsed(lanes, false, collapseEmpty))}
                 >
-                  {isLaneOption(lane.key) && (
-                    <span
-                      draggable
-                      onDragStart={(e) => {
-                        e.stopPropagation();
-                        setDragLane(lane.key);
-                      }}
-                      onDragEnd={() => {
-                        setDragLane(null);
-                        setOverLane(null);
-                      }}
-                      aria-label={`Reorder ${laneHeading} lane`}
-                      className="flex cursor-grab items-center self-stretch rounded-l-md px-1 text-muted-foreground/30 transition-colors hover:bg-hover hover:text-muted-foreground active:cursor-grabbing"
-                    >
-                      <GripVertical className="h-3.5 w-3.5" />
-                    </span>
-                  )}
-                  <button
-                    onClick={() => toggleLane(lane.key)}
-                    aria-label={`${laneCollapsed ? 'Expand' : 'Collapse'} ${laneHeading} lane`}
+                  <div
+                    data-lane-key={lane.key}
+                    onDragOver={(e) => {
+                      if (dragLane && isLaneOption(lane.key)) {
+                        e.preventDefault();
+                        setOverLane(lane.key);
+                      }
+                    }}
+                    onDrop={() => dragLane && reorderLane(dragLane, lane.key)}
                     className={cn(
-                      'flex flex-1 items-center gap-1.5 py-1.5 pr-2.5 text-left transition-colors hover:bg-hover',
-                      isLaneOption(lane.key) ? 'rounded-r-md' : 'rounded-md pl-2.5',
+                      'flex w-full items-center rounded-md border-b border-border/70 bg-muted/40 text-xs font-medium transition-colors',
+                      dragLane === lane.key && 'opacity-40',
+                      overLane === lane.key && 'ring-1 ring-brand/40',
                     )}
                   >
-                    <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !laneCollapsed && 'rotate-90')} />
-                    {lane.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(lane.color)} />}
-                    {laneGlyph && <span className="shrink-0 text-sm leading-none">{laneGlyph}</span>}
-                    <span className="truncate text-foreground/80">{laneHeading}</span>
-                    <span className="text-muted-foreground/60">{lane.rows.length}</span>
-                  </button>
-                </div>
+                    {isLaneOption(lane.key) && (
+                      <span
+                        draggable
+                        onDragStart={(e) => {
+                          e.stopPropagation();
+                          setDragLane(lane.key);
+                        }}
+                        onDragEnd={() => {
+                          setDragLane(null);
+                          setOverLane(null);
+                        }}
+                        aria-label={`Reorder ${laneHeading} lane`}
+                        className="flex cursor-grab items-center self-stretch rounded-l-md px-1 text-muted-foreground/30 transition-colors hover:bg-hover hover:text-muted-foreground active:cursor-grabbing"
+                      >
+                        <GripVertical className="h-3.5 w-3.5" />
+                      </span>
+                    )}
+                    <button
+                      onClick={() => toggleLane(lane.key)}
+                      aria-label={`${laneCollapsed ? 'Expand' : 'Collapse'} ${laneHeading} lane`}
+                      className={cn(
+                        'flex flex-1 items-center gap-1.5 py-1.5 pr-2.5 text-left transition-colors hover:bg-hover',
+                        isLaneOption(lane.key) ? 'rounded-r-md' : 'rounded-md pl-2.5',
+                      )}
+                    >
+                      <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 text-muted-foreground/70 transition-transform', !laneCollapsed && 'rotate-90')} />
+                      {lane.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={dotStyle(lane.color)} />}
+                      {laneGlyph && <span className="shrink-0 text-sm leading-none">{laneGlyph}</span>}
+                      <span className="truncate text-foreground/80">{laneHeading}</span>
+                      <span className="text-muted-foreground/60">{lane.rows.length}</span>
+                    </button>
+                  </div>
+                </GroupContextMenu>
                 {!laneCollapsed && (
                   <div className="flex gap-3">
                     {groups.map((group) => {
@@ -834,53 +1055,75 @@ export const BoardView: React.FC<{
               )}
             >
               {isCollapsed ? (
-                <button
-                  data-col-key={group.key}
-                  onClick={() => toggleCol(group.key)}
-                  aria-label={`Expand ${heading} column`}
-                  className="flex flex-1 flex-col items-center gap-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                <GroupContextMenu
+                  db={db}
+                  group={group}
+                  prop={groupProp}
+                  groupByParent={groupByParent}
+                  collapsed
+                  onToggle={() => toggleCol(group.key)}
+                  onCollapseAll={() => setCollapsedCols(setAllGroupsCollapsed(groups, true, collapseEmpty))}
+                  onExpandAll={() => setCollapsedCols(setAllGroupsCollapsed(groups, false, collapseEmpty))}
                 >
-                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                  {group.color && (
-                    <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
-                  )}
-                  {glyph && <span className="text-sm leading-none">{glyph}</span>}
-                  <span className="text-muted-foreground/60">{group.rows.length}</span>
-                  <span className="truncate [writing-mode:vertical-rl]">{heading}</span>
-                </button>
-              ) : (
-                <>
-                  <div
+                  <button
                     data-col-key={group.key}
-                    draggable={isOption(group.key)}
-                    onDragStart={(e) => {
-                      e.stopPropagation();
-                      setDragCol(group.key);
-                    }}
-                    onDragEnd={() => {
-                      setDragCol(null);
-                      setOverKey(null);
-                    }}
-                    className={cn(
-                      'flex items-center gap-1.5 px-1 text-xs font-medium',
-                      isOption(group.key) && 'cursor-grab active:cursor-grabbing',
-                      dragCol === group.key && 'opacity-40',
-                    )}
+                    onClick={() => toggleCol(group.key)}
+                    aria-label={`Expand ${heading} column`}
+                    className="flex flex-1 flex-col items-center gap-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                   >
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0" />
                     {group.color && (
                       <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
                     )}
-                    {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
-                    <span className="truncate">{heading}</span>
+                    {glyph && <span className="text-sm leading-none">{glyph}</span>}
                     <span className="text-muted-foreground/60">{group.rows.length}</span>
-                    <button
-                      onClick={() => toggleCol(group.key)}
-                      aria-label={`Collapse ${heading} column`}
-                      className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-hover hover:text-foreground"
+                    <span className="truncate [writing-mode:vertical-rl]">{heading}</span>
+                  </button>
+                </GroupContextMenu>
+              ) : (
+                <>
+                  <GroupContextMenu
+                    db={db}
+                    group={group}
+                    prop={groupProp}
+                    groupByParent={groupByParent}
+                    collapsed={false}
+                    onToggle={() => toggleCol(group.key)}
+                    onCollapseAll={() => setCollapsedCols(setAllGroupsCollapsed(groups, true, collapseEmpty))}
+                    onExpandAll={() => setCollapsedCols(setAllGroupsCollapsed(groups, false, collapseEmpty))}
+                  >
+                    <div
+                      data-col-key={group.key}
+                      draggable={isOption(group.key)}
+                      onDragStart={(e) => {
+                        e.stopPropagation();
+                        setDragCol(group.key);
+                      }}
+                      onDragEnd={() => {
+                        setDragCol(null);
+                        setOverKey(null);
+                      }}
+                      className={cn(
+                        'flex items-center gap-1.5 px-1 text-xs font-medium',
+                        isOption(group.key) && 'cursor-grab active:cursor-grabbing',
+                        dragCol === group.key && 'opacity-40',
+                      )}
                     >
-                      <ChevronLeft className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                      {group.color && (
+                        <span className="h-2.5 w-2.5 rounded-full" style={dotStyle(group.color)} />
+                      )}
+                      {glyph && <span className="shrink-0 text-sm leading-none">{glyph}</span>}
+                      <span className="truncate">{heading}</span>
+                      <span className="text-muted-foreground/60">{group.rows.length}</span>
+                      <button
+                        onClick={() => toggleCol(group.key)}
+                        aria-label={`Collapse ${heading} column`}
+                        className="ml-auto shrink-0 rounded p-0.5 text-muted-foreground/50 transition-colors hover:bg-hover hover:text-foreground"
+                      >
+                        <ChevronLeft className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </GroupContextMenu>
                   <BoardColumnCards
                     db={db}
                     view={view}
