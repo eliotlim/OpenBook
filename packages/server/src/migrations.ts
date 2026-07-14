@@ -408,6 +408,42 @@ const MIGRATIONS: Migration[] = [
       'ALTER TABLE agent_tokens ADD COLUMN IF NOT EXISTS remote_ok BOOLEAN NOT NULL DEFAULT FALSE',
     ],
   },
+  {
+    // Per-page version history — snapshot-on-save (PVH-1, OB-26). Each row is a
+    // point-in-time snapshot of a page's block document: the store captures the
+    // PRIOR `data` (the state being replaced) on every save that actually changes
+    // `data`, so a row means "what the page looked like before this save" — a
+    // coherent target to roll back TO. The current live state always stays in
+    // `pages.data` (never duplicated here), which keeps the write-amplification of
+    // this append-only table minimal on the autovacuum-less embedded store (OB-164);
+    // rapid 600ms collab saves / typing bursts are coalesced by the store (min-gap
+    // between rows) so a burst can't spam one row per keystroke.
+    //
+    // `author_*` records the VERIFIED principal of the save that produced the row
+    // (the same subject/issuer/name the edit log carries) — i.e. who superseded the
+    // captured state. All nullable: a server-merged checkpoint (`saveServerDoc`) has
+    // per-block authorship inside the snapshot but no single save principal.
+    //
+    // ON DELETE CASCADE to `pages(id)` is intentional: a SOFT delete only sets
+    // `deleted_at` (the row survives), so a trashed page KEEPS its history and can be
+    // restored with it; the cascade only fires on the HARD purge that actually removes
+    // the page row (the retention sweep), reclaiming its versions then rather than
+    // orphaning them forever. Retention/pruning of versions on a still-live page is a
+    // separate concern (PVH-2).
+    name: '0018_page_versions',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS page_versions (
+        id             UUID        PRIMARY KEY,
+        page_id        UUID        NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+        data           JSONB       NOT NULL,
+        author_subject TEXT,
+        author_issuer  TEXT,
+        author_name    TEXT,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      'CREATE INDEX IF NOT EXISTS page_versions_page_idx ON page_versions (page_id, created_at DESC)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */
