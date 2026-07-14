@@ -22,8 +22,8 @@ import {TEXT_BLOCKS, type BlockJSON} from '@/blockeditor/model';
  *   the word-LCS is ~20 lines.
  * • **Non-text blocks** (image, htmlArtifact, kit/db/chart, dividers, tables and
  *   other containers) are never word-diffed — a changed one is reported opaquely
- *   at block granularity (`opaque: true`), and the view shows the old→new pair
- *   rather than pretending to diff a chart's internals.
+ *   at block granularity (`opaque: true`), and the view shows an honest
+ *   "{Type} changed" badge rather than pretending to diff a chart's internals.
  *
  * The result is a flat, ordered list of entries the view renders top to bottom.
  * Everything here is pure (plain `BlockJSON` in, plain data out) and unit-tested.
@@ -45,7 +45,7 @@ export interface BlockDiffEntry {
    * the NEW (current) block; for `removed` it is the OLD (version) block.
    */
   block: BlockJSON;
-  /** The OLD (version) block — present for `changed` so the view can show old→new. */
+  /** The OLD (version) block — present for `changed` (word diffs read the old text). */
   oldBlock?: BlockJSON;
   /**
    * Word-level runs for a `changed` block whose text was diffed. Absent when the
@@ -79,6 +79,29 @@ function plainText(block: BlockJSON): string {
 /** Whether a block carries diff-able rich text (vs. an opaque widget/container). */
 function isTextBlock(block: BlockJSON): boolean {
   return TEXT_BLOCKS.has(block.type as never);
+}
+
+/**
+ * A bare default paragraph: no text, no props, no children. `decodeSnapshot`
+ * runs `ensureNotEmpty`, which injects exactly one of these (with a *fresh
+ * random id*) whenever a decoded doc is empty. Two independently-decoded empty
+ * docs therefore each carry one such paragraph under different ids, which would
+ * otherwise diff as removed+added — a spurious change. We drop a lone trailing
+ * one from each side before aligning so empty-vs-empty reads as "No changes".
+ */
+function isBareParagraph(block: BlockJSON): boolean {
+  return (
+    block.type === 'paragraph' &&
+    plainText(block) === '' &&
+    (block.props == null || Object.keys(block.props).length === 0) &&
+    (block.children == null || block.children.length === 0)
+  );
+}
+
+/** Drop a single trailing bare default paragraph (the `ensureNotEmpty` artifact). */
+function stripTrailingBareParagraph(blocks: BlockJSON[]): BlockJSON[] {
+  const last = blocks[blocks.length - 1];
+  return last && isBareParagraph(last) ? blocks.slice(0, -1) : blocks;
 }
 
 /** Structural deep-equality of two blocks (type + text + props + children). */
@@ -249,7 +272,12 @@ function fallbackDiff(oldB: BlockJSON[], newB: BlockJSON[]): BlockDiffEntry[] {
  * Compute the block/word-level diff of `oldBlocks` (a version) against
  * `newBlocks` (the current document). See the module doc for the design.
  */
-export function diffBlocks(oldBlocks: BlockJSON[], newBlocks: BlockJSON[]): BlockDiff {
+export function diffBlocks(rawOld: BlockJSON[], rawNew: BlockJSON[]): BlockDiff {
+  // Normalise away the lone empty paragraph `ensureNotEmpty` injects into a
+  // decoded-empty doc so empty-vs-empty (and trailing-blank shifts) don't diff
+  // as removed+added. See {@link stripTrailingBareParagraph}.
+  const oldBlocks = stripTrailingBareParagraph(rawOld);
+  const newBlocks = stripTrailingBareParagraph(rawNew);
   let entries: BlockDiffEntry[];
   if (oldBlocks.length * newBlocks.length > MAX_BLOCK_LCS) {
     entries = fallbackDiff(oldBlocks, newBlocks);

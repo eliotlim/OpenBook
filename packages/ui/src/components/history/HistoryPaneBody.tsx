@@ -366,7 +366,7 @@ export function HistoryPaneBody() {
                     Compare swaps in the block/word diff of this version vs. current. */}
                 <div
                   role="group"
-                  aria-label={t('history.compare')}
+                  aria-label={t('history.viewMode')}
                   className="flex shrink-0 items-center rounded-md border border-border p-0.5"
                 >
                   <Button

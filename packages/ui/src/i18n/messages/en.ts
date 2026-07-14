@@ -207,6 +207,7 @@ export const en = {
     restored: 'Version restored.',
     restoreError: 'Couldn’t restore this version.',
     // PVH-6 — Preview ⇄ Compare toggle + the diff view.
+    viewMode: 'View mode',
     preview: 'Preview',
     compare: 'Compare',
     compareTitle: 'Compare this version with the current document',
@@ -219,10 +220,9 @@ export const en = {
     diffRemoved: 'Removed',
     diffChanged: 'Changed',
     diffEmptyBlock: '(empty)',
+    diffFormattingChanged: 'Formatting changed',
     diffOpaqueChanged: '{type} changed',
-    diffUnchangedRun: '{count} unchanged block',
     diffUnchangedRunPlural: '{count} unchanged blocks',
-    diffShowUnchanged: 'Show unchanged',
     diffHideUnchanged: 'Hide unchanged',
   },
   move: {

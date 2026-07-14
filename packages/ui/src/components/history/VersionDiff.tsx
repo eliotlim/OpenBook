@@ -21,8 +21,8 @@ import {diffBlocks, type BlockDiffEntry, type WordRun} from '@/lib/blockDiff';
  * added blocks tint green with a `＋` marker, removed blocks tint red with a `−`
  * marker and strikethrough, changed text blocks show inline word-level
  * insertions/deletions (`<ins>`/`<del>` — semantic, not colour-only), and
- * non-text blocks (images, charts, tables…) are shown opaquely as old→new.
- * Long runs of unchanged context collapse behind a toggle.
+ * non-text blocks (images, charts, tables…) are shown opaquely as a
+ * "{Type} changed" badge. Long runs of unchanged context collapse behind a toggle.
  */
 
 /** A readable label for a non-text / structural block type in an opaque change. */
@@ -106,11 +106,19 @@ function DiffRow({entry}: {entry: BlockDiffEntry}) {
           ? 'bg-amber-500/10'
           : '';
 
-  // Body: word-runs for a changed text block; an old→new pair for an opaque
-  // (non-text) change; otherwise the block's plain text with the right tint.
+  // Body: word-runs for a changed text block; a "{Type} changed" badge for an
+  // opaque (non-text) change; otherwise the block's plain text with the right
+  // tint. A changed text block whose word runs are all `kept` (identical text,
+  // only props/formatting differ) shows a "Formatting changed" hint rather than
+  // an empty runs row.
   let body: React.ReactNode;
   if (entry.status === 'changed' && entry.wordRuns) {
-    body = text || entry.oldBlock ? <WordRuns runs={entry.wordRuns} /> : <em className="text-muted-foreground">{t('history.diffEmptyBlock')}</em>;
+    const hasTextChange = entry.wordRuns.some((r) => r.status !== 'kept');
+    body = hasTextChange ? (
+      <WordRuns runs={entry.wordRuns} />
+    ) : (
+      <em className="text-muted-foreground">{t('history.diffFormattingChanged')}</em>
+    );
   } else if (entry.status === 'changed' && entry.opaque) {
     body = (
       <span className="inline-flex items-center gap-1.5">
@@ -199,12 +207,10 @@ function isTextType(type: string): boolean {
 function UnchangedRun({entries}: {entries: BlockDiffEntry[]}) {
   const {t} = useTranslation();
   const [open, setOpen] = useState(false);
-  // Short runs (≤2) always show as context; longer runs collapse by default.
+  // Short runs (≤2) always show as context; longer runs collapse by default, so
+  // the collapsed label's count is always ≥3 (plural only).
   if (entries.length <= 2) return <>{entries.map((e, i) => <DiffRow key={i} entry={e} />)}</>;
-  const countLabel =
-    entries.length === 1
-      ? t('history.diffUnchangedRun', {count: entries.length})
-      : t('history.diffUnchangedRunPlural', {count: entries.length});
+  const countLabel = t('history.diffUnchangedRunPlural', {count: entries.length});
   return (
     <div className="my-0.5">
       <Button

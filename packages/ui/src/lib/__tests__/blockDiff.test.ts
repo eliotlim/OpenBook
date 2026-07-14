@@ -104,6 +104,24 @@ describe('diffBlocks', () => {
     expect(diff.entries.every((e) => e.wordRuns === undefined)).toBe(true);
   });
 
+  it('two decoded-empty docs (lone bare paragraphs, different ids) → no changes', () => {
+    // `decodeSnapshot`→`ensureNotEmpty` injects one bare paragraph with a fresh
+    // random id into each empty doc; without normalisation they diff as
+    // removed+added. Post-fix, empty-vs-empty must read as "No changes".
+    const oldB: BlockJSON[] = [{id: 'rand-old', type: 'paragraph', text: []}];
+    const newB: BlockJSON[] = [{id: 'rand-new', type: 'paragraph', text: []}];
+    const diff = diffBlocks(oldB, newB);
+    expect(diff.changed).toBe(false);
+    expect(diff.entries).toHaveLength(0);
+  });
+
+  it('a trailing bare paragraph does not register as an added/removed block', () => {
+    const oldB = [p('a', 'Hello')];
+    const newB = [p('a', 'Hello'), {id: 'trailer', type: 'paragraph', text: []} as BlockJSON];
+    const diff = diffBlocks(oldB, newB);
+    expect(diff.changed).toBe(false);
+  });
+
   it('diffs a mix of unchanged / changed / added / removed together', () => {
     const oldB = [p('a', 'keep me'), p('b', 'old text'), p('c', 'delete me')];
     const newB = [p('a', 'keep me'), p('b', 'new text'), p('d', 'fresh')];
@@ -124,5 +142,17 @@ describe('diffBlocks', () => {
   it('word diff at the ends (prefix add, suffix remove)', () => {
     expect(flat(wordDiff('world', 'hello world'))).toBe('+hello +world');
     expect(flat(wordDiff('hello world', 'hello'))).toBe('hello- world-');
+  });
+
+  it('caps the word LCS on huge text — whole-block +/− fallback (MAX_WORD_TOKENS)', () => {
+    // > MAX_WORD_TOKENS (4000) tokens across both sides skips the quadratic LCS
+    // and emits a single removed run then a single added run.
+    const oldText = Array.from({length: 2100}, (_, i) => `w${i}`).join(' ');
+    const newText = `${oldText} tail`;
+    const runs = wordDiff(oldText, newText);
+    expect(runs).toEqual([
+      {value: oldText, status: 'removed'},
+      {value: newText, status: 'added'},
+    ]);
   });
 });
