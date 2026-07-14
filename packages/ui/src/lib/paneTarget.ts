@@ -7,14 +7,16 @@
  * (`?paneTarget=<pageId>`) and seed the bridge back from it on load.
  *
  * Only panes that act on a page are listed: the customise pane
- * ({@link CUSTOMISE_PANE_ID} → `pageCustomise`) and the review pane
- * ({@link REVIEW_PANE_ID} → `reviewPane`). The config pane hosts an in-memory
+ * ({@link CUSTOMISE_PANE_ID} → `pageCustomise`), the review pane
+ * ({@link REVIEW_PANE_ID} → `reviewPane`) and the version-history pane
+ * ({@link HISTORY_PANE_ID} → `historyPane`). The config pane hosts an in-memory
  * kit-block config (no page) and the agent pane has no page target, so both
  * stay ephemeral and are not persisted.
  */
-import {CUSTOMISE_PANE_ID, REVIEW_PANE_ID} from './homePage';
+import {CUSTOMISE_PANE_ID, HISTORY_PANE_ID, REVIEW_PANE_ID} from './homePage';
 import {getPageCustomiseTarget, setPageCustomiseTarget, subscribePageCustomise} from './pageCustomise';
 import {getReviewTarget, setReviewTarget, subscribeReviewPane} from './reviewPane';
+import {getHistoryTarget, setHistoryTarget, subscribeHistoryPane} from './historyPane';
 
 export interface PaneTargetStore {
   /** The page the pane currently targets, or `null`. */
@@ -36,6 +38,11 @@ export const PANE_TARGET_STORES: Record<string, PaneTargetStore> = {
     get: () => getReviewTarget().pageId,
     set: (pageId) => setReviewTarget(pageId),
     subscribe: subscribeReviewPane,
+  },
+  [HISTORY_PANE_ID]: {
+    get: () => getHistoryTarget().pageId,
+    set: (pageId) => setHistoryTarget(pageId),
+    subscribe: subscribeHistoryPane,
   },
 };
 
