@@ -15,6 +15,19 @@ export const API = {
   pageBacklinks: (id: string): string => `/api/pages/${encodeURIComponent(id)}/backlinks`,
   /** Restore a trashed page (and the subtree trashed with it): `POST`. */
   pageRestore: (id: string): string => `/api/pages/${encodeURIComponent(id)}/restore`,
+  /** A page's captured version history (PVH-1): `GET` (metadata list, newest first;
+   *  optional `?limit=`). Read-gated on the page — a caller who can't read the page
+   *  can't list its versions. */
+  pageVersions: (id: string): string => `/api/pages/${encodeURIComponent(id)}/versions`,
+  /** One captured version WITH its snapshot payload: `GET` (or 404 if it isn't that
+   *  page's version). Read-gated on the page. */
+  pageVersion: (id: string, versionId: string): string =>
+    `/api/pages/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}`,
+  /** Roll the page back to a captured version: `POST` (writes the version's snapshot
+   *  back through the save path, which captures the pre-restore state as a new version
+   *  → non-destructive). Write-gated on the page. Returns the restored page. */
+  pageVersionRestore: (id: string, versionId: string): string =>
+    `/api/pages/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`,
   /** Move/reorder a page in the sidebar tree (re-parent + reorder siblings): `PUT`. */
   pageMove: (id: string): string => `/api/pages/${encodeURIComponent(id)}/move`,
   /** Whole-space backup: `GET` returns every live page + database as one bundle. */

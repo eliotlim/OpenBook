@@ -2,6 +2,8 @@ export type {
   PageSnapshot,
   PageMeta,
   StoredPage,
+  PageVersionMeta,
+  StoredPageVersion,
   PageInput,
   ServerInfo,
   ServerControls,

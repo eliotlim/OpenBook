@@ -18,7 +18,7 @@ import type {
   McpServerConfig,
   McpTestResult,
 } from './ai';
-import type {AclLevel, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVisibility, StoredPage} from './types';
+import type {AclLevel, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult} from './backup';
@@ -101,6 +101,29 @@ export interface DataClient {
   setPageProperties(id: string, properties: Record<string, unknown>): Promise<StoredPage>;
   /** List the live pages that link to `id` (via `@`-mentions), newest first. */
   listBacklinks(id: string): Promise<PageMeta[]>;
+
+  // ── Page version history (PVH-3) ─────────────────────────────────────────────
+  /**
+   * List a page's captured versions (metadata only — no snapshot payload, so a
+   * history list stays cheap), newest first. `opts.limit` caps the page (server
+   * clamps 1..1000; default 100). Version access inherits the page's READ
+   * capability — a caller who can't read the page can't list its versions.
+   */
+  listVersions(pageId: string, opts?: {limit?: number}): Promise<PageVersionMeta[]>;
+  /**
+   * Read one captured version WITH its snapshot payload (the state to roll back
+   * to), or `null` when it doesn't exist / isn't that page's version (no
+   * cross-page leak). Read-gated on the page.
+   */
+  getVersion(pageId: string, versionId: string): Promise<StoredPageVersion | null>;
+  /**
+   * Roll a page back to a captured version, returning the restored page (or `null`
+   * when the page/version is gone). Write-gated on the page. Non-destructive: the
+   * server writes the old snapshot back through the normal save path, which captures
+   * the CURRENT (pre-restore) state as a fresh version first — so a restore is itself
+   * undoable via another restore. The page's name is left untouched.
+   */
+  restoreVersion(pageId: string, versionId: string): Promise<StoredPage | null>;
   /**
    * Move a page within the sidebar tree: set its parent (`null` = top level) and
    * the full ordered list of sibling ids under that parent (including this page).
@@ -889,6 +912,25 @@ export class HttpDataClient implements DataClient {
 
   async listBacklinks(id: string): Promise<PageMeta[]> {
     return this.request<PageMeta[]>('GET', API.pageBacklinks(id));
+  }
+
+  async listVersions(pageId: string, opts?: {limit?: number}): Promise<PageVersionMeta[]> {
+    const query = opts?.limit != null ? `?limit=${encodeURIComponent(opts.limit)}` : '';
+    return this.request<PageVersionMeta[]>('GET', `${API.pageVersions(pageId)}${query}`);
+  }
+
+  async getVersion(pageId: string, versionId: string): Promise<StoredPageVersion | null> {
+    const res = await this.authFetch(`${this.baseUrl}${API.pageVersion(pageId, versionId)}`, {cache: 'no-store'});
+    if (res.status === 404) return null;
+    await throwIfNotOk(res);
+    return (await res.json()) as StoredPageVersion;
+  }
+
+  async restoreVersion(pageId: string, versionId: string): Promise<StoredPage | null> {
+    const res = await this.authFetch(`${this.baseUrl}${API.pageVersionRestore(pageId, versionId)}`, {method: 'POST'});
+    if (res.status === 404) return null;
+    await throwIfNotOk(res);
+    return (await res.json()) as StoredPage;
   }
 
   async movePage(id: string, move: {parentId: string | null; orderedIds: string[]}): Promise<StoredPage> {

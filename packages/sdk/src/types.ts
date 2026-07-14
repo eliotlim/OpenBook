@@ -102,6 +102,30 @@ export interface StoredPage {
 }
 
 /**
+ * Metadata for one captured page version (PVH-1) — no snapshot payload, so a
+ * history list stays cheap. `author*` is the verified principal who *superseded*
+ * the captured state (the one who saved over it); all three are `null` for a
+ * server-merged checkpoint, which has no single saving principal.
+ */
+export interface PageVersionMeta {
+  id: string;
+  pageId: string;
+  authorSubject: string | null;
+  authorIssuer: string | null;
+  authorName: string | null;
+  createdAt: string;
+}
+
+/**
+ * A captured page version WITH its snapshot payload — the state to roll back TO.
+ * Restoring one writes this `data` back through the normal save path, which
+ * captures the pre-restore state as a new version (so restore is non-destructive).
+ */
+export interface StoredPageVersion extends PageVersionMeta {
+  data: PageSnapshot;
+}
+
+/**
  * Payload for creating/updating a page.
  *  - `id` present → upsert that page; absent → create with a fresh server id.
  *  - `name` optional; a display label, not unique (pages are identified by id).

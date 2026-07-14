@@ -25,7 +25,9 @@ import type {
   PageInput,
   PageMeta,
   PageSnapshot,
+  PageVersionMeta,
   PageVisibility,
+  StoredPageVersion,
   Principal,
   RowInput,
   StoredComment,
@@ -3235,21 +3237,9 @@ function editFromRow(row: EditRow): StoredEdit {
 }
 
 // ── Page version row mapper (PVH-1) ──────────────────────────────────────────
-
-/** Metadata for one captured page version (no snapshot payload). */
-export interface PageVersionMeta {
-  id: string;
-  pageId: string;
-  authorSubject: string | null;
-  authorIssuer: string | null;
-  authorName: string | null;
-  createdAt: string;
-}
-
-/** A captured page version WITH its snapshot payload — the state to restore. */
-export interface StoredPageVersion extends PageVersionMeta {
-  data: PageSnapshot;
-}
+//
+// The wire types {@link PageVersionMeta}/{@link StoredPageVersion} are the SDK's
+// (one source of truth shared with the client); this maps a DB row onto them.
 
 interface PageVersionRow {
   id: string;
