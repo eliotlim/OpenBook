@@ -156,11 +156,15 @@ export function PageMenuItems({
   const id = pageId ?? null;
   const isHome = id === HOME_PAGE_ID;
   // Present/full-width apply to editable document pages, not to database hosts.
+  // Derived from the nav list (the only source that covers an arbitrary page id
+  // here); it can briefly lag a just-created DB page, so the full-width control
+  // may momentarily show OFF while the page itself renders full-width off the
+  // reliable `hostedDatabaseId` prop. Self-heals on the next page list refresh.
   const isDatabase = !!id && !!pages.find((p) => p.id === id)?.hostedDatabaseId;
   const pageScoped = !!id && !isHome; // actions that need a real, non-home page
 
   // Full width is a per-page layout choice (see lib/pageFullWidth).
-  const fullWidth = usePageFullWidth(pageScoped ? id! : '');
+  const fullWidth = usePageFullWidth(pageScoped ? id! : '', isDatabase);
 
   // The open document registers what it can export; subscribe so the menu tracks
   // the current page (and its plugin-ness) live.
@@ -206,7 +210,7 @@ export function PageMenuItems({
           <C.CheckboxItem
             checked={fullWidth}
             disabled={!pageScoped}
-            onCheckedChange={() => id && togglePageFullWidth(id)}
+            onCheckedChange={() => id && togglePageFullWidth(id, isDatabase)}
             onSelect={(e: Event) => e.preventDefault()}
           >
             {t('menu.fullWidth')}

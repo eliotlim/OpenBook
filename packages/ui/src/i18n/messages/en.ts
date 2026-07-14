@@ -105,6 +105,8 @@ export const en = {
     pageCustomiseEmpty: 'Open a page to customise it here.',
     cover: 'Cover',
     coverHint: 'A banner image or gradient above the title.',
+    fullWidth: 'Full width',
+    fullWidthHint: 'Use the whole page width — on by default for databases.',
     background: 'Background',
     backgroundHint: 'Tint the page canvas.',
     fontBody: 'Body font',

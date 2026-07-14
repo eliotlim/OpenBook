@@ -91,6 +91,7 @@ export function useAppCommands(): AppCommand[] {
     splitOpen,
     reload,
     selectPage,
+    pages,
   } = useNavigation();
   const {colorScheme, setMode} = useTheme();
   const {t} = useTranslation();
@@ -203,8 +204,13 @@ export function useAppCommands(): AppCommand[] {
         icon: StretchHorizontal,
         shortcut: SHORTCUTS.toggleFullWidth,
         // Full width is a per-page layout choice — toggle the focused page's.
+        // Pass its database-ness so DB pages toggle around the full-width default.
         run: () => {
-          if (currentPageId) togglePageFullWidth(currentPageId);
+          if (!currentPageId) return;
+          // Nav-list derivation may briefly lag a just-created DB page's default;
+          // it heals on the next list refresh (see PageContextMenu for the note).
+          const isDatabase = !!pages.find((p) => p.id === currentPageId)?.hostedDatabaseId;
+          togglePageFullWidth(currentPageId, isDatabase);
         },
       },
       {
@@ -381,6 +387,7 @@ export function useAppCommands(): AppCommand[] {
     colorScheme,
     splitOpen,
     currentPageId,
+    pages,
     favVersion,
     pluginVersion,
     canGoBack,

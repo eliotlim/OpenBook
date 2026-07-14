@@ -30,6 +30,25 @@ describe('pageFullWidth', () => {
     expect(readPageFullWidth('a')).toBe(false);
   });
 
+  it('defaults database-hosting pages to full width when unset', () => {
+    expect(readPageFullWidth('db1')).toBe(false); // non-database page
+    expect(readPageFullWidth('db1', true)).toBe(true); // same page, as a database host
+  });
+
+  it('lets an explicit off override win (and persist) over the database default', () => {
+    writePageFullWidth('db2', false, true); // turn full width OFF on a database page
+    expect(readPageFullWidth('db2', true)).toBe(false); // explicit off beats the default
+    togglePageFullWidth('db2', true); // back on
+    expect(readPageFullWidth('db2', true)).toBe(true);
+  });
+
+  it('toggle flips around the database default', () => {
+    togglePageFullWidth('db3', true); // starts effectively on → flips off
+    expect(readPageFullWidth('db3', true)).toBe(false);
+    togglePageFullWidth('db3', true);
+    expect(readPageFullWidth('db3', true)).toBe(true);
+  });
+
   it('notifies subscribers on write', () => {
     const cb = vi.fn();
     const unsub = subscribePageFullWidth(cb);

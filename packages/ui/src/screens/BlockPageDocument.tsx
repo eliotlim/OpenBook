@@ -458,8 +458,9 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
     return () => setPageSaveStatus(pageId, null);
   }, [pageId, status]);
 
-  // Full width is a per-page choice (see lib/pageFullWidth).
-  const fullWidth = usePageFullWidth(pageId ?? '');
+  // Full width is a per-page choice (see lib/pageFullWidth); database-hosting
+  // pages default to full-width when the user hasn't set an explicit override.
+  const fullWidth = usePageFullWidth(pageId ?? '', hasDatabase);
   const columnClass = cn('mx-auto w-full', fullWidth ? 'max-w-none' : 'max-w-content');
 
   // Per-page overrides recolor (theme) and restyle (fonts) just this page.

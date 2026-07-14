@@ -95,7 +95,10 @@ function parseFacet(facet: AppearanceFacet, raw: unknown): Facets[AppearanceFace
   if (facet === 'theme') return parseTheme(raw);
   if (facet === 'cover') return parseCover(raw);
   if (facet === 'fonts') return parseFonts(raw);
-  return raw ? true : null; // fullWidth: a flag, stored only when true
+  // fullWidth: a tri-state flag. `true`/`false` are both explicit user choices
+  // (an explicit `false` must survive so a DB page's opt-out of the full-width
+  // default persists); anything else means "unset → follow the page default".
+  return typeof raw === 'boolean' ? raw : null;
 }
 
 const facetJson = (v: unknown): string => (v == null ? 'null' : JSON.stringify(v));
@@ -142,7 +145,7 @@ function migrateLegacy(pageId: string, props: Record<string, unknown>): void {
       parsed = null;
     }
     localStorage.removeItem(key);
-    if (parsed) writeAppearanceFacet(pageId, facet, parsed); // persists + caches
+    if (parsed != null) writeAppearanceFacet(pageId, facet, parsed); // persists + caches (keep an explicit `false`)
   }
 }
 
