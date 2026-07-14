@@ -1,3 +1,31 @@
+## 3.1.0 (2026-07-14)
+
+### 🚀 Features
+
+- **database:** active DB view in the URL (?view=) with shareable deep links (DL-1) ([#163](https://github.com/eliotlim/OpenBook/pull/163))
+- **server:** capture per-page version history on save (PVH-1) ([#171](https://github.com/eliotlim/OpenBook/pull/171))
+- **server:** retention/pruning for page versions (PVH-2) ([#172](https://github.com/eliotlim/OpenBook/pull/172))
+- **server:** page version list/get/restore routes + SDK, non-destructive restore (PVH-3) ([#173](https://github.com/eliotlim/OpenBook/pull/173))
+- **server:** reseed canonical collab doc on restore + quiesce to close the clobber race (PVH-8) ([#175](https://github.com/eliotlim/OpenBook/pull/175))
+- **ui:** Library Manager — management settings screen + switcher Manage/status (LM-1/LM-2) ([#165](https://github.com/eliotlim/OpenBook/pull/165))
+- **ui:** unify page context menus (click + right-click) behind one shared action list (CM-2) ([#164](https://github.com/eliotlim/OpenBook/pull/164))
+- **ui:** enrich DB row context menu — open in tab/window + copy link (CM-3) ([#166](https://github.com/eliotlim/OpenBook/pull/166))
+- **ui:** persist side-pane target page in the URL (DL-3) ([#167](https://github.com/eliotlim/OpenBook/pull/167))
+- **ui:** Library Manager — desktop connect + signed-in discovery (LM-3/LM-4) ([#168](https://github.com/eliotlim/OpenBook/pull/168))
+- **ui:** addressable DB rows & groups in the URL + copy-link anchors (DL-2) ([#169](https://github.com/eliotlim/OpenBook/pull/169))
+- **ui:** right-click column header keeps quick actions + adds Edit property (CM-4) ([#170](https://github.com/eliotlim/OpenBook/pull/170))
+- **ui:** Version History pane — list, read-only preview, restore (PVH-4/5/7) ([#174](https://github.com/eliotlim/OpenBook/pull/174))
+- **ui:** Version History block/word-level diff (Compare) (PVH-6) ([#176](https://github.com/eliotlim/OpenBook/pull/176))
+
+### 🩹 Fixes
+
+- **db:** group-header context menu (rename/colour/collapse/delete) — fixes group right-click (CM-1) ([#162](https://github.com/eliotlim/OpenBook/pull/162))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 # 3.0.0 (2026-07-14)
 
 ### 🚀 Features
