@@ -8,9 +8,7 @@
  * and agent tools read pages the same way; re-exported here for existing
  * server-side imports.
  */
-import {snapshotText} from '@book.dev/sdk';
-
-export {snapshotText};
+export {snapshotSegments, snapshotText} from '@book.dev/sdk';
 
 // ── Tokenizing + chunking ────────────────────────────────────────────────────
 
@@ -47,6 +45,9 @@ export interface IndexedDoc {
   title: string;
   chunkIndex: number;
   text: string;
+  /** The block this chunk's text came from (a `?block=` anchor for the hit).
+   *  Absent for legacy pages / title-only docs. */
+  blockId?: string;
   /** Optional embedding (hybrid mode). */
   embedding?: number[];
 }

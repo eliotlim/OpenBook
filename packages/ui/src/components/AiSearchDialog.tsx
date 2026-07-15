@@ -17,7 +17,7 @@ export function AiSearchDialog() {
   const {hud, setHud} = useHud();
   const {t} = useTranslation();
   const client = useData();
-  const {selectPage} = useNavigation();
+  const {selectPage, selectPageAtBlock} = useNavigation();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<AiSearchResult[]>([]);
   const [mode, setMode] = useState<'lexical' | 'hybrid' | null>(null);
@@ -65,7 +65,10 @@ export function AiSearchDialog() {
 
   const pick = (result: AiSearchResult | undefined): void => {
     if (!result) return;
-    selectPage(result.pageId);
+    // Land on the matched block when the hit carries one (block-native pages),
+    // otherwise just open the page (legacy pages / title-only hits).
+    if (result.blockId) selectPageAtBlock(result.pageId, result.blockId);
+    else selectPage(result.pageId);
     setOpen(false);
   };
 

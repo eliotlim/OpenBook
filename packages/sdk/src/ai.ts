@@ -210,6 +210,9 @@ export interface AiSearchResult {
   title: string;
   /** Best-matching snippet of the page's text. */
   snippet: string;
+  /** The block the best-matching chunk came from, so a pick can land on it (the
+   *  `?block=` scroll-to anchor). Absent for legacy pages and title-only hits. */
+  blockId?: string;
   score: number;
 }
 

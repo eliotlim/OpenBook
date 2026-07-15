@@ -1,6 +1,41 @@
 import {describe, expect, it} from 'vitest';
-import {paragraphBlocks, textSnapshot, appendTextToSnapshot} from './content';
+import {paragraphBlocks, snapshotSegments, snapshotText, textSnapshot, appendTextToSnapshot} from './content';
 import type {PageSnapshot} from './types';
+
+describe('snapshotSegments', () => {
+  it('tags each block-native block with its id (for a ?block= anchor); snapshotText is the flattening', () => {
+    const data: PageSnapshot = {
+      editorjs: {blocks: []},
+      values: [],
+      names: [],
+      editor: 'blocks',
+      blockdoc: {
+        blocks: [
+          {id: 'b1', type: 'paragraph', text: [{t: 'Hello '}, {t: 'world'}]},
+          {id: 'b2', type: 'code', props: {source: 'x = 1'}},
+          {id: 'b3', type: 'group', children: [{id: 'b4', type: 'paragraph', text: [{t: 'nested'}]}]},
+        ],
+      },
+    } as unknown as PageSnapshot;
+    expect(snapshotSegments(data)).toEqual([
+      {blockId: 'b1', text: 'Hello world'},
+      {blockId: 'b2', text: 'x = 1'},
+      {blockId: 'b4', text: 'nested'},
+    ]);
+    // snapshotText stays the newline-joined flattening of the same segments.
+    expect(snapshotText(data)).toBe('Hello world\nx = 1\nnested');
+  });
+
+  it('legacy stored pages yield text-only segments (no block id survives migration)', () => {
+    const legacy: PageSnapshot = {
+      editorjs: {blocks: [{id: 'l0', type: 'paragraph', data: {text: '<b>Hi</b> there'}}]},
+      values: [],
+      names: [],
+    };
+    expect(snapshotSegments(legacy)).toEqual([{text: 'Hi there'}]);
+    expect(snapshotText(legacy)).toBe('Hi there');
+  });
+});
 
 describe('paragraphBlocks', () => {
   it('emits block-native paragraphs (text runs), one per non-empty line', () => {
