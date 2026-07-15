@@ -16,7 +16,7 @@ async function openMembers(page: import('@playwright/test').Page): Promise<void>
   await page.getByRole('button', {name: 'Settings'}).first().click();
   await page.getByRole('button', {name: 'Sharing & publishing'}).click();
   // The roster lives in the "Members" section of the Sharing tab.
-  await expect(page.getByRole('heading', {name: 'Members'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Members', exact: true})).toBeVisible();
 }
 
 test('members: list, invite by email, and change a role', {tag: ['@sharing', '@visual']}, async ({page, request}, testInfo) => {
