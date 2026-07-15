@@ -152,6 +152,8 @@ export const de: PartialMessages = {
       duplicate: 'Duplizieren',
       deleteBlock: 'Block löschen',
       linkToPage: 'Mit Seite verknüpfen',
+      suggestEdit: 'Änderung vorschlagen…',
+      comment: 'Kommentieren…',
     },
   },
   share: {
@@ -262,13 +264,14 @@ export const de: PartialMessages = {
     placeholder: 'Seiten suchen oder Befehl ausführen…',
     noResults: 'Keine Ergebnisse.',
     pages: 'Seiten',
+    rows: 'Datenbankzeilen',
+    notes: 'In deinen Notizen',
     actions: 'Aktionen',
     createPage: 'Neue Seite',
     insertSample: 'Beispieldokument erkunden',
     importContent: 'Inhalte importieren',
     newFromTemplate: 'Neu aus Vorlage',
 
-    aiSearch: 'Notizen mit KI durchsuchen',
     askAssistant: 'Assistent fragen',
     openSettings: 'Einstellungen öffnen',
     settingsFor: 'Einstellungen: {name}',
@@ -414,14 +417,6 @@ export const de: PartialMessages = {
     indexing: 'Indizierung…',
     indexed: '{pages} Seiten indiziert',
     notIndexed: 'Index entsteht bei der ersten Suche.',
-  },
-  aiSearch: {
-    title: 'Notizen durchsuchen',
-    semantic: 'semantisch',
-    lexical: 'Stichwort',
-    placeholder: 'Wonach suchst du?',
-    empty: 'Keine passenden Notizen.',
-    hint: 'Durchsucht alle Seiteninhalte — mit lokalem Modell werden die Ergebnisse besser.',
   },
   agent: {
     title: 'Assistent',
@@ -907,7 +902,7 @@ export const de: PartialMessages = {
     resetConfirmButton: 'Zurücksetzen',
   },
   members: {
-    title: 'Personen',
+    title: 'Mitglieder',
     description: 'Personen mit einer Rolle in dieser Bibliothek. Lade per E-Mail ein, ändere die Verwaltung und entferne Zugriff.',
     browserLocalNotice:
       'Diese Bibliothek existiert nur in diesem Browser — niemand sonst kann sie erreichen, daher können hier hinzugefügte Personen sie noch nicht öffnen. Um mit anderen zu teilen, veröffentliche eine Bibliothek über die OpenBook-Desktop-App.',

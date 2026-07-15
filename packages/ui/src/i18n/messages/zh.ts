@@ -151,6 +151,8 @@ export const zh: PartialMessages = {
       duplicate: '复制',
       deleteBlock: '删除块',
       linkToPage: '链接到页面',
+      suggestEdit: '建议修改…',
+      comment: '评论…',
     },
   },
   share: {
@@ -259,13 +261,14 @@ export const zh: PartialMessages = {
     placeholder: '搜索页面或运行命令…',
     noResults: '没有结果。',
     pages: '页面',
+    rows: '数据库行',
+    notes: '在你的笔记中',
     actions: '操作',
     createPage: '新建页面',
     insertSample: '浏览示例文档',
     importContent: '导入内容',
     newFromTemplate: '从模板新建',
 
-    aiSearch: '用 AI 搜索笔记',
     askAssistant: '询问助手',
     openSettings: '打开设置',
     settingsFor: '设置：{name}',
@@ -411,14 +414,6 @@ export const zh: PartialMessages = {
     indexing: '索引中…',
     indexed: '已索引 {pages} 个页面',
     notIndexed: '首次搜索时建立索引。',
-  },
-  aiSearch: {
-    title: '搜索笔记',
-    semantic: '语义',
-    lexical: '关键词',
-    placeholder: '你在找什么？',
-    empty: '没有匹配的笔记。',
-    hint: '搜索所有页面内容——使用本地模型可获得更好的结果。',
   },
   agent: {
     title: '助手',
@@ -901,7 +896,7 @@ export const zh: PartialMessages = {
     resetConfirmButton: '重置',
   },
   members: {
-    title: '用户',
+    title: '成员',
     description: '在此资料库拥有角色的人员。可通过邮箱邀请、更改管理权限并移除访问权限。',
     browserLocalNotice:
       '此资料库仅存在于此浏览器中——其他人无法访问它，因此你在此添加的人暂时无法打开它。要与他人共享，请通过 OpenBook 桌面应用发布资料库。',

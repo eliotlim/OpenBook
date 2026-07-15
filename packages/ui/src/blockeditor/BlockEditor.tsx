@@ -1160,13 +1160,12 @@ const BlockMenuItems: React.FC<{
       )}
 
       {/* ── Review rows (Suggest edit / Comment) ────────────────────────────────
-          VOCAB/IA-4 applies i18n to these two labels next; they live together in
-          this one spot (single surface, single place) so that copy pass is a
-          trivial rebase. Keep new review items here, not scattered. */}
+          i18n'd (VOCAB/IA-4); both labels live together in this one spot
+          (single surface, single place). Keep new review items here, not scattered. */}
       {reviewable && (
         <>
-          {isText && <C.Item onSelect={suggestEdit}>Suggest edit…</C.Item>}
-          <C.Item onSelect={comment}>Comment…</C.Item>
+          {isText && <C.Item onSelect={suggestEdit}>{t('menu.block.suggestEdit')}</C.Item>}
+          <C.Item onSelect={comment}>{t('menu.block.comment')}</C.Item>
           <C.Separator />
         </>
       )}
@@ -1316,16 +1315,16 @@ const GroupView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
           <KitInlineText
             className="obe-group-name"
             value={name}
-            placeholder="Group"
+            placeholder="Section"
             readOnly={editor.readOnly}
-            ariaLabel="Group name"
+            ariaLabel="Section name"
             onCommit={(v) => set('name', v)}
           />
           <span className="obe-group-spacer" />
           <button
             type="button"
             className={`obe-group-btn${sync ? ' obe-group-btn-on' : ''}`}
-            aria-label={sync ? `Synced across pages as ${sync}` : 'Sync this group across pages'}
+            aria-label={sync ? `Synced across pages as ${sync}` : 'Sync this section across pages'}
             aria-pressed={Boolean(sync)}
             title={sync ? `Synced across pages as “${sync}”` : 'Sync across pages'}
             disabled={editor.readOnly}
@@ -1336,9 +1335,9 @@ const GroupView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
           <button
             type="button"
             className={`obe-group-btn${locked ? ' obe-group-btn-on' : ''}`}
-            aria-label={locked ? 'Unlock group' : 'Lock group'}
+            aria-label={locked ? 'Unlock section' : 'Lock section'}
             aria-pressed={locked}
-            title={locked ? 'Unlock group' : 'Lock group'}
+            title={locked ? 'Unlock section' : 'Lock section'}
             disabled={editor.readOnly}
             onClick={() => set('locked', !ownLocked)}
           >

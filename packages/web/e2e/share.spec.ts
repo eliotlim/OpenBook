@@ -26,7 +26,7 @@ test('share: set the page scope and grant a person view access', {tag: ['@sharin
 
   // The worker instance is unclaimed, so the dialog honestly discloses that these
   // settings are saved but not yet enforced (OB-203 pre-claim notice).
-  await expect(dialog.getByText(/Sharing takes effect once you claim this instance/)).toBeVisible();
+  await expect(dialog.getByText(/Sharing takes effect once you claim this library/)).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: the open Share dialog
 
   // 1. Set the page's visibility scope → persisted via setPageVisibility.

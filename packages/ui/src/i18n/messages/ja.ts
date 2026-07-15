@@ -151,6 +151,8 @@ export const ja: PartialMessages = {
       duplicate: '複製',
       deleteBlock: 'ブロックを削除',
       linkToPage: 'ページにリンク',
+      suggestEdit: '編集を提案…',
+      comment: 'コメント…',
     },
   },
   share: {
@@ -261,13 +263,14 @@ export const ja: PartialMessages = {
     placeholder: 'ページを検索またはコマンドを実行…',
     noResults: '結果がありません。',
     pages: 'ページ',
+    rows: 'データベースの行',
+    notes: 'ノート内',
     actions: 'アクション',
     createPage: '新規ページ',
     insertSample: 'サンプル文書を見てみる',
     importContent: 'コンテンツをインポート',
     newFromTemplate: 'テンプレートから作成',
 
-    aiSearch: 'AIでノートを検索',
     askAssistant: 'アシスタントに質問',
     openSettings: '設定を開く',
     settingsFor: '設定: {name}',
@@ -413,14 +416,6 @@ export const ja: PartialMessages = {
     indexing: 'インデックス中…',
     indexed: '{pages} ページをインデックス済み',
     notIndexed: '初回検索時にインデックスを作成します。',
-  },
-  aiSearch: {
-    title: 'ノートを検索',
-    semantic: 'セマンティック',
-    lexical: 'キーワード',
-    placeholder: '何を探していますか？',
-    empty: '一致するノートがありません。',
-    hint: '全ページの内容を検索します。ローカルモデルで精度が向上します。',
   },
   agent: {
     title: 'アシスタント',
@@ -905,7 +900,7 @@ export const ja: PartialMessages = {
     resetConfirmButton: 'リセット',
   },
   members: {
-    title: 'ユーザー',
+    title: 'メンバー',
     description: 'このライブラリで役割を持つ人。メールで招待し、管理権限を変更したり、アクセスを削除したりできます。',
     browserLocalNotice:
       'このライブラリはこのブラウザ内にのみ存在し、他の人はアクセスできないため、ここで追加した人はまだ開けません。他の人と共有するには、OpenBook デスクトップアプリからライブラリを公開してください。',
