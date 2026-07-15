@@ -96,6 +96,14 @@ export default function AppearanceSettings() {
           onCheckedChange={(blurOverlays) => setAppearance({blurOverlays})}
         />
       </label>
+
+      {/* Cross-pointer to the per-page scope: these settings theme the whole app
+          on this device. A single page's cover, width, accent, and fonts (same
+          pickers, different scope) are set from that page's Customise pane —
+          which points back here. Clarifies the app-vs-page mix-up (OB-548). */}
+      <p className="border-t border-border pt-4 text-xs text-muted-foreground">
+        {t('appearance.perPagePointer')}
+      </p>
     </SettingsScreen>
   );
 }
