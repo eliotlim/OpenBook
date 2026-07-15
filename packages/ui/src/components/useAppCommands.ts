@@ -23,7 +23,6 @@ import {GitFork,
   StretchHorizontal,
   Sun,
   Table2,
-  Sparkles,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -176,14 +175,6 @@ export function useAppCommands(): AppCommand[] {
         keywords: 'import notion markdown bring content migrate upload zip',
         icon: Upload,
         run: () => setHud((draft) => {draft.importer.open = true; return draft;}),
-      },
-      {
-        id: 'ai-search',
-        group: 'navigation',
-        title: t('command.aiSearch'),
-        keywords: 'ai search notes semantic ask find',
-        icon: Sparkles,
-        run: () => setHud((draft) => {draft.ai.open = true; return draft;}),
       },
       {
         id: 'ask-assistant',

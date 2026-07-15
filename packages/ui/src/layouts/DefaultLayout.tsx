@@ -6,7 +6,6 @@ import TemplateGallery from '@/components/TemplateGallery';
 import ImportDialog from '@/components/ImportDialog';
 import MovePageDialog from '@/components/MovePageDialog';
 import {ToastHost} from '@/components/ui/toast';
-import {AiSearchDialog} from '@/components/AiSearchDialog';
 import {ShareDialogHost} from '@/components/ShareDialog';
 import {SplitPane} from '@/components/SplitPane';
 import PluginBoot from '@/components/PluginBoot';
@@ -94,7 +93,6 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <ImportDialog/>
           <MovePageDialog/>
           <ToastHost/>
-          <AiSearchDialog/>
           <AiBridgeHost/>
           <AssetBridgeHost/>
           <PageAppearanceHost/>
