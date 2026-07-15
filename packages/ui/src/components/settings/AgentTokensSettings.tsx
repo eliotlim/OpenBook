@@ -11,6 +11,7 @@ import {SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/
 import {isForbidden} from '@/components/settings/adminGate';
 import McpSettings from '@/components/settings/McpSettings';
 import AiUsageSettings from '@/components/settings/AiUsageSettings';
+import {SETTINGS_SECTION_AGENTS_MCP, SETTINGS_SECTION_AGENTS_USAGE} from '@/lib/settingsIndex';
 import {copyText} from '@/lib/pageActions';
 
 /** Extract the server's human detail out of the SDK's `request()` wrapper. */
@@ -354,12 +355,16 @@ export default function AgentTokensSettings() {
 
       {/* External tools (MCP client). Admin-only (self-gated + 403-gated); off and
           empty by default; the stdio transport hides on a claimed instance. */}
-      <McpSettings />
+      <div id={SETTINGS_SECTION_AGENTS_MCP} className="scroll-mt-4">
+        <McpSettings />
+      </div>
 
       {/* AI usage attribution + pricing + retention. Renders nothing unless YOU
           are an instance admin (self-gated + 403-gated); a viewer/guest sees none
           of it. */}
-      <AiUsageSettings />
+      <div id={SETTINGS_SECTION_AGENTS_USAGE} className="scroll-mt-4">
+        <AiUsageSettings />
+      </div>
     </SettingsScreen>
   );
 }

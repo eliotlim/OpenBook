@@ -2,6 +2,11 @@ import {useHud, useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
 import {SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
 import {formatShortcut, isMacPlatform, SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
+import {
+  SETTINGS_SECTION_CUST_BLOCKS,
+  SETTINGS_SECTION_CUST_LAYOUT,
+  SETTINGS_SECTION_CUST_SHORTCUTS,
+} from '@/lib/settingsIndex';
 
 /** A keystroke rendered as a <kbd> chip. */
 function Keys({label}: {label: string}) {
@@ -59,7 +64,7 @@ export default function CustomisationSettings() {
 
   return (
     <SettingsScreen title={t('customisation.title')} description={t('customisation.description')} scope="device">
-      <SettingsSection title={t('customisation.layout')}>
+      <SettingsSection id={SETTINGS_SECTION_CUST_LAYOUT} title={t('customisation.layout')}>
         {/* Full width is now a per-page choice (page "…" menu / ⌘. / the page's
             customise pane), so it's no longer a global switch here. */}
         <SettingsToggle
@@ -77,7 +82,11 @@ export default function CustomisationSettings() {
         />
       </SettingsSection>
 
-      <SettingsSection title={t('customisation.shortcuts')} description={t('customisation.shortcutsHint')}>
+      <SettingsSection
+        id={SETTINGS_SECTION_CUST_SHORTCUTS}
+        title={t('customisation.shortcuts')}
+        description={t('customisation.shortcutsHint')}
+      >
         <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
           {shortcuts.map((s) => (
             <li key={s.key} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
@@ -88,7 +97,11 @@ export default function CustomisationSettings() {
         </ul>
       </SettingsSection>
 
-      <SettingsSection title={t('customisation.blockShortcuts')} description={t('customisation.blockShortcutsHint')}>
+      <SettingsSection
+        id={SETTINGS_SECTION_CUST_BLOCKS}
+        title={t('customisation.blockShortcuts')}
+        description={t('customisation.blockShortcutsHint')}
+      >
         <ul className="flex flex-col divide-y divide-border rounded-md border border-border">
           {blockShortcuts.map((s) => (
             <li key={s.key} className="flex items-center justify-between px-3.5 py-2.5 text-sm">

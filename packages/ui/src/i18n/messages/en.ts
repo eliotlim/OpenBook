@@ -22,6 +22,8 @@ export const en = {
     exitFullscreen: 'Exit full screen',
     enterFullscreen: 'Enter full screen',
     closeSettings: 'Close settings',
+    searchPlaceholder: 'Search settings…',
+    searchNoResults: 'No settings match your search.',
     section: {
       preferences: 'Preferences',
       account: 'Account',
