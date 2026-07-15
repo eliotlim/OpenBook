@@ -154,6 +154,10 @@ export const en = {
     suggested: 'Suggested',
     home: 'Home',
     templates: 'Templates',
+    crumbMenu: 'Siblings and subpages of "{page}"',
+    crumbSiblings: 'Siblings',
+    crumbSubpages: 'Subpages',
+    crumbCollapsed: 'Show hidden pages',
   },
   tabs: {
     new: 'New tab',
