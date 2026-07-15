@@ -53,3 +53,39 @@ test('present mode: slides, navigation, a live widget, and speaker notes', {tag:
   await page.keyboard.press('Escape');
   await expect(present).toHaveCount(0);
 });
+
+// IA-8: Present is a visible one-click affordance in the page-actions cluster
+// (not only the "…" submenu). Click = full-screen deck; the OS fullscreen
+// request may be refused in headless, but the overlay opens regardless.
+test('present button in the page-actions cluster opens the deck', {tag: ['@editor']}, async ({page, request}) => {
+  const blockdoc = {
+    blocks: [
+      {id: 'h1', type: 'heading', props: {level: 1}, text: [{t: 'Only Slide'}]},
+    ],
+  };
+  const res = await request.post(`${SERVER}/api/pages`, {
+    data: {
+      name: `Deck Button ${Date.now()}`,
+      data: {editor: 'blocks', blockdoc, editorjs: {blocks: []}, values: [], names: []},
+    },
+  });
+  const {id} = (await res.json()) as {id: string};
+
+  // Home offers no Present control (nothing to present there). The copy-link
+  // button always renders in the cluster (disabled on Home), so it anchors the
+  // "cluster is mounted" wait without depending on doc-action registration.
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'Copy link'}).first()).toBeVisible();
+  await expect(page.getByRole('button', {name: 'Present', exact: true})).toHaveCount(0);
+
+  // …a document page does, and one click opens the deck.
+  await page.goto(`/?page=${id}`);
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  const presentButton = page.getByRole('button', {name: 'Present', exact: true});
+  await presentButton.click();
+  const present = page.locator('.ob-present');
+  await expect(present).toBeVisible();
+  await expect(present.locator('.ob-present-stage').getByRole('heading', {name: 'Only Slide'})).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(present).toHaveCount(0);
+});

@@ -99,7 +99,7 @@ interface SlashItem {
 // Icons that describe each command visually. Core/page items key by item id;
 // custom blocks key by block type; everything else falls back per group.
 const ID_ICONS: Record<string, IconComp> = {
-  text: Type, h1: Heading1, h2: Heading2, h3: Heading3,
+  text: Type, h1: Heading1, h2: Heading2, h3: Heading3, chart: BarChart3,
   bullet: List, number: ListOrdered, todo: ListTodo, quote: Quote,
   callout: Info, code: Code2, livecode: Sigma, divider: Minus, image: ImageIcon, notes: Mic,
   htmlartifact: AppWindow,
@@ -228,6 +228,11 @@ export const SLASH_ITEMS: SlashItem[] = [
   {id: 'callout', label: 'Callout', hint: 'Highlighted note', keywords: 'callout note info', group: 'basic', apply: turn('callout', {variant: 'info'})},
   {id: 'code', label: 'Code', hint: 'Monospaced block', keywords: 'code snippet', group: 'basic', apply: turn('code')},
   {id: 'image', label: 'Image', hint: 'Upload, paste or drop a picture', keywords: 'image picture photo img upload media figure', group: 'basic', apply: insertAfterOrReplace(() => ({type: 'image'}))},
+  // Chart leads the interactive group (IA-8): it's the marquee data-viz block,
+  // so it lives here as a first-class core item rather than a registry entry
+  // buried behind the kit's input widgets. Inserts the same `kitchart` block
+  // the reactive kit renders; the kind is switched from the block's ⚙ config.
+  {id: 'chart', label: 'Chart', hint: 'Line, bar, pie, KPI & more — live over inputs and databases', keywords: 'chart graph plot data viz visualization visualisation dataviz line bar pie donut scatter funnel kpi heatmap combo dashboard analytics kit', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'kitchart', props: {kind: 'line', source: '[3, 1, 4, 1, 5, 9, 2, 6]'}}))},
   {id: 'livecode', label: 'Live code', hint: 'Computes over inputs; name the output to chain', keywords: 'livecode live code formula compute expr reactive calculation', group: 'interactive', apply: turn('code', {live: true, name: 'result', language: 'js'})},
   {id: 'htmlartifact', label: 'HTML artifact', hint: 'Upload a .html file — runs interactive, sandboxed', keywords: 'html artifact iframe embed widget interactive sandbox web app demo', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'htmlArtifact'}))},
   {id: 'group', label: 'Group', hint: 'Lockable, syncable container that namespaces its inputs', keywords: 'group container section lock sync namespace box organise organize', group: 'interactive', apply: insertAfterOrReplace(() => ({type: 'group', props: {name: ''}, children: [{type: 'paragraph'}]}))},
