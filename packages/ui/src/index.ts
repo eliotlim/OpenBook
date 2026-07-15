@@ -33,3 +33,8 @@ export {connectBroadcast, type BroadcastConnection, type PresencePeer} from './b
 export {connectPageAwareness, blockSelection, type AwarenessConnection, type AwarenessIdentity, type AwarenessSelection, type AwarenessState} from './blockeditor';
 export {openAwareness, registerOpenAwareness, subscribeOpenAwareness} from './lib/openAwareness';
 export {registerCustomBlock, registerReactiveBlocks, registerArtifactKit, blocksToHtml, blocksToMarkdown, type CustomBlockDef, type CustomBlockProps} from './blockeditor';
+
+// Interactive HTML export: projects a page snapshot into a self-contained,
+// offline-capable HTML file with the reactive runtime (sliders/charts/formulas)
+// inlined. `toSlideDeck`/`toHtmlSite` are the deck + multi-page variants.
+export {toHtml, toSlideDeck, toHtmlSite} from './export/toHtml';
