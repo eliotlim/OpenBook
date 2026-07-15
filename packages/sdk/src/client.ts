@@ -376,6 +376,13 @@ export interface DataClient {
   setBackupConfig(patch: Partial<BackupConfig>): Promise<BackupStatus>;
   /** Run a snapshot now ("Back up now"). Resolves the written file + its folder. */
   runBackup(cadence?: BackupCadence): Promise<{file: string; dir: string}>;
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  /** Release the client's resources (close the live `EventSource`, drop
+   *  identity subscriptions). Optional — an in-webview client with no long-lived
+   *  connection has nothing to release. Called when the app swaps to a different
+   *  client (a no-reload library switch) or tears down. */
+  dispose?(): void;
 }
 
 /**
