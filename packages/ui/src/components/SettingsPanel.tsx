@@ -202,7 +202,11 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
           <Input
             type="search"
             inputSize="sm"
+            role="combobox"
             aria-label={t('settings.searchPlaceholder')}
+            aria-expanded={searching}
+            aria-controls="settings-search-listbox"
+            aria-activedescendant={searching && results[activeIndex] ? `settings-search-opt-${activeIndex}` : undefined}
             placeholder={t('settings.searchPlaceholder')}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -212,7 +216,7 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
         </div>
 
         {searching ? (
-          <div className="flex flex-col gap-0.5" role="listbox" aria-label={t('settings.searchPlaceholder')}>
+          <div id="settings-search-listbox" className="flex flex-col gap-0.5" role="listbox" aria-label={t('settings.searchPlaceholder')}>
             {results.length === 0 ? (
               <p className="px-2 py-3 text-xs text-muted-foreground">{t('settings.searchNoResults')}</p>
             ) : (
@@ -221,6 +225,7 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
                 return (
                   <button
                     key={`${entry.tab}:${entry.sectionId}`}
+                    id={`settings-search-opt-${i}`}
                     type="button"
                     role="option"
                     aria-selected={i === activeIndex}

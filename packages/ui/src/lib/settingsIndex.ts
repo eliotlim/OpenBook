@@ -67,7 +67,7 @@ export const SETTINGS_SEARCH_INDEX: readonly SettingsSearchEntry[] = [
     sectionId: SETTINGS_SECTION_CUST_LAYOUT,
     labelKey: 'customisation.layout',
     hintKey: 'customisation.autoHideSidebarHint',
-    keywords: 'layout auto-hide sidebar',
+    keywords: 'layout auto-hide sidebar customization',
   },
   {
     tab: 'customisation',
