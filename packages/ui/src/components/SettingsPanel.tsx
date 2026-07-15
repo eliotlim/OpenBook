@@ -22,6 +22,7 @@ import AdminSettings from '@/components/settings/AdminSettings';
 import AccountSettings from '@/components/settings/AccountSettings';
 import AgentTokensSettings from '@/components/settings/AgentTokensSettings';
 import DiagnosticsSettings from '@/components/settings/DiagnosticsSettings';
+import {useIsSettingsAdmin} from '@/components/settings/adminGate';
 import {cn} from '@/lib/utils';
 import {useSelfIdentity, useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
@@ -96,6 +97,11 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
   const fullscreen = mode === 'fullscreen';
   const {t} = useTranslation();
   const Panel = PANELS[tab];
+  // The "Agents & AI admin" tab is admin-only: hide it from the rail entirely for
+  // a confirmed non-admin (the panel still self-gates for a deep-link). Shown only
+  // on an explicit `true`, so it never flashes for a viewer while the probe runs.
+  const isAdmin = useIsSettingsAdmin();
+  const canSeeAgents = isAdmin === true;
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-row">
@@ -111,20 +117,22 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
             <span className="px-2 pb-0.5 pt-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {t(SECTION_LABEL[section.id])}
             </span>
-            {section.tabs.map((id) => {
-              const {labelKey, icon: Icon} = TAB_META[id];
-              return (
-                <Button
-                  key={id}
-                  variant={tab === id ? 'secondary' : 'ghost'}
-                  className="flex h-7 justify-start px-2 font-normal"
-                  onClick={() => onTabChange(id)}
-                >
-                  <Icon className="mr-2 h-4 w-4 shrink-0" />
-                  <span className="truncate">{t(labelKey)}</span>
-                </Button>
-              );
-            })}
+            {section.tabs
+              .filter((id) => id !== 'agents' || canSeeAgents)
+              .map((id) => {
+                const {labelKey, icon: Icon} = TAB_META[id];
+                return (
+                  <Button
+                    key={id}
+                    variant={tab === id ? 'secondary' : 'ghost'}
+                    className="flex h-7 justify-start px-2 font-normal"
+                    onClick={() => onTabChange(id)}
+                  >
+                    <Icon className="mr-2 h-4 w-4 shrink-0" />
+                    <span className="truncate">{t(labelKey)}</span>
+                  </Button>
+                );
+              })}
           </div>
         ))}
         <div className="mt-auto">
