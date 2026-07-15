@@ -1,10 +1,14 @@
 import {test, expect, takeSnapshot} from './fixtures';
-import {newPage, reclaimNames, SERVER} from './seed';
+import {newPage, SERVER} from './seed';
 
 // Typing `@` opens the block editor's mention menu (existing pages, dates,
 // people). Picking a page inserts an inline link that navigates to it and
 // survives reload. (The classic editor's inline "create a new page" flow is
 // gone — the block editor's `@` links existing pages only.)
+
+// Per-test workspace isolation, so fixed page/row names can't collide with
+// other tests sharing this worker (no manual name reclaiming needed).
+test.use({freshWorkspace: true});
 
 async function openEditor(page: import('@playwright/test').Page, pageId: string): Promise<void> {
   await page.goto(`/?page=${pageId}`);
@@ -65,7 +69,6 @@ test('@ menu links a database row', {tag: ['@editor']}, async ({page, request}) 
     data: {pageId: dbPage, name: 'Tasks', schema: {properties: [], views: []}},
   });
   const dbId = ((await d.json()) as {id: string}).id;
-  await reclaimNames(request, 'Zephyr Row');
   const r = await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {name: 'Zephyr Row'}});
   const rowId = ((await r.json()) as {id: string}).id;
 
