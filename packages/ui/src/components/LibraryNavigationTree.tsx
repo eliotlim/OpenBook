@@ -43,7 +43,7 @@ export function buildTree(pages: PageMeta[]): TreeDataItem[] {
 }
 
 export default function LibraryNavigationTree() {
-  const {pages, currentPageId, selectPageInPane, createPage, createDatabasePage, createSubpage, movePage} = useNavigation();
+  const {pages, loading, currentPageId, selectPageInPane, createPage, createDatabasePage, createSubpage, movePage} = useNavigation();
   // Sidebar navigation always drives the primary (left) pane — the split pane
   // only follows its own links or an explicit "open in split".
   const openPrimary = (id: string): void => selectPageInPane(id, 'primary');
@@ -83,7 +83,12 @@ export default function LibraryNavigationTree() {
           </IconButton>
         </div>
       </div>
-      {data.length === 0 ? (
+      {loading ? (
+        // Still listing pages (initial load, or a no-reload library switch): render
+        // nothing rather than flash the empty-state starters over a library that
+        // does have pages — the tree fills in the moment `listPages()` resolves.
+        <div className="flex-1" />
+      ) : data.length === 0 ? (
         // A brand-new (or emptied-out) library: the empty tree would just be a
         // blank gap, so lead with the same starters Home offers — a plain new
         // page and the template gallery — right where pages will appear.

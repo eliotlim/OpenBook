@@ -813,9 +813,14 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
         selectPageInPane(pageId, 'primary');
         return;
       }
-      void client.getPage(pageId).then((page) => {
-        selectPageInPane(page ? pageId : HOME_PAGE_ID, 'primary');
-      });
+      void client
+        .getPage(pageId)
+        .then((page) => {
+          selectPageInPane(page ? pageId : HOME_PAGE_ID, 'primary');
+        })
+        // A failed lookup (offline/transport error) must not leave an unhandled
+        // rejection — fall back to Home, same as a stale/foreign id.
+        .catch(() => selectPageInPane(HOME_PAGE_ID, 'primary'));
     });
   }, [platform.deepLink, client, selectPageInPane]);
 
