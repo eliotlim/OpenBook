@@ -253,7 +253,7 @@ export {
   type AccessCtx,
   type Decision,
 } from './authorize';
-export {snapshotText, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock} from './content';
+export {snapshotText, snapshotSegments, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock, type SnapshotSegment} from './content';
 export {
   snapshotBlocks,
   contentHash,

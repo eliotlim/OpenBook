@@ -69,6 +69,27 @@ export const MentionMenu: React.FC<{
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{left: number; top: number; maxHeight: number} | null>(null);
   const [index, setIndex] = useState(0);
+  // Database rows matching the query (fetched async — rows are pages too, so a
+  // mention can link one, mirroring backlinks). Merged into the "pages" group.
+  const [rows, setRows] = useState<PageLinkResult[]>([]);
+  // While a row search is in flight, don't dismiss an otherwise-empty menu — a
+  // row-only match would otherwise close before its async results land.
+  const [rowsLoading, setRowsLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setRowsLoading(true);
+    void Promise.resolve(pageLinks.searchRows?.(state.query) ?? [])
+      .then((res) => {
+        if (!cancelled) setRows(res);
+      })
+      .finally(() => {
+        if (!cancelled) setRowsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [state.query]);
 
   const items = useMemo(() => {
     const q = state.query.trim().toLowerCase();
@@ -79,16 +100,21 @@ export const MentionMenu: React.FC<{
       icon: FileText,
       page: p,
     }));
+    // Rows join the pages group; drop any already surfaced as a page.
+    const seen = new Set(pages.map((it) => it.page!.id));
+    const rowItems: MentionItem[] = rows
+      .filter((r) => !seen.has(r.id))
+      .map((r) => ({id: `row-${r.id}`, label: r.label, group: 'pages', icon: FileText, page: r}));
     const dates = dateItems();
     const identity = readIdentity();
     const people: MentionItem[] = identity
       ? [{id: 'me', label: identity, group: 'people', icon: User, text: identity}]
       : [];
     const match = (it: MentionItem): boolean => !q || it.label.toLowerCase().includes(q);
-    return [...pages, ...dates.filter(match), ...people.filter(match)].sort(
+    return [...pages, ...rowItems, ...dates.filter(match), ...people.filter(match)].sort(
       (a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group),
     );
-  }, [state.query]);
+  }, [state.query, rows]);
 
   // Caret-anchored fixed positioning (mirrors SlashMenu): measure after render,
   // flip above the line when there's no room below, clamp to the viewport.
@@ -135,8 +161,8 @@ export const MentionMenu: React.FC<{
   }, [state.keyEvent?.n]);
 
   useEffect(() => {
-    if (items.length === 0) onClose();
-  }, [items.length, onClose]);
+    if (items.length === 0 && !rowsLoading) onClose();
+  }, [items.length, rowsLoading, onClose]);
 
   const pick = (item: MentionItem | undefined): void => {
     if (!item) return;

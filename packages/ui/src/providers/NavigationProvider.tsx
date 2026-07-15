@@ -94,13 +94,23 @@ export interface NavigationContextValue {
   /** A pending "scroll to this group header" request from a copied group link
    *  (`?page=<hostDb>&group=<groupKey>`). See {@link rowAnchor}. */
   groupAnchor: string | null;
+  /** A pending "scroll to this block" request — from a search pick, a copied
+   *  block link (`?page=<page>&block=<blockId>`), or {@link selectPageAtBlock}.
+   *  The page document owning the block honours it (scroll + transient
+   *  highlight), then calls {@link clearBlockAnchor}. See {@link rowAnchor}. */
+  blockAnchor: string | null;
   /** Consume {@link rowAnchor} once the row has been scrolled into view. */
   clearRowAnchor: () => void;
   /** Consume {@link groupAnchor} once the group header has been scrolled into view. */
   clearGroupAnchor: () => void;
+  /** Consume {@link blockAnchor} once the block has been scrolled into view. */
+  clearBlockAnchor: () => void;
 
   /** Navigate the focused pane to a page. */
   selectPage: (id: string) => void;
+  /** Navigate the focused pane to a page and scroll/flash a specific block on
+   *  arrival (a search pick or copy-block-link landing on the matched block). */
+  selectPageAtBlock: (id: string, blockId: string) => void;
   /** Navigate (and focus) a SPECIFIC pane, regardless of which is focused. All
    *  link / sidebar / breadcrumb navigation targets the primary pane; the side
    *  pane stays put as a reference and changes only via "open in split". */
@@ -157,8 +167,10 @@ const readUrl = (): {
   paneTarget: string | null;
   row: string | null;
   group: string | null;
+  block: string | null;
 } => {
-  if (typeof window === 'undefined') return {page: null, split: null, view: null, paneTarget: null, row: null, group: null};
+  if (typeof window === 'undefined')
+    return {page: null, split: null, view: null, paneTarget: null, row: null, group: null, block: null};
   const params = new URLSearchParams(window.location.search);
   return {
     page: params.get('page'),
@@ -167,6 +179,7 @@ const readUrl = (): {
     paneTarget: params.get('paneTarget'),
     row: params.get('row'),
     group: params.get('group'),
+    block: params.get('block'),
   };
 };
 
@@ -205,11 +218,13 @@ const writeUrl = (
   // page. Omitted when the pane targets the primary page (the restore default).
   if (paneTarget) url.searchParams.set('paneTarget', paneTarget);
   else url.searchParams.delete('paneTarget');
-  // `?row=`/`?group=` are one-shot scroll-to anchors (a copied row/group link).
-  // They're consumed into provider state at init, then dropped here on the first
-  // window mirror so the anchor fires exactly once and the address bar stays clean.
+  // `?row=`/`?group=`/`?block=` are one-shot scroll-to anchors (a copied row /
+  // group / block link, or a search pick). They're consumed into provider state
+  // at init, then dropped here on the first window mirror so the anchor fires
+  // exactly once and the address bar stays clean.
   url.searchParams.delete('row');
   url.searchParams.delete('group');
+  url.searchParams.delete('block');
   const path = `${url.pathname}${url.search}${url.hash}`;
   const state: HistoryEntryState | null = nav && nav.index !== null ? {obIndex: nav.index} : null;
   // A page navigation on the web pushes a real browser entry so Back/Forward
@@ -233,6 +248,7 @@ const pageUrl = (id: string): string => {
   url.searchParams.delete('paneTarget'); // no side pane carried into a new tab
   url.searchParams.delete('row'); // a new tab isn't a one-shot scroll-to anchor
   url.searchParams.delete('group');
+  url.searchParams.delete('block');
   return url.toString();
 };
 
@@ -260,8 +276,12 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   // the URL cleanup; consumed by the DatabaseView that owns the row/group.
   const [rowAnchor, setRowAnchor] = useState<string | null>(() => readUrl().row);
   const [groupAnchor, setGroupAnchor] = useState<string | null>(() => readUrl().group);
+  // One-shot block anchor: seeded from `?block=` (a shared/copied block link) and
+  // also set in-session by search picks / block links via {@link selectPageAtBlock}.
+  const [blockAnchor, setBlockAnchor] = useState<string | null>(() => readUrl().block);
   const clearRowAnchor = useCallback(() => setRowAnchor(null), []);
   const clearGroupAnchor = useCallback(() => setGroupAnchor(null), []);
+  const clearBlockAnchor = useCallback(() => setBlockAnchor(null), []);
   // Mirror of each pane-target store (customise/review), so the URL-sync effect
   // re-runs — and re-writes `?paneTarget=` — the instant a pane's target page
   // changes. A monotonic tick is enough; the effect reads the fresh value.
@@ -269,6 +289,10 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   const initRef = useRef<Promise<void> | null>(null);
   const prevTopLevelIds = useRef<Set<string>>(new Set());
+  // Lazy per-database row cache for the `@`-mention row search (rows aren't in
+  // the top-level `pages` list). Cleared whenever the page list changes, so a
+  // renamed/added/removed row is re-listed on the next mention search.
+  const rowLinkCache = useRef<Map<string, PageLinkResult[]>>(new Map());
   // The active tab's primary-history index last reflected into browser history
   // (web only). Lets the URL-mirror effect decide push (new page) vs replace
   // (pane/view/anchor), and lets the popstate handler mark the model in sync
@@ -364,6 +388,16 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   // ── Navigation ──────────────────────────────────────────────────────────────
   const selectPage = useCallback((id: string) => update((w) => W.navigateFocused(w, id)), [update]);
+  // Navigate, then anchor a block. Set the anchor before navigating so it's in
+  // place by the time the destination document mounts and consumes it (a same-
+  // page pick fires it too, since the anchor — not the page — changed).
+  const selectPageAtBlock = useCallback(
+    (id: string, blockId: string) => {
+      setBlockAnchor(blockId);
+      update((w) => W.navigateFocused(w, id));
+    },
+    [update],
+  );
   const selectPageInPane = useCallback(
     (id: string, pane: PaneId) => update((w) => W.navigatePane(w, pane, id)),
     [update],
@@ -599,6 +633,58 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [pages, pageLabel],
   );
 
+  // Row targets for the `@`-mention picker — database rows are pages too, so `@`
+  // can link one (mirroring backlinks, which already point at rows). Async
+  // because rows live under each database, not in the top-level page list; the
+  // per-database results are cached (invalidated on any page-list change) so a
+  // keystroke doesn't re-list every table.
+  const searchRows = useCallback(
+    async (query: string, limit = 6): Promise<PageLinkResult[]> => {
+      const q = query.trim().toLowerCase();
+      const dbPages = pages.filter((p) => p.hostedDatabaseId);
+      const collected: PageLinkResult[] = [];
+      for (const dbPage of dbPages) {
+        const dbId = dbPage.hostedDatabaseId!;
+        let rows = rowLinkCache.current.get(dbId);
+        if (!rows) {
+          try {
+            const list = await client.listRows(dbId);
+            rows = list.map((r) => ({
+              id: r.id,
+              label: r.name && r.name.trim().length > 0 ? r.name : bareT('common.untitled'),
+              icon: readPageIcon(r.id),
+              // The host database's name gives the row a disambiguating context,
+              // the way an ancestor path does for a page.
+              path: pageLabel(dbPage.id),
+            }));
+            rowLinkCache.current.set(dbId, rows);
+          } catch {
+            rows = [];
+          }
+        }
+        collected.push(...rows);
+      }
+      const rank = (label: string): number => {
+        const l = label.toLowerCase();
+        return l === q ? 2 : l.startsWith(q) ? 1 : 0;
+      };
+      const top = collected
+        .filter((r) => q === '' || r.label.toLowerCase().includes(q))
+        .sort((a, b) => rank(b.label) - rank(a.label))
+        .slice(0, limit);
+      // Seed each row's title so an inserted mention chip renders its name.
+      top.forEach((r) => setPageHint(r.id, r.label));
+      return top;
+    },
+    [pages, client, pageLabel, setPageHint],
+  );
+
+  // Drop the row cache whenever the page list changes (a row rename/add/remove
+  // reflows the list); the next mention search re-lists lazily.
+  useEffect(() => {
+    rowLinkCache.current.clear();
+  }, [pages]);
+
   const createLinkedPage = useCallback(
     async (name: string): Promise<string> => {
       const page = await client.savePage({name: name.trim() || null, data: emptyPageSnapshot()});
@@ -684,15 +770,21 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     setPageLinkBridge({
       createSubpage: (parentId, kind) => createSubpage(parentId, kind),
       // A link click navigates the pane it came from (the editor passes 'primary'
-      // or 'secondary'); without a target it falls back to the focused pane.
-      openPage: (id, pane) => (pane ? selectPageInPane(id, pane) : selectPage(id)),
+      // or 'secondary'); without a target it falls back to the focused pane. A
+      // `blockId` additionally anchors the landing on that block (a block-scoped
+      // link) — the same one-shot scroll/flash a search pick uses.
+      openPage: (id, pane, blockId) => {
+        if (blockId) setBlockAnchor(blockId);
+        return pane ? selectPageInPane(id, pane) : selectPage(id);
+      },
       label: (id) => pageLabel(id),
       icon: (id) => readPageIcon(id),
       searchPages,
+      searchRows,
       createPage: createLinkedPage,
     });
     return () => setPageLinkBridge(null);
-  }, [createSubpage, selectPage, selectPageInPane, pageLabel, searchPages, createLinkedPage]);
+  }, [createSubpage, selectPage, selectPageInPane, pageLabel, searchPages, searchRows, createLinkedPage]);
 
   // Let an interactive block "Expand" its settings into the side pane (reusing
   // the split mechanism rather than a bespoke drawer).
@@ -788,9 +880,12 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       setActiveViewParam,
       rowAnchor,
       groupAnchor,
+      blockAnchor,
       clearRowAnchor,
       clearGroupAnchor,
+      clearBlockAnchor,
       selectPage,
+      selectPageAtBlock,
       selectPageInPane,
       goBack,
       goForward,
@@ -809,8 +904,8 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       pages, currentPageId, primaryPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
       panes, focusedPaneId, splitOpen, focusPane, openInSplit,
       closeSplit, closePane, openInNew, newPageIn, closePage, pageLabel, setPageHint, viewParam, setActiveViewParam,
-      rowAnchor, groupAnchor, clearRowAnchor, clearGroupAnchor,
-      selectPage, selectPageInPane, goBack,
+      rowAnchor, groupAnchor, blockAnchor, clearRowAnchor, clearGroupAnchor, clearBlockAnchor,
+      selectPage, selectPageAtBlock, selectPageInPane, goBack,
       goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, duplicatePage, deletePage, renamePage,
       movePage, reload,
     ],

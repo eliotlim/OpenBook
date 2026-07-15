@@ -43,7 +43,7 @@ import {registerOpenDoc} from '@/lib/openDocs';
 import {registerBlockEditorDoc} from '@/lib/aiBridge';
 import {SuggestHost} from '@/components/review/SuggestHost';
 import {BlockReviewMarkers} from '@/components/review/BlockReviewMarkers';
-import {useConfirm, usePreferences, useTheme, useTranslation} from '@/providers';
+import {useConfirm, useNavigation, usePreferences, useTheme, useTranslation} from '@/providers';
 import {downloadText, safeFilename} from '@/lib/download';
 import {cn} from '@/lib/utils';
 import {PageHeader, type PageDocumentProps, type PageTitleHandle} from './pageChrome';
@@ -65,6 +65,64 @@ import {PageHeader, type PageDocumentProps, type PageTitleHandle} from './pageCh
 registerReactiveBlocks(); // built-in reactive plugins (slider + formula)
 registerArtifactKit(); // interactive artifact blocks (inputs, charts, cards)
 registerDatabaseBlock(); // inline database-view embeds ("Link to database")
+
+/**
+ * Honour a pending `blockAnchor` (a search pick, a copied block link, or
+ * `?block=`): once this document is the primary page and its blocks have
+ * rendered, scroll the target block into view and flash it, then consume the
+ * anchor. Mirrors the DatabaseView row/group anchor (rAF-retry for async layout,
+ * CSS.escape for the selector, single-fire), scoped to this editor's wrapper so
+ * a split view resolves to the right copy.
+ */
+function useBlockAnchor(
+  pageId: string | undefined,
+  containerRef: React.RefObject<HTMLElement | null>,
+  notReady: boolean,
+): void {
+  const {blockAnchor, clearBlockAnchor, primaryPageId} = useNavigation();
+  useEffect(() => {
+    if (notReady || !blockAnchor || !pageId || pageId !== primaryPageId) return;
+    const escaped =
+      typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+        ? CSS.escape(blockAnchor)
+        : blockAnchor.replace(/["\\]/g, '\\$&');
+    const selector = `[data-block-row="${escaped}"]`;
+    let tries = 0;
+    let raf = 0;
+    let timer = 0;
+    const attempt = (): void => {
+      const root: ParentNode = containerRef.current ?? document;
+      let el: Element | null;
+      try {
+        el = root.querySelector(selector);
+      } catch {
+        clearBlockAnchor();
+        return;
+      }
+      if (el) {
+        const reduce =
+          typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        el.scrollIntoView({behavior: reduce ? 'auto' : 'smooth', block: 'center'});
+        el.classList.add('ob-anchor-flash');
+        timer = window.setTimeout(() => el!.classList.remove('ob-anchor-flash'), 1800);
+        clearBlockAnchor();
+        return;
+      }
+      // Give an async-loading document a few frames to render its blocks before
+      // giving up; then clear so a missing target doesn't re-fire forever.
+      if (++tries > 20) {
+        clearBlockAnchor();
+        return;
+      }
+      raf = requestAnimationFrame(attempt);
+    };
+    raf = requestAnimationFrame(attempt);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (timer) clearTimeout(timer);
+    };
+  }, [blockAnchor, clearBlockAnchor, primaryPageId, pageId, notReady, containerRef]);
+}
 
 const BlockPageDocument: React.FC<PageDocumentProps> = ({
   onSave,
@@ -107,6 +165,10 @@ const BlockPageDocument: React.FC<PageDocumentProps> = ({
   // one rebuilds that surface on every render (e.g. each save-status tick).
   const leaveToTitle = useCallback(() => titleRef.current?.focusEnd(), []);
   const leaveToEditor = useCallback(() => editorRef.current?.focusStart(), []);
+
+  // Scroll/flash a block when navigated here with a pending block anchor (a
+  // search pick or a copied block link). Waits for the doc to decode + render.
+  useBlockAnchor(pageId, editorWrapRef, !doc);
 
   // ── Load (or migrate) ──────────────────────────────────────────────────────
   useEffect(() => {
