@@ -26,7 +26,16 @@
 import {b64uDecodeString, b64uEncodeString} from './encoding';
 import {signWithSiteKey, verifyWithSiteKey} from './siteKey';
 
-/** The legacy assertion version tag (v1) — carries `workspaceId`. Still ACCEPTED. */
+/**
+ * The legacy assertion version tag (v1) — carries `workspaceId`. Still ACCEPTED.
+ *
+ * @deprecated Wire residue — removal target **v3.0.0** (see `docs/wire-sunset.md`).
+ * The signer emits {@link ROSTER_ASSERTION_V2} (`libraryId`); this tag is retained
+ * ONLY so the verifier keeps dual-accepting assertions minted by an un-updatable
+ * desktop build. DO NOT drop it from {@link ACCEPTED_ROSTER_VERSIONS} before v3.0.0,
+ * and never while any deployed build still signs v1. The version tag is part of the
+ * SIGNED bytes, so this identifier is immutable on the wire.
+ */
 export const ROSTER_ASSERTION_VERSION = 'openbook.roster.v1';
 
 /** The current assertion version tag (v2, LIB-5) — carries `libraryId`. What the signer emits. */
@@ -52,6 +61,8 @@ export type RosterAssertionVersion = (typeof ACCEPTED_ROSTER_VERSIONS)[number];
  * a body carrying the wrong key resolves to `undefined` → reject.
  */
 const AUDIENCE_KEY_BY_VERSION: Record<RosterAssertionVersion, 'workspaceId' | 'libraryId'> = {
+  // @deprecated v1 `workspaceId` — wire residue, removal target v3.0.0 (docs/wire-sunset.md).
+  // Immutable (part of the signed bytes); kept for dual-accept. Prefer v2 `libraryId`.
   [ROSTER_ASSERTION_VERSION]: 'workspaceId',
   [ROSTER_ASSERTION_V2]: 'libraryId',
 };
@@ -64,7 +75,12 @@ export function isAcceptedRosterVersion(v: unknown): v is RosterAssertionVersion
 /** Default freshness window for a roster assertion (±5 min — the account's window). */
 export const ROSTER_ASSERTION_SKEW_MS = 5 * 60 * 1000;
 
-/** The legacy (v1) assertion payload — carries `workspaceId`. Still verifiable. */
+/**
+ * The legacy (v1) assertion payload — carries `workspaceId`. Still verifiable.
+ *
+ * @deprecated Wire residue — removal target **v3.0.0** (see `docs/wire-sunset.md`).
+ * New assertions use {@link RosterAssertionV2Payload} (`libraryId`, SAME id value).
+ */
 export interface RosterAssertionV1Payload {
   /** Fixed protocol tag, {@link ROSTER_ASSERTION_VERSION}. */
   v: typeof ROSTER_ASSERTION_VERSION;
