@@ -265,6 +265,7 @@ export const en = {
   },
   share: {
     open: 'Share',
+    unsupportedHint: 'Sharing isn’t available on this server.',
     title: 'Share this page',
     description: 'Choose who can access this page, and invite people to view or edit it.',
     loadError: 'Couldn’t load sharing settings for this page.',
@@ -386,6 +387,8 @@ export const en = {
     customisePage: 'Customise page',
     reviewSuggestions: 'Review suggestions & comments',
     versionHistory: 'Version history',
+    sharePage: 'Share this page',
+    exportAs: 'Export: {name}',
     presentFull: 'Present: full screen',
     presentPresenter: 'Present: presenter view',
     goBack: 'Go back',

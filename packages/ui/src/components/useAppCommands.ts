@@ -9,6 +9,7 @@ import {GitFork,
   Columns2,
   FilePlus2,
   FlaskConical,
+  History,
   Monitor,
   Moon,
   Palette,
@@ -16,6 +17,7 @@ import {GitFork,
   Presentation,
   Puzzle,
   Settings as SettingsIcon,
+  Share2,
   Star,
   StarOff,
   StretchHorizontal,
@@ -29,13 +31,18 @@ import {seedSampleDocument} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
-import {AGENT_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {AGENT_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
 import {SETTINGS_TABS, type SettingsTab} from '@/lib/hud';
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
 import {setReviewTarget} from '@/lib/reviewPane';
+import {setHistoryTarget} from '@/lib/historyPane';
+import {requestShareDialog} from '@/lib/shareDialog';
 import {togglePageFullWidth} from '@/lib/pageFullWidth';
 import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
+import {pageDocActions, pageDocActionsVersion, subscribePageDocActions} from '@/lib/pageDocActions';
 import {pluginCommands, subscribePluginCommands} from '@/plugins';
+import {EXPORT_ITEMS} from '@/components/PageContextMenu';
+import {useSharingCapability} from '@/components/ShareDialog';
 
 /** A command's bucket in the palette (each renders as a labelled group). */
 export type CommandGroup = 'create' | 'view' | 'navigation' | 'app';
@@ -96,6 +103,9 @@ export function useAppCommands(): AppCommand[] {
   const {colorScheme, setMode} = useTheme();
   const {t} = useTranslation();
   const client = useData();
+  // Sharing capability gates the Share command (disabled, not hidden, when the
+  // server predates sharing) — parity with the "…" menu's Share item.
+  const sharing = useSharingCapability();
 
   // Re-derive the favourite command's label/icon when the pin state changes.
   const [favVersion, setFavVersion] = React.useState(0);
@@ -103,6 +113,13 @@ export function useAppCommands(): AppCommand[] {
   // Plugin commands join the palette live as extensions (de)activate.
   const [pluginVersion, setPluginVersion] = React.useState(0);
   React.useEffect(() => subscribePluginCommands(() => setPluginVersion((v) => v + 1)), []);
+  // The open document registers which export formats it offers; track it so the
+  // per-format Export commands appear only for what the current page can export.
+  const docActionsVersion = React.useSyncExternalStore(
+    subscribePageDocActions,
+    pageDocActionsVersion,
+    pageDocActionsVersion,
+  );
 
   const seedingRef = React.useRef(false);
   const insertSampleDocument = React.useCallback(async () => {
@@ -122,6 +139,9 @@ export function useAppCommands(): AppCommand[] {
   return React.useMemo<AppCommand[]>(() => {
     const isDark = colorScheme === 'dark';
     const fav = !!currentPageId && isFavorite(currentPageId);
+    // Re-read on every `docActionsVersion` bump so export formats track the page.
+    void docActionsVersion;
+    const docActions = pageDocActions(currentPageId);
     return [
       // ── Create ──────────────────────────────────────────────────────────
       {
@@ -258,6 +278,19 @@ export function useAppCommands(): AppCommand[] {
         },
       },
       {
+        id: 'version-history',
+        group: 'view',
+        title: t('command.versionHistory'),
+        keywords: 'version history revisions snapshots restore timeline changes',
+        icon: History,
+        disabled: !currentPageId || currentPageId === HOME_PAGE_ID,
+        run: () => {
+          if (!currentPageId) return;
+          setHistoryTarget(currentPageId);
+          openInSplit(HISTORY_PANE_ID);
+        },
+      },
+      {
         id: 'present-fullscreen',
         group: 'view',
         title: t('command.presentFull'),
@@ -296,6 +329,21 @@ export function useAppCommands(): AppCommand[] {
         disabled: !splitOpen && !currentPageId,
         run: () => (splitOpen ? closeSplit() : currentPageId && openInSplit(currentPageId)),
       },
+      // One Export command per format the current page offers (EXPORT-DISC):
+      // export was reachable only from the "…" menu's submenu. Search-only so the
+      // default list stays calm — typing "export" (or a format name) surfaces
+      // them. Renders the same EXPORT_ITEMS set the page menu uses.
+      ...EXPORT_ITEMS.filter((item) => docActions?.exportKinds.includes(item.kind)).map(
+        ({kind, labelKey, icon}): AppCommand => ({
+          id: `export-${kind}`,
+          group: 'view',
+          title: t('command.exportAs', {name: t(labelKey)}),
+          keywords: `export download save ${t(labelKey)}`,
+          icon,
+          searchOnly: true,
+          run: () => void docActions?.runExport(kind),
+        }),
+      ),
       // ── Navigation ──────────────────────────────────────────────────────
       {
         id: 'go-back',
@@ -327,6 +375,20 @@ export function useAppCommands(): AppCommand[] {
         disabled: !currentPageId,
         run: () => {
           if (currentPageId) toggleFavorite(currentPageId);
+        },
+      },
+      {
+        // Share/Publish (PUB-DISC): reachable from the palette even when the
+        // cluster's Share icon is hidden; disabled-with-parity when the server
+        // doesn't support sharing. Opens the modal via its imperative store.
+        id: 'share-page',
+        group: 'app',
+        title: t('command.sharePage'),
+        keywords: 'share publish access permissions collaborate invite link who can access',
+        icon: Share2,
+        disabled: !currentPageId || currentPageId === HOME_PAGE_ID || sharing.supported === false,
+        run: () => {
+          if (currentPageId) requestShareDialog(currentPageId);
         },
       },
       {
@@ -390,6 +452,8 @@ export function useAppCommands(): AppCommand[] {
     pages,
     favVersion,
     pluginVersion,
+    docActionsVersion,
+    sharing.supported,
     canGoBack,
     canGoForward,
     createPage,

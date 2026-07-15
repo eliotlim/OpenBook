@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
 import {Check, Link2, Loader2, Share2, Trash2} from 'lucide-react';
 import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
@@ -17,6 +17,7 @@ import {Input} from '@/components/ui/input';
 import {Label} from '@/components/ui/label';
 import {Select} from '@/components/ui/select';
 import {copyPageLink} from '@/lib/pageActions';
+import {clearShareTarget, readShareTarget, shareDialogVersion, subscribeShareDialog} from '@/lib/shareDialog';
 import {SiteVisibilityControl} from '@/components/SiteVisibilityControl';
 import {SETTINGS_SECTION_PEOPLE} from '@/lib/hud';
 import {cn} from '@/lib/utils';
@@ -220,7 +221,24 @@ function InlinePublish() {
  * (`canManage: false`) gets the same dialog read-only. Rendered from the
  * page-actions cluster.
  */
-export default function ShareDialog({pageId, canManage = true}: {pageId: string; canManage?: boolean}) {
+export default function ShareDialog({
+  pageId,
+  canManage = true,
+  open: openProp,
+  onOpenChange,
+  showTrigger = true,
+}: {
+  pageId: string;
+  canManage?: boolean;
+  /** Controlled open state — when provided, the dialog is driven by the caller
+   *  (e.g. the {@link ShareDialogHost} opened from a menu/command) instead of its
+   *  own trigger. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** Whether to render the built-in Share IconButton trigger (default). The
+   *  host opens the dialog imperatively, so it hides the trigger. */
+  showTrigger?: boolean;
+}) {
   const client = useData();
   const {t} = useTranslation();
   const {setHud} = useHud();
@@ -238,7 +256,10 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
   // stays functional (settings persist) but must say so.
   const browserLocal = usePlatformCapabilities().browserLocalLibrary === true;
 
-  const [open, setOpen] = useState(false);
+  // Uncontrolled fallback: used only when the caller doesn't drive `open`.
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = onOpenChange ?? setOpenState;
   const [scope, setScope] = useState<PageVisibility>('inherit');
   // Progressive disclosure for the scope picker (SHR-4): collapsed by default so
   // only the primary two scopes (+ the current value) show; the "Advanced" reveal
@@ -415,11 +436,13 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <IconButton size="sm" aria-label={t('share.open')} title={t('share.open')}>
-          <Share2 className="h-4 w-4" />
-        </IconButton>
-      </DialogTrigger>
+      {showTrigger && (
+        <DialogTrigger asChild>
+          <IconButton size="sm" aria-label={t('share.open')} title={t('share.open')}>
+            <Share2 className="h-4 w-4" />
+          </IconButton>
+        </DialogTrigger>
+      )}
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{t('share.title')}</DialogTitle>
@@ -760,5 +783,33 @@ export default function ShareDialog({pageId, canManage = true}: {pageId: string;
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The single mounted host that opens the Share dialog imperatively — driven by
+ * the {@link requestShareDialog} store so the command palette and the page "…"
+ * menu can reach Share without the always-mounted cluster trigger (which
+ * vanishes when sharing is unsupported). Renders nothing until a page is
+ * targeted, and only when the server actually supports sharing. Mounted once in
+ * the app shell (see DefaultLayout).
+ */
+export function ShareDialogHost() {
+  useSyncExternalStore(subscribeShareDialog, shareDialogVersion, shareDialogVersion);
+  const target = readShareTarget();
+  const {supported, canManage} = useSharingCapability();
+  // Unsupported servers have no Share dialog to show; the menu/command entries
+  // stay visible-but-disabled, so a stray request here is simply a no-op.
+  if (!target || supported === false) return null;
+  return (
+    <ShareDialog
+      pageId={target}
+      canManage={canManage}
+      showTrigger={false}
+      open
+      onOpenChange={(next) => {
+        if (!next) clearShareTarget();
+      }}
+    />
   );
 }

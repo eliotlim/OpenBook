@@ -22,6 +22,7 @@ import {
   Presentation,
   Puzzle,
   Settings as SettingsIcon,
+  Share2,
   Star,
   StarOff,
   Table2,
@@ -64,10 +65,13 @@ import {CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, REVIEW_P
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
 import {setReviewTarget} from '@/lib/reviewPane';
 import {setHistoryTarget} from '@/lib/historyPane';
+import {requestShareDialog} from '@/lib/shareDialog';
+import {useSharingCapability} from '@/components/ShareDialog';
 import type {TKey} from '@/i18n';
 
-/** Menu copy + icon per export format, in display order. */
-const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: TKey; icon: typeof FileText}> = [
+/** Menu copy + icon per export format, in display order. Exported so the command
+ *  palette renders the same set (one source of export truth for both surfaces). */
+export const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: TKey; icon: typeof FileText}> = [
   {kind: 'md', labelKey: 'page.exportMarkdown', icon: FileText},
   {kind: 'html', labelKey: 'page.exportHtml', icon: FileCode},
   {kind: 'html-slides', labelKey: 'page.exportHtmlSlides', icon: Presentation},
@@ -152,6 +156,10 @@ export function PageMenuItems({
   const {preferences} = usePreferences();
   const {t} = useTranslation();
   const copyLink = useCopyPageLink();
+  // Sharing capability of this server. Runs unconditionally (hook-order stable
+  // across surfaces). `supported === false` on a server that predates sharing —
+  // the Share item then shows disabled-with-hint rather than vanishing.
+  const sharing = useSharingCapability();
 
   const id = pageId ?? null;
   const isHome = id === HOME_PAGE_ID;
@@ -278,6 +286,17 @@ export function PageMenuItems({
           >
             <History className="mr-2 h-4 w-4" />
             {t('command.versionHistory')}
+          </C.Item>
+          {/* Share/Publish (PUB-DISC): kept visible even when the server doesn't
+              support sharing — disabled with a hint, rather than the cluster
+              icon's vanish. Opens the modal Share dialog via its imperative store. */}
+          <C.Item
+            disabled={!pageScoped || sharing.supported === false}
+            title={sharing.supported === false ? t('share.unsupportedHint') : undefined}
+            onSelect={() => id && requestShareDialog(id)}
+          >
+            <Share2 className="mr-2 h-4 w-4" />
+            {t('share.open')}
           </C.Item>
         </>
       )}
