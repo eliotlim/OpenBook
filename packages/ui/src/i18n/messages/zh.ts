@@ -377,6 +377,7 @@ export const zh: PartialMessages = {
     thisDevice: '本设备',
   },
   ai: {
+    title: 'AI',
     description: '可选的本地模型支持笔记搜索、任务分解和文档补全。一切都在你的设备上运行。',
     providerLabel: '引擎',
     provider: {

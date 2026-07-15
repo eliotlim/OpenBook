@@ -380,6 +380,7 @@ export const de: PartialMessages = {
     thisDevice: 'Dieses Gerät',
   },
   ai: {
+    title: 'KI',
     description: 'Ein optionales lokales Modell ermöglicht Notizsuche, Aufgabenplanung und Textvervollständigung. Alles läuft auf deinem Gerät.',
     providerLabel: 'Engine',
     provider: {

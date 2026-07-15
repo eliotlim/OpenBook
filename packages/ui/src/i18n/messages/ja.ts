@@ -379,6 +379,7 @@ export const ja: PartialMessages = {
     thisDevice: 'このデバイス',
   },
   ai: {
+    title: 'AI',
     description: 'オプションのローカルモデルで、ノート検索・タスク分解・文書補完ができます。すべて端末内で動作します。',
     providerLabel: 'エンジン',
     provider: {

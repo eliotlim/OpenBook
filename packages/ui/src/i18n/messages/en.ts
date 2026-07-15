@@ -650,6 +650,7 @@ export const en = {
     removeBody: 'This only removes it from this device’s library list. The server and its data are untouched.',
   },
   ai: {
+    title: 'AI',
     description: 'An optional model powers note search, task breakdown, and document completion. Run a local model — nothing leaves your machine — or connect the Claude API.',
     providerLabel: 'Engine',
     defaultEngine: 'Default engine',
