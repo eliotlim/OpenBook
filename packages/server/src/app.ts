@@ -1313,8 +1313,24 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.get(API.librarySync, (c) => rosterStatusHandler(c));
   app.post(API.librarySync, (c) => rosterSyncHandler(c));
   // Legacy alias (LIB-5) — same handlers, kept live through the transition.
-  app.get(API.workspaceSync, (c) => rosterStatusHandler(c));
-  app.post(API.workspaceSync, (c) => rosterSyncHandler(c));
+  // @deprecated Wire residue — removal target v3.0.0 (see docs/wire-sunset.md).
+  // A dev-only (NO telemetry) warning fires when the legacy path is exercised, so the
+  // v3.0.0 cutover can be confirmed to have no remaining `/api/workspace/sync` caller.
+  const warnLegacyWorkspaceSync = () => {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        '[wire-sunset] a client hit the legacy /api/workspace/sync alias (deprecated, use /api/library/sync; removal v3.0.0)',
+      );
+    }
+  };
+  app.get(API.workspaceSync, (c) => {
+    warnLegacyWorkspaceSync();
+    return rosterStatusHandler(c);
+  });
+  app.post(API.workspaceSync, (c) => {
+    warnLegacyWorkspaceSync();
+    return rosterSyncHandler(c);
+  });
 
   app.get(`${API.pages}/:id/acl`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));

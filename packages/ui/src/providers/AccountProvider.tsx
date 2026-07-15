@@ -400,7 +400,15 @@ function clearPendingState(): void {
 interface SyncBlob {
   preferences: Preferences;
   libraries: Library[];
-  /** Legacy alias of {@link SyncBlob.libraries}; always kept equal for back-compat. */
+  /**
+   * Legacy alias of {@link SyncBlob.libraries}; always kept equal for back-compat.
+   *
+   * @deprecated Wire/persisted residue — removal target **v3.0.0** (see
+   * `docs/wire-sunset.md`). Dual-written alongside `libraries` so an old account
+   * server/client still finds a key. Stop WRITING it (and reading it in
+   * {@link readIncomingLibraries}) only at v3.0.0, once no persisted account blob is
+   * `workspaces`-only. Use {@link SyncBlob.libraries}.
+   */
   workspaces: Library[];
 }
 
@@ -409,7 +417,19 @@ interface SyncBlob {
  *  null when neither key carries an array (so the caller leaves locals as-is). */
 function readIncomingLibraries(settings: Record<string, unknown>): Library[] | null {
   if (Array.isArray(settings.libraries)) return settings.libraries as Library[];
-  if (Array.isArray(settings.workspaces)) return settings.workspaces as Library[];
+  if (Array.isArray(settings.workspaces)) {
+    // Migration observability (dev only, NO telemetry): a blob that carries ONLY
+    // the legacy `workspaces` key means some producer hasn't adopted `libraries`
+    // yet. Surfacing it locally lets us confirm the v3.0.0 cutover is safe. See
+    // docs/wire-sunset.md.
+    const nodeEnv = (globalThis as {process?: {env?: {NODE_ENV?: string}}}).process?.env?.NODE_ENV;
+    if (nodeEnv !== 'production') {
+      console.warn(
+        '[wire-sunset] account sync blob carried the legacy `workspaces` key with no `libraries` (deprecated, removal v3.0.0)',
+      );
+    }
+    return settings.workspaces as Library[];
+  }
   return null;
 }
 
