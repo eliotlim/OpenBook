@@ -12,7 +12,6 @@ import {
 } from '@book.dev/sdk';
 import {CalendarClock, Database, Download, FileUp, FolderDown, FolderUp, Upload} from 'lucide-react';
 import {Button} from '@/components/ui/button';
-import {Switch} from '@/components/ui/switch';
 import {
   Dialog,
   DialogContent,
@@ -23,7 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import {useData} from '@/data';
 import {useConfirm, useHud, useNavigation, usePlatformCapabilities, useTranslation} from '@/providers';
-import {SettingsField} from '@/components/settings/primitives';
+import {SettingsField, SettingsToggle, SettingsAdvancedSection} from '@/components/settings/primitives';
 import {writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
 import {ICON_PROPERTY_ID} from '@book.dev/sdk';
 import {downloadText} from '@/lib/download';
@@ -266,10 +265,9 @@ export default function BackupSettings() {
 
       <ScheduledBackupsSection />
 
-      <section className="flex flex-col gap-2 border-t border-border pt-6">
-        <h3 className="text-lg font-semibold">{t('storage.heading')}</h3>
-        <p className="text-sm text-muted-foreground">{t('storage.intro')}</p>
-        <div className="mt-1 flex flex-wrap gap-2">
+      {/* Rarely-touched maintenance — collapsed by default (SET2-8). */}
+      <SettingsAdvancedSection title={t('storage.heading')} description={t('storage.intro')}>
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="secondary"
             onClick={() => void onCompact()}
@@ -281,7 +279,7 @@ export default function BackupSettings() {
           </Button>
         </div>
         {remote && <p className="text-xs text-muted-foreground">{t('storage.remoteUnavailable')}</p>}
-      </section>
+      </SettingsAdvancedSection>
 
       {bundle && (
         <RestoreDialog
@@ -451,32 +449,29 @@ function ScheduledBackupsSection() {
         <p className="text-sm text-muted-foreground">{t('backup.schedule.webOnly')}</p>
       ) : (
         <>
-          <label className="mt-1 flex items-center justify-between gap-6 rounded-md border border-border px-3.5 py-3">
-            <span className="flex min-w-0 flex-col">
-              <span className="text-sm font-medium">{t('backup.schedule.enable')}</span>
-              <span className="text-xs text-muted-foreground">{t('backup.schedule.enableHint')}</span>
-            </span>
-            <Switch checked={status.config.enabled} disabled={busy} onCheckedChange={(v) => void patch({enabled: v})} />
-          </label>
+          <SettingsToggle
+            label={t('backup.schedule.enable')}
+            hint={t('backup.schedule.enableHint')}
+            checked={status.config.enabled}
+            disabled={busy}
+            onCheckedChange={(v) => void patch({enabled: v})}
+          />
 
           {status.config.enabled && (
             <div className="flex flex-col gap-1.5">
               {status.cadences.map((c) => (
-                <label key={c.cadence} className="flex items-center justify-between gap-4 rounded-md border border-border px-3 py-2">
-                  <span className="flex min-w-0 flex-col">
-                    <span className="text-sm font-medium">{cadenceLabel(c.cadence)}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {c.lastRun
-                        ? t('backup.schedule.keptLast', {when: new Date(c.lastRun).toLocaleString(), count: c.count})
-                        : t('backup.schedule.never')}
-                    </span>
-                  </span>
-                  <Switch
-                    checked={c.enabled}
-                    disabled={busy}
-                    onCheckedChange={(v) => void patch({cadences: {...status.config.cadences, [c.cadence]: v}})}
-                  />
-                </label>
+                <SettingsToggle
+                  key={c.cadence}
+                  label={cadenceLabel(c.cadence)}
+                  hint={
+                    c.lastRun
+                      ? t('backup.schedule.keptLast', {when: new Date(c.lastRun).toLocaleString(), count: c.count})
+                      : t('backup.schedule.never')
+                  }
+                  checked={c.enabled}
+                  disabled={busy}
+                  onCheckedChange={(v) => void patch({cadences: {...status.config.cadences, [c.cadence]: v}})}
+                />
               ))}
             </div>
           )}

@@ -7,7 +7,7 @@ import {
   MixerHorizontalIcon,
   UpdateIcon,
 } from '@radix-ui/react-icons';
-import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, KeyIcon, LifebuoyIcon, PaintBrushIcon, PuzzlePieceIcon, ServerStackIcon, Square3Stack3DIcon, WrenchIcon} from '@heroicons/react/24/outline';
+import {ArchiveBoxIcon, CpuChipIcon, GlobeAltIcon, KeyIcon, LifebuoyIcon, PaintBrushIcon, PuzzlePieceIcon, Square3Stack3DIcon, WrenchIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
 import AppearanceSettings from '@/components/AppearanceSettings';
 import GeneralSettings from '@/components/GeneralSettings';
@@ -16,7 +16,6 @@ import ExtensionsSettings from '@/components/ExtensionsSettings';
 import ProfileSettings from '@/components/settings/ProfileSettings';
 import {ProfileAvatar} from '@/components/ProfileAvatar';
 import CustomisationSettings from '@/components/settings/CustomisationSettings';
-import ConnectionSettings from '@/components/settings/ConnectionSettings';
 import LibrarySettings from '@/components/settings/LibrarySettings';
 import SharingPublishingSettings from '@/components/settings/SharingPublishingSettings';
 import AdminSettings from '@/components/settings/AdminSettings';
@@ -35,7 +34,6 @@ const TAB_META: Record<SettingsTab, {labelKey: TKey; icon: ComponentType<{classN
   appearance: {labelKey: 'settings.tab.appearance', icon: PaintBrushIcon},
   customisation: {labelKey: 'settings.tab.customisation', icon: MixerHorizontalIcon},
   signin: {labelKey: 'settings.tab.signin', icon: UpdateIcon},
-  connection: {labelKey: 'settings.tab.connection', icon: ServerStackIcon},
   sharing: {labelKey: 'settings.tab.sharing', icon: GlobeAltIcon},
   extensions: {labelKey: 'settings.tab.extensions', icon: PuzzlePieceIcon},
   ai: {labelKey: 'settings.tab.ai', icon: CpuChipIcon},
@@ -48,6 +46,7 @@ const SECTION_LABEL: Record<(typeof SETTINGS_SECTIONS)[number]['id'], TKey> = {
   preferences: 'settings.section.preferences',
   account: 'settings.section.account',
   library: 'settings.section.library',
+  advanced: 'settings.section.advanced',
 };
 
 const PANELS: Record<SettingsTab, ComponentType> = {
@@ -58,7 +57,6 @@ const PANELS: Record<SettingsTab, ComponentType> = {
   appearance: AppearanceSettings,
   customisation: CustomisationSettings,
   signin: AccountSettings,
-  connection: ConnectionSettings,
   sharing: SharingPublishingSettings,
   extensions: ExtensionsSettings,
   admin: AdminSettings,

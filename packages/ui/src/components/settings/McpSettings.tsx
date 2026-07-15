@@ -5,7 +5,7 @@ import {useData} from '@/data';
 import {useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
-import {SettingsField, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
+import {SettingsField, SettingsSection, SettingsToggle, SETTINGS_CONTROL_CLASS} from '@/components/settings/primitives';
 
 /**
  * Settings → AI → External tools (MCP). The admin-only surface to register
@@ -16,8 +16,6 @@ import {SettingsField, SettingsSection, SettingsToggle} from '@/components/setti
  * transport is offered only when the server reports `stdioAllowed` (desktop /
  * unclaimed) — on a claimed instance it's hidden AND server-rejected.
  */
-
-const fieldClass = 'w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm outline-hidden focus:border-ring';
 
 function isForbidden(e: unknown): boolean {
   const raw = e instanceof Error ? e.message : String(e);
@@ -152,7 +150,7 @@ export default function McpSettings() {
 
               <SettingsField label={t('ai.mcp.serverName')}>
                 <input
-                  className={fieldClass}
+                  className={SETTINGS_CONTROL_CLASS}
                   value={s.name ?? ''}
                   placeholder={t('ai.mcp.serverNamePlaceholder')}
                   onChange={(e) => setConfig(setServer(i, {name: e.target.value}))}
@@ -162,7 +160,7 @@ export default function McpSettings() {
 
               <SettingsField label={t('ai.mcp.serverId')} hint={t('ai.mcp.serverIdHint')}>
                 <input
-                  className={fieldClass}
+                  className={SETTINGS_CONTROL_CLASS}
                   value={s.id}
                   placeholder="my-tools"
                   onChange={(e) => setConfig(setServer(i, {id: e.target.value}))}
@@ -186,7 +184,7 @@ export default function McpSettings() {
               {s.transport === 'http' ? (
                 <SettingsField label={t('ai.mcp.url')}>
                   <input
-                    className={fieldClass}
+                    className={SETTINGS_CONTROL_CLASS}
                     value={s.url ?? ''}
                     placeholder={t('ai.mcp.urlPlaceholder')}
                     onChange={(e) => setConfig(setServer(i, {url: e.target.value}))}
@@ -198,7 +196,7 @@ export default function McpSettings() {
                   <p className="text-xs text-destructive">{t('ai.mcp.stdioWarn')}</p>
                   <SettingsField label={t('ai.mcp.command')}>
                     <input
-                      className={fieldClass}
+                      className={SETTINGS_CONTROL_CLASS}
                       value={s.command ?? ''}
                       placeholder={t('ai.mcp.commandPlaceholder')}
                       onChange={(e) => setConfig(setServer(i, {command: e.target.value}))}
@@ -207,7 +205,7 @@ export default function McpSettings() {
                   </SettingsField>
                   <SettingsField label={t('ai.mcp.args')}>
                     <textarea
-                      className={fieldClass}
+                      className={SETTINGS_CONTROL_CLASS}
                       rows={2}
                       value={(s.args ?? []).join('\n')}
                       placeholder={t('ai.mcp.argsPlaceholder')}
@@ -223,7 +221,7 @@ export default function McpSettings() {
                   <input
                     type="password"
                     autoComplete="off"
-                    className={fieldClass}
+                    className={SETTINGS_CONTROL_CLASS}
                     value={typeof s.authToken === 'string' ? s.authToken : ''}
                     placeholder={showTokenSet ? t('ai.mcp.tokenSet') : ''}
                     onChange={(e) => setConfig(setServer(i, {authToken: e.target.value}))}

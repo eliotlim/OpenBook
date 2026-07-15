@@ -2,8 +2,13 @@ import {useCallback, useEffect, useState} from 'react';
 import type {ServerInfo} from '@book.dev/sdk';
 import {useAccount, useForwarding, usePlatformCapabilities, useTranslation, type ForwardingStatus} from '@/providers';
 import {Button} from '@/components/ui/button';
-import {Switch} from '@/components/ui/switch';
-import {SettingsScreen, SettingsSection, SettingsField} from '@/components/settings/primitives';
+import {
+  SettingsScreen,
+  SettingsSection,
+  SettingsField,
+  SettingsToggle,
+  SettingsAdvancedSection,
+} from '@/components/settings/primitives';
 import {SharingSection} from '@/components/settings/SharingSettings';
 import {PeopleSection} from '@/components/settings/MembersSettings';
 import {SiteVisibilityControl} from '@/components/SiteVisibilityControl';
@@ -16,8 +21,9 @@ import {useSharingCapability} from '@/components/ShareDialog';
  *   • Default access (the library guest gate),
  *   • People (the member roster: invite, roles, status),
  *   • Advanced — local network (the LAN listener + token).
- * Server *plumbing* (which server, remote URL, tokens) stays in Connection —
- * splitting policy from plumbing is the point (IA review, 2026-07).
+ * Server *plumbing* (which server, remote URL, tokens) lives in the Libraries &
+ * servers screen (SET2-1 folded the old Connection tab in there) — splitting
+ * policy from plumbing is the point (IA review, 2026-07).
  */
 
 /** The live tunnel status as a small coloured label next to the toggle. */
@@ -62,13 +68,17 @@ function ForwardingSection() {
   return (
     <SettingsSection title={t('forwarding.title')}>
       <p className="text-sm text-muted-foreground">{t('forwarding.description')}</p>
-      <label className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
-        <span className="flex items-center gap-2 text-sm font-medium">
-          {busy ? t('forwarding.registering') : t('forwarding.toggle')}
-          {enabled && !busy && <ForwardingStatusBadge status={status} />}
-        </span>
-        <Switch checked={enabled} disabled={busy} onCheckedChange={(v) => void (v ? enable() : disable())} />
-      </label>
+      <SettingsToggle
+        label={
+          <span className="flex items-center gap-2">
+            {busy ? t('forwarding.registering') : t('forwarding.toggle')}
+            {enabled && !busy && <ForwardingStatusBadge status={status} />}
+          </span>
+        }
+        checked={enabled}
+        disabled={busy}
+        onCheckedChange={(v) => void (v ? enable() : disable())}
+      />
       {/* A signed-out flip isn't a silent snap-back: the sign-in handoff is in flight
           and the enable auto-resumes once the account connects — say so. The live
           region is mounted PERSISTENTLY (only its text swaps) because content arriving
@@ -210,12 +220,15 @@ function LanPublishSection() {
   if (!info.managed) return null;
 
   return (
-    <SettingsSection title={t('connection.publish')}>
-      <p className="text-sm text-muted-foreground">{t('connection.publishDescription')}</p>
-      <label className="flex items-center justify-between gap-4 rounded-lg border border-border p-3">
-        <span className="text-sm font-medium">{t('connection.publishToggle')}</span>
-        <Switch checked={info?.published === true} disabled={busy} onCheckedChange={(v) => void togglePublish(v)} />
-      </label>
+    // Advanced/rare surface (SET2-8): the LAN listener is collapsed by default so
+    // the common Sharing path (publish to web · default access · people) stays quiet.
+    <SettingsAdvancedSection title={t('connection.publish')} description={t('connection.publishDescription')}>
+      <SettingsToggle
+        label={t('connection.publishToggle')}
+        checked={info?.published === true}
+        disabled={busy}
+        onCheckedChange={(v) => void togglePublish(v)}
+      />
       {info?.published ? (
         <div className="flex flex-col gap-3">
           <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-muted-foreground">
@@ -246,7 +259,7 @@ function LanPublishSection() {
         <p className="text-xs text-muted-foreground">{t('connection.notPublished')}</p>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
-    </SettingsSection>
+    </SettingsAdvancedSection>
   );
 }
 
