@@ -5,6 +5,37 @@
  */
 const SERVER_URL_KEY = 'openbook.serverUrl';
 
+// ── Connection-change notification (no-reload library switch) ─────────────────
+// Switching libraries used to `window.location.reload()` so the shell rebuilt
+// the data client against the new server. Instead, the URL/token setters below
+// fan out to subscribers (the app shell) so it can swap the client + remount the
+// data subtree in place — no full-page reload, no bundle re-download.
+type ConnectionChangeListener = () => void;
+const connectionListeners = new Set<ConnectionChangeListener>();
+
+/**
+ * Subscribe to server-connection changes — a new/cleared server URL override or
+ * access token. Returns an unsubscribe. Fires only on a real value change (the
+ * setters dedupe), so the shell can rebuild the data client without churning it
+ * on every no-op set.
+ */
+export function onServerOverrideChange(listener: ConnectionChangeListener): () => void {
+  connectionListeners.add(listener);
+  return () => void connectionListeners.delete(listener);
+}
+
+function notifyConnectionChange(): void {
+  // Copy first: a listener that (un)subscribes in its own handler must not
+  // perturb the fan-out, and one throwing must not starve the others.
+  for (const listener of [...connectionListeners]) {
+    try {
+      listener();
+    } catch {
+      /* a listener's own failure is its own problem */
+    }
+  }
+}
+
 /** The configured external server URL, or `null` if none is set. */
 export function getServerUrlOverride(): string | null {
   if (typeof localStorage === 'undefined') return null;
@@ -12,14 +43,19 @@ export function getServerUrlOverride(): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
 }
 
-/** Set (or clear, with `null`) the external server URL. Takes effect on reload. */
+/** Set (or clear, with `null`) the external server URL. Notifies
+ *  {@link onServerOverrideChange} subscribers on a real change so the shell can
+ *  re-point the data client in place (no reload). */
 export function setServerUrlOverride(url: string | null): void {
   if (typeof localStorage === 'undefined') return;
-  if (url && url.trim().length > 0) {
-    localStorage.setItem(SERVER_URL_KEY, url.trim());
+  const next = url && url.trim().length > 0 ? url.trim() : null;
+  const changed = next !== getServerUrlOverride();
+  if (next) {
+    localStorage.setItem(SERVER_URL_KEY, next);
   } else {
     localStorage.removeItem(SERVER_URL_KEY);
   }
+  if (changed) notifyConnectionChange();
 }
 
 /**
@@ -62,14 +98,19 @@ export function getServerTokenOverride(): string | null {
   return value && value.trim().length > 0 ? value.trim() : null;
 }
 
-/** Set (or clear, with `null`) the access token. Takes effect on reload. */
+/** Set (or clear, with `null`) the access token. Notifies
+ *  {@link onServerOverrideChange} subscribers on a real change so a re-point that
+ *  only changes the token still rebuilds the client in place (no reload). */
 export function setServerTokenOverride(token: string | null): void {
   if (typeof localStorage === 'undefined') return;
-  if (token && token.trim().length > 0) {
-    localStorage.setItem(SERVER_TOKEN_KEY, token.trim());
+  const next = token && token.trim().length > 0 ? token.trim() : null;
+  const changed = next !== getServerTokenOverride();
+  if (next) {
+    localStorage.setItem(SERVER_TOKEN_KEY, next);
   } else {
     localStorage.removeItem(SERVER_TOKEN_KEY);
   }
+  if (changed) notifyConnectionChange();
 }
 
 /**

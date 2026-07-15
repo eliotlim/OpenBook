@@ -49,9 +49,10 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
-import {useConfirm, useHud, useNavigation, usePreferences, useTranslation} from '@/providers';
-import {requestMovePage, requestRenamePage} from '@/lib/pageActions';
+import {useConfirm, useHud, useNavigation, usePlatformCapabilities, usePreferences, useTranslation} from '@/providers';
+import {copyInternalLink, requestMovePage, requestRenamePage} from '@/lib/pageActions';
 import {useCopyPageLink} from '@/lib/useCopyPageLink';
+import {showToast} from '@/components/ui/toast';
 import {isFavorite, toggleFavorite} from '@/lib/favorites';
 import {togglePageFullWidth, usePageFullWidth} from '@/lib/pageFullWidth';
 import {formatShortcut, SHORTCUTS} from '@/lib/shortcuts';
@@ -156,6 +157,9 @@ export function PageMenuItems({
   const {preferences} = usePreferences();
   const {t} = useTranslation();
   const copyLink = useCopyPageLink();
+  // "Copy internal link" (`openbook://page/<id>`) only means something where the
+  // scheme is registered — the desktop shell, which advertises `deepLink`.
+  const {deepLink} = usePlatformCapabilities();
   // Sharing capability of this server. Runs unconditionally (hook-order stable
   // across surfaces). `supported === false` on a server that predates sharing —
   // the Share item then shows disabled-with-hint rather than vanishing.
@@ -315,6 +319,20 @@ export function PageMenuItems({
         <C.Item disabled={!pageScoped} onSelect={() => id && copyLink(id)}>
           <Link2 className="mr-2 h-4 w-4" />
           {t('menu.copyLink')}
+        </C.Item>
+      )}
+      {/* Desktop only: an `openbook://page/<id>` link that reopens the page in the
+          app even when it isn't published (where the shareable link is dead). */}
+      {deepLink && (
+        <C.Item
+          disabled={!pageScoped}
+          onSelect={() =>
+            id &&
+            void copyInternalLink(id).then((ok) => ok && showToast({message: t('menu.internalLinkCopied')}))
+          }
+        >
+          <ExternalLink className="mr-2 h-4 w-4" />
+          {t('menu.copyInternalLink')}
         </C.Item>
       )}
       <C.Item disabled={!pageScoped} onSelect={() => id && void duplicatePage(id)}>

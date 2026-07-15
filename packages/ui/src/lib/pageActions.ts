@@ -88,6 +88,21 @@ export function groupLinkUrl(hostPageId: string, groupKey: string): string {
   return buildPageLink(hostPageId, {group: groupKey});
 }
 
+/** Build an `openbook://page/<id>` internal deep link — the desktop custom
+ *  scheme that opens the page in the app regardless of publishing (a copied
+ *  link that survives even when `window.location` is the dead `tauri://localhost`
+ *  origin). Only meaningful where the `openbook://` scheme is registered (the
+ *  desktop app); the web app routes plain `?page=<id>` URLs instead. */
+export function internalLinkUrl(pageId: string): string {
+  return `openbook://page/${encodeURIComponent(pageId)}`;
+}
+
+/** Copy a page's internal deep link (see {@link internalLinkUrl}). Resolves to
+ *  whether it worked. */
+export async function copyInternalLink(pageId: string): Promise<boolean> {
+  return copyText(internalLinkUrl(pageId));
+}
+
 /** Copy arbitrary text to the clipboard. Resolves to whether it worked. */
 export async function copyText(text: string): Promise<boolean> {
   if (typeof window === 'undefined') return false;

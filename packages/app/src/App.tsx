@@ -20,6 +20,7 @@ import {
   type PlatformCapabilities,
   type WindowControls,
 } from '@book.dev/ui';
+import {getServerUrlOverride, onServerOverrideChange} from '@book.dev/sdk';
 import type {BookFolderFile, DataClient, ServerInfo} from '@book.dev/sdk';
 
 import {createDesktopClient, DEV_SERVER_URL} from './data/client';
@@ -84,6 +85,20 @@ const windowControls: WindowControls | undefined = IS_MAC
       return () => void unlisten.then((u) => u()).catch(() => undefined);
     },
   };
+
+// Parse `openbook://page/<id>` into the target page id (a copied "internal
+// link"). Only this exact host/shape navigates; any other `openbook://` link
+// (e.g. auth-callback) is ignored here.
+function parsePageDeepLink(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'openbook:' || u.hostname !== 'page') return null;
+    const id = decodeURIComponent(u.pathname.replace(/^\/+/, '')).trim();
+    return id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
 
 // Parse `openbook://auth-callback#token=…&state=…` into the token handoff. The
 // AccountProvider still validates `state` against the in-flight sign-in; pinning
@@ -172,6 +187,27 @@ const platform: PlatformCapabilities = {
       return () => unlisten?.();
     },
   },
+  // Deliver `openbook://page/<id>` deep links (a copied "internal link") to the
+  // UI, which navigates the primary pane to the page. Reuses the same deep-link
+  // plugin the account callback does; a link that cold-started the app plus every
+  // link while it runs. Non-page `openbook://` links (auth-callback) are filtered
+  // out by `parsePageDeepLink`, so the two subscribers don't cross-fire.
+  deepLink: {
+    onNavigate: (cb) => {
+      const emit = (urls: string[]): void => {
+        for (const u of urls) {
+          const id = parsePageDeepLink(u);
+          if (id) cb(id);
+        }
+      };
+      void currentDeepLink().then((urls) => urls && emit(urls)).catch(() => undefined);
+      let unlisten: (() => void) | undefined;
+      void onOpenUrl(emit).then((un) => {
+        unlisten = un;
+      });
+      return () => unlisten?.();
+    },
+  },
   // Self-update (OB-342): version surface + account-driven check + Tauri
   // updater install/relaunch. Presence of this key is the capability flag the
   // UI's Updates section (and the scheduler) key off; the web shell has none.
@@ -181,11 +217,34 @@ const platform: PlatformCapabilities = {
 function App() {
   // Embedded local server by default, or an external one if configured. Built
   // async because we ask the host for the server status (loopback address + the
-  // access token when published) before connecting.
-  const [client, setClient] = useState<DataClient | null>(null);
+  // access token when published) before connecting. `connKey` keys the data
+  // subtree so a no-reload library switch (a re-pointed server override) remounts
+  // the nav providers fresh against the swapped client.
+  const [conn, setConn] = useState<{client: DataClient | null; connKey: string}>({client: null, connKey: 'local'});
   useEffect(() => {
-    void createDesktopClient().then(setClient);
+    let cancelled = false;
+    let current: DataClient | null = null;
+    const build = (): void => {
+      void createDesktopClient().then((c) => {
+        if (cancelled) {
+          c.dispose?.();
+          return;
+        }
+        current?.dispose?.();
+        current = c;
+        setConn({client: c, connKey: getServerUrlOverride() ?? 'local'});
+      });
+    };
+    build();
+    // Re-point in place when the library switcher changes the server override.
+    const unsub = onServerOverrideChange(build);
+    return () => {
+      cancelled = true;
+      unsub();
+      current?.dispose?.();
+    };
   }, []);
+  const {client, connKey} = conn;
 
   return (
     <ThemeProvider>
@@ -193,7 +252,7 @@ function App() {
         <PreferencesProvider>
           <PlatformCapabilitiesProvider value={platform}>
             {client && (
-              <DataProvider client={client}>
+              <DataProvider key={connKey} client={client}>
                 <NavigationProvider>
                   <LibraryProvider>
                     <AccountProvider>

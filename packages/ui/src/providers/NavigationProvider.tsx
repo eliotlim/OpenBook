@@ -13,7 +13,7 @@ import {useData} from '@/data';
 import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
 import {hydratePageIcons, readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {recordRecent} from '@/lib/recents';
-import {AGENT_PANE_ID, CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {AGENT_PANE_ID, CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID, TRASH_PAGE_ID} from '@/lib/homePage';
 import {PANE_TARGET_STORES, paneHasTarget} from '@/lib/paneTarget';
 import {registerKitPanelNav} from '@/blockeditor/kit/kitPanel';
 import {t as bareT} from '@/i18n';
@@ -460,6 +460,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   const pageLabel = useCallback(
     (id: string): string => {
       if (id === HOME_PAGE_ID) return bareT('nav.home');
+      if (id === TRASH_PAGE_ID) return bareT('nav.trash');
       if (id === FLOW_PANE_ID) return bareT('flow.title');
       if (id === CONFIG_PANE_ID) return bareT('pane.config');
       if (id === CUSTOMISE_PANE_ID) return bareT('pane.customise');
@@ -716,9 +717,9 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
         const known = new Set(list.map((p) => p.id));
         const resolve = async (id: string | null): Promise<string | null> => {
           if (!id) return null;
-          // Pseudo-pages: Home, dataflow, and the page-targeting side panes
+          // Pseudo-pages: Home, Trash, dataflow, and the page-targeting side panes
           // (customise/review) that now round-trip through the URL.
-          if (id === HOME_PAGE_ID || id === FLOW_PANE_ID || paneHasTarget(id)) return id;
+          if (id === HOME_PAGE_ID || id === TRASH_PAGE_ID || id === FLOW_PANE_ID || paneHasTarget(id)) return id;
           if (known.has(id)) return id;
           return (await client.getPage(id)) !== null ? id : null;
         };
@@ -799,6 +800,30 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     [openInSplit, closeSplit],
   );
 
+  // Desktop `openbook://page/<id>` deep links: the host delivers the target page
+  // id here (a cold-start link or one opened while running); navigate the primary
+  // pane to it. Pseudo-pages (home/trash) pass straight through; a real id is
+  // confirmed against the store first so a stale/foreign link falls back to Home
+  // rather than stranding the pane on a page that doesn't exist here.
+  useEffect(() => {
+    const onNavigate = platform.deepLink?.onNavigate;
+    if (!onNavigate) return;
+    return onNavigate((pageId) => {
+      if (pageId === HOME_PAGE_ID || pageId === TRASH_PAGE_ID || pageId === FLOW_PANE_ID || paneHasTarget(pageId)) {
+        selectPageInPane(pageId, 'primary');
+        return;
+      }
+      void client
+        .getPage(pageId)
+        .then((page) => {
+          selectPageInPane(page ? pageId : HOME_PAGE_ID, 'primary');
+        })
+        // A failed lookup (offline/transport error) must not leave an unhandled
+        // rejection — fall back to Home, same as a stale/foreign id.
+        .catch(() => selectPageInPane(HOME_PAGE_ID, 'primary'));
+    });
+  }, [platform.deepLink, client, selectPageInPane]);
+
   // Refresh title hints from the live page list.
   useEffect(() => {
     if (pages.length === 0) return;
@@ -836,10 +861,11 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   // Track the focused page as "recently visited" (drives the palette's Recent
   // group). Covers every entry point — sidebar, palette, tabs, back/forward.
   useEffect(() => {
-    // Home/flow/config are places, not documents — they never enter the recents trail.
+    // Home/trash/flow/config are places, not documents — they never enter the recents trail.
     if (
       currentPageId &&
       currentPageId !== HOME_PAGE_ID &&
+      currentPageId !== TRASH_PAGE_ID &&
       currentPageId !== FLOW_PANE_ID &&
       currentPageId !== CONFIG_PANE_ID &&
       currentPageId !== CUSTOMISE_PANE_ID &&

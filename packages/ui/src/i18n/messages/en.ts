@@ -154,6 +154,9 @@ export const en = {
     suggested: 'Suggested',
     home: 'Home',
     templates: 'Templates',
+    // Sidebar page-tree empty state (a brand-new library with no pages).
+    emptyPages: 'No pages yet',
+    emptyPagesHint: 'Create a page or start from a template.',
     crumbMenu: 'Siblings and subpages of "{page}"',
     crumbSiblings: 'Siblings',
     crumbSubpages: 'Subpages',
@@ -177,6 +180,8 @@ export const en = {
     emptyTitle: 'Empty the trash?',
     emptyBody: 'Permanently delete everything in the trash. This cannot be undone.',
     emptyTrash: 'Empty trash',
+    // Full-page trash view (the navigable `?page=trash` pseudo-page).
+    pageEmptyHint: 'Deleted pages will appear here.',
   },
   pane: {
     config: 'Block settings',
@@ -249,6 +254,9 @@ export const en = {
     copyLink: 'Copy link',
     copyLinkLocalOnly: 'This link only works on this device. Publish this library to get a link you can share.',
     copyLinkPublish: 'Publish',
+    // Desktop-only: an `openbook://page/<id>` link that opens the page in the app.
+    copyInternalLink: 'Copy internal link',
+    internalLinkCopied: 'Internal link copied',
     duplicate: 'Duplicate',
     addSubpage: 'Add subpage',
     addDatabase: 'Add database',
