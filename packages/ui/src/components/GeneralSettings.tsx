@@ -3,6 +3,7 @@ import {Select} from '@/components/ui/select';
 import {Button} from '@/components/ui/button';
 import {useConfirm, usePreferences, useTranslation} from '@/providers';
 import {SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
+import {SETTINGS_SECTION_GENERAL_BEHAVIOR} from '@/lib/settingsIndex';
 import {UpdatesSection} from '@/components/settings/UpdatesSection';
 import type {Locale} from '@/i18n';
 
@@ -54,7 +55,7 @@ export default function GeneralSettings() {
         </Select>
       </SettingsSection>
 
-      <SettingsSection title={t('general.behavior')}>
+      <SettingsSection id={SETTINGS_SECTION_GENERAL_BEHAVIOR} title={t('general.behavior')}>
         <SettingsToggle
           label={t('general.confirmTrash')}
           hint={t('general.confirmTrashHint')}

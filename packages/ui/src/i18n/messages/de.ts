@@ -18,6 +18,8 @@ export const de: PartialMessages = {
     exitFullscreen: 'Vollbild verlassen',
     enterFullscreen: 'Vollbild',
     closeSettings: 'Einstellungen schließen',
+    searchPlaceholder: 'Einstellungen durchsuchen…',
+    searchNoResults: 'Keine Einstellungen für deine Suche gefunden.',
     section: {
       preferences: 'Präferenzen',
       account: 'Konto',

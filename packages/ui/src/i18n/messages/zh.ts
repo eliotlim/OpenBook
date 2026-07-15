@@ -18,6 +18,8 @@ export const zh: PartialMessages = {
     exitFullscreen: '退出全屏',
     enterFullscreen: '全屏',
     closeSettings: '关闭设置',
+    searchPlaceholder: '搜索设置…',
+    searchNoResults: '没有匹配的设置。',
     section: {
       preferences: '偏好设置',
       account: '账户',

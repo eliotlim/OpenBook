@@ -18,6 +18,8 @@ export const ja: PartialMessages = {
     exitFullscreen: '全画面を終了',
     enterFullscreen: '全画面',
     closeSettings: '設定を閉じる',
+    searchPlaceholder: '設定を検索…',
+    searchNoResults: '一致する設定はありません。',
     section: {
       preferences: '環境設定',
       account: 'アカウント',
