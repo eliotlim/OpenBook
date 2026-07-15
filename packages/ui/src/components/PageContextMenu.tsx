@@ -306,10 +306,17 @@ export function PageMenuItems({
         <Pencil className="mr-2 h-4 w-4" />
         {t('menu.rename')}
       </C.Item>
-      <C.Item disabled={!pageScoped} onSelect={() => id && copyLink(id)}>
-        <Link2 className="mr-2 h-4 w-4" />
-        {t('menu.copyLink')}
-      </C.Item>
+      {/* Copy link (COPYLINK-AUDIT): only on the compact `row` surface (sidebar /
+          favorites / tree), the sole way to copy a link to a page you're NOT
+          looking at. The `page` surface always renders alongside the actions
+          cluster, whose dedicated copy-link icon button covers the open page — so
+          repeating it here (and in the cluster's own "…" dropdown) was noise. */}
+      {!isPage && (
+        <C.Item disabled={!pageScoped} onSelect={() => id && copyLink(id)}>
+          <Link2 className="mr-2 h-4 w-4" />
+          {t('menu.copyLink')}
+        </C.Item>
+      )}
       <C.Item disabled={!pageScoped} onSelect={() => id && void duplicatePage(id)}>
         <CopyPlus className="mr-2 h-4 w-4" />
         {t('menu.duplicate')}
