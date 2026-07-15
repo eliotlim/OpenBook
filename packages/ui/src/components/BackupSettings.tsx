@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/dialog';
 import {useData} from '@/data';
 import {useConfirm, useHud, useNavigation, usePlatformCapabilities, useTranslation} from '@/providers';
-import {SettingsField, SettingsToggle, SettingsAdvancedSection} from '@/components/settings/primitives';
+import {SettingsField, SettingsSection, SettingsToggle, SettingsAdvancedSection} from '@/components/settings/primitives';
 import {writePageIcon, DEFAULT_PAGE_ICON} from '@/lib/pageIcon';
 import {ICON_PROPERTY_ID} from '@book.dev/sdk';
 import {downloadText} from '@/lib/download';
@@ -81,16 +81,15 @@ export default function BackupSettings() {
   const remote = getServerUrlOverride();
 
   const [busy, setBusy] = useState<null | 'export' | 'import' | 'folder' | 'compact'>(null);
+  // One status line for every data in/out action (export, restore, folder
+  // export/import). The Backup and Folder sections sit adjacent, so a single
+  // shared line reads cleanly and there's no second export action to feed.
   const [status, setStatus] = useState<string | null>(null);
-  // The "Export" section reuses the same export action as the top section but is
-  // rendered far below it — so it carries its own status line, and each export
-  // trigger reports to the status line adjacent to the button that was clicked.
-  const [exportStatus, setExportStatus] = useState<string | null>(null);
   const [bundle, setBundle] = useState<LibraryBackup | null>(null);
 
-  const doExport = useCallback(async (setMsg: (s: string | null) => void) => {
+  const doExport = useCallback(async () => {
     setBusy('export');
-    setMsg(null);
+    setStatus(null);
     try {
       const {pages, databases} = await client.exportLibrary();
       // Icons travel in `page.properties` now, but keep the legacy `icons` map in
@@ -102,9 +101,9 @@ export default function BackupSettings() {
       }
       const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons};
       downloadText(`openbook-backup-${new Date().toISOString().slice(0, 10)}.openbook.json`, JSON.stringify(backup), 'application/json');
-      setMsg(t('backup.exported', {count: pages.length}));
+      setStatus(t('backup.exported', {count: pages.length}));
     } catch (e) {
-      setMsg(t('backup.exportFailed', {error: (e as Error).message}));
+      setStatus(t('backup.exportFailed', {error: (e as Error).message}));
     } finally {
       setBusy(null);
     }
@@ -124,16 +123,16 @@ export default function BackupSettings() {
   // the web falls back to the File System Access API or a zip download.
   const onExportFolder = useCallback(async () => {
     setBusy('folder');
-    setExportStatus(null);
+    setStatus(null);
     try {
       const files = libraryToBookFiles(await client.exportLibrary(), {runtime: await loadFolderRuntime()});
       const name = `openbook-${new Date().toISOString().slice(0, 10)}`;
       const result = platform.bookFolder?.export
         ? await platform.bookFolder.export(files)
         : await exportBookFolderInBrowser(files, name);
-      if (result) setExportStatus(t('backup.folderExported', {count: result.count, location: result.location}));
+      if (result) setStatus(t('backup.folderExported', {count: result.count, location: result.location}));
     } catch (e) {
-      setExportStatus(t('backup.exportFailed', {error: (e as Error).message}));
+      setStatus(t('backup.exportFailed', {error: (e as Error).message}));
     } finally {
       setBusy(null);
     }
@@ -142,7 +141,7 @@ export default function BackupSettings() {
   // Load a book folder back; route it through the same Restore dialog so the
   // user picks which roots to bring in and copy-vs-overwrite.
   const onImportFolder = useCallback(async () => {
-    setExportStatus(null);
+    setStatus(null);
     try {
       const files = platform.bookFolder?.import
         ? await platform.bookFolder.import()
@@ -150,7 +149,7 @@ export default function BackupSettings() {
       if (!files) return;
       const snapshot = parseBookFolder(files);
       if (!snapshot) {
-        setExportStatus(t('backup.folderEmpty'));
+        setStatus(t('backup.folderEmpty'));
         return;
       }
       const icons: Record<string, string> = {};
@@ -160,7 +159,7 @@ export default function BackupSettings() {
       }
       setBundle({version: BACKUP_VERSION, exportedAt: '', pages: snapshot.pages, databases: snapshot.databases, icons});
     } catch (e) {
-      setExportStatus(t('backup.readFailed', {error: (e as Error).message}));
+      setStatus(t('backup.readFailed', {error: (e as Error).message}));
     }
   }, [platform, t]);
 
@@ -192,14 +191,28 @@ export default function BackupSettings() {
   }, [client, confirm, t]);
 
   return (
-    <div className="flex flex-col gap-6">
-      <section className="flex flex-col gap-2">
-        <h3 className="text-lg font-semibold">{t('backup.heading')}</h3>
-        <p className="text-sm text-muted-foreground">
-          {t('backup.intro')}
-        </p>
-        <div className="mt-1 flex flex-wrap gap-2">
-          <Button onClick={() => void doExport(setStatus)} disabled={busy !== null} className="gap-2">
+    <div className="flex flex-col gap-7">
+      {/* Onboarding, not a backup: pull pages in from another tool. */}
+      <SettingsSection title={t('backup.importHeading')} description={t('backup.importIntro')}>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => setHud((draft) => {
+              draft.importer.open = true;
+              return draft;
+            })}
+            disabled={busy !== null}
+            className="gap-2"
+          >
+            <FileUp className="h-4 w-4" />
+            {t('backup.importContent')}
+          </Button>
+        </div>
+      </SettingsSection>
+
+      <SettingsSection title={t('backup.heading')} description={t('backup.intro')}>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => void doExport()} disabled={busy !== null} className="gap-2">
             <Download className="h-4 w-4" />
             {busy === 'export' ? t('backup.exporting') : t('backup.export')}
           </Button>
@@ -219,67 +232,43 @@ export default function BackupSettings() {
             }}
           />
         </div>
-        {status && <p className="text-sm text-muted-foreground">{status}</p>}
-      </section>
+      </SettingsSection>
 
-      <section className="flex flex-col gap-2 border-t border-border pt-6">
-        <h3 className="text-lg font-semibold">{t('backup.importHeading')}</h3>
-        <p className="text-sm text-muted-foreground">{t('backup.importIntro')}</p>
-        <div className="mt-1 flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => setHud((draft) => {
-              draft.importer.open = true;
-              return draft;
-            })}
-            disabled={busy !== null}
-            className="gap-2"
-          >
-            <FileUp className="h-4 w-4" />
-            {t('backup.importContent')}
-          </Button>
-        </div>
-      </section>
-
-      <section className="flex flex-col gap-2 border-t border-border pt-6">
-        <h3 className="text-lg font-semibold">{t('backup.folderHeading')}</h3>
-        <p className="text-sm text-muted-foreground">{t('backup.folderIntro')}</p>
-        <div className="mt-1 flex flex-wrap gap-2">
+      <SettingsSection title={t('backup.folderHeading')} description={t('backup.folderIntro')}>
+        <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => void onExportFolder()} disabled={busy !== null} className="gap-2">
             <FolderDown className="h-4 w-4" />
             {busy === 'folder' ? t('backup.folderExporting') : t('backup.folderExport')}
-          </Button>
-          <Button variant="secondary" onClick={() => void doExport(setExportStatus)} disabled={busy !== null} className="gap-2">
-            <Download className="h-4 w-4" />
-            {busy === 'export' ? t('backup.exporting') : t('backup.folderBackup')}
           </Button>
           <Button variant="secondary" onClick={() => void onImportFolder()} disabled={busy !== null} className="gap-2">
             <FolderUp className="h-4 w-4" />
             {t('backup.folderImport')}
           </Button>
         </div>
-        {exportStatus && <p className="text-sm text-muted-foreground">{exportStatus}</p>}
-      </section>
-
-      <BookFilesSection />
+        {/* One shared status line for every data in/out action above. */}
+        {status && <p className="text-sm text-muted-foreground">{status}</p>}
+      </SettingsSection>
 
       <ScheduledBackupsSection />
 
-      {/* Rarely-touched maintenance — collapsed by default (SET2-8). */}
-      <SettingsAdvancedSection title={t('storage.heading')} description={t('storage.intro')}>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            onClick={() => void onCompact()}
-            disabled={busy !== null || !!remote}
-            className="gap-2"
-          >
-            <Database className="h-4 w-4" />
-            {busy === 'compact' ? t('storage.compacting') : t('storage.compact')}
-          </Button>
-        </div>
-        {remote && <p className="text-xs text-muted-foreground">{t('storage.remoteUnavailable')}</p>}
-      </SettingsAdvancedSection>
+      <SettingsSection title={t('storage.heading')}>
+        <BookFilesFields />
+        {/* Rarely-touched maintenance — collapsed by default (SET2-8). */}
+        <SettingsAdvancedSection title={t('storage.compactHeading')} description={t('storage.intro')}>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => void onCompact()}
+              disabled={busy !== null || !!remote}
+              className="gap-2"
+            >
+              <Database className="h-4 w-4" />
+              {busy === 'compact' ? t('storage.compacting') : t('storage.compact')}
+            </Button>
+          </div>
+          {remote && <p className="text-xs text-muted-foreground">{t('storage.remoteUnavailable')}</p>}
+        </SettingsAdvancedSection>
+      </SettingsSection>
 
       {bundle && (
         <RestoreDialog
@@ -312,9 +301,10 @@ export default function BackupSettings() {
  * The book-files folder (desktop, local managed server only): show where the
  * durable on-disk book mirror lives and let the user relocate or reveal it.
  * Hidden on the web and when connected to a remote server — only the always-on
- * local managed server exposes `chooseBookDir`.
+ * local managed server exposes `chooseBookDir`. Rendered inside the unified
+ * Storage section, so it emits fields only (no section wrapper of its own).
  */
-function BookFilesSection() {
+function BookFilesFields() {
   const {serverControls} = usePlatformCapabilities();
   const {t} = useTranslation();
   const [info, setInfo] = useState<ServerInfo | null>(null);
@@ -348,8 +338,7 @@ function BookFilesSection() {
   if (!serverControls?.chooseBookDir || !info?.managed) return null;
 
   return (
-    <section className="flex flex-col gap-2 border-t border-border pt-6">
-      <h3 className="text-lg font-semibold">{t('connection.bookFiles')}</h3>
+    <>
       <p className="text-sm text-muted-foreground">{t('connection.bookFilesDescription')}</p>
       <SettingsField label={t('connection.bookFolder')} className="max-w-lg">
         <code className="block truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
@@ -366,7 +355,7 @@ function BookFilesSection() {
           </Button>
         )}
       </div>
-    </section>
+    </>
   );
 }
 
@@ -441,10 +430,7 @@ function ScheduledBackupsSection() {
   const webOnly = status.resolvedDir === null;
 
   return (
-    <section className="flex flex-col gap-2 border-t border-border pt-6">
-      <h3 className="text-lg font-semibold">{t('backup.schedule.heading')}</h3>
-      <p className="text-sm text-muted-foreground">{t('backup.schedule.intro')}</p>
-
+    <SettingsSection title={t('backup.schedule.heading')} description={t('backup.schedule.intro')}>
       {webOnly ? (
         <p className="text-sm text-muted-foreground">{t('backup.schedule.webOnly')}</p>
       ) : (
@@ -490,7 +476,7 @@ function ScheduledBackupsSection() {
         </>
       )}
       {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
-    </section>
+    </SettingsSection>
   );
 }
 

@@ -543,10 +543,9 @@ export const en = {
     importIntro: 'Bring in pages from a Notion export or a Markdown file.',
     importContent: 'Import from Notion or Markdown…',
     folderHeading: 'Export',
-    folderIntro: 'Save your library as a folder of readable .html files (one per page), or as a single openbook.library.json backup file. Load a folder back in to restore — it round-trips losslessly.',
+    folderIntro: 'Save your library as a folder of readable .html files (one per page). Load a folder back in to restore — it round-trips losslessly.',
     folderExport: 'Export to folder…',
     folderExporting: 'Exporting…',
-    folderBackup: 'Export to backup…',
     folderImport: 'Import from folder…',
     folderExported: 'Exported {count} pages to {location}.',
     folderEmpty: 'No OpenBook pages found in that folder.',
@@ -590,6 +589,7 @@ export const en = {
   },
   storage: {
     heading: 'Storage',
+    compactHeading: 'Database maintenance',
     intro:
       'Compact the local database to reclaim disk space. Editing leaves behind storage overhead that this rewrites away; the app pauses briefly while it runs.',
     compact: 'Compact database',

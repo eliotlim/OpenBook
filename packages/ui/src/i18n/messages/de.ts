@@ -45,6 +45,7 @@ export const de: PartialMessages = {
     },
   },
   storage: {
+    compactHeading: 'Datenbankwartung',
     remoteUnavailable:
       'Die Verdichtung betrifft nur die lokale Datenbank – bei Verbindung mit einem Remote-Server ist sie nicht verfügbar.',
   },
