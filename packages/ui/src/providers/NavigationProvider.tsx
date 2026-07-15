@@ -144,6 +144,12 @@ export interface NavigationContextValue {
   movePage: (id: string, parentId: string | null, orderedIds: string[]) => Promise<void>;
   /** Re-list pages from the store. */
   reload: () => Promise<PageMeta[]>;
+
+  /** Database ROWS whose title matches `query` (best matches first). Rows are
+   *  pages too, so the palette and `@`-mention picker can both surface them —
+   *  they live under each database, not the top-level {@link pages} list, so
+   *  this is async (per-database results are cached and reused). */
+  searchRows: (query: string, limit?: number) => Promise<PageLinkResult[]>;
 }
 
 const NavigationContext = createContext<NavigationContextValue | null>(null);
@@ -899,6 +905,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       renamePage,
       movePage,
       reload,
+      searchRows,
     }),
     [
       pages, currentPageId, primaryPageId, loading, error, inWindowTabs, tabs, activeTabId, selectTab, closeTab,
@@ -907,7 +914,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       rowAnchor, groupAnchor, blockAnchor, clearRowAnchor, clearGroupAnchor, clearBlockAnchor,
       selectPage, selectPageAtBlock, selectPageInPane, goBack,
       goForward, canGoBack, canGoForward, createPage, createDatabasePage, createSubpage, duplicatePage, deletePage, renamePage,
-      movePage, reload,
+      movePage, reload, searchRows,
     ],
   );
 

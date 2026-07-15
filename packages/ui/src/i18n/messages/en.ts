@@ -361,6 +361,8 @@ export const en = {
     noResults: 'No results found.',
     search: 'Search',
     pages: 'Pages',
+    rows: 'Database rows',
+    notes: 'In your notes',
     noPages: 'No pages yet',
     actions: 'Actions',
     groupFavorites: 'Favorites',

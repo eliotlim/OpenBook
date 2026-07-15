@@ -80,7 +80,7 @@ test('settings: every provider is configurable in its own panel + the radio pick
   await page.keyboard.press('Escape');
 });
 
-test('AI search: palette command opens the dialog; results navigate', {tag: ['@ai']}, async ({page, request}) => {
+test('unified search: ⌘K surfaces content snippets and navigates to the hit', {tag: ['@ai']}, async ({page, request}) => {
   await setProvider(request, 'mock');
   const name = `AI Search Note ${Date.now()}`;
   const created = await request.post(`${SERVER}/api/pages`, {
@@ -97,18 +97,26 @@ test('AI search: palette command opens the dialog; results navigate', {tag: ['@a
 
   await page.goto('/');
   await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  // Search folds straight into the command palette (IA-1) — no separate dialog.
   await page.keyboard.press('ControlOrMeta+k');
-  await page.getByPlaceholder(/Search pages or run a command/).fill('Search notes with AI');
-  await page.keyboard.press('Enter');
+  await page.getByPlaceholder(/Search pages or run a command/).fill('migration rollback');
 
-  const input = page.getByPlaceholder('What are you looking for?');
-  await expect(input).toBeVisible();
-  await input.fill('migration rollback');
-  await expect(page.locator('[data-ai-result]').first()).toContainText(name);
-  await expect(page.locator('[data-ai-result]').first()).toContainText('rollback');
+  // The "In your notes" group shows a snippet whose body — not its title —
+  // matched, and picking it lands on the page.
+  const snippet = page.locator('[data-search-snippet]').first();
+  await expect(snippet).toContainText(name);
+  await expect(snippet).toContainText('rollback');
 
   await page.keyboard.press('Enter'); // pick the top result
   await expect(page).toHaveURL(new RegExp(id));
+});
+
+test('unified search: ⌘⇧F opens the palette pre-primed for search', {tag: ['@ai']}, async ({page, request}) => {
+  await setProvider(request, 'mock');
+  await page.goto('/');
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  await page.keyboard.press('ControlOrMeta+Shift+f');
+  await expect(page.getByPlaceholder(/Search pages or run a command/)).toBeVisible();
 });
 
 test('editor: Break into tasks and Continue writing run through the engine', {tag: ['@ai']}, async ({page, request}) => {
