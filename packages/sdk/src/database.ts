@@ -2,7 +2,8 @@
  * Full-featured databases — the second unit of storage layered over {@link
  * StoredPage}. A **database** is a collection of pages (its *rows*) managed by
  * typed *properties* and presented through one or more configurable *views*
- * (table, board, gallery, calendar, list, or a bar/pie chart).
+ * (table, list, gallery, board, calendar, timeline, map, relationship graph,
+ * or a bar/pie chart).
  *
  * Three ideas make OpenBook databases different from a plain spreadsheet:
  *

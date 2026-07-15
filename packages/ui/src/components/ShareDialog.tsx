@@ -135,7 +135,7 @@ function granteeOf(grant: PageAcl): {name: string; key: {subject: string} | {ema
 }
 
 /**
- * Inline "Publish this device" affordance (SHR-3), shown in the Share dialog when
+ * Inline "Publish this library" affordance (SHR-3), shown in the Share dialog when
  * a manager is on a publish-capable desktop that isn't published yet — so the
  * copied link would be dead (`tauri://localhost`). Instead of pointing at Settings,
  * it drives the SAME `useForwarding().enable()` the Settings toggle runs — claim +

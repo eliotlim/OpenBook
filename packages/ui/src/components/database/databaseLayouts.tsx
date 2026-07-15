@@ -457,7 +457,7 @@ const NewRowButton: React.FC<{onClick: () => void; label?: string; className?: s
       className,
     )}
   >
-    <Plus className="h-4 w-4" /> {label ?? 'New'}
+    <Plus className="h-4 w-4" /> {label ?? 'New row'}
   </button>
 );
 
@@ -557,7 +557,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
             </section>
           );
         })}
-        <NewRowButton onClick={() => void db.addRow()} label="New card" className="mt-3" />
+        <NewRowButton onClick={() => void db.addRow()} label="New row" className="mt-3" />
       </div>
     );
   }
@@ -570,7 +570,7 @@ export const GalleryView: React.FC<{db: UseDatabase; view: DbView; properties: D
         No rows{db.rows.length > 0 ? ' match the current filters' : ' yet'}.
         </div>
       )}
-      <NewRowButton onClick={() => void db.addRow()} label="New card" className="mt-3" />
+      <NewRowButton onClick={() => void db.addRow()} label="New row" className="mt-3" />
     </div>
   );
 };

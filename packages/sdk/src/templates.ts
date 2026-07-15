@@ -9,7 +9,7 @@ import {buildSampleDocument} from './sampleDocument';
  * through the normal data APIs (no server involvement, same as the sample
  * document). Two shapes:
  *
- *  - **Block-doc artifacts** (the showcases) ship a native block-editor
+ *  - **Showcase documents** ship a native block-editor
  *    JSON projection in `blockdoc: {blocks}`. They lean on the whole editor:
  *    reactive inputs feeding *collapsed* live-code, status lights, info/link/
  *    tooltip cards, charts, progress bars, multi-column layouts, callouts, and

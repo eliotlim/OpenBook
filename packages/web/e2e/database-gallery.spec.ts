@@ -24,7 +24,7 @@ async function seed(request: APIRequestContext): Promise<string> {
 test('gallery grouping: cards split into sections by a property', {tag: ['@database']}, async ({page, request}) => {
   const pageId = await seed(request);
   await page.goto(`/?page=${pageId}`);
-  await page.getByRole('button', {name: 'New card'}).waitFor();
+  await page.getByRole('button', {name: 'New row'}).waitFor();
   // Two group sections (Todo, Done) — one card under Todo, two under Done.
   // Each section also renders a group-header toggle button, so count the cards
   // inside the card grid (not every button) and let the assertions retry until
