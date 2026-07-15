@@ -43,6 +43,7 @@ export const zh: PartialMessages = {
     },
   },
   storage: {
+    compactHeading: '数据库维护',
     remoteUnavailable: '压缩仅适用于本地数据库——连接到远程服务器时不可用。',
   },
   appearance: {

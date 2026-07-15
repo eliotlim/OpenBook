@@ -43,6 +43,7 @@ export const ja: PartialMessages = {
     },
   },
   storage: {
+    compactHeading: 'データベースのメンテナンス',
     remoteUnavailable: '圧縮はローカルデータベースのみに適用されます。リモートサーバーに接続中は利用できません。',
   },
   appearance: {
