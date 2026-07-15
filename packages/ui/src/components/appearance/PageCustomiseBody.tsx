@@ -1,6 +1,6 @@
-import {Image as ImageIcon, Trash2} from 'lucide-react';
+import {Image as ImageIcon, SlidersHorizontal, Trash2} from 'lucide-react';
 import {useEffect, useMemo, useState, type CSSProperties} from 'react';
-import {useNavigation, useTheme, useTranslation} from '@/providers';
+import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {cn} from '@/lib/utils';
 import {Switch} from '@/components/ui/switch';
 import {usePageFullWidth, writePageFullWidth} from '@/lib/pageFullWidth';
@@ -287,6 +287,7 @@ export function PageAppearanceControls({pageId, isDatabase = false}: {pageId: st
 export function PageCustomiseBody() {
   const {t} = useTranslation();
   const {pages} = useNavigation();
+  const {setHud} = useHud();
   const [pageId, setPageId] = useState<string | null>(getPageCustomiseTarget());
   useEffect(() => subscribePageCustomise(() => setPageId(getPageCustomiseTarget())), []);
   // Nav-list derivation (covers any target page id); can briefly lag a just-
@@ -308,6 +309,25 @@ export function PageCustomiseBody() {
         ) : (
           <p className="text-xs text-muted-foreground">{t('appearance.pageCustomiseEmpty')}</p>
         )}
+      </div>
+      {/* Cross-pointer to the app-wide scope: these controls restyle this page
+          only; the app theme + accent (which share the very same pickers) live in
+          Settings → Appearance. Points the other way from AppearanceSettings. */}
+      <div className="shrink-0 border-t border-border px-4 py-2.5">
+        <button
+          type="button"
+          onClick={() =>
+            setHud((draft) => {
+              draft.settings.open = true;
+              draft.settings.tab = 'appearance';
+              return draft;
+            })
+          }
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+          {t('appearance.appWidePointer')}
+        </button>
       </div>
     </div>
   );

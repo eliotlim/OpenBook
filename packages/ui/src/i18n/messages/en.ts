@@ -101,8 +101,14 @@ export const en = {
     controlColor: 'Control colour',
     controlColorHint: 'The accent for buttons, links, and selection.',
     matchApp: 'Match app',
-    pageCustomiseSubtitle: 'Appearance & typefaces for this page',
+    pageCustomiseSubtitle: 'Cover, width, theme & typefaces — this page only',
     pageCustomiseEmpty: 'Open a page to customise it here.',
+    // Cross-pointers between the two appearance scopes (OB-548): the per-page
+    // Customise pane and the app-wide Appearance settings share the same pickers,
+    // so each surface links to the other to keep the scope clear.
+    appWidePointer: 'App-wide theme & colours',
+    perPagePointer:
+      'This themes the whole app on this device. To restyle one page — its cover, width, accent, and fonts — open that page’s Customise pane from the palette above its title or its “…” menu.',
     cover: 'Cover',
     coverHint: 'A banner image or gradient above the title.',
     fullWidth: 'Full width',

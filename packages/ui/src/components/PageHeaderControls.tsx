@@ -4,7 +4,6 @@ import {useNavigation, useTranslation} from '@/providers';
 import {IconButton} from '@/components/ui/icon-button';
 import {BacklinksControl, OwnerEditor, VerificationEditor, usePageProperties} from '@/components/PageProperties';
 import {LastEditedBy} from '@/components/LastEditedBy';
-import {CoverPicker} from '@/components/PageCover';
 import {usePageCover} from '@/lib/pageCover';
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
 import {CUSTOMISE_PANE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
@@ -15,7 +14,8 @@ import {cn} from '@/lib/utils';
 /**
  * The cover-area control cluster, sitting above the title: page customisation
  * (accent / fonts → the side pane), owner, verification, backlinks count, and —
- * when the page has no cover yet — an "Add cover" affordance. Notion-style, it is
+ * when the page has no cover yet — an "Add cover" affordance that deep-links into
+ * the same Customise pane (the one home for cover). Notion-style, it is
  * hidden until the cover / header region is hovered (the `group/pagehead` wrapper
  * in BlockPageDocument), and stays visible while any of its menus is open. Owner
  * and verification still write the reserved property ids, so they round-trip as
@@ -85,16 +85,18 @@ export function PageHeaderControls({pageId}: {pageId: string}) {
         <VerificationEditor value={verification} onChange={(v) => setProperty(VERIFICATION_PROPERTY_ID, v)} />
         <BacklinksControl pageId={pageId} />
         <LastEditedBy pageId={pageId} />
+        {/* "Add cover" deep-links into the Customise pane rather than opening its
+            own popover — the pane is the single home for cover + full width, so
+            cover is only ever set from one surface. */}
         {!cover && (
-          <CoverPicker pageId={pageId}>
-            <button
-              type="button"
-              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
-            >
-              <ImageIcon className="h-3.5 w-3.5" />
-              {t('page.addCover')}
-            </button>
-          </CoverPicker>
+          <button
+            type="button"
+            onClick={openCustomise}
+            className="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
+          >
+            <ImageIcon className="h-3.5 w-3.5" />
+            {t('page.addCover')}
+          </button>
         )}
       </span>
     </div>
