@@ -198,15 +198,13 @@ describe('GroupContextMenu', () => {
     expect(screen.queryByText('Delete group')).toBeNull();
   });
 
-  it('copies an in-context group link (host db page + ?group= anchor)', () => {
+  it('does not offer copy link on the group header (COPYLINK-AUDIT: dropped as noise)', () => {
+    // Copy link now lives only on the page cluster + contextual row menus; a
+    // link to a swimlane/section was niche noise. The ?group= deep-link anchor
+    // is still honoured on load — it just is not surfaced from this menu.
     renderMenu(optionGroup, makeDb());
-    fireEvent.click(screen.getByText('Copy link'));
-    expect(copyLink).toHaveBeenCalledWith('db-host', {group: 'opt1'});
-  });
-
-  it('disables copy-link for a sentinel group (no stable key to anchor)', () => {
-    renderMenu(sentinelGroup, makeDb());
-    expect(screen.getByText('Copy link').closest('[role="menuitem"]')?.getAttribute('aria-disabled')).toBe('true');
+    expect(screen.queryByText('Copy link')).toBeNull();
+    expect(copyLink).not.toHaveBeenCalled();
   });
 
   it('marks the group header with data-group-anchor so a ?group= link can scroll to it', () => {

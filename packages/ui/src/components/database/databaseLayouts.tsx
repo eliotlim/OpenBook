@@ -323,7 +323,6 @@ export const GroupContextMenu: React.FC<{
   children: React.ReactNode;
 }> = ({db, group, prop, groupByParent, collapsed, onToggle, onCollapseAll, onExpandAll, children}) => {
   const {renamePage} = useNavigation();
-  const copyLink = useCopyPageLink();
   const [renaming, setRenaming] = useState(false);
 
   const sentinel = GROUP_SENTINELS.has(group.key);
@@ -431,18 +430,10 @@ export const GroupContextMenu: React.FC<{
             <ContextMenuItem onSelect={onExpandAll}>
               <ChevronsUpDown className="mr-2 h-3.5 w-3.5" /> Expand all
             </ContextMenuItem>
-            <ContextMenuSeparator />
-            {/* A group link anchors at the host db page (`?page=<hostDb>&group=<key>`),
-                reopening the database scrolled to + highlighting this group. The
-                ungrouped/"No value" sentinels have no stable key to anchor, so their
-                copy-link disables. */}
-            <ContextMenuItem
-              disabled={sentinel}
-              title={sentinel ? 'This group has no stable link' : undefined}
-              onSelect={() => copyLink(db.hostPageId, {group: group.key})}
-            >
-              <Link2 className="mr-2 h-3.5 w-3.5" /> Copy link
-            </ContextMenuItem>
+            {/* Copy link (COPYLINK-AUDIT): dropped from the group header — a link
+                to a swimlane/section is niche noise. Copy link stays on the row
+                (contextual, per-page) and the page cluster; the group deep-link
+                anchor (`groupLinkUrl`) is still honoured on load. */}
             {isOptionGroup && (
               <>
                 <ContextMenuSeparator />
