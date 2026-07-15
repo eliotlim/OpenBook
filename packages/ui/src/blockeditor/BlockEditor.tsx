@@ -1081,78 +1081,62 @@ const COLOR_MENU: Array<{id: string | null; label: string}> = [
   ...COLOR_TOKENS.map((c) => ({id: c.id, label: c.label})),
 ];
 
-/** The drag handle's click menu: block actions without leaving the mouse. */
-const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => {
-  const id = blockId(block);
-  const isText = TEXT_BLOCKS.has(blockType(block));
-  const ops = blockOps(editor, id);
-  return (
-    <DropdownMenuContent align="start" side="bottom" className="w-44">
-      {isText && (
-        <>
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger>Turn into</DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="w-40">
-              {TURN_OPTIONS.map((o) => (
-                <DropdownMenuItem key={o.label} onClick={() => ops.turn(o.type, o.props)}>
-                  {o.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-          <DropdownMenuSeparator />
-        </>
-      )}
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger>Text colour</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="w-40">
-          {COLOR_MENU.map((c) => (
-            <DropdownMenuItem key={c.id ?? 'default'} onClick={() => ops.setColor('fg', c.id)}>
-              <span className={`obe-mi-sw ${c.id ? `obe-fg-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden>A</span>
-              {c.label}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger>Background</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="w-40">
-          {COLOR_MENU.map((c) => (
-            <DropdownMenuItem key={c.id ?? 'default'} onClick={() => ops.setColor('bg', c.id)}>
-              <span className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden />
-              {c.label}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem onClick={ops.duplicate}>
-        Duplicate
-        <DropdownMenuShortcut>{formatShortcut({key: 'd', mod: true})}</DropdownMenuShortcut>
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => ops.move(-1)}>
-        Move up
-        <DropdownMenuShortcut>{formatShortcut({key: 'arrowup', mod: true, shift: true})}</DropdownMenuShortcut>
-      </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => ops.move(1)}>
-        Move down
-        <DropdownMenuShortcut>{formatShortcut({key: 'arrowdown', mod: true, shift: true})}</DropdownMenuShortcut>
-      </DropdownMenuItem>
-      <DropdownMenuSeparator />
-      <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={ops.remove}>
-        Delete
-        <DropdownMenuShortcut>{formatShortcut({key: 'backspace'})}</DropdownMenuShortcut>
-      </DropdownMenuItem>
-    </DropdownMenuContent>
-  );
+/**
+ * The two Radix menu families expose the same item/sub/separator shape, so the
+ * one canonical block-action list below renders through whichever bundle its
+ * host provides — the drag-handle {@link DropdownMenu} or the right-click
+ * {@link ContextMenu}. (Mirrors the `PageMenuItems` single-source pattern.)
+ * Typed as {@link React.ElementType} because we only lean on the props both
+ * families share (onSelect/className/children).
+ */
+interface BlockMenuComponentSet {
+  Item: React.ElementType;
+  Separator: React.ElementType;
+  Shortcut: React.ElementType;
+  Sub: React.ElementType;
+  SubTrigger: React.ElementType;
+  SubContent: React.ElementType;
+}
+
+const BLOCK_MENU_COMPONENTS: Record<'context' | 'dropdown', BlockMenuComponentSet> = {
+  context: {
+    Item: ContextMenuItem,
+    Separator: ContextMenuSeparator,
+    Shortcut: ContextMenuShortcut,
+    Sub: ContextMenuSub,
+    SubTrigger: ContextMenuSubTrigger,
+    SubContent: ContextMenuSubContent,
+  },
+  dropdown: {
+    Item: DropdownMenuItem,
+    Separator: DropdownMenuSeparator,
+    Shortcut: DropdownMenuShortcut,
+    Sub: DropdownMenuSub,
+    SubTrigger: DropdownMenuSubTrigger,
+    SubContent: DropdownMenuSubContent,
+  },
 };
 
-/** The block's right-click menu — block actions in place of the page menu, so
- *  right-clicking a block reads as "this block", not "this page". */
-const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => {
+/**
+ * The single source of truth for a block's actions, rendered from both entry
+ * points — the drag-handle click menu ({@link HandleMenu}, `menu="dropdown"`)
+ * and the right-click menu ({@link BlockRowMenu}, `menu="context"`). One list
+ * renders through whichever Radix family the host provides; the kit-config and
+ * review rows are added conditionally by block/host (not by surface), so both
+ * entry points expose the same capabilities and can no longer drift.
+ *
+ * Rendered inside a `DropdownMenuContent`/`ContextMenuContent` by the caller.
+ */
+const BlockMenuItems: React.FC<{
+  block: BlockMap;
+  editor: BlockEditorController;
+  menu: 'context' | 'dropdown';
+}> = ({block, editor, menu}) => {
   const id = blockId(block);
   const isText = TEXT_BLOCKS.has(blockType(block));
   const ops = blockOps(editor, id);
+  const C = BLOCK_MENU_COMPONENTS[menu];
+
   // Review affordances need the host (BlockPageDocument) mounted and the live
   // doc registered against a page id (so the composer knows its target page).
   const pageId = getPageIdForDoc(editor.doc);
@@ -1164,81 +1148,107 @@ const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> =
   const comment = (): void => {
     if (pageId) requestComment({pageId, blockId: id});
   };
+
   return (
-    <ContextMenuContent className="w-44">
+    <>
       {/* Interactive blocks expose their settings popover right from the menu. */}
       {hasKitConfig(id) && (
         <>
-          <ContextMenuItem onSelect={() => openKitConfig(id)}>{t('pane.config')}…</ContextMenuItem>
-          <ContextMenuSeparator />
+          <C.Item onSelect={() => openKitConfig(id)}>{t('pane.config')}…</C.Item>
+          <C.Separator />
         </>
       )}
+
+      {/* ── Review rows (Suggest edit / Comment) ────────────────────────────────
+          i18n'd (VOCAB/IA-4); both labels live together in this one spot
+          (single surface, single place). Keep new review items here, not scattered. */}
       {reviewable && (
         <>
-          {isText && <ContextMenuItem onSelect={suggestEdit}>Suggest edit…</ContextMenuItem>}
-          <ContextMenuItem onSelect={comment}>Comment…</ContextMenuItem>
-          <ContextMenuSeparator />
+          {isText && <C.Item onSelect={suggestEdit}>{t('menu.block.suggestEdit')}</C.Item>}
+          <C.Item onSelect={comment}>{t('menu.block.comment')}</C.Item>
+          <C.Separator />
         </>
       )}
+
       {isText && (
         <>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger>Turn into</ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-40">
+          <C.Sub>
+            <C.SubTrigger>Turn into</C.SubTrigger>
+            <C.SubContent className="w-40">
               {TURN_OPTIONS.map((o) => (
-                <ContextMenuItem key={o.label} onSelect={() => ops.turn(o.type, o.props)}>
+                <C.Item key={o.label} onSelect={() => ops.turn(o.type, o.props)}>
                   {o.label}
-                </ContextMenuItem>
+                </C.Item>
               ))}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          <ContextMenuSeparator />
+            </C.SubContent>
+          </C.Sub>
+          <C.Separator />
         </>
       )}
-      <ContextMenuSub>
-        <ContextMenuSubTrigger>Text colour</ContextMenuSubTrigger>
-        <ContextMenuSubContent className="w-40">
+
+      <C.Sub>
+        <C.SubTrigger>Text colour</C.SubTrigger>
+        <C.SubContent className="w-40">
           {COLOR_MENU.map((c) => (
-            <ContextMenuItem key={c.id ?? 'default'} onSelect={() => ops.setColor('fg', c.id)}>
+            <C.Item key={c.id ?? 'default'} onSelect={() => ops.setColor('fg', c.id)}>
               <span className={`obe-mi-sw ${c.id ? `obe-fg-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden>A</span>
               {c.label}
-            </ContextMenuItem>
+            </C.Item>
           ))}
-        </ContextMenuSubContent>
-      </ContextMenuSub>
-      <ContextMenuSub>
-        <ContextMenuSubTrigger>Background</ContextMenuSubTrigger>
-        <ContextMenuSubContent className="w-40">
+        </C.SubContent>
+      </C.Sub>
+      <C.Sub>
+        <C.SubTrigger>Background</C.SubTrigger>
+        <C.SubContent className="w-40">
           {COLOR_MENU.map((c) => (
-            <ContextMenuItem key={c.id ?? 'default'} onSelect={() => ops.setColor('bg', c.id)}>
+            <C.Item key={c.id ?? 'default'} onSelect={() => ops.setColor('bg', c.id)}>
               <span className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`} aria-hidden />
               {c.label}
-            </ContextMenuItem>
+            </C.Item>
           ))}
-        </ContextMenuSubContent>
-      </ContextMenuSub>
-      <ContextMenuSeparator />
-      <ContextMenuItem onSelect={() => editor.setSelection([id])}>Select block</ContextMenuItem>
-      <ContextMenuItem onSelect={ops.duplicate}>
+        </C.SubContent>
+      </C.Sub>
+
+      <C.Separator />
+      <C.Item onSelect={() => editor.setSelection([id])}>Select block</C.Item>
+      <C.Item onSelect={ops.duplicate}>
         Duplicate
-        <ContextMenuShortcut>{formatShortcut({key: 'd', mod: true})}</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => ops.move(-1)}>
+        <C.Shortcut>{formatShortcut({key: 'd', mod: true})}</C.Shortcut>
+      </C.Item>
+      <C.Item onSelect={() => ops.move(-1)}>
         Move up
-        <ContextMenuShortcut>{formatShortcut({key: 'arrowup', mod: true, shift: true})}</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuItem onSelect={() => ops.move(1)}>
+        <C.Shortcut>{formatShortcut({key: 'arrowup', mod: true, shift: true})}</C.Shortcut>
+      </C.Item>
+      <C.Item onSelect={() => ops.move(1)}>
         Move down
-        <ContextMenuShortcut>{formatShortcut({key: 'arrowdown', mod: true, shift: true})}</ContextMenuShortcut>
-      </ContextMenuItem>
-      <ContextMenuSeparator />
-      <ContextMenuItem className="text-destructive focus:text-destructive" onSelect={ops.remove}>
+        <C.Shortcut>{formatShortcut({key: 'arrowdown', mod: true, shift: true})}</C.Shortcut>
+      </C.Item>
+      <C.Separator />
+      <C.Item className="text-destructive focus:text-destructive" onSelect={ops.remove}>
         Delete
-        <ContextMenuShortcut>{formatShortcut({key: 'backspace'})}</ContextMenuShortcut>
-      </ContextMenuItem>
-    </ContextMenuContent>
+        <C.Shortcut>{formatShortcut({key: 'backspace'})}</C.Shortcut>
+      </C.Item>
+    </>
   );
 };
+
+/** The drag handle's click menu: the block's actions in a dropdown, so a click
+ *  on the gutter handle acts without leaving the mouse. Thin wrapper over the
+ *  shared {@link BlockMenuItems}. */
+const HandleMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
+  <DropdownMenuContent align="start" side="bottom" className="w-44">
+    <BlockMenuItems block={block} editor={editor} menu="dropdown" />
+  </DropdownMenuContent>
+);
+
+/** The block's right-click menu — the same block actions in place of the page
+ *  menu, so right-clicking a block reads as "this block", not "this page". Thin
+ *  wrapper over the shared {@link BlockMenuItems}. */
+const BlockRowMenu: React.FC<{block: BlockMap; editor: BlockEditorController}> = ({block, editor}) => (
+  <ContextMenuContent className="w-44">
+    <BlockMenuItems block={block} editor={editor} menu="context" />
+  </ContextMenuContent>
+);
 
 // ── Group ────────────────────────────────────────────────────────────────────
 
@@ -1305,16 +1315,16 @@ const GroupView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
           <KitInlineText
             className="obe-group-name"
             value={name}
-            placeholder="Group"
+            placeholder="Section"
             readOnly={editor.readOnly}
-            ariaLabel="Group name"
+            ariaLabel="Section name"
             onCommit={(v) => set('name', v)}
           />
           <span className="obe-group-spacer" />
           <button
             type="button"
             className={`obe-group-btn${sync ? ' obe-group-btn-on' : ''}`}
-            aria-label={sync ? `Synced across pages as ${sync}` : 'Sync this group across pages'}
+            aria-label={sync ? `Synced across pages as ${sync}` : 'Sync this section across pages'}
             aria-pressed={Boolean(sync)}
             title={sync ? `Synced across pages as “${sync}”` : 'Sync across pages'}
             disabled={editor.readOnly}
@@ -1325,9 +1335,9 @@ const GroupView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
           <button
             type="button"
             className={`obe-group-btn${locked ? ' obe-group-btn-on' : ''}`}
-            aria-label={locked ? 'Unlock group' : 'Lock group'}
+            aria-label={locked ? 'Unlock section' : 'Lock section'}
             aria-pressed={locked}
-            title={locked ? 'Unlock group' : 'Lock group'}
+            title={locked ? 'Unlock section' : 'Lock section'}
             disabled={editor.readOnly}
             onClick={() => set('locked', !ownLocked)}
           >

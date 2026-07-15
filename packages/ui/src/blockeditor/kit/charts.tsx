@@ -865,20 +865,14 @@ export interface ChartKindDef {
    * kinds (DASH-3 DB source, DASH-5 new kinds).
    */
   configFields?: (args: ChartKindConfigArgs) => React.ReactNode;
-  /**
-   * Optional slash-menu entry that inserts a chart. Today only the default
-   * `line` kind carries one — a single "Chart" item. The block `type` is
-   * always `kitchart`; the kind is switched from config, not the slash menu.
-   */
-  slash?: CustomBlockDef['slash'];
 }
 
 const registry = new Map<string, ChartKindDef>();
 
 /**
  * Register a chart kind. Re-registering an existing `kind` replaces it. The
- * render dispatch, Kind selector, and slash menu all read from the registry,
- * so this is the ONLY edit needed to add a kind.
+ * render dispatch and Kind selector both read from the registry, so this is
+ * the ONLY edit needed to add a kind.
  */
 export function registerChartKind(def: ChartKindDef): void {
   registry.set(def.kind, def);
@@ -900,12 +894,6 @@ registerChartKind({
   kind: 'line',
   label: 'line',
   render: ({value, labels, palette}) => <LineArea value={value} area={false} labels={labels} palette={palette} />,
-  slash: {
-    label: 'Chart',
-    hint: 'Line, bar, pie, scatter, funnel — live over inputs',
-    keywords: 'chart graph plot line bar pie donut scatter funnel visualization',
-    make: () => ({type: 'kitchart', props: {kind: 'line', source: '[3, 1, 4, 1, 5, 9, 2, 6]'}}),
-  },
 });
 registerChartKind({
   kind: 'area',
@@ -1643,9 +1631,8 @@ const ChartBlock: React.FC<CustomBlockProps> = ({block, editor}) => {
   );
 };
 
-// The chart block is a single `kitchart` type that renders any kind; the slash
-// menu entry is derived from the registry (today only `line` declares one, so
-// this yields exactly one "Chart" item). No edit needed to add a kind.
-export const CHART_BLOCKS: CustomBlockDef[] = chartKinds()
-  .filter((d) => d.slash)
-  .map((d) => ({type: 'kitchart', render: ChartBlock, slash: d.slash}));
+// The chart block is a single `kitchart` type that renders any registered
+// kind. Insertion lives in SlashMenu's core "Chart" item (first in the
+// interactive group, IA-8) — one insertion source — so this only registers
+// the renderer. No edit needed here to add a kind.
+export const CHART_BLOCKS: CustomBlockDef[] = [{type: 'kitchart', render: ChartBlock}];

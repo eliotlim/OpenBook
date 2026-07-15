@@ -175,15 +175,15 @@ export const LibraryProvider: React.FC<PropsWithChildren<unknown>> = ({children}
     (id: string) => {
       const lib = libraries.find((l) => l.id === id);
       if (!lib) return;
-      // Already on this server — just mark it active (no reload needed).
-      if (sameTarget(lib.serverUrl, getServerUrlOverride())) {
-        setCurrentId(id);
-        return;
+      // Mark it active immediately. If the target server actually differs,
+      // re-point the shared override too — its change fans out to the app shell
+      // (onServerOverrideChange), which swaps the data client and remounts the
+      // data subtree in place, so every provider re-initializes against the new
+      // server WITHOUT a full-page reload (LIB / NAV-9).
+      setCurrentId(id);
+      if (!sameTarget(lib.serverUrl, getServerUrlOverride())) {
+        setServerUrlOverride(lib.serverUrl);
       }
-      // Re-point the data client at the new server and reload so every provider
-      // re-initializes against it (mirrors the Server settings flow).
-      setServerUrlOverride(lib.serverUrl);
-      if (typeof window !== 'undefined') window.location.reload();
     },
     [libraries],
   );

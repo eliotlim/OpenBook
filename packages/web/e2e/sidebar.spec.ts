@@ -53,3 +53,24 @@ test('sidebar chrome: trash row, color mode in profile menu, suggested section',
   await suggested.getByRole('button', {name: 'Suggested'}).click(); // restore
   await expect(suggested.getByText(name)).toBeVisible();
 });
+
+// The sidebar "Pages" empty-state starters (IA-11 / NAV-6) must show ONLY for a
+// genuinely empty library — not flash over a library that has pages while the
+// initial page list is still loading. `freshWorkspace` gives a truly empty
+// library; creating a page from the starter then swaps it for the tree.
+test.describe('pages empty-state', () => {
+  test.use({freshWorkspace: true});
+
+  test('empty library shows starters; a real page replaces them', {tag: ['@shell']}, async ({page}) => {
+    await page.goto('/');
+    const empty = page.locator('[data-pages-empty]');
+    await expect(empty).toBeVisible();
+    // A genuinely empty library — no tree rows behind the starters.
+    await expect(page.getByRole('treeitem')).toHaveCount(0);
+
+    // Creating a page from the starter fills the tree and drops the empty-state.
+    await empty.getByRole('button', {name: 'New page'}).click();
+    await expect(empty).toHaveCount(0);
+    await expect(page.getByRole('treeitem').first()).toBeVisible();
+  });
+});

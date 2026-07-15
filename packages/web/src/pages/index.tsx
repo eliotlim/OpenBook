@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useState} from 'react';
 import type {GetServerSideProps, InferGetServerSidePropsType} from 'next';
 import Head from 'next/head';
-import {HttpDataClient, getServerUrlOverride, getServerTokenOverride, getIdentityCredential, onIdentityChange, type DataClient} from '@book.dev/sdk';
+import {HttpDataClient, getServerUrlOverride, getServerTokenOverride, getIdentityCredential, onIdentityChange, onServerOverrideChange, type DataClient} from '@book.dev/sdk';
 import {
   DataProvider,
   DefaultLayout,
@@ -32,14 +32,21 @@ function openLocalClient(): Promise<DataClient> {
   return localClientPromise;
 }
 
-function useWebClient(forwardedPrefix: string | null): {client: DataClient | null; browserLocal: boolean} {
+function useWebClient(forwardedPrefix: string | null): {client: DataClient | null; browserLocal: boolean; connKey: string} {
   // `browserLocal` marks the third branch below — the embedded PGlite store that
   // lives only in this browser profile. The sharing surfaces use it to say
   // honestly that nothing outside this browser can reach the workspace (P0-4).
-  const [state, setState] = useState<{client: DataClient | null; browserLocal: boolean}>({
+  // `connKey` identifies the active connection; the caller keys the DataProvider
+  // subtree on it so a no-reload library switch remounts the nav providers fresh.
+  const [state, setState] = useState<{client: DataClient | null; browserLocal: boolean; connKey: string}>({
     client: null,
     browserLocal: false,
+    connKey: 'local',
   });
+  // A no-reload library switch re-points the shared server override; re-run the
+  // builder so the client swaps in place (no `window.location.reload`).
+  const [overrideTick, setOverrideTick] = useState(0);
+  useEffect(() => onServerOverrideChange(() => setOverrideTick((t) => t + 1)), []);
   useEffect(() => {
     // Served as a forwarded `<prefix>.book.pub` site (the edge tagged the app-shell
     // request with the site prefix): the workspace lives on the owner's instance,
@@ -48,7 +55,7 @@ function useWebClient(forwardedPrefix: string | null): {client: DataClient | nul
     // principal. Takes precedence over a local override and the in-browser store.
     if (forwardedPrefix) {
       const client = new HttpDataClient('', undefined, {getIdentity: getIdentityCredential, subscribeIdentity: onIdentityChange});
-      setState({client, browserLocal: false});
+      setState({client, browserLocal: false, connKey: `fwd:${forwardedPrefix}`});
       return () => client.dispose();
     }
     const override = getServerUrlOverride() ?? REMOTE_SERVER_URL;
@@ -62,19 +69,19 @@ function useWebClient(forwardedPrefix: string | null): {client: DataClient | nul
         getIdentity: getIdentityCredential,
         subscribeIdentity: onIdentityChange,
       });
-      setState({client, browserLocal: false});
+      setState({client, browserLocal: false, connKey: `remote:${override}`});
       return () => client.dispose();
     }
     let cancelled = false;
     openLocalClient()
       .then((c) => {
-        if (!cancelled) setState({client: c, browserLocal: true});
+        if (!cancelled) setState({client: c, browserLocal: true, connKey: 'local'});
       })
       .catch((e) => console.error('OpenBook: failed to open the local store', e));
     return () => {
       cancelled = true;
     };
-  }, [forwardedPrefix]);
+  }, [forwardedPrefix, overrideTick]);
   return state;
 }
 
@@ -196,7 +203,7 @@ export const getServerSideProps: GetServerSideProps<{
 };
 
 export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSidePropsType<typeof getServerSideProps>) {
-  const {client, browserLocal} = useWebClient(forwardedPrefix);
+  const {client, browserLocal, connKey} = useWebClient(forwardedPrefix);
   const shellPreview = useDesktopShellPreview();
   const updatesPreview = useUpdatesPreview();
   // Tell the UI when the workspace is the in-browser store (nothing outside this
@@ -224,7 +231,10 @@ export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSid
       </Head>
       <PlatformCapabilitiesProvider value={platform}>
         {client && (
-          <DataProvider client={client}>
+          // Key the data subtree on the active connection so a no-reload library
+          // switch (a re-pointed server override) remounts the nav providers fresh
+          // against the new client — its one-shot init re-lists the new library.
+          <DataProvider key={connKey} client={client}>
             <NavigationProvider>
               <SettingsDeepLink />
               <DefaultLayout>

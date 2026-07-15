@@ -61,16 +61,22 @@ test('sidebar: hover row actions add a subpage and open the page menu', {tag: ['
 });
 
 // The enriched page context menu carries the new actions, and Rename focuses the
-// page title field.
-test('page menu: rename, copy link, duplicate, split — and rename focuses the title', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
+// page title field. Copy link is intentionally NOT on this page-surface menu
+// (COPYLINK-AUDIT, IA-10): it lives on the actions cluster's icon button (which
+// always renders alongside the page), asserted separately below.
+test('page menu: rename, duplicate, split — and rename focuses the title', {tag: ['@shell', '@visual']}, async ({page}, testInfo) => {
   await page.goto('/');
+  // Copy link is reachable from the page-actions cluster, not the page menu.
+  await expect(page.getByRole('button', {name: 'Copy link'})).toBeVisible();
+
   // Right-click the page title (page chrome, not a block) — the page menu lives
   // on the non-block areas of the body; a block shows its own context menu.
   await page.getByLabel('Page title').click({button: 'right'});
 
   const menu = page.getByRole('menu');
   await expect(menu.getByText('Rename')).toBeVisible();
-  await expect(menu.getByText('Copy link')).toBeVisible();
+  // Copy link was dropped from the page-surface menu (duplicated the cluster).
+  await expect(menu.getByText('Copy link')).toHaveCount(0);
   await expect(menu.getByText('Duplicate').first()).toBeVisible();
   await expect(menu.getByText('Open in split view')).toBeVisible();
   await takeSnapshot(page, testInfo); // visual: enriched page context menu

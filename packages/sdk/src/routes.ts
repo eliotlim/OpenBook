@@ -223,6 +223,11 @@ export const API = {
    * Legacy alias of {@link librarySync} (LIB-5 renamed `/api/workspace/sync` →
    * `/api/library/sync`). Kept live so a not-yet-updated caller still resolves;
    * both paths hit the same handler. Retire only in the last, reversible phase.
+   *
+   * @deprecated Wire residue — removal target **v3.0.0** (see `docs/wire-sunset.md`).
+   * Use {@link librarySync} (`/api/library/sync`). DO NOT delete before v3.0.0: an
+   * un-updatable client may still POST this path. Before cutover, confirm no caller
+   * hits `/api/workspace/sync` (the server logs a dev-only warning when it does).
    */
   workspaceSync: '/api/workspace/sync',
 

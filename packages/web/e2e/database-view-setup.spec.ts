@@ -157,7 +157,7 @@ test('add view setup card: unconfigured layouts show the card, configured ones r
 
   // Gallery needs no property → its layout renders, no setup card, no popover.
   await addView(page, 'Gallery');
-  await expect(page.getByRole('button', {name: 'New card'})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'New row'})).toBeVisible();
   await expect(page.locator('[data-radix-popper-content-wrapper]')).toHaveCount(0);
 
   // A date-less Timeline → the in-body setup card offers its create action.

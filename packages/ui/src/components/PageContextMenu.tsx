@@ -22,6 +22,7 @@ import {
   Presentation,
   Puzzle,
   Settings as SettingsIcon,
+  Share2,
   Star,
   StarOff,
   Table2,
@@ -48,9 +49,10 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from '@/components/ui/dropdown-menu';
-import {useConfirm, useHud, useNavigation, usePreferences, useTranslation} from '@/providers';
-import {requestMovePage, requestRenamePage} from '@/lib/pageActions';
+import {useConfirm, useHud, useNavigation, usePlatformCapabilities, usePreferences, useTranslation} from '@/providers';
+import {copyInternalLink, requestMovePage, requestRenamePage} from '@/lib/pageActions';
 import {useCopyPageLink} from '@/lib/useCopyPageLink';
+import {showToast} from '@/components/ui/toast';
 import {isFavorite, toggleFavorite} from '@/lib/favorites';
 import {togglePageFullWidth, usePageFullWidth} from '@/lib/pageFullWidth';
 import {formatShortcut, SHORTCUTS} from '@/lib/shortcuts';
@@ -64,10 +66,13 @@ import {CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, REVIEW_P
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
 import {setReviewTarget} from '@/lib/reviewPane';
 import {setHistoryTarget} from '@/lib/historyPane';
+import {requestShareDialog} from '@/lib/shareDialog';
+import {useSharingCapability} from '@/components/ShareDialog';
 import type {TKey} from '@/i18n';
 
-/** Menu copy + icon per export format, in display order. */
-const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: TKey; icon: typeof FileText}> = [
+/** Menu copy + icon per export format, in display order. Exported so the command
+ *  palette renders the same set (one source of export truth for both surfaces). */
+export const EXPORT_ITEMS: Array<{kind: ExportKind; labelKey: TKey; icon: typeof FileText}> = [
   {kind: 'md', labelKey: 'page.exportMarkdown', icon: FileText},
   {kind: 'html', labelKey: 'page.exportHtml', icon: FileCode},
   {kind: 'html-slides', labelKey: 'page.exportHtmlSlides', icon: Presentation},
@@ -152,6 +157,13 @@ export function PageMenuItems({
   const {preferences} = usePreferences();
   const {t} = useTranslation();
   const copyLink = useCopyPageLink();
+  // "Copy internal link" (`openbook://page/<id>`) only means something where the
+  // scheme is registered — the desktop shell, which advertises `deepLink`.
+  const {deepLink} = usePlatformCapabilities();
+  // Sharing capability of this server. Runs unconditionally (hook-order stable
+  // across surfaces). `supported === false` on a server that predates sharing —
+  // the Share item then shows disabled-with-hint rather than vanishing.
+  const sharing = useSharingCapability();
 
   const id = pageId ?? null;
   const isHome = id === HOME_PAGE_ID;
@@ -279,6 +291,17 @@ export function PageMenuItems({
             <History className="mr-2 h-4 w-4" />
             {t('command.versionHistory')}
           </C.Item>
+          {/* Share/Publish (PUB-DISC): kept visible even when the server doesn't
+              support sharing — disabled with a hint, rather than the cluster
+              icon's vanish. Opens the modal Share dialog via its imperative store. */}
+          <C.Item
+            disabled={!pageScoped || sharing.supported === false}
+            title={sharing.supported === false ? t('share.unsupportedHint') : undefined}
+            onSelect={() => id && requestShareDialog(id)}
+          >
+            <Share2 className="mr-2 h-4 w-4" />
+            {t('share.open')}
+          </C.Item>
         </>
       )}
 
@@ -287,10 +310,31 @@ export function PageMenuItems({
         <Pencil className="mr-2 h-4 w-4" />
         {t('menu.rename')}
       </C.Item>
-      <C.Item disabled={!pageScoped} onSelect={() => id && copyLink(id)}>
-        <Link2 className="mr-2 h-4 w-4" />
-        {t('menu.copyLink')}
-      </C.Item>
+      {/* Copy link (COPYLINK-AUDIT): only on the compact `row` surface (sidebar /
+          favorites / tree), the sole way to copy a link to a page you're NOT
+          looking at. The `page` surface always renders alongside the actions
+          cluster, whose dedicated copy-link icon button covers the open page — so
+          repeating it here (and in the cluster's own "…" dropdown) was noise. */}
+      {!isPage && (
+        <C.Item disabled={!pageScoped} onSelect={() => id && copyLink(id)}>
+          <Link2 className="mr-2 h-4 w-4" />
+          {t('menu.copyLink')}
+        </C.Item>
+      )}
+      {/* Desktop only: an `openbook://page/<id>` link that reopens the page in the
+          app even when it isn't published (where the shareable link is dead). */}
+      {deepLink && (
+        <C.Item
+          disabled={!pageScoped}
+          onSelect={() =>
+            id &&
+            void copyInternalLink(id).then((ok) => ok && showToast({message: t('menu.internalLinkCopied')}))
+          }
+        >
+          <ExternalLink className="mr-2 h-4 w-4" />
+          {t('menu.copyInternalLink')}
+        </C.Item>
+      )}
       <C.Item disabled={!pageScoped} onSelect={() => id && void duplicatePage(id)}>
         <CopyPlus className="mr-2 h-4 w-4" />
         {t('menu.duplicate')}

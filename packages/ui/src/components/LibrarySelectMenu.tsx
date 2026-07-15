@@ -86,17 +86,19 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
     resetForm();
   };
 
-  // Add a server to the list AND switch this device onto it (reload-switch),
-  // mirroring `selectLibrary`'s server re-point. `addLibrary` persists the named
-  // entry; even if its write hasn't flushed before the reload, the connection is
-  // still represented after reload (the provider synthesizes an entry for the
-  // active override), so the switch is never lost.
+  // Add a server to the list AND switch this device onto it, mirroring
+  // `selectLibrary`'s in-place server re-point (no full reload). `addLibrary`
+  // persists the named entry; re-pointing the shared override fans out to the app
+  // shell (onServerOverrideChange), which swaps the data client and remounts the
+  // data subtree so the switch takes effect without a `window.location.reload`.
   const connectTo = (url: string, meta: {name?: string; icon?: string}) => {
-    addLibrary({name: meta.name ?? '', serverUrl: url, icon: meta.icon});
-    // Already talking to this server — no reload needed; just reflect it.
-    if ((url || null) === getServerUrlOverride()) return;
+    const lib = addLibrary({name: meta.name ?? '', serverUrl: url, icon: meta.icon});
+    // Already talking to this server — no re-point needed; just reflect it.
+    if ((url || null) === getServerUrlOverride()) {
+      selectLibrary(lib.id);
+      return;
+    }
     setServerUrlOverride(url);
-    if (typeof window !== 'undefined') window.location.reload();
   };
 
   const submitConnect = () => {

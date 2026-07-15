@@ -8,6 +8,7 @@ import type {PageSnapshot} from './types';
  */
 
 interface AnyBlock {
+  id?: string;
   type?: string;
   data?: Record<string, unknown>;
   text?: Array<{t: string}>;
@@ -17,46 +18,75 @@ interface AnyBlock {
 
 const stripHtml = (s: string): string => s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
-/** Flatten a page snapshot (legacy stored or block-editor) into plain text. */
-export function snapshotText(data: PageSnapshot | null | undefined): string {
-  if (!data) return '';
-  const parts: string[] = [];
+/**
+ * One block's worth of text from a page snapshot. `blockId` is the block-editor
+ * block the text came from — carried so a search hit can anchor to its
+ * originating block (the `?block=` scroll-to). It is absent for legacy stored
+ * pages, whose stored block ids don't survive the migrate-on-open remap and so
+ * would never match a rendered `[data-block-row]`.
+ */
+export interface SnapshotSegment {
+  blockId?: string;
+  text: string;
+}
 
-  // Block-editor pages: read the JSON projection.
+/**
+ * Per-block text projection of a page snapshot. {@link snapshotText} is just
+ * these segments flattened (joined by newlines), so the two never drift; the
+ * server's search index reads segments instead so each indexed chunk remembers
+ * the block it came from.
+ */
+export function snapshotSegments(data: PageSnapshot | null | undefined): SnapshotSegment[] {
+  if (!data) return [];
+  const segments: SnapshotSegment[] = [];
+
+  // Block-editor pages: read the JSON projection, one segment per block (its
+  // text runs plus any code source), tagged with the block id.
   const blockdoc = data.blockdoc as {blocks?: AnyBlock[]} | undefined;
   if (data.editor === 'blocks' && blockdoc?.blocks) {
     const walk = (blocks: AnyBlock[]): void => {
       for (const b of blocks) {
+        const parts: string[] = [];
         if (Array.isArray(b.text)) parts.push(b.text.map((r) => r.t).join(''));
         if (typeof b.props?.source === 'string') parts.push(String(b.props.source));
+        if (parts.length > 0) segments.push({blockId: b.id, text: parts.join('\n')});
         if (b.children) walk(b.children);
       }
     };
     walk(blockdoc.blocks);
-    return parts.join('\n').trim();
+    return segments;
   }
 
-  // Legacy stored pages: pull the text-ish fields out of each block.
+  // Legacy stored pages: pull the text-ish fields out of each block. No stable
+  // block id survives migration, so these segments carry text only.
   const blocks = (data.editorjs as {blocks?: AnyBlock[]} | undefined)?.blocks ?? [];
   for (const b of blocks) {
     const d = b.data ?? {};
-    if (typeof d.text === 'string') parts.push(stripHtml(d.text));
-    if (typeof d.code === 'string') parts.push(String(d.code));
-    if (typeof d.title === 'string') parts.push(stripHtml(String(d.title)));
-    if (typeof d.content === 'string') parts.push(stripHtml(String(d.content)));
+    if (typeof d.text === 'string') segments.push({text: stripHtml(d.text)});
+    if (typeof d.code === 'string') segments.push({text: String(d.code)});
+    if (typeof d.title === 'string') segments.push({text: stripHtml(String(d.title))});
+    if (typeof d.content === 'string') segments.push({text: stripHtml(String(d.content))});
     if (Array.isArray(d.items)) {
       for (const item of d.items as Array<string | {text?: string; content?: string}>) {
         const t = typeof item === 'string' ? item : (item.text ?? item.content ?? '');
-        if (t) parts.push(stripHtml(String(t)));
+        if (t) segments.push({text: stripHtml(String(t))});
       }
     }
     if (Array.isArray(d.content)) {
       for (const row of d.content as string[][]) {
-        if (Array.isArray(row)) parts.push(row.map((c) => stripHtml(String(c))).join(' '));
+        if (Array.isArray(row)) segments.push({text: row.map((c) => stripHtml(String(c))).join(' ')});
       }
     }
   }
-  return parts.join('\n').trim();
+  return segments;
+}
+
+/** Flatten a page snapshot (legacy stored or block-editor) into plain text. */
+export function snapshotText(data: PageSnapshot | null | undefined): string {
+  return snapshotSegments(data)
+    .map((s) => s.text)
+    .join('\n')
+    .trim();
 }
 
 /**

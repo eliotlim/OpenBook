@@ -107,6 +107,22 @@ export interface ForwardingPlatform {
   localFetch?: FetchLike;
 }
 
+/**
+ * How the host delivers `openbook://page/<id>` deep links into the running app.
+ * Only the desktop (Tauri) shell registers the `openbook://` scheme, so it
+ * supplies this; the web shell leaves it undefined (a web deep link is just a
+ * normal `?page=<id>` URL the browser already routes). The UI subscribes and
+ * navigates the primary pane to the page. Its presence is also the capability
+ * flag the "Copy internal link" action keys off — an `openbook://` link is dead
+ * anywhere the scheme isn't registered.
+ */
+export interface DeepLinkPlatform {
+  /** Subscribe to inbound page deep links (a cold-start link plus every link
+   *  while running); the callback receives the target page id. Returns an
+   *  unsubscribe. */
+  onNavigate(cb: (pageId: string) => void): () => void;
+}
+
 /** Security-relevant detail on an available update, when the check surfaced any. */
 export interface UpdateSecurityInfo {
   /** True when the available update fixes a security issue affecting this build. */
@@ -188,6 +204,9 @@ export interface PlatformCapabilities {
   tabs?: TabsPlatform;
   windowControls?: WindowControls;
   account?: AccountPlatform;
+  /** Inbound `openbook://page/<id>` deep-link delivery. Desktop only; its
+   *  presence is the capability flag "Copy internal link" keys off. */
+  deepLink?: DeepLinkPlatform;
   /** Self-update checking. Desktop only; its presence is the "updates
    *  supported" capability flag the UI keys the updates section off. */
   updates?: UpdatesPlatform;

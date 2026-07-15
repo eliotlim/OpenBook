@@ -1,6 +1,6 @@
 import {useSyncExternalStore} from 'react';
-import {Link2, Star} from 'lucide-react';
-import {useTranslation} from '@/providers';
+import {Link2, Presentation, Star} from 'lucide-react';
+import {useHud, useNavigation, useTranslation} from '@/providers';
 import {IconButton} from '@/components/ui/icon-button';
 import NavContextMenu from '@/components/NavContextMenu';
 import ShareDialog, {useSharingCapability} from '@/components/ShareDialog';
@@ -26,9 +26,16 @@ const STATUS_LABEL: Record<string, TKey | ''> = {
  */
 export default function PageActionsCluster({pageId}: {pageId: string | null}) {
   const {t} = useTranslation();
+  const {pages} = useNavigation();
+  const {setHud} = useHud();
 
   const targetPageId = pageId;
   const actionable = !!targetPageId && targetPageId !== HOME_PAGE_ID && targetPageId !== FLOW_PANE_ID;
+  // Present applies to document pages, not database hosts (same gate as the
+  // "…" menu's Present submenu). Derived from the nav list — it can briefly
+  // lag a just-created DB page; self-heals on the next page-list refresh.
+  const isDatabase = actionable && !!pages.find((p) => p.id === targetPageId)?.hostedDatabaseId;
+  const canPresent = actionable && !isDatabase;
 
   useSyncExternalStore(subscribePageSaveStatus, pageSaveStatusVersion, pageSaveStatusVersion);
   const status = pageSaveStatus(targetPageId);
@@ -56,6 +63,25 @@ export default function PageActionsCluster({pageId}: {pageId: string | null}) {
         >
           {t(statusKey)}
         </span>
+      )}
+      {/* Present (IA-8): a visible one-click way into the slide deck — it was
+          buried in the "…" submenu + palette. Click = full-screen deck (the
+          primary action); the presenter console stays in the "…" ▸ Present
+          submenu. Hidden (not disabled) on database hosts, like the submenu. */}
+      {canPresent && (
+        <IconButton
+          size="sm"
+          onClick={() =>
+            setHud((d) => {
+              d.present = {open: true, mode: 'fullscreen', pageId: targetPageId!};
+              return d;
+            })
+          }
+          aria-label={t('page.present')}
+          title={t('command.presentFull')}
+        >
+          <Presentation className="h-4 w-4" />
+        </IconButton>
       )}
       {actionable && sharing.supported && <ShareDialog pageId={targetPageId!} canManage={sharing.canManage} />}
       <IconButton

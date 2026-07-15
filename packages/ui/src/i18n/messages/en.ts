@@ -101,8 +101,14 @@ export const en = {
     controlColor: 'Control colour',
     controlColorHint: 'The accent for buttons, links, and selection.',
     matchApp: 'Match app',
-    pageCustomiseSubtitle: 'Appearance & typefaces for this page',
+    pageCustomiseSubtitle: 'Cover, width, theme & typefaces — this page only',
     pageCustomiseEmpty: 'Open a page to customise it here.',
+    // Cross-pointers between the two appearance scopes (OB-548): the per-page
+    // Customise pane and the app-wide Appearance settings share the same pickers,
+    // so each surface links to the other to keep the scope clear.
+    appWidePointer: 'App-wide theme & colours',
+    perPagePointer:
+      'This themes the whole app on this device. To restyle one page — its cover, width, accent, and fonts — open that page’s Customise pane from the palette above its title or its “…” menu.',
     cover: 'Cover',
     coverHint: 'A banner image or gradient above the title.',
     fullWidth: 'Full width',
@@ -154,6 +160,13 @@ export const en = {
     suggested: 'Suggested',
     home: 'Home',
     templates: 'Templates',
+    // Sidebar page-tree empty state (a brand-new library with no pages).
+    emptyPages: 'No pages yet',
+    emptyPagesHint: 'Create a page or start from a template.',
+    crumbMenu: 'Siblings and subpages of "{page}"',
+    crumbSiblings: 'Siblings',
+    crumbSubpages: 'Subpages',
+    crumbCollapsed: 'Show hidden pages',
   },
   tabs: {
     new: 'New tab',
@@ -173,6 +186,8 @@ export const en = {
     emptyTitle: 'Empty the trash?',
     emptyBody: 'Permanently delete everything in the trash. This cannot be undone.',
     emptyTrash: 'Empty trash',
+    // Full-page trash view (the navigable `?page=trash` pseudo-page).
+    pageEmptyHint: 'Deleted pages will appear here.',
   },
   pane: {
     config: 'Block settings',
@@ -245,6 +260,9 @@ export const en = {
     copyLink: 'Copy link',
     copyLinkLocalOnly: 'This link only works on this device. Publish this library to get a link you can share.',
     copyLinkPublish: 'Publish',
+    // Desktop-only: an `openbook://page/<id>` link that opens the page in the app.
+    copyInternalLink: 'Copy internal link',
+    internalLinkCopied: 'Internal link copied',
     duplicate: 'Duplicate',
     addSubpage: 'Add subpage',
     addDatabase: 'Add database',
@@ -261,15 +279,18 @@ export const en = {
       duplicate: 'Duplicate',
       deleteBlock: 'Delete block',
       linkToPage: 'Link to page',
+      suggestEdit: 'Suggest edit…',
+      comment: 'Comment…',
     },
   },
   share: {
     open: 'Share',
+    unsupportedHint: 'Sharing isn’t available on this server.',
     title: 'Share this page',
     description: 'Choose who can access this page, and invite people to view or edit it.',
     loadError: 'Couldn’t load sharing settings for this page.',
     unclaimedNotice:
-      'Sharing takes effect once you claim this instance. Until then, anyone who can reach it can view and edit — these settings are saved but not yet enforced.',
+      'Sharing takes effect once you claim this library. Until then, anyone who can reach it can view and edit — these settings are saved but not yet enforced.',
     browserLocalNotice:
       'This library lives only in this browser — no one else can reach it, so these settings can’t take effect for anyone else yet. To share with others, publish a library from the OpenBook desktop app.',
     enforcementCaveat:
@@ -356,6 +377,8 @@ export const en = {
     noResults: 'No results found.',
     search: 'Search',
     pages: 'Pages',
+    rows: 'Database rows',
+    notes: 'In your notes',
     noPages: 'No pages yet',
     actions: 'Actions',
     groupFavorites: 'Favorites',
@@ -372,7 +395,6 @@ export const en = {
     newFromTemplate: 'New from template',
     importContent: 'Import content',
 
-    aiSearch: 'Search notes with AI',
     askAssistant: 'Ask the assistant',
     openSettings: 'Open settings',
     settingsFor: 'Settings: {name}',
@@ -386,6 +408,8 @@ export const en = {
     customisePage: 'Customise page',
     reviewSuggestions: 'Review suggestions & comments',
     versionHistory: 'Version history',
+    sharePage: 'Share this page',
+    exportAs: 'Export: {name}',
     presentFull: 'Present: full screen',
     presentPresenter: 'Present: presenter view',
     goBack: 'Go back',
@@ -517,7 +541,7 @@ export const en = {
     importIntro: 'Bring in pages from a Notion export or a Markdown file.',
     importContent: 'Import from Notion or Markdown…',
     folderHeading: 'Export',
-    folderIntro: 'Save your library as a folder of readable .html files (one per page), or as a single .openbook.json backup file. Load a folder back in to restore — it round-trips losslessly.',
+    folderIntro: 'Save your library as a folder of readable .html files (one per page), or as a single openbook.library.json backup file. Load a folder back in to restore — it round-trips losslessly.',
     folderExport: 'Export to folder…',
     folderExporting: 'Exporting…',
     folderBackup: 'Export to backup…',
@@ -713,7 +737,6 @@ export const en = {
     },
     feature: {
       assistant: 'Assistant',
-      search: 'AI note search',
       continue: 'Continue writing',
       tasks: 'Break into tasks',
     },
@@ -753,14 +776,6 @@ export const en = {
       save: 'Save',
       saveError: 'Could not save: {error}',
     },
-  },
-  aiSearch: {
-    title: 'Search notes',
-    semantic: 'semantic',
-    lexical: 'keyword',
-    placeholder: 'What are you looking for?',
-    empty: 'No matching notes.',
-    hint: 'Searches every page’s content — results improve with a local model.',
   },
   agent: {
     title: 'Assistant',
@@ -882,6 +897,7 @@ export const en = {
     quote: {label: 'Quote', hint: 'Pull quote'},
     callout: {label: 'Callout', hint: 'Highlighted note'},
     code: {label: 'Code', hint: 'Monospaced block'},
+    chart: {label: 'Chart', hint: 'Line, bar, pie, KPI & more — live over inputs and databases'},
     livecode: {label: 'Live code', hint: 'Computes over inputs; name the output to chain'},
     htmlartifact: {label: 'HTML artifact', hint: 'Upload a .html file — runs interactive, sandboxed'},
     divider: {label: 'Divider', hint: 'Horizontal rule'},
@@ -902,7 +918,6 @@ export const en = {
       toggle: {label: 'Toggle switch', hint: 'A named on/off switch'},
       location: {label: 'Location', hint: 'A place with coordinates'},
       actionbutton: {label: 'Button', hint: 'Set, step, or toggle an input — or open a link'},
-      kitchart: {label: 'Chart', hint: 'Line, bar, pie, scatter, funnel — live over inputs'},
       statuslight: {label: 'Status light', hint: 'Green / amber / red from a live value'},
       tooltipcard: {label: 'Tooltip', hint: 'A term that explains itself on hover'},
       linkcard: {label: 'Link card', hint: 'A titled card that opens a URL'},
@@ -1297,26 +1312,26 @@ export const en = {
   },
   sharingScreen: {
     title: 'Sharing & publishing',
-    description: 'Who can reach this library: publish it to the web, set the default access level for guests, or share it on your local network.',
+    description: 'Who can reach this library: publish it to the web, set the default access level for guests, or give it local network access.',
     // The standalone web app (in-browser library): no publish control exists
     // here, so the intro must not promise one (P0-4).
     webDescription:
       'Who can reach this library. It lives only in this browser — publishing to the web or your local network happens from the OpenBook desktop app.',
     webPublishTitle: 'Publish to the web',
     webPublishBody:
-      'This library runs entirely in your browser and isn’t hosted anywhere, so no one else can open it — links to it show other people their own library instead. To publish your books at a private ✦.book.cloud address or share them on your network, use the OpenBook desktop app.',
+      'This library runs entirely in your browser and isn’t hosted anywhere, so no one else can open it — links to it show other people their own library instead. To publish your library at a private ✦.book.cloud address or serve it on your local network, use the OpenBook desktop app.',
   },
   forwarding: {
     title: 'Publish to the web',
-    description: 'Claim a private ✦.book.cloud address that opens this device’s books in any browser — nothing to host, nothing to expose on your network.',
-    toggle: 'Publish this device',
+    description: 'Claim a private ✦.book.cloud address that opens this library in any browser — nothing to host, nothing to expose on your network.',
+    toggle: 'Publish this library',
     signInHint: 'Sign in to your account first to claim an address.',
     signInPending: 'Finish signing in to your account — publishing will turn on automatically once you’re signed in.',
     resumedToast: 'Publishing is on — your address is {host}.',
     signIn: 'Sign in',
     registering: 'Connecting…',
     address: 'Your address',
-    addressHint: 'Opens this device’s books in any browser while it’s online.',
+    addressHint: 'Opens this library in any browser while it’s online.',
     copy: 'Copy',
     copied: 'Copied',
     failed: 'Couldn’t register: {error}',
@@ -1327,12 +1342,12 @@ export const en = {
     bindFailed: 'Publishing is on, but securing the site audience didn’t finish: {error}',
     unbindHeld: 'Couldn’t fully relax the audience binding while turning publishing off: {error}',
     claimWarning:
-      'The first time you turn this on, this device’s books are claimed to your account and made private — only you and members you invite can open them. This can’t be undone.',
+      'The first time you turn this on, this library is claimed to your account and made private — only you and members you invite can open it. This can’t be undone.',
     claimRefusedUnverified: 'To publish, your account identity needs to be verified first.',
     claimRefusedIssuanceDisabled:
       'To publish, a verified identity is required — but the account server has identity issuance disabled, so it can’t be verified from here.',
     refreshIdentity: 'Refresh identity',
-    claimFailed: 'Couldn’t claim this device for your account, so it wasn’t published. Try again.',
+    claimFailed: 'Couldn’t claim this library for your account, so it wasn’t published. Try again.',
     status: {
       live: 'Live',
       connecting: 'Connecting',
@@ -1416,7 +1431,7 @@ export const en = {
     title: 'Connection',
     description: 'Choose where this device reads and writes pages.',
     server: 'Server',
-    usingLocal: 'Your books are stored in this app, on this device.',
+    usingLocal: 'Your library is stored in this app, on this device.',
     usingRemote: 'Currently using the remote server',
     remoteUrl: 'Remote server URL',
     remoteUrlPlaceholder: 'https://my-server.example:4319',
@@ -1427,7 +1442,7 @@ export const en = {
     connect: 'Connect',
     useLocal: 'Use this app',
     inApp: 'Storage',
-    inAppDescription: 'Your books live in this app, on this device — no server, no open port. Share on the network below to also serve them to your other devices.',
+    inAppDescription: 'Your library lives in this app, on this device — no server, no open port. Turn on local network access below to also serve it to your other devices.',
     localServer: 'Local server',
     running: 'Shared from',
     stopped: 'Stopped.',
@@ -1436,9 +1451,9 @@ export const en = {
     start: 'Start',
     stop: 'Stop',
     refresh: 'Refresh',
-    publish: 'Share on local network (advanced)',
+    publish: 'Local network access (advanced)',
     publishDescription: 'Spin up a shareable server so other devices on your network can open this library.',
-    publishToggle: 'Share this library on the LAN',
+    publishToggle: 'Turn on local network access',
     publishWarning: 'No login: anyone who can reach the address below — with the access token — can read and edit this library. Only enable on networks you trust.',
     lanAddress: 'Network address',
     accessToken: 'Access token',
@@ -1466,8 +1481,8 @@ export const en = {
     saveError: 'Couldn’t update access — {error}',
   },
   members: {
-    // The roster is now the "People" section of the merged Sharing tab (SHR-5).
-    title: 'People',
+    // The roster is now the "Members" section of the merged Sharing tab (SHR-5).
+    title: 'Members',
     description: 'People with a role on this library. Invite by email, change who can manage, and remove access.',
     browserLocalNotice:
       'This library lives only in this browser — no one else can reach it, so people you add here can’t open it yet. To share with others, publish a library from the OpenBook desktop app.',

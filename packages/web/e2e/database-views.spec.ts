@@ -54,7 +54,7 @@ test('database views: board, gallery, and bar chart layouts render', {tag: ['@da
   // Add a Gallery view from the add-view menu.
   await page.getByRole('button', {name: 'Add view'}).click();
   await page.getByRole('menuitem', {name: 'Gallery'}).click();
-  await expect(page.getByRole('button', {name: 'New card'})).toBeVisible();
+  await expect(page.getByRole('button', {name: 'New row'})).toBeVisible();
 
   // Add a Bar chart view; with a grouped property it draws a bar per group.
   await page.getByRole('button', {name: 'Add view'}).click();

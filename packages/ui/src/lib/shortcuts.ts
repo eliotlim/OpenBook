@@ -87,6 +87,9 @@ export function matchShortcut(e: KeyboardEvent, combo: ShortcutCombo): boolean {
  */
 export const SHORTCUTS = {
   commandPalette: {key: 'k', mod: true},
+  // ⌘⇧F opens the same unified palette pre-primed for search — a "find in your
+  // library" mnemonic alongside ⌘K (both land on the one search surface).
+  openSearch: {key: 'f', mod: true, shift: true},
   newPage: {key: 'n', mod: true},
   toggleSidebar: {key: '\\', mod: true},
   openSettings: {key: ',', mod: true},

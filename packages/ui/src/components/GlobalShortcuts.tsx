@@ -31,6 +31,17 @@ export default function GlobalShortcuts() {
         });
         return;
       }
+      // ⌘⇧F is a dedicated "search your library" affordance that lands on the
+      // same unified palette (pages + rows + note snippets). It opens rather
+      // than toggles, so the search key never dismisses an open palette.
+      if (matchShortcut(e, SHORTCUTS.openSearch)) {
+        e.preventDefault();
+        setHud((draft) => {
+          draft.commandPalette.open = true;
+          return draft;
+        });
+        return;
+      }
       for (const cmd of commandsRef.current) {
         if (cmd.shortcut && matchShortcut(e, cmd.shortcut)) {
           // Claim the combo even when disabled, so e.g. ⌘[ never falls through

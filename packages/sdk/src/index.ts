@@ -189,7 +189,7 @@ export {
   propertiesReferencePage,
   type VerificationValue,
 } from './pageProperties';
-export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, onIdentityChange, getForwardingAudience, setForwardingAudience, isMixedContentBlocked} from './connection';
+export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, onIdentityChange, onServerOverrideChange, getForwardingAudience, setForwardingAudience, isMixedContentBlocked} from './connection';
 export {
   AccountClient,
   AccountError,
@@ -253,7 +253,7 @@ export {
   type AccessCtx,
   type Decision,
 } from './authorize';
-export {snapshotText, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock} from './content';
+export {snapshotText, snapshotSegments, paragraphBlocks, textSnapshot, appendTextToSnapshot, appendBlocksToSnapshot, type AppendBlock, type SnapshotSegment} from './content';
 export {
   snapshotBlocks,
   contentHash,

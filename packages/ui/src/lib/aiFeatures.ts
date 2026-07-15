@@ -25,7 +25,10 @@ export interface AiFeatureDef {
 
 export const AI_FEATURES: AiFeatureDef[] = [
   {id: 'ask-assistant', labelKey: 'ai.feature.assistant'},
-  {id: 'ai-search', labelKey: 'ai.feature.search'},
+  // Note search is no longer an AI-gated feature: the unified ⌘K palette (IA-1)
+  // runs the engine-independent lexical (BM25) index inline and always, so
+  // "search your notes" is never hidden behind AI-feature visibility. Only the
+  // automatic semantic rerank (server-side, when a model can embed) is AI-driven.
   {id: 'ai-continue', labelKey: 'ai.feature.continue'},
   {id: 'ai-tasks', labelKey: 'ai.feature.tasks'},
 ];

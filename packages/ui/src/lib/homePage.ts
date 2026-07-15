@@ -8,6 +8,16 @@
 export const HOME_PAGE_ID = 'home';
 
 /**
+ * The Trash view — a pseudo-page, exactly like {@link HOME_PAGE_ID}. It rides the
+ * window model, the URL (`?page=trash`), history and tabs like any page id, so
+ * back/forward, new tabs and copied deep links all reach it; the document area
+ * renders the full-page trash for it instead of fetching a document. The quick
+ * {@link CONFIG_PANE_ID}-style overlay (the Trash dialog) stays as a fast peek —
+ * both surfaces share the same list body.
+ */
+export const TRASH_PAGE_ID = 'trash';
+
+/**
  * The dataflow split-pane mode — another pseudo-page: `?split=flow` shows
  * the PRIMARY page's reactive graph instead of a second document.
  */

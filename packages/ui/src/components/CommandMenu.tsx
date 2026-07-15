@@ -9,13 +9,15 @@ import {
   CommandShortcut,
 } from '@/components/ui/command';
 import React from 'react';
-import type {PageMeta} from '@book.dev/sdk';
+import type {AiSearchResult, PageMeta} from '@book.dev/sdk';
 import {FileText} from 'lucide-react';
+import {useData} from '@/data';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {useAppCommands, type AppCommand, type CommandGroup as CmdGroup} from '@/components/useAppCommands';
 import {formatShortcut} from '@/lib/shortcuts';
 import {readPageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
+import type {PageLinkResult} from '@/lib/pageLinks';
 import {readFavorites, subscribeFavorites} from '@/lib/favorites';
 import {readRecents, subscribeRecents} from '@/lib/recents';
 import {pagePathLabel} from '@/lib/pagePath';
@@ -28,10 +30,26 @@ const displayName = (name: string | null): string =>
 /** Command groups in display order, with their localised headings. */
 const GROUP_ORDER: CmdGroup[] = ['create', 'view', 'navigation', 'app'];
 
+// The palette is a unified search surface (IA-1): page titles are matched
+// client-side by cmdk, while database ROWS and content SNIPPETS come from async
+// searches. Fire those only once the query has some substance, so a single
+// keystroke doesn't list every table or hit the note index.
+const MIN_ASYNC_QUERY = 2;
+
+/** Async search results, tagged with the query they answer so cmdk only surfaces
+ *  them while they still match what's typed (stale results self-hide on the next
+ *  keystroke until the refetch lands). */
+interface AsyncResults {
+  query: string;
+  rows: PageLinkResult[];
+  notes: AiSearchResult[];
+}
+
 export function CommandMenu() {
   const {hud, setHud} = useHud();
-  const {pages, currentPageId, selectPage} = useNavigation();
+  const {pages, currentPageId, selectPage, selectPageAtBlock, searchRows, setPageHint} = useNavigation();
   const {t} = useTranslation();
+  const client = useData();
   const commands = useAppCommands();
   const open = hud.commandPalette.open;
 
@@ -51,6 +69,34 @@ export function CommandMenu() {
       ),
     [commands, searching],
   );
+
+  // ── Unified search: database rows + content snippets ────────────────────────
+  // Rows (searchRows) work on every transport. Content snippets (client.aiSearch,
+  // the engine-independent BM25 index — never gated by AI-feature visibility, so
+  // lexical search is always available) return block-anchored hits on a hosted
+  // server; on the in-webview local client they come back empty, so the group
+  // simply doesn't appear on the pure-web build (page/row search still works).
+  const [async_, setAsync] = React.useState<AsyncResults>({query: '', rows: [], notes: []});
+  const reqRef = React.useRef(0);
+  React.useEffect(() => {
+    const q = search.trim();
+    if (!open || q.length < MIN_ASYNC_QUERY) {
+      setAsync({query: '', rows: [], notes: []});
+      return;
+    }
+    const seq = ++reqRef.current;
+    const timer = setTimeout(() => {
+      void Promise.allSettled([searchRows(q, 6), client.aiSearch(q, 6)]).then(([rowsRes, notesRes]) => {
+        if (seq !== reqRef.current) return; // a newer keystroke superseded this
+        setAsync({
+          query: q,
+          rows: rowsRes.status === 'fulfilled' ? rowsRes.value : [],
+          notes: notesRes.status === 'fulfilled' ? notesRes.value.results : [],
+        });
+      });
+    }, 180);
+    return () => clearTimeout(timer);
+  }, [search, open, searchRows, client]);
 
   // Favourites + recents live in localStorage; bump on change so the palette
   // reflects a pin/visit made while it's open.
@@ -124,6 +170,12 @@ export function CommandMenu() {
     );
   };
 
+  // Async rows/snippets already matched server-side, but cmdk still filters every
+  // item by its `value`. Prefix the value with the query the results answer so
+  // cmdk keeps them (a snippet whose body — not its title — matched would
+  // otherwise be filtered out), and they self-hide the moment the query moves on.
+  const showAsync = async_.query.length >= MIN_ASYNC_QUERY;
+
   return (
     <CommandDialog open={open} onOpenChange={setOpen} title={t('command.title')} description={t('command.placeholder')}>
       <CommandInput placeholder={t('command.placeholder')} value={search} onValueChange={setSearch} />
@@ -148,6 +200,59 @@ export function CommandMenu() {
             </CommandItem>
           )}
         </CommandGroup>
+        {showAsync && async_.rows.length > 0 && (
+          <CommandGroup heading={t('command.rows')}>
+            {async_.rows.map((row) => (
+              <CommandItem
+                key={`row:${row.id}`}
+                value={`${async_.query} row ${row.id}`}
+                data-search-row
+                onSelect={() =>
+                  run(() => {
+                    setPageHint(row.id, row.label);
+                    selectPage(row.id);
+                  })
+                }
+              >
+                <PageIcon
+                  value={row.icon || readPageIcon(row.id)}
+                  className="mr-2 inline-flex h-4 w-4 shrink-0 items-center justify-center text-center text-sm leading-none"
+                />
+                <span className="truncate">{row.label}</span>
+                {row.path && (
+                  <span className="ml-2 min-w-0 truncate text-xs text-muted-foreground">{row.path}</span>
+                )}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+        {showAsync && async_.notes.length > 0 && (
+          <CommandGroup heading={t('command.notes')}>
+            {async_.notes.map((note) => (
+              <CommandItem
+                key={`note:${note.pageId}:${note.blockId ?? note.title}`}
+                value={`${async_.query} note ${note.pageId} ${note.blockId ?? ''}`}
+                data-search-snippet
+                onSelect={() =>
+                  run(() =>
+                    // Land on the matched block when the hit carries one (block-native
+                    // pages); otherwise just open the page (legacy / title-only hits).
+                    note.blockId ? selectPageAtBlock(note.pageId, note.blockId) : selectPage(note.pageId),
+                  )
+                }
+              >
+                <PageIcon
+                  value={readPageIcon(note.pageId)}
+                  className="mr-2 mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center text-center text-sm leading-none"
+                />
+                <span className="flex min-w-0 flex-col">
+                  <span className="truncate">{note.title}</span>
+                  <span className="line-clamp-1 text-xs text-muted-foreground">{note.snippet}</span>
+                </span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
         {GROUP_ORDER.map((group) => {
           const items = visibleCommands.filter((c) => c.group === group);
           if (items.length === 0) return null;

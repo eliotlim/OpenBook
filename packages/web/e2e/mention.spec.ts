@@ -6,6 +6,10 @@ import {newPage, SERVER} from './seed';
 // survives reload. (The classic editor's inline "create a new page" flow is
 // gone — the block editor's `@` links existing pages only.)
 
+// Per-test workspace isolation, so fixed page/row names can't collide with
+// other tests sharing this worker (no manual name reclaiming needed).
+test.use({freshWorkspace: true});
+
 async function openEditor(page: import('@playwright/test').Page, pageId: string): Promise<void> {
   await page.goto(`/?page=${pageId}`);
   const para = page.locator('.obe-text').first();
@@ -53,4 +57,29 @@ test('@ menu visual', {tag: ['@editor', '@visual']}, async ({page, request}, tes
   await page.keyboard.type('See @Road');
   await expect(page.getByRole('listbox', {name: 'Insert a mention'})).toBeVisible();
   await takeSnapshot(page, testInfo);
+});
+
+// A database row is a page too, so `@` can link one (IA-5): the mention picker
+// surfaces rows alongside top-level pages, and picking a row inserts a chip that
+// points at the row's page id.
+test('@ menu links a database row', {tag: ['@editor']}, async ({page, request}) => {
+  // A database with a single, distinctively-named row.
+  const dbPage = await newPage(request, 'Mention Rows DB');
+  const d = await request.post(`${SERVER}/api/databases`, {
+    data: {pageId: dbPage, name: 'Tasks', schema: {properties: [], views: []}},
+  });
+  const dbId = ((await d.json()) as {id: string}).id;
+  const r = await request.post(`${SERVER}/api/databases/${dbId}/rows`, {data: {name: 'Zephyr Row'}});
+  const rowId = ((await r.json()) as {id: string}).id;
+
+  const hostId = await newPage(request, 'Mention Row Host');
+  await openEditor(page, hostId);
+  await page.keyboard.type('Ref @Zephyr');
+  const menu = page.getByRole('listbox', {name: 'Insert a mention'});
+  await expect(menu.getByRole('option').filter({hasText: 'Zephyr Row'})).toBeVisible();
+
+  await page.keyboard.press('Enter');
+  const link = page.locator('a.obe-mention');
+  await expect(link).toHaveText(/Zephyr Row/);
+  await expect(link).toHaveAttribute('data-page-id', rowId);
 });

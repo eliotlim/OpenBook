@@ -111,9 +111,6 @@ export interface HudProps {
   importer: {
     open: boolean;
   };
-  ai: {
-    open: boolean;
-  };
   agent: {
     open: boolean;
   };
@@ -147,9 +144,6 @@ export const HudDefault: HudProps = {
   importer: {
     open: false,
   },
-  ai: {
-    open: false,
-  },
   agent: {
     open: false,
   },
@@ -175,7 +169,6 @@ export const loadHudStorage = (): HudProps => {
     trash: {open: false},
     templates: {open: false},
     importer: {open: false},
-    ai: {open: false},
     agent: {open: false},
     present: {...HudDefault.present},
   };
@@ -191,7 +184,6 @@ export const saveHudStorage = (hud: HudProps) => {
     trash: {open: false},
     templates: {open: false},
     importer: {open: false},
-    ai: {open: false},
     agent: {open: false},
     present: {...HudDefault.present},
   };
