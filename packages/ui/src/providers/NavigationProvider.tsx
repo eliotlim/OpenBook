@@ -170,7 +170,26 @@ const readUrl = (): {
   };
 };
 
-const writeUrl = (primary: string, split: string | null, view: string | null, paneTarget: string | null): void => {
+/** The per-tab primary-history position mirrored into `history.state` on web,
+ *  so a `popstate` (browser Back/Forward) can be translated back into a window-
+ *  model step. `null` outside the web-history surface (desktop's in-window tabs
+ *  own their own back/forward and never touch browser history). */
+export interface HistoryEntryState {
+  obIndex: number;
+}
+
+const writeUrl = (
+  primary: string,
+  split: string | null,
+  view: string | null,
+  paneTarget: string | null,
+  // How to mirror this window into browser history. `index` is the active tab's
+  // primary-history position, stamped into `history.state`; `push` requests a
+  // *new* browser entry (a page navigation grew the history) rather than an
+  // in-place mirror (a pane/view/anchor change). Absent on the desktop, where
+  // the URL is a plain `replaceState` mirror with no browser-history semantics.
+  nav?: {push: boolean; index: number | null},
+): void => {
   if (typeof window === 'undefined') return;
   const url = new URL(window.location.href);
   url.searchParams.set('page', primary);
@@ -191,7 +210,13 @@ const writeUrl = (primary: string, split: string | null, view: string | null, pa
   // window mirror so the anchor fires exactly once and the address bar stays clean.
   url.searchParams.delete('row');
   url.searchParams.delete('group');
-  window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  const path = `${url.pathname}${url.search}${url.hash}`;
+  const state: HistoryEntryState | null = nav && nav.index !== null ? {obIndex: nav.index} : null;
+  // A page navigation on the web pushes a real browser entry so Back/Forward
+  // walk the visited-page trail (IA-2). Pane/view/anchor mirrors — and every
+  // desktop write — replace in place, keeping a single entry per page.
+  if (nav?.push) window.history.pushState(state, '', path);
+  else window.history.replaceState(state, '', path);
   try {
     localStorage.setItem(LAST_PAGE_KEY, primary);
   } catch {
@@ -244,6 +269,15 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
 
   const initRef = useRef<Promise<void> | null>(null);
   const prevTopLevelIds = useRef<Set<string>>(new Set());
+  // The active tab's primary-history index last reflected into browser history
+  // (web only). Lets the URL-mirror effect decide push (new page) vs replace
+  // (pane/view/anchor), and lets the popstate handler mark the model in sync
+  // without re-pushing. `null` until the first mirror seeds it.
+  const browserIndexRef = useRef<number | null>(null);
+
+  // Web only: the browser owns Back/Forward. The desktop draws its own in-window
+  // tabs, each with a private history, and never touches browser history.
+  const webHistory = !(platform.tabs?.inWindow ?? false);
   // The primary page id `viewParam` was last reconciled against — lets us drop a
   // stale `?view=` the moment the primary pane navigates to a different page.
   const prevPrimaryRef = useRef<string | null>(null);
@@ -275,8 +309,48 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       const target = PANE_TARGET_STORES[split].get();
       if (target && target !== primary) paneTarget = target;
     }
-    writeUrl(primary, ephemeral ? null : split, viewParam, paneTarget);
-  }, [win, viewParam, paneTargetTick]);
+    // On the web, mirror the active tab's primary-history index into browser
+    // history: a *forward* move (the index grew past what the browser reflects)
+    // pushes a new entry so Back returns here; every other change (pane/view/
+    // anchor, or a Back/Forward the popstate handler already applied) replaces
+    // in place. `browserIndexRef` tracks what the browser currently reflects.
+    const index = W.activeTab(win).index;
+    const push = webHistory && browserIndexRef.current !== null && index > browserIndexRef.current;
+    writeUrl(
+      primary,
+      ephemeral ? null : split,
+      viewParam,
+      paneTarget,
+      webHistory ? {push, index} : undefined,
+    );
+    if (webHistory) browserIndexRef.current = index;
+  }, [win, viewParam, paneTargetTick, webHistory]);
+
+  // Web only: translate the browser's Back/Forward (a `popstate`) into the
+  // window model's back/forward. Each entry we wrote carries its primary-history
+  // index in `history.state.obIndex`; step the model until it matches. Entries
+  // without our state (history from before the app loaded) are left to the
+  // browser — stepping past our first entry simply leaves the app, as on any site.
+  useEffect(() => {
+    if (!webHistory || typeof window === 'undefined') return;
+    const onPopState = (event: PopStateEvent) => {
+      const state = event.state as HistoryEntryState | null;
+      const target = state && typeof state.obIndex === 'number' ? state.obIndex : null;
+      if (target === null) return;
+      browserIndexRef.current = target; // mark in sync so the mirror won't re-push
+      setWin((prev) => {
+        if (!prev) return prev;
+        let next = prev;
+        // Walk one step at a time (guarded by the model's own bounds) so a
+        // multi-entry jump — or a stale index — can never spin.
+        while (W.activeTab(next).index > target && W.canGoBack(next)) next = W.goBack(next);
+        while (W.activeTab(next).index < target && W.canGoForward(next)) next = W.goForward(next);
+        return next;
+      });
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [webHistory]);
 
   const update = useCallback((fn: (w: WindowState) => WindowState) => {
     setWin((prev) => (prev ? fn(prev) : prev));
@@ -294,8 +368,18 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
     (id: string, pane: PaneId) => update((w) => W.navigatePane(w, pane, id)),
     [update],
   );
-  const goBack = useCallback(() => update(W.goBack), [update]);
-  const goForward = useCallback(() => update(W.goForward), [update]);
+  // On the web the browser owns the history stack, so the app's own Back/Forward
+  // controls drive it (the popstate handler then steps the model) — otherwise
+  // the model and browser history would drift apart. The desktop steps the
+  // window model directly (its in-window tabs have no browser history).
+  const goBack = useCallback(() => {
+    if (webHistory && typeof window !== 'undefined') window.history.back();
+    else update(W.goBack);
+  }, [update, webHistory]);
+  const goForward = useCallback(() => {
+    if (webHistory && typeof window !== 'undefined') window.history.forward();
+    else update(W.goForward);
+  }, [update, webHistory]);
   const focusPane = useCallback((pane: PaneId) => update((w) => W.focusPane(w, pane)), [update]);
   const openInSplit = useCallback((id: string) => update((w) => W.openSplit(w, id)), [update]);
   const closeSplit = useCallback(() => update(W.closeSplit), [update]);
