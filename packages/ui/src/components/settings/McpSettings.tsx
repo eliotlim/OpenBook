@@ -1,11 +1,12 @@
 import {useCallback, useEffect, useState} from 'react';
 import {Trash2} from 'lucide-react';
-import type {InstanceInfo, McpClientConfig, McpServerConfig, McpTransport} from '@book.dev/sdk';
+import type {McpClientConfig, McpServerConfig, McpTransport} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {SettingsField, SettingsSection, SettingsToggle, SETTINGS_CONTROL_CLASS} from '@/components/settings/primitives';
+import {isAdminRole, isForbidden} from '@/components/settings/adminGate';
 
 /**
  * Settings → AI → External tools (MCP). The admin-only surface to register
@@ -16,18 +17,6 @@ import {SettingsField, SettingsSection, SettingsToggle, SETTINGS_CONTROL_CLASS} 
  * transport is offered only when the server reports `stdioAllowed` (desktop /
  * unclaimed) — on a claimed instance it's hidden AND server-rejected.
  */
-
-function isForbidden(e: unknown): boolean {
-  const raw = e instanceof Error ? e.message : String(e);
-  return /\b40[13]\b|forbidden|unauthor/i.test(raw);
-}
-
-function isAdminRole(info: InstanceInfo): boolean {
-  if (info.localOwner === true) return true;
-  if (info.you.verifiedVia === 'local') return true;
-  if (info.ownerSubject && info.you.verifiedVia === 'jws' && info.you.subject === info.ownerSubject) return true;
-  return info.youRole === 'owner' || info.youRole === 'admin';
-}
 
 /** A blank server row (HTTP by default — the transport available everywhere). */
 function blankServer(): McpServerConfig {

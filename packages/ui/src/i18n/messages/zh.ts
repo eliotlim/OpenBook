@@ -18,6 +18,8 @@ export const zh: PartialMessages = {
     exitFullscreen: '退出全屏',
     enterFullscreen: '全屏',
     closeSettings: '关闭设置',
+    searchPlaceholder: '搜索设置…',
+    searchNoResults: '没有匹配的设置。',
     section: {
       preferences: '偏好设置',
       account: '账户',
@@ -43,6 +45,7 @@ export const zh: PartialMessages = {
     },
   },
   storage: {
+    compactHeading: '数据库维护',
     remoteUnavailable: '压缩仅适用于本地数据库——连接到远程服务器时不可用。',
   },
   appearance: {
@@ -377,6 +380,7 @@ export const zh: PartialMessages = {
     thisDevice: '本设备',
   },
   ai: {
+    title: 'AI',
     description: '可选的本地模型支持笔记搜索、任务分解和文档补全。一切都在你的设备上运行。',
     providerLabel: '引擎',
     provider: {

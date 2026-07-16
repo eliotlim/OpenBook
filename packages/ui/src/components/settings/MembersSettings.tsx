@@ -7,6 +7,7 @@ import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {IconButton} from '@/components/ui/icon-button';
 import {Select} from '@/components/ui/select';
+import {isForbidden} from '@/components/settings/adminGate';
 import {SettingsSection} from '@/components/settings/primitives';
 import {SETTINGS_SECTION_PEOPLE} from '@/lib/hud';
 import {copyText} from '@/lib/pageActions';
@@ -28,12 +29,6 @@ import type {TKey} from '@/i18n';
  * every mutation. A server that predates multi-user (no `/api/instance`) degrades
  * to an "unavailable" note rather than a broken tab.
  */
-
-/** `true` when the SDK's wrapped error reads as a 401/403 (a manage refusal). */
-function isForbidden(e: unknown): boolean {
-  const raw = e instanceof Error ? e.message : String(e);
-  return /\b40[13]\b|forbidden|unauthor/i.test(raw);
-}
 
 /**
  * The server's human-written detail out of the SDK's wrapper. `request()` throws

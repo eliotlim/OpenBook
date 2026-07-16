@@ -18,6 +18,8 @@ export const ja: PartialMessages = {
     exitFullscreen: '全画面を終了',
     enterFullscreen: '全画面',
     closeSettings: '設定を閉じる',
+    searchPlaceholder: '設定を検索…',
+    searchNoResults: '一致する設定はありません。',
     section: {
       preferences: '環境設定',
       account: 'アカウント',
@@ -43,6 +45,7 @@ export const ja: PartialMessages = {
     },
   },
   storage: {
+    compactHeading: 'データベースのメンテナンス',
     remoteUnavailable: '圧縮はローカルデータベースのみに適用されます。リモートサーバーに接続中は利用できません。',
   },
   appearance: {
@@ -379,6 +382,7 @@ export const ja: PartialMessages = {
     thisDevice: 'このデバイス',
   },
   ai: {
+    title: 'AI',
     description: 'オプションのローカルモデルで、ノート検索・タスク分解・文書補完ができます。すべて端末内で動作します。',
     providerLabel: 'エンジン',
     provider: {

@@ -22,6 +22,8 @@ export const en = {
     exitFullscreen: 'Exit full screen',
     enterFullscreen: 'Enter full screen',
     closeSettings: 'Close settings',
+    searchPlaceholder: 'Search settings…',
+    searchNoResults: 'No settings match your search.',
     section: {
       preferences: 'Preferences',
       account: 'Account',
@@ -541,10 +543,9 @@ export const en = {
     importIntro: 'Bring in pages from a Notion export or a Markdown file.',
     importContent: 'Import from Notion or Markdown…',
     folderHeading: 'Export',
-    folderIntro: 'Save your library as a folder of readable .html files (one per page), or as a single openbook.library.json backup file. Load a folder back in to restore — it round-trips losslessly.',
+    folderIntro: 'Save your library as a folder of readable .html files (one per page). Load a folder back in to restore — it round-trips losslessly.',
     folderExport: 'Export to folder…',
     folderExporting: 'Exporting…',
-    folderBackup: 'Export to backup…',
     folderImport: 'Import from folder…',
     folderExported: 'Exported {count} pages to {location}.',
     folderEmpty: 'No OpenBook pages found in that folder.',
@@ -588,6 +589,7 @@ export const en = {
   },
   storage: {
     heading: 'Storage',
+    compactHeading: 'Database maintenance',
     intro:
       'Compact the local database to reclaim disk space. Editing leaves behind storage overhead that this rewrites away; the app pauses briefly while it runs.',
     compact: 'Compact database',
@@ -650,6 +652,7 @@ export const en = {
     removeBody: 'This only removes it from this device’s library list. The server and its data are untouched.',
   },
   ai: {
+    title: 'AI',
     description: 'An optional model powers note search, task breakdown, and document completion. Run a local model — nothing leaves your machine — or connect the Claude API.',
     providerLabel: 'Engine',
     defaultEngine: 'Default engine',

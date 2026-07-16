@@ -1,11 +1,12 @@
 import {useCallback, useEffect, useMemo, useState} from 'react';
 import {Loader2} from 'lucide-react';
-import type {AiModelPrice, AiPricingResponse, AiPricingTable, AiProvider, AiUsageResponse, InstanceInfo} from '@book.dev/sdk';
+import type {AiModelPrice, AiPricingResponse, AiPricingTable, AiProvider, AiUsageResponse} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {SettingsSection} from '@/components/settings/primitives';
+import {isAdminRole, isForbidden} from '@/components/settings/adminGate';
 import {cn} from '@/lib/utils';
 
 /**
@@ -18,21 +19,6 @@ import {cn} from '@/lib/utils';
  * it. The server's `requireInstanceAdmin` stays the sole enforcement; this gate
  * only decides visibility.
  */
-
-/** `true` when the SDK's wrapped error reads as a 401/403 (an admin refusal). */
-function isForbidden(e: unknown): boolean {
-  const raw = e instanceof Error ? e.message : String(e);
-  return /\b40[13]\b|forbidden|unauthor/i.test(raw);
-}
-
-/** Best-effort: is the current principal an instance admin (owner/admin/local)? */
-function isAdminRole(info: InstanceInfo): boolean {
-  const you = info.you;
-  if (info.localOwner === true) return true;
-  if (you.verifiedVia === 'local') return true;
-  if (info.ownerSubject && you.verifiedVia === 'jws' && you.subject === info.ownerSubject) return true;
-  return info.youRole === 'owner' || info.youRole === 'admin';
-}
 
 /** Rows of the editable pricing table, keyed by provider then model. */
 type PriceDraft = Record<string, Record<string, {input: string; output: string}>>;

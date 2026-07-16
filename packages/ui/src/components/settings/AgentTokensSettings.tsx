@@ -8,13 +8,11 @@ import {Input} from '@/components/ui/input';
 import {Select} from '@/components/ui/select';
 import {IconButton} from '@/components/ui/icon-button';
 import {SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
+import {isForbidden} from '@/components/settings/adminGate';
+import McpSettings from '@/components/settings/McpSettings';
+import AiUsageSettings from '@/components/settings/AiUsageSettings';
+import {SETTINGS_SECTION_AGENTS_MCP, SETTINGS_SECTION_AGENTS_USAGE} from '@/lib/settingsIndex';
 import {copyText} from '@/lib/pageActions';
-
-/** `true` when the SDK's wrapped error reads as a 401/403 (a manage refusal). */
-function isForbidden(e: unknown): boolean {
-  const raw = e instanceof Error ? e.message : String(e);
-  return /\b40[13]\b|forbidden|unauthor/i.test(raw);
-}
 
 /** Extract the server's human detail out of the SDK's `request()` wrapper. */
 function cleanError(e: unknown): string {
@@ -36,11 +34,16 @@ const EXPIRY_DAYS: Record<Expiry, number | null> = {'90': 90, '30': 30, never: n
 const fmtDate = (iso: string | null): string | null => (iso ? new Date(iso).toLocaleDateString() : null);
 
 /**
- * Agent access (AGENT-6). Admin-only management of `obat_…` personal access tokens:
- * a dark on/off switch for the agent API, a create form that reveals the plaintext
- * exactly ONCE, and a revocable list. All gated server-side (`requireInstanceAdmin`);
- * a non-admin sees a calm read-only notice. Runs against a real server — the
- * in-webview browser store reports the feature unavailable.
+ * The "Agents & AI admin" tab (SET2-2). Leads with agent access (AGENT-6):
+ * admin-only management of `obat_…` personal access tokens — a dark on/off switch
+ * for the agent API, a create form that reveals the plaintext exactly ONCE, and a
+ * revocable list. Below it sit the two other admin-only surfaces relocated out of
+ * the everyday AI tab: external tools (MCP client) and AI usage/pricing/retention.
+ * The whole tab is hidden from the rail for a confirmed non-admin
+ * ({@link useIsSettingsAdmin}); each surface still self-gates (server-side
+ * `requireInstanceAdmin` is authoritative) as defence in depth for a deep-link.
+ * Runs against a real server — the in-webview browser store reports the token
+ * feature unavailable.
  */
 export default function AgentTokensSettings() {
   const client = useData();
@@ -349,6 +352,19 @@ export default function AgentTokensSettings() {
           </SettingsSection>
         </>
       )}
+
+      {/* External tools (MCP client). Admin-only (self-gated + 403-gated); off and
+          empty by default; the stdio transport hides on a claimed instance. */}
+      <div id={SETTINGS_SECTION_AGENTS_MCP} className="scroll-mt-4">
+        <McpSettings />
+      </div>
+
+      {/* AI usage attribution + pricing + retention. Renders nothing unless YOU
+          are an instance admin (self-gated + 403-gated); a viewer/guest sees none
+          of it. */}
+      <div id={SETTINGS_SECTION_AGENTS_USAGE} className="scroll-mt-4">
+        <AiUsageSettings />
+      </div>
     </SettingsScreen>
   );
 }

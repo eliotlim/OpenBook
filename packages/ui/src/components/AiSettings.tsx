@@ -2,8 +2,6 @@ import {useCallback, useEffect, useState, type ReactNode} from 'react';
 import {ChevronDown, ChevronRight, Trash2} from 'lucide-react';
 import {providerSettings, type AiConfig, type AiEffort, type AiProvider, type AiProviderSettings, type AiSkill, type AiStatus} from '@book.dev/sdk';
 import {ScopeChip, SettingsField, SettingsScreen, SettingsSection, SettingsToggle, SETTINGS_CONTROL_CLASS} from '@/components/settings/primitives';
-import AiUsageSettings from '@/components/settings/AiUsageSettings';
-import McpSettings from '@/components/settings/McpSettings';
 import {Button} from '@/components/ui/button';
 import {Select} from '@/components/ui/select';
 import {useData} from '@/data';
@@ -103,7 +101,7 @@ export default function AiSettings() {
 
   if (!draft) {
     return (
-      <SettingsScreen title={t('settings.tab.ai')} scope="library">
+      <SettingsScreen title={t('ai.title')} scope="library">
         <p className="text-sm text-muted-foreground">…</p>
       </SettingsScreen>
     );
@@ -274,7 +272,7 @@ export default function AiSettings() {
   };
 
   return (
-    <SettingsScreen title={t('settings.tab.ai')} description={t('ai.description')} scope="library">
+    <SettingsScreen title={t('ai.title')} description={t('ai.description')} scope="library">
       <SettingsSection title={t('ai.defaultEngine')} description={t('ai.defaultEngineHint')}>
         <div className="flex flex-col gap-1.5" role="radiogroup" aria-label={t('ai.providerLabel')}>
           {providers.map((p) => (
@@ -385,15 +383,6 @@ export default function AiSettings() {
           </span>
         </div>
       </SettingsSection>
-
-      {/* External tools (MCP client). Admin-only (self-gated + 403-gated); off and
-          empty by default; the stdio transport hides on a claimed instance. */}
-      <McpSettings />
-
-      {/* AI usage attribution + pricing + retention. Renders nothing unless YOU
-          are an instance admin (self-gated + 403-gated); a viewer/guest sees none
-          of it. */}
-      <AiUsageSettings />
     </SettingsScreen>
   );
 }

@@ -18,6 +18,8 @@ export const de: PartialMessages = {
     exitFullscreen: 'Vollbild verlassen',
     enterFullscreen: 'Vollbild',
     closeSettings: 'Einstellungen schließen',
+    searchPlaceholder: 'Einstellungen durchsuchen…',
+    searchNoResults: 'Keine Einstellungen für deine Suche gefunden.',
     section: {
       preferences: 'Präferenzen',
       account: 'Konto',
@@ -43,6 +45,7 @@ export const de: PartialMessages = {
     },
   },
   storage: {
+    compactHeading: 'Datenbankwartung',
     remoteUnavailable:
       'Die Verdichtung betrifft nur die lokale Datenbank – bei Verbindung mit einem Remote-Server ist sie nicht verfügbar.',
   },
@@ -380,6 +383,7 @@ export const de: PartialMessages = {
     thisDevice: 'Dieses Gerät',
   },
   ai: {
+    title: 'KI',
     description: 'Ein optionales lokales Modell ermöglicht Notizsuche, Aufgabenplanung und Textvervollständigung. Alles läuft auf deinem Gerät.',
     providerLabel: 'Engine',
     provider: {
