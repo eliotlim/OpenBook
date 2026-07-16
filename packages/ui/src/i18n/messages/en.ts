@@ -82,6 +82,9 @@ export const en = {
     dataColorsMuted: 'Muted',
     blurOverlays: 'Blur behind overlays',
     blurOverlaysHint: 'Blur the page when a dialog or search opens.',
+    // Layout toggle moved here from the Shortcuts tab (SET2-7).
+    autoHideSidebar: 'Auto-hide sidebar',
+    autoHideSidebarHint: 'Collapse the sidebar until you move to the screen edge.',
     levelOff: 'Off',
     levelSubtle: 'Subtle',
     levelMedium: 'Medium',
@@ -105,12 +108,13 @@ export const en = {
     matchApp: 'Match app',
     pageCustomiseSubtitle: 'Cover, width, theme & typefaces — this page only',
     pageCustomiseEmpty: 'Open a page to customise it here.',
-    // Cross-pointers between the two appearance scopes (OB-548): the per-page
-    // Customise pane and the app-wide Appearance settings share the same pickers,
-    // so each surface links to the other to keep the scope clear.
+    // Cross-pointers between the two appearance scopes (OB-548 / SET2-7): the
+    // per-page Customise pane and the app-wide Appearance settings share the same
+    // pickers, so each surface links to the other to keep the scope clear.
     appWidePointer: 'App-wide theme & colours',
-    perPagePointer:
-      'This themes the whole app on this device. To restyle one page — its cover, width, accent, and fonts — open that page’s Customise pane from the palette above its title or its “…” menu.',
+    perPageTitle: 'Style one page',
+    perPagePointer: 'A single page’s look — theme, fonts, cover, and width — lives in that page’s Customise pane.',
+    openPageCustomise: 'Open Customise pane',
     cover: 'Cover',
     coverHint: 'A banner image or gradient above the title.',
     fullWidth: 'Full width',
@@ -1150,6 +1154,16 @@ export const en = {
     confirmTrashHint: 'Ask before moving a page to the trash.',
     spellcheck: 'Spellcheck while typing',
     spellcheckHint: 'Underline misspelled words in the editor.',
+    // Local preference reset (SET2-9): lives in General, where these settings
+    // are, not in the Backups & data (admin) tab where the keys used to sit.
+    dangerZone: 'Danger zone',
+    dangerZoneHint: 'These actions affect this device’s local data, not your pages.',
+    resetPrefs: 'Reset preferences & layout',
+    resetPrefsHint: 'Restore default appearance, language, and layout on this device. Your pages and libraries are kept.',
+    resetPrefsButton: 'Reset',
+    resetConfirmTitle: 'Reset preferences & layout?',
+    resetConfirmBody: 'This clears appearance, language, and layout settings on this device and reloads. Your pages and libraries are not affected.',
+    resetConfirmButton: 'Reset',
   },
   updates: {
     section: 'Updates',
@@ -1201,7 +1215,7 @@ export const en = {
   },
   profile: {
     title: 'Profile',
-    description: 'How you appear in OpenBook on this device.',
+    description: 'How you appear in OpenBook. Syncs with your account when you’re signed in.',
     identity: 'Identity',
     name: 'Name',
     nameHint: 'Your full name.',
@@ -1224,10 +1238,7 @@ export const en = {
   },
   customisation: {
     title: 'Shortcuts',
-    description: 'Review keyboard shortcuts and tailor a couple of layout preferences.',
-    layout: 'Layout',
-    autoHideSidebar: 'Auto-hide sidebar',
-    autoHideSidebarHint: 'Collapse the sidebar until you move to the screen edge.',
+    description: 'Every keyboard shortcut in one place.',
     shortcuts: 'Keyboard shortcuts',
     shortcutsHint: 'Available anywhere in the app.',
     blockShortcuts: 'Block editing',
@@ -1444,8 +1455,6 @@ export const en = {
     remoteTokenHint: 'A published or shared server requires its access token; leave blank for an open server.',
     connect: 'Connect',
     useLocal: 'Use this app',
-    inApp: 'Storage',
-    inAppDescription: 'Your library lives in this app, on this device — no server, no open port. Turn on local network access below to also serve it to your other devices.',
     localServer: 'Local server',
     running: 'Shared from',
     stopped: 'Stopped.',
@@ -1541,20 +1550,13 @@ export const en = {
   admin: {
     title: 'Backups & data',
     description: 'Back up, restore, and export your library data.',
-    dangerZone: 'Danger zone',
-    dangerZoneHint: 'These actions affect this device’s local data, not your pages.',
-    resetPrefs: 'Reset preferences & layout',
-    resetPrefsHint: 'Restore default appearance, language, and layout on this device. Your pages and libraries are kept.',
-    resetPrefsButton: 'Reset',
-    resetConfirmTitle: 'Reset preferences & layout?',
-    resetConfirmBody: 'This clears appearance, language, and layout settings on this device and reloads. Your pages and libraries are not affected.',
-    resetConfirmButton: 'Reset',
   },
   agents: {
     title: 'Agent access',
     description: 'Personal access tokens let an AI agent or MCP client reach this library over HTTP with a scoped, revocable credential.',
     unavailable: 'Agent tokens run on the desktop app or a connected server — not in the browser.',
-    readonly: 'Only an instance admin can manage agent tokens. You have read-only access.',
+    // Shown when a confirmed non-admin reaches this admin-only tab (SET2-10).
+    adminOnly: 'This tab is available to library admins.',
     enableTitle: 'Enable agent API',
     enableHint: 'Off by default. While off, agent tokens do not authenticate and none can be minted. Nothing is exposed until you turn this on.',
     remoteTitle: 'Allow remote MCP',

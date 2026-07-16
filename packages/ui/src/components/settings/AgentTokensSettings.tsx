@@ -8,7 +8,7 @@ import {Input} from '@/components/ui/input';
 import {Select} from '@/components/ui/select';
 import {IconButton} from '@/components/ui/icon-button';
 import {SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
-import {isForbidden} from '@/components/settings/adminGate';
+import {isForbidden, useIsSettingsAdmin} from '@/components/settings/adminGate';
 import McpSettings from '@/components/settings/McpSettings';
 import AiUsageSettings from '@/components/settings/AiUsageSettings';
 import {SETTINGS_SECTION_AGENTS_MCP, SETTINGS_SECTION_AGENTS_USAGE} from '@/lib/settingsIndex';
@@ -49,6 +49,7 @@ export default function AgentTokensSettings() {
   const client = useData();
   const {t} = useTranslation();
   const confirm = useConfirm();
+  const isAdmin = useIsSettingsAdmin();
 
   const [canManage, setCanManage] = useState<boolean | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -175,6 +176,23 @@ export default function AgentTokensSettings() {
     }
   };
 
+  // Single admin-gate pattern for this whole admin-only tab (SET2-10). A
+  // *confirmed* non-admin who deep-links here (the rail already hides the tab)
+  // sees one calm "admins only" notice and none of the surfaces below — the same
+  // shared gate the rail uses. This is a COSMETIC label gate only: the server's
+  // `requireInstanceAdmin` is the sole enforcement, so it's safe to fail OPEN
+  // (unclaimed/inconclusive → render, then each surface's own 403 hides it). A
+  // confirmed non-admin therefore never sees anything sensitive, and the three
+  // embedded surfaces (tokens, MCP, usage) are uniformly SILENT on a server
+  // refusal rather than mixing inline notices with `return null`.
+  if (isAdmin === false) {
+    return (
+      <SettingsScreen title={t('agents.title')} description={t('agents.description')} scope="library">
+        <p className="text-sm text-muted-foreground">{t('agents.adminOnly')}</p>
+      </SettingsScreen>
+    );
+  }
+
   return (
     <SettingsScreen title={t('agents.title')} description={t('agents.description')} scope="library">
       {unavailable ? (
@@ -182,7 +200,9 @@ export default function AgentTokensSettings() {
       ) : canManage === null ? (
         <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
       ) : canManage === false ? (
-        <p className="text-sm text-muted-foreground">{t('agents.readonly')}</p>
+        // Server said 403 despite the label gate letting us through (fail-open
+        // path): stay silent, matching McpSettings / AiUsageSettings.
+        null
       ) : (
         <>
           <SettingsToggle

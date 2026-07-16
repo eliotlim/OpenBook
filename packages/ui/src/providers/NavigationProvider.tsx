@@ -160,6 +160,11 @@ export const useNavigation = (): NavigationContextValue => {
   return ctx;
 };
 
+/** Like {@link useNavigation}, but returns `null` instead of throwing when there
+ *  is no provider — for components that may render in a reduced harness (unit
+ *  tests, previews) where nav isn't wired. The real app always supplies one. */
+export const useOptionalNavigation = (): NavigationContextValue | null => useContext(NavigationContext);
+
 const LAST_PAGE_KEY = 'openbook.currentPageId';
 
 // ── URL <-> window state ──────────────────────────────────────────────────────

@@ -33,7 +33,6 @@ export interface SettingsSearchEntry {
 
 /** DOM id anchors for the searchable sections (also each section's `id`). */
 export const SETTINGS_SECTION_GENERAL_BEHAVIOR = 'settings-general-behavior';
-export const SETTINGS_SECTION_CUST_LAYOUT = 'settings-cust-layout';
 export const SETTINGS_SECTION_CUST_SHORTCUTS = 'settings-cust-shortcuts';
 export const SETTINGS_SECTION_CUST_BLOCKS = 'settings-cust-blocks';
 export const SETTINGS_SECTION_AGENTS_MCP = 'settings-agents-mcp';
@@ -60,14 +59,9 @@ export const SETTINGS_SEARCH_INDEX: readonly SettingsSearchEntry[] = [
     sectionId: 'settings-appearance',
     labelKey: 'appearance.title',
     hintKey: 'appearance.colorThemeHint',
-    keywords: 'appearance theme dark light accent color colour sidebar font typeface',
-  },
-  {
-    tab: 'customisation',
-    sectionId: SETTINGS_SECTION_CUST_LAYOUT,
-    labelKey: 'customisation.layout',
-    hintKey: 'customisation.autoHideSidebarHint',
-    keywords: 'layout auto-hide sidebar customization',
+    // "auto-hide"/"sidebar"/"layout" land here now that the auto-hide-sidebar
+    // toggle moved from the Shortcuts tab into Appearance (SET2-7).
+    keywords: 'appearance theme dark light accent color colour sidebar auto-hide autohide layout font typeface customization',
   },
   {
     tab: 'customisation',
