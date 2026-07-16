@@ -82,6 +82,9 @@ export const en = {
     dataColorsMuted: 'Muted',
     blurOverlays: 'Blur behind overlays',
     blurOverlaysHint: 'Blur the page when a dialog or search opens.',
+    // Layout toggle moved here from the Shortcuts tab (SET2-7).
+    autoHideSidebar: 'Auto-hide sidebar',
+    autoHideSidebarHint: 'Collapse the sidebar until you move to the screen edge.',
     levelOff: 'Off',
     levelSubtle: 'Subtle',
     levelMedium: 'Medium',
@@ -105,12 +108,13 @@ export const en = {
     matchApp: 'Match app',
     pageCustomiseSubtitle: 'Cover, width, theme & typefaces — this page only',
     pageCustomiseEmpty: 'Open a page to customise it here.',
-    // Cross-pointers between the two appearance scopes (OB-548): the per-page
-    // Customise pane and the app-wide Appearance settings share the same pickers,
-    // so each surface links to the other to keep the scope clear.
+    // Cross-pointers between the two appearance scopes (OB-548 / SET2-7): the
+    // per-page Customise pane and the app-wide Appearance settings share the same
+    // pickers, so each surface links to the other to keep the scope clear.
     appWidePointer: 'App-wide theme & colours',
-    perPagePointer:
-      'This themes the whole app on this device. To restyle one page — its cover, width, accent, and fonts — open that page’s Customise pane from the palette above its title or its “…” menu.',
+    perPageTitle: 'Style one page',
+    perPagePointer: 'A single page’s look — theme, fonts, cover, and width — lives in that page’s Customise pane.',
+    openPageCustomise: 'Open Customise pane',
     cover: 'Cover',
     coverHint: 'A banner image or gradient above the title.',
     fullWidth: 'Full width',
@@ -1224,10 +1228,7 @@ export const en = {
   },
   customisation: {
     title: 'Shortcuts',
-    description: 'Review keyboard shortcuts and tailor a couple of layout preferences.',
-    layout: 'Layout',
-    autoHideSidebar: 'Auto-hide sidebar',
-    autoHideSidebarHint: 'Collapse the sidebar until you move to the screen edge.',
+    description: 'Every keyboard shortcut in one place.',
     shortcuts: 'Keyboard shortcuts',
     shortcutsHint: 'Available anywhere in the app.',
     blockShortcuts: 'Block editing',

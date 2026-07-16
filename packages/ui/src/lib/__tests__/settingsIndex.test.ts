@@ -42,6 +42,18 @@ describe('settingsIndex', () => {
     expect(rows.some((r) => r.tab === 'admin')).toBe(true);
   });
 
+  it('lands "auto-hide"/"sidebar" on Appearance, and "shortcuts" on the Shortcuts tab (SET2-7)', () => {
+    // The auto-hide-sidebar toggle moved from the Shortcuts tab into Appearance.
+    for (const q of ['auto-hide', 'sidebar']) {
+      const rows = filterSettingsIndex(q, t, {includeAgents: true});
+      expect(rows.some((r) => r.tab === 'appearance')).toBe(true);
+      expect(rows.some((r) => r.tab === 'customisation')).toBe(false);
+    }
+    // The renamed tab (id still `customisation`) still owns the shortcut tables.
+    const shortcutRows = filterSettingsIndex('shortcuts', t, {includeAgents: true});
+    expect(shortcutRows.some((r) => r.tab === 'customisation')).toBe(true);
+  });
+
   it('requires every token to match (AND semantics)', () => {
     const rows = filterSettingsIndex('block nonsensetoken', t, {includeAgents: true});
     expect(rows).toEqual([]);

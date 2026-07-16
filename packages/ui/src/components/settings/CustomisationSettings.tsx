@@ -1,12 +1,8 @@
-import {useHud, useTranslation} from '@/providers';
+import {useTranslation} from '@/providers';
 import type {TKey} from '@/i18n';
-import {SettingsScreen, SettingsSection, SettingsToggle} from '@/components/settings/primitives';
+import {SettingsScreen, SettingsSection} from '@/components/settings/primitives';
 import {formatShortcut, isMacPlatform, SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
-import {
-  SETTINGS_SECTION_CUST_BLOCKS,
-  SETTINGS_SECTION_CUST_LAYOUT,
-  SETTINGS_SECTION_CUST_SHORTCUTS,
-} from '@/lib/settingsIndex';
+import {SETTINGS_SECTION_CUST_BLOCKS, SETTINGS_SECTION_CUST_SHORTCUTS} from '@/lib/settingsIndex';
 
 /** A keystroke rendered as a <kbd> chip. */
 function Keys({label}: {label: string}) {
@@ -17,10 +13,12 @@ function Keys({label}: {label: string}) {
   );
 }
 
-/** Layout toggles (backed by the live HUD) + a reference list of shortcuts. */
+/** A read-only reference of the app's keyboard shortcuts (SET2-7). The lone
+ *  layout toggle that used to live here (auto-hide sidebar) moved to Appearance,
+ *  so this tab is now shortcuts-only and its rail label reads "Shortcuts" — no
+ *  longer colliding with the per-page Customise pane. */
 export default function CustomisationSettings() {
   const {t} = useTranslation();
-  const {hud, setHud} = useHud();
 
   // The settings panel is client-only (a modal), so reading the platform
   // directly is safe — no SSR render to mismatch.
@@ -64,24 +62,6 @@ export default function CustomisationSettings() {
 
   return (
     <SettingsScreen title={t('customisation.title')} description={t('customisation.description')} scope="device">
-      <SettingsSection id={SETTINGS_SECTION_CUST_LAYOUT} title={t('customisation.layout')}>
-        {/* Full width is now a per-page choice (page "…" menu / ⌘. / the page's
-            customise pane), so it's no longer a global switch here. */}
-        <SettingsToggle
-          label={t('customisation.autoHideSidebar')}
-          hint={t('customisation.autoHideSidebarHint')}
-          // The sidebar auto-hides when it's *not* docked.
-          checked={!hud.sideNav.docked}
-          onCheckedChange={(v) =>
-            setHud((draft) => {
-              draft.sideNav.docked = !v;
-              if (!draft.sideNav.docked) draft.sideNav.open = false;
-              return draft;
-            })
-          }
-        />
-      </SettingsSection>
-
       <SettingsSection
         id={SETTINGS_SECTION_CUST_SHORTCUTS}
         title={t('customisation.shortcuts')}
