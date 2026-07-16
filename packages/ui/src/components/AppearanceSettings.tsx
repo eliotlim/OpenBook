@@ -2,7 +2,7 @@ import {type ComponentType} from 'react';
 import {SlidersHorizontal} from 'lucide-react';
 import {SunIcon} from '@heroicons/react/24/outline';
 import {MoonIcon, DesktopIcon} from '@radix-ui/react-icons';
-import {ColorMode, useHud, useNavigation, useTheme, useTranslation} from '@/providers';
+import {ColorMode, useHud, useOptionalNavigation, useTheme, useTranslation} from '@/providers';
 import {AccentPicker, Field, LevelPicker, Segmented} from '@/components/appearance/AppearanceControls';
 import {SettingsScreen, SettingsToggle} from '@/components/settings/primitives';
 import {Button} from '@/components/ui/button';
@@ -22,18 +22,21 @@ export default function AppearanceSettings() {
   const {mode, setMode, appearance, setAppearance, colorScheme} = useTheme();
   const {t} = useTranslation();
   const {hud, setHud} = useHud();
-  const {currentPageId, openInSplit} = useNavigation();
+  // Optional so the panel still renders in reduced harnesses (unit tests) without
+  // a NavigationProvider; the real app always supplies one.
+  const nav = useOptionalNavigation();
 
   // Cross-link to the per-page scope: close settings and open the current page's
   // Customise pane (cover, width, theme, fonts). Mirrors the reverse pointer the
   // Customise pane shows back to app-wide Appearance (PageCustomiseBody).
   const openPageCustomise = () => {
-    if (currentPageId) setPageCustomiseTarget(currentPageId);
+    if (!nav) return;
+    if (nav.currentPageId) setPageCustomiseTarget(nav.currentPageId);
     setHud((draft) => {
       draft.settings.open = false;
       return draft;
     });
-    openInSplit(CUSTOMISE_PANE_ID);
+    nav.openInSplit(CUSTOMISE_PANE_ID);
   };
 
   return (

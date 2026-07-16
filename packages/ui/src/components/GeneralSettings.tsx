@@ -21,9 +21,9 @@ export default function GeneralSettings() {
 
   const resetPreferences = useCallback(async () => {
     const ok = await confirm({
-      title: t('admin.resetConfirmTitle'),
-      description: t('admin.resetConfirmBody'),
-      confirmText: t('admin.resetConfirmButton'),
+      title: t('general.resetConfirmTitle'),
+      description: t('general.resetConfirmBody'),
+      confirmText: t('general.resetConfirmButton'),
       destructive: true,
     });
     if (!ok) return;
@@ -73,14 +73,14 @@ export default function GeneralSettings() {
       {/* Desktop only — renders nothing when the platform can't self-update. */}
       <UpdatesSection />
 
-      <SettingsSection title={t('admin.dangerZone')} description={t('admin.dangerZoneHint')} className="gap-3">
+      <SettingsSection title={t('general.dangerZone')} description={t('general.dangerZoneHint')} className="gap-3">
         <div className="flex items-center justify-between gap-6 rounded-md border border-destructive/40 px-3.5 py-3">
           <span className="flex min-w-0 flex-col">
-            <span className="text-sm font-medium">{t('admin.resetPrefs')}</span>
-            <span className="text-xs text-muted-foreground">{t('admin.resetPrefsHint')}</span>
+            <span className="text-sm font-medium">{t('general.resetPrefs')}</span>
+            <span className="text-xs text-muted-foreground">{t('general.resetPrefsHint')}</span>
           </span>
           <Button variant="destructive" onClick={() => void resetPreferences()} className="shrink-0">
-            {t('admin.resetPrefsButton')}
+            {t('general.resetPrefsButton')}
           </Button>
         </div>
       </SettingsSection>

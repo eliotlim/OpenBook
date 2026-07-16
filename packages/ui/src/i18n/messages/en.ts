@@ -1154,6 +1154,16 @@ export const en = {
     confirmTrashHint: 'Ask before moving a page to the trash.',
     spellcheck: 'Spellcheck while typing',
     spellcheckHint: 'Underline misspelled words in the editor.',
+    // Local preference reset (SET2-9): lives in General, where these settings
+    // are, not in the Backups & data (admin) tab where the keys used to sit.
+    dangerZone: 'Danger zone',
+    dangerZoneHint: 'These actions affect this device’s local data, not your pages.',
+    resetPrefs: 'Reset preferences & layout',
+    resetPrefsHint: 'Restore default appearance, language, and layout on this device. Your pages and libraries are kept.',
+    resetPrefsButton: 'Reset',
+    resetConfirmTitle: 'Reset preferences & layout?',
+    resetConfirmBody: 'This clears appearance, language, and layout settings on this device and reloads. Your pages and libraries are not affected.',
+    resetConfirmButton: 'Reset',
   },
   updates: {
     section: 'Updates',
@@ -1205,7 +1215,7 @@ export const en = {
   },
   profile: {
     title: 'Profile',
-    description: 'How you appear in OpenBook on this device.',
+    description: 'How you appear in OpenBook. Syncs with your account when you’re signed in.',
     identity: 'Identity',
     name: 'Name',
     nameHint: 'Your full name.',
@@ -1445,8 +1455,6 @@ export const en = {
     remoteTokenHint: 'A published or shared server requires its access token; leave blank for an open server.',
     connect: 'Connect',
     useLocal: 'Use this app',
-    inApp: 'Storage',
-    inAppDescription: 'Your library lives in this app, on this device — no server, no open port. Turn on local network access below to also serve it to your other devices.',
     localServer: 'Local server',
     running: 'Shared from',
     stopped: 'Stopped.',
@@ -1542,14 +1550,6 @@ export const en = {
   admin: {
     title: 'Backups & data',
     description: 'Back up, restore, and export your library data.',
-    dangerZone: 'Danger zone',
-    dangerZoneHint: 'These actions affect this device’s local data, not your pages.',
-    resetPrefs: 'Reset preferences & layout',
-    resetPrefsHint: 'Restore default appearance, language, and layout on this device. Your pages and libraries are kept.',
-    resetPrefsButton: 'Reset',
-    resetConfirmTitle: 'Reset preferences & layout?',
-    resetConfirmBody: 'This clears appearance, language, and layout settings on this device and reloads. Your pages and libraries are not affected.',
-    resetConfirmButton: 'Reset',
   },
   agents: {
     title: 'Agent access',
