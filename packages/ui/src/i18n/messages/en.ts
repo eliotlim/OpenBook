@@ -1555,7 +1555,8 @@ export const en = {
     title: 'Agent access',
     description: 'Personal access tokens let an AI agent or MCP client reach this library over HTTP with a scoped, revocable credential.',
     unavailable: 'Agent tokens run on the desktop app or a connected server — not in the browser.',
-    readonly: 'Only an instance admin can manage agent tokens. You have read-only access.',
+    // Shown when a confirmed non-admin reaches this admin-only tab (SET2-10).
+    adminOnly: 'This tab is available to library admins.',
     enableTitle: 'Enable agent API',
     enableHint: 'Off by default. While off, agent tokens do not authenticate and none can be minted. Nothing is exposed until you turn this on.',
     remoteTitle: 'Allow remote MCP',
