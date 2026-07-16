@@ -56,9 +56,10 @@ jobs:
           path: |
             packages/sdk/dist
             packages/ui/dist
+            packages/mcp/dist
             packages/server/dist
             packages/server/assets
-          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/mcp/src/**', 'packages/mcp/package.json', 'packages/mcp/tsconfig.json', 'packages/mcp/tsup.config.ts', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
       - name: Build libs
         if: steps.libs-cache.outputs.cache-hit != 'true'
         run: pnpm run build:libs
@@ -137,9 +138,10 @@ jobs:
           path: |
             packages/sdk/dist
             packages/ui/dist
+            packages/mcp/dist
             packages/server/dist
             packages/server/assets
-          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/mcp/src/**', 'packages/mcp/package.json', 'packages/mcp/tsconfig.json', 'packages/mcp/tsup.config.ts', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
       - name: Build libs
         if: steps.libs-cache.outputs.cache-hit != 'true'
         run: pnpm run build:libs
@@ -257,9 +259,10 @@ jobs:
           path: |
             packages/sdk/dist
             packages/ui/dist
+            packages/mcp/dist
             packages/server/dist
             packages/server/assets
-          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
+          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/mcp/src/**', 'packages/mcp/package.json', 'packages/mcp/tsconfig.json', 'packages/mcp/tsup.config.ts', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
       - name: Build libs
         if: steps.libs-cache.outputs.cache-hit != 'true'
         run: pnpm run build:libs

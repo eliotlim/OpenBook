@@ -14,5 +14,9 @@ export default defineConfig({
     fileParallelism: false,
     // The mirror integration suite polls on filesystem-watch + debounce windows.
     testTimeout: 30_000,
+    // beforeEach/afterEach hooks spin up PGlite (create()+migrate()), which can
+    // exceed the 10s hook default under load; match testTimeout so a slow boot
+    // doesn't fail the hook (and leave afterEach racing a half-open db).
+    hookTimeout: 30_000,
   },
 });
