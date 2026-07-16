@@ -162,8 +162,18 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       const child = spawn(
         process.execPath,
         ['--import', 'tsx', 'src/bin.ts', '--data-dir', dataDir, '--port', String(port)],
-        {cwd: serverPkg, stdio: 'ignore'},
+        {cwd: serverPkg, stdio: ['ignore', 'ignore', 'pipe']},
       );
+
+      // Capture the child's stderr into a small bounded tail so a boot/import
+      // failure (e.g. a missing @book.dev/* dist) is visible in the "data
+      // server exited" error below, instead of misleadingly blaming a leaked
+      // port. Cap the retained text so a chatty child can't grow it unbounded.
+      let stderrTail = '';
+      const STDERR_TAIL_MAX = 4000;
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderrTail = (stderrTail + chunk.toString('utf8')).slice(-STDERR_TAIL_MAX);
+      });
 
       // Wait for OUR server to come up before any test runs in this worker.
       // If the child dies (e.g. the port is held by a leaked server from an
@@ -172,9 +182,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       const deadline = Date.now() + 60_000;
       for (;;) {
         if (child.exitCode !== null) {
+          const tail = stderrTail.trim();
           throw new Error(
             `worker ${workerInfo.workerIndex}: data server exited (code ${child.exitCode}) — ` +
-              `is :${port} held by a leaked server? (lsof -ti:${port} | xargs kill)`,
+              `is :${port} held by a leaked server? (lsof -ti:${port} | xargs kill)` +
+              (tail ? `\n--- data server stderr (last ${STDERR_TAIL_MAX} chars) ---\n${tail}` : ''),
           );
         }
         try {
