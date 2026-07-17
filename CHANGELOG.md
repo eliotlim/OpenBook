@@ -1,3 +1,23 @@
+## 3.3.0 (2026-07-17)
+
+### 🚀 Features
+
+- **ui:** web browser Back/Forward navigates page history (IA-2) ([#182](https://github.com/eliotlim/OpenBook/pull/182))
+- **ui:** expose interactive toHtml/toSlideDeck/toHtmlSite from public API ([#180](https://github.com/eliotlim/OpenBook/pull/180))
+- **ui:** Settings V2 Wave 1 — 4-rail regroup, fold Connection into Libraries, control unification, advanced-section primitive ([#181](https://github.com/eliotlim/OpenBook/pull/181))
+- **ui:** Settings V2 Wave 2a — AI-tab split, in-panel search, Backups rebuild ([#193](https://github.com/eliotlim/OpenBook/pull/193))
+- **ui:** Settings V2 Wave 2b — Shortcuts rename, admin-gate consistency, copy/i18n truth pass ([#194](https://github.com/eliotlim/OpenBook/pull/194))
+- **ui:** SHR-7 — one "Default access" control (retire raw guest-gate) ([#196](https://github.com/eliotlim/OpenBook/pull/196))
+
+### 🩹 Fixes
+
+- **ci:** cache packages/mcp/dist for e2e + raise server hook timeout ([#195](https://github.com/eliotlim/OpenBook/pull/195))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.2.0 (2026-07-14)
 
 ### 🚀 Features
