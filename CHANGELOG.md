@@ -1,3 +1,14 @@
+## 3.3.1 (2026-07-17)
+
+### 🩹 Fixes
+
+- **ui:** align active titlebar-tab label with inactive tabs ([#197](https://github.com/eliotlim/OpenBook/pull/197))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.3.0 (2026-07-17)
 
 ### 🚀 Features
