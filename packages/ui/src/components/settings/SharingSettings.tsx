@@ -93,6 +93,15 @@ export function SharingSection() {
 
   const changeAccess = useCallback(
     async (state: DefaultAccess) => {
+      // Re-selecting the ALREADY-DISPLAYED state must be a true no-op — never a
+      // write. The config→state mapping is lossy: a freshly-claimed instance
+      // bootstraps to `(defaultVisibility:'members', guestAccess:'read')` which
+      // renders as "Anyone can view", so writing its pair `(public, read)` would
+      // flip defaultVisibility members→public and silently make every
+      // `inherit`-visibility page world-readable — from a visually no-op click.
+      // Guarding here closes that silent-widening path while preserving every
+      // DELIBERATE change (a different displayed state still writes the full pair).
+      if (!info || state === accessStateFromGuest(info.guestAccess)) return;
       setBusy(true);
       setError(null);
       try {
@@ -104,7 +113,7 @@ export function SharingSection() {
         setBusy(false);
       }
     },
-    [client, refresh],
+    [client, refresh, info],
   );
 
   if (unavailable || !info) return null;

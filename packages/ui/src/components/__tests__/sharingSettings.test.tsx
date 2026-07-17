@@ -1,5 +1,5 @@
-import {describe, it, expect, afterEach} from 'vitest';
-import {render, screen, cleanup} from '@testing-library/react';
+import {describe, it, expect, afterEach, vi} from 'vitest';
+import {render, screen, cleanup, fireEvent, waitFor} from '@testing-library/react';
 import type {DataClient} from '@book.dev/sdk';
 import {DEFAULT_INSTANCE_CONFIG, guestPrincipal} from '@book.dev/sdk';
 import {
@@ -71,6 +71,44 @@ describe('SharingSection (guest access)', () => {
     };
     wrap(client);
     expect(await screen.findByText('Only the library owner can change this.')).toBeTruthy();
+  });
+
+  // Security fix: the config→state mapping is lossy, so re-selecting the state
+  // that's already displayed must NEVER write — otherwise the freshly-claimed
+  // bootstrap `(members, read)` (shown as "Anyone can view") would flip
+  // defaultVisibility members→public on a visually no-op click, silently making
+  // every inherit-visibility page world-readable.
+  const bootstrapClaimed = (setInstancePolicy: DataClient['setInstancePolicy']): Partial<DataClient> => ({
+    getInstanceInfo: async () => ({
+      guestAccess: 'read', // freshly-claimed bootstrap → renders "Anyone can view"
+      defaultVisibility: 'members',
+      ownerSubject: null, // control enabled (unclaimed-owner path)
+      trustedIssuers: [],
+      audience: null,
+      requireAudience: false,
+      you: guestPrincipal('Ola'),
+      youRole: null,
+    }),
+    setInstancePolicy,
+  });
+
+  it('re-selecting the already-displayed state does NOT write (no silent widening)', async () => {
+    const setInstancePolicy = vi.fn(async () => ({guestAccess: 'read', trustedIssuers: []})) as unknown as DataClient['setInstancePolicy'];
+    wrap(bootstrapClaimed(setInstancePolicy));
+    fireEvent.click(await screen.findByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', {name: 'Anyone can view'}));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(setInstancePolicy).not.toHaveBeenCalled();
+  });
+
+  it('a deliberate change from that same state still writes the full pair', async () => {
+    const setInstancePolicy = vi.fn(async () => ({guestAccess: 'write', trustedIssuers: []})) as unknown as DataClient['setInstancePolicy'];
+    wrap(bootstrapClaimed(setInstancePolicy));
+    fireEvent.click(await screen.findByRole('combobox'));
+    fireEvent.click(await screen.findByRole('option', {name: 'Anyone can edit'}));
+    await waitFor(() =>
+      expect(setInstancePolicy).toHaveBeenCalledWith({defaultVisibility: 'public', guestAccess: 'write'}),
+    );
   });
 });
 
