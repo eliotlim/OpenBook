@@ -50,6 +50,7 @@ import type {
 } from '@book.dev/sdk';
 import {BACKUP_CADENCES, BACKUP_CADENCE_MS, localPrincipal} from '@book.dev/sdk';
 import {PageStore} from './store';
+import {LocalSearchIndex} from './ai/localSearch';
 import {PageHub} from './hub';
 import {CollabRelay} from './collab';
 import {AwarenessRelay, awarenessUser, stampAwarenessIdentity} from './collabAwareness';
@@ -79,11 +80,16 @@ export class LocalDataClient implements DataClient {
   // Ephemeral presence (Collab T4) — mirrors the HTTP app's awareness relay so a
   // second in-process window sees presence + a late joiner gets the snapshot.
   private readonly awarenessRelay = new AwarenessRelay();
+  // In-webview lexical content search (no AI engine needed) — the local
+  // counterpart to the server's AiService search, kept fresh by write broadcasts.
+  private readonly searchIndex: LocalSearchIndex;
 
   constructor(
     private readonly store: PageStore,
     private readonly hub: PageHub = new PageHub(),
-  ) {}
+  ) {
+    this.searchIndex = new LocalSearchIndex(store);
+  }
 
   /** Release the underlying store (its PGlite connection). Used when swapping
    *  clients — e.g. the desktop moving between in-app and a published server. */
@@ -94,10 +100,12 @@ export class LocalDataClient implements DataClient {
   // ── Live-update broadcasts (mirror app.ts's broadcastList/broadcastRows) ─────
 
   private async broadcastList(): Promise<void> {
+    this.searchIndex.invalidate(); // any list-changing write staleness-marks search (mirrors app.ts)
     this.hub.publishList(await this.store.listPages());
   }
 
   private async broadcastRows(databaseId: string): Promise<void> {
+    this.searchIndex.invalidate(); // rows are pages too; a row write staleness-marks search
     // Skip the row query when nobody is watching — same guard the HTTP app uses.
     if (!this.hub.hasRowsListeners(databaseId)) return;
     this.hub.publishRows(databaseId, await this.store.listRows(databaseId));
@@ -627,12 +635,14 @@ export class LocalDataClient implements DataClient {
     return Promise.resolve(config);
   }
 
+  // Lexical content search works fully in-webview: no engine, just the page
+  // text (see LocalSearchIndex). Unlike the other AI methods, this is NOT stubbed.
   aiIndex(): Promise<{pages: number; chunks: number}> {
-    return Promise.resolve({pages: 0, chunks: 0});
+    return this.searchIndex.reindex();
   }
 
-  aiSearch(): Promise<AiSearchResponse> {
-    return Promise.resolve({results: [], mode: 'lexical'});
+  aiSearch(query: string, limit?: number): Promise<AiSearchResponse> {
+    return this.searchIndex.search(query, Math.min(Math.max(limit ?? 8, 1), 25));
   }
 
   aiTasks(): Promise<AiTasksResponse> {

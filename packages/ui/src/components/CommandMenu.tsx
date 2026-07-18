@@ -73,9 +73,10 @@ export function CommandMenu() {
   // ── Unified search: database rows + content snippets ────────────────────────
   // Rows (searchRows) work on every transport. Content snippets (client.aiSearch,
   // the engine-independent BM25 index — never gated by AI-feature visibility, so
-  // lexical search is always available) return block-anchored hits on a hosted
-  // server; on the in-webview local client they come back empty, so the group
-  // simply doesn't appear on the pure-web build (page/row search still works).
+  // lexical search is always available) return block-anchored hits on BOTH
+  // transports: the hosted server and the in-webview local client, which runs the
+  // same BM25 index over its embedded PGlite (Epic 3.1) — so the pure-web build
+  // gets content search too, not just page/row matches.
   const [async_, setAsync] = React.useState<AsyncResults>({query: '', rows: [], notes: []});
   const reqRef = React.useRef(0);
   React.useEffect(() => {
