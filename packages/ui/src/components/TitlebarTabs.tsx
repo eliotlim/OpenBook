@@ -70,9 +70,9 @@ export default function TitlebarTabs() {
                 // above that line.
                 active
                   ? // pb-1 mirrors the inactive tab's `mb-1`: both reserve 4px at
-                    // the strip's lower edge so the label centers over the same
-                    // region and doesn't drop when a tab becomes active.
-                    'relative z-[1] h-8 rounded-t-md border border-b-0 border-border bg-background pb-1 text-foreground'
+                // the strip's lower edge so the label centers over the same
+                // region and doesn't drop when a tab becomes active.
+                  'relative z-[1] h-8 rounded-t-md border border-b-0 border-border bg-background pb-1 text-foreground'
                   : 'mb-1 h-7 rounded-md text-muted-foreground hover:bg-background/40 hover:text-foreground',
               )}
             >
