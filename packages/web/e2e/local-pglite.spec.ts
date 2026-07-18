@@ -41,6 +41,49 @@ test('web runs on in-webview PGlite: a page created with no server survives a re
   expect(errors).toEqual([]);
 });
 
+// Epic 3.5 (OB search): content search must work on the in-webview PGlite build,
+// not just the hosted server. Before Epic 3.1, LocalDataClient.aiSearch was a
+// stub returning [] — so ⌘K surfaced page titles and database rows but never a
+// body-text ("Notes") hit on the pure-web build. This proves the unstub end to
+// end through the real palette: a body-only word finds its page and navigates.
+test('web (in-webview PGlite): ⌘K content search finds a page by its body text', {tag: ['@datalayer', '@search', '@p1']}, async ({page}) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.stack ?? e.message));
+
+  await page.goto('/');
+  const newPage = page.getByRole('button', {name: 'New page'}).first();
+  await expect(newPage).toBeVisible();
+  await newPage.click();
+  await expect
+    .poll(() => {
+      const param = new URL(page.url()).searchParams.get('page');
+      return param && param !== 'home' ? param : null;
+    })
+    .toBeTruthy();
+  const id = new URL(page.url()).searchParams.get('page')!;
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+
+  // 'marmalade' lives ONLY in the body, never the title — so a hit proves body
+  // content search, not the title match that already worked locally.
+  await page.locator('.obe-text').first().click();
+  await page.keyboard.type('Marmalade orbits the lighthouse every Tuesday.');
+  // Wait for the save to flush: it persists the page AND invalidates the
+  // in-webview search index (LocalDataClient.broadcastList → searchIndex).
+  await expect(page.getByText('Saved')).toBeVisible();
+
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByPlaceholder(/Search pages or run a command/).fill('marmalade');
+  const snippet = page.locator('[data-search-snippet]').first();
+  await expect(snippet).toBeVisible();
+  await expect(snippet).toContainText(/marmalade/i);
+
+  // The hit deep-links back to the page its text came from.
+  await snippet.click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('page')).toBe(id);
+
+  expect(errors).toEqual([]);
+});
+
 // P0-4 (sharing audit 2026-07-03): on the in-browser store nothing outside this
 // browser can reach the workspace, so the sharing surfaces must say so instead
 // of presenting a fully-wired-looking UI that is 100% inert. Only this spec
