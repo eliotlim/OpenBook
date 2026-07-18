@@ -1,3 +1,14 @@
+## 3.3.2 (2026-07-18)
+
+### 🚀 Features
+
+- **search:** local lexical content search on the in-webview transport (Epic 3) ([#198](https://github.com/eliotlim/OpenBook/pull/198), [#197](https://github.com/eliotlim/OpenBook/issues/197))
+
+### ❤️ Thank You
+
+- Claude Opus 4.8
+- Eliot Lim @eliotlim
+
 ## 3.3.1 (2026-07-17)
 
 ### 🩹 Fixes
