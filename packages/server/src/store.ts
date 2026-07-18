@@ -43,6 +43,7 @@ import type {
 } from '@book.dev/sdk';
 import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import type {Db} from './dbCore';
+import type {IndexablePage} from './ai/search';
 import type {AgentTokenRow} from './agentTokens';
 import {runMigrations} from './migrations';
 
@@ -484,6 +485,16 @@ export class PageStore {
        ORDER BY p.position ASC, p.created_at ASC`,
     );
     return rows.map(metaFromRow);
+  }
+
+  /**
+   * Every live page — including database rows (they're pages too) — as raw
+   * `{id, name, data}` for the search indexer. Mirrors the query the hosted
+   * {@link AiService} runs; the in-webview {@link LocalSearchIndex} calls this so
+   * lexical content search works with no server.
+   */
+  async indexablePages(): Promise<IndexablePage[]> {
+    return this.db.query<IndexablePage>('SELECT id, name, data FROM pages WHERE deleted_at IS NULL');
   }
 
   // ── Whole-space backup ───────────────────────────────────────────────────────

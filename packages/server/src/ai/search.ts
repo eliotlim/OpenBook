@@ -8,6 +8,7 @@
  * and agent tools read pages the same way; re-exported here for existing
  * server-side imports.
  */
+import {snapshotSegments as _snapshotSegments, type AiSearchResponse} from '@book.dev/sdk';
 export {snapshotSegments, snapshotText} from '@book.dev/sdk';
 
 // ── Tokenizing + chunking ────────────────────────────────────────────────────
@@ -67,6 +68,76 @@ export function buildIndex(docs: IndexedDoc[]): Bm25Index {
   }
   const avgLen = tokens.length > 0 ? tokens.reduce((n, ts) => n + ts.length, 0) / tokens.length : 0;
   return {docs, df, avgLen, tokens};
+}
+
+/** A live page row as stored: id, optional title, and the block-doc snapshot. */
+export interface IndexablePage {
+  id: string;
+  name: string | null;
+  data: unknown;
+}
+
+/**
+ * Turn stored page rows into BM25 index docs. One doc per block chunk, so a hit
+ * remembers the block it came from (`?block=` anchor); a title-only page still
+ * gets a single empty doc so its name is findable. Shared by the server's
+ * {@link AiService} and the in-webview {@link LocalSearchIndex} so both index
+ * page content identically.
+ */
+export function pageRowsToDocs(rows: IndexablePage[]): IndexedDoc[] {
+  const docs: IndexedDoc[] = [];
+  for (const row of rows) {
+    const data = typeof row.data === 'string' ? (JSON.parse(row.data) as never) : (row.data as never);
+    const segments = _snapshotSegments(data);
+    const title = row.name ?? 'Untitled';
+    let chunkIndex = 0;
+    for (const seg of segments) {
+      for (const chunk of chunkText(seg.text)) {
+        docs.push({pageId: row.id, title, chunkIndex: chunkIndex++, text: chunk, blockId: seg.blockId});
+      }
+    }
+    // A title-only page (no body text) is still findable by its name — index a
+    // single empty doc so buildIndex tokenizes the title. Skip a page with
+    // neither text nor a name (nothing to match).
+    if (chunkIndex === 0) {
+      if (!row.name) continue;
+      docs.push({pageId: row.id, title, chunkIndex: 0, text: ''});
+    }
+  }
+  return docs;
+}
+
+/**
+ * Collapse a ranked candidate list to one result per page (best chunk wins),
+ * gated by an optional per-principal read check. Walks the whole candidate set
+ * (not just its top slice) so the caller still gets up to `limit` *readable*
+ * hits, with no existence oracle — an unreadable page is silently skipped.
+ * Shared by {@link AiService.search} and {@link LocalSearchIndex.search}.
+ */
+export async function assembleSearchResults(
+  index: Bm25Index,
+  ranked: Array<{i: number; score: number}>,
+  query: string,
+  limit: number,
+  canRead?: (pageId: string) => Promise<boolean>,
+): Promise<AiSearchResponse['results']> {
+  const seen = new Set<string>();
+  const results: AiSearchResponse['results'] = [];
+  for (const {i, score} of ranked) {
+    const doc = index.docs[i];
+    if (seen.has(doc.pageId)) continue;
+    seen.add(doc.pageId);
+    if (canRead && !(await canRead(doc.pageId))) continue;
+    results.push({
+      pageId: doc.pageId,
+      title: doc.title,
+      snippet: snippetFor(doc.text, query),
+      ...(doc.blockId ? {blockId: doc.blockId} : {}),
+      score: Math.round(score * 1000) / 1000,
+    });
+    if (results.length >= limit) break;
+  }
+  return results;
 }
 
 const K1 = 1.4;

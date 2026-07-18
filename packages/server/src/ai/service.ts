@@ -4,7 +4,7 @@ import path from 'node:path';
 import {providerSettings, type AiConfig, type AiProvider, type AiProviderSettings, type AiSearchResponse, type AiStatus, type AiTasksResponse} from '@book.dev/sdk';
 import type {Db} from '../db';
 import {createEngine, type AiEngine, type GenerateOptions} from './providers';
-import {bm25Scores, buildIndex, chunkText, cosine, parseTaskList, snapshotSegments, snippetFor, type Bm25Index, type IndexedDoc} from './search';
+import {assembleSearchResults, bm25Scores, buildIndex, cosine, pageRowsToDocs, parseTaskList, type Bm25Index} from './search';
 import {SkillStore} from './skills';
 
 /**
@@ -178,29 +178,7 @@ export class AiService {
     const rows = await this.db.query<{id: string; name: string | null; data: unknown}>(
       'SELECT id, name, data FROM pages WHERE deleted_at IS NULL',
     );
-    const docs: IndexedDoc[] = [];
-    for (const row of rows) {
-      const data = typeof row.data === 'string' ? (JSON.parse(row.data) as never) : (row.data as never);
-      // Index per block, so a matched chunk remembers the block it came from and
-      // a hit can anchor there (`?block=`). Long blocks still chunk; the block id
-      // rides onto every chunk of that block.
-      const segments = snapshotSegments(data);
-      const title = row.name ?? 'Untitled';
-      let chunkIndex = 0;
-      for (const seg of segments) {
-        for (const chunk of chunkText(seg.text)) {
-          docs.push({pageId: row.id, title, chunkIndex: chunkIndex++, text: chunk, blockId: seg.blockId});
-        }
-      }
-      // A title-only page (no body text) is still findable by its name — index a
-      // single empty doc so buildIndex tokenizes the title. Skip a page with
-      // neither text nor a name (nothing to match).
-      if (chunkIndex === 0) {
-        if (!row.name) continue;
-        docs.push({pageId: row.id, title, chunkIndex: 0, text: ''});
-      }
-    }
-    this.index = buildIndex(docs);
+    this.index = buildIndex(pageRowsToDocs(rows));
     this.indexBuiltAt = new Date();
     this.indexedVersion = version;
     return this.index;
@@ -243,23 +221,7 @@ export class AiService {
     }
 
     // One result per page (best chunk wins), gated to the pages the caller may read.
-    const seen = new Set<string>();
-    const results = [];
-    for (const {i, score} of ranked) {
-      const doc = index.docs[i];
-      if (seen.has(doc.pageId)) continue;
-      seen.add(doc.pageId);
-      if (canRead && !(await canRead(doc.pageId))) continue;
-      results.push({
-        pageId: doc.pageId,
-        title: doc.title,
-        snippet: snippetFor(doc.text, query),
-        ...(doc.blockId ? {blockId: doc.blockId} : {}),
-        score: Math.round(score * 1000) / 1000,
-      });
-      if (results.length >= limit) break;
-    }
-    return {results, mode};
+    return {results: await assembleSearchResults(index, ranked, query, limit, canRead), mode};
   }
 
   // ── Generation ─────────────────────────────────────────────────────────────
