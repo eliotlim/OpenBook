@@ -243,6 +243,11 @@ function LanPublishSection() {
                 {copied === 'addr' ? t('connection.copied') : t('connection.copy')}
               </Button>
             </div>
+            {/* STAB-7 (LAN-hosted web UI): the sidecar now also serves the full web
+                app at this address, so anyone on the network can just open it in a
+                browser (no OpenBook install). Say so — and flag the guest-first
+                posture + the raw-LAN account sign-in caveat right where the URL is. */}
+            <p className="mt-1 text-xs text-muted-foreground">{t('connection.openInBrowserHint')}</p>
           </SettingsField>
           <SettingsField label={t('connection.accessToken')} className="max-w-lg">
             <div className="flex items-center gap-2">

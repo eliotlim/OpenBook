@@ -1468,6 +1468,8 @@ export const en = {
     publishToggle: 'Turn on local network access',
     publishWarning: 'No login: anyone who can reach the address below — with the access token — can read and edit this library. Only enable on networks you trust.',
     lanAddress: 'Network address',
+    openInBrowserHint:
+      'Open this address in any browser on your network to use OpenBook there — no install needed. It opens with the library’s guest access (see Default access above). Signing in to an account over a plain LAN address isn’t supported yet.',
     accessToken: 'Access token',
     copy: 'Copy',
     copied: 'Copied',
