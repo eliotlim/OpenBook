@@ -21,6 +21,7 @@ mod ipc;
 use std::io::Read;
 use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -553,21 +554,100 @@ fn main() {
             ipc::api_request_stream,
             ipc::api_request_abort
         ])
+        // Closing the main window used to freeze the app for up to SHUTDOWN_GRACE_MS:
+        // the sidecar drain (final CHECKPOINT + mirror-journal flush) ran on the main
+        // event-loop thread, so the compositor couldn't paint and the window/dock icon
+        // hung. Instead we intercept the close, hide the app *immediately* (so it
+        // disappears near-instantly), and run the drain off the main thread — then
+        // exit once it's actually flushed. Only the main window drives shutdown;
+        // secondary windows (App.tsx `openWindow`) close normally.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    return; // a secondary window: let it close without touching the app
+                }
+                api.prevent_close();
+                begin_shutdown(window.app_handle());
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| match event {
-            // Stop the sidecar on the way out so it isn't orphaned (an orphan keeps
-            // the PGlite/mirror lock and blocks the next launch). `ExitRequested`
-            // fires on window-close; `Exit` also fires for macOS `Cmd+Q` /
-            // `terminate:`, where `ExitRequested` may not. Both route through the
-            // idempotent helper (its `take()` yields the child only once), and we
-            // don't rely on the shell plugin's own cleanup — it doesn't track this
-            // Rust-spawned child.
-            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+            // Backstop for a quit that bypasses `WindowEvent::CloseRequested` —
+            // macOS `Cmd+Q` / `terminate:` (and `app.exit()` from anywhere). Drain
+            // the sidecar the SAME way the close path does: OFF the main thread, so
+            // the event loop stays live and the app doesn't freeze while the
+            // seconds-long CHECKPOINT + mirror flush runs. We prevent the exit,
+            // start (or join) the off-thread drain, and let it call `exit(0)` once
+            // the sidecar has actually flushed. `SHUTDOWN_DONE` lets our own
+            // post-drain `exit(0)` fall through instead of being prevented forever.
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if SHUTDOWN_DONE.load(Ordering::SeqCst) {
+                    return; // drain already finished — let this exit proceed
+                }
+                api.prevent_exit();
+                begin_shutdown(app_handle);
+            }
+            // Final backstop as the loop tears down: stop the sidecar so it isn't
+            // orphaned (an orphan keeps the PGlite/mirror lock and blocks the next
+            // launch). Idempotent — after a completed drain the child is already
+            // gone, so this returns instantly and never blocks the exit.
+            tauri::RunEvent::Exit => {
                 stop_managed_server(app_handle);
             }
             _ => {}
         });
+}
+
+/// Coordinates a graceful, non-blocking shutdown. Only ONE drain ever runs
+/// (`SHUTDOWN_STARTED` gate); subsequent close/quit requests just wait for it.
+/// The drain runs on its own thread so the main event loop keeps painting — the
+/// window/dock icon disappear immediately instead of freezing for the length of
+/// the sidecar's final CHECKPOINT + mirror-journal flush.
+static SHUTDOWN_STARTED: AtomicBool = AtomicBool::new(false);
+/// Set once the off-thread drain has completed and we're about to `exit(0)`, so
+/// the resulting `RunEvent::ExitRequested` is allowed through rather than
+/// re-prevented (which would deadlock the quit).
+static SHUTDOWN_DONE: AtomicBool = AtomicBool::new(false);
+
+/// Hide the app immediately, then drain the sidecar off the main thread and exit
+/// once it has flushed. Safe to call repeatedly and from either the close-button
+/// path or the `Cmd+Q` path: the first caller owns the drain, the rest are no-ops.
+fn begin_shutdown(app: &AppHandle) {
+    // Hide first (on the main thread, where this runs) so the app vanishes now,
+    // before the seconds-long drain — this is the whole point of the fix.
+    hide_app(app);
+    if SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
+        return; // a drain is already in flight; it will exit(0) when done
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        stop_managed_server(&app);
+        eprintln!(
+            "[shutdown] sidecar drain complete in {}ms — exiting",
+            started.elapsed().as_millis()
+        );
+        SHUTDOWN_DONE.store(true, Ordering::SeqCst);
+        app.exit(0);
+    });
+}
+
+/// Make the app disappear immediately at shutdown. On macOS `app.hide()` also
+/// clears the dock/app presence (so it doesn't linger visibly); elsewhere we hide
+/// the frameless main window. Best-effort — a failure here just means the window
+/// stays up a beat longer while the drain runs, it never blocks the exit.
+fn hide_app(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.hide();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.hide();
+        }
+    }
 }
 
 /// Take and stop the managed sidecar, if one is running. Idempotent: `take()`
@@ -609,13 +689,21 @@ fn stop_server_child(child: CommandChild) {
         unsafe {
             libc::kill(pid, libc::SIGTERM);
         }
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_millis(SHUTDOWN_GRACE_MS);
+        // Timed so slow shutdowns are diagnosable: a drain that consistently runs
+        // near SHUTDOWN_GRACE_MS suggests the sidecar's periodic WAL maintenance
+        // (CHECKPOINT/VACUUM cadence) is falling behind and the exit checkpoint is
+        // doing too much work — worth investigating server-side, not here.
+        let started = std::time::Instant::now();
+        let deadline = started + std::time::Duration::from_millis(SHUTDOWN_GRACE_MS);
         loop {
             // `kill(pid, 0)` probes liveness without sending a signal; a non-zero
             // return (ESRCH) means the process has exited and been reaped.
             let alive = unsafe { libc::kill(pid, 0) } == 0;
             if !alive {
+                eprintln!(
+                    "[shutdown] sidecar (pid {pid}) exited cleanly in {}ms",
+                    started.elapsed().as_millis()
+                );
                 return;
             }
             if std::time::Instant::now() >= deadline {
@@ -623,6 +711,9 @@ fn stop_server_child(child: CommandChild) {
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
+        eprintln!(
+            "[shutdown] sidecar (pid {pid}) still alive after {SHUTDOWN_GRACE_MS}ms — hard-killing (drain may be truncated)"
+        );
         let _ = child.kill();
     }
     #[cfg(not(unix))]
