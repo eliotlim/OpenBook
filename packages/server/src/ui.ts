@@ -26,8 +26,12 @@ import type {AppEnv} from './appEnv';
  * setting unchanged — this handler adds NO gate of its own. The static shell is
  * public; every data read/write it issues still flows through the `/api/*`
  * access stack. STAB-8 note: when guest WRITES start requiring a custom client
- * header, that plumbs into the UI's `HttpDataClient` fetch wrapper (see
- * `useWebClient` in packages/web), NOT here — this only ships the bytes.
+ * header (e.g. `X-OpenBook-Client`), the CLIENT half plumbs into the UI's
+ * `HttpDataClient` fetch wrapper (see `useWebClient` in packages/web) and the
+ * SERVER half lands in the app.ts middleware region (near `cors()` / the guest
+ * gate) — NOT here. `mountUi` only ships the static bytes and is deliberately
+ * mounted LAST in {@link createApp}, so STAB-8's middleware stays upstream of it
+ * and this catch-all needs no change: keep the merge additive on both sides.
  */
 export function mountUi(app: Hono<AppEnv>, uiDir: string): void {
   const root = path.resolve(uiDir);
