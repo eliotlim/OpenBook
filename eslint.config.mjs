@@ -12,6 +12,9 @@ export default tseslint.config(
     ignores: [
       '**/dist/**',
       '**/.next/**',
+      // Next static export (STAB-7 `build:web-ui` → the LAN web UI bundle). Built
+      // JS/manifests, gitignored — never lint them (mirrors the `.next` ignore).
+      '**/out/**',
       '**/node_modules/**',
       '**/next-env.d.ts',
       // Playwright / Chromatic run artifacts (generated; includes built JS).
