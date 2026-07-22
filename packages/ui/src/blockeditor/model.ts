@@ -509,6 +509,27 @@ export function dropBeside(doc: Y.Doc, movedId: string, targetId: string, side: 
   }, 'local');
 }
 
+/**
+ * Walk up from `id` (inclusive) to the nearest ancestor whose type is in
+ * `types`, or null if there is none before the root. Used to redirect a paste
+ * out of a table cell: a cell holds only text, so a container block inserted as
+ * a cell sibling poisons the doc — callers insert after the enclosing table.
+ */
+export function enclosingBlock(
+  doc: Y.Doc,
+  id: string,
+  types: ReadonlySet<BlockType>,
+): {block: BlockMap; parent: Y.Array<BlockMap>; index: number} | null {
+  let cur = findBlock(doc, id);
+  while (cur) {
+    if (types.has(blockType(cur.block))) return cur;
+    const parent = parentBlockOf(doc, cur.parent);
+    if (!parent) return null;
+    cur = findBlock(doc, blockId(parent));
+  }
+  return null;
+}
+
 /** The block whose `children` array is `arr`, or null for the root list. */
 export function parentBlockOf(doc: Y.Doc, arr: Y.Array<BlockMap>): BlockMap | null {
   if (arr === rootBlocks(doc)) return null;
@@ -810,6 +831,100 @@ export interface HtmlImageRef {
   title?: string;
 }
 
+/** Clamp an HTML span attribute (`colspan`/`rowspan`) to a sane positive int.
+ *  Guards against non-numeric, zero, negative, and pathologically large spans. */
+const cellSpanAttr = (cell: HTMLElement, attr: 'colspan' | 'rowspan'): number => {
+  const raw = Number(cell.getAttribute(attr) ?? '1');
+  if (!Number.isFinite(raw) || raw < 1) return 1;
+  return Math.min(Math.floor(raw), 1000);
+};
+
+/**
+ * The `<tr>` that belong *directly* to `table` — never to a table nested inside
+ * one of its cells. Notion's clipboard HTML nests tables inside cells and wraps
+ * rows in `thead`/`tbody`/`tfoot` (plus `colgroup`/spacer noise); an unscoped
+ * `querySelectorAll('tr')` would splice a nested table's rows into the outer
+ * grid. Scoping to `:scope > …` keeps each table's rows to itself.
+ */
+const directTableRows = (table: HTMLElement): HTMLElement[] => [
+  ...table.querySelectorAll<HTMLElement>(':scope > thead > tr'),
+  ...table.querySelectorAll<HTMLElement>(':scope > tbody > tr'),
+  ...table.querySelectorAll<HTMLElement>(':scope > tfoot > tr'),
+  ...table.querySelectorAll<HTMLElement>(':scope > tr'),
+];
+
+/** A cell's rich runs, with any table nested inside it flattened to plain text
+ *  (the block model has no nested-table cell) — its text is folded into the
+ *  cell rather than dropped or exploded into the outer grid. */
+const cellToRuns = (cell: HTMLElement): TextRun[] => {
+  if (cell.querySelector('table') === null) return htmlToRuns(cell.innerHTML);
+  const clone = cell.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('table').forEach((nested) => {
+    // Join the nested cells' text with spaces so flattening reads as words, not
+    // a run-together blob (`x y`, not `xy`); fall back to raw text if cell-less.
+    const cells = [...nested.querySelectorAll('td, th')].map((c) => (c.textContent ?? '').replace(/\s+/g, ' ').trim());
+    const flat = cells.length > 0 ? cells.filter(Boolean).join(' ') : (nested.textContent ?? '').replace(/\s+/g, ' ').trim();
+    nested.replaceWith(document.createTextNode(flat));
+  });
+  return htmlToRuns(clone.innerHTML);
+};
+
+/**
+ * Turn a (possibly ragged, colspan/rowspan-laden, spacer-row-ridden) HTML
+ * `<table>` into a rectangular grid of cell runs. colspan/rowspan expand into
+ * distinct grid cells (origin keeps the content, spanned positions are blank);
+ * short rows pad to the widest row; structural/spacer rows (no direct cells,
+ * nothing carried in) and fully-blank rows drop out. The result always yields a
+ * well-formed table → row → cell tree the editor can render.
+ */
+const normalizeTableGrid = (table: HTMLElement): TextRun[][][] => {
+  const grid: TextRun[][][] = [];
+  // column → number of further rows a rowspan still occupies (blank continuation)
+  const carry = new Map<number, number>();
+  for (const tr of directTableRows(table)) {
+    const cells = [...tr.querySelectorAll<HTMLElement>(':scope > td, :scope > th')];
+    const carried = [...carry.values()].some((n) => n > 0);
+    // A structural/spacer row (e.g. Notion's spacer <tr>): nothing to place and
+    // nothing carried into it — skip entirely.
+    if (cells.length === 0 && !carried) continue;
+    const row: TextRun[][] = [];
+    let col = 0;
+    const skipCarried = (): void => {
+      while ((carry.get(col) ?? 0) > 0) {
+        row[col] = [];
+        carry.set(col, carry.get(col)! - 1);
+        col += 1;
+      }
+    };
+    for (const cell of cells) {
+      skipCarried();
+      const runs = cellToRuns(cell);
+      const cspan = cellSpanAttr(cell, 'colspan');
+      const rspan = cellSpanAttr(cell, 'rowspan');
+      for (let c = 0; c < cspan; c += 1) {
+        row[col + c] = c === 0 ? runs : [];
+        if (rspan > 1) carry.set(col + c, rspan - 1);
+      }
+      col += cspan;
+    }
+    // Drain rowspan carries not reached by a cell in this row (gaps / trailing).
+    skipCarried();
+    for (const [c, n] of carry) {
+      if (n > 0 && row[c] === undefined) {
+        row[c] = [];
+        carry.set(c, n - 1);
+      }
+    }
+    grid.push(row);
+  }
+  const width = grid.reduce((w, r) => Math.max(w, r.length), 0);
+  for (const r of grid) for (let c = 0; c < width; c += 1) if (r[c] === undefined) r[c] = [];
+  // Note: only truly cell-less structural rows are dropped (skipped above). A row
+  // with real `<td>`/`<th>` cells is kept even if blank — its cell may carry an
+  // image (emitted separately) or be an intentionally empty grid cell.
+  return grid;
+};
+
 /** Options for {@link htmlToBlocks}. */
 export interface HtmlToBlocksOptions {
   /**
@@ -950,11 +1065,16 @@ export function htmlToBlocks(html: string, opts: HtmlToBlocksOptions = {}): NewB
       foldInline(node);
       return;
     case 'table': {
-      const rows = [...node.querySelectorAll('tr')].map((tr) => [...tr.querySelectorAll('td, th')].map((cell) => htmlToRuns(cell.innerHTML)));
+      // Scoped + rectangular: nested tables stay in their own cell, colspan/
+      // rowspan expand, ragged rows pad, spacer rows drop — so a Notion-shaped
+      // clipboard table can never produce a malformed block tree (which used to
+      // throw on render and white-screen the app).
+      const rows = normalizeTableGrid(node);
       if (rows.length > 0) {
+        const firstRow = directTableRows(node)[0];
         out.push({
           type: 'table',
-          props: {header: node.querySelector('th') !== null},
+          props: {header: firstRow?.querySelector(':scope > th') != null},
           children: rows.map((cells) => ({type: 'row' as const, children: cells.map((runs) => ({type: 'cell' as const, text: runs}))})),
         });
       }
