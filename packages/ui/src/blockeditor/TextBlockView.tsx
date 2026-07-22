@@ -1,4 +1,5 @@
 import React, {useLayoutEffect, useRef} from 'react';
+import * as Y from 'yjs';
 import {
   blockId,
   blockProp,
@@ -52,7 +53,11 @@ export const TextBlockView: React.FC<{
   const composing = useRef(false);
   const id = blockId(block);
   const type = blockType(block);
-  const text = blockText(block)!;
+  // Defense in depth: a legacy / malformed block that reaches the text view
+  // without a Y.Text (or a non-text block mis-placed as a cell) renders as an
+  // empty editable instead of throwing `blockText(block)!` and taking the whole
+  // page down. Edits to the detached fallback simply don't persist.
+  const text = blockText(block) ?? new Y.Text();
   const isCode = type === 'code';
   const language = isCode ? (blockProp<string>(block, 'language') ?? '') : '';
 
