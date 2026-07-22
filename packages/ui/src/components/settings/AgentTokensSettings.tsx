@@ -2,7 +2,7 @@ import {useCallback, useEffect, useState} from 'react';
 import {Check, Copy, Loader2, Trash2} from 'lucide-react';
 import type {AgentTokenMeta, AgentTokenScope, CreatedAgentToken} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useConfirm, useTranslation} from '@/providers';
+import {useConfirm, usePlatformCapabilities, useTranslation} from '@/providers';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {Select} from '@/components/ui/select';
@@ -50,10 +50,16 @@ export default function AgentTokensSettings() {
   const {t} = useTranslation();
   const confirm = useConfirm();
   const isAdmin = useIsSettingsAdmin();
+  // The desktop host can bind the loopback TCP endpoint a local MCP connector needs
+  // (STAB-5). Absent on the web / an old host — the connector setup block hides then.
+  const {serverControls} = usePlatformCapabilities();
 
   const [canManage, setCanManage] = useState<boolean | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   const [enabled, setEnabled] = useState(false);
+  // This library's stable id, baked into the connector config so the connector can
+  // verify it reached THIS library and refuse a foreign responder on the port.
+  const [instanceId, setInstanceId] = useState<string | null>(null);
   const [remoteEnabled, setRemoteEnabled] = useState(false);
   const [tokens, setTokens] = useState<AgentTokenMeta[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -68,6 +74,24 @@ export default function AgentTokensSettings() {
   const [copied, setCopied] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toggling, setToggling] = useState(false);
+  const [connectorCopied, setConnectorCopied] = useState(false);
+
+  // The MCP client registration for THIS library: the loopback endpoint plus the
+  // instance id the connector verifies before adopting the server (STAB-5). The
+  // binary path is where the connector is installed; the env vars are the load-bearing part.
+  const connectorConfig = [
+    'claude mcp add openbook \\',
+    '  --env OPENBOOK_URL=http://127.0.0.1:4319 \\',
+    ...(instanceId ? [`  --env OPENBOOK_INSTANCE_ID=${instanceId} \\`] : []),
+    '  -- node /path/to/openbook-mcp/dist/bin.js',
+  ].join('\n');
+
+  const copyConnectorConfig = async () => {
+    if (await copyText(connectorConfig)) {
+      setConnectorCopied(true);
+      setTimeout(() => setConnectorCopied(false), 1500);
+    }
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -78,6 +102,13 @@ export default function AgentTokensSettings() {
       setTokens(res.tokens);
       setCanManage(true);
       setLoadError(null);
+      // Best-effort: read the library id for the connector snippet. A failure here
+      // (older server without the field) just hides the id line — never blocks the tab.
+      try {
+        setInstanceId((await client.getInstanceInfo()).instanceId ?? null);
+      } catch {
+        setInstanceId(null);
+      }
     } catch (e) {
       if (isUnavailable(e)) {
         setUnavailable(true);
@@ -104,6 +135,15 @@ export default function AgentTokensSettings() {
       const res = await client.setAgentApiEnabled(next, next && remoteEnabled);
       setEnabled(res.enabled);
       setRemoteEnabled(res.remote);
+      // STAB-5: the local-MCP/agent toggle also drives the desktop host's loopback
+      // TCP bind, so an out-of-process connector's default endpoint actually points
+      // at this library's server. Best-effort — a host without the capability (web,
+      // an older build) simply skips it; the server-side gate still flips.
+      try {
+        await serverControls?.setAgentLocalTcp?.(next);
+      } catch {
+        /* non-fatal: the LAN bind is a desktop convenience, not the auth gate */
+      }
       await refresh();
     } catch (e) {
       setActionError(cleanError(e));
@@ -227,6 +267,24 @@ export default function AgentTokensSettings() {
             <p role="alert" className="text-xs text-destructive">
               {loadError}
             </p>
+          )}
+
+          {/* Local MCP connector setup (STAB-5). Desktop only — the host binds the
+              loopback endpoint the connector reaches. The snippet carries this exact
+              library's id so the connector refuses a foreign responder on the port. */}
+          {enabled && serverControls?.setAgentLocalTcp && (
+            <SettingsSection title={t('agents.localMcpTitle')} description={t('agents.localMcpHint')}>
+              <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed">
+                <code>{connectorConfig}</code>
+              </pre>
+              <p className="text-xs text-muted-foreground">{t('agents.localMcpFollowsDefault')}</p>
+              <div>
+                <Button variant="secondary" size="sm" onClick={() => void copyConnectorConfig()}>
+                  {connectorCopied ? <Check className="mr-1.5 h-3.5 w-3.5" /> : <Copy className="mr-1.5 h-3.5 w-3.5" />}
+                  {connectorCopied ? t('agents.copied') : t('agents.localMcpCopy')}
+                </Button>
+              </div>
+            </SettingsSection>
           )}
 
           {enabled && (
