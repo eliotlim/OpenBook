@@ -271,6 +271,16 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const store = new PageStore(db);
   await store.migrate();
 
+  // Mint the stable per-library instance id (STAB-5) once, so `GET /api/instance`
+  // can advertise it and an out-of-process MCP connector can verify it reached
+  // THIS library rather than a foreign responder on the same loopback port.
+  // Best-effort: a write failure here must never block startup.
+  try {
+    await store.ensureInstanceId();
+  } catch (err) {
+    console.error('OpenBook: could not mint the instance id:', err);
+  }
+
   // Exposure backstop (OB-182 §2.6 B2): never bind beyond loopback while the
   // instance is unclaimed AND ungated by an accessToken. Evaluated before any
   // listener is created — and the store is closed on refusal so a rejected boot
