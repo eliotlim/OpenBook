@@ -1016,7 +1016,9 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
         </div>
       )}
       <div className={bodyClass}>
-        <BlockBody block={block} {...shared} />
+        <BlockErrorBoundary key={blockId(block)}>
+          <BlockBody block={block} {...shared} />
+        </BlockErrorBoundary>
       </div>
     </div>
   );
@@ -1559,6 +1561,30 @@ function makeChild(type: BlockType, props: Record<string, unknown>): BlockMap {
   return makeBlock({type, props, children: [{type: 'paragraph'}]});
 }
 
+/**
+ * A last-resort net around a single block's render. The typed guards in
+ * TableView / TextBlockView already keep the known poison shapes from throwing;
+ * this catches anything unforeseen so one malformed block degrades to a quiet
+ * placeholder instead of unmounting the whole editor (a persisted white screen).
+ * Keyed by block id at the call site, so a replaced / fixed block remounts fresh.
+ */
+class BlockErrorBoundary extends React.Component<{children: React.ReactNode}, {failed: boolean}> {
+  state = {failed: false};
+  static getDerivedStateFromError(): {failed: boolean} {
+    return {failed: true};
+  }
+  render(): React.ReactNode {
+    if (this.state.failed) {
+      return (
+        <div className="obe-unknown" contentEditable={false}>
+          This block couldn’t be displayed.
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 /** Type dispatch for a block's content. */
 const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui} = shared;
@@ -1812,9 +1838,14 @@ const ColumnsView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}
 const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui} = shared;
   const id = blockId(block);
-  const rows = blockChildren(block)!;
+  // Defense in depth: a legacy / poisoned table doc may miss its `children`, have
+  // ragged rows, or carry a non-`cell` block as a row child (the STAB-1 paste
+  // poison). Guard every dereference so a malformed table renders a grid with
+  // quiet fallbacks instead of throwing and white-screening the whole page.
+  const rows = blockChildren(block) ? [...blockChildren(block)!] : [];
   const header = blockProp<boolean>(block, 'header') ?? false;
-  const cols = rows.length > 0 ? (blockChildren(rows.get(0))?.length ?? 0) : 0;
+  // Widest row wins so ragged rows pad to a rectangle at render.
+  const cols = rows.reduce((m, row) => Math.max(m, blockChildren(row)?.length ?? 0), 0);
   // Cells render TextBlockView directly (not through BlockBody), so the table
   // must apply the lock swap itself — a locked group / present mode / the
   // export viewer would otherwise leave cell text EDITABLE (a lock leak).
@@ -1826,15 +1857,37 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
     <div className="obe-table-wrap">
       <table className="obe-table">
         <tbody>
-          {rows.map((row, r) => (
-            <tr key={blockId(row)} className={header && r === 0 ? 'obe-table-header' : undefined}>
-              {blockChildren(row)!.map((cell) => (
-                <td key={blockId(cell)}>
-                  <TextBlockView block={cell} editor={cellEditor} ui={ui} />
-                </td>
-              ))}
-            </tr>
-          ))}
+          {rows.map((row, r) => {
+            const cells = blockChildren(row) ? [...blockChildren(row)!] : [];
+            return (
+              <tr key={blockId(row)} className={header && r === 0 ? 'obe-table-header' : undefined}>
+                {Array.from({length: Math.max(cols, cells.length, 1)}, (_, c) => {
+                  const cell = cells[c];
+                  if (!cell) {
+                    // Padding for a ragged row — an empty structural cell.
+                    return <td key={`pad-${r}-${c}`} aria-hidden />;
+                  }
+                  if (blockType(cell) !== 'cell') {
+                    // A non-cell child (a container mis-inserted as a cell
+                    // sibling): render a quiet fallback rather than feed a
+                    // text-less block to TextBlockView (which would throw).
+                    return (
+                      <td key={blockId(cell)}>
+                        <div className="obe-unknown" contentEditable={false}>
+                          Unsupported cell
+                        </div>
+                      </td>
+                    );
+                  }
+                  return (
+                    <td key={blockId(cell)}>
+                      <TextBlockView block={cell} editor={cellEditor} ui={ui} />
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       {!editor.readOnly && (

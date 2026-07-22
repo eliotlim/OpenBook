@@ -21,6 +21,7 @@ mod ipc;
 use std::io::Read;
 use std::net::UdpSocket;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -44,6 +45,17 @@ struct HostConfig {
     access_token: String,
     /// Folder the on-disk book mirror writes to (defaults to ~/Documents/OpenBook).
     book_dir: String,
+    /// Bind a LOOPBACK TCP listener (`127.0.0.1:4319`) on the same sidecar so an
+    /// out-of-process local MCP/agent connector can reach THIS library (STAB-5).
+    /// Gated on the local-MCP/agent toggle — OFF by default, and PERSISTED across
+    /// relaunch (unlike `published`, which is opt-in each run). NOTE: unlike the
+    /// FS-permissioned IPC socket, this loopback TCP listener is reachable by any
+    /// local process AND by any web origin the user's browser will POST to (the
+    /// sidecar serves wildcard CORS and guestAccess defaults to 'write'). It is a
+    /// real new surface, not a no-op — keep it gated on this explicit opt-in toggle;
+    /// browser-reachability hardening is tracked separately. Redundant while
+    /// `published` (which already binds `0.0.0.0:4319`).
+    agent_local_tcp: bool,
 }
 
 struct AppState {
@@ -82,6 +94,8 @@ struct ServerInfo {
     lan_address: Option<String>,
     access_token: Option<String>,
     book_dir: Option<String>,
+    /// Whether the loopback TCP listener for a local MCP/agent connector is on (STAB-5).
+    agent_local_tcp: bool,
 }
 
 /// A single file in a book-folder transfer, mirroring `BookFolderFile` in the SDK.
@@ -132,9 +146,9 @@ fn build_info(state: &AppState) -> ServerInfo {
     // Snapshot the config and release its lock before taking any other, so this
     // never holds `config` while waiting on `child` (publish/respawn hold `child`
     // and would otherwise deadlock against it).
-    let (published, access_token, book_dir) = {
+    let (published, access_token, book_dir, agent_local_tcp) = {
         let cfg = state.config.lock().unwrap();
-        (cfg.published, cfg.access_token.clone(), cfg.book_dir.clone())
+        (cfg.published, cfg.access_token.clone(), cfg.book_dir.clone(), cfg.agent_local_tcp)
     };
     let running = state.child.lock().unwrap().is_some();
     let lan_address = if published && running {
@@ -152,12 +166,49 @@ fn build_info(state: &AppState) -> ServerInfo {
         lan_address,
         access_token: if published { Some(access_token) } else { None },
         book_dir: Some(book_dir),
+        agent_local_tcp,
     }
+}
+
+/// The TCP-bind CLI args for the sidecar. Pure + unit-tested (STAB-5).
+///
+/// - `published` → bind `0.0.0.0:4319` for the LAN, plus `--access-token` when one
+///   is set (the LAN reachability gate).
+/// - else `agent_local_tcp` → bind LOOPBACK `127.0.0.1:4319` only, so an
+///   out-of-process local MCP/agent connector can reach this exact library. NO
+///   access token; the connector presents its own PAT for auth. Unlike the
+///   FS-permissioned IPC socket, this loopback bind is reachable by any local
+///   process AND by any web origin the browser will POST to (wildcard CORS +
+///   guestAccess defaults to 'write') — a real added surface, hence the explicit
+///   opt-in toggle; browser-reachability hardening is tracked separately.
+/// - else → no TCP bind (portless socket-only, the desktop default).
+///
+/// `published` wins over `agent_local_tcp`: `0.0.0.0:4319` already covers loopback,
+/// so there is never a double-bind on the same port.
+fn tcp_bind_args(published: bool, agent_local_tcp: bool, access_token: &str) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    if published {
+        args.push("--host".into());
+        args.push("0.0.0.0".into());
+        args.push("--port".into());
+        args.push(DEFAULT_PORT.into());
+        if !access_token.is_empty() {
+            args.push("--access-token".into());
+            args.push(access_token.to_string());
+        }
+    } else if agent_local_tcp {
+        args.push("--host".into());
+        args.push("127.0.0.1".into());
+        args.push("--port".into());
+        args.push(DEFAULT_PORT.into());
+    }
+    args
 }
 
 /// Spawn the server sidecar from the current config. It always listens on the
 /// Unix socket (the portless IPC transport); when published it *also* binds
-/// `0.0.0.0` with the access token for LAN access.
+/// `0.0.0.0` with the access token for LAN access, and when the local-MCP/agent
+/// toggle is on it *also* binds loopback `127.0.0.1` for the connector (STAB-5).
 fn spawn_sidecar(
     app: &AppHandle,
     data_dir: &str,
@@ -181,21 +232,16 @@ fn spawn_sidecar(
         args.push(socket_path.to_string());
     }
 
-    if cfg.published {
-        args.push("--host".into());
-        args.push("0.0.0.0".into());
-        args.push("--port".into());
-        args.push(DEFAULT_PORT.into());
-        if !cfg.access_token.is_empty() {
-            args.push("--access-token".into());
-            args.push(cfg.access_token.clone());
-        }
-    }
+    // Published LAN bind, or the STAB-5 loopback bind for a local MCP/agent
+    // connector. Factored + pure so it's unit-testable (see tcp_bind_args).
+    args.extend(tcp_bind_args(cfg.published, cfg.agent_local_tcp, &cfg.access_token));
 
     // No Unix sockets here — serve a loopback TCP port so the host bridge has a
-    // target even when not published (named-pipe support is a follow-up).
+    // target even when neither published nor the MCP toggle is on (named-pipe
+    // support is a follow-up). `tcp_bind_args` already covers the published / MCP
+    // cases, so add this fallback only when it produced nothing.
     #[cfg(not(unix))]
-    if !cfg.published {
+    if !cfg.published && !cfg.agent_local_tcp {
         args.push("--host".into());
         args.push("127.0.0.1".into());
         args.push("--port".into());
@@ -269,6 +315,29 @@ fn publish_server(app: AppHandle, state: State<AppState>, enabled: bool) -> Resu
         if enabled && cfg.access_token.is_empty() {
             cfg.access_token = generate_token();
         }
+        save_config(&state.config_path, &cfg);
+    }
+    respawn(&app, &state)?;
+    Ok(build_info(&state))
+}
+
+/// Bind (or unbind) the loopback TCP listener (`127.0.0.1:4319`) for an
+/// out-of-process local MCP/agent connector (STAB-5). Flipped together with the
+/// agent-API toggle in Settings so the connector's default endpoint actually points
+/// at THIS library's server. Persists the preference (survives relaunch, unlike the
+/// per-run LAN publish) and respawns the sidecar so the bind takes effect. The local
+/// UI keeps using IPC throughout — only the extra loopback listener changes.
+#[tauri::command]
+fn set_agent_local_tcp(app: AppHandle, state: State<AppState>, enabled: bool) -> Result<ServerInfo, String> {
+    if !state.managed {
+        return Ok(build_info(&state));
+    }
+    {
+        let mut cfg = state.config.lock().unwrap();
+        if cfg.agent_local_tcp == enabled {
+            return Ok(build_info(&state)); // no change — don't churn the sidecar
+        }
+        cfg.agent_local_tcp = enabled;
         save_config(&state.config_path, &cfg);
     }
     respawn(&app, &state)?;
@@ -657,6 +726,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             server_info,
             publish_server,
+            set_agent_local_tcp,
             choose_book_dir,
             reveal_book_dir,
             export_book_folder,
@@ -669,21 +739,100 @@ fn main() {
             ipc::api_request_stream,
             ipc::api_request_abort
         ])
+        // Closing the main window used to freeze the app for up to SHUTDOWN_GRACE_MS:
+        // the sidecar drain (final CHECKPOINT + mirror-journal flush) ran on the main
+        // event-loop thread, so the compositor couldn't paint and the window/dock icon
+        // hung. Instead we intercept the close, hide the app *immediately* (so it
+        // disappears near-instantly), and run the drain off the main thread — then
+        // exit once it's actually flushed. Only the main window drives shutdown;
+        // secondary windows (App.tsx `openWindow`) close normally.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() != "main" {
+                    return; // a secondary window: let it close without touching the app
+                }
+                api.prevent_close();
+                begin_shutdown(window.app_handle());
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| match event {
-            // Stop the sidecar on the way out so it isn't orphaned (an orphan keeps
-            // the PGlite/mirror lock and blocks the next launch). `ExitRequested`
-            // fires on window-close; `Exit` also fires for macOS `Cmd+Q` /
-            // `terminate:`, where `ExitRequested` may not. Both route through the
-            // idempotent helper (its `take()` yields the child only once), and we
-            // don't rely on the shell plugin's own cleanup — it doesn't track this
-            // Rust-spawned child.
-            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
+            // Backstop for a quit that bypasses `WindowEvent::CloseRequested` —
+            // macOS `Cmd+Q` / `terminate:` (and `app.exit()` from anywhere). Drain
+            // the sidecar the SAME way the close path does: OFF the main thread, so
+            // the event loop stays live and the app doesn't freeze while the
+            // seconds-long CHECKPOINT + mirror flush runs. We prevent the exit,
+            // start (or join) the off-thread drain, and let it call `exit(0)` once
+            // the sidecar has actually flushed. `SHUTDOWN_DONE` lets our own
+            // post-drain `exit(0)` fall through instead of being prevented forever.
+            tauri::RunEvent::ExitRequested { api, .. } => {
+                if SHUTDOWN_DONE.load(Ordering::SeqCst) {
+                    return; // drain already finished — let this exit proceed
+                }
+                api.prevent_exit();
+                begin_shutdown(app_handle);
+            }
+            // Final backstop as the loop tears down: stop the sidecar so it isn't
+            // orphaned (an orphan keeps the PGlite/mirror lock and blocks the next
+            // launch). Idempotent — after a completed drain the child is already
+            // gone, so this returns instantly and never blocks the exit.
+            tauri::RunEvent::Exit => {
                 stop_managed_server(app_handle);
             }
             _ => {}
         });
+}
+
+/// Coordinates a graceful, non-blocking shutdown. Only ONE drain ever runs
+/// (`SHUTDOWN_STARTED` gate); subsequent close/quit requests just wait for it.
+/// The drain runs on its own thread so the main event loop keeps painting — the
+/// window/dock icon disappear immediately instead of freezing for the length of
+/// the sidecar's final CHECKPOINT + mirror-journal flush.
+static SHUTDOWN_STARTED: AtomicBool = AtomicBool::new(false);
+/// Set once the off-thread drain has completed and we're about to `exit(0)`, so
+/// the resulting `RunEvent::ExitRequested` is allowed through rather than
+/// re-prevented (which would deadlock the quit).
+static SHUTDOWN_DONE: AtomicBool = AtomicBool::new(false);
+
+/// Hide the app immediately, then drain the sidecar off the main thread and exit
+/// once it has flushed. Safe to call repeatedly and from either the close-button
+/// path or the `Cmd+Q` path: the first caller owns the drain, the rest are no-ops.
+fn begin_shutdown(app: &AppHandle) {
+    // Hide first (on the main thread, where this runs) so the app vanishes now,
+    // before the seconds-long drain — this is the whole point of the fix.
+    hide_app(app);
+    if SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
+        return; // a drain is already in flight; it will exit(0) when done
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let started = std::time::Instant::now();
+        stop_managed_server(&app);
+        eprintln!(
+            "[shutdown] sidecar drain complete in {}ms — exiting",
+            started.elapsed().as_millis()
+        );
+        SHUTDOWN_DONE.store(true, Ordering::SeqCst);
+        app.exit(0);
+    });
+}
+
+/// Make the app disappear immediately at shutdown. On macOS `app.hide()` also
+/// clears the dock/app presence (so it doesn't linger visibly); elsewhere we hide
+/// the frameless main window. Best-effort — a failure here just means the window
+/// stays up a beat longer while the drain runs, it never blocks the exit.
+fn hide_app(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = app.hide();
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.hide();
+        }
+    }
 }
 
 /// Take and stop the managed sidecar, if one is running. Idempotent: `take()`
@@ -696,7 +845,7 @@ fn stop_managed_server(app_handle: &AppHandle) {
     // Take the child and DROP the lock guard before the (blocking, up to
     // SHUTDOWN_GRACE_MS) stop — holding it across the wait would block a
     // concurrent publish_server/respawn IPC on the same mutex.
-    let child = state.child.lock().unwrap().take();
+    let child = state.child.lock().unwrap_or_else(|p| p.into_inner()).take();
     if let Some(child) = child {
         stop_server_child(child);
     }
@@ -725,13 +874,21 @@ fn stop_server_child(child: CommandChild) {
         unsafe {
             libc::kill(pid, libc::SIGTERM);
         }
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_millis(SHUTDOWN_GRACE_MS);
+        // Timed so slow shutdowns are diagnosable: a drain that consistently runs
+        // near SHUTDOWN_GRACE_MS suggests the sidecar's periodic WAL maintenance
+        // (CHECKPOINT/VACUUM cadence) is falling behind and the exit checkpoint is
+        // doing too much work — worth investigating server-side, not here.
+        let started = std::time::Instant::now();
+        let deadline = started + std::time::Duration::from_millis(SHUTDOWN_GRACE_MS);
         loop {
             // `kill(pid, 0)` probes liveness without sending a signal; a non-zero
             // return (ESRCH) means the process has exited and been reaped.
             let alive = unsafe { libc::kill(pid, 0) } == 0;
             if !alive {
+                eprintln!(
+                    "[shutdown] sidecar (pid {pid}) exited cleanly in {}ms",
+                    started.elapsed().as_millis()
+                );
                 return;
             }
             if std::time::Instant::now() >= deadline {
@@ -739,6 +896,9 @@ fn stop_server_child(child: CommandChild) {
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
+        eprintln!(
+            "[shutdown] sidecar (pid {pid}) still alive after {SHUTDOWN_GRACE_MS}ms — hard-killing (drain may be truncated)"
+        );
         let _ = child.kill();
     }
     #[cfg(not(unix))]
@@ -972,6 +1132,45 @@ mod nav_guard_tests {
         assert!(!rate_limit_allows(1_000, 1_000 + OPEN_EXTERNAL_MIN_GAP_MS - 1));
         assert!(!rate_limit_allows(1_000, 1_000)); // same instant
         assert!(!rate_limit_allows(5_000, 1_000)); // clock went backwards → saturating_sub → 0
+    }
+}
+
+#[cfg(test)]
+mod tcp_bind_tests {
+    use super::tcp_bind_args;
+
+    #[test]
+    fn toggle_off_binds_no_tcp() {
+        // The desktop default: neither published nor the local-MCP toggle → the
+        // sidecar is portless (socket-only), so NOTHING listens on 4319 (STAB-5
+        // security invariant: no listener unless a toggle is on).
+        assert!(tcp_bind_args(false, false, "").is_empty());
+        // An access token without a bind reason still binds nothing.
+        assert!(tcp_bind_args(false, false, "secret").is_empty());
+    }
+
+    #[test]
+    fn local_mcp_toggle_binds_loopback_only() {
+        // Toggle on (not published) → loopback 127.0.0.1:4319, NEVER 0.0.0.0, and
+        // NO access token (loopback-only; the connector presents its own PAT).
+        let args = tcp_bind_args(false, true, "secret");
+        assert_eq!(args, vec!["--host", "127.0.0.1", "--port", "4319"]);
+        assert!(!args.iter().any(|a| a == "0.0.0.0"));
+        assert!(!args.iter().any(|a| a == "--access-token"));
+    }
+
+    #[test]
+    fn published_binds_lan_with_token_and_wins_over_mcp() {
+        // Published binds 0.0.0.0 + the access token; and it WINS over the MCP
+        // toggle (0.0.0.0:4319 already covers loopback — no double-bind).
+        let args = tcp_bind_args(true, true, "secret");
+        assert_eq!(args, vec!["--host", "0.0.0.0", "--port", "4319", "--access-token", "secret"]);
+    }
+
+    #[test]
+    fn published_without_token_omits_access_token() {
+        let args = tcp_bind_args(true, false, "");
+        assert_eq!(args, vec!["--host", "0.0.0.0", "--port", "4319"]);
     }
 }
 

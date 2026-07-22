@@ -124,6 +124,10 @@ const platform: PlatformCapabilities = {
     // token. The local UI keeps using IPC, so there's no client switch — only the
     // LAN listener toggles.
     publish: (enabled: boolean) => invoke<ServerInfo>('publish_server', {enabled}),
+    // Bind (or unbind) the loopback TCP listener (127.0.0.1:4319) for an
+    // out-of-process local MCP/agent connector (STAB-5). Flipped with the agent-API
+    // toggle so the connector's default endpoint points at THIS library's server.
+    setAgentLocalTcp: (enabled: boolean) => invoke<ServerInfo>('set_agent_local_tcp', {enabled}),
     // Native folder picker / reveal for the on-disk book mirror.
     chooseBookDir: () => invoke<ServerInfo>('choose_book_dir'),
     revealBookDir: () => invoke<void>('reveal_book_dir'),

@@ -22,6 +22,13 @@ export type {UpdateCheckParams, UpdateCheckOptions} from './lib/updateCheck';
 // Untrusted-HTML sandbox contract (no React dep) — reused by the SandboxedHtml
 // component and the export pipeline.
 export {SANDBOX_FLAGS, EXPORT_ARTIFACT_CSP, escapeSrcdocAttribute, wrapSandboxDocument} from './lib/srcdoc';
+
+// Home pseudo-page id + crash-loop recovery (STAB-3): the desktop shell's
+// app-level error boundary sends the user Home and forgets the last page so a
+// reload doesn't re-poison itself; the page boundary quarantines the offending
+// page id (readCrashedPages skips it at startup).
+export {HOME_PAGE_ID} from './lib/homePage';
+export {markPageCrashed, readCrashedPages, isPageCrashed, clearCrashedPage} from './lib/crashRecovery';
 export {SandboxedHtml, SandboxCspContext, type SandboxedHtmlProps} from './components/SandboxedHtml';
 
 // The custom CRDT block editor — the app's only editor. `migrateLegacyBlocks`

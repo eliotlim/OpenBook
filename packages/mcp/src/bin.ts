@@ -18,16 +18,70 @@ import {createOpenBookMcpServer} from './server';
  */
 const url = process.env.OPENBOOK_URL ?? 'http://127.0.0.1:4319';
 
+/**
+ * Sanitize a server-reported string before echoing it into a terminal error.
+ * Drops control characters (which includes the ESC that introduces ANSI/CSI
+ * escape sequences, so a hostile responder can't inject escape codes into the
+ * operator's terminal) and clamps the length so it can't flood stderr.
+ */
+function sanitizeServerString(value: string, max = 64): string {
+  // Char-code filtering avoids embedding raw control chars in a regex literal.
+  let out = '';
+  for (const ch of value) {
+    const code = ch.codePointAt(0)!;
+    // Strip C0 controls + DEL and the C1 range (0x00–0x1f, 0x7f–0x9f).
+    const isControl = code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+    if (!isControl) out += ch;
+  }
+  return out.length > max ? `${out.slice(0, max)}…` : out;
+}
+
 const TRUTHY = new Set(['1', 'true', 'yes', 'on']);
 const allowDirectEdits = TRUTHY.has((process.env.OPENBOOK_MCP_ALLOW_DIRECT_EDITS ?? '').trim().toLowerCase());
 
+/**
+ * The library this connector was configured for (STAB-5). When set, the endpoint's
+ * advertised `instanceId` MUST match it before we adopt the connection — this is
+ * what stops the connector from silently adopting a FOREIGN responder that happens
+ * to answer on the same loopback port (e.g. a stale `pnpm dev` with its own data
+ * dir), which would report the app's real pages as "nonexistent". The desktop app
+ * emits this alongside `OPENBOOK_URL` in the connector config it shows in Settings.
+ * Unset ⇒ identity can't be verified (a reachability-only probe, as before) — set
+ * it whenever you know the target library.
+ */
+const expectedInstanceId = (process.env.OPENBOOK_INSTANCE_ID ?? '').trim() || undefined;
+
 async function main(): Promise<void> {
   const client = new HttpDataClient(url);
-  // Fail fast (and helpfully) when the workspace isn't reachable.
+  // Verify we reached the RIGHT server (reachability + identity) before adopting it.
+  // A single `GET /api/instance` (guest-readable, leaks no secret) doubles as the
+  // reachability probe and the identity handshake.
+  let instanceId: string | null | undefined;
   try {
-    await client.listPages();
+    ({instanceId} = await client.getInstanceInfo());
   } catch {
-    console.error(`openbook-mcp: cannot reach an OpenBook server at ${url} — set OPENBOOK_URL or start the app.`);
+    console.error(
+      `openbook-mcp: cannot reach an OpenBook server at ${url} — set OPENBOOK_URL or start the app. ` +
+        'If a port conflict is likely, confirm nothing else is bound to that port.',
+    );
+    process.exit(1);
+  }
+  // Instance verification: REFUSE a foreign/mismatched responder rather than
+  // silently serving another instance's (empty) data. Naming the mismatch makes a
+  // stray port-4319 responder (a stale dev server, a wrong app) obvious.
+  if (expectedInstanceId && instanceId !== expectedInstanceId) {
+    // The reported id comes from an UNTRUSTED responder — sanitize before echoing to
+    // a terminal so a hostile server can't inject ANSI escapes or flood stderr.
+    const reported =
+      typeof instanceId === 'string'
+        ? sanitizeServerString(instanceId)
+        : '(no instance id — not an OpenBook STAB-5 server)';
+    console.error(
+      `openbook-mcp: endpoint identity mismatch at ${url} — expected library ${expectedInstanceId} ` +
+        `but the server there reports ${reported}. ` +
+        'A different process is answering on that port; refusing to adopt it. ' +
+        'Point OPENBOOK_URL at the intended library\'s server, or free the port.',
+    );
     process.exit(1);
   }
   const server = createOpenBookMcpServer(client, {allowDirectEdits});

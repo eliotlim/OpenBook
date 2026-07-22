@@ -1144,6 +1144,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const localOwner = Boolean(c.get('localOwner'));
     const info: InstanceInfo = {
       guestAccess: config.guestAccess,
+      // Stable, opaque per-library id (STAB-5) so an out-of-process MCP connector
+      // can confirm it reached THIS library and refuse a foreign responder on the
+      // same port. Not a secret — authorizes nothing.
+      instanceId: config.instanceId ?? null,
       ownerSubject: config.ownerSubject ?? null,
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience ?? null,

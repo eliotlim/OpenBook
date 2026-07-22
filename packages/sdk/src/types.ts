@@ -290,6 +290,17 @@ export interface ServerInfo {
   accessToken?: string | null;
   /** Folder the on-disk book mirror writes to (durable mode). */
   bookDir?: string | null;
+  /**
+   * Whether the host also binds a loopback TCP listener (`127.0.0.1:4319`) on the
+   * same sidecar so an out-of-process local MCP/agent connector can reach this
+   * exact library (STAB-5). Gated on the local-MCP/agent toggle — OFF by default,
+   * and independent of {@link published} (which binds `0.0.0.0` for the LAN).
+   * Unlike the FS-permissioned IPC socket, this loopback listener is reachable by
+   * any local process AND by any web origin the user's browser will POST to (the
+   * sidecar serves wildcard CORS and guestAccess defaults to 'write') — a real
+   * added surface, hence the explicit opt-in toggle; browser-reachability
+   * hardening is tracked separately. */
+  agentLocalTcp?: boolean;
 }
 
 /**
@@ -311,4 +322,11 @@ export interface ServerControls {
   chooseBookDir?(): Promise<ServerInfo>;
   /** Reveal the current book-mirror directory in the OS file manager. */
   revealBookDir?(): Promise<void>;
+  /**
+   * Bind (or unbind) the loopback TCP listener (`127.0.0.1:4319`) used by an
+   * out-of-process local MCP/agent connector (STAB-5). Flipped together with the
+   * agent-API toggle so the connector's default endpoint actually points at THIS
+   * library's server. Resolves the new status (with {@link ServerInfo.agentLocalTcp}).
+   * Absent on the web / an old host that predates the capability. */
+  setAgentLocalTcp?(enabled: boolean): Promise<ServerInfo>;
 }

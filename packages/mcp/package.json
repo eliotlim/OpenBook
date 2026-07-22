@@ -16,7 +16,8 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "start": "node dist/bin.js",
-    "test": "tsx scripts/suggestions.test.mts",
+    "test": "tsx scripts/suggestions.test.mts && tsx scripts/endpoint.test.mts",
+    "test:endpoint": "tsx scripts/endpoint.test.mts",
     "test:e2e": "tsx scripts/e2e.mts",
     "lint": "eslint .",
     "lint-fix": "eslint . --fix"

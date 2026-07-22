@@ -1,7 +1,10 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {ICON_PROPERTY_ID, type PageSnapshot, type StoredPage} from '@book.dev/sdk';
 import {useData} from '@/data';
-import {useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
+import {clearLastPage, useConfirm, useNavigation, usePreferences, useTranslation} from '@/providers';
+import {ErrorBoundary, ErrorFallback} from '@/components/ErrorBoundary';
+import {HOME_PAGE_ID} from '@/lib/homePage';
+import {markPageCrashed} from '@/lib/crashRecovery';
 import {hydratePageIcons, usePageIcon, writePageIcon} from '@/lib/pageIcon';
 import {pageSaveStatus, setPageSaveStatus} from '@/lib/pageSaveStatus';
 import {DatabaseView} from '@/components/database/DatabaseView';
@@ -25,7 +28,7 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   const confirm = useConfirm();
   const {preferences} = usePreferences();
   const {t} = useTranslation();
-  const {pages, deletePage, setPageHint, closePage} = useNavigation();
+  const {pages, deletePage, setPageHint, closePage, selectPage} = useNavigation();
 
   const [title, setTitle] = useState('');
   // The icon lives on page.properties (lib/pageIcon's cache); read it reactively
@@ -227,22 +230,45 @@ export const ConnectedPageDocument: React.FC<ConnectedPageDocumentProps> = ({pag
   const meta = pages.find((p) => p.id === pageId);
   const databaseIdHint = meta ? meta.hostedDatabaseId : resolvedHostedDbId;
 
+  // Page-level render-crash containment (STAB-3): a page whose stored content
+  // throws while rendering must not blank the whole app — the sidebar, tabs and
+  // nav live outside this boundary and stay usable. On catch we quarantine the
+  // page (so startup won't auto-reopen it into the same crash) and forget the
+  // last-page key, then offer a one-click way Home. Keyed by pageId so navigating
+  // to a healthy page mounts a fresh boundary (auto-recovers).
   return (
-    <BlockPageDocument
+    <ErrorBoundary
       key={pageId}
-      title={title}
-      icon={icon}
-      incoming={incoming}
-      onTitleChange={onTitleChange}
-      onTitleActiveChange={onTitleActiveChange}
-      onIconChange={onIconChange}
-      onDelete={onDelete}
-      onLoad={onLoad}
-      onSave={onSave}
-      pageId={pageId}
-      hasDatabase={!!databaseIdHint}
-      footer={<DatabaseView pageId={pageId} databaseIdHint={databaseIdHint} />}
-    />
+      resetKey={pageId}
+      onError={(error) => {
+        console.error(`OpenBook: page "${pageId}" crashed while rendering:`, error);
+        markPageCrashed(pageId);
+        clearLastPage();
+      }}
+      fallback={() => (
+        <ErrorFallback
+          variant="inline"
+          title="This page couldn't be opened"
+          message="Its content ran into an error while rendering. Your other pages are fine — open one from the sidebar, or head home."
+          onHome={() => selectPage(HOME_PAGE_ID)}
+        />
+      )}
+    >
+      <BlockPageDocument
+        title={title}
+        icon={icon}
+        incoming={incoming}
+        onTitleChange={onTitleChange}
+        onTitleActiveChange={onTitleActiveChange}
+        onIconChange={onIconChange}
+        onDelete={onDelete}
+        onLoad={onLoad}
+        onSave={onSave}
+        pageId={pageId}
+        hasDatabase={!!databaseIdHint}
+        footer={<DatabaseView pageId={pageId} databaseIdHint={databaseIdHint} />}
+      />
+    </ErrorBoundary>
   );
 };
 

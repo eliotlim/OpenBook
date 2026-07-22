@@ -2005,6 +2005,21 @@ export class PageStore {
     return {...DEFAULT_INSTANCE_CONFIG, ...stored};
   }
 
+  /**
+   * Ensure the instance has a stable, opaque `instanceId` (STAB-5), minting +
+   * persisting one on first use and returning the existing id otherwise. Called
+   * once at startup so the id is stable across restarts. Idempotent: a concurrent
+   * double-call at most re-persists the same value (last-writer-wins on the single
+   * `instance` row). The id is a non-secret coordinate — it authorizes nothing.
+   */
+  async ensureInstanceId(): Promise<string> {
+    const config = await this.getInstanceConfig();
+    if (config.instanceId) return config.instanceId;
+    const instanceId = randomUUID();
+    await this.updateInstanceConfig({instanceId});
+    return instanceId;
+  }
+
   /** Shallow-merge a patch into the instance policy and persist it. */
   async updateInstanceConfig(patch: Partial<InstanceConfig>): Promise<InstanceConfig> {
     const current = await this.getInstanceConfig();
