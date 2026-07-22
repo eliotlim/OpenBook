@@ -8,7 +8,6 @@ import {useEffect} from 'react';
 // (desktop `dragDropEnabled` is deliberately `false` so in-page HTML5 block
 // re-order works, which means WKWebView, not Tauri, owns native drops). The web
 // app has the same hazard (the browser opens the dropped file in the tab).
-const EDITOR_ROOT_SELECTOR = '.obe-root';
 
 // Is this drag carrying external files (vs an internal block-move drag, which
 // uses custom / text types and must be left completely alone)? Mirrors
@@ -22,11 +21,13 @@ const isFileDrag = (dt: DataTransfer | null): boolean =>
  * the web app and the Tauri desktop shell get it.
  *
  * Listens in the *capture* phase (above React's root-container delegation) but
- * only ever calls `preventDefault` — never `stopPropagation` — so the editor's
- * own React drop handlers still run for in-editor drops (they run in the bubble
- * phase, after this). For a file drag over non-editor chrome it swallows the
- * default action; the drop is a no-op and the app stays put. Internal block
- * drags carry no `Files` type, so re-ordering is untouched.
+ * only ever calls `preventDefault` — never `stopPropagation`. It ALWAYS prevents
+ * the default for a file drop (in- or out-of-editor): that kills the webview /
+ * browser file:// navigation unconditionally, closing the stranding hazard even
+ * for a read-only editor whose own handler doesn't preventDefault. A writable
+ * editor still ingests the files because its React drop handler runs in the
+ * bubble phase, after this (we never stop propagation). Internal block drags
+ * carry no `Files` type, so re-ordering is untouched.
  */
 export default function DragDropGuard(): null {
   useEffect(() => {
@@ -41,12 +42,13 @@ export default function DragDropGuard(): null {
     };
     const onDrop = (e: DragEvent): void => {
       if (!isFileDrag(e.dataTransfer)) return;
-      // Inside an editor root the editor's own handler owns this drop — don't
-      // touch it (it prevents its own default and ingests the files).
-      const target = e.target as Element | null;
-      if (target?.closest?.(EDITOR_ROOT_SELECTOR)) return;
-      // Outside the editor: swallow the default so the webview / browser never
-      // navigates to the dropped file.
+      // ALWAYS swallow the browser/WKWebView default (file:// navigation). We do
+      // this even for drops inside an editor root: a READ-ONLY editor still
+      // carries `.obe-root` but its own drop handler early-returns without
+      // preventing the default, which on the web (no Rust nav backstop) re-opens
+      // the file:// stranding hazard. A writable editor still ingests the files
+      // because it listens in the *bubble* phase and we never `stopPropagation`,
+      // so its handler runs after this capture-phase preventDefault.
       e.preventDefault();
     };
     window.addEventListener('dragover', onDragOver, true);

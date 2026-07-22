@@ -29,16 +29,26 @@ describe('DragDropGuard', () => {
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it('leaves a file drop inside the editor root for the editor to handle', () => {
+  it('swallows a file drop inside the editor root while still letting the editor ingest it', () => {
     render(<DragDropGuard />);
     const editor = document.createElement('div');
     editor.className = 'obe-root';
     const row = document.createElement('div');
     editor.appendChild(row);
     document.body.appendChild(editor);
+    // A bubble-phase listener on the editor root stands in for the editor's own
+    // React drop handler (its ingestion path). It must still fire after the
+    // guard's capture-phase preventDefault, since the guard never stopPropagation.
+    let editorSawDrop = false;
+    editor.addEventListener('drop', () => {
+      editorSawDrop = true;
+    });
     const e = fireDrag('drop', row, ['Files']);
-    // The guard must NOT preventDefault here — the editor's own drop handler does.
-    expect(e.defaultPrevented).toBe(false);
+    // The guard ALWAYS preventDefaults a file drop — including inside a read-only
+    // editor whose own handler wouldn't — so the file:// navigation is killed.
+    expect(e.defaultPrevented).toBe(true);
+    // …but the editor's own bubble-phase handler still receives the event.
+    expect(editorSawDrop).toBe(true);
   });
 
   it('ignores an internal block-move drag (no Files payload)', () => {
