@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   } catch {
     console.error(
       `openbook-mcp: cannot reach an OpenBook server at ${url} — set OPENBOOK_URL or start the app. ` +
-        `If a port conflict is likely, confirm nothing else is bound to that port.`,
+        'If a port conflict is likely, confirm nothing else is bound to that port.',
     );
     process.exit(1);
   }
@@ -55,8 +55,8 @@ async function main(): Promise<void> {
     console.error(
       `openbook-mcp: endpoint identity mismatch at ${url} — expected library ${expectedInstanceId} ` +
         `but the server there reports ${instanceId ?? '(no instance id — not an OpenBook STAB-5 server)'}. ` +
-        `A different process is answering on that port; refusing to adopt it. ` +
-        `Point OPENBOOK_URL at the intended library's server, or free the port.`,
+        'A different process is answering on that port; refusing to adopt it. ' +
+        'Point OPENBOOK_URL at the intended library\'s server, or free the port.',
     );
     process.exit(1);
   }
