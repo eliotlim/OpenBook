@@ -1,6 +1,7 @@
 import {NavBar, SideNav} from '@/components';
 import {CommandMenu} from '@/components/CommandMenu';
 import GlobalShortcuts from '@/components/GlobalShortcuts';
+import DragDropGuard from '@/components/DragDropGuard';
 import WindowTitle from '@/components/WindowTitle';
 import TemplateGallery from '@/components/TemplateGallery';
 import ImportDialog from '@/components/ImportDialog';
@@ -79,6 +80,10 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           data-titlebar={inWindowTabs}
         >
           <GlobalShortcuts/>
+          {/* Window-level guard: a file dropped outside the editor must not
+              navigate the document to file://… (desktop `dragDropEnabled` is
+              false, so WKWebView owns native drops). See DragDropGuard. */}
+          <DragDropGuard/>
           <PluginBoot/>
           {/* Background self-update checks (desktop only — inert without the
               `updates` capability). Inside ConfirmProvider for the restart

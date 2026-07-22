@@ -507,6 +507,118 @@ fn update_target() -> UpdateTarget {
     }
 }
 
+/// Whether `url` is the app's own document origin — the only origin the webview
+/// is ever allowed to navigate to. Covers the release custom protocol
+/// (`tauri://localhost` on macOS/Linux; `http(s)://tauri.localhost` on
+/// Windows/Android, incl. `useHttpsScheme`) and the dev server / loopback
+/// (`http://localhost:1420`). Everything else is refused (see `nav_guard`).
+fn is_app_origin(url: &tauri::Url) -> bool {
+    match (url.scheme(), url.host_str().unwrap_or("")) {
+        ("tauri", "localhost") => true,
+        ("http" | "https", "tauri.localhost") => true,
+        ("http" | "https", "localhost" | "127.0.0.1") => true,
+        _ => false,
+    }
+}
+
+/// Minimum gap between two OS-browser opens triggered from the nav guard. A
+/// hostile subframe can spam off-origin navigations; this caps how fast we hand
+/// them to the OS browser, blunting tab-spam. Both are still cancelled in-webview.
+const OPEN_EXTERNAL_MIN_GAP_MS: u64 = 1500;
+
+/// Wall-clock millis of the last `OpenExternal` we honoured (`0` = never). A
+/// module global so the rate limit spans every webview and frame in the process.
+static LAST_OPEN_EXTERNAL_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// What the nav guard should do with a requested navigation.
+#[derive(Debug, PartialEq, Eq)]
+enum NavAction {
+    /// Let it proceed in-webview: an app-origin top-level navigation, OR
+    /// iframe/artifact *content* (`about:srcdoc`, `blob:`, `data:`, deep links…).
+    Allow,
+    /// Cancel it in-webview and do nothing else — the `file://` stranding vector.
+    Cancel,
+    /// Cancel it in-webview and hand the URL to the OS browser — an off-origin
+    /// `http(s)` web link.
+    OpenExternal,
+}
+
+/// Pure navigation decision — the testable core of {@link nav_guard}.
+///
+/// wry gives us **no frame identity**: `on_navigation` fires for the top document
+/// AND for child frames (a SandboxedHtml artifact `<iframe>`) on macOS/Linux. So
+/// we key on the URL **scheme**, not a strict origin allowlist:
+///   - app origin                → `Allow` (the SPA's own top-level navigation)
+///   - `http`/`https` off-origin → `OpenExternal` (real web link → OS browser)
+///   - `file`                    → `Cancel` (the native-file-drop stranding vector)
+///   - everything else           → `Allow`: `about:srcdoc` is exactly how
+///     SandboxedHtml loads its artifact; `blob:`/`data:` are artifact content and
+///     `openbook:` is our sign-in deep link — cancelling any of them would blank
+///     every artifact / drop deep links.
+///
+/// Documented residual (owner-accepted, pending): with no frame identity an
+/// off-origin `http(s)` navigation *inside a subframe* also lands here and is
+/// pushed to the OS browser + cancelled. The opener is rate-limited
+/// ({@link OPEN_EXTERNAL_MIN_GAP_MS}) to blunt tab-spam from hostile subframes.
+fn nav_action(url: &tauri::Url) -> NavAction {
+    if is_app_origin(url) {
+        return NavAction::Allow;
+    }
+    match url.scheme() {
+        "http" | "https" => NavAction::OpenExternal,
+        "file" => NavAction::Cancel,
+        _ => NavAction::Allow,
+    }
+}
+
+/// Rate-limit gate for the `OpenExternal` arm (pure). Given the last honoured
+/// open and the current wall-clock millis, whether another open should fire. A
+/// backwards clock jump (`now < last`) saturates to `0` and is denied.
+fn rate_limit_allows(last_ms: u64, now_ms: u64) -> bool {
+    now_ms.saturating_sub(last_ms) >= OPEN_EXTERNAL_MIN_GAP_MS
+}
+
+/// Wall-clock now in millis since the epoch — good enough for a spam gate.
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Navigation backstop for EVERY webview (the config-defined main window and any
+/// JS-created secondary window): the last line of defence behind the JS
+/// `DragDropGuard`. A dropped file, a `window.open`, a `<meta http-equiv=refresh>`
+/// or any redirect that tries to point the webview off its own document is
+/// refused, so the app can never be stranded on a `file://…` page even if the JS
+/// guard regresses. Real web links still work: an off-origin `http(s)` target is
+/// handed to the OS browser (matching how the app opens external URLs elsewhere)
+/// before the in-webview navigation is cancelled — but see {@link nav_action}:
+/// because wry gives no frame identity, subframe `http(s)` navigations also land
+/// here, so the opener is rate-limited to blunt tab-spam.
+fn nav_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    use std::sync::atomic::Ordering;
+    tauri::plugin::Builder::new("nav-guard")
+        .on_navigation(|webview, url| match nav_action(url) {
+            NavAction::Allow => true,
+            NavAction::Cancel => false,
+            NavAction::OpenExternal => {
+                let now = now_millis();
+                let last = LAST_OPEN_EXTERNAL_MS.load(Ordering::Relaxed);
+                if rate_limit_allows(last, now) {
+                    LAST_OPEN_EXTERNAL_MS.store(now, Ordering::Relaxed);
+                    use tauri_plugin_opener::OpenerExt;
+                    let _ = webview
+                        .app_handle()
+                        .opener()
+                        .open_url(url.as_str(), None::<&str>);
+                }
+                false
+            }
+        })
+        .build()
+}
+
 fn main() {
     tauri::Builder::default()
         // Single-instance guard (registered first): a second launch focuses the
@@ -518,6 +630,10 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
+        // Navigation backstop for every window (STAB-4): refuse any navigation
+        // off the app's own origin so a stray file drop / window.open / redirect
+        // can never strand the webview on a file://… page.
+        .plugin(nav_guard())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -927,6 +1043,96 @@ fn reap_orphan_sidecar(_data_dir: &str) {
     // Windows orphan reaping (tasklist/taskkill) is a follow-up. The sidecar's
     // stdin-EOF parent-death watch (layer A) covers host death cross-platform, so
     // new orphans shouldn't occur there either.
+}
+
+#[cfg(test)]
+mod nav_guard_tests {
+    use super::{is_app_origin, nav_action, rate_limit_allows, NavAction, OPEN_EXTERNAL_MIN_GAP_MS};
+
+    fn origin(url: &str) -> bool {
+        is_app_origin(&tauri::Url::parse(url).unwrap())
+    }
+
+    fn action(url: &str) -> NavAction {
+        nav_action(&tauri::Url::parse(url).unwrap())
+    }
+
+    #[test]
+    fn allows_the_app_own_origins() {
+        // Release custom protocol (macOS/Linux) + Windows/Android https variant.
+        assert!(origin("tauri://localhost/"));
+        assert!(origin("tauri://localhost/index.html"));
+        assert!(origin("https://tauri.localhost/"));
+        assert!(origin("http://tauri.localhost/index.html"));
+        // Dev server (devUrl) + loopback.
+        assert!(origin("http://localhost:1420/"));
+        assert!(origin("http://localhost/"));
+        assert!(origin("http://127.0.0.1:1420/"));
+    }
+
+    #[test]
+    fn is_app_origin_refuses_foreign_hosts() {
+        // The stranding vector: a dropped file.
+        assert!(!origin("file:///Users/me/Downloads/evil.html"));
+        // Real external sites.
+        assert!(!origin("https://example.com/"));
+        assert!(!origin("http://evil.example.com/"));
+        // Look-alike hosts must NOT match the custom-protocol allowlist.
+        assert!(!origin("https://tauri.localhost.evil.com/"));
+        assert!(!origin("https://localhost.evil.com/"));
+        assert!(!origin("tauri://evil/"));
+        // Other schemes.
+        assert!(!origin("openbook://page/abc"));
+        assert!(!origin("data:text/html,<script>1</script>"));
+    }
+
+    // ── nav_action: the frame-aware, scheme-based decision (STAB-4 review) ──
+
+    #[test]
+    fn app_origins_navigate_in_place() {
+        assert_eq!(action("tauri://localhost/"), NavAction::Allow);
+        assert_eq!(action("https://tauri.localhost/index.html"), NavAction::Allow);
+        assert_eq!(action("http://localhost:1420/"), NavAction::Allow);
+        assert_eq!(action("http://127.0.0.1:1420/"), NavAction::Allow);
+    }
+
+    #[test]
+    fn off_origin_web_links_open_externally() {
+        // Real external sites (and look-alike hosts) → OS browser, cancelled in-webview.
+        assert_eq!(action("https://example.com/"), NavAction::OpenExternal);
+        assert_eq!(action("http://evil.example.com/"), NavAction::OpenExternal);
+        assert_eq!(action("https://tauri.localhost.evil.com/"), NavAction::OpenExternal);
+    }
+
+    #[test]
+    fn file_urls_are_cancelled() {
+        // The native-file-drop stranding vector — cancelled, nothing opened.
+        assert_eq!(action("file:///Users/me/Downloads/evil.html"), NavAction::Cancel);
+    }
+
+    #[test]
+    fn iframe_and_artifact_content_schemes_are_allowed() {
+        // SandboxedHtml loads as about:srcdoc; blob:/data: are artifact content;
+        // openbook: is the sign-in deep link. Cancelling any would blank artifacts
+        // or drop deep links — these MUST pass (the previous origin-allowlist
+        // wrongly cancelled them for child frames).
+        assert_eq!(action("about:srcdoc"), NavAction::Allow);
+        assert_eq!(action("about:blank"), NavAction::Allow);
+        assert_eq!(action("blob:https://tauri.localhost/8f3c-uuid"), NavAction::Allow);
+        assert_eq!(action("data:text/html,<b>hi</b>"), NavAction::Allow);
+        assert_eq!(action("openbook://auth-callback"), NavAction::Allow);
+    }
+
+    #[test]
+    fn open_external_is_rate_limited() {
+        // At/over the gap → allowed; under it (or a same-instant / backwards clock)
+        // → suppressed. This is the pure gate the OpenExternal arm consults.
+        assert!(rate_limit_allows(0, OPEN_EXTERNAL_MIN_GAP_MS));
+        assert!(rate_limit_allows(1_000, 1_000 + OPEN_EXTERNAL_MIN_GAP_MS));
+        assert!(!rate_limit_allows(1_000, 1_000 + OPEN_EXTERNAL_MIN_GAP_MS - 1));
+        assert!(!rate_limit_allows(1_000, 1_000)); // same instant
+        assert!(!rate_limit_allows(5_000, 1_000)); // clock went backwards → saturating_sub → 0
+    }
 }
 
 #[cfg(test)]
