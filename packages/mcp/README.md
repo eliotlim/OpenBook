@@ -25,12 +25,20 @@ Build once from the repo root:
 pnpm install && pnpm build:libs && pnpm --filter @book.dev/mcp build
 ```
 
-Then register the binary with your MCP client. `OPENBOOK_URL` points at the workspace (defaults to `http://127.0.0.1:4319`, the desktop app's local server).
+Then register the binary with your MCP client.
+
+- `OPENBOOK_URL` points at the workspace. It defaults to `http://127.0.0.1:4319`, the desktop app's local server — but the packaged desktop app only opens that loopback port **while the local-MCP/agent toggle is ON** (Settings → Agents & AI admin → Enable agent API). With the toggle off the app is reachable only over its private IPC socket, and nothing of the app listens on 4319.
+- `OPENBOOK_INSTANCE_ID` (recommended) is this library's stable id. When set, the connector verifies the server it reached advertises the **same** id and refuses to adopt anything else — so a stray responder on port 4319 (a leftover `pnpm dev` with its own data dir, a different app) is rejected with a clear error instead of silently reporting your real pages as "nonexistent". The desktop app shows the exact snippet, id included, in the same settings panel. Find a library's id at `GET /api/instance` (`instanceId`).
+
+The connector follows your **default local library**. If you switch libraries inside the app (an in-webview override), the out-of-process connector keeps talking to the default local server — it does not follow the switch.
 
 Claude Code:
 
 ```sh
-claude mcp add openbook --env OPENBOOK_URL=http://127.0.0.1:4319 -- node <repo>/packages/mcp/dist/bin.js
+claude mcp add openbook \
+  --env OPENBOOK_URL=http://127.0.0.1:4319 \
+  --env OPENBOOK_INSTANCE_ID=<your-library-id> \
+  -- node <repo>/packages/mcp/dist/bin.js
 ```
 
 Claude Desktop (`claude_desktop_config.json`):
@@ -41,13 +49,16 @@ Claude Desktop (`claude_desktop_config.json`):
     "openbook": {
       "command": "node",
       "args": ["<repo>/packages/mcp/dist/bin.js"],
-      "env": {"OPENBOOK_URL": "http://127.0.0.1:4319"}
+      "env": {
+        "OPENBOOK_URL": "http://127.0.0.1:4319",
+        "OPENBOOK_INSTANCE_ID": "<your-library-id>"
+      }
     }
   }
 }
 ```
 
-The server exits with a clear message if no OpenBook server is reachable at startup.
+At startup the connector performs a single `GET /api/instance` handshake (guest-readable, leaks no secret). It exits with a clear message if no OpenBook server is reachable, or if the server at `OPENBOOK_URL` reports a different `OPENBOOK_INSTANCE_ID` than configured (a foreign responder / port conflict).
 
 ## Development
 
