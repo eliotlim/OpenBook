@@ -814,6 +814,44 @@ fn reap_orphan_sidecar(_data_dir: &str) {
 }
 
 #[cfg(test)]
+mod nav_guard_tests {
+    use super::is_app_origin;
+
+    fn origin(url: &str) -> bool {
+        is_app_origin(&tauri::Url::parse(url).unwrap())
+    }
+
+    #[test]
+    fn allows_the_app_own_origins() {
+        // Release custom protocol (macOS/Linux) + Windows/Android https variant.
+        assert!(origin("tauri://localhost/"));
+        assert!(origin("tauri://localhost/index.html"));
+        assert!(origin("https://tauri.localhost/"));
+        assert!(origin("http://tauri.localhost/index.html"));
+        // Dev server (devUrl) + loopback.
+        assert!(origin("http://localhost:1420/"));
+        assert!(origin("http://localhost/"));
+        assert!(origin("http://127.0.0.1:1420/"));
+    }
+
+    #[test]
+    fn refuses_off_origin_navigations() {
+        // The stranding vector: a dropped file.
+        assert!(!origin("file:///Users/me/Downloads/evil.html"));
+        // Real external sites (opened in the OS browser, never in-webview).
+        assert!(!origin("https://example.com/"));
+        assert!(!origin("http://evil.example.com/"));
+        // Look-alike hosts must NOT match the custom-protocol allowlist.
+        assert!(!origin("https://tauri.localhost.evil.com/"));
+        assert!(!origin("https://localhost.evil.com/"));
+        assert!(!origin("tauri://evil/"));
+        // Other schemes (deep links, data: escape attempts).
+        assert!(!origin("openbook://page/abc"));
+        assert!(!origin("data:text/html,<script>1</script>"));
+    }
+}
+
+#[cfg(test)]
 mod reaper_tests {
     use super::comm_is_openbook_server;
 
