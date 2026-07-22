@@ -131,14 +131,27 @@ export default function AgentTokensSettings() {
     setToggling(true);
     setActionError(null);
     try {
-      // Turning the whole feature off also forces remote off (server enforces this).
+      if (!next) {
+        // STAB-5 disable path: UNBIND the loopback TCP listener FIRST so the port
+        // is never left reachable while the UI reports the feature as off. Unlike
+        // the enable path, a failure here is surfaced (not swallowed): a still-bound
+        // port is a real exposure, so we don't claim "disabled" until it's gone.
+        await serverControls?.setAgentLocalTcp?.(false);
+        // Turning the whole feature off also forces remote off (server enforces this).
+        const res = await client.setAgentApiEnabled(false, false);
+        setEnabled(res.enabled);
+        setRemoteEnabled(res.remote);
+        await refresh();
+        return;
+      }
       const res = await client.setAgentApiEnabled(next, next && remoteEnabled);
       setEnabled(res.enabled);
       setRemoteEnabled(res.remote);
       // STAB-5: the local-MCP/agent toggle also drives the desktop host's loopback
       // TCP bind, so an out-of-process connector's default endpoint actually points
-      // at this library's server. Best-effort — a host without the capability (web,
-      // an older build) simply skips it; the server-side gate still flips.
+      // at this library's server. Best-effort on ENABLE — a host without the
+      // capability (web, an older build) simply skips it; the server-side gate still
+      // flips. (On disable the bind is unwound first, above, and failures surface.)
       try {
         await serverControls?.setAgentLocalTcp?.(next);
       } catch {

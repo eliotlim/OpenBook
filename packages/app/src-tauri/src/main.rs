@@ -47,9 +47,13 @@ struct HostConfig {
     /// Bind a LOOPBACK TCP listener (`127.0.0.1:4319`) on the same sidecar so an
     /// out-of-process local MCP/agent connector can reach THIS library (STAB-5).
     /// Gated on the local-MCP/agent toggle — OFF by default, and PERSISTED across
-    /// relaunch (unlike `published`, which is opt-in each run). Loopback-only: it
-    /// exposes no new surface beyond what the IPC socket already gives the machine
-    /// owner. Redundant while `published` (which already binds `0.0.0.0:4319`).
+    /// relaunch (unlike `published`, which is opt-in each run). NOTE: unlike the
+    /// FS-permissioned IPC socket, this loopback TCP listener is reachable by any
+    /// local process AND by any web origin the user's browser will POST to (the
+    /// sidecar serves wildcard CORS and guestAccess defaults to 'write'). It is a
+    /// real new surface, not a no-op — keep it gated on this explicit opt-in toggle;
+    /// browser-reachability hardening is tracked separately. Redundant while
+    /// `published` (which already binds `0.0.0.0:4319`).
     agent_local_tcp: bool,
 }
 
@@ -171,8 +175,11 @@ fn build_info(state: &AppState) -> ServerInfo {
 ///   is set (the LAN reachability gate).
 /// - else `agent_local_tcp` → bind LOOPBACK `127.0.0.1:4319` only, so an
 ///   out-of-process local MCP/agent connector can reach this exact library. NO
-///   access token: it's loopback-only (machine-owner reachable, exactly like the
-///   IPC socket already is) and the connector presents its own PAT for auth.
+///   access token; the connector presents its own PAT for auth. Unlike the
+///   FS-permissioned IPC socket, this loopback bind is reachable by any local
+///   process AND by any web origin the browser will POST to (wildcard CORS +
+///   guestAccess defaults to 'write') — a real added surface, hence the explicit
+///   opt-in toggle; browser-reachability hardening is tracked separately.
 /// - else → no TCP bind (portless socket-only, the desktop default).
 ///
 /// `published` wins over `agent_local_tcp`: `0.0.0.0:4319` already covers loopback,

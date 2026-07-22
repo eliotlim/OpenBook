@@ -294,9 +294,12 @@ export interface ServerInfo {
    * Whether the host also binds a loopback TCP listener (`127.0.0.1:4319`) on the
    * same sidecar so an out-of-process local MCP/agent connector can reach this
    * exact library (STAB-5). Gated on the local-MCP/agent toggle — OFF by default,
-   * and independent of {@link published} (which binds `0.0.0.0` for the LAN). The
-   * bind is loopback-only and adds no new unauthenticated surface beyond what the
-   * IPC socket already exposes to the machine owner. */
+   * and independent of {@link published} (which binds `0.0.0.0` for the LAN).
+   * Unlike the FS-permissioned IPC socket, this loopback listener is reachable by
+   * any local process AND by any web origin the user's browser will POST to (the
+   * sidecar serves wildcard CORS and guestAccess defaults to 'write') — a real
+   * added surface, hence the explicit opt-in toggle; browser-reachability
+   * hardening is tracked separately. */
   agentLocalTcp?: boolean;
 }
 
