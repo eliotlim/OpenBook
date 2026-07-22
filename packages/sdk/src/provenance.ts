@@ -46,6 +46,16 @@ export interface TrustedIssuerConfig {
 /** The instance's multi-user policy, persisted in the `settings` table. */
 export interface InstanceConfig {
   guestAccess: GuestAccess;
+  /**
+   * A stable, opaque per-library identifier (STAB-5). Minted once at first
+   * startup and persisted; it authorizes NOTHING (like {@link ownerSubject}, it's
+   * a non-secret coordinate) and only exists so an out-of-process connector can
+   * confirm it reached THIS library's server rather than a foreign responder that
+   * happens to answer on the same loopback port (e.g. a stale `pnpm dev`). Surfaced
+   * on `GET /api/instance` as {@link InstanceInfo.instanceId}. Absent on a
+   * pre-STAB-5 config until the next boot's {@link ensureInstanceId} mints it.
+   */
+  instanceId?: string;
   /** The principal subject that administers this instance, once claimed. */
   ownerSubject?: string;
   trustedIssuers: TrustedIssuerConfig[];
@@ -161,6 +171,14 @@ export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
  */
 export interface InstanceInfo {
   guestAccess: GuestAccess;
+  /**
+   * The stable, opaque per-library identifier (STAB-5) — see
+   * {@link InstanceConfig.instanceId}. An out-of-process MCP connector compares
+   * this against its configured `OPENBOOK_INSTANCE_ID` to refuse a foreign
+   * responder on the same port. Not a secret (authorizes nothing). Optional:
+   * absent on a pre-STAB-5 server / a test fixture — a connector then can't verify
+   * identity and falls back to a reachability-only probe. */
+  instanceId?: string | null;
   ownerSubject: string | null;
   trustedIssuers: string[];
   /** This server's audience identifier, so a client can request an `aud`-scoped
