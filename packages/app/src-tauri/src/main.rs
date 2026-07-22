@@ -45,6 +45,17 @@ struct HostConfig {
     access_token: String,
     /// Folder the on-disk book mirror writes to (defaults to ~/Documents/OpenBook).
     book_dir: String,
+    /// Bind a LOOPBACK TCP listener (`127.0.0.1:4319`) on the same sidecar so an
+    /// out-of-process local MCP/agent connector can reach THIS library (STAB-5).
+    /// Gated on the local-MCP/agent toggle — OFF by default, and PERSISTED across
+    /// relaunch (unlike `published`, which is opt-in each run). NOTE: unlike the
+    /// FS-permissioned IPC socket, this loopback TCP listener is reachable by any
+    /// local process AND by any web origin the user's browser will POST to (the
+    /// sidecar serves wildcard CORS and guestAccess defaults to 'write'). It is a
+    /// real new surface, not a no-op — keep it gated on this explicit opt-in toggle;
+    /// browser-reachability hardening is tracked separately. Redundant while
+    /// `published` (which already binds `0.0.0.0:4319`).
+    agent_local_tcp: bool,
 }
 
 struct AppState {
@@ -83,6 +94,8 @@ struct ServerInfo {
     lan_address: Option<String>,
     access_token: Option<String>,
     book_dir: Option<String>,
+    /// Whether the loopback TCP listener for a local MCP/agent connector is on (STAB-5).
+    agent_local_tcp: bool,
 }
 
 /// A single file in a book-folder transfer, mirroring `BookFolderFile` in the SDK.
@@ -133,9 +146,9 @@ fn build_info(state: &AppState) -> ServerInfo {
     // Snapshot the config and release its lock before taking any other, so this
     // never holds `config` while waiting on `child` (publish/respawn hold `child`
     // and would otherwise deadlock against it).
-    let (published, access_token, book_dir) = {
+    let (published, access_token, book_dir, agent_local_tcp) = {
         let cfg = state.config.lock().unwrap();
-        (cfg.published, cfg.access_token.clone(), cfg.book_dir.clone())
+        (cfg.published, cfg.access_token.clone(), cfg.book_dir.clone(), cfg.agent_local_tcp)
     };
     let running = state.child.lock().unwrap().is_some();
     let lan_address = if published && running {
@@ -153,12 +166,49 @@ fn build_info(state: &AppState) -> ServerInfo {
         lan_address,
         access_token: if published { Some(access_token) } else { None },
         book_dir: Some(book_dir),
+        agent_local_tcp,
     }
+}
+
+/// The TCP-bind CLI args for the sidecar. Pure + unit-tested (STAB-5).
+///
+/// - `published` → bind `0.0.0.0:4319` for the LAN, plus `--access-token` when one
+///   is set (the LAN reachability gate).
+/// - else `agent_local_tcp` → bind LOOPBACK `127.0.0.1:4319` only, so an
+///   out-of-process local MCP/agent connector can reach this exact library. NO
+///   access token; the connector presents its own PAT for auth. Unlike the
+///   FS-permissioned IPC socket, this loopback bind is reachable by any local
+///   process AND by any web origin the browser will POST to (wildcard CORS +
+///   guestAccess defaults to 'write') — a real added surface, hence the explicit
+///   opt-in toggle; browser-reachability hardening is tracked separately.
+/// - else → no TCP bind (portless socket-only, the desktop default).
+///
+/// `published` wins over `agent_local_tcp`: `0.0.0.0:4319` already covers loopback,
+/// so there is never a double-bind on the same port.
+fn tcp_bind_args(published: bool, agent_local_tcp: bool, access_token: &str) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    if published {
+        args.push("--host".into());
+        args.push("0.0.0.0".into());
+        args.push("--port".into());
+        args.push(DEFAULT_PORT.into());
+        if !access_token.is_empty() {
+            args.push("--access-token".into());
+            args.push(access_token.to_string());
+        }
+    } else if agent_local_tcp {
+        args.push("--host".into());
+        args.push("127.0.0.1".into());
+        args.push("--port".into());
+        args.push(DEFAULT_PORT.into());
+    }
+    args
 }
 
 /// Spawn the server sidecar from the current config. It always listens on the
 /// Unix socket (the portless IPC transport); when published it *also* binds
-/// `0.0.0.0` with the access token for LAN access.
+/// `0.0.0.0` with the access token for LAN access, and when the local-MCP/agent
+/// toggle is on it *also* binds loopback `127.0.0.1` for the connector (STAB-5).
 fn spawn_sidecar(
     app: &AppHandle,
     data_dir: &str,
@@ -182,21 +232,16 @@ fn spawn_sidecar(
         args.push(socket_path.to_string());
     }
 
-    if cfg.published {
-        args.push("--host".into());
-        args.push("0.0.0.0".into());
-        args.push("--port".into());
-        args.push(DEFAULT_PORT.into());
-        if !cfg.access_token.is_empty() {
-            args.push("--access-token".into());
-            args.push(cfg.access_token.clone());
-        }
-    }
+    // Published LAN bind, or the STAB-5 loopback bind for a local MCP/agent
+    // connector. Factored + pure so it's unit-testable (see tcp_bind_args).
+    args.extend(tcp_bind_args(cfg.published, cfg.agent_local_tcp, &cfg.access_token));
 
     // No Unix sockets here — serve a loopback TCP port so the host bridge has a
-    // target even when not published (named-pipe support is a follow-up).
+    // target even when neither published nor the MCP toggle is on (named-pipe
+    // support is a follow-up). `tcp_bind_args` already covers the published / MCP
+    // cases, so add this fallback only when it produced nothing.
     #[cfg(not(unix))]
-    if !cfg.published {
+    if !cfg.published && !cfg.agent_local_tcp {
         args.push("--host".into());
         args.push("127.0.0.1".into());
         args.push("--port".into());
@@ -270,6 +315,29 @@ fn publish_server(app: AppHandle, state: State<AppState>, enabled: bool) -> Resu
         if enabled && cfg.access_token.is_empty() {
             cfg.access_token = generate_token();
         }
+        save_config(&state.config_path, &cfg);
+    }
+    respawn(&app, &state)?;
+    Ok(build_info(&state))
+}
+
+/// Bind (or unbind) the loopback TCP listener (`127.0.0.1:4319`) for an
+/// out-of-process local MCP/agent connector (STAB-5). Flipped together with the
+/// agent-API toggle in Settings so the connector's default endpoint actually points
+/// at THIS library's server. Persists the preference (survives relaunch, unlike the
+/// per-run LAN publish) and respawns the sidecar so the bind takes effect. The local
+/// UI keeps using IPC throughout — only the extra loopback listener changes.
+#[tauri::command]
+fn set_agent_local_tcp(app: AppHandle, state: State<AppState>, enabled: bool) -> Result<ServerInfo, String> {
+    if !state.managed {
+        return Ok(build_info(&state));
+    }
+    {
+        let mut cfg = state.config.lock().unwrap();
+        if cfg.agent_local_tcp == enabled {
+            return Ok(build_info(&state)); // no change — don't churn the sidecar
+        }
+        cfg.agent_local_tcp = enabled;
         save_config(&state.config_path, &cfg);
     }
     respawn(&app, &state)?;
@@ -542,6 +610,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             server_info,
             publish_server,
+            set_agent_local_tcp,
             choose_book_dir,
             reveal_book_dir,
             export_book_folder,
@@ -858,6 +927,45 @@ fn reap_orphan_sidecar(_data_dir: &str) {
     // Windows orphan reaping (tasklist/taskkill) is a follow-up. The sidecar's
     // stdin-EOF parent-death watch (layer A) covers host death cross-platform, so
     // new orphans shouldn't occur there either.
+}
+
+#[cfg(test)]
+mod tcp_bind_tests {
+    use super::tcp_bind_args;
+
+    #[test]
+    fn toggle_off_binds_no_tcp() {
+        // The desktop default: neither published nor the local-MCP toggle → the
+        // sidecar is portless (socket-only), so NOTHING listens on 4319 (STAB-5
+        // security invariant: no listener unless a toggle is on).
+        assert!(tcp_bind_args(false, false, "").is_empty());
+        // An access token without a bind reason still binds nothing.
+        assert!(tcp_bind_args(false, false, "secret").is_empty());
+    }
+
+    #[test]
+    fn local_mcp_toggle_binds_loopback_only() {
+        // Toggle on (not published) → loopback 127.0.0.1:4319, NEVER 0.0.0.0, and
+        // NO access token (loopback-only; the connector presents its own PAT).
+        let args = tcp_bind_args(false, true, "secret");
+        assert_eq!(args, vec!["--host", "127.0.0.1", "--port", "4319"]);
+        assert!(!args.iter().any(|a| a == "0.0.0.0"));
+        assert!(!args.iter().any(|a| a == "--access-token"));
+    }
+
+    #[test]
+    fn published_binds_lan_with_token_and_wins_over_mcp() {
+        // Published binds 0.0.0.0 + the access token; and it WINS over the MCP
+        // toggle (0.0.0.0:4319 already covers loopback — no double-bind).
+        let args = tcp_bind_args(true, true, "secret");
+        assert_eq!(args, vec!["--host", "0.0.0.0", "--port", "4319", "--access-token", "secret"]);
+    }
+
+    #[test]
+    fn published_without_token_omits_access_token() {
+        let args = tcp_bind_args(true, false, "");
+        assert_eq!(args, vec!["--host", "0.0.0.0", "--port", "4319"]);
+    }
 }
 
 #[cfg(test)]

@@ -1596,6 +1596,12 @@ export const en = {
     revokeConfirmBody: 'Any agent using it will immediately lose access. This cannot be undone.',
     revokeConfirmButton: 'Revoke',
     capNote: 'Up to 25 tokens per library.',
+    // Local MCP connector setup (STAB-5). Shown on the desktop app when the agent
+    // API is on: the loopback endpoint + the exact config an MCP client registers.
+    localMcpTitle: 'Local MCP connector',
+    localMcpHint: 'This library also answers on a loopback address so a local MCP client (Claude Desktop, Claude Code, Cursor) can reach it. Register the connector with the snippet below — it points at this exact library and refuses any other server on the port.',
+    localMcpFollowsDefault: 'The connector follows your default local library. If you switch libraries in the app, the connector keeps talking to the default one.',
+    localMcpCopy: 'Copy config',
   },
   aiUsage: {
     usageTitle: 'AI usage',
