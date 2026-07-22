@@ -438,6 +438,46 @@ fn update_target() -> UpdateTarget {
     }
 }
 
+/// Whether `url` is the app's own document origin — the only origin the webview
+/// is ever allowed to navigate to. Covers the release custom protocol
+/// (`tauri://localhost` on macOS/Linux; `http(s)://tauri.localhost` on
+/// Windows/Android, incl. `useHttpsScheme`) and the dev server / loopback
+/// (`http://localhost:1420`). Everything else is refused (see `nav_guard`).
+fn is_app_origin(url: &tauri::Url) -> bool {
+    match (url.scheme(), url.host_str().unwrap_or("")) {
+        ("tauri", "localhost") => true,
+        ("http" | "https", "tauri.localhost") => true,
+        ("http" | "https", "localhost" | "127.0.0.1") => true,
+        _ => false,
+    }
+}
+
+/// Navigation backstop for EVERY webview (the config-defined main window and any
+/// JS-created secondary window): the last line of defence behind the JS
+/// `DragDropGuard`. A dropped file, a `window.open`, a `<meta http-equiv=refresh>`
+/// or any redirect that tries to point the webview off its own document is
+/// refused, so the app can never be stranded on a `file://…` (or any foreign)
+/// page even if the JS guard regresses. Real web links still work: an off-origin
+/// `http(s)` target is handed to the OS browser (matching how the app opens
+/// external URLs elsewhere) before the in-webview navigation is cancelled.
+fn nav_guard<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("nav-guard")
+        .on_navigation(|webview, url| {
+            if is_app_origin(url) {
+                return true;
+            }
+            if matches!(url.scheme(), "http" | "https") {
+                use tauri_plugin_opener::OpenerExt;
+                let _ = webview
+                    .app_handle()
+                    .opener()
+                    .open_url(url.as_str(), None::<&str>);
+            }
+            false
+        })
+        .build()
+}
+
 fn main() {
     tauri::Builder::default()
         // Single-instance guard (registered first): a second launch focuses the
@@ -449,6 +489,10 @@ fn main() {
                 let _ = window.set_focus();
             }
         }))
+        // Navigation backstop for every window (STAB-4): refuse any navigation
+        // off the app's own origin so a stray file drop / window.open / redirect
+        // can never strand the webview on a file://… page.
+        .plugin(nav_guard())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
