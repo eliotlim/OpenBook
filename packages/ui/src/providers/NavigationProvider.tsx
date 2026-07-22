@@ -19,6 +19,7 @@ import {registerKitPanelNav} from '@/blockeditor/kit/kitPanel';
 import {t as bareT} from '@/i18n';
 import {pagePathLabel} from '@/lib/pagePath';
 import {removeFavorite} from '@/lib/favorites';
+import {readCrashedPages} from '@/lib/crashRecovery';
 import {showToast} from '@/components/ui/toast';
 import {usePlatformCapabilities, type NewViewTarget} from './PlatformCapabilitiesProvider';
 import * as W from './windowModel';
@@ -268,6 +269,19 @@ const readLastPage = (): string | null => {
     return typeof localStorage !== 'undefined' ? localStorage.getItem(LAST_PAGE_KEY) : null;
   } catch {
     return null;
+  }
+};
+
+/**
+ * Forget the last-opened page so the next startup won't auto-reopen it. Called
+ * by the crash boundaries (STAB-3) when a page or the whole app throws while
+ * rendering, so a reload doesn't deterministically re-poison itself.
+ */
+export const clearLastPage = (): void => {
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(LAST_PAGE_KEY);
+  } catch {
+    // ignore storage failures
   }
 };
 
@@ -720,11 +734,18 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
         prevTopLevelIds.current = new Set(list.map((p) => p.id));
 
         const known = new Set(list.map((p) => p.id));
+        // Pages that threw while rendering earlier this session (STAB-3). The
+        // resolver must NOT auto-open a quarantined page — that's the crash loop
+        // (poison persists on disk, startup re-opens the last page, app dies
+        // again). Skipped here so the app lands on Home instead; the page stays
+        // in the sidebar and reachable by an explicit click.
+        const crashed = readCrashedPages();
         const resolve = async (id: string | null): Promise<string | null> => {
           if (!id) return null;
           // Pseudo-pages: Home, Trash, dataflow, and the page-targeting side panes
           // (customise/review) that now round-trip through the URL.
           if (id === HOME_PAGE_ID || id === TRASH_PAGE_ID || id === FLOW_PANE_ID || paneHasTarget(id)) return id;
+          if (crashed.has(id)) return null;
           if (known.has(id)) return id;
           return (await client.getPage(id)) !== null ? id : null;
         };
@@ -732,7 +753,9 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
         const {page, split, paneTarget} = readUrl();
         let primary = await resolve(page);
         if (!primary) primary = await resolve(readLastPage());
-        if (!primary) primary = list[0]?.id ?? HOME_PAGE_ID;
+        // Fall back to the first NON-quarantined page (or Home) rather than
+        // list[0], so a poisoned first page can't re-crash the app on startup.
+        if (!primary) primary = list.find((p) => !crashed.has(p.id))?.id ?? HOME_PAGE_ID;
         const secondary = await resolve(split && split !== primary ? split : null);
 
         // Seed a restored side pane's target from the URL (falling back to the
