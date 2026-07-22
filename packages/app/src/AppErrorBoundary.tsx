@@ -1,5 +1,5 @@
 import React from 'react';
-import {ErrorBoundary, ErrorFallback, HOME_PAGE_ID, clearLastPage} from '@book.dev/ui';
+import {ErrorBoundary, ErrorFallback, HOME_PAGE_ID, clearLastPage, markPageCrashed} from '@book.dev/ui';
 
 /**
  * The desktop app's top-level render-crash boundary (STAB-3). Without it, any
@@ -38,6 +38,10 @@ export const AppErrorBoundary: React.FC<{children: React.ReactNode}> = ({childre
       console.error('OpenBook: the app crashed while rendering:', error);
       // A crash that escaped the page boundary might still be tied to the last
       // page; forget it so a plain reload doesn't reproduce the crash.
+      try {
+        const p = new URL(window.location.href).searchParams.get('page');
+        if (p) markPageCrashed(p);
+      } catch { /* best-effort */ }
       clearLastPage();
     }}
     fallback={() => <ErrorFallback variant="screen" onHome={goHome} onReload={() => window.location.reload()} />}

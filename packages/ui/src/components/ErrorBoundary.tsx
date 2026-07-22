@@ -77,7 +77,7 @@ export const ErrorFallback: React.FC<ErrorFallbackProps> = ({
   <div
     role="alert"
     className={cn(
-      'flex w-full items-center justify-center',
+      'flex w-full items-center justify-center text-foreground',
       variant === 'screen' ? 'fixed inset-0 z-50 bg-background p-6' : 'px-6 py-20',
     )}
   >
