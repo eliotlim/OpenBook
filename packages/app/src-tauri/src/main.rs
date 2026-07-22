@@ -205,6 +205,21 @@ fn tcp_bind_args(published: bool, agent_local_tcp: bool, access_token: &str) -> 
     args
 }
 
+/// The bundled LAN web UI directory — a Next static export staged as the `web-ui`
+/// Tauri resource (see `scripts/build-web-ui.mjs` + `bundle.resources`). Returns
+/// `None` when the resource is absent (e.g. a dev run with no bundle) so the
+/// caller simply doesn't set `OPENBOOK_UI_DIR` and the sidecar stays API-only.
+/// DEV: point the sidecar at the export directly with
+/// `OPENBOOK_UI_DIR=packages/web/out` instead of relying on this bundled path.
+fn resolve_ui_dir(app: &AppHandle) -> Option<String> {
+    let dir = app.path().resource_dir().ok()?.join("web-ui");
+    if dir.join("index.html").is_file() {
+        Some(dir.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
+
 /// Spawn the server sidecar from the current config. It always listens on the
 /// Unix socket (the portless IPC transport); when published it *also* binds
 /// `0.0.0.0` with the access token for LAN access, and when the local-MCP/agent
@@ -248,7 +263,7 @@ fn spawn_sidecar(
         args.push(DEFAULT_PORT.into());
     }
 
-    let (mut rx, child) = app
+    let mut command = app
         .shell()
         .sidecar("openbook-server")
         .map_err(|e| format!("failed to locate server sidecar: {e}"))?
@@ -260,7 +275,22 @@ fn spawn_sidecar(
         .env("OPENBOOK_SIDECAR", "1")
         // The loopback-owner hatch: the sidecar trusts requests stamped with this
         // per-run secret (see `AppState::local_secret`) as the machine owner.
-        .env("OPENBOOK_LOCAL_OWNER_SECRET", local_secret)
+        .env("OPENBOOK_LOCAL_OWNER_SECRET", local_secret);
+
+    // STAB-7 (LAN-hosted web UI): when PUBLISHED on the LAN, also hand the sidecar
+    // the bundled static web bundle (a Next static export staged as the `web-ui`
+    // Tauri resource) so a LAN browser can open `http://<ip>:4319/` directly. Gated
+    // on `published` so the portless / loopback-only defaults NEVER expose a UI —
+    // it tracks the token + `0.0.0.0` bind, which are also published-only. The
+    // sidecar reads OPENBOOK_UI_DIR (server.ts) and 404s every UI path when unset;
+    // an absent resource (a dev build with no bundle) simply leaves it unset.
+    if cfg.published {
+        if let Some(ui_dir) = resolve_ui_dir(app) {
+            command = command.env("OPENBOOK_UI_DIR", ui_dir);
+        }
+    }
+
+    let (mut rx, child) = command
         .spawn()
         .map_err(|e| format!("failed to spawn server sidecar: {e}"))?;
 
