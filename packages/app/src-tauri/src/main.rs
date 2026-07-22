@@ -660,7 +660,7 @@ fn stop_managed_server(app_handle: &AppHandle) {
     // Take the child and DROP the lock guard before the (blocking, up to
     // SHUTDOWN_GRACE_MS) stop — holding it across the wait would block a
     // concurrent publish_server/respawn IPC on the same mutex.
-    let child = state.child.lock().unwrap().take();
+    let child = state.child.lock().unwrap_or_else(|p| p.into_inner()).take();
     if let Some(child) = child {
         stop_server_child(child);
     }
