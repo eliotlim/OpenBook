@@ -2,3 +2,7 @@
 # will have compiled files and executables
 /target/
 
+# STAB-7 LAN web UI: staged Next static export (built by scripts/build-web-ui.mjs,
+# bundled as a Tauri resource). A build product — never commit it.
+/resources/web-ui/
+
