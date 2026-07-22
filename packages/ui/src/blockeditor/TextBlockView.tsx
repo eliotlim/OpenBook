@@ -6,6 +6,7 @@ import {
   blockType,
   cellNeighbor,
   cellPosition,
+  enclosingBlock,
   findBlock,
   htmlToBlocks,
   rootBlocks,
@@ -29,6 +30,9 @@ import type {EditorUI} from './BlockEditor';
  * exception is IME composition, where the browser must own the DOM until
  * `compositionend`, after which the result is diffed back into Y.Text.
  */
+
+/** The container type a paste must escape rather than nest into as a cell sibling. */
+const TABLE_BLOCKS: ReadonlySet<BlockType> = new Set<BlockType>(['table']);
 
 const PLACEHOLDERS: Partial<Record<BlockType, string>> = {
   heading: 'Heading',
@@ -360,7 +364,14 @@ export const TextBlockView: React.FC<{
           apply(() => deleteSelection(sel));
           // Pasting into an empty paragraph replaces it; otherwise insert below.
           const replaceHost = type === 'paragraph' && text.length === 0;
-          let after: string | null = id;
+          // Caret inside a table cell: a cell holds only text, so inserting
+          // blocks as cell siblings makes a container (e.g. a pasted `table`) a
+          // child of `row` — TableView then renders it via TextBlockView, whose
+          // `blockText` is undefined for a table → throw on every render →
+          // white screen, persisted by the doc-driven saver. Redirect the
+          // insertion to *after* the enclosing table instead.
+          const enclosingTable = enclosingBlock(editor.doc, id, TABLE_BLOCKS);
+          let after: string | null = enclosingTable ? blockId(enclosingTable.block) : id;
           for (const b of pasted) {
             after = editor.insertAfter(after, {...b, id: undefined});
           }

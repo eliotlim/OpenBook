@@ -1,16 +1,19 @@
 import {describe, expect, it} from 'vitest';
 import * as Y from 'yjs';
 import {
+  blockType,
   createDoc,
   decodeSnapshot,
   docToJSON,
   dropBeside,
+  enclosingBlock,
   encodeSnapshot,
   insertBlock,
   makeTable,
   mergeWithPrevious,
   migrateLegacyBlocks,
   moveBlock,
+  type NewBlock,
   removeBlock,
   rootBlocks,
   splitBlock,
@@ -342,5 +345,107 @@ describe('htmlToBlocks (clipboard import)', () => {
     expect(blocks).toHaveLength(1);
     expect(blocks[0].type).toBe('paragraph');
     expect(blocks[0].text).toEqual([{t: 'A '}, {t: 'bold', a: {b: true}}, {t: ' cap'}]);
+  });
+});
+
+// The shape of a Notion clipboard table: nested tables inside cells, colspan/
+// rowspan, spacer/ragged/empty rows. Each must normalize to a rectangular
+// table → row → cell tree so render never throws (the v3.3.2 white-screen bug).
+describe('htmlToBlocks — Notion-shaped table normalization', () => {
+  // Read a parsed table block back as a plain grid of joined cell text.
+  const cellText = (text: NewBlock['text']): string =>
+    Array.isArray(text) ? text.map((r) => r.t).join('') : (text ?? '');
+  const grid = (block: NewBlock): string[][] =>
+    (block.children ?? []).map((row) => (row.children ?? []).map((cell) => cellText(cell.text)));
+
+  it('scopes to direct rows/cells — a table nested in a cell is flattened, not spliced into the outer grid', async () => {
+    const {htmlToBlocks} = await import('../../blockeditor/model');
+    const blocks = htmlToBlocks(
+      '<table><tbody>' +
+        '<tr><td>A</td><td>B</td></tr>' +
+        '<tr><td>C</td><td><table><tbody><tr><td>x</td><td>y</td></tr></tbody></table></td></tr>' +
+        '</tbody></table>',
+    );
+    const tables = blocks.filter((b) => b.type === 'table');
+    expect(tables).toHaveLength(1);
+    // Outer grid stays 2×2 — the nested table's cells are NOT pulled up as rows,
+    // and its text folds into the host cell.
+    expect(grid(tables[0])).toEqual([
+      ['A', 'B'],
+      ['C', 'x y'],
+    ]);
+  });
+
+  it('expands colspan/rowspan into a rectangular grid (origin keeps content, spans blank)', async () => {
+    const {htmlToBlocks} = await import('../../blockeditor/model');
+    const blocks = htmlToBlocks(
+      '<table><tbody>' +
+        '<tr><td colspan="2">Wide</td></tr>' +
+        '<tr><td rowspan="2">Tall</td><td>b1</td></tr>' +
+        '<tr><td>c1</td></tr>' +
+        '</tbody></table>',
+    );
+    expect(grid(blocks[0])).toEqual([
+      ['Wide', ''],
+      ['Tall', 'b1'],
+      ['', 'c1'],
+    ]);
+  });
+
+  it('drops cell-less spacer rows, pads ragged rows, keeps blank-but-real cells, stays rectangular', async () => {
+    const {htmlToBlocks} = await import('../../blockeditor/model');
+    const blocks = htmlToBlocks(
+      '<table><tbody>' +
+        '<tr><td>h1</td><td>h2</td><td>h3</td></tr>' +
+        '<tr></tr>' + // structural spacer row — no direct cells → dropped
+        '<tr><td>only</td></tr>' + // ragged → padded to width
+        '<tr><td></td><td></td><td></td></tr>' + // real but blank cells → kept
+        '</tbody></table>',
+    );
+    expect(grid(blocks[0])).toEqual([
+      ['h1', 'h2', 'h3'],
+      ['only', '', ''],
+      ['', '', ''],
+    ]);
+  });
+
+  it('scopes header detection to the first direct row (thead > th), not a nested table', async () => {
+    const {htmlToBlocks} = await import('../../blockeditor/model');
+    const blocks = htmlToBlocks(
+      '<table><thead><tr><th>H1</th><th>H2</th></tr></thead>' +
+        '<tbody><tr><td>a</td><td>b</td></tr></tbody></table>',
+    );
+    expect(blocks[0].props).toEqual({header: true});
+    expect(grid(blocks[0])).toEqual([
+      ['H1', 'H2'],
+      ['a', 'b'],
+    ]);
+  });
+});
+
+describe('paste target — caret inside a table cell', () => {
+  it('redirects a pasted block to after the enclosing table, never as a cell sibling', () => {
+    const doc = createDoc([{type: 'paragraph', text: 'top'}, makeTable(2, 2)]);
+    const original = docToJSON(doc).find((b) => b.type === 'table')!;
+    const cellId = original.children![0].children![0].id!;
+
+    // The exact decision TextBlockView makes on `insertFromPaste`.
+    const enclosing = enclosingBlock(doc, cellId, new Set<'table'>(['table']));
+    expect(enclosing).not.toBeNull();
+    expect(blockType(enclosing!.block)).toBe('table');
+
+    insertBlock(doc, enclosing!.parent, enclosing!.index + 1, {
+      type: 'table',
+      children: [{type: 'row', children: [{type: 'cell', text: 'pasted'}]}],
+    });
+
+    const after = docToJSON(doc);
+    // Two sibling tables at the root — the pasted one landed AFTER, not inside.
+    expect(after.filter((b) => b.type === 'table')).toHaveLength(2);
+    // The original table's rows still contain only cells — nothing poisoned in.
+    const orig = after.find((b) => b.id === original.id)!;
+    for (const row of orig.children ?? []) {
+      expect((row.children ?? []).every((c) => c.type === 'cell')).toBe(true);
+    }
   });
 });
