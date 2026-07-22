@@ -24,6 +24,10 @@ export default tseslint.config(
       'packages/ui/src/components/ui/**',
       // Vendored UMD bundles (d3 / Observable Plot) inlined into the HTML export.
       'packages/ui/src/export/vendor/**',
+      // Generated sidecar assets: `build:sidecar` copies the vendored viewer
+      // bundle + PGlite wasm/data here for the bun-compiled binary. All
+      // generated/vendored (the dir is gitignored); never lint them.
+      'packages/server/assets/**',
       '**/*.config.{js,cjs,mjs,ts}',
       'eslint.config.mjs',
     ],
