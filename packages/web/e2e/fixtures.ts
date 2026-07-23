@@ -91,7 +91,7 @@ async function resetWorkspace(serverUrl: string): Promise<void> {
   const bundle = (await res.json()) as {pages?: {id: string}[]};
   await Promise.all(
     (bundle.pages ?? []).map((p) =>
-      fetch(`${serverUrl}/api/pages/${p.id}`, {method: 'DELETE'}).catch(() => undefined),
+      fetch(`${serverUrl}/api/pages/${p.id}`, {method: 'DELETE', headers: {'X-OpenBook-Client': '1'}}).catch(() => undefined),
     ),
   );
 }
@@ -111,7 +111,7 @@ async function ensureAnyPage(serverUrl: string): Promise<void> {
   if (pages.length > 0) return;
   await fetch(`${serverUrl}/api/pages`, {
     method: 'POST',
-    headers: {'content-type': 'application/json'},
+    headers: {'content-type': 'application/json', 'X-OpenBook-Client': '1'},
     body: JSON.stringify({name: null, data: {editorjs: {blocks: []}, values: [], names: []}}),
   }).catch(() => undefined);
 }
