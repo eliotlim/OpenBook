@@ -140,6 +140,21 @@ export function localPrincipal(name = 'Local'): Principal {
  */
 export const LOCAL_OWNER_HEADER = 'X-OpenBook-Local';
 
+/**
+ * Header stamped by every FIRST-PARTY OpenBook client (STAB-8). Its sole job is to
+ * make an unauthenticated (guest) mutating request NON-SIMPLE in the CORS sense: a
+ * cross-origin `<form>`/`fetch` from a page the browser happens to be visiting can
+ * issue a *simple* POST to the local sidecar (which serves the library over loopback
+ * while any TCP listener is bound), but it can NOT attach a custom request header
+ * without first passing a CORS preflight — and the app-origin allowlist denies the
+ * preflight for a foreign origin. So the server requires this header on guest writes
+ * and the sdk transport sends it on every request; authenticated principals (JWS
+ * identity, PAT bearer, local-owner secret) already ride a non-simple header of their
+ * own and are exempt. The value is not a secret — it authorizes nothing on its own;
+ * it only proves the request is not a browser simple-request forgery.
+ */
+export const CLIENT_HEADER = 'X-OpenBook-Client';
+
 /** Stable short id for a principal — the value embedded in CRDT edit origins. */
 export function principalId(p: Principal): string {
   return p.subject;

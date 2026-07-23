@@ -216,6 +216,7 @@ export {
   principalFromClaims,
   unverifiedPrincipalFromClaims,
   LOCAL_OWNER_HEADER,
+  CLIENT_HEADER,
   type Principal,
   type PrincipalKind,
   type VerifiedVia,
