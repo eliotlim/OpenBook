@@ -25,9 +25,15 @@ _Default access_) — it adds no gate of its own:
 | **Read**   | read only — writes are refused (403) |
 | **Off**    | nothing — reads are refused (401) |
 
-There is **no access token on the LAN web bind** in this version: the browser opens
-straight into the library at whatever your guest-access level allows. Only turn
-Local network access on for networks you trust — the on-panel warning says the same.
+There is **no access token on the LAN web bind** — this is enforced, not just the
+default. A LAN publish is deliberately **tokenless**: publishing always serves the web
+UI, and the shared-secret gate runs *before* the guest gate, so a token would `401`
+every `/api` call the served shell makes and leave an empty page. The desktop never
+mints or passes one on publish, and the server refuses to combine a served UI with an
+access token at all (`createApp` throws — see `uiDir` × `accessToken` in `app.ts`). The
+browser opens straight into the library at whatever your guest-access level allows.
+Only turn Local network access on for networks you trust — the on-panel warning says
+the same.
 
 > Turning on Local network access requires a **claimed** instance (an owner), matching
 > the existing exposure-safety rule for binding beyond loopback.
@@ -60,7 +66,11 @@ open http://127.0.0.1:4319/
 ```
 
 `OPENBOOK_UI_DIR` is read by the server as the fallback for `AppOptions.uiDir`; when
-it is unset the sidecar is API-only and every UI path 404s exactly as before.
+it is unset the sidecar is API-only and every UI path 404s exactly as before. Note that
+`uiDir` and `accessToken` (`--access-token` / `OPENBOOK_ACCESS_TOKEN`) are **mutually
+exclusive** — `createApp` throws if both are set, since a token-gated bind can't serve
+a tokenless UI without 401ing its own `/api` calls. Serve the UI, or gate with a token;
+never both.
 
 ### How it fits together
 
