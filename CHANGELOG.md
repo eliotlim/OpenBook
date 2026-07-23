@@ -1,3 +1,18 @@
+## 3.3.3 (2026-07-23)
+
+### 🩹 Fixes
+
+- **app,ui:** desktop error boundary + poison-page crash-loop recovery (STAB-3) ([#199](https://github.com/eliotlim/OpenBook/pull/199))
+- **blockeditor:** Notion table paste normalization + render guards — end the white-screen crash loop (STAB-1/2) ([#203](https://github.com/eliotlim/OpenBook/pull/203))
+- **desktop:** hide window on close and drain the sidecar off the main thread (STAB-6) ([#202](https://github.com/eliotlim/OpenBook/pull/202))
+- **mcp,desktop,server:** unify the local MCP endpoint — loopback bind on toggle + instance verification (STAB-5) ([#201](https://github.com/eliotlim/OpenBook/pull/201))
+- **ui,desktop:** stop file drops hijacking the webview; origin-guard navigation (STAB-4) ([#200](https://github.com/eliotlim/OpenBook/pull/200))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.3.2 (2026-07-18)
 
 ### 🚀 Features
