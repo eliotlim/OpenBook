@@ -17,6 +17,7 @@ import {PGlite} from '@electric-sql/pglite';
 import {PGLiteSocketServer} from '@electric-sql/pglite-socket';
 import {
   API,
+  CLIENT_HEADER,
   applyView,
   defaultDatabaseSchema,
   HttpDataClient,
@@ -41,6 +42,17 @@ function check(label: string, cond: boolean): void {
 }
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Raw-`fetch` headers for the AI/plugin routes below. Unlike the `HttpDataClient`
+ * paths (which stamp it automatically), these hand-rolled requests must carry the
+ * first-party `X-OpenBook-Client` marker or the server's STAB-8 guest-write gate
+ * rejects them 403 (the e2e server runs guest — no identity provider / accessToken).
+ */
+const clientHeaders = (extra: Record<string, string> = {}): Record<string, string> => ({
+  [CLIENT_HEADER]: '1',
+  ...extra,
+});
 
 const sampleSnapshot = (n: number): PageSnapshot => ({
   editorjs: {blocks: [{type: 'paragraph', data: {text: `hello ${n}`}}]},
@@ -410,7 +422,7 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   await client.savePage({name: `ai-other-${mode}`, data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'Picnic plans for the weekend trip'}}]}, values: [], names: []}});
   let search = await fetch(`${baseUrl}${API.aiSearch}`, {
     method: 'POST',
-    headers: {'content-type': 'application/json'},
+    headers: clientHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({query: 'budget forecast'}),
   }).then((r) => r.json());
   check('lexical search works with AI off', search.mode === 'lexical' && search.results.length > 0);
@@ -420,7 +432,7 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   // Configure the mock engine; config persists in the settings table.
   const put = await fetch(`${baseUrl}${API.aiConfig}`, {
     method: 'PUT',
-    headers: {'content-type': 'application/json'},
+    headers: clientHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({provider: 'mock'}),
   }).then((r) => r.json());
   check('config accepts the mock provider', put.provider === 'mock');
@@ -430,7 +442,7 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   // Hybrid search engages once embeddings exist.
   search = await fetch(`${baseUrl}${API.aiSearch}`, {
     method: 'POST',
-    headers: {'content-type': 'application/json'},
+    headers: clientHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({query: 'budget forecast'}),
   }).then((r) => r.json());
   check('search upgrades to hybrid with an embedding engine', search.mode === 'hybrid');
@@ -438,7 +450,7 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   // Task breakdown returns a clean list.
   const tasks = await fetch(`${baseUrl}${API.aiTasks}`, {
     method: 'POST',
-    headers: {'content-type': 'application/json'},
+    headers: clientHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({goal: 'Plan the launch'}),
   }).then((r) => r.json());
   check('task breakdown returns parsed tasks', Array.isArray(tasks.tasks) && tasks.tasks.length >= 3);
@@ -447,7 +459,7 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   // Completion streams SSE tokens and finishes with done.
   const completion = await fetch(`${baseUrl}${API.aiComplete}`, {
     method: 'POST',
-    headers: {'content-type': 'application/json'},
+    headers: clientHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({text: 'Meeting notes:'}),
   });
   const sse = await completion.text();
@@ -457,11 +469,11 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   check('completion stream closes with done', events.some((e) => e.done === true));
 
   // Reindex endpoint reports counts; unknown provider rejected.
-  const reindex = await fetch(`${baseUrl}${API.aiIndex}`, {method: 'POST'}).then((r) => r.json());
+  const reindex = await fetch(`${baseUrl}${API.aiIndex}`, {method: 'POST', headers: clientHeaders()}).then((r) => r.json());
   check('reindex counts pages', reindex.pages > 0);
   const bad = await fetch(`${baseUrl}${API.aiConfig}`, {
     method: 'PUT',
-    headers: {'content-type': 'application/json'},
+    headers: clientHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({provider: 'nonsense'}),
   });
   check('unknown provider rejected (400)', bad.status === 400);
@@ -481,7 +493,7 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   // Bad requests are rejected before any engine work.
   const noMessages = await fetch(`${baseUrl}${API.agentChat}`, {
     method: 'POST',
-    headers: {'content-type': 'application/json'},
+    headers: clientHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({messages: []}),
   });
   check('agent rejects an empty conversation (400)', noMessages.status === 400);
@@ -489,7 +501,7 @@ async function exerciseAi(baseUrl: string, client: HttpDataClient, mode: string)
   // Back off for the rest of the suite.
   await fetch(`${baseUrl}${API.aiConfig}`, {
     method: 'PUT',
-    headers: {'content-type': 'application/json'},
+    headers: clientHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({provider: 'off'}),
   });
 }
@@ -518,13 +530,13 @@ async function exercisePlugins(baseUrl: string, client: HttpDataClient, mode: st
   // Validation: bad manifests and missing entries are rejected.
   const badManifest = await fetch(`${baseUrl}${API.plugins}`, {
     method: 'POST',
-    headers: {'content-type': 'application/json'},
+    headers: clientHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({manifest: {id: 'NoDots', name: 'x', version: '1', main: 'a.ts'}, files: {'a.ts': 'x'}}),
   });
   check('malformed id rejected (400)', badManifest.status === 400);
   const noEntry = await fetch(`${baseUrl}${API.plugins}`, {
     method: 'POST',
-    headers: {'content-type': 'application/json'},
+    headers: clientHeaders({'content-type': 'application/json'}),
     body: JSON.stringify({manifest: {...manifest, main: 'missing.ts'}, files}),
   });
   check('missing entry file rejected (400)', noEntry.status === 400);

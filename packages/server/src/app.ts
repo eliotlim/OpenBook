@@ -5,6 +5,7 @@ import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
 import {
   API,
+  CLIENT_HEADER,
   FORWARDED_HEADER,
   PAGE_VISIBILITIES,
   type AclLevel,
@@ -76,6 +77,33 @@ function safeEqual(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+/**
+ * The set of browser origins that are the APP ITSELF (STAB-8). The sidecar serves the
+ * library over loopback while any TCP listener is bound (LAN publish, `pnpm dev`
+ * :4319, the STAB-5 MCP-loopback toggle, and unconditionally on Windows where a Unix
+ * socket isn't available), so — before this gate — a wildcard `cors()` let ANY web
+ * page the browser visited read the response of a cross-origin request to it. We now
+ * reflect `Access-Control-Allow-Origin` ONLY for the app's own webview / dev origins;
+ * every foreign origin gets no ACAO, so the browser refuses to expose the response
+ * cross-origin. Requests with NO `Origin` header (same-origin browser fetches, curl,
+ * the desktop IPC transport, the MCP connector, the forwarded-tunnel local hop) are
+ * not CORS-relevant and are untouched — `cors()` sets nothing for them.
+ *
+ *  - `tauri://localhost` — the desktop WKWebView origin (macOS / Linux).
+ *  - `http(s)://tauri.localhost` — the Windows WebView2 origin.
+ *  - `http(s)://localhost[:port]`, `http(s)://127.0.0.1[:port]`, `http(s)://[::1][:port]`
+ *    — the web dev server (`pnpm dev` on :3000) reaching the data server on :4319, and
+ *    the STAB-7 same-origin served UI. Loopback hosts only; a real LAN IP is never
+ *    reflected, so a published instance stays browser-unreadable from a foreign page.
+ */
+const APP_ORIGIN_LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+export function isAppOrigin(origin: string): boolean {
+  if (!origin) return false;
+  if (origin === 'tauri://localhost') return true;
+  if (origin === 'http://tauri.localhost' || origin === 'https://tauri.localhost') return true;
+  return APP_ORIGIN_LOOPBACK.test(origin);
 }
 
 /**
@@ -330,7 +358,28 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // on shutdown BEFORE the store closes — the no-lost-edit-on-shutdown guarantee.
   (app as AppWithCollab).collabPersist = persister;
 
-  app.use('*', cors());
+  // App-origin CORS allowlist (STAB-8, replaces the old wildcard `cors()`). Reflect
+  // ACAO only for the app's own origins (see {@link isAppOrigin}); a foreign origin
+  // gets no ACAO (its response is unreadable cross-origin) and, on a preflight, no
+  // allowed methods/headers either. `allowHeaders` enumerates every header a
+  // first-party client sends so the app's OWN cross-origin preflight (dev :3000 → the
+  // data server, or the STAB-7 served UI) succeeds — including `X-OpenBook-Client`,
+  // the marker the guest-write gate below requires.
+  app.use(
+    '*',
+    cors({
+      origin: (origin) => (isAppOrigin(origin) ? origin : null),
+      allowMethods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-OpenBook-Identity',
+        'X-OpenBook-Guest-Name',
+        'X-OpenBook-Local',
+        CLIENT_HEADER,
+      ],
+    }),
+  );
 
   // API responses are dynamic; never let a client cache them. The desktop
   // WKWebView shell heuristically caches header-less GETs, which made the Trash
@@ -538,6 +587,48 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
           console.error('OpenBook claim-on-sign-in failed:', err);
         });
       }
+    }
+    return next();
+  });
+
+  // Guest-write origin hardening (STAB-8). Runs AFTER principal resolution above, so
+  // `c.principal` is always set, and independently of whether an identity provider is
+  // configured — so it closes the default `guestAccess:'write'` cross-origin write on
+  // a legacy instance too.
+  //
+  // A `guest` is the ONLY principal a browser can reach by a CORS SIMPLE request:
+  // every credentialed principal already rides a non-simple header of its own
+  // (`X-OpenBook-Identity` JWS and `Authorization: Bearer` PAT resolve to a NON-guest
+  // kind; `X-OpenBook-Local` owner secret re-maps to the local principal — OpenBook
+  // auth is header-based, never cookie-based, so an authenticated request is
+  // inherently non-simple and cannot be forged cross-origin as a plain form/`fetch`).
+  // So an UNAUTHENTICATED mutating request must carry the first-party
+  // `X-OpenBook-Client` header, which a cross-origin simple request cannot attach
+  // without a preflight the app-origin allowlist denies for a foreign origin.
+  // (Requiring it unconditionally — not only when a foreign `Origin` is present — also
+  // closes the `Origin: null` / origin-stripped-by-a-privacy-extension edge.)
+  //
+  // An `Authorization` header ALSO exempts: the legacy instance `accessToken` (a LAN
+  // reachability shared secret) authenticates a request but leaves its principal
+  // `guest`, yet `Authorization` is itself a forbidden/non-simple header a foreign
+  // simple request can never set — so a bearer-authed API write (curl / a headless
+  // integration that isn't the sdk) is provably not a browser forgery and stays
+  // reachable without the client marker.
+  //
+  // Reads are never gated: a foreign page can't read the cross-origin response
+  // regardless (no ACAO), and `EventSource` can't set headers, so `/api/live` SSE
+  // stays reachable. Every first-party transport sends the header via the sdk
+  // `HttpDataClient`; the forwarding tunnel relays it verbatim (it is not in the
+  // tunnel's strip-list).
+  app.use('/api/*', async (c, next) => {
+    const method = c.req.method;
+    const mutating = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+    const nonSimpleAuth = c.req.header(CLIENT_HEADER) || c.req.header('Authorization');
+    if (mutating && c.get('principal')?.kind === 'guest' && !nonSimpleAuth) {
+      return c.json(
+        {error: 'this write must originate from an OpenBook client (missing X-OpenBook-Client header)'},
+        403,
+      );
     }
     return next();
   });

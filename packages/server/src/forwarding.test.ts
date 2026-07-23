@@ -2,7 +2,7 @@ import {describe, expect, it} from 'vitest';
 import {ForwardingClient, FORWARDED_HEADER, MemoryKeyStore, mintSiteKeypair, type SiteIdentity} from '@book.dev/sdk';
 
 const json = (body: unknown, status = 200): Response =>
-  new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json'}});
+  new Response(JSON.stringify(body), {status, headers: {'content-type': 'application/json', 'X-OpenBook-Client': '1'}});
 
 /** Poll until `pred` holds. The tunnel's dial chain spans several async hops
  *  (challenge → WebCrypto sign → attach-ticket → open) plus a reconnect backoff,

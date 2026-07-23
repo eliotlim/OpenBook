@@ -78,7 +78,7 @@ const app = () => createApp(store, undefined, new PageHub(), {identity: new Iden
 type App = ReturnType<typeof app>;
 
 const get = (a: App, path: string, jws?: string) =>
-  a.request(path, {headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+  a.request(path, {headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
 
 /** Open the firehose with `query` and return the ids in its FIRST `list` frame,
  *  then cancel — modelling the client baking its identity into the stream URL at

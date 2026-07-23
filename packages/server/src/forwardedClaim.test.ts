@@ -70,7 +70,7 @@ const getPages = (a: ReturnType<typeof withIdentity>, headers: Record<string, st
 const createPage = (a: ReturnType<typeof withIdentity>, headers: Record<string, string> = {}) =>
   a.request('/api/pages', {
     method: 'POST',
-    headers: {'Content-Type': 'application/json', ...headers},
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...headers},
     body: JSON.stringify({name: `p-${seq}-${Math.random()}`, data: snapshot()}),
   });
 

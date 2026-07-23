@@ -83,12 +83,12 @@ const app = () => createApp(store, undefined, new PageHub(), {identity: new Iden
 const claim = () => store.updateInstanceConfig({trustedIssuers: [{issuer: ISS, jwks}], ownerSubject: `${ISS}#owner`});
 
 const get = (a: ReturnType<typeof app>, path: string, jws?: string) =>
-  a.request(path, {headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+  a.request(path, {headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
 
 const put = (a: ReturnType<typeof app>, path: string, body: string, jws?: string) =>
   a.request(path, {
     method: 'PUT',
-    headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
     body,
   });
 
@@ -306,7 +306,7 @@ describe('unclaimed-instance back-compat (rule 0)', () => {
     expect(list.map((x) => x.id)).toContain(p);
     const created = await legacy.request('/api/pages', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: pageBody(`legacy-new-${seq}`),
     });
     expect(created.status).toBe(201);

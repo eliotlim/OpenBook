@@ -86,7 +86,7 @@ const instanceInfo = async (a: ReturnType<typeof appWithHatch>, headers: Record<
 const putInstance = (a: ReturnType<typeof appWithHatch>, body: unknown, headers: Record<string, string> = {}) =>
   a.request('/api/instance', {
     method: 'PUT',
-    headers: {'Content-Type': 'application/json', ...headers},
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...headers},
     body: JSON.stringify(body),
   });
 
@@ -265,7 +265,7 @@ describe('whole-workspace export/import is instance administration', () => {
       const a = appWithHatch();
       const bundle = JSON.stringify({pages: [], databases: []});
       const post = (headers: Record<string, string>) =>
-        a.request('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json', ...headers}, body: bundle});
+        a.request('/api/import', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...headers}, body: bundle});
       expect((await post({[IDENTITY_HEADER]: await jws('view')})).status).toBe(403);
       expect((await post(local())).status).toBe(200);
     });

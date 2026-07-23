@@ -136,7 +136,7 @@ describe('ER-6 — /api/import idempotency (content-hash dedup)', () => {
     const post = () =>
       app.request('/api/import', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
         body: JSON.stringify(bundle),
       });
     expect((await post()).status).toBe(200);
@@ -221,7 +221,7 @@ describe('ER-7 — client write-replay idempotency (per-principal key)', () => {
     // client built. The server's ON CONFLICT no-op means no duplicate page.
     const replay = await app.request('/api/pages', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: lastBody!,
     });
     expect(replay.status).toBe(201);

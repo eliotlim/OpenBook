@@ -41,7 +41,7 @@ describe('default account.book.pub trust', () => {
       fetched += 1;
       return new Response(JSON.stringify({keys: [kp.publicJwk]}), {
         status: 200,
-        headers: {'content-type': 'application/json'},
+        headers: {'content-type': 'application/json', 'X-OpenBook-Client': '1'},
       });
     };
     const identity = new IdentityService(store, {fetchImpl});

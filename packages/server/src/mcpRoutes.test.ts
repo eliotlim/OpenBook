@@ -44,7 +44,7 @@ const appWith = (mcp: McpClientManager) =>
 const req = (app: ReturnType<typeof appWith>, method: string, path: string, body?: unknown, jws?: string) =>
   app.request(path, {
     method,
-    headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
     ...(body === undefined ? {} : {body: JSON.stringify(body)}),
   });
 

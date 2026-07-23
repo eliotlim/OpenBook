@@ -66,7 +66,7 @@ describe('guest-access gate', () => {
     expect((await app.request('/api/pages')).status).toBe(200);
     const res = await app.request('/api/pages', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: pageBody(`g-write-${seq}`),
     });
     expect(res.status).toBe(201);
@@ -78,7 +78,7 @@ describe('guest-access gate', () => {
     expect((await app.request('/api/pages')).status).toBe(200);
     const res = await app.request('/api/pages', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: pageBody(`g-ro-${seq}`),
     });
     expect(res.status).toBe(403);
@@ -135,7 +135,7 @@ describe('change provenance (edit log)', () => {
     const created = await (
       await app.request('/api/pages', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-OpenBook-Guest-Name': 'Caryl'},
+        headers: {'Content-Type': 'application/json', 'X-OpenBook-Guest-Name': 'Caryl', 'X-OpenBook-Client': '1'},
         body: pageBody(`prov-guest-${seq}`),
       })
     ).json();
@@ -172,13 +172,13 @@ describe('change provenance (edit log)', () => {
     const created = await (
       await app.request('/api/pages', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
         body: pageBody(`prov-http-${seq}`),
       })
     ).json();
     await app.request(`/api/pages/${created.id}`, {
       method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({id: created.id, name: `prov-http-${seq}`, data: {editorjs: {blocks: [{type: 'paragraph', data: {text: 'hi'}}]}, values: [], names: []}}),
     });
     await new Promise((r) => setTimeout(r, 25));
@@ -191,7 +191,7 @@ describe('change provenance (edit log)', () => {
 
 describe('review-layer author identity', () => {
   const createPage = async (app: ReturnType<typeof appWithIdentity>, headers: Record<string, string>) =>
-    (await app.request('/api/pages', {method: 'POST', headers: {'Content-Type': 'application/json', ...headers}, body: pageBody(`rev-${seq}`)})).json();
+    (await app.request('/api/pages', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...headers}, body: pageBody(`rev-${seq}`)})).json();
 
   it('stamps the verified principal on a suggestion', async () => {
     const app = appWithIdentity();
@@ -222,7 +222,7 @@ describe('review-layer author identity', () => {
     const com = await (
       await app.request(`/api/pages/${page.id}/comments`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-OpenBook-Guest-Name': 'Caryl'},
+        headers: {'Content-Type': 'application/json', 'X-OpenBook-Guest-Name': 'Caryl', 'X-OpenBook-Client': '1'},
         body: JSON.stringify({pageId: page.id, authorName: 'Caryl', body: [{t: 'hi'}], blockId: 'b1'}),
       })
     ).json();
@@ -254,7 +254,7 @@ describe('instance policy ownership', () => {
     // A guest cannot change policy now.
     const guestPut = await app.request('/api/instance', {
       method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({guestAccess: 'off'}),
     });
     expect(guestPut.status).toBe(403);
