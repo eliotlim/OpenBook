@@ -1466,7 +1466,7 @@ export const en = {
     publish: 'Local network access (advanced)',
     publishDescription: 'Spin up a shareable server so other devices on your network can open this library.',
     publishToggle: 'Turn on local network access',
-    publishWarning: 'No login: anyone who can reach the address below — with the access token — can read and edit this library. Only enable on networks you trust.',
+    publishWarning: 'No login required: anyone on your network who can reach the address below gets in at your library’s Default access level (set above) — at Write, that means they can read and edit everything. Only turn this on for networks you trust.',
     lanAddress: 'Network address',
     openInBrowserHint:
       'Open this address in any browser on your network to use OpenBook there — no install needed. It opens with the library’s guest access (see Default access above). Signing in to an account over a plain LAN address isn’t supported yet.',
