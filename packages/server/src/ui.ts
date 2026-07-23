@@ -50,7 +50,11 @@ export function mountUi(app: Hono<AppEnv>, uiDir: string): void {
     // Try a concrete asset first (hashed JS/CSS/img/font), else fall back to the
     // SPA shell so a client-routed deep link (`/some/page`) still boots the app.
     const asset = resolveWithinRoot(root, pathname);
-    if (asset && isFile(asset)) return serveFile(c, asset, /*immutable*/ isHashed(pathname));
+    // Base the immutable-cache decision on the RESOLVED path (relative to root),
+    // never the raw request: a `..`-normalized or oddly-encoded request that lands
+    // on a non-hashed file must not be able to spoof a 1-year immutable hint from a
+    // `/_next/`-looking prefix it no longer resolves to.
+    if (asset && isFile(asset)) return serveFile(c, asset, /*immutable*/ isHashed(path.relative(root, asset)));
     if (isFile(indexPath)) return serveFile(c, indexPath, /*immutable*/ false);
     return next();
   });
@@ -87,9 +91,15 @@ function isFile(p: string): boolean {
   }
 }
 
-/** A build-hashed asset (immutable, safe to cache hard) — Next emits `/_next/…`. */
-function isHashed(pathname: string): boolean {
-  return pathname.startsWith('/_next/') || /\.[0-9a-f]{8,}\.[a-z0-9]+$/i.test(pathname);
+/**
+ * A build-hashed asset (immutable, safe to cache hard). Next emits everything under
+ * `_next/` build-hashed, plus content-hashed filenames like `foo.a1b2c3d4.js`. Takes
+ * a path RELATIVE to the UI root (see the caller) — not the raw request pathname — so
+ * the cache hint tracks the file actually served, not a spoofable request prefix.
+ */
+function isHashed(relPath: string): boolean {
+  const normalized = relPath.split(path.sep).join('/');
+  return normalized.startsWith('_next/') || /\.[0-9a-f]{8,}\.[a-z0-9]+$/i.test(normalized);
 }
 
 function serveFile(c: Context<AppEnv>, filePath: string, immutable: boolean) {
@@ -98,7 +108,13 @@ function serveFile(c: Context<AppEnv>, filePath: string, immutable: boolean) {
   // Hashed assets are content-addressed → cache hard; the mutable shell must be
   // revalidated so a redeploy is picked up.
   const cacheControl = immutable ? 'public, max-age=31536000, immutable' : 'no-cache';
-  return c.body(bytes, 200, {'Content-Type': type, 'Cache-Control': cacheControl});
+  // Serve the declared MIME verbatim — never let a browser content-sniff a served
+  // asset into an executable type (defense-in-depth for a LAN-reachable origin).
+  return c.body(bytes, 200, {
+    'Content-Type': type,
+    'Cache-Control': cacheControl,
+    'X-Content-Type-Options': 'nosniff',
+  });
 }
 
 const MIME: Record<string, string> = {

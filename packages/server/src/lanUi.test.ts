@@ -3,6 +3,10 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
 import {startServer, type RunningServer} from './server';
+import {PgliteDb} from './db';
+import {PageStore} from './store';
+import {PageHub} from './hub';
+import {createApp} from './app';
 
 // STAB-7 spike: prove the sidecar can ALSO serve a pre-built web UI on its TCP
 // port (the LAN bind) without shadowing the API. A tiny fixture bundle stands in
@@ -51,6 +55,9 @@ describe('STAB-7 — sidecar serves the LAN web UI alongside the API', () => {
     expect(asset.status).toBe(200);
     expect(asset.headers.get('content-type')).toMatch(/javascript/);
     expect(asset.headers.get('cache-control')).toContain('immutable');
+    // Every served asset is `nosniff` — a LAN-reachable origin must never let a
+    // browser content-sniff a file into an executable type (Sasha).
+    expect(asset.headers.get('x-content-type-options')).toBe('nosniff');
     expect(await asset.text()).toBe(APP_JS);
 
     // The API still answers JSON on the same port — the UI catch-all is mounted
@@ -88,10 +95,17 @@ describe('STAB-7 — sidecar serves the LAN web UI alongside the API', () => {
     expect(health.status).toBe(200);
     expect(await health.text()).toBe('ok');
 
-    // Path traversal out of the UI root is refused (falls back to the shell, never
-    // leaks a file above the bundle).
-    const traversal = await fetch(`${base}/../../../../etc/passwd`);
-    expect(await traversal.text()).not.toContain('root:');
+    // Path traversal out of the UI root is refused. Use a PERCENT-ENCODED `../`
+    // (`%2e%2e%2f`) so the escape survives fetch/URL client-side normalization and
+    // reaches the server STILL encoded — a raw `../../` would be collapsed by the
+    // client before it ever hit the wire, so it never exercised `resolveWithinRoot`.
+    // The server decodes it, `resolveWithinRoot` rejects the escape, and the request
+    // falls back to the SPA shell — never leaking a file above the bundle.
+    const traversal = await fetch(`${base}/%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd`);
+    expect(traversal.status).toBe(200);
+    const traversalBody = await traversal.text();
+    expect(traversalBody).not.toContain('root:');
+    expect(traversalBody).toContain('id="__next"'); // the shell, not the escaped file
   });
 
   it('is OFF by default: with no uiDir a UI request 404s (API-only, unchanged)', async () => {
@@ -105,5 +119,41 @@ describe('STAB-7 — sidecar serves the LAN web UI alongside the API', () => {
     const pages = await fetch(`${base}/api/pages`);
     expect(pages.status).toBe(200);
     expect(Array.isArray(await pages.json())).toBe(true);
+  });
+});
+
+// STAB-7 invariant (owner-decided): serving the LAN web UI and the shared-secret
+// `accessToken` gate are MUTUALLY EXCLUSIVE. The token gate runs BEFORE `guestAccess`
+// and would 401 every `/api` call the served (tokenless) shell makes — the empty-shell
+// bug. `createApp` fails closed when both are set so that state can never boot.
+describe('STAB-7 — uiDir and accessToken cannot combine', () => {
+  let store: PageStore;
+  let guardDir: string;
+
+  beforeEach(async () => {
+    // These tests drive `createApp` directly, not `startServer`, so null out the
+    // shared `server` handle — otherwise the top-level `afterEach` would re-close
+    // the (already-closed) instance left by the previous describe ("PGlite is closed").
+    server = undefined as unknown as RunningServer;
+    guardDir = join(tmpdir(), `ob-lanui-guard-${process.pid}-${(seq += 1)}`);
+    rmSync(guardDir, {recursive: true, force: true});
+    store = new PageStore(await PgliteDb.create(guardDir));
+    await store.migrate();
+  });
+
+  afterEach(async () => {
+    await store.close();
+    rmSync(guardDir, {recursive: true, force: true});
+  });
+
+  it('createApp throws when both uiDir and accessToken are set', () => {
+    expect(() => createApp(store, undefined, new PageHub(), {uiDir, accessToken: 'sekret'})).toThrow(
+      /mutually exclusive/i,
+    );
+  });
+
+  it('createApp accepts either one alone', () => {
+    expect(() => createApp(store, undefined, new PageHub(), {uiDir})).not.toThrow();
+    expect(() => createApp(store, undefined, new PageHub(), {accessToken: 'sekret'})).not.toThrow();
   });
 });

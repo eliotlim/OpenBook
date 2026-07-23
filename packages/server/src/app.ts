@@ -282,6 +282,19 @@ function resolveAssetStorageBudgetBytes(opt: number | undefined): number {
 }
 
 export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono<AppEnv> {
+  // STAB-7 invariant: serving the LAN web UI and the shared-secret gate are
+  // MUTUALLY EXCLUSIVE. The `accessToken` gate runs before `guestAccess` and would
+  // 401 every `/api` call the served (tokenless) shell makes — the shipped-empty-
+  // shell bug. Fail closed at construction so that state can never boot: a LAN
+  // publish is tokenless (guest-gated); a token-gated bind must not also serve a UI.
+  if (opts.uiDir && opts.accessToken) {
+    throw new Error(
+      'createApp: `uiDir` and `accessToken` are mutually exclusive — the served LAN web UI is ' +
+        'tokenless (guest-gated), and a shared-secret gate would 401 every /api call the shell ' +
+        'makes, leaving an empty page. Drop one (STAB-7).',
+    );
+  }
+
   const app = new Hono<AppEnv>();
 
   // Live-collaboration catch-up memory (Collab T1): per-page ephemeral relay docs,
