@@ -26,6 +26,7 @@ import {
   type BlockType,
 } from './model';
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
+import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
 import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
 import {getCustomBlock} from './registry';
 import {CodeBlockView} from './CodeBlockView';
@@ -177,6 +178,12 @@ export const BlockEditor: React.FC<{
   const [linkPicker, setLinkPicker] = useState<{kind: 'page' | 'database'; blockId: string; anchorOffset: number} | null>(null);
   const [live, setLive] = useState(''); // aria-live announcements
   const [fileDragOver, setFileDragOver] = useState(false); // external image drag hovering the editor
+  // Marquee (rubber-band) rectangle, in obe-root-relative coords, while a
+  // drag-select is live; null the rest of the time. Rendered as an overlay.
+  const [marquee, setMarquee] = useState<{left: number; top: number; width: number; height: number} | null>(null);
+  // A marquee drag just ended → swallow the trailing `click` so it doesn't
+  // append a trailing paragraph (the click-below-last-block affordance).
+  const suppressClickRef = useRef(false);
 
   // Insert an inline page-link mention (chosen in the LinkPicker) at the caret.
   const insertMention = useCallback(
@@ -722,6 +729,118 @@ export const BlockEditor: React.FC<{
     }
   };
 
+  // ── Marquee (rubber-band) rectangle select ───────────────────────────────
+  // A drag beginning on empty editor chrome (not text / a control) draws a
+  // rectangle that live-selects the top-level rows it intersects. It COEXISTS
+  // with the plain-click clear: a click that never moves ≥5px does nothing here
+  // and the existing handlers run. Read-only surfaces opt out — selection there
+  // has no copy/keyboard path wired, and we must never expose a mutation route.
+  const startMarquee = (e: React.MouseEvent): void => {
+    if (readOnly || e.button !== 0 || e.shiftKey) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const target = e.target as HTMLElement;
+    // Only empty chrome arms the marquee — never text, media, or a control.
+    if (target.closest(MARQUEE_EXCLUDE)) return;
+
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const scroller = scrollParent(root);
+    const readScroll = (): {top: number; left: number} =>
+      scroller === window
+        ? {top: window.scrollY, left: window.scrollX}
+        : {top: (scroller as HTMLElement).scrollTop, left: (scroller as HTMLElement).scrollLeft};
+    const startScroll = readScroll();
+
+    let engaged = false;
+    let raf: number | null = null;
+    let px = sx;
+    let py = sy;
+    let lastKey = '';
+
+    const selectIfChanged = (ids: string[]): void => {
+      const key = ids.join('|');
+      if (key === lastKey) return;
+      lastKey = key;
+      editor.setSelection(ids);
+    };
+
+    const recompute = (): void => {
+      const now = readScroll();
+      // Re-derive the anchor's CURRENT client position from the scroll delta so
+      // the rectangle stays pinned to the document point it started on while the
+      // page auto-scrolls under it.
+      const ax = sx + (startScroll.left - now.left);
+      const ay = sy + (startScroll.top - now.top);
+      const rect = marqueeRect(ax, ay, px, py); // client coords
+      const rows: {id: string; rect: Rect}[] = [];
+      root.querySelectorAll(':scope > [data-block-row]').forEach((el) => {
+        const r = (el as HTMLElement).getBoundingClientRect();
+        rows.push({id: (el as HTMLElement).dataset.blockRow!, rect: {left: r.left, top: r.top, right: r.right, bottom: r.bottom}});
+      });
+      selectIfChanged(rowsInMarquee(rect, rows));
+      const rr = root.getBoundingClientRect();
+      setMarquee({left: rect.left - rr.left, top: rect.top - rr.top, width: rect.right - rect.left, height: rect.bottom - rect.top});
+    };
+
+    const autoScroll = (): void => {
+      const margin = 48;
+      const speed = 14;
+      const bounds =
+        scroller === window
+          ? {top: 0, bottom: window.innerHeight}
+          : (() => {
+              const b = (scroller as HTMLElement).getBoundingClientRect();
+              return {top: b.top, bottom: b.bottom};
+            })();
+      let dy = 0;
+      if (py < bounds.top + margin) dy = -speed;
+      else if (py > bounds.bottom - margin) dy = speed;
+      if (dy === 0) return;
+      if (scroller === window) window.scrollBy(0, dy);
+      else (scroller as HTMLElement).scrollTop += dy;
+    };
+
+    const loop = (): void => {
+      if (!engaged) return;
+      autoScroll();
+      recompute();
+      raf = requestAnimationFrame(loop);
+    };
+
+    const onMove = (ev: MouseEvent): void => {
+      px = ev.clientX;
+      py = ev.clientY;
+      if (!engaged) {
+        if (Math.abs(px - sx) < 5 && Math.abs(py - sy) < 5) return;
+        engaged = true;
+        // Block-selection takes over from the caret: drop focus + any native
+        // range so the block-selection keyboard router (document-level) engages.
+        (document.activeElement as HTMLElement | null)?.blur();
+        document.getSelection()?.removeAllRanges();
+        root.classList.add('obe-marqueeing'); // user-select:none while dragging
+        raf = requestAnimationFrame(loop);
+      }
+      ev.preventDefault();
+    };
+
+    const onUp = (): void => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (raf != null) cancelAnimationFrame(raf);
+      root.classList.remove('obe-marqueeing');
+      if (engaged) {
+        recompute(); // final frame — keep whatever the release rect selected
+        setMarquee(null);
+        suppressClickRef.current = true; // eat the trailing click
+      }
+      // A plain click (never engaged) falls through to the native handlers.
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   return (
     <div
       ref={rootRef}
@@ -734,9 +853,17 @@ export const BlockEditor: React.FC<{
       onDragLeave={onRootDragLeave}
       onDrop={onRootDrop}
       onMouseDown={(e) => {
+        // Shift-click extension is owned by the row's capture handler (which
+        // stops propagation) — a shift-mousedown reaching here is empty space.
+        if (e.shiftKey) return;
+        startMarquee(e);
         if (e.target === rootRef.current) editor.clearSelection();
       }}
       onClick={(e) => {
+        if (suppressClickRef.current) {
+          suppressClickRef.current = false;
+          return; // a marquee drag just ended here — not a real click
+        }
         // Mentions navigate; links open in a new tab. (Mentions are
         // contenteditable=false so a plain click is unambiguous; links keep
         // the caret behavior on plain click only when editing is impossible.)
@@ -822,6 +949,13 @@ export const BlockEditor: React.FC<{
       {toolbar && !readOnly && (
         <InlineToolbar state={toolbar} onToggle={toggleFormat} onColor={(key, token) => setFormat(key, token)} />
       )}
+      {marquee && (
+        <div
+          className="obe-marquee"
+          aria-hidden
+          style={{left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height}}
+        />
+      )}
       <div aria-live="polite" className="obe-sr-only">
         {live}
       </div>
@@ -830,6 +964,26 @@ export const BlockEditor: React.FC<{
 };
 
 const topLevelIds = (doc: Y.Doc): string[] => rootBlocks(doc).map((b) => blockId(b));
+
+// A marquee only arms on empty editor chrome. Anything a pointer-down should
+// "do something else" with — edit text, drag the handle, click a control,
+// interact with media / a kit widget — is excluded so the drag keeps its native
+// meaning (text selection, HTML5 block drag, button press).
+const MARQUEE_EXCLUDE =
+  '[contenteditable="true"], input, textarea, select, button, a, label, ' +
+  '[role="button"], [role="menuitem"], [role="slider"], [role="checkbox"], [role="tab"], ' +
+  'img, canvas, iframe, video, .obe-handle, .obe-gutter-btn';
+
+/** Nearest scrollable ancestor (for marquee auto-scroll); falls back to the window. */
+const scrollParent = (el: HTMLElement): HTMLElement | Window => {
+  let node: HTMLElement | null = el.parentElement;
+  while (node) {
+    const style = getComputedStyle(node);
+    if (/(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) return node;
+    node = node.parentElement;
+  }
+  return window;
+};
 
 function firstTextDescendant(doc: Y.Doc, id: string): string | null {
   const found = findBlock(doc, id);
@@ -927,6 +1081,23 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragLeave={() => setDrag((d) => (d?.over?.id === id ? {...d, over: null} : d))}
+      // Shift-click a block extends the block selection contiguously. Only the
+      // top-level row owns this (capture beats the caret + stops the marquee /
+      // root handlers); a shift-click inside a nested block still resolves to
+      // its whole top-level container via this row's id.
+      onMouseDownCapture={
+        depth === 0 && !editor.readOnly
+          ? (e) => {
+              if (!e.shiftKey || e.button !== 0) return;
+              e.preventDefault();
+              e.stopPropagation();
+              (document.activeElement as HTMLElement | null)?.blur();
+              document.getSelection()?.removeAllRanges();
+              const order = rootBlocks(editor.doc).map((b) => blockId(b));
+              editor.setSelection(shiftClickRange(order, editor.selection, id, editor.focusedId));
+            }
+          : undefined
+      }
     >
       {!editor.readOnly && (
         <div className={`obe-gutter${depth > 0 ? ' obe-gutter-nested' : ''}`} contentEditable={false}>
