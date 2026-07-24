@@ -162,6 +162,18 @@ export const ja: PartialMessages = {
       suggestEdit: '編集を提案…',
       comment: 'コメント…',
     },
+    table: {
+      sectionRow: '行',
+      sectionColumn: '列',
+      insertRowAbove: '上に行を挿入',
+      insertRowBelow: '下に行を挿入',
+      insertColumnLeft: '左に列を挿入',
+      insertColumnRight: '右に列を挿入',
+      duplicateRow: '行を複製',
+      deleteRow: '行を削除',
+      deleteColumn: '列を削除',
+      toggleHeader: 'ヘッダー行を切り替え',
+    },
   },
   share: {
     open: '共有',

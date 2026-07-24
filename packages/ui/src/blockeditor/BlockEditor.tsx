@@ -1,5 +1,23 @@
 import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState} from 'react';
-import {Boxes, Check, ChevronDown, ChevronRight, EyeOff, GripVertical, Lock, LockOpen, Plus, RefreshCw} from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Boxes,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  EyeOff,
+  GripVertical,
+  Heading,
+  Lock,
+  LockOpen,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 import type * as Y from 'yjs';
 import {
   blockChildren,
@@ -13,12 +31,14 @@ import {
   moveBlock,
   parentBlockOf,
   blockToJSON,
+  cellPosition,
   cloneBlock,
   removeBlock,
   rootBlocks,
   setBlockProp,
   tableDeleteColumn,
   tableDeleteRow,
+  tableDuplicateRow,
   tableGrid,
   tableInsertColumn,
   tableInsertRow,
@@ -51,6 +71,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuShortcut,
   ContextMenuSub,
@@ -1836,6 +1857,100 @@ const ColumnsView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}
 
 // ── Table ─────────────────────────────────────────────────────────────────────
 
+/**
+ * The row/column actions for a single table cell, computed from that cell's
+ * SORTED grid position via {@link cellPosition} — so every op targets the right
+ * index even after the row/column has been reordered (the sorted-vs-array trap).
+ * Positional ops only; TBL-2 adds Move items and TBL-4 adds colour submenus at
+ * the anchors below. Rendered inside a {@link ContextMenuContent}; content is
+ * mounted fresh on each open, so the position is always read live from the doc.
+ */
+const TableCellMenuContent: React.FC<{
+  cell: BlockMap;
+  tableId: string;
+  editor: BlockEditorController;
+}> = ({cell, tableId, editor}) => {
+  const doc = editor.doc;
+  const pos = cellPosition(doc, blockId(cell));
+  // An orphaned cell (its column was deleted concurrently) has no grid
+  // position — fall back to nothing rather than fire ops at a bad index.
+  if (!pos) return null;
+  const {row, col, table} = pos;
+  const header = blockProp<boolean>(table, 'header') ?? false;
+  const toggleHeader = (): void => {
+    doc.transact(() => setBlockProp(table, 'header', !header), 'local');
+  };
+  return (
+    <ContextMenuContent className="w-52">
+      <ContextMenuLabel>{t('menu.table.sectionRow')}</ContextMenuLabel>
+      <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row)}>
+        <ArrowUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowAbove')}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row + 1)}>
+        <ArrowDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowBelow')}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => tableDuplicateRow(doc, tableId, row)}>
+        <Copy className="mr-2 h-3.5 w-3.5" /> {t('menu.table.duplicateRow')}
+      </ContextMenuItem>
+      {/* TBL-2 anchor: Move row up / down go here. */}
+      <ContextMenuItem
+        className="text-destructive focus:text-destructive"
+        onSelect={() => tableDeleteRow(doc, tableId, row)}
+      >
+        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteRow')}
+      </ContextMenuItem>
+
+      <ContextMenuSeparator />
+      <ContextMenuLabel>{t('menu.table.sectionColumn')}</ContextMenuLabel>
+      <ContextMenuItem onSelect={() => tableInsertColumn(doc, tableId, col)}>
+        <ArrowLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnLeft')}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => tableInsertColumn(doc, tableId, col + 1)}>
+        <ArrowRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnRight')}
+      </ContextMenuItem>
+      {/* TBL-4 anchor: a "Column colour" submenu (keyed on the colId) goes here.
+          TBL-2 anchor: Move column left / right go here. */}
+      <ContextMenuItem
+        className="text-destructive focus:text-destructive"
+        onSelect={() => tableDeleteColumn(doc, tableId, col)}
+      >
+        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteColumn')}
+      </ContextMenuItem>
+
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={toggleHeader}>
+        <Heading className="mr-2 h-3.5 w-3.5" /> {t('menu.table.toggleHeader')}
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
+};
+
+/**
+ * Wraps a cell's `<td>` in its own right-click menu. The trigger stops the
+ * contextmenu event from bubbling to the table block's {@link BlockRowMenu}, so
+ * inside a cell you get the table menu and on the table chrome (padding cells,
+ * gaps) you still get the block menu — acceptance #1/#2. When `suppress` (read-
+ * only page or a kit-locked cell) it renders the plain `<td>` with no menu, so
+ * a locked table exposes no mutating items — acceptance #4.
+ */
+export const TableCellMenu: React.FC<{
+  cell: BlockMap;
+  tableId: string;
+  editor: BlockEditorController;
+  suppress: boolean;
+  children: React.ReactNode;
+}> = ({cell, tableId, editor, suppress, children}) => {
+  if (suppress) return <>{children}</>;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
+        {children}
+      </ContextMenuTrigger>
+      <TableCellMenuContent cell={cell} tableId={tableId} editor={editor} />
+    </ContextMenu>
+  );
+};
+
 const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui} = shared;
   const id = blockId(block);
@@ -1885,9 +2000,11 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                     );
                   }
                   return (
-                    <td key={blockId(cell)}>
-                      <TextBlockView block={cell} editor={cellEditor} ui={ui} />
-                    </td>
+                    <TableCellMenu key={blockId(cell)} cell={cell} tableId={id} editor={editor} suppress={editor.readOnly || lockText}>
+                      <td>
+                        <TextBlockView block={cell} editor={cellEditor} ui={ui} />
+                      </td>
+                    </TableCellMenu>
                   );
                 })}
               </tr>
