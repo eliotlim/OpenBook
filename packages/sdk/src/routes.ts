@@ -210,6 +210,14 @@ export const API = {
    * "you manage sharing of pages you can write" rule as the ACL).
    */
   pageVisibility: (id: string): string => `/api/pages/${encodeURIComponent(id)}/visibility`,
+  /**
+   * A page's agent-edits policy (AGED-1): `GET` returns `{agentEdits}` (`inherit` |
+   * `suggest` | `direct`, read-gated); `PUT` `{agentEdits}` sets it. Unlike
+   * visibility, the `PUT` is jws-only — an agent PAT must NOT change the policy that
+   * governs whether agents edit directly (self-authorization). Resolve against the
+   * instance mode with `resolveAgentEdits`.
+   */
+  pageAgentEdits: (id: string): string => `/api/pages/${encodeURIComponent(id)}/agent-edits`,
 
   // ── Managed library: instance ↔ library roster sync — OB-199 / LIB-5 ─────────
   /**

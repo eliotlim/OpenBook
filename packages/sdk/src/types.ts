@@ -184,6 +184,46 @@ export const PAGE_VISIBILITIES: readonly PageVisibility[] = [
   'restricted',
 ];
 
+/**
+ * The two INSTANCE-level agent-edits modes (AGED-1). Governs whether an agent (an
+ * MCP tool or the built-in AI) writes a page DIRECTLY or persists its change as a
+ * suggestion for a human to accept. `suggest` is the safe default; `direct` opts the
+ * whole instance into unattended agent edits. This is the resolved (effective) shape
+ * — never `inherit`, which is a page-level pointer at this instance mode.
+ */
+export type AgentEditsMode = 'suggest' | 'direct';
+
+/**
+ * A PAGE's agent-edits policy (AGED-1). `inherit` (the default) defers to the
+ * instance's {@link AgentEditsMode}; `suggest` / `direct` override it for this page.
+ * Resolve to an effective {@link AgentEditsMode} with {@link resolveAgentEdits}.
+ */
+export type AgentEditsPolicy = 'inherit' | 'suggest' | 'direct';
+
+/** Every {@link AgentEditsMode} — the source of truth for validating an instance
+ *  policy write (`PUT /api/instance`). */
+export const AGENT_EDITS_MODES: readonly AgentEditsMode[] = ['suggest', 'direct'];
+
+/** Every {@link AgentEditsPolicy} — the source of truth for validating a page policy
+ *  write (`PUT /api/pages/:id/agent-edits`). */
+export const AGENT_EDITS_POLICIES: readonly AgentEditsPolicy[] = ['inherit', 'suggest', 'direct'];
+
+/**
+ * Resolve a page's agent-edits policy against the instance mode into the ONE
+ * effective {@link AgentEditsMode} (AGED-1 — the single source of truth shared by the
+ * server, the MCP layer, and the UI). Precedence: an explicit page policy
+ * (`suggest` / `direct`) wins; otherwise the instance mode; otherwise the safe
+ * `suggest` default (a pre-AGED-1 / unset instance, or `page='inherit'` with no
+ * instance mode). Never returns `inherit`.
+ */
+export function resolveAgentEdits(
+  page: AgentEditsPolicy,
+  instance: AgentEditsMode | undefined,
+): AgentEditsMode {
+  if (page === 'suggest' || page === 'direct') return page;
+  return instance ?? 'suggest';
+}
+
 /** The two OSS roster roles (OB-182): `admin` = full access, `viewer` = locked
  *  read-only. (Contract §1.1 names this union `Role`.) */
 export type MemberRole = 'admin' | 'viewer';

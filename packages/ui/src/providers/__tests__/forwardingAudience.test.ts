@@ -79,6 +79,7 @@ function makeFake(opts: FakeOpts = {}) {
       if (patch.requireAudience !== undefined) state.requireAudience = !!patch.requireAudience;
       return {
         guestAccess: 'write',
+        agentEdits: 'suggest',
         trustedIssuers: [],
         ownerSubject: state.ownerSubject ?? undefined,
         audience: state.audience ?? undefined,

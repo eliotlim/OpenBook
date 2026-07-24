@@ -16,8 +16,10 @@ export type {
   AclLevel,
   Member,
   PageAcl,
+  AgentEditsMode,
+  AgentEditsPolicy,
 } from './types';
-export {emptyPageSnapshot, PAGE_VISIBILITIES} from './types';
+export {emptyPageSnapshot, PAGE_VISIBILITIES, AGENT_EDITS_MODES, AGENT_EDITS_POLICIES, resolveAgentEdits} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
 export type {DataClient, PageSubscription, FetchLike, LiveSourceLike, HttpDataClientOptions, IdentityCredential, CreateAgentTokenInput, CreatedAgentToken, AgentTokenList} from './client';
 export {HttpDataClient, IdentityRejectedError} from './client';
