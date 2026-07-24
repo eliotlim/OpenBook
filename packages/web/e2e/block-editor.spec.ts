@@ -716,3 +716,51 @@ test('shift-click extends the block selection contiguously', {tag: ['@editor']},
   await expect(rows.nth(3)).toHaveClass(/obe-row-selected/);
   await expect(rows.nth(0)).not.toHaveClass(/obe-row-selected/);
 });
+
+// ── Multi-block drag (SEL-2) ────────────────────────────────────────────────
+
+/** Text of each top-level row, in document order. */
+const rowOrder = (page: import('@playwright/test').Page): Promise<string[]> =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.obe-root > [data-block-row]')].map(
+      (row) => row.querySelector('.obe-text')?.textContent ?? '',
+    ),
+  );
+
+test('SEL-2 multi-drag: marquee 3 blocks, group-drag to the top, one undo restores', {tag: ['@editor']}, async ({page}) => {
+  await freshLab(page);
+  await fiveBlocks(page);
+  // Let the typing settle into its own undo step (400ms coalesce window), so the
+  // later group-move is a distinct, single undo.
+  await page.waitForTimeout(500);
+
+  const rows = page.locator('.obe-root > [data-block-row]');
+  const before = await rowOrder(page); // [s0, s1, s2, four, five]
+
+  // Marquee-select the last three rows (2, 3, 4) — same sweep the marquee test uses.
+  const r2 = (await rows.nth(2).boundingBox())!;
+  const r4 = (await rows.nth(4).boundingBox())!;
+  await page.mouse.move(r4.x + r4.width * 0.75, r4.y + r4.height + 24);
+  await page.mouse.down();
+  await page.mouse.move(r4.x + r4.width * 0.5, r4.y, {steps: 6});
+  await page.mouse.move(r4.x + r4.width * 0.25, r2.y + r2.height / 2, {steps: 6});
+  await page.mouse.up();
+  await expect(page.locator('.obe-row-selected')).toHaveCount(3);
+  const moved = before.slice(2); // [s2, four, five]
+
+  // Grab a SELECTED row's handle and drop above the first row: the whole
+  // selection moves to the top as one block, in its original relative order.
+  await rows.nth(2).hover();
+  const target = rows.nth(0);
+  const tb = (await target.boundingBox())!;
+  await rows.nth(2).locator('.obe-handle').dragTo(target, {targetPosition: {x: tb.width / 2, y: tb.height * 0.15}});
+
+  await expect(rows).toHaveCount(5);
+  await expect.poll(() => rowOrder(page)).toEqual([...moved, before[0], before[1]]);
+
+  // A single undo restores the original order (one transaction). Focus a text
+  // block first — the undo shortcut lives on the focused block.
+  await rows.nth(0).locator('.obe-text').click();
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => rowOrder(page)).toEqual(before);
+});

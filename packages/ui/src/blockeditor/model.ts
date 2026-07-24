@@ -362,6 +362,106 @@ export function moveBlock(doc: Y.Doc, id: string, targetParentId: string | null,
   }, 'local');
 }
 
+/**
+ * The top-most, document-ordered subset of `ids`: ids that are descendants of
+ * another id in the set collapse into their ancestor, and the survivors come
+ * back in pre-order (the order they appear in the document). Missing ids drop.
+ */
+export function orderedTopMost(doc: Y.Doc, ids: Iterable<string>): string[] {
+  const set = new Set(ids);
+  const kept = new Set<string>();
+  for (const id of set) {
+    let isDescendant = false;
+    for (const other of set) {
+      if (other === id) continue;
+      const found = findBlock(doc, other);
+      const children = found ? blockChildren(found.block) : undefined;
+      if (children) {
+        for (const entry of walkBlocks(children)) {
+          if (blockId(entry.block) === id) {
+            isDescendant = true;
+            break;
+          }
+        }
+      }
+      if (isDescendant) break;
+    }
+    if (!isDescendant && findBlock(doc, id)) kept.add(id);
+  }
+  const order: string[] = [];
+  for (const {block} of walkBlocks(rootBlocks(doc))) {
+    const id = blockId(block);
+    if (kept.has(id)) order.push(id);
+  }
+  return order;
+}
+
+/**
+ * Move MANY blocks to `toIndex` of the array identified by `targetParentId`
+ * (`null` = the root list) in ONE transaction — one undo step, one broadcast —
+ * so a multi-block drag lands and reverts atomically.
+ *
+ * `toIndex` follows {@link moveBlock}'s caller contract: it is a *current-doc*
+ * index into the target array (the slot the drop target reports, before any
+ * removal); the movers land contiguously there in document order. Forward moves
+ * inside the same parent are adjusted for the gap the removals open.
+ *
+ * Like `moveBlock`, each block is re-inserted via clone (Yjs forbids
+ * re-parenting an attached type), so a concurrent *remote* text edit to a moved
+ * block is lost. That is the accepted trade-off for a deliberate local reorder.
+ *
+ *  - ids that are descendants of another moved id collapse to the top-most;
+ *  - a block whose subtree contains the target parent is skipped (a container
+ *    can't nest into itself) — the guard is applied per moved block.
+ */
+export function moveBlocks(doc: Y.Doc, ids: Iterable<string>, targetParentId: string | null, toIndex: number): void {
+  doc.transact(() => {
+    const target =
+      targetParentId === null ? rootBlocks(doc) : blockChildren(findBlock(doc, targetParentId)?.block as BlockMap);
+    if (!target) return;
+
+    // Top-most, document-ordered, target-safe movers.
+    const moving = orderedTopMost(doc, ids).filter((id) => {
+      if (targetParentId === null) return true;
+      if (id === targetParentId) return false;
+      const found = findBlock(doc, id);
+      if (!found) return false;
+      // Refuse dropping a container into its own subtree.
+      const children = blockChildren(found.block);
+      if (children) {
+        for (const entry of walkBlocks(children)) {
+          if (blockId(entry.block) === targetParentId) return false;
+        }
+      }
+      return true;
+    });
+    if (moving.length === 0) return;
+
+    // Snapshot the movers (clone off still-attached maps) and count how many sit
+    // in the target array before the insertion point — each opens a one-slot gap
+    // once removed, so the effective insert index shifts left by that many.
+    const clones: BlockMap[] = [];
+    let shift = 0;
+    for (const id of moving) {
+      const found = findBlock(doc, id);
+      if (!found) continue;
+      if (found.parent === target && found.index < toIndex) shift += 1;
+      clones.push(cloneBlock(found.block));
+    }
+
+    // Remove each mover (re-find by id — earlier deletes shift indices).
+    for (const id of moving) {
+      const found = findBlock(doc, id);
+      if (found) found.parent.delete(found.index, 1);
+    }
+
+    const at = Math.max(0, Math.min(toIndex - shift, target.length));
+    target.insert(at, clones);
+    pruneEmptyContainers(doc);
+    ensureNotEmpty(doc);
+  }, 'local');
+}
+
 /** Split a text block at `offset`: the tail (text + attrs) becomes a new block below. */
 export function splitBlock(doc: Y.Doc, id: string, offset: number, newType?: BlockType): string | null {
   let newId: string | null = null;

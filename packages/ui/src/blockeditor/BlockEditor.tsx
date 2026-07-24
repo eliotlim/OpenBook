@@ -11,6 +11,7 @@ import {
   findBlock,
   makeBlock,
   moveBlock,
+  moveBlocks,
   parentBlockOf,
   blockToJSON,
   cloneBlock,
@@ -122,7 +123,11 @@ export interface BlockEditorHandle {
 
 export type DropRegion = 'above' | 'below' | 'left' | 'right';
 interface DragState {
+  /** The block whose handle is grabbed. */
   id: string;
+  /** Present (length ≥ 2) for a multi-block drag: the whole selection in
+   *  document order, `id` included. Absent for a single-block drag. */
+  ids?: string[];
   over: {id: string; region: DropRegion} | null;
 }
 
@@ -415,7 +420,20 @@ export const BlockEditor: React.FC<{
   };
 
   const performDrop = useCallback(
-    (sourceId: string, targetId: string, region: DropRegion): void => {
+    (sourceId: string, targetId: string, region: DropRegion, ids?: string[]): void => {
+      // Multi-block drag: move the whole (document-ordered) selection to the
+      // drop point in one undo step. Side-drops are disabled while multi-
+      // dragging (v1), so region is always above/below here.
+      if (ids && ids.length > 1) {
+        if (ids.includes(targetId)) return; // never drop the selection onto itself
+        const target = findBlock(doc, targetId);
+        if (!target) return;
+        const parentBlock = parentBlockOf(doc, target.parent);
+        const parentId = parentBlock ? blockId(parentBlock) : null;
+        moveBlocks(doc, ids, parentId, region === 'above' ? target.index : target.index + 1);
+        setLive(`Moved ${ids.length} blocks`);
+        return;
+      }
       if (sourceId === targetId) return;
       if (region === 'left' || region === 'right') {
         dropBeside(doc, sourceId, targetId, region);
@@ -970,6 +988,21 @@ export const BlockEditor: React.FC<{
 
 const topLevelIds = (doc: Y.Doc): string[] => rootBlocks(doc).map((b) => blockId(b));
 
+// Multi-block drag ghost: a small pill showing how many blocks are moving.
+// setDragImage needs the node in the document when it snapshots, so the pill is
+// appended off-screen and removed on the next tick (after the snapshot).
+function setGroupDragImage(e: React.DragEvent, count: number): void {
+  const ghost = document.createElement('div');
+  ghost.className = 'obe-drag-ghost';
+  ghost.textContent = `${count} blocks`;
+  ghost.style.position = 'absolute';
+  ghost.style.top = '-1000px';
+  ghost.style.left = '-1000px';
+  document.body.appendChild(ghost);
+  e.dataTransfer.setDragImage(ghost, 12, 12);
+  setTimeout(() => ghost.remove(), 0);
+}
+
 // A marquee only arms on empty editor chrome. Anything a pointer-down should
 // "do something else" with — edit text, drag the handle, click a control,
 // interact with media / a kit widget — is excluded so the drag keeps its native
@@ -1010,7 +1043,7 @@ export interface RowShared {
   ui: EditorUI;
   drag: DragState | null;
   setDrag: React.Dispatch<React.SetStateAction<DragState | null>>;
-  performDrop: (sourceId: string, targetId: string, region: DropRegion) => void;
+  performDrop: (sourceId: string, targetId: string, region: DropRegion, ids?: string[]) => void;
   computeRegion: (e: React.DragEvent | React.PointerEvent, el: HTMLElement, allowSides: boolean) => DropRegion;
   depth: number;
   /** Type of the block whose children these rows are (null at the root) — a
@@ -1044,7 +1077,10 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
   // Side-drop creates a columns layout (at the root) or grows one (inside a
   // column); never on the columns wrapper itself, nor inside groups/tables.
   const {container} = shared;
-  const allowSides = type !== 'columns' && (container === null || container === 'column');
+  // A multi-block drag only offers above/below (v1): side-drops build columns,
+  // which one-at-a-time semantics don't extend cleanly to a whole selection.
+  const multiDragging = (drag?.ids?.length ?? 0) > 1;
+  const allowSides = type !== 'columns' && (container === null || container === 'column') && !multiDragging;
   // Per-block colours (palette tokens → theme-aware classes on the body).
   const bg = blockProp<string>(block, 'bg');
   const fg = blockProp<string>(block, 'fg');
@@ -1055,6 +1091,7 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
 
   const onDragOver = (e: React.DragEvent): void => {
     if (!drag || drag.id === id || editor.readOnly) return;
+    if (drag.ids?.includes(id)) return; // no drop indicator on a block that's moving
     e.preventDefault();
     e.stopPropagation();
     const region = computeRegion(e, rowRef.current!, allowSides);
@@ -1062,10 +1099,10 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
   };
 
   const onDrop = (e: React.DragEvent): void => {
-    if (!drag) return;
+    if (!drag || drag.ids?.includes(id)) return;
     e.preventDefault();
     e.stopPropagation();
-    performDrop(drag.id, id, computeRegion(e, rowRef.current!, allowSides));
+    performDrop(drag.id, id, computeRegion(e, rowRef.current!, allowSides), drag.ids);
     setDrag(null);
   };
 
@@ -1137,12 +1174,21 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
               className="obe-gutter-btn obe-handle"
               draggable
               onDragStart={(e) => {
+                // A drag that starts on a SELECTED block (with others selected)
+                // moves the whole group; the ids are captured in document order.
+                const sel = editor.selection;
+                const multi = sel.has(id) && sel.size > 1;
+                const ids = multi ? rootBlocks(editor.doc).map(blockId).filter((b) => sel.has(b)) : undefined;
                 // dataTransfer is null on synthetic events (tests) — optional.
                 if (e.dataTransfer) {
                   e.dataTransfer.effectAllowed = 'move';
                   e.dataTransfer.setData('text/plain', id);
+                  if (multi && ids) setGroupDragImage(e, ids.length);
                 }
-                setDrag({id, over: null});
+                // Grabbing a block outside the selection collapses it to just
+                // that block (single-block move preserved).
+                if (!sel.has(id)) editor.setSelection([]);
+                setDrag({id, ids, over: null});
               }}
               onDragEnd={() => setDrag(null)}
               onClick={() => {
