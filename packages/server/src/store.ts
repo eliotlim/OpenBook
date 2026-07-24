@@ -43,6 +43,7 @@ import type {
   VerifiedVia,
 } from '@book.dev/sdk';
 import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {authoredSubject} from './agentWriteGate';
 import type {Db} from './dbCore';
 import type {IndexablePage} from './ai/search';
 import type {AgentTokenRow} from './agentTokens';
@@ -956,7 +957,7 @@ export class PageStore {
     const stamped = stampSnapshotMtimes(priorData, input.data ?? EMPTY_SNAPSHOT, new Date().toISOString());
     const data = authorsByBlock
       ? stampSnapshotAuthorsPerBlock(priorData, stamped, authorsByBlock)
-      : stampSnapshotAuthors(priorData, stamped, verifiedSubject(author));
+      : stampSnapshotAuthors(priorData, stamped, authoredSubject(author));
     // PVH-1: snapshot the state being REPLACED (the prior `data`) into
     // `page_versions` — a row = "what the page was before this save", the state you
     // can roll back TO. Runs BEFORE the upsert, in the same transaction, reading the

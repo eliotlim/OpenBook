@@ -116,8 +116,18 @@ export function mountMcpHttp(app: Hono<AppEnv>, store: PageStore): void {
       // `store`, never a LocalDataClient (either would bypass authorize()). Empty base URL
       // + injected fetchImpl = every call routes back through the app's own middleware.
       const client = new HttpDataClient('', undefined, {fetchImpl});
-      // Remote writes ALWAYS go through the suggestion-review layer (Wave-2).
-      const server = createOpenBookMcpServer(client, {allowDirectEdits: false});
+      // AGED-2 → AGED-3 seam. The old static `allowDirectEdits: false` is GONE: the
+      // agent-edits mode resolves PER PAGE (a page override can differ from the instance
+      // mode), so direct-vs-suggest MUST be decided per write, not once at mount. AGED-3
+      // reshaped `createOpenBookMcpServer` to take a POLICY CLIENT — a `DataClient` that
+      // also exposes `getPageAgentEdits(pageId)` — and each write tool resolves the mode
+      // per call. The PAT-looped `HttpDataClient` ALREADY IS that policy client: its
+      // `getPageAgentEdits` (AGED-1) routes through this same loop-back `fetchImpl`
+      // (`GET /api/pages/:id/agent-edits`), so the PAT's own read access governs it. And
+      // independently, the app.ts server write gate is the authoritative teeth on the
+      // inner direct write — a suggest-mode direct edit 403s at the REST layer no matter
+      // what the tool attempts, so an MCP-layer bug can never out-privilege the PAT.
+      const server = createOpenBookMcpServer(client);
 
       // Stateless transport: no session id to hijack, no per-session memory growth, and
       // (JSON mode) a single buffered JSON response per request. A fresh transport +
