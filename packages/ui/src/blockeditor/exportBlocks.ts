@@ -37,6 +37,30 @@ function runToHtml(run: TextRun): string {
 
 const textHtml = (runs: TextRun[] | undefined): string => (runs ?? []).map(runToHtml).join('');
 
+// ── Cell-range clipboard (TBL-5) ─────────────────────────────────────────────
+// A copied multi-cell selection is a rectangular grid of rich-text runs
+// (`grid[r][c]` = a cell's runs). TSV feeds text/plain consumers (spreadsheets,
+// editors); the HTML <table> round-trips through the paste importer
+// (normalizeTableGrid → tableFromRuns) back into a fresh table block.
+
+/** A cell RANGE as tab/newline-separated plain text (text/plain flavour). Tabs
+ *  and newlines inside a cell collapse to a space so the row/column grid stays
+ *  unambiguous. */
+export function cellRangeToTsv(grid: TextRun[][][]): string {
+  return grid
+    .map((row) => row.map((cell) => cell.map((r) => r.t).join('').replace(/[\t\n]+/g, ' ')).join('\t'))
+    .join('\n');
+}
+
+/** A cell RANGE as an HTML `<table>` (text/html flavour) — pasting it into an
+ *  OpenBook page recreates a table with the same grid (acceptance #3). */
+export function cellRangeToHtml(grid: TextRun[][][]): string {
+  const body = grid
+    .map((row) => `<tr>${row.map((cell) => `<td>${textHtml(cell)}</td>`).join('')}</tr>`)
+    .join('');
+  return `<table class="obe-x-table"><tbody>${body}</tbody></table>`;
+}
+
 /** The current value of a June-2026 kit input rendered as HTML (selection text
  *  for the choosers, escaped/markup text for long/rich text). */
 function kitInputText(b: BlockJSON): string {
