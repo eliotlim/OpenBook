@@ -11,6 +11,7 @@ import {
   createDoc,
   findBlock,
   makeTable,
+  setBlockProp,
   tableColumns,
   tableDuplicateRow,
   tableGrid,
@@ -188,6 +189,24 @@ describe('TableCellMenu', () => {
       ['r0c0', 'r0c1', 'r0c2'],
       ['r1c0', 'r1c1', 'r1c2'],
     ]);
+  });
+
+  // Rendering is positional: with `header`, sorted row 0 IS the header. Offering
+  // "Insert row above" there would push a blank row into the header slot and
+  // silently demote the real header — so the item is hidden in exactly that case.
+  it('hides "Insert row above" only on the header row (sorted row 0 of a header table)', () => {
+    // Header table (makeTable seeds header:true), cell in sorted row 0.
+    openMenu(seedTableDoc(3, 3), 'r0c0');
+    expect(screen.queryByText('Insert row above')).toBeNull();
+    expect(screen.getByText('Insert row below')).toBeTruthy();
+    cleanup();
+
+    // Same coordinate, but a non-header table → both items present.
+    const plain = seedTableDoc(3, 3);
+    setBlockProp(findBlock(plain, 'tbl')!.block, 'header', false);
+    openMenu(plain, 'r0c0');
+    expect(screen.getByText('Insert row above')).toBeTruthy();
+    expect(screen.getByText('Insert row below')).toBeTruthy();
   });
 
   it('uses SORTED coords after a row reorder (insert row above a moved cell)', () => {

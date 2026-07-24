@@ -1893,9 +1893,14 @@ const TableCellMenuContent: React.FC<{
   return (
     <ContextMenuContent className="w-52">
       <ContextMenuLabel>{t('menu.table.sectionRow')}</ContextMenuLabel>
-      <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row)}>
-        <ArrowUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowAbove')}
-      </ContextMenuItem>
+      {/* Rendering is positional: with `header`, sorted row 0 IS the header.
+          Inserting above it would make the blank new row the header and
+          silently demote the real one — so hide the item in that case. */}
+      {!(header && row === 0) && (
+        <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row)}>
+          <ArrowUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowAbove')}
+        </ContextMenuItem>
+      )}
       <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row + 1)}>
         <ArrowDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowBelow')}
       </ContextMenuItem>
