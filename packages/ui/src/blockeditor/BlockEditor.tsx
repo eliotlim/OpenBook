@@ -7,9 +7,12 @@ import {
   Boxes,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Copy,
   EyeOff,
+  GripHorizontal,
   GripVertical,
   Heading,
   Lock,
@@ -37,12 +40,15 @@ import {
   removeBlock,
   rootBlocks,
   setBlockProp,
+  tableColumns,
   tableDeleteColumn,
   tableDeleteRow,
   tableDuplicateRow,
   tableGrid,
   tableInsertColumn,
   tableInsertRow,
+  tableMoveColumn,
+  tableMoveRow,
   TEXT_BLOCKS,
   type BlockMap,
   type BlockType,
@@ -2141,7 +2147,11 @@ const TableCellMenuContent: React.FC<{
   // An orphaned cell (its column was deleted concurrently) has no grid
   // position — fall back to nothing rather than fire ops at a bad index.
   if (!pos) return null;
-  const {row, col, table} = pos;
+  const {row, col, table, rows: rowCount, cols: colCount} = pos;
+  // Ids for the move ops, resolved from the SORTED grid so a reordered table
+  // still targets the right row/column (the sorted-vs-array trap, acceptance #6).
+  const rowId = blockId(tableGrid(table).rows[row]);
+  const colId = tableColumns(table)[col]?.id;
   const header = blockProp<boolean>(table, 'header') ?? false;
   const toggleHeader = (): void => {
     doc.transact(() => setBlockProp(table, 'header', !header), 'local');
@@ -2163,7 +2173,14 @@ const TableCellMenuContent: React.FC<{
       <ContextMenuItem onSelect={() => tableDuplicateRow(doc, tableId, row)}>
         <Copy className="mr-2 h-3.5 w-3.5" /> {t('menu.table.duplicateRow')}
       </ContextMenuItem>
-      {/* TBL-2 anchor: Move row up / down go here. */}
+      {/* TBL-2 anchor: Move row up / down. Disabled at the extremes; ops take the
+          row id + a sorted target index (moved row removed) per the contract. */}
+      <ContextMenuItem disabled={row === 0} onSelect={() => tableMoveRow(doc, tableId, rowId, row - 1)}>
+        <ChevronUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowUp')}
+      </ContextMenuItem>
+      <ContextMenuItem disabled={row >= rowCount - 1} onSelect={() => tableMoveRow(doc, tableId, rowId, row + 1)}>
+        <ChevronDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowDown')}
+      </ContextMenuItem>
       <ContextMenuItem
         className="text-destructive focus:text-destructive"
         onSelect={() => tableDeleteRow(doc, tableId, row)}
@@ -2179,8 +2196,21 @@ const TableCellMenuContent: React.FC<{
       <ContextMenuItem onSelect={() => tableInsertColumn(doc, tableId, col + 1)}>
         <ArrowRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnRight')}
       </ContextMenuItem>
-      {/* TBL-4 anchor: a "Column colour" submenu (keyed on the colId) goes here.
-          TBL-2 anchor: Move column left / right go here. */}
+      {/* TBL-4 anchor: a "Column colour" submenu (keyed on the colId) goes here. */}
+      {/* TBL-2 anchor: Move column left / right. Disabled at the extremes; ops take
+          the column id + a sorted target index (moved column removed). */}
+      <ContextMenuItem
+        disabled={col === 0 || !colId}
+        onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col - 1)}
+      >
+        <ChevronLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnLeft')}
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={col >= colCount - 1 || !colId}
+        onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col + 1)}
+      >
+        <ChevronRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnRight')}
+      </ContextMenuItem>
       <ContextMenuItem
         className="text-destructive focus:text-destructive"
         onSelect={() => tableDeleteColumn(doc, tableId, col)}
@@ -2222,6 +2252,32 @@ export const TableCellMenu: React.FC<{
   );
 };
 
+/**
+ * A live drag of a table row or column, by its GRIP handle. `from` is the grip's
+ * SORTED position (a render index into `tableGrid`/`tableColumns`), `id` the row
+ * block id or column id. `dropIndex` is a boundary in the current sorted order
+ * (0…N) — the insertion slot shown by the indicator; it is converted to the
+ * op's `toIndex` (moved item removed) at drop time. See {@link TableView}.
+ */
+interface TableDrag {
+  axis: 'row' | 'col';
+  from: number;
+  id: string;
+}
+
+/**
+ * Convert a drop indicator boundary (`dropIndex`, a slot 0…N in the CURRENT
+ * sorted order) plus the moved item's current sorted position (`from`) into the
+ * op's `toIndex` — the target counted with the moved item removed, per the
+ * table order contract. Returns null for a no-op drop (dropping onto either
+ * boundary of the item's own slot). Exported so the grip wiring is unit-tested
+ * in isolation from the DOM (acceptance #6/#7 — the sorted-vs-array trap).
+ */
+export function tableDropTarget(dropIndex: number, from: number): number | null {
+  if (dropIndex === from || dropIndex === from + 1) return null;
+  return dropIndex > from ? dropIndex - 1 : dropIndex;
+}
+
 const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui} = shared;
   const id = blockId(block);
@@ -2234,6 +2290,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   // legacy tables (no keys) fall through it in pure array order, unchanged.
   const grid = tableGrid(block);
   const rows = grid.rows;
+  const columns = tableColumns(block);
   const header = blockProp<boolean>(block, 'header') ?? false;
   // Widest row wins so ragged rows pad to a rectangle at render.
   const cols = grid.width;
@@ -2243,27 +2300,143 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   const locked = useKitLock();
   const lockText = locked && !editor.readOnly;
   const cellEditor = useMemo(() => (lockText ? {...editor, readOnly: true} : editor), [editor, lockText]);
+  // Drag handles are chrome — hidden in readOnly and in a kit-locked / present
+  // context (acceptance #4; also enumerated in the `.ob-present` CSS hide-list).
+  const showHandles = !editor.readOnly && !lockText;
+
+  // Internal (grip) drag state — separate from the block-level `shared.drag`
+  // that moves the whole table block. HTML5 drag on PLAIN grip elements (never a
+  // Radix trigger — that kills native drag; see BlockRow) so caret / cell edits
+  // and the block gutter are untouched (acceptance #5).
+  const [drag, setDrag] = useState<TableDrag | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const clearDrag = useCallback(() => {
+    setDrag(null);
+    setDropIndex(null);
+  }, []);
+
+  const startDrag = (d: TableDrag) => (e: React.DragEvent): void => {
+    e.dataTransfer.effectAllowed = 'move';
+    // Some engines refuse to start a drag without payload; the value is unused.
+    e.dataTransfer.setData('text/plain', d.id);
+    setDrag(d);
+  };
+  const overRow = (r: number) => (e: React.DragEvent): void => {
+    if (drag?.axis !== 'row') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDropIndex(e.clientY > rect.top + rect.height / 2 ? r + 1 : r);
+  };
+  const overCol = (c: number) => (e: React.DragEvent): void => {
+    if (drag?.axis !== 'col') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDropIndex(e.clientX > rect.left + rect.width / 2 ? c + 1 : c);
+  };
+  const commitDrop = (e: React.DragEvent): void => {
+    e.preventDefault();
+    // Stop propagation so a drop on a td doesn't bubble to the tr and fire twice.
+    e.stopPropagation();
+    if (drag && dropIndex !== null) {
+      const to = tableDropTarget(dropIndex, drag.from);
+      if (to !== null) {
+        if (drag.axis === 'row') tableMoveRow(editor.doc, id, drag.id, to);
+        else tableMoveColumn(editor.doc, id, drag.id, to);
+      }
+    }
+    clearDrag();
+  };
+
+  const rowDrag = drag?.axis === 'row' ? drag : null;
+  const colDrag = drag?.axis === 'col' ? drag : null;
 
   return (
-    <div className="obe-table-wrap">
+    <div className={showHandles ? 'obe-table-wrap obe-has-grips' : 'obe-table-wrap'}>
       <table className="obe-table">
         <tbody>
           {rows.map((row, r) => {
             const cells = grid.cells[r];
+            const rowId = blockId(row);
+            const trClass = [
+              header && r === 0 ? 'obe-table-header' : '',
+              rowDrag && dropIndex === r ? 'obe-drop-row-above' : '',
+              rowDrag && dropIndex === rows.length && r === rows.length - 1 ? 'obe-drop-row-below' : '',
+              rowDrag?.id === rowId ? 'obe-row-dragging' : '',
+            ]
+              .filter(Boolean)
+              .join(' ');
             return (
-              <tr key={blockId(row)} className={header && r === 0 ? 'obe-table-header' : undefined}>
+              <tr
+                key={rowId}
+                className={trClass || undefined}
+                onDragOver={showHandles ? overRow(r) : undefined}
+                onDrop={showHandles ? commitDrop : undefined}
+              >
                 {Array.from({length: Math.max(cols, cells.length, 1)}, (_, c) => {
                   const cell = cells[c];
+                  const colId = columns[c]?.id;
+                  const tdDropClass = [
+                    colDrag && dropIndex === c ? 'obe-drop-col-before' : '',
+                    colDrag && dropIndex === cols && c === cols - 1 ? 'obe-drop-col-after' : '',
+                    colDrag && colId && colDrag.id === colId ? 'obe-col-dragging' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ');
+                  // Grips: a row grip on the first cell (left gutter), a column
+                  // grip on the top cell (header edge). Plain draggable divs.
+                  // aria-hidden: the grips are mouse-only drag affordances and not
+                  // focusable; the canonical a11y path for reordering is the
+                  // context-menu "Move" items.
+                  const grips = showHandles && (
+                    <>
+                      {c === 0 && cell && (
+                        <span
+                          className="obe-table-row-grip"
+                          contentEditable={false}
+                          draggable
+                          aria-hidden="true"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onDragStart={startDrag({axis: 'row', from: r, id: rowId})}
+                          onDragEnd={clearDrag}
+                        >
+                          <GripVertical className="h-3.5 w-3.5" />
+                        </span>
+                      )}
+                      {r === 0 && cell && colId && (
+                        <span
+                          className="obe-table-col-grip"
+                          contentEditable={false}
+                          draggable
+                          aria-hidden="true"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onDragStart={startDrag({axis: 'col', from: c, id: colId})}
+                          onDragEnd={clearDrag}
+                        >
+                          <GripHorizontal className="h-3.5 w-3.5" />
+                        </span>
+                      )}
+                    </>
+                  );
                   if (!cell) {
                     // Padding for a ragged row — an empty structural cell.
-                    return <td key={`pad-${r}-${c}`} aria-hidden />;
+                    return (
+                      <td
+                        key={`pad-${r}-${c}`}
+                        aria-hidden
+                        className={tdDropClass || undefined}
+                        onDragOver={showHandles ? overCol(c) : undefined}
+                        onDrop={showHandles ? commitDrop : undefined}
+                      />
+                    );
                   }
                   if (blockType(cell) !== 'cell') {
                     // A non-cell child (a container mis-inserted as a cell
                     // sibling): render a quiet fallback rather than feed a
                     // text-less block to TextBlockView (which would throw).
                     return (
-                      <td key={blockId(cell)}>
+                      <td key={blockId(cell)} className={tdDropClass || undefined}>
                         <div className="obe-unknown" contentEditable={false}>
                           Unsupported cell
                         </div>
@@ -2272,7 +2445,12 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                   }
                   return (
                     <TableCellMenu key={blockId(cell)} cell={cell} tableId={id} editor={editor} suppress={editor.readOnly || lockText}>
-                      <td>
+                      <td
+                        className={tdDropClass || undefined}
+                        onDragOver={showHandles ? overCol(c) : undefined}
+                        onDrop={showHandles ? commitDrop : undefined}
+                      >
+                        {grips}
                         <TextBlockView block={cell} editor={cellEditor} ui={ui} />
                       </td>
                     </TableCellMenu>

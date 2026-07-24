@@ -15,6 +15,7 @@ import {
   tableColumns,
   tableDuplicateRow,
   tableGrid,
+  tableMoveColumn,
   tableMoveRow,
   type BlockMap,
 } from '../model';
@@ -218,6 +219,89 @@ describe('TableCellMenu', () => {
       ['', '', ''],
       ['r0c0', 'r0c1', 'r0c2'],
       ['r1c0', 'r1c1', 'r1c2'],
+    ]);
+  });
+});
+
+// ── TBL-2: the keyboard/a11y move path (context-menu items) ──────────────────
+
+describe('TableCellMenu — move items', () => {
+  it('renders the four move items', () => {
+    openMenu(seedTableDoc(), 'r1c1');
+    for (const label of ['Move row up', 'Move row down', 'Move column left', 'Move column right']) {
+      expect(screen.getByText(label), label).toBeTruthy();
+    }
+  });
+
+  it('move-row-down reorders to sorted row + 1', () => {
+    const doc = seedTableDoc(3, 3);
+    openMenu(doc, 'r1c0'); // sorted row 1
+    fireEvent.click(screen.getByText('Move row down'));
+    expect(rowTexts(doc)).toEqual([
+      ['r0c0', 'r0c1', 'r0c2'],
+      ['r2c0', 'r2c1', 'r2c2'],
+      ['r1c0', 'r1c1', 'r1c2'],
+    ]);
+  });
+
+  it('move-column-right reorders to sorted column + 1', () => {
+    const doc = seedTableDoc(3, 3);
+    openMenu(doc, 'r0c1'); // sorted column 1
+    fireEvent.click(screen.getByText('Move column right'));
+    expect(rowTexts(doc)).toEqual([
+      ['r0c0', 'r0c2', 'r0c1'],
+      ['r1c0', 'r1c2', 'r1c1'],
+      ['r2c0', 'r2c2', 'r2c1'],
+    ]);
+  });
+
+  it('move-row-up is a no-op at the top row (disabled at the extreme)', () => {
+    const doc = seedTableDoc(3, 3);
+    openMenu(doc, 'r0c0'); // sorted row 0
+    fireEvent.click(screen.getByText('Move row up'));
+    expect(rowTexts(doc)).toEqual([
+      ['r0c0', 'r0c1', 'r0c2'],
+      ['r1c0', 'r1c1', 'r1c2'],
+      ['r2c0', 'r2c1', 'r2c2'],
+    ]);
+  });
+
+  it('move-column-left is a no-op at the first column (disabled at the extreme)', () => {
+    const doc = seedTableDoc(3, 3);
+    openMenu(doc, 'r0c0'); // sorted column 0
+    fireEvent.click(screen.getByText('Move column left'));
+    expect(rowTexts(doc)).toEqual([
+      ['r0c0', 'r0c1', 'r0c2'],
+      ['r1c0', 'r1c1', 'r1c2'],
+      ['r2c0', 'r2c1', 'r2c2'],
+    ]);
+  });
+
+  // The sorted-vs-array trap: move must target the RENDER position, not the
+  // array index, on a table that has already been reordered.
+  it('uses SORTED coords after a reorder (move down a moved-to-top row)', () => {
+    const doc = seedTableDoc(3, 3);
+    tableMoveRow(doc, 'tbl', 'row2', 0); // sorted: r2, r0, r1
+    openMenu(doc, 'r2c0'); // r2 is now sorted row 0 (still array index 2)
+    fireEvent.click(screen.getByText('Move row down'));
+    // The MOVED row (sorted 0) drops one place — not the array-index-0 row.
+    expect(rowTexts(doc)).toEqual([
+      ['r0c0', 'r0c1', 'r0c2'],
+      ['r2c0', 'r2c1', 'r2c2'],
+      ['r1c0', 'r1c1', 'r1c2'],
+    ]);
+  });
+
+  it('move-column ops still target the right column after a column reorder', () => {
+    const doc = seedTableDoc(3, 3);
+    const c2 = tableColumns(findBlock(doc, 'tbl')!.block)[2].id;
+    tableMoveColumn(doc, 'tbl', c2, 0); // sorted columns: c2, c0, c1
+    openMenu(doc, 'r0c2'); // c2 is now sorted column 0
+    fireEvent.click(screen.getByText('Move column right'));
+    expect(rowTexts(doc)).toEqual([
+      ['r0c0', 'r0c2', 'r0c1'],
+      ['r1c0', 'r1c2', 'r1c1'],
+      ['r2c0', 'r2c2', 'r2c1'],
     ]);
   });
 });
