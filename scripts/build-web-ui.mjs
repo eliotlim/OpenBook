@@ -33,6 +33,12 @@ const webDir = join(repoRoot, 'packages', 'web');
 const outDir = join(webDir, 'out');
 const stageDir = join(repoRoot, 'packages', 'app', 'src-tauri', 'resources', 'web-ui');
 
+// pnpm on Windows is a .CMD shim, which Node will only spawn through a shell
+// (execFileSync without one -> ENOENT/EINVAL since CVE-2024-27980). All args
+// here are static strings, so shell interpolation is a non-issue.
+const pnpm = (args, opts = {}) =>
+  execFileSync('pnpm', args, {stdio: 'inherit', cwd: repoRoot, shell: process.platform === 'win32', ...opts});
+
 // The export imports @book.dev/ui + @book.dev/sdk from their dists, and
 // @book.dev/server/browser from the server's tsup dist (which build:sidecar
 // does NOT produce). `build:libs` builds them before this in the full flow, but
@@ -45,15 +51,13 @@ for (const [pkg, dist] of [
 ]) {
   if (!existsSync(dist)) {
     console.log(`${pkg} dist missing — building it (pnpm --filter ${pkg} run build)…`);
-    execFileSync('pnpm', ['--filter', pkg, 'run', 'build'], {stdio: 'inherit', cwd: repoRoot});
+    pnpm(['--filter', pkg, 'run', 'build']);
   }
 }
 
 // 1. Static export. The SAMEORIGIN flag flips next.config.js to output:'export'.
 console.log('Building the client-only static web export (NEXT_PUBLIC_OPENBOOK_SAMEORIGIN=1)…');
-execFileSync('pnpm', ['--filter', '@book.dev/web', 'run', 'build'], {
-  stdio: 'inherit',
-  cwd: repoRoot,
+pnpm(['--filter', '@book.dev/web', 'run', 'build'], {
   env: {...process.env, NEXT_PUBLIC_OPENBOOK_SAMEORIGIN: '1'},
 });
 
