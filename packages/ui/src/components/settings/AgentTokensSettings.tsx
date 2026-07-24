@@ -11,6 +11,7 @@ import {SettingsField, SettingsScreen, SettingsSection, SettingsToggle} from '@/
 import {isForbidden, useIsSettingsAdmin} from '@/components/settings/adminGate';
 import McpSettings from '@/components/settings/McpSettings';
 import AiUsageSettings from '@/components/settings/AiUsageSettings';
+import AgentEditsSettings from '@/components/settings/AgentEditsSettings';
 import {SETTINGS_SECTION_AGENTS_MCP, SETTINGS_SECTION_AGENTS_USAGE} from '@/lib/settingsIndex';
 import {copyText} from '@/lib/pageActions';
 
@@ -443,6 +444,12 @@ export default function AgentTokensSettings() {
           </SettingsSection>
         </>
       )}
+
+      {/* Agent-edits mode (AGED-5): the library-wide floor for whether agents edit
+          pages directly or file suggestions. Owner-gated + renders over every
+          transport (self-fetches its own instance info), so it shows even where the
+          token surfaces above report "unavailable" (the browser). */}
+      <AgentEditsSettings />
 
       {/* External tools (MCP client). Admin-only (self-gated + 403-gated); off and
           empty by default; the stdio transport hides on a claimed instance. */}

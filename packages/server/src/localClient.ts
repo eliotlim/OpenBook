@@ -36,6 +36,7 @@ import type {
   PageSubscription,
   StoredPageVersion,
   PageVisibility,
+  AgentEditsPolicy,
   PluginPackage,
   RowInput,
   RowUpdate,
@@ -448,6 +449,10 @@ export class LocalDataClient implements DataClient {
     const config = await this.store.getInstanceConfig();
     return {
       guestAccess: config.guestAccess,
+      // The instance-wide agent-edits mode (AGED-5) — surfaced so the in-webview
+      // Settings toggle round-trips and a page's `inherit` policy resolves without
+      // a second probe. Mirrors the HTTP `GET /api/instance` field.
+      agentEdits: config.agentEdits,
       ownerSubject: config.ownerSubject ?? null,
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience ?? null,

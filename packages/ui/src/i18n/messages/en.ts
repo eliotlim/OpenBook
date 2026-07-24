@@ -119,6 +119,15 @@ export const en = {
     coverHint: 'A banner image or gradient above the title.',
     fullWidth: 'Full width',
     fullWidthHint: 'Use the whole page width — on by default for databases.',
+    // Per-page agent-edits override (AGED-5). Inherit follows the library default;
+    // Suggest / Direct pin this page regardless of the library setting.
+    agentEdits: 'Agent edits',
+    agentEditsHint: 'Whether agents edit this page directly or file suggestions to review.',
+    agentEditsInherit: 'Library default',
+    agentEditsSuggest: 'Suggest edits for review',
+    agentEditsDirect: 'Edit page directly',
+    agentEditsInheritingSuggest: 'Following the library default — agents suggest edits for review.',
+    agentEditsInheritingDirect: 'Following the library default — agents edit this page directly.',
     background: 'Background',
     backgroundHint: 'Tint the page canvas.',
     fontBody: 'Body font',
@@ -1602,6 +1611,18 @@ export const en = {
     localMcpHint: 'This library also answers on a loopback address so a local MCP client (Claude Desktop, Claude Code, Cursor) can reach it. Register the connector with the snippet below — it points at this exact library and refuses any other server on the port.',
     localMcpFollowsDefault: 'The connector follows your default local library. If you switch libraries in the app, the connector keeps talking to the default one.',
     localMcpCopy: 'Copy config',
+  },
+  agentEdits: {
+    title: 'Agent edits',
+    description: 'How agents change your pages — MCP clients and the built-in AI alike. This is the library-wide default; any page can override it in its Customise pane.',
+    modeLabel: 'When an agent edits a page',
+    // The honest tradeoff: Direct writes land immediately with no review step; every
+    // edit is still attributed in the page’s history, and a page can override this.
+    modeHint: 'Suggest keeps a human in the loop — every agent change waits as a suggestion for you to accept or reject. Direct lets MCP clients and the built-in AI edit pages immediately, with no suggestion step; the edits are attributed in the page’s history.',
+    modeSuggest: 'Suggest edits for review',
+    modeDirect: 'Edit pages directly',
+    ownerLocked: 'Only the library owner can change how agents edit.',
+    saveError: 'Couldn’t save the agent-edits setting: {error}',
   },
   aiUsage: {
     usageTitle: 'AI usage',
