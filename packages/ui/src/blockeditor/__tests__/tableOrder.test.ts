@@ -362,6 +362,89 @@ describe('table order contract — consumers honour render order', () => {
     expect(renderText(a)).toEqual([['r0c0'], ['r1c0'], ['']]);
   });
 
+  it('malformed row key (trailing zero) + a keyless row: backfill repairs, never wedges', () => {
+    const doc = seedTable(3, 2);
+    doc.transact(() => {
+      // Last-sorted row carries a malformed key (trailing zero — invalid) …
+      (findBlock(doc, 'row2')!.block.get('props') as Y.Map<unknown>).set('ord', 'z0');
+      // … plus a keyless row (its cells stay column-bound to isolate the row axis).
+      blockChildren(tableBlock(doc))!.insert(3, [
+        makeBlock({
+          id: 'rowX',
+          type: 'row',
+          children: [
+            {id: 'x0', type: 'cell', text: 'x0', props: {col: 'c0'}},
+            {id: 'x1', type: 'cell', text: 'x1', props: {col: 'c1'}},
+          ],
+        }),
+      ]);
+    }, 'local');
+    expect(rowOrder(doc)).toEqual(['row0', 'row1', 'row2', 'rowX']); // 'z0' sorts last among keyed
+
+    expect(() => tableInsertRow(doc, 'tbl', 4)).not.toThrow();
+    const ords = tableGrid(tableBlock(doc)).rows.map((r) => (r.get('props') as Y.Map<unknown>).get('ord'));
+    expect(ords.every((k) => isOrderKey(k))).toBe(true); // axis fully repaired
+    expect(rowOrder(doc).slice(0, 4)).toEqual(['row0', 'row1', 'row2', 'rowX']); // render order preserved
+
+    tableMoveRow(doc, 'tbl', 'row0', 2); // a follow-up op still works
+    expect(rowOrder(doc)[0]).not.toBe('row0');
+    expect([...rowOrder(doc)].filter((id) => id === 'row0')).toHaveLength(1);
+  });
+
+  it('malformed registry key + a wider keyless row: column backfill repairs, never wedges', () => {
+    const doc = seedTable(2, 2);
+    doc.transact(() => {
+      // Last-sorted column registry value is malformed (trailing zero — invalid) …
+      (tableBlock(doc).get('props') as Y.Map<unknown>).set(`${TABLE_COL_PREFIX}c1`, 'z0');
+      // … plus a keyless, extra-wide row (3 cells) that forces a column backfill.
+      blockChildren(tableBlock(doc))!.insert(2, [
+        makeBlock({
+          id: 'rowX',
+          type: 'row',
+          props: {ord: 'x'},
+          children: [
+            {id: 'x0', type: 'cell', text: 'x0'},
+            {id: 'x1', type: 'cell', text: 'x1'},
+            {id: 'x2', type: 'cell', text: 'x2'},
+          ],
+        }),
+      ]);
+    }, 'local');
+    const colsBefore = tableColumns(tableBlock(doc)).map((c) => c.id);
+    expect(colsBefore).toEqual(['c0', 'c1']); // 'z0' sorts c1 last
+
+    expect(() => tableInsertColumn(doc, 'tbl', 3)).not.toThrow();
+    const cols = tableColumns(tableBlock(doc));
+    expect(cols.map((c) => c.key).every((k) => isOrderKey(k))).toBe(true); // registry fully repaired
+    expect(cols.slice(0, 2).map((c) => c.id)).toEqual(['c0', 'c1']); // column order preserved
+
+    tableMoveColumn(doc, 'tbl', 'c0', 2); // a follow-up op still works
+    const after = tableColumns(tableBlock(doc)).map((c) => c.id);
+    expect(after.filter((id) => id === 'c0')).toHaveLength(1);
+    expect(after[0]).not.toBe('c0');
+  });
+
+  it('malformed-key repair converges: the repaired peer syncs identically to a fresh peer', () => {
+    const a = seedTable(3, 2);
+    a.transact(() => {
+      (findBlock(a, 'row2')!.block.get('props') as Y.Map<unknown>).set('ord', 'z0');
+      blockChildren(tableBlock(a))!.insert(3, [
+        makeBlock({
+          id: 'rowX',
+          type: 'row',
+          children: [
+            {id: 'x0', type: 'cell', text: 'x0', props: {col: 'c0'}},
+            {id: 'x1', type: 'cell', text: 'x1', props: {col: 'c1'}},
+          ],
+        }),
+      ]);
+    }, 'local');
+    const b = fork(a);
+    tableInsertRow(a, 'tbl', 4); // A repairs the axis on the first structural op
+    sync(a, b);
+    expect(docToJSON(a)).toEqual(docToJSON(b));
+  });
+
   it('rebalance: degenerate key bounds rewrite the axis and keep order', () => {
     const doc = seedTable(3, 2);
     // Force a key tie: two rows with the SAME ord (merge-artifact shape).
