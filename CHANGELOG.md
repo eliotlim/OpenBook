@@ -1,3 +1,27 @@
+## 3.4.0 (2026-07-24)
+
+### 🚀 Features
+
+- **blockeditor:** image lightbox — fullscreen embedded images & GIFs (LBX-1) ([#206](https://github.com/eliotlim/OpenBook/pull/206))
+- **blockeditor:** table order contract — fractional keys + column identity (TBL-1) ([#207](https://github.com/eliotlim/OpenBook/pull/207))
+- **blockeditor:** marquee rectangle select + shift-click extension (SEL-1) ([#208](https://github.com/eliotlim/OpenBook/pull/208))
+- **blockeditor:** multi-block drag — move the whole selection in one drop (SEL-2) ([#211](https://github.com/eliotlim/OpenBook/pull/211))
+- **blockeditor:** per-cell table context menus + duplicate row (TBL-3) ([#209](https://github.com/eliotlim/OpenBook/pull/209))
+- **blockeditor:** table drag-reorder — row/column grips + keyboard moves (TBL-2) ([#212](https://github.com/eliotlim/OpenBook/pull/212))
+- **blockeditor:** table row & column colouring — tint tokens, menu pickers, export fidelity (TBL-4) ([#213](https://github.com/eliotlim/OpenBook/pull/213))
+- **blockeditor:** multi-cell table selection — drag/shift range, copy, clear (TBL-5) ([#214](https://github.com/eliotlim/OpenBook/pull/214))
+- **server,web,desktop:** serve the LAN web UI from the sidecar — tokenless, guest-gated (STAB-7) ([#205](https://github.com/eliotlim/OpenBook/pull/205))
+- **ui:** lightbox zoom & pan — wheel/pinch, drag, fit↔100%, keyboard (LBX-2) ([#210](https://github.com/eliotlim/OpenBook/pull/210))
+
+### 🩹 Fixes
+
+- **server,sdk:** app-origin CORS allowlist + guest-write header gate — close the drive-by loopback hole (STAB-8) ([#204](https://github.com/eliotlim/OpenBook/pull/204))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.3.3 (2026-07-23)
 
 ### 🩹 Fixes
