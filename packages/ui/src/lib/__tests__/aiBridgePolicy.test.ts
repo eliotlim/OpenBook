@@ -1,0 +1,217 @@
+import {describe, it, expect, vi, beforeEach} from 'vitest';
+import type {AgentEditsMode, AgentEditsPolicy, PageInput, StoredPage, StoredSuggestion} from '@book.dev/sdk';
+import {registerBlockEditorDoc, routeAiSuggestions, type ApplyClient, type PolicyClient} from '../aiBridge';
+import {blockText, createDoc, encodeSnapshot, findBlock, decodeSnapshot} from '@/blockeditor/model';
+
+/**
+ * AGED-4: the built-in AI's writes honor the resolved agent-edits policy, enforced
+ * CLIENT-SIDE (the AI runs under the user's own identity — the server can't tell
+ * its write from a human's). `routeAiSuggestions` resolves each suggestion's page
+ * policy against the instance mode (AGED-1 `resolveAgentEdits`) and either applies
+ * it directly through the editor bridge (deleting the shadow review row) or leaves
+ * it for review.
+ */
+
+/** A minimal StoredSuggestion carrying an `update_block` payload for `pageId`. */
+function makeSuggestion(id: string, pageId: string, blockId: string, text: string): StoredSuggestion {
+  return {
+    id,
+    pageId,
+    authorKind: 'ai',
+    authorName: 'Assistant',
+    kind: 'replace-text',
+    target: {blockId},
+    before: '',
+    after: text,
+    status: 'open',
+    payload: {applyKind: 'update_block', pageId, blockId, text, summary: `edit ${blockId}`},
+    createdAt: '',
+    updatedAt: '',
+  };
+}
+
+/**
+ * A fake data client wired to a single stored page. Records the calls the policy
+ * router makes (getPageAgentEdits per page, deleteSuggestion, savePage) so tests
+ * can assert routing without a real server.
+ */
+function makeClient(opts: {
+  instance?: AgentEditsMode;
+  pagePolicy: (pageId: string) => AgentEditsPolicy;
+  storedPage?: StoredPage;
+}): ApplyClient & PolicyClient & {saved: PageInput[]; deleted: string[]} {
+  const saved: PageInput[] = [];
+  const deleted: string[] = [];
+  return {
+    saved,
+    deleted,
+    getInstanceInfo: vi.fn(async () => ({agentEdits: opts.instance}) as never),
+    getPageAgentEdits: vi.fn(async (pageId: string) => opts.pagePolicy(pageId)),
+    deleteSuggestion: vi.fn(async (id: string) => {
+      deleted.push(id);
+      return true;
+    }),
+    updateRow: vi.fn(async () => ({}) as never),
+    getPage: vi.fn(async () => opts.storedPage ?? null),
+    savePage: vi.fn(async (input: PageInput) => {
+      saved.push(input);
+      return {...(opts.storedPage as StoredPage), ...input} as StoredPage;
+    }),
+  };
+}
+
+describe('AGED-4 routeAiSuggestions: resolved-direct applies immediately', () => {
+  it('OPEN editor → mutates the live doc and deletes the review row (no suggestion kept)', async () => {
+    const doc = createDoc([{id: 'b1', type: 'paragraph', text: 'old'}]);
+    const unregister = registerBlockEditorDoc('p1', doc);
+    try {
+      const client = makeClient({instance: 'direct', pagePolicy: () => 'inherit'});
+      const routing = await routeAiSuggestions(client, [makeSuggestion('s1', 'p1', 'b1', 'new text')]);
+
+      expect(routing.applied).toBe(1);
+      expect(routing.suggested).toHaveLength(0);
+      expect(routing.failed).toHaveLength(0);
+      // The live doc actually changed…
+      expect(blockText(findBlock(doc, 'b1')!.block)!.toString()).toBe('new text');
+      // …and the shadow suggestion row the server persisted was removed.
+      expect(client.deleted).toEqual(['s1']);
+      // No stored-page fallback when a live editor is present.
+      expect(client.savePage).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
+  });
+
+  it('CLOSED page (no live editor) → applyToStoredPage persists via savePage, deletes the row', async () => {
+    const stored = createDoc([{id: 'b1', type: 'paragraph', text: 'old'}]);
+    const page: StoredPage = {
+      id: 'p2',
+      name: 'Page 2',
+      data: {editorjs: null, values: [], names: [], editor: 'blocks', blockdoc: encodeSnapshot(stored)},
+      hostedDatabaseId: null,
+      databaseId: null,
+      parentId: null,
+      properties: {},
+      deletedAt: null,
+      createdAt: '',
+      updatedAt: '',
+    };
+    const client = makeClient({instance: 'direct', pagePolicy: () => 'inherit', storedPage: page});
+    const routing = await routeAiSuggestions(client, [makeSuggestion('s2', 'p2', 'b1', 'saved text')]);
+
+    expect(routing.applied).toBe(1);
+    expect(client.savePage).toHaveBeenCalledTimes(1);
+    // The saved snapshot carries the applied edit.
+    const savedDoc = decodeSnapshot(client.saved[0].data.blockdoc as never);
+    expect(blockText(findBlock(savedDoc, 'b1')!.block)!.toString()).toBe('saved text');
+    expect(client.deleted).toEqual(['s2']);
+  });
+});
+
+describe('AGED-4 routeAiSuggestions: resolved-suggest leaves the suggestion for review', () => {
+  it('does not apply and does not delete — the review row survives unchanged', async () => {
+    const doc = createDoc([{id: 'b1', type: 'paragraph', text: 'old'}]);
+    const unregister = registerBlockEditorDoc('p3', doc);
+    try {
+      const client = makeClient({instance: 'suggest', pagePolicy: () => 'inherit'});
+      const s = makeSuggestion('s3', 'p3', 'b1', 'should not apply');
+      const routing = await routeAiSuggestions(client, [s]);
+
+      expect(routing.applied).toBe(0);
+      expect(routing.suggested).toEqual([s]);
+      expect(blockText(findBlock(doc, 'b1')!.block)!.toString()).toBe('old'); // untouched
+      expect(client.deleted).toHaveLength(0);
+    } finally {
+      unregister();
+    }
+  });
+
+  it('defaults to suggest when neither instance mode nor page policy is set', async () => {
+    const doc = createDoc([{id: 'b1', type: 'paragraph', text: 'old'}]);
+    const unregister = registerBlockEditorDoc('p4', doc);
+    try {
+      const client = makeClient({instance: undefined, pagePolicy: () => 'inherit'});
+      const routing = await routeAiSuggestions(client, [makeSuggestion('s4', 'p4', 'b1', 'x')]);
+      expect(routing.applied).toBe(0);
+      expect(routing.suggested).toHaveLength(1);
+    } finally {
+      unregister();
+    }
+  });
+});
+
+describe('AGED-4 routeAiSuggestions: the page override beats the instance mode both directions', () => {
+  it('page=direct on instance=suggest → applies', async () => {
+    const doc = createDoc([{id: 'b1', type: 'paragraph', text: 'old'}]);
+    const unregister = registerBlockEditorDoc('p5', doc);
+    try {
+      const client = makeClient({instance: 'suggest', pagePolicy: () => 'direct'});
+      const routing = await routeAiSuggestions(client, [makeSuggestion('s5', 'p5', 'b1', 'applied')]);
+      expect(routing.applied).toBe(1);
+      expect(blockText(findBlock(doc, 'b1')!.block)!.toString()).toBe('applied');
+      expect(client.deleted).toEqual(['s5']);
+    } finally {
+      unregister();
+    }
+  });
+
+  it('page=suggest on instance=direct → suggests (override bites immediately)', async () => {
+    const doc = createDoc([{id: 'b1', type: 'paragraph', text: 'old'}]);
+    const unregister = registerBlockEditorDoc('p6', doc);
+    try {
+      const client = makeClient({instance: 'direct', pagePolicy: () => 'suggest'});
+      const s = makeSuggestion('s6', 'p6', 'b1', 'held');
+      const routing = await routeAiSuggestions(client, [s]);
+      expect(routing.applied).toBe(0);
+      expect(routing.suggested).toEqual([s]);
+      expect(blockText(findBlock(doc, 'b1')!.block)!.toString()).toBe('old');
+      expect(client.deleted).toHaveLength(0);
+    } finally {
+      unregister();
+    }
+  });
+
+  it('reads the page policy at apply time (per-suggestion), so a page override is never cached', async () => {
+    const doc1 = createDoc([{id: 'b1', type: 'paragraph', text: 'a'}]);
+    const doc2 = createDoc([{id: 'b1', type: 'paragraph', text: 'b'}]);
+    const u1 = registerBlockEditorDoc('pa', doc1);
+    const u2 = registerBlockEditorDoc('pb', doc2);
+    try {
+      // Same instance mode, divergent per-page overrides in one batch.
+      const client = makeClient({
+        instance: 'suggest',
+        pagePolicy: (pageId) => (pageId === 'pa' ? 'direct' : 'suggest'),
+      });
+      const routing = await routeAiSuggestions(client, [
+        makeSuggestion('sa', 'pa', 'b1', 'A!'),
+        makeSuggestion('sb', 'pb', 'b1', 'B!'),
+      ]);
+      expect(routing.applied).toBe(1);
+      expect(routing.suggested.map((s) => s.id)).toEqual(['sb']);
+      expect(blockText(findBlock(doc1, 'b1')!.block)!.toString()).toBe('A!'); // direct page applied
+      expect(blockText(findBlock(doc2, 'b1')!.block)!.toString()).toBe('b'); // suggest page untouched
+      expect(client.getPageAgentEdits).toHaveBeenCalledTimes(2); // read per suggestion
+    } finally {
+      u1();
+      u2();
+    }
+  });
+});
+
+describe('AGED-4 routeAiSuggestions: instance mode is read once per batch', () => {
+  beforeEach(() => vi.clearAllMocks());
+  it('resolves the whole batch against a single getInstanceInfo call', async () => {
+    const doc = createDoc([{id: 'b1', type: 'paragraph', text: 'old'}]);
+    const unregister = registerBlockEditorDoc('p7', doc);
+    try {
+      const client = makeClient({instance: 'direct', pagePolicy: () => 'inherit'});
+      await routeAiSuggestions(client, [
+        makeSuggestion('s7a', 'p7', 'b1', 'one'),
+        makeSuggestion('s7b', 'p7', 'b1', 'two'),
+      ]);
+      expect(client.getInstanceInfo).toHaveBeenCalledTimes(1);
+    } finally {
+      unregister();
+    }
+  });
+});
