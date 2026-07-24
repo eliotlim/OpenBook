@@ -51,7 +51,7 @@ export function closeLightbox(): void {
 export const getLightbox = (): LightboxState | null => state;
 
 const getSnapshot = (): LightboxState | null => state;
-// The server never has an open lightbox; a stable null keeps SSR/​hydration calm.
+// The server never has an open lightbox; a stable null keeps SSR hydration calm.
 const getServerSnapshot = (): LightboxState | null => null;
 
 const subscribe = (cb: () => void): (() => void) => {

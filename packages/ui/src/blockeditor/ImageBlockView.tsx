@@ -291,17 +291,17 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
           // there the Expand button in the hover toolbar is the trigger.
           {...(readOnly
             ? {
-                role: 'button',
-                tabIndex: 0,
-                'aria-label': t('blocks.image.view'),
-                onClick: (e: React.MouseEvent<HTMLImageElement>) => openView(e.currentTarget),
-                onKeyDown: (e: React.KeyboardEvent<HTMLImageElement>) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    openView(e.currentTarget);
-                  }
-                },
-              }
+              role: 'button',
+              tabIndex: 0,
+              'aria-label': t('blocks.image.view'),
+              onClick: (e: React.MouseEvent<HTMLImageElement>) => openView(e.currentTarget),
+              onKeyDown: (e: React.KeyboardEvent<HTMLImageElement>) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  openView(e.currentTarget);
+                }
+              },
+            }
             : {})}
         />
         {!readOnly && (
