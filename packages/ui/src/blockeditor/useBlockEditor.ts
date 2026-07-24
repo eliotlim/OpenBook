@@ -201,6 +201,7 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
       },
 
       removeSelected() {
+        if (readOnly) return; // defense-in-depth: never mutate a read-only surface
         if (selection.size === 0) return;
         const all = orderedIds();
         const first = all.find((id) => selection.has(id));
@@ -220,6 +221,7 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
       },
 
       duplicateSelected() {
+        if (readOnly) return; // defense-in-depth: never mutate a read-only surface
         if (selection.size === 0) return;
         doc.transact(() => {
           // Duplicate each selected block right below itself (fresh ids).
@@ -234,6 +236,7 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
       },
 
       moveSelected(delta) {
+        if (readOnly) return; // defense-in-depth: never mutate a read-only surface
         if (selection.size !== 1) return;
         const id = [...selection][0];
         const found = findBlock(doc, id);

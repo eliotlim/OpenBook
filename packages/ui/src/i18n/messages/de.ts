@@ -650,6 +650,13 @@ export const de: PartialMessages = {
       empty: 'Noch nichts zur Vorschau.',
       error: 'Dieser Inhalt konnte nicht angezeigt werden.',
     },
+    image: {
+      expand: 'In voller Größe öffnen',
+      view: 'Bild in voller Größe ansehen',
+      lightboxLabel: 'Bildbetrachter',
+      close: 'Schließen',
+      overlayDescription: 'Das Bild füllt das Fenster. Esc oder Schließen kehrt zur Seite zurück.',
+    },
   },
   general: {
     title: 'Allgemein',

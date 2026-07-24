@@ -443,7 +443,7 @@ describe('htmlToBlocks (clipboard import)', () => {
     expect(blocks[1].text).toEqual([{t: 'plain '}, {t: 'bold', a: {b: true}}, {t: ' '}, {t: 'link', a: {a: 'https://x.y'}}]);
     expect(blocks[3].props).toEqual({checked: true});
     expect(blocks[4].props).toEqual({kind: 'number'});
-    expect(blocks[8].props).toEqual({header: true});
+    expect(blocks[8].props).toMatchObject({header: true}); // + col:* order-key registry (TBL-1)
     expect((blocks[8].children?.[1].children?.[1] as {text: {t: string}[]}).text[0].t).toBe('2');
   });
 
@@ -533,7 +533,7 @@ describe('htmlToBlocks — Notion-shaped table normalization', () => {
       '<table><thead><tr><th>H1</th><th>H2</th></tr></thead>' +
         '<tbody><tr><td>a</td><td>b</td></tr></tbody></table>',
     );
-    expect(blocks[0].props).toEqual({header: true});
+    expect(blocks[0].props).toMatchObject({header: true}); // + col:* order-key registry (TBL-1)
     expect(grid(blocks[0])).toEqual([
       ['H1', 'H2'],
       ['a', 'b'],

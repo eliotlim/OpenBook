@@ -66,7 +66,7 @@ describe('htmlToImportedBlocks — the mapping corpus', () => {
     );
     expect(blocks).toHaveLength(1);
     expect(blocks[0].type).toBe('table');
-    expect(blocks[0].props).toEqual({header: true});
+    expect(blocks[0].props).toMatchObject({header: true}); // + col:* order-key registry (TBL-1)
     const rows = blocks[0].children ?? [];
     expect(rows.map((r) => r.type)).toEqual(['row', 'row']);
     expect(textOf(rows[1].children?.[1])).toBe('2');
