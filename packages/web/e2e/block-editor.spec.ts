@@ -455,6 +455,59 @@ test('table cells are a grid: Enter moves down, Tab walks cells, Backspace never
   expect(await cellCounts()).toEqual([3, 3, 3, 3]);
 });
 
+test('table drag-reorder: row + column grips, menu moves, single undo', {tag: ['@editor', '@p1']}, async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/table');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.obe-table')).toBeVisible();
+
+  const rows = page.locator('.obe-table tbody > tr');
+  await expect(rows).toHaveCount(3);
+  // Label the first cell of each row so a row reorder is observable by content.
+  for (let i = 0; i < 3; i += 1) {
+    await rows.nth(i).locator('.obe-text').first().click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type(`R${i}`);
+  }
+  const firstCol = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.obe-table tbody > tr')].map((tr) => tr.querySelector('td .obe-text')!.textContent),
+    );
+  const headRow = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.obe-table tbody > tr')[0].querySelectorAll('td .obe-text')].map((e) => e.textContent),
+    );
+  expect(await firstCol()).toEqual(['R0', 'R1', 'R2']);
+
+  // Drag row 3 (index 2) above row 1 (index 0) — cell contents follow the grip.
+  await rows.nth(2).locator('.obe-table-row-grip').dragTo(rows.nth(0), {targetPosition: {x: 24, y: 2}});
+  expect(await firstCol()).toEqual(['R2', 'R0', 'R1']);
+
+  // A single undo restores the original order.
+  await page.locator('.obe-table .obe-text').first().click();
+  await page.keyboard.press('ControlOrMeta+z');
+  expect(await firstCol()).toEqual(['R0', 'R1', 'R2']);
+
+  // The context-menu move path (keyboard/a11y): move the top row down one.
+  await rows.nth(0).locator('.obe-text').first().click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Move row down'}).click();
+  expect(await firstCol()).toEqual(['R1', 'R0', 'R2']);
+
+  // Column drag: label the header cells, then drag column 2 (index 1) to
+  // column 1 (index 0). Header content follows.
+  const headCells = rows.nth(0).locator('td');
+  for (let c = 0; c < 3; c += 1) {
+    await headCells.nth(c).locator('.obe-text').click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.type(`C${c}`);
+  }
+  expect(await headRow()).toEqual(['C0', 'C1', 'C2']);
+  await headCells.nth(1).locator('.obe-table-col-grip').dragTo(headCells.nth(0), {targetPosition: {x: 2, y: 12}});
+  expect(await headRow()).toEqual(['C1', 'C0', 'C2']);
+});
+
 test('cross-block selection becomes block selection and deletes cleanly', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await page.evaluate(() => {
