@@ -1804,8 +1804,12 @@ a.obe-mention {
 }
 .obe-table td .obe-text { padding: 0.35rem 0.5rem; }
 .obe-table-header td {
-  background: hsl(var(--muted) / 0.5);
   font-weight: 600;
+}
+/* Header fill only where the cell has no row/column tint (TBL-4) — a tinted
+   header cell shows its `obe-bg-*` colour instead, staying bold. */
+.obe-table-header td:not([class*='obe-bg-']) {
+  background: hsl(var(--muted) / 0.5);
 }
 .obe-table-add {
   position: absolute;
