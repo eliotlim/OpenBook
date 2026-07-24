@@ -5,9 +5,12 @@ import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
 import {
   API,
+  AGENT_EDITS_MODES,
+  AGENT_EDITS_POLICIES,
   FORWARDED_HEADER,
   PAGE_VISIBILITIES,
   type AclLevel,
+  type AgentEditsPolicy,
   type BackupCadence,
   type BackupConfig,
   type CommentInput,
@@ -79,18 +82,24 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * AGENT-6 defense-in-depth: page SHARING / EXPOSURE controls (per-page ACL grants +
- * visibility scope) are privileged and jws-only — an agent PAT must NEVER re-share a
- * page or change its visibility. A durable ACL grant would SURVIVE the token's
- * revocation (a permanent backdoor defeating revocation-as-mitigation), and flipping
- * a restricted page to `public` is an outright confidentiality break. These routes
- * ordinarily gate on mere page-write (which a write-PAT passes), so they get an
- * explicit `pat` refusal at the handler — belt-and-braces on top of the scope-gate,
- * which also carves these sub-paths out of the PAT allowlist entirely.
+ * AGENT-6 / AGED-1 defense-in-depth: privileged jws-only page POLICY controls that an
+ * agent PAT must NEVER change. Two families gate here:
+ *
+ *  - SHARING / EXPOSURE (per-page ACL grants + visibility scope): a durable ACL grant
+ *    would SURVIVE the token's revocation (a permanent backdoor defeating
+ *    revocation-as-mitigation), and flipping a restricted page to `public` is an
+ *    outright confidentiality break.
+ *  - AGENT-EDITS policy (AGED-1): letting a PAT set a page to `agentEdits='direct'`
+ *    would be SELF-AUTHORIZATION — the token relaxing the very policy that governs
+ *    whether agents may edit that page directly.
+ *
+ * These routes ordinarily gate on mere page-write (which a write-PAT passes), so they
+ * get an explicit `pat` refusal at the handler — belt-and-braces on top of the
+ * scope-gate, which also carves these sub-paths out of the PAT allowlist entirely.
  */
-function denyPatSharing(c: Context<AppEnv>): void {
+function denyPatPolicy(c: Context<AppEnv>): void {
   if (c.get('principal').verifiedVia === 'pat') {
-    throw new HTTPException(403, {message: 'agent tokens cannot change page sharing or visibility'});
+    throw new HTTPException(403, {message: 'agent tokens cannot change page sharing, visibility, or agent-edits policy'});
   }
 }
 
@@ -1144,6 +1153,9 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const localOwner = Boolean(c.get('localOwner'));
     const info: InstanceInfo = {
       guestAccess: config.guestAccess,
+      // The instance-wide agent-edits mode (AGED-1) — so a client can render the
+      // policy and resolve a page's `inherit` without a second probe.
+      agentEdits: config.agentEdits,
       // Stable, opaque per-library id (STAB-5) so an out-of-process MCP connector
       // can confirm it reached THIS library and refuse a foreign responder on the
       // same port. Not a secret — authorizes nothing.
@@ -1174,6 +1186,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const principal = c.get('principal');
     const current = await store.getInstanceConfig();
     const patch = await c.req.json<Partial<InstanceConfig>>();
+
+    // AGED-1: enum-validate the agent-edits mode before any owner/claim path so an
+    // unknown value is a 400 (never silently persisted by the shallow merge). Only
+    // `suggest` / `direct` are valid at the instance level (`inherit` is page-only).
+    if (patch.agentEdits !== undefined && !AGENT_EDITS_MODES.includes(patch.agentEdits)) {
+      return c.json({error: 'agentEdits must be "suggest" or "direct"'}, 400);
+    }
 
     // Owner-claim (OB-182 §2.6 B2). Setting `ownerSubject` on a still-unclaimed
     // instance is the ONE-TIME claim: route it through the atomic compare-and-set
@@ -1343,7 +1362,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.post(`${API.pages}/:id/acl`, async (c) => {
     const id = c.req.param('id');
-    denyPatSharing(c);
+    denyPatPolicy(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
     const body = await c.req.json<{invitee?: string; level?: AclLevel}>();
@@ -1360,7 +1379,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.delete(`${API.pages}/:id/acl`, async (c) => {
     const id = c.req.param('id');
-    denyPatSharing(c);
+    denyPatPolicy(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
     const subject = c.req.query('subject');
@@ -1383,7 +1402,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.put(`${API.pages}/:id/visibility`, async (c) => {
     const id = c.req.param('id');
-    denyPatSharing(c);
+    denyPatPolicy(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
     const {visibility} = await c.req.json<{visibility?: PageVisibility}>();
@@ -1394,6 +1413,32 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (!ok) return c.json({error: 'page not found'}, 404);
     logEdit(c, id, 'page.visibility', visibility);
     return c.json({visibility});
+  });
+
+  // A page's agent-edits policy (AGED-1). Read is gated on reading the page (a viewer
+  // may see whether agents edit this page directly). Unlike visibility's write (gated
+  // on page-write), the PUT is jws-only via `denyPatPolicy`: an agent PAT must NEVER
+  // set the policy that governs whether agents may edit this page directly —
+  // self-authorization. `requireAccess` 404s a page the caller can't even read.
+  app.get(`${API.pages}/:id/agent-edits`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'read', id);
+    return c.json({agentEdits: (await store.getPageAgentEdits(id)) ?? 'inherit'});
+  });
+
+  app.put(`${API.pages}/:id/agent-edits`, async (c) => {
+    const id = c.req.param('id');
+    denyPatPolicy(c);
+    await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
+    const {agentEdits} = await c.req.json<{agentEdits?: AgentEditsPolicy}>();
+    if (!agentEdits || !AGENT_EDITS_POLICIES.includes(agentEdits)) {
+      return c.json({error: 'a valid agent-edits policy is required'}, 400);
+    }
+    const ok = await store.setPageAgentEdits(id, agentEdits);
+    if (!ok) return c.json({error: 'page not found'}, 404);
+    logEdit(c, id, 'page.agentEdits', agentEdits);
+    return c.json({agentEdits});
   });
 
   // A page's change provenance (the edit log), newest first. The top row is its

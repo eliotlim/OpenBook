@@ -444,6 +444,18 @@ const MIGRATIONS: Migration[] = [
       'CREATE INDEX IF NOT EXISTS page_versions_page_idx ON page_versions (page_id, created_at DESC)',
     ],
   },
+  {
+    // AGED-1 — per-page agent-edits policy. Governs whether an agent (an MCP tool or
+    // the built-in AI) writes THIS page DIRECTLY or as a suggestion. `inherit` (the
+    // column default) defers to the instance-wide `agentEdits` mode; `suggest` /
+    // `direct` override it for this page. Modeled on `pages.visibility` (0011):
+    // additive + idempotent — every pre-existing row backfills to the `inherit`
+    // default, so no data migration is needed and re-running is a no-op.
+    name: '0019_agent_edits',
+    statements: [
+      'ALTER TABLE pages ADD COLUMN IF NOT EXISTS agent_edits TEXT NOT NULL DEFAULT \'inherit\'',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */
