@@ -483,6 +483,11 @@ describe('page sharing/exposure is refused for a PAT', () => {
     const a = app();
     const {token} = await mintPat({scope: 'write', subject: OWNER});
     const pid = (await store.upsertPage({name: `s-${seq}`, data: snapshot()})).id;
+    // AGED-2: an agent PAT's DIRECT content write is now gated by the page's
+    // agent-edits mode. Set this page to `direct` so the control write below isolates
+    // the sharing/exposure refusals (the subject of this test) from the write gate —
+    // the gate's own suggest-mode 403 is covered in agentWriteGate.test.ts.
+    await store.setPageAgentEdits(pid, 'direct');
 
     // Exposure: flipping a page to `public` — a confidentiality break — is refused.
     const vis = await req(a, `/api/pages/${pid}/visibility`, {
