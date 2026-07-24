@@ -857,6 +857,21 @@
   background: hsl(var(--accent) / 0.55);
   box-shadow: 0 0 0 2px hsl(var(--ring) / 0.35);
 }
+/* Rubber-band marquee: a translucent accent rectangle over the content column.
+   Non-interactive (clicks fall through to the editor) and theme-aware via the
+   accent/ring tokens. `obe-marqueeing` freezes text selection during the drag. */
+.obe-marquee {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  background: hsl(var(--ring) / 0.14);
+  border: 1px solid hsl(var(--ring) / 0.65);
+  border-radius: 4px;
+}
+.obe-marqueeing,
+.obe-marqueeing * {
+  user-select: none !important;
+}
 .obe-indent-1 { margin-left: 1.6rem; }
 .obe-indent-2 { margin-left: 3.2rem; }
 .obe-indent-3 { margin-left: 4.8rem; }
