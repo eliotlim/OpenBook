@@ -134,6 +134,15 @@ export class MockEngine implements AiEngine {
         });
       } else if (/edit directly/i.test(lastUser)) {
         out = JSON.stringify({tool: 'request_edit_access', args: {summary: 'edit this page'}});
+      } else if (/append via agent/i.test(lastUser) && !prompt.includes('TOOL RESULT')) {
+        // AGED-6 policy-matrix e2e hook: emit a genuine document write so the
+        // built-in AI's write path (append_to_page → a persisted suggestion →
+        // AgentPanel routes it through the resolved agent-edits policy) is
+        // exercised end to end. The write tool needs the target page id — take
+        // it from the ambient context the runner injects into the system prompt
+        // ("… (id <pageId>):") for the page the user is viewing.
+        const pageId = /\(id ([^)]+)\)/.exec(opts.system ?? '')?.[1] ?? '';
+        out = JSON.stringify({tool: 'append_to_page', args: {pageId, content: 'AGED6 AI DIRECT MARKER'}});
         // Scripted agent turn: search first, then answer from the result. The
         // leading <think> block exercises the reasoning-channel splitter.
       } else if (!prompt.includes('TOOL RESULT')) {
