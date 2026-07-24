@@ -14,7 +14,7 @@ export default function HomeButton() {
     <Button
       variant="ghost"
       className={cn(
-        'flex h-7 grow justify-start gap-2 px-2 text-muted-foreground',
+        'flex h-7 grow justify-start px-2 text-muted-foreground',
         SIDEBAR_HOVER,
         selected && SIDEBAR_ACTIVE,
       )}

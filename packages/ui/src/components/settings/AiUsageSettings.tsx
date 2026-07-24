@@ -300,7 +300,7 @@ export default function AiUsageSettings() {
         </div>
         <div className="flex items-center gap-3">
           <Button size="sm" onClick={() => void savePricing()} disabled={savingPrice}>
-            {savingPrice ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+            {savingPrice ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t('aiUsage.savePricing')}
           </Button>
           {priceSaved && <span className="text-xs text-emerald-600 dark:text-emerald-400">{t('aiUsage.saved')}</span>}
@@ -329,7 +329,7 @@ export default function AiUsageSettings() {
             />
           </div>
           <Button size="sm" variant="outline" onClick={() => void saveRetention()} disabled={savingRetention}>
-            {savingRetention ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+            {savingRetention ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {t('aiUsage.saveRetention')}
           </Button>
           {retentionSaved && <span className="pb-1.5 text-xs text-emerald-600 dark:text-emerald-400">{t('aiUsage.saved')}</span>}

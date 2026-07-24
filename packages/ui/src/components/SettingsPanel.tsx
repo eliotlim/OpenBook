@@ -263,7 +263,7 @@ export default function SettingsPanel({tab, onTabChange, mode, onModeChange, onC
                       className="flex h-7 justify-start px-2 font-normal"
                       onClick={() => onTabChange(id)}
                     >
-                      <Icon className="mr-2 h-4 w-4 shrink-0" />
+                      <Icon className="h-4 w-4 shrink-0" />
                       <span className="truncate">{t(labelKey)}</span>
                     </Button>
                   );

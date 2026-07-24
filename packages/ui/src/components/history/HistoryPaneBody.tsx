@@ -397,7 +397,7 @@ export function HistoryPaneBody() {
                   disabled={restoringId !== null}
                   onClick={() => void restore(selectedItem.version)}
                 >
-                  <RotateCcw className="mr-2 h-3.5 w-3.5" />
+                  <RotateCcw className="h-3.5 w-3.5" />
                   {restoringId === selectedItem.version.id
                     ? t('history.restoring')
                     : t('history.restore')}

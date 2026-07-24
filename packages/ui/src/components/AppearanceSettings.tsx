@@ -138,7 +138,7 @@ export default function AppearanceSettings() {
           <span className="text-xs text-muted-foreground">{t('appearance.perPagePointer')}</span>
         </span>
         <Button variant="secondary" size="sm" className="shrink-0" onClick={openPageCustomise}>
-          <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" />
+          <SlidersHorizontal className="h-3.5 w-3.5" />
           {t('appearance.openPageCustomise')}
         </Button>
       </div>

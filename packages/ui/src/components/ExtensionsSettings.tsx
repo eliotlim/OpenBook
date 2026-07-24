@@ -90,7 +90,7 @@ export default function ExtensionsSettings() {
             }}
           />
           <Button size="sm" disabled={busy} onClick={() => fileRef.current?.click()}>
-            <Upload className="mr-1.5 h-3.5 w-3.5" />
+            <Upload className="h-3.5 w-3.5" />
             {busy ? t('extensions.installing') : t('extensions.install')}
           </Button>
           <span className="text-xs text-muted-foreground">{t('extensions.installHint')}</span>

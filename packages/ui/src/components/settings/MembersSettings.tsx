@@ -332,7 +332,7 @@ export function PeopleSection() {
                       <Loader2 className="h-4 w-4 animate-spin" />
                     ) : (
                       <>
-                        <UserPlus className="mr-1.5 h-4 w-4" />
+                        <UserPlus className="h-4 w-4" />
                         {t('members.invite')}
                       </>
                     )}
@@ -353,12 +353,12 @@ export function PeopleSection() {
                     <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copyLibraryLink()}>
                       {deliverCopied ? (
                         <>
-                          <Check className="mr-1.5 h-4 w-4" />
+                          <Check className="h-4 w-4" />
                           {t('members.deliver.copied')}
                         </>
                       ) : (
                         <>
-                          <Link2 className="mr-1.5 h-4 w-4" />
+                          <Link2 className="h-4 w-4" />
                           {t('members.deliver.copy')}
                         </>
                       )}
