@@ -18,7 +18,7 @@ import type {
   McpServerConfig,
   McpTestResult,
 } from './ai';
-import type {AclLevel, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
+import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult} from './backup';
@@ -341,8 +341,15 @@ export interface DataClient {
   /** Set a page's visibility scope (manager-only — gated on page write). */
   setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility>;
   /** A page's agent-edits policy (AGED-1; raw — `inherit` not yet resolved against
-   *  the instance mode). Gated on read of the page. Resolve with {@link resolveAgentEdits}. */
+   *  the instance mode). Gated on read of the page. Use this for the UI tri-state
+   *  (which must show `inherit` as its own state); use {@link getEffectiveAgentEdits}
+   *  when you need the resolved decision. Resolve manually with {@link resolveAgentEdits}. */
   getPageAgentEdits(pageId: string): Promise<AgentEditsPolicy>;
+  /** A page's SERVER-RESOLVED effective agent-edits mode (AGED-6): the raw policy
+   *  resolved against the instance default, computed server-side (never `inherit`).
+   *  Lets a PAT-scoped client learn the effective mode of an `inherit` page WITHOUT
+   *  the privileged instance read. Gated on read of the page. */
+  getEffectiveAgentEdits(pageId: string): Promise<AgentEditsMode>;
   /** Set a page's agent-edits policy (AGED-1; jws-only — a PAT cannot change the
    *  policy that governs whether agents edit directly). */
   setPageAgentEdits(pageId: string, agentEdits: AgentEditsPolicy): Promise<AgentEditsPolicy>;
@@ -1393,6 +1400,14 @@ export class HttpDataClient implements DataClient {
   async getPageAgentEdits(pageId: string): Promise<AgentEditsPolicy> {
     const {agentEdits} = await this.request<{agentEdits: AgentEditsPolicy}>('GET', API.pageAgentEdits(pageId));
     return agentEdits;
+  }
+
+  /** A page's server-resolved effective agent-edits mode (AGED-6). Reads the same
+   *  PAT-readable route as {@link getPageAgentEdits} and returns its `effective`
+   *  field — so an `inherit` page's mode resolves without the privileged instance read. */
+  async getEffectiveAgentEdits(pageId: string): Promise<AgentEditsMode> {
+    const {effective} = await this.request<{effective: AgentEditsMode}>('GET', API.pageAgentEdits(pageId));
+    return effective;
   }
 
   /** Set a page's agent-edits policy (AGED-1). jws-only: an agent PAT cannot change
