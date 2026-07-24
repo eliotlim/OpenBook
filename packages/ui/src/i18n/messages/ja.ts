@@ -652,9 +652,16 @@ export const ja: PartialMessages = {
     image: {
       expand: 'フルサイズで開く',
       view: '画像をフルサイズで表示',
+      viewAlt: '画像をフルサイズで表示：{alt}',
+      replace: '画像を差し替え',
       lightboxLabel: '画像ビューア',
       close: '閉じる',
-      overlayDescription: '画像をウィンドウ全体に表示中。Esc か閉じるボタンでページに戻ります。',
+      overlayDescription: '画像をウィンドウ全体に表示中。スクロールまたは +/− で拡大縮小、ドラッグで移動、ダブルクリックで 100% を切り替え、0 で全体表示。Esc か閉じるボタンでページに戻ります。',
+      zoomControls: 'ズーム操作',
+      zoomIn: '拡大',
+      zoomOut: '縮小',
+      zoomReset: 'ズームをフィットにリセット',
+      zoomLevel: '{percent}%',
     },
   },
   general: {
