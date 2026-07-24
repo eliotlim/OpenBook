@@ -1,3 +1,14 @@
+## 3.4.2 (2026-07-24)
+
+### 🩹 Fixes
+
+- **build:** spawn pnpm through a shell on Windows in the release build scripts ([#216](https://github.com/eliotlim/OpenBook/pull/216))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.4.1 (2026-07-24)
 
 ### 🩹 Fixes
