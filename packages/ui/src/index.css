@@ -1807,6 +1807,19 @@ a.obe-mention {
   background: hsl(var(--muted) / 0.5);
   font-weight: 600;
 }
+/* ── Multi-cell selection (TBL-5) ────────────────────────────────────────────
+   A rectangle of selected table cells — distinct from obe-row-selected (a whole
+   top-level block). Token-based accent tint + inset ring: theme-aware, dark-safe,
+   and translucent so it never obscures the cell text (aligns with the marquee's
+   --ring usage). `obe-cell-selecting` hides the native blue mid-drag so only the
+   cell highlight reads (the native range is collapsed on mouseup). */
+.obe-table td.obe-cell-selected {
+  background: hsl(var(--ring) / 0.16);
+  box-shadow: inset 0 0 0 2px hsl(var(--ring) / 0.55);
+}
+.obe-table-header td.obe-cell-selected { background: hsl(var(--ring) / 0.22); }
+.obe-cell-selecting ::selection { background: transparent; }
+.obe-cell-selecting ::-moz-selection { background: transparent; }
 .obe-table-add {
   position: absolute;
   display: grid;
