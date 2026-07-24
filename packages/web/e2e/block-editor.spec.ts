@@ -664,4 +664,83 @@ test('table cell context menu: insert row, delete column, toggle header', {tag: 
   await page.locator('.obe-table td').first().click({button: 'right'});
   await page.getByRole('menuitem', {name: 'Toggle header row'}).click();
   await expect(page.locator('.obe-table-header')).toHaveCount(0);
+// ── Marquee (rubber-band) select + shift-click extension (SEL-1) ─────────────
+
+/** Grow the lab from its 3 seeded blocks to 5 top-level blocks. */
+async function fiveBlocks(page: import('@playwright/test').Page): Promise<void> {
+  const rows = page.locator('.obe-root > [data-block-row]');
+  // freshLab only waits for the FIRST block — wait for the whole seed (3 rows)
+  // before driving the caret, or a click can miss a not-yet-rendered row.
+  await expect(rows).toHaveCount(3);
+  await page.locator('.obe-text').nth(2).click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('four');
+  await expect(rows).toHaveCount(4);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('five');
+  await expect(rows).toHaveCount(5);
+}
+
+test('marquee: drag over empty space selects the intersected blocks', {tag: ['@editor']}, async ({page}) => {
+  await freshLab(page);
+  await fiveBlocks(page);
+  // The UndoManager coalesces edits within 400ms — pause so the later delete
+  // is its own undo step (one undo restores the five blocks, not the typing).
+  await page.waitForTimeout(500);
+
+  const rows = page.locator('.obe-root > [data-block-row]');
+  const r2 = (await rows.nth(2).boundingBox())!;
+  const r4 = (await rows.nth(4).boundingBox())!;
+  // Start in the empty page space below the last block and drag diagonally up
+  // into row 2 — the rectangle sweeps the last three rows (2, 3, 4). A diagonal
+  // (not straight-up) drag gives the rect real width so the overlay is visible.
+  await page.mouse.move(r4.x + r4.width * 0.75, r4.y + r4.height + 24);
+  await page.mouse.down();
+  await page.mouse.move(r4.x + r4.width * 0.5, r4.y, {steps: 6});
+  await page.mouse.move(r4.x + r4.width * 0.25, r2.y + r2.height / 2, {steps: 6});
+  // The marquee overlay is visible while dragging.
+  await expect(page.locator('.obe-marquee')).toBeVisible();
+  await page.mouse.up();
+
+  await expect(page.locator('.obe-row-selected')).toHaveCount(3);
+  // Release keeps the selection; the overlay is gone.
+  await expect(page.locator('.obe-marquee')).toHaveCount(0);
+
+  // Backspace deletes the three; undo restores all five.
+  await page.keyboard.press('Backspace');
+  await expect(page.locator('.obe-root > [data-block-row]')).toHaveCount(2);
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect(page.locator('.obe-root > [data-block-row]')).toHaveCount(5);
+});
+
+test('marquee: a plain click on empty space still clears the selection', {tag: ['@editor']}, async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.obe-row-selected')).toHaveCount(1);
+
+  // A click (no drag) on the empty area below the blocks clears — no marquee.
+  const root = (await page.locator('.obe-root').boundingBox())!;
+  await page.mouse.click(root.x + root.width / 2, root.y + root.height - 20);
+  await expect(page.locator('.obe-row-selected')).toHaveCount(0);
+  await expect(page.locator('.obe-marquee')).toHaveCount(0);
+});
+
+test('shift-click extends the block selection contiguously', {tag: ['@editor']}, async ({page}) => {
+  await freshLab(page);
+  await fiveBlocks(page);
+
+  // Select the second block (index 1) via the existing Escape path.
+  await caretAtEnd(page, 1);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.obe-row-selected')).toHaveCount(1);
+
+  // Shift-click the fourth block (index 3) → contiguous range 1..3.
+  const rows = page.locator('.obe-root > [data-block-row]');
+  await rows.nth(3).click({modifiers: ['Shift'], position: {x: 40, y: 8}});
+  await expect(page.locator('.obe-row-selected')).toHaveCount(3);
+  await expect(rows.nth(1)).toHaveClass(/obe-row-selected/);
+  await expect(rows.nth(3)).toHaveClass(/obe-row-selected/);
+  await expect(rows.nth(0)).not.toHaveClass(/obe-row-selected/);
 });
