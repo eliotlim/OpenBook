@@ -2071,6 +2071,8 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   };
   const commitDrop = (e: React.DragEvent): void => {
     e.preventDefault();
+    // Stop propagation so a drop on a td doesn't bubble to the tr and fire twice.
+    e.stopPropagation();
     if (drag && dropIndex !== null) {
       const to = tableDropTarget(dropIndex, drag.from);
       if (to !== null) {
@@ -2118,6 +2120,9 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                     .join(' ');
                   // Grips: a row grip on the first cell (left gutter), a column
                   // grip on the top cell (header edge). Plain draggable divs.
+                  // aria-hidden: the grips are mouse-only drag affordances and not
+                  // focusable; the canonical a11y path for reordering is the
+                  // context-menu "Move" items.
                   const grips = showHandles && (
                     <>
                       {c === 0 && cell && (
@@ -2125,7 +2130,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                           className="obe-table-row-grip"
                           contentEditable={false}
                           draggable
-                          aria-label="Drag to reorder row"
+                          aria-hidden="true"
                           onMouseDown={(e) => e.stopPropagation()}
                           onDragStart={startDrag({axis: 'row', from: r, id: rowId})}
                           onDragEnd={clearDrag}
@@ -2138,7 +2143,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                           className="obe-table-col-grip"
                           contentEditable={false}
                           draggable
-                          aria-label="Drag to reorder column"
+                          aria-hidden="true"
                           onMouseDown={(e) => e.stopPropagation()}
                           onDragStart={startDrag({axis: 'col', from: c, id: colId})}
                           onDragEnd={clearDrag}

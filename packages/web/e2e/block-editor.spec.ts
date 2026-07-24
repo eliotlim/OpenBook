@@ -508,6 +508,54 @@ test('table drag-reorder: row + column grips, menu moves, single undo', {tag: ['
   expect(await headRow()).toEqual(['Y', 'R1', 'X']);
 });
 
+test('table drag-reorder: after-last boundary — drop into bottom/right half lands last', {tag: ['@editor', '@p1']}, async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/table');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.obe-table')).toBeVisible();
+
+  const rows = page.locator('.obe-table tbody > tr');
+  await expect(rows).toHaveCount(3);
+  for (let i = 0; i < 3; i += 1) {
+    await rows.nth(i).locator('.obe-text').first().click();
+    await page.keyboard.type(`R${i}`);
+  }
+  const firstCol = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.obe-table tbody > tr')].map((tr) => tr.querySelector('td .obe-text')!.textContent),
+    );
+  const headRow = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('.obe-table tbody > tr')[0].querySelectorAll('td .obe-text')].map((e) => e.textContent),
+    );
+  expect(await firstCol()).toEqual(['R0', 'R1', 'R2']);
+  await page.waitForTimeout(600); // let the label edits settle into their own undo step
+
+  // Drag row 0 into the BOTTOM half of the LAST row (y near its bottom edge). This
+  // drives overRow's midpoint true-branch → dropIndex === rows.length (after-last),
+  // so the row must land LAST.
+  const lastRow = rows.nth(2);
+  const lastRowBox = (await lastRow.boundingBox())!;
+  await rows.nth(0).locator('.obe-table-row-grip').dragTo(lastRow, {targetPosition: {x: 24, y: lastRowBox.height - 2}});
+  expect(await firstCol()).toEqual(['R1', 'R2', 'R0']);
+
+  // Column: mark the header row's other two cells, then drag column 0 into the
+  // RIGHT half of the LAST column (x near its right edge) → dropIndex === cols
+  // (after-last), so the column must land LAST.
+  const header = rows.nth(0);
+  await header.locator('td').nth(1).locator('.obe-text').click();
+  await page.keyboard.type('X');
+  await header.locator('td').nth(2).locator('.obe-text').click();
+  await page.keyboard.type('Y');
+  const headCells = header.locator('td');
+  expect(await headRow()).toEqual(['R1', 'X', 'Y']);
+  const lastColBox = (await headCells.nth(2).boundingBox())!;
+  await headCells.nth(0).locator('.obe-table-col-grip').dragTo(headCells.nth(2), {targetPosition: {x: lastColBox.width - 2, y: 12}});
+  expect(await headRow()).toEqual(['X', 'Y', 'R1']);
+});
+
 test('cross-block selection becomes block selection and deletes cleanly', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await page.evaluate(() => {
