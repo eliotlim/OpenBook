@@ -35,6 +35,7 @@ export interface SettingsSearchEntry {
 export const SETTINGS_SECTION_GENERAL_BEHAVIOR = 'settings-general-behavior';
 export const SETTINGS_SECTION_CUST_SHORTCUTS = 'settings-cust-shortcuts';
 export const SETTINGS_SECTION_CUST_BLOCKS = 'settings-cust-blocks';
+export const SETTINGS_SECTION_AGENTS_EDITS = 'settings-agents-edits';
 export const SETTINGS_SECTION_AGENTS_MCP = 'settings-agents-mcp';
 export const SETTINGS_SECTION_AGENTS_USAGE = 'settings-agents-usage';
 
@@ -142,6 +143,13 @@ export const SETTINGS_SEARCH_INDEX: readonly SettingsSearchEntry[] = [
     labelKey: 'agents.title',
     hintKey: 'agents.description',
     keywords: 'agent tokens api access token personal credential mcp',
+  },
+  {
+    tab: 'agents',
+    sectionId: SETTINGS_SECTION_AGENTS_EDITS,
+    labelKey: 'agentEdits.title',
+    hintKey: 'agentEdits.description',
+    keywords: 'agent edits suggest direct suggestions mode ai autonomy attribution',
   },
   {
     tab: 'agents',

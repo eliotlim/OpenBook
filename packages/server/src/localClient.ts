@@ -35,6 +35,7 @@ import type {
   PageSubscription,
   StoredPageVersion,
   PageVisibility,
+  AgentEditsPolicy,
   PluginPackage,
   RowInput,
   RowUpdate,
@@ -447,6 +448,10 @@ export class LocalDataClient implements DataClient {
     const config = await this.store.getInstanceConfig();
     return {
       guestAccess: config.guestAccess,
+      // The instance-wide agent-edits mode (AGED-5) — surfaced so the in-webview
+      // Settings toggle round-trips and a page's `inherit` policy resolves without
+      // a second probe. Mirrors the HTTP `GET /api/instance` field.
+      agentEdits: config.agentEdits,
       ownerSubject: config.ownerSubject ?? null,
       trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
       audience: config.audience ?? null,
@@ -480,6 +485,17 @@ export class LocalDataClient implements DataClient {
   async setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility> {
     await this.store.setPageVisibility(pageId, visibility);
     return visibility;
+  }
+
+  // Agent-edits policy (AGED-1). The single-process owner always writes; the store
+  // coalesces an unset policy to `'inherit'` exactly as the HTTP route does.
+  async getPageAgentEdits(pageId: string): Promise<AgentEditsPolicy> {
+    return (await this.store.getPageAgentEdits(pageId)) ?? 'inherit';
+  }
+
+  async setPageAgentEdits(pageId: string, agentEdits: AgentEditsPolicy): Promise<AgentEditsPolicy> {
+    await this.store.setPageAgentEdits(pageId, agentEdits);
+    return agentEdits;
   }
 
   listPageAcl(pageId: string): Promise<PageAcl[]> {
