@@ -556,6 +556,77 @@ test('table drag-reorder: after-last boundary — drop into bottom/right half la
   expect(await headRow()).toEqual(['X', 'Y', 'R1']);
 });
 
+test('multi-cell selection: drag-select highlights a rectangle, copy→paste makes a new table, delete clears + undo restores', {tag: ['@editor', '@p1']}, async ({page}) => {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/table');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.obe-table')).toBeVisible();
+
+  // Fill the top-left 2×2 of the (3-col) slash table: cell indices 0,1,3,4.
+  const cellText = page.locator('.obe-table .obe-text');
+  const vals: Record<number, string> = {0: 'A1', 1: 'B1', 3: 'A2', 4: 'B2'};
+  for (const [i, v] of Object.entries(vals)) {
+    await cellText.nth(Number(i)).click();
+    await page.keyboard.type(v);
+  }
+  await page.waitForTimeout(500); // let the fills settle into their own undo step
+
+  // REAL mouse drag from cell (0,0) to cell (1,1) → a live 2×2 rectangle.
+  const td = page.locator('.obe-table td');
+  const dragCells = async (fromIdx: number, toIdx: number) => {
+    const a = (await td.nth(fromIdx).boundingBox())!;
+    const b = (await td.nth(toIdx).boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, {steps: 10});
+    await page.mouse.up();
+  };
+  await dragCells(0, 4);
+  await expect(page.locator('.obe-table td.obe-cell-selected')).toHaveCount(4);
+
+  // Copy the range, then paste into a fresh empty paragraph → a NEW table.
+  await page.keyboard.press('ControlOrMeta+c');
+  await page.locator('.obe-text').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.press('Enter'); // empty paragraph, outside any table
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(page.locator('.obe-table')).toHaveCount(2);
+  // The pasted table (inserted near the top) carries the same 2×2 grid.
+  const pastedGrid = await page.evaluate(() => {
+    const t = document.querySelectorAll('.obe-table')[0];
+    return [...t.querySelectorAll('tbody > tr')].map((tr) => [...tr.querySelectorAll('td .obe-text')].map((c) => c.textContent));
+  });
+  expect(pastedGrid).toEqual([
+    ['A1', 'B1'],
+    ['A2', 'B2'],
+  ]);
+
+  // Re-select the ORIGINAL table's 2×2 (now the second table), clear it, undo it.
+  const orig = page.locator('.obe-table').nth(1).locator('td');
+  const dragOrig = async (fromIdx: number, toIdx: number) => {
+    const a = (await orig.nth(fromIdx).boundingBox())!;
+    const b = (await orig.nth(toIdx).boundingBox())!;
+    await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(b.x + b.width / 2, b.y + b.height / 2, {steps: 10});
+    await page.mouse.up();
+  };
+  await page.waitForTimeout(500);
+  await dragOrig(0, 4);
+  await expect(page.locator('.obe-table').nth(1).locator('td.obe-cell-selected')).toHaveCount(4);
+  const origTexts = () =>
+    page.evaluate(() =>
+      [0, 1, 3, 4].map((i) => document.querySelectorAll('.obe-table')[1].querySelectorAll('td .obe-text')[i].textContent),
+    );
+  await page.keyboard.press('Delete');
+  expect(await origTexts()).toEqual(['', '', '', '']);
+  await page.keyboard.press('ControlOrMeta+z'); // one undo restores all four
+  expect(await origTexts()).toEqual(['A1', 'B1', 'A2', 'B2']);
+});
+
 test('cross-block selection becomes block selection and deletes cleanly', {tag: ['@editor']}, async ({page}) => {
   await freshLab(page);
   await page.evaluate(() => {
