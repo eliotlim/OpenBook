@@ -162,6 +162,18 @@ export const zh: PartialMessages = {
       suggestEdit: '建议修改…',
       comment: '评论…',
     },
+    table: {
+      sectionRow: '行',
+      sectionColumn: '列',
+      insertRowAbove: '在上方插入行',
+      insertRowBelow: '在下方插入行',
+      insertColumnLeft: '在左侧插入列',
+      insertColumnRight: '在右侧插入列',
+      duplicateRow: '复制行',
+      deleteRow: '删除行',
+      deleteColumn: '删除列',
+      toggleHeader: '切换标题行',
+    },
   },
   share: {
     open: '共享',

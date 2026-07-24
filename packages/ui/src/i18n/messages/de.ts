@@ -163,6 +163,18 @@ export const de: PartialMessages = {
       suggestEdit: 'Änderung vorschlagen…',
       comment: 'Kommentieren…',
     },
+    table: {
+      sectionRow: 'Zeile',
+      sectionColumn: 'Spalte',
+      insertRowAbove: 'Zeile darüber einfügen',
+      insertRowBelow: 'Zeile darunter einfügen',
+      insertColumnLeft: 'Spalte links einfügen',
+      insertColumnRight: 'Spalte rechts einfügen',
+      duplicateRow: 'Zeile duplizieren',
+      deleteRow: 'Zeile löschen',
+      deleteColumn: 'Spalte löschen',
+      toggleHeader: 'Kopfzeile umschalten',
+    },
   },
   share: {
     open: 'Teilen',

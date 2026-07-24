@@ -745,6 +745,8 @@ export function ensureNotEmpty(doc: Y.Doc): void {
  *   tableInsertRow(doc, tableId, rowIndex)         row at sorted position
  *   tableInsertColumn(doc, tableId, colIndex)      registers a fresh colId +
  *                                                  one bound cell per row
+ *   tableDuplicateRow(doc, tableId, rowIndex)      clones a row (fresh ids,
+ *                                                  same col bindings + content)
  *   tableDeleteRow(doc, tableId, rowIndex)         deletes the row node
  *   tableDeleteColumn(doc, tableId, colIndex)      unregisters the column +
  *                                                  deletes its bound cells
@@ -1003,6 +1005,68 @@ export function tableInsertRow(doc: Y.Doc, tableId: string, rowIndex: number): v
     rowsArr.insert(Math.min(at, rowsArr.length), [
       makeBlock({type: 'row', props: {ord}, children: tableColumns(table.block).map((c) => ({type: 'cell' as const, props: {col: c.id}}))}),
     ]);
+  }, 'local');
+}
+
+/** A cell's rich text as explicit runs (for cloning — see {@link tableDuplicateRow}). */
+function cellRuns(cell: BlockMap): TextRun[] {
+  const text = blockText(cell);
+  if (!text) return [];
+  return (text.toDelta() as {insert: string; attributes?: InlineAttrs}[]).map((op) => ({
+    t: op.insert,
+    ...(op.attributes && Object.keys(op.attributes).length > 0 ? {a: op.attributes} : {}),
+  }));
+}
+
+/** A shallow copy of a block's props (colour tokens, alignment, `col`, …). */
+function cloneBlockProps(b: BlockMap): Record<string, unknown> {
+  const props = b.get('props') as Y.Map<unknown> | undefined;
+  return props ? Object.fromEntries(props.entries()) : {};
+}
+
+/**
+ * Duplicate the row at sorted position `rowIndex`: a fresh row block (new ids)
+ * inserted directly after the source, carrying one cell per registered column
+ * with the SAME `col` binding, a copy of the source cell's rich text, and its
+ * cell props (so future colour/alignment survive). The order key is placed
+ * between the source row and its successor. CONVERGENCE-SAFE: it only INSERTS a
+ * node — no existing row's key is rewritten unless a fresh key can't be minted
+ * (then the axis rebalances, same as {@link tableInsertRow}). One transact =
+ * one undo step.
+ */
+export function tableDuplicateRow(doc: Y.Doc, tableId: string, rowIndex: number): void {
+  doc.transact(() => {
+    const table = findBlock(doc, tableId);
+    if (!table) return;
+    const rowsArr = blockChildren(table.block);
+    if (!rowsArr) return;
+    ensureTableOrderInTx(table.block);
+    const grid = tableGrid(table.block);
+    if (rowIndex < 0 || rowIndex >= grid.rows.length) return;
+    const source = grid.rows[rowIndex];
+    const before = rowOrd(source);
+    const after = rowIndex + 1 < grid.rows.length ? rowOrd(grid.rows[rowIndex + 1]) : null;
+    let ord = insertionKey(before, after);
+    if (ord === null) {
+      // No room for a fresh key between source and successor — respread the
+      // whole axis, opening one slot right after the source row.
+      const keys = keysBetween(null, null, grid.rows.length + 1);
+      grid.rows.forEach((row, i) => setBlockProp(row, 'ord', keys[i <= rowIndex ? i : i + 1]));
+      ord = keys[rowIndex + 1];
+    }
+    // Build cells from the SORTED slots so the clone matches render order; each
+    // carries the source cell's props (incl. `col`) or, for a merge gap, an
+    // empty cell bound to that column.
+    const columns = tableColumns(table.block);
+    const children = columns.map((c, i) => {
+      const src = grid.cells[rowIndex][i];
+      return src && blockType(src) === 'cell'
+        ? {type: 'cell' as const, text: cellRuns(src), props: {...cloneBlockProps(src), col: c.id}}
+        : {type: 'cell' as const, props: {col: c.id}};
+    });
+    const arrayIndex = indexOfBlock(rowsArr, blockId(source));
+    const at = arrayIndex >= 0 ? arrayIndex + 1 : rowsArr.length;
+    rowsArr.insert(Math.min(at, rowsArr.length), [makeBlock({type: 'row', props: {ord}, children})]);
   }, 'local');
 }
 

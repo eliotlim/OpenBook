@@ -288,6 +288,18 @@ export const en = {
       suggestEdit: 'Suggest edit…',
       comment: 'Comment…',
     },
+    table: {
+      sectionRow: 'Row',
+      sectionColumn: 'Column',
+      insertRowAbove: 'Insert row above',
+      insertRowBelow: 'Insert row below',
+      insertColumnLeft: 'Insert column left',
+      insertColumnRight: 'Insert column right',
+      duplicateRow: 'Duplicate row',
+      deleteRow: 'Delete row',
+      deleteColumn: 'Delete column',
+      toggleHeader: 'Toggle header row',
+    },
   },
   share: {
     open: 'Share',
