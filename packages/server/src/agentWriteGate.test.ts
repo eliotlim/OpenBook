@@ -146,6 +146,25 @@ describe('agent-PAT write gate — 403 under resolved suggest (AGED-2)', () => {
     const rowEdit = await app().request(`/api/databases/${db.id}/rows/${row.id}`, {method: 'PATCH', headers: h, body: JSON.stringify({name: 'z'})});
     expect(rowEdit.status).toBe(403);
   });
+
+  it('gates the version-restore route — a restore is a direct content rollback (AGED-2 review)', async () => {
+    // Two distinct saves so the pre-save state is captured as a version to target.
+    const {id} = await store.upsertPage({name: `p-${seq}`, data: snapWith('blk1', 'v1')});
+    await store.upsertPage({id, name: `p-${seq}`, data: snapWith('blk1', 'v2')});
+    const [version] = await store.listPageVersions(id);
+    expect(version).toBeDefined();
+
+    // instance default suggest + page inherit → a write-PAT must NOT roll the page back directly.
+    const token = await mintPat();
+    const res = await app().request(`/api/pages/${id}/versions/${version.id}/restore`, {
+      method: 'POST',
+      headers: bearer(token),
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as {error: string};
+    expect(body.error).toContain(`POST /api/pages/${id}/suggestions`);
+    expect(body.error).toMatch(/direct edits are disabled/i);
+  });
 });
 
 // ── Resolved direct-mode → allowed + provenance ─────────────────────────────────────
@@ -164,6 +183,18 @@ describe('agent-PAT write gate — allowed under resolved direct (AGED-2)', () =
     await store.setPageAgentEdits(id, 'direct'); // per-page opt-in on a suggest instance
     const token = await mintPat();
     const res = await putPage(token, id);
+    expect(res.status).toBe(200);
+  });
+
+  it('instance=direct → a PAT may restore a prior version (AGED-2 review)', async () => {
+    await store.updateInstanceConfig({agentEdits: 'direct'});
+    const {id} = await store.upsertPage({name: `p-${seq}`, data: snapWith('blk1', 'v1')});
+    await store.upsertPage({id, name: `p-${seq}`, data: snapWith('blk1', 'v2')});
+    const [version] = await store.listPageVersions(id);
+    const res = await app().request(`/api/pages/${id}/versions/${version.id}/restore`, {
+      method: 'POST',
+      headers: bearer(await mintPat()),
+    });
     expect(res.status).toBe(200);
   });
 

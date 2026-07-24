@@ -1057,6 +1057,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
+    // A restore is a direct content mutation (it overwrites pages.data with a prior
+    // snapshot), so a suggest-mode agent PAT must be steered to the review path rather
+    // than rolling the page back straight through — same gate as save/PATCH (AGED-2).
+    await requireAgentDirectWrite(c, id);
     const version = await store.getPageVersion(id, c.req.param('vid'));
     if (!version) return c.json({error: 'version not found'}, 404);
     // Preserve the page's current name — only the document content rolls back.
