@@ -20,7 +20,6 @@ import {copyPageLink} from '@/lib/pageActions';
 import {clearShareTarget, readShareTarget, shareDialogVersion, subscribeShareDialog} from '@/lib/shareDialog';
 import {SiteVisibilityControl} from '@/components/SiteVisibilityControl';
 import {SETTINGS_SECTION_PEOPLE} from '@/lib/hud';
-import {cn} from '@/lib/utils';
 import type {TKey} from '@/i18n';
 
 /** i18n label per visibility scope (escalating privacy). `inherit` is presented
@@ -166,12 +165,12 @@ function InlinePublish() {
       <Button variant="outline" size="sm" className="self-start" disabled={busy} onClick={() => void enable()}>
         {busy ? (
           <>
-            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 animate-spin" />
             {t('forwarding.registering')}
           </>
         ) : (
           <>
-            <Share2 className="mr-1.5 h-4 w-4" />
+            <Share2 className="h-4 w-4" />
             {t('forwarding.toggle')}
           </>
         )}
@@ -687,12 +686,12 @@ export default function ShareDialog({
                 <Button variant="outline" size="sm" className="shrink-0" onClick={() => void copyDeliverLink()}>
                   {deliverCopied ? (
                     <>
-                      <Check className="mr-1.5 h-4 w-4" />
+                      <Check className="h-4 w-4" />
                       {t('share.copied')}
                     </>
                   ) : (
                     <>
-                      <Link2 className="mr-1.5 h-4 w-4" />
+                      <Link2 className="h-4 w-4" />
                       {t('share.deliver.copy')}
                     </>
                   )}
@@ -767,12 +766,12 @@ export default function ShareDialog({
                 <Button variant="outline" size="sm" onClick={() => void copyLink()}>
                   {copied ? (
                     <>
-                      <Check className="mr-1.5 h-4 w-4" />
+                      <Check className="h-4 w-4" />
                       {t('share.copied')}
                     </>
                   ) : (
                     <>
-                      <Link2 className={cn('mr-1.5 h-4 w-4')} />
+                      <Link2 className="h-4 w-4" />
                       {t('share.copyLink')}
                     </>
                   )}

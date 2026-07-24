@@ -202,7 +202,6 @@ export default function BackupSettings() {
               return draft;
             })}
             disabled={busy !== null}
-            className="gap-2"
           >
             <FileUp className="h-4 w-4" />
             {t('backup.importContent')}
@@ -212,11 +211,11 @@ export default function BackupSettings() {
 
       <SettingsSection title={t('backup.heading')} description={t('backup.intro')}>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => void doExport()} disabled={busy !== null} className="gap-2">
+          <Button onClick={() => void doExport()} disabled={busy !== null}>
             <Download className="h-4 w-4" />
             {busy === 'export' ? t('backup.exporting') : t('backup.export')}
           </Button>
-          <Button variant="secondary" onClick={() => fileInput.current?.click()} disabled={busy !== null} className="gap-2">
+          <Button variant="secondary" onClick={() => fileInput.current?.click()} disabled={busy !== null}>
             <Upload className="h-4 w-4" />
             {t('backup.restore')}
           </Button>
@@ -236,11 +235,11 @@ export default function BackupSettings() {
 
       <SettingsSection title={t('backup.folderHeading')} description={t('backup.folderIntro')}>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => void onExportFolder()} disabled={busy !== null} className="gap-2">
+          <Button variant="secondary" onClick={() => void onExportFolder()} disabled={busy !== null}>
             <FolderDown className="h-4 w-4" />
             {busy === 'folder' ? t('backup.folderExporting') : t('backup.folderExport')}
           </Button>
-          <Button variant="secondary" onClick={() => void onImportFolder()} disabled={busy !== null} className="gap-2">
+          <Button variant="secondary" onClick={() => void onImportFolder()} disabled={busy !== null}>
             <FolderUp className="h-4 w-4" />
             {t('backup.folderImport')}
           </Button>
@@ -260,7 +259,6 @@ export default function BackupSettings() {
               variant="secondary"
               onClick={() => void onCompact()}
               disabled={busy !== null || !!remote}
-              className="gap-2"
             >
               <Database className="h-4 w-4" />
               {busy === 'compact' ? t('storage.compacting') : t('storage.compact')}
@@ -463,7 +461,7 @@ function ScheduledBackupsSection() {
           )}
 
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={() => void backupNow()} disabled={busy} className="gap-2">
+            <Button variant="secondary" onClick={() => void backupNow()} disabled={busy}>
               <CalendarClock className="h-4 w-4" />
               {busy ? t('backup.schedule.backingUp') : t('backup.schedule.backupNow')}
             </Button>

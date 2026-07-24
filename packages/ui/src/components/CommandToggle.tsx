@@ -15,7 +15,7 @@ export default function CommandToggle() {
     <ShortcutTooltip combo={SHORTCUTS.commandPalette} label={t('command.search')}>
       <Button
         variant="ghost"
-        className={cn('flex h-7 grow justify-start gap-2 px-2 text-muted-foreground', SIDEBAR_HOVER)}
+        className={cn('flex h-7 grow justify-start px-2 text-muted-foreground', SIDEBAR_HOVER)}
         onClick={() => {
           setHud((draft) => {
             draft.commandPalette.open = true;

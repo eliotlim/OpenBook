@@ -220,7 +220,7 @@ function UnchangedRun({entries}: {entries: BlockDiffEntry[]}) {
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="mr-1.5 font-mono">{open ? '−' : '⋯'}</span>
+        <span className="font-mono">{open ? '−' : '⋯'}</span>
         {open ? t('history.diffHideUnchanged') : countLabel}
       </Button>
       {open && (

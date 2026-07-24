@@ -21,7 +21,7 @@ export default function AboutDialog({open, onOpenChange}: {open?: boolean; onOpe
     <Dialog open={open} onOpenChange={onOpenChange}>
       {!controlled && (
         <DialogTrigger asChild>
-          <Button variant="ghost" className="flex grow gap-2">
+          <Button variant="ghost" className="flex grow">
             <InformationCircleIcon className="h-4 w-4"/>
             About
           </Button>

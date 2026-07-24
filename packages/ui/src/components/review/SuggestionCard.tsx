@@ -92,11 +92,11 @@ export function SuggestionCard({
       {open && (
         <div className="flex items-center gap-2">
           <Button size="sm" data-suggestion-accept disabled={busy} onClick={() => void onAccept(s)}>
-            <Check className="mr-1 size-3.5" />
+            <Check className="size-3.5" />
             Accept
           </Button>
           <Button size="sm" variant="outline" data-suggestion-reject disabled={busy} onClick={() => void onReject(s)}>
-            <X className="mr-1 size-3.5" />
+            <X className="size-3.5" />
             Reject
           </Button>
         </div>

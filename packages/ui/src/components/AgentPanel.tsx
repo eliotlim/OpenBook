@@ -512,7 +512,7 @@ export function AgentPanel() {
                   ))}
                 </ul>
                 <Button size="sm" data-agent-review className="self-start" onClick={() => openReview(item.suggestions)}>
-                  <ClipboardCheck className="mr-1 size-3.5" />
+                  <ClipboardCheck className="size-3.5" />
                   {t('agent.review')}
                 </Button>
               </div>

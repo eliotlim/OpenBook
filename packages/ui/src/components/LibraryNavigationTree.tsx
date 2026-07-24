@@ -97,7 +97,7 @@ export default function LibraryNavigationTree() {
           <div className="flex flex-col gap-1">
             <Button
               variant="ghost"
-              className="h-7 justify-start gap-2 px-2 text-sm text-muted-foreground hover:text-foreground"
+              className="h-7 justify-start px-2 text-sm text-muted-foreground hover:text-foreground"
               onClick={() => void createPage()}
             >
               <Plus className="h-4 w-4 shrink-0" />
@@ -105,7 +105,7 @@ export default function LibraryNavigationTree() {
             </Button>
             <Button
               variant="ghost"
-              className="h-7 justify-start gap-2 px-2 text-sm text-muted-foreground hover:text-foreground"
+              className="h-7 justify-start px-2 text-sm text-muted-foreground hover:text-foreground"
               onClick={() => setHud((draft) => {draft.templates.open = true; return draft;})}
             >
               <LayoutTemplate className="h-4 w-4 shrink-0" />

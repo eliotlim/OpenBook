@@ -196,7 +196,7 @@ export const ViewSetupCard: React.FC<{
           <option value={NEW_PROPERTY_VALUE}>{t(NEW_PROPERTY_LABEL_KEY[creates])}</option>
         </Select>
       ) : (
-        <Button size="sm" onClick={createAndUse} className="mt-4 gap-1.5">
+        <Button size="sm" onClick={createAndUse} className="mt-4">
           <Plus className="h-4 w-4" aria-hidden />
           {t(createKey)}
         </Button>
