@@ -238,7 +238,7 @@ export interface AiSuggestionRouting {
 }
 
 /** The data-client surface the policy router needs (on top of {@link ApplyClient}). */
-export type PolicyClient = Pick<DataClient, 'getInstanceInfo' | 'getPageAgentEdits' | 'deleteSuggestion'>;
+export type PolicyClient = Pick<DataClient, 'getInstanceInfo' | 'getPageAgentEdits' | 'deleteSuggestion' | 'updateSuggestion'>;
 
 /**
  * Route the built-in AI's proposed suggestions through the resolved agent-edits
@@ -290,11 +290,27 @@ export async function routeAiSuggestions(
       // human's. Acceptable for v1; the per-page override to 'suggest' is the
       // user's recourse if they want AI edits held for review.
       await applyProposal(client, suggestionToProposal(s));
+      // The edit has LANDED (live doc mutated or savePage done). Commit the
+      // applied count NOW — before touching the review row — so a failure while
+      // cleaning up the row can never flip an already-applied edit to `failed`
+      // (which would drop the count AND leave the row re-acceptable → duplicate
+      // content on a re-accept of an `append_blocks` suggestion).
+      applied += 1;
       // Direct mode leaves NO shadow suggestion. The server persisted this row
       // before the client resolved the policy (it can't know the resolution), so
-      // drop it now that we've applied it.
-      await client.deleteSuggestion(s.id);
-      applied += 1;
+      // remove it now — best-effort: if the delete fails, fall back to marking it
+      // `accepted` so it can never re-surface as an open, re-acceptable card.
+      try {
+        await client.deleteSuggestion(s.id);
+      } catch {
+        try {
+          await client.updateSuggestion(s.id, {status: 'accepted'});
+        } catch {
+          // Both row-cleanup paths failed. The edit already landed, so we do NOT
+          // fail the apply; the row may briefly re-surface but the audit trail
+          // (edit_log + block authorship) already reflects the applied change.
+        }
+      }
     } catch (err) {
       failed.push({id: s.id, error: err instanceof Error ? err.message : String(err)});
     }

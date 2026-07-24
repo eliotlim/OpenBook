@@ -39,17 +39,26 @@ function makeClient(opts: {
   instance?: AgentEditsMode;
   pagePolicy: (pageId: string) => AgentEditsPolicy;
   storedPage?: StoredPage;
-}): ApplyClient & PolicyClient & {saved: PageInput[]; deleted: string[]} {
+  /** When set, `deleteSuggestion` rejects — exercises the best-effort cleanup fallback. */
+  deleteThrows?: boolean;
+}): ApplyClient & PolicyClient & {saved: PageInput[]; deleted: string[]; updated: Array<{id: string; status?: string}>} {
   const saved: PageInput[] = [];
   const deleted: string[] = [];
+  const updated: Array<{id: string; status?: string}> = [];
   return {
     saved,
     deleted,
+    updated,
     getInstanceInfo: vi.fn(async () => ({agentEdits: opts.instance}) as never),
     getPageAgentEdits: vi.fn(async (pageId: string) => opts.pagePolicy(pageId)),
     deleteSuggestion: vi.fn(async (id: string) => {
+      if (opts.deleteThrows) throw new Error('delete failed');
       deleted.push(id);
       return true;
+    }),
+    updateSuggestion: vi.fn(async (id: string, patch: {status?: string}) => {
+      updated.push({id, status: patch.status});
+      return {} as never;
     }),
     updateRow: vi.fn(async () => ({}) as never),
     getPage: vi.fn(async () => opts.storedPage ?? null),
@@ -105,6 +114,27 @@ describe('AGED-4 routeAiSuggestions: resolved-direct applies immediately', () =>
     const savedDoc = decodeSnapshot(client.saved[0].data.blockdoc as never);
     expect(blockText(findBlock(savedDoc, 'b1')!.block)!.toString()).toBe('saved text');
     expect(client.deleted).toEqual(['s2']);
+  });
+
+  it('apply succeeds but deleteSuggestion rejects → still counts applied, falls back to accepted (row never re-surfaces)', async () => {
+    const doc = createDoc([{id: 'b1', type: 'paragraph', text: 'old'}]);
+    const unregister = registerBlockEditorDoc('p8', doc);
+    try {
+      const client = makeClient({instance: 'direct', pagePolicy: () => 'inherit', deleteThrows: true});
+      const routing = await routeAiSuggestions(client, [makeSuggestion('s8', 'p8', 'b1', 'landed')]);
+
+      // The edit landed, so it's reported applied — NOT failed — even though the
+      // row cleanup delete threw.
+      expect(routing.applied).toBe(1);
+      expect(routing.failed).toHaveLength(0);
+      expect(blockText(findBlock(doc, 'b1')!.block)!.toString()).toBe('landed');
+      // Delete threw (nothing recorded), and the fallback marked the row accepted
+      // so it can never re-surface as an open, re-acceptable card.
+      expect(client.deleted).toHaveLength(0);
+      expect(client.updated).toEqual([{id: 's8', status: 'accepted'}]);
+    } finally {
+      unregister();
+    }
   });
 });
 
