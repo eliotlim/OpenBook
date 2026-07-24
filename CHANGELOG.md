@@ -1,3 +1,14 @@
+## 3.4.1 (2026-07-24)
+
+### 🩹 Fixes
+
+- **app,build:** unbreak release beforeBuildCommand — build:web-ui is a workspace-root script ([#215](https://github.com/eliotlim/OpenBook/pull/215), [#204](https://github.com/eliotlim/OpenBook/issues/204), [#205](https://github.com/eliotlim/OpenBook/issues/205))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.4.0 (2026-07-24)
 
 ### 🚀 Features
