@@ -9,12 +9,14 @@ import {createOpenBookMcpServer} from './server';
  * register this binary with an MCP client. stdout belongs to the protocol —
  * all human-facing output goes to stderr.
  *
- * By default the write tools persist REVIEWABLE SUGGESTIONS rather than mutating
- * the workspace — an untrusted MCP client cannot silently change existing
- * content. Set `OPENBOOK_MCP_ALLOW_DIRECT_EDITS=1` only for a TRUSTED deployment
- * to restore direct mutation. This is a deployment/config decision on purpose:
- * it lives in the server's environment, not in any tool argument the client can
- * set, so a client can never opt itself out of review.
+ * The write tools honor the library's AGENT-EDITS POLICY, resolved PER WRITE from
+ * the target page's `agentEdits` override and the instance-wide mode (AGED-3):
+ * only a resolved `direct` applies a change immediately, otherwise it persists a
+ * REVIEWABLE SUGGESTION. The safe default is `suggest`. This is governed entirely
+ * by the library's Settings → Agents toggle (and per-page overrides) — NOT by any
+ * environment variable or tool argument the client controls, so a client can never
+ * opt itself out of review. The legacy `OPENBOOK_MCP_ALLOW_DIRECT_EDITS` env grant
+ * is RETIRED (it no longer enables direct edits).
  */
 const url = process.env.OPENBOOK_URL ?? 'http://127.0.0.1:4319';
 
@@ -36,8 +38,11 @@ function sanitizeServerString(value: string, max = 64): string {
   return out.length > max ? `${out.slice(0, max)}…` : out;
 }
 
-const TRUTHY = new Set(['1', 'true', 'yes', 'on']);
-const allowDirectEdits = TRUTHY.has((process.env.OPENBOOK_MCP_ALLOW_DIRECT_EDITS ?? '').trim().toLowerCase());
+// AGED-3: `OPENBOOK_MCP_ALLOW_DIRECT_EDITS` is RETIRED as a grant — direct edits are
+// decided per write by the library's agent-edits policy (Settings → Agents + per-page
+// overrides), never by this process's environment. If it's still set we warn ONCE so
+// an operator relying on it learns where the control moved; it changes NO behaviour.
+const legacyDirectEnvSet = process.env.OPENBOOK_MCP_ALLOW_DIRECT_EDITS !== undefined;
 
 /**
  * The library this connector was configured for (STAB-5). When set, the endpoint's
@@ -84,12 +89,18 @@ async function main(): Promise<void> {
     );
     process.exit(1);
   }
-  const server = createOpenBookMcpServer(client, {allowDirectEdits});
+  if (legacyDirectEnvSet) {
+    console.error(
+      'openbook-mcp: OPENBOOK_MCP_ALLOW_DIRECT_EDITS is set but no longer grants direct edits (AGED-3). ' +
+        'Direct-vs-suggest is now decided per write by the library\'s agent-edits policy — set it in ' +
+        'Settings → Agents (and override per page). Remove this variable.',
+    );
+  }
+  const server = createOpenBookMcpServer(client);
   await server.connect(new StdioServerTransport());
   console.error(
-    `openbook-mcp: serving workspace at ${url} over stdio (writes ${
-      allowDirectEdits ? 'apply DIRECTLY — trusted mode' : 'create reviewable suggestions'
-    })`,
+    `openbook-mcp: serving library at ${url} over stdio ` +
+      '(writes honor the library/page agent-edits policy — reviewable suggestion by default)',
   );
 }
 
