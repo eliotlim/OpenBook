@@ -664,6 +664,8 @@ test('table cell context menu: insert row, delete column, toggle header', {tag: 
   await page.locator('.obe-table td').first().click({button: 'right'});
   await page.getByRole('menuitem', {name: 'Toggle header row'}).click();
   await expect(page.locator('.obe-table-header')).toHaveCount(0);
+});
+
 // ── Marquee (rubber-band) select + shift-click extension (SEL-1) ─────────────
 
 /** Grow the lab from its 3 seeded blocks to 5 top-level blocks. */
