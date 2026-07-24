@@ -1,5 +1,6 @@
 import * as Y from 'yjs';
 import {shortId} from '@book.dev/sdk';
+import {keyBetween, keysBetween, ORDER_KEY_REBALANCE_LENGTH} from './orderKeys';
 
 /**
  * The block editor's document model: a CRDT block tree in a Y.Doc.
@@ -584,77 +585,446 @@ export function ensureNotEmpty(doc: Y.Doc): void {
   if (root.length === 0) root.push([makeBlock({type: 'paragraph'})]);
 }
 
-// ── Tables ───────────────────────────────────────────────────────────────────
+// ── Tables — the order contract (TBL-1) ─────────────────────────────────────
+/**
+ * TABLE ORDER CONTRACT — fractional order keys + stable column identity.
+ * TBL-2 (drag-reorder), TBL-3 (context menus), TBL-4 (column colours) build
+ * on exactly this; nothing else may define table order.
+ *
+ * Schema (all keys live in ordinary block `props`, so they survive the JSON
+ * projection, snapshots, clipboard copy, and `cloneBlock` unchanged):
+ *
+ *   table.props['col:<colId>'] = <orderKey>   column registry: one entry per
+ *                                             column — EXISTENCE defines the
+ *                                             column, the value defines its
+ *                                             position. `colId` is opaque and
+ *                                             stable for the column's life
+ *                                             (TBL-4 keys colours on it).
+ *   row.props.ord              = <orderKey>   the row's position.
+ *   cell.props.col             = <colId>      the column this cell belongs to
+ *                                             — IMMUTABLE once set. A cell's
+ *                                             index in its row array is NOT
+ *                                             its column.
+ *
+ * Order keys are fractional base-62 strings (`orderKeys.ts`): plain string
+ * `<` is the comparator. Render order:
+ *   rows    — sort by (ord, id); rows without `ord` keep array order, after
+ *             all keyed rows (only possible mid-merge with a legacy peer).
+ *   columns — registry entries sorted by (key, id). A row's cells bind to
+ *             columns by `props.col`; cells without one (legacy peer) fill
+ *             the empty column slots left-to-right in array order; cells
+ *             whose column id is NOT in the registry are hidden (their
+ *             column was deleted concurrently) — content is never destroyed,
+ *             just not rendered. `tableGrid()` is the single source of this
+ *             ordering; render, navigation, projection/export, and every op
+ *             below go through it.
+ *
+ * Invariants:
+ *   1. MOVES REWRITE ONE KEY. `tableMoveRow` / `tableMoveColumn` write only
+ *      the moved row's `ord` / the moved column's registry value. They NEVER
+ *      delete, re-insert, or clone the row/cell CRDT nodes — concurrent cell
+ *      edits inside a moved row/column merge cleanly. (`moveBlock`'s
+ *      clone-based move is the anti-pattern here; never use it for grids.)
+ *   2. One op = one `doc.transact(…, 'local')` = one undo step.
+ *   3. LEGACY TABLES (empty registry) render in pure array order —
+ *      byte-identical to the pre-TBL-1 renderer — and migrate lazily inside
+ *      the first structural op's transaction. Migration is DETERMINISTIC
+ *      (ids `c0…cN-1`, `keysBetween` spreads), so two peers migrating the
+ *      same state write identical values and converge trivially.
+ *   4. Structural indices (`rowIndex` / `colIndex` arguments) are positions
+ *      in the SORTED render order, not Y.Array indices.
+ *   5. The header row is simply the FIRST row in render order (when
+ *      `props.header` is true) — moving a row above it changes the header.
+ *   6. If a fresh key would exceed ORDER_KEY_REBALANCE_LENGTH (or bounds
+ *      collide after a key tie), the op rewrites the whole axis with evenly
+ *      spread keys in the same transaction. Rebalance is LWW-coarse (may
+ *      override one concurrent move) but always converges.
+ *
+ * Op API (all clamp indices, all no-op on a missing table):
+ *   makeTable(rows, cols)                          → NewBlock, born keyed
+ *   tableInsertRow(doc, tableId, rowIndex)         row at sorted position
+ *   tableInsertColumn(doc, tableId, colIndex)      registers a fresh colId +
+ *                                                  one bound cell per row
+ *   tableDeleteRow(doc, tableId, rowIndex)         deletes the row node
+ *   tableDeleteColumn(doc, tableId, colIndex)      unregisters the column +
+ *                                                  deletes its bound cells
+ *   tableMoveRow(doc, tableId, rowId, toIndex)     key rewrite only
+ *   tableMoveColumn(doc, tableId, colId, toIndex)  key rewrite only
+ *   tableGrid(table)                               the sorted grid view
+ *   tableColumns(table)                            sorted {id, key} registry
+ *   cellPosition / cellNeighbor                    grid coordinates in
+ *                                                  SORTED order (read-only —
+ *                                                  they never migrate)
+ *   `toIndex` is the target position with the moved row/column removed
+ *   (same convention as `moveBlock`).
+ */
 
-export function makeTable(rows: number, cols: number): NewBlock {
+/** Prefix of the column-registry entries in a table block's props. */
+export const TABLE_COL_PREFIX = 'col:';
+
+const rowOrd = (row: BlockMap): string | null => {
+  const v = blockProp<unknown>(row, 'ord');
+  return typeof v === 'string' && v.length > 0 ? v : null;
+};
+
+const cellCol = (cell: BlockMap): string | null => {
+  const v = blockProp<unknown>(cell, 'col');
+  return typeof v === 'string' && v.length > 0 ? v : null;
+};
+
+/** The table's column registry, sorted into render order (key, then id). */
+export function tableColumns(table: BlockMap): Array<{id: string; key: string}> {
+  const props = table.get('props') as Y.Map<unknown> | undefined;
+  if (!props) return [];
+  const out: Array<{id: string; key: string}> = [];
+  for (const [k, v] of props.entries()) {
+    if (k.startsWith(TABLE_COL_PREFIX) && typeof v === 'string' && v.length > 0) {
+      out.push({id: k.slice(TABLE_COL_PREFIX.length), key: v});
+    }
+  }
+  out.sort((a, b) => (a.key !== b.key ? (a.key < b.key ? -1 : 1) : a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return out;
+}
+
+/** The sorted grid view of a table — the ONLY definition of render order. */
+export interface TableGrid {
+  /** True once the table has a column registry (migrated / born keyed). */
+  keyed: boolean;
+  /** Row blocks in render order. */
+  rows: BlockMap[];
+  /** Column ids in render order (empty for a legacy table). */
+  colIds: string[];
+  /**
+   * `cells[r][c]` is the cell of `rows[r]` in column `c` of the render order
+   * (null = no cell there — a merge gap; render pads, projection emits an
+   * empty cell). Legacy tables: the row's children verbatim (pure positional).
+   * Keyless cells bound positionally may trail past `colIds.length`.
+   */
+  cells: (BlockMap | null)[][];
+  /** Rendered column count (max slots over all rows; ≥ colIds.length). */
+  width: number;
+}
+
+export function tableGrid(table: BlockMap): TableGrid {
+  const rowsArr = blockChildren(table);
+  const rawRows: BlockMap[] = rowsArr ? [...rowsArr] : [];
+  const columns = tableColumns(table);
+  const keyed = columns.length > 0;
+
+  // Rows: keyed rows by (ord, id); keyless rows keep array order, after all
+  // keyed rows (a transient mid-merge state — migration backfills them).
+  const rows = rawRows
+    .map((b, i) => ({b, i, k: rowOrd(b)}))
+    .sort((x, y) => {
+      if (x.k !== null && y.k !== null) {
+        if (x.k !== y.k) return x.k < y.k ? -1 : 1;
+        const xi = blockId(x.b);
+        const yi = blockId(y.b);
+        if (xi !== yi) return xi < yi ? -1 : 1;
+        return x.i - y.i;
+      }
+      if (x.k !== null) return -1;
+      if (y.k !== null) return 1;
+      return x.i - y.i;
+    })
+    .map((e) => e.b);
+
+  const colIndex = new Map(columns.map((c, i) => [c.id, i]));
+  const cells: (BlockMap | null)[][] = rows.map((row) => {
+    const raw: BlockMap[] = blockChildren(row) ? [...blockChildren(row)!] : [];
+    if (!keyed) return raw; // legacy: pure positional, byte-identical render
+    const slots: (BlockMap | null)[] = columns.map(() => null);
+    const loose: BlockMap[] = [];
+    for (const cell of raw) {
+      const col = cellCol(cell);
+      if (col === null) {
+        loose.push(cell); // legacy-peer cell: binds positionally below
+      } else {
+        const idx = colIndex.get(col);
+        if (idx === undefined) continue; // column deleted concurrently → hidden
+        if (slots[idx] === null) slots[idx] = cell;
+        else loose.push(cell); // duplicate binding (merge artifact) — keep visible
+      }
+    }
+    let s = 0;
+    for (const cell of loose) {
+      while (s < slots.length && slots[s] !== null) s += 1;
+      if (s < slots.length) slots[s] = cell;
+      else slots.push(cell);
+    }
+    return slots;
+  });
+
+  const width = cells.reduce((m, r) => Math.max(m, r.length), 0);
+  return {keyed, rows, colIds: columns.map((c) => c.id), cells, width};
+}
+
+/**
+ * Lazy migration + backfill — call INSIDE a structural op's transaction.
+ * Legacy table (no registry): registers deterministic columns `c0…cN-1` and
+ * spreads row/column keys over the CURRENT array order, then binds every cell
+ * by position. Partially keyed table (merged with a behind peer): appends
+ * keys/bindings so the current render order is preserved. Idempotent.
+ */
+function ensureTableOrderInTx(table: BlockMap): void {
+  const rowsArr = blockChildren(table);
+  const rawRows: BlockMap[] = rowsArr ? [...rowsArr] : [];
+
+  if (tableColumns(table).length === 0) {
+    // Full migration — deterministic so concurrent migrations converge.
+    const width = Math.max(1, ...rawRows.map((r) => blockChildren(r)?.length ?? 0));
+    const colIds = Array.from({length: width}, (_, i) => `c${i}`);
+    const colKeys = keysBetween(null, null, width);
+    colIds.forEach((id, i) => setBlockProp(table, TABLE_COL_PREFIX + id, colKeys[i]));
+    const rowKeys = keysBetween(null, null, rawRows.length);
+    rawRows.forEach((row, r) => {
+      if (rowOrd(row) === null) setBlockProp(row, 'ord', rowKeys[r]);
+      const cellsArr = blockChildren(row);
+      if (!cellsArr) return;
+      for (let c = 0; c < cellsArr.length && c < width; c += 1) {
+        const cell = cellsArr.get(c);
+        if (blockType(cell) === 'cell' && cellCol(cell) === null) setBlockProp(cell, 'col', colIds[c]);
+      }
+    });
+    return;
+  }
+
+  // Backfill a partially keyed table, preserving what is rendered today.
+  const grid = tableGrid(table);
+  let prev: string | null = null;
+  for (const row of grid.rows) {
+    const k = rowOrd(row);
+    if (k !== null) {
+      prev = k;
+      continue;
+    }
+    const next = keyBetween(prev, null); // keyless rows render last — append
+    setBlockProp(row, 'ord', next);
+    prev = next;
+  }
+  // Register columns for slots beyond the registry (ragged legacy rows).
+  const columns = tableColumns(table);
+  const colIds = columns.map((c) => c.id);
+  let lastKey: string | null = columns.length > 0 ? columns[columns.length - 1].key : null;
+  const maxSlots = grid.cells.reduce((m, r) => Math.max(m, r.length), 0);
+  while (colIds.length < maxSlots) {
+    const id = shortId('col');
+    lastKey = keyBetween(lastKey, null);
+    setBlockProp(table, TABLE_COL_PREFIX + id, lastKey);
+    colIds.push(id);
+  }
+  grid.cells.forEach((slots) => {
+    slots.forEach((cell, c) => {
+      if (cell && blockType(cell) === 'cell' && cellCol(cell) === null && c < colIds.length) {
+        setBlockProp(cell, 'col', colIds[c]);
+      }
+    });
+  });
+}
+
+/**
+ * A key between two bounds, or null when the axis needs a rebalance (bound
+ * collision after a key tie, or the key has grown past the rebalance limit).
+ */
+function insertionKey(before: string | null, after: string | null): string | null {
+  if (before !== null && after !== null && before >= after) return null;
+  try {
+    const key = keyBetween(before, after);
+    return key.length > ORDER_KEY_REBALANCE_LENGTH ? null : key;
+  } catch {
+    return null; // malformed foreign key — rebalance repairs the axis
+  }
+}
+
+/** A keyed table NewBlock from a grid of cell runs (paste / legacy import). */
+export function tableFromRuns(grid: TextRun[][][], header: boolean): NewBlock {
+  const width = Math.max(1, ...grid.map((r) => r.length));
+  const colIds = Array.from({length: width}, (_, i) => `c${i}`);
+  const colKeys = keysBetween(null, null, width);
+  const rowKeys = keysBetween(null, null, grid.length);
   return {
     type: 'table',
-    props: {header: true},
-    children: Array.from({length: rows}, () => ({
+    props: {header, ...Object.fromEntries(colIds.map((id, i) => [TABLE_COL_PREFIX + id, colKeys[i]]))},
+    children: grid.map((cells, r) => ({
       type: 'row' as const,
-      children: Array.from({length: cols}, () => ({type: 'cell' as const})),
+      props: {ord: rowKeys[r]},
+      children: cells.map((runs, c) => ({type: 'cell' as const, text: runs, props: {col: colIds[c]}})),
     })),
   };
 }
 
-/** Insert a row at `rowIndex` (clamped); matches the table's column count. */
+export function makeTable(rows: number, cols: number): NewBlock {
+  const colIds = Array.from({length: cols}, (_, i) => `c${i}`);
+  const colKeys = keysBetween(null, null, cols);
+  const rowKeys = keysBetween(null, null, rows);
+  return {
+    type: 'table',
+    props: {header: true, ...Object.fromEntries(colIds.map((id, i) => [TABLE_COL_PREFIX + id, colKeys[i]]))},
+    children: Array.from({length: rows}, (_, r) => ({
+      type: 'row' as const,
+      props: {ord: rowKeys[r]},
+      children: colIds.map((id) => ({type: 'cell' as const, props: {col: id}})),
+    })),
+  };
+}
+
+/** Insert a row at sorted position `rowIndex` (clamped), one cell per column. */
 export function tableInsertRow(doc: Y.Doc, tableId: string, rowIndex: number): void {
   doc.transact(() => {
     const table = findBlock(doc, tableId);
     if (!table) return;
-    const rows = blockChildren(table.block)!;
-    const cols = rows.length > 0 ? (blockChildren(rows.get(0))?.length ?? 1) : 1;
-    rows.insert(Math.max(0, Math.min(rowIndex, rows.length)), [
-      makeBlock({type: 'row', children: Array.from({length: cols}, () => ({type: 'cell' as const}))}),
+    const rowsArr = blockChildren(table.block);
+    if (!rowsArr) return;
+    ensureTableOrderInTx(table.block);
+    const grid = tableGrid(table.block);
+    const at = Math.max(0, Math.min(rowIndex, grid.rows.length));
+    const before = at > 0 ? rowOrd(grid.rows[at - 1]) : null;
+    const after = at < grid.rows.length ? rowOrd(grid.rows[at]) : null;
+    let ord = insertionKey(before, after);
+    if (ord === null) {
+      const keys = keysBetween(null, null, grid.rows.length + 1);
+      grid.rows.forEach((row, i) => setBlockProp(row, 'ord', keys[i < at ? i : i + 1]));
+      ord = keys[at];
+    }
+    rowsArr.insert(Math.min(at, rowsArr.length), [
+      makeBlock({type: 'row', props: {ord}, children: tableColumns(table.block).map((c) => ({type: 'cell' as const, props: {col: c.id}}))}),
     ]);
   }, 'local');
 }
 
+/** Insert a column at sorted position `colIndex`: register id, add bound cells. */
 export function tableInsertColumn(doc: Y.Doc, tableId: string, colIndex: number): void {
   doc.transact(() => {
     const table = findBlock(doc, tableId);
     if (!table) return;
-    const rows = blockChildren(table.block)!;
-    for (let r = 0; r < rows.length; r += 1) {
-      const cells = blockChildren(rows.get(r))!;
-      cells.insert(Math.max(0, Math.min(colIndex, cells.length)), [makeBlock({type: 'cell'})]);
+    if (!blockChildren(table.block)) return;
+    ensureTableOrderInTx(table.block);
+    const columns = tableColumns(table.block);
+    const at = Math.max(0, Math.min(colIndex, columns.length));
+    const before = at > 0 ? columns[at - 1].key : null;
+    const after = at < columns.length ? columns[at].key : null;
+    let key = insertionKey(before, after);
+    if (key === null) {
+      const keys = keysBetween(null, null, columns.length + 1);
+      columns.forEach((c, i) => setBlockProp(table.block, TABLE_COL_PREFIX + c.id, keys[i < at ? i : i + 1]));
+      key = keys[at];
+    }
+    const id = shortId('col');
+    setBlockProp(table.block, TABLE_COL_PREFIX + id, key);
+    const rowsArr = blockChildren(table.block)!;
+    for (let r = 0; r < rowsArr.length; r += 1) {
+      const cells = blockChildren(rowsArr.get(r));
+      if (cells) cells.insert(Math.max(0, Math.min(at, cells.length)), [makeBlock({type: 'cell', props: {col: id}})]);
     }
   }, 'local');
 }
 
+/** Delete the row at sorted position `rowIndex`; the last row removes the table. */
 export function tableDeleteRow(doc: Y.Doc, tableId: string, rowIndex: number): void {
   doc.transact(() => {
     const table = findBlock(doc, tableId);
     if (!table) return;
-    const rows = blockChildren(table.block)!;
-    if (rowIndex < 0 || rowIndex >= rows.length) return;
-    if (rows.length === 1) removeBlockInTx(doc, tableId);
-    else rows.delete(rowIndex, 1);
+    const rowsArr = blockChildren(table.block);
+    if (!rowsArr) return;
+    ensureTableOrderInTx(table.block);
+    const grid = tableGrid(table.block);
+    if (rowIndex < 0 || rowIndex >= grid.rows.length) return;
+    if (grid.rows.length === 1) {
+      removeBlockInTx(doc, tableId);
+      return;
+    }
+    const arrayIndex = indexOfBlock(rowsArr, blockId(grid.rows[rowIndex]));
+    if (arrayIndex >= 0) rowsArr.delete(arrayIndex, 1);
   }, 'local');
 }
 
+/** Delete the column at sorted position `colIndex` (registry + bound cells). */
 export function tableDeleteColumn(doc: Y.Doc, tableId: string, colIndex: number): void {
   doc.transact(() => {
     const table = findBlock(doc, tableId);
     if (!table) return;
-    const rows = blockChildren(table.block)!;
-    const cols = rows.length > 0 ? (blockChildren(rows.get(0))?.length ?? 0) : 0;
-    if (colIndex < 0 || colIndex >= cols) return;
-    if (cols === 1) {
+    if (!blockChildren(table.block)) return;
+    ensureTableOrderInTx(table.block);
+    const grid = tableGrid(table.block);
+    if (colIndex < 0 || colIndex >= grid.colIds.length) return;
+    if (grid.colIds.length === 1) {
       removeBlockInTx(doc, tableId);
       return;
     }
-    for (let r = 0; r < rows.length; r += 1) {
-      const cells = blockChildren(rows.get(r))!;
-      if (colIndex < cells.length) cells.delete(colIndex, 1);
+    setBlockProp(table.block, TABLE_COL_PREFIX + grid.colIds[colIndex], undefined);
+    grid.rows.forEach((row, r) => {
+      const cell = grid.cells[r][colIndex];
+      if (!cell) return;
+      const cellsArr = blockChildren(row);
+      if (!cellsArr) return;
+      const idx = indexOfBlock(cellsArr, blockId(cell));
+      if (idx >= 0) cellsArr.delete(idx, 1);
+    });
+  }, 'local');
+}
+
+/**
+ * Move a row to sorted position `toIndex` (counted with the row removed).
+ * Rewrites ONLY the row's order key — the row and its cells are untouched, so
+ * concurrent cell edits inside it merge cleanly.
+ */
+export function tableMoveRow(doc: Y.Doc, tableId: string, rowId: string, toIndex: number): void {
+  doc.transact(() => {
+    const table = findBlock(doc, tableId);
+    if (!table) return;
+    ensureTableOrderInTx(table.block);
+    const grid = tableGrid(table.block);
+    const from = grid.rows.findIndex((r) => blockId(r) === rowId);
+    if (from < 0) return;
+    const moved = grid.rows[from];
+    const rest = grid.rows.filter((_, i) => i !== from);
+    const at = Math.max(0, Math.min(toIndex, rest.length));
+    const before = at > 0 ? rowOrd(rest[at - 1]) : null;
+    const after = at < rest.length ? rowOrd(rest[at]) : null;
+    const ord = insertionKey(before, after);
+    if (ord !== null) {
+      setBlockProp(moved, 'ord', ord);
+      return;
     }
+    const final = [...rest.slice(0, at), moved, ...rest.slice(at)];
+    const keys = keysBetween(null, null, final.length);
+    final.forEach((row, i) => setBlockProp(row, 'ord', keys[i]));
+  }, 'local');
+}
+
+/**
+ * Move a column to sorted position `toIndex` (counted with it removed).
+ * Rewrites ONLY the column's registry key — no cell is touched, so concurrent
+ * edits in that column (and concurrent column inserts) merge cleanly.
+ */
+export function tableMoveColumn(doc: Y.Doc, tableId: string, colId: string, toIndex: number): void {
+  doc.transact(() => {
+    const table = findBlock(doc, tableId);
+    if (!table) return;
+    ensureTableOrderInTx(table.block);
+    const columns = tableColumns(table.block);
+    const from = columns.findIndex((c) => c.id === colId);
+    if (from < 0) return;
+    const rest = columns.filter((_, i) => i !== from);
+    const at = Math.max(0, Math.min(toIndex, rest.length));
+    const before = at > 0 ? rest[at - 1].key : null;
+    const after = at < rest.length ? rest[at].key : null;
+    const key = insertionKey(before, after);
+    if (key !== null) {
+      setBlockProp(table.block, TABLE_COL_PREFIX + colId, key);
+      return;
+    }
+    const final = [...rest.slice(0, at), columns[from], ...rest.slice(at)];
+    const keys = keysBetween(null, null, final.length);
+    final.forEach((c, i) => setBlockProp(table.block, TABLE_COL_PREFIX + c.id, keys[i]));
   }, 'local');
 }
 
 /**
  * Locate a cell within its table: row/column indices plus the table block.
  * Powers cell navigation (Tab/Enter) — cells are blocks, but movement inside
- * a table is grid-shaped, not list-shaped.
+ * a table is grid-shaped, not list-shaped. Coordinates are RENDER (sorted)
+ * order, per the table order contract. Read-only — never migrates.
  */
 export function cellPosition(doc: Y.Doc, cellId: string): {table: BlockMap; row: number; col: number; rows: number; cols: number} | null {
   const cell = findBlock(doc, cellId);
@@ -665,39 +1035,44 @@ export function cellPosition(doc: Y.Doc, cellId: string): {table: BlockMap; row:
   if (!rowEntry) return null;
   const table = parentBlockOf(doc, rowEntry.parent);
   if (!table || blockType(table) !== 'table') return null;
-  const rows = blockChildren(table)!;
-  return {table, row: rowEntry.index, col: cell.index, rows: rows.length, cols: blockChildren(rowBlock)!.length};
+  const grid = tableGrid(table);
+  const row = grid.rows.indexOf(rowBlock);
+  if (row < 0) return null;
+  const col = grid.cells[row].indexOf(cell.block);
+  if (col < 0) return null; // orphaned cell (its column was deleted)
+  return {table, row, col, rows: grid.rows.length, cols: grid.width};
 }
 
 /**
- * The neighbouring cell id for grid navigation. `next`/`prev` move within
- * the row and wrap across rows; `down`/`up` move within the column. Returns
- * null at the table's edge (callers may grow the table and retry).
+ * The neighbouring cell id for grid navigation, in RENDER (sorted) order.
+ * `next`/`prev` move within the row and wrap across rows; `down`/`up` move
+ * within the column. Returns null at the table's edge or a grid gap (callers
+ * may grow the table and retry).
  */
 export function cellNeighbor(doc: Y.Doc, cellId: string, dir: 'next' | 'prev' | 'down' | 'up'): string | null {
   const pos = cellPosition(doc, cellId);
   if (!pos) return null;
+  const grid = tableGrid(pos.table);
   let {row, col} = pos;
   if (dir === 'next') {
     col += 1;
-    if (col >= pos.cols) {
+    if (col >= grid.width) {
       col = 0;
       row += 1;
     }
   } else if (dir === 'prev') {
     col -= 1;
     if (col < 0) {
-      col = pos.cols - 1;
+      col = grid.width - 1;
       row -= 1;
     }
   } else {
     row += dir === 'down' ? 1 : -1;
   }
-  if (row < 0 || row >= pos.rows) return null;
-  const rows = blockChildren(pos.table)!;
-  const cells = blockChildren(rows.get(row))!;
-  if (col < 0 || col >= cells.length) return null;
-  return blockId(cells.get(col));
+  if (row < 0 || row >= grid.rows.length) return null;
+  const cell = grid.cells[row][col];
+  if (!cell || blockType(cell) !== 'cell') return null;
+  return blockId(cell);
 }
 
 function removeBlockInTx(doc: Y.Doc, id: string): void {
@@ -720,8 +1095,29 @@ export function blockToJSON(b: BlockMap): BlockJSON {
   const props = b.get('props') as Y.Map<unknown> | undefined;
   if (props && props.size > 0) json.props = Object.fromEntries(props.entries());
   const children = blockChildren(b);
-  if (children) json.children = children.map(blockToJSON);
+  if (children) json.children = blockType(b) === 'table' ? tableChildrenToJSON(b) : children.map(blockToJSON);
   return json;
+}
+
+/**
+ * A table's rows/cells projected in RENDER order (the table order contract):
+ * rows sorted by `ord`, each row's cells in column order. Grid gaps in the
+ * middle become empty placeholder cells (so downstream consumers stay
+ * positional); trailing gaps are trimmed. Legacy tables project verbatim.
+ */
+function tableChildrenToJSON(table: BlockMap): BlockJSON[] {
+  const grid = tableGrid(table);
+  return grid.rows.map((row, r) => {
+    const json = blockToJSON(row);
+    if (blockType(row) !== 'row') return json; // malformed child — verbatim
+    const slots = grid.cells[r];
+    let end = slots.length;
+    while (end > 0 && slots[end - 1] === null) end -= 1;
+    json.children = slots
+      .slice(0, end)
+      .map((cell, c) => (cell ? blockToJSON(cell) : {id: `${blockId(row)}-void-${c}`, type: 'cell' as const, text: []}));
+    return json;
+  });
 }
 
 export function docToJSON(doc: Y.Doc): BlockJSON[] {
@@ -1072,11 +1468,7 @@ export function htmlToBlocks(html: string, opts: HtmlToBlocksOptions = {}): NewB
       const rows = normalizeTableGrid(node);
       if (rows.length > 0) {
         const firstRow = directTableRows(node)[0];
-        out.push({
-          type: 'table',
-          props: {header: firstRow?.querySelector(':scope > th') != null},
-          children: rows.map((cells) => ({type: 'row' as const, children: cells.map((runs) => ({type: 'cell' as const, text: runs}))})),
-        });
+        out.push(tableFromRuns(rows, firstRow?.querySelector(':scope > th') != null));
       }
       // A cell holds only inline text, so an image in one would vanish — keep it
       // as a placeholder block after the table (importer path only).
@@ -1176,14 +1568,7 @@ export function migrateLegacyBlocks(blocks: LegacyBlock[], ctx: MigrationContext
     case 'table': {
       const content = (d.content ?? []) as string[][];
       if (content.length > 0) {
-        out.push({
-          type: 'table',
-          props: {header: Boolean(d.withHeadings)},
-          children: content.map((row) => ({
-            type: 'row' as const,
-            children: row.map((cell) => ({type: 'cell' as const, text: htmlToRuns(cell)})),
-          })),
-        });
+        out.push(tableFromRuns(content.map((row) => row.map((cell) => htmlToRuns(cell))), Boolean(d.withHeadings)));
       }
       break;
     }
