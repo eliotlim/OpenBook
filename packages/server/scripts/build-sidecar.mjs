@@ -67,7 +67,8 @@ execFileSync('node', [join(here, 'copy-pglite-assets.mjs')], {stdio: 'inherit'})
 const viewerSrc = join(serverDir, '..', 'ui', 'src', 'export', 'vendor', 'openbook-viewer.js');
 if (!existsSync(viewerSrc)) {
   console.log('Viewer bundle missing — building it (pnpm --filter @book.dev/ui run build:viewer)…');
-  execFileSync('pnpm', ['--filter', '@book.dev/ui', 'run', 'build:viewer'], {stdio: 'inherit'});
+  // shell: pnpm on Windows is a .CMD shim Node only spawns through a shell.
+  execFileSync('pnpm', ['--filter', '@book.dev/ui', 'run', 'build:viewer'], {stdio: 'inherit', shell: process.platform === 'win32'});
 }
 mkdirSync(join(serverDir, 'assets'), {recursive: true});
 copyFileSync(viewerSrc, join(serverDir, 'assets', 'openbook-viewer.js'));
@@ -79,7 +80,8 @@ copyFileSync(viewerSrc, join(serverDir, 'assets', 'openbook-viewer.js'));
 const mcpDist = join(serverDir, '..', 'mcp', 'dist', 'index.js');
 if (!existsSync(mcpDist)) {
   console.log('@book.dev/mcp dist missing — building it (pnpm --filter @book.dev/mcp run build)…');
-  execFileSync('pnpm', ['--filter', '@book.dev/mcp', 'run', 'build'], {stdio: 'inherit'});
+  // shell: pnpm on Windows is a .CMD shim Node only spawns through a shell.
+  execFileSync('pnpm', ['--filter', '@book.dev/mcp', 'run', 'build'], {stdio: 'inherit', shell: process.platform === 'win32'});
 }
 
 // 2. Compile the Bun entrypoint into a single binary. The optional llama.cpp
