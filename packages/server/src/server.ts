@@ -160,6 +160,15 @@ export interface StartOptions {
    * Unset ⇒ the hatch is inert (headless/server mode, tests).
    */
   localOwnerSecret?: string;
+  /**
+   * STAB-7 (LAN-hosted web UI): absolute path to a pre-built, client-only OpenBook
+   * web bundle. When set, the sidecar ALSO serves that UI (see {@link AppOptions.uiDir})
+   * so a LAN browser can open `http://<host>:<port>/` directly. Also read from
+   * `OPENBOOK_UI_DIR`. Unset ⇒ API-only (a UI request 404s), the default. The
+   * desktop wires this to its publish/LAN toggle; the served UI rides the existing
+   * `guestAccess` policy unchanged.
+   */
+  uiDir?: string;
 }
 
 export interface RunningServer {
@@ -464,6 +473,9 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
     // Loopback-owner hatch: the spawning host (the desktop app) shares its per-run
     // secret via env; a dev setup can export the same value to both processes.
     localOwnerSecret: opts.localOwnerSecret ?? process.env.OPENBOOK_LOCAL_OWNER_SECRET,
+    // STAB-7: serve the LAN web UI from this dir when set (option or env). Unset ⇒
+    // API-only. The desktop passes its bundled resource dir while sharing is on.
+    uiDir: opts.uiDir ?? process.env.OPENBOOK_UI_DIR,
   });
 
   // The server can listen on a Unix domain socket (the desktop's portless IPC

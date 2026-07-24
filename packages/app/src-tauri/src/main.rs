@@ -39,10 +39,9 @@ const KEYCHAIN_SERVICE: &str = "pub.book.openbook";
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 struct HostConfig {
-    /// Publish on the LAN (also bind `0.0.0.0` + require the token). Off by default.
+    /// Publish on the LAN (also bind `0.0.0.0` + serve the web UI). Off by default.
+    /// The LAN bind is tokenless — `guestAccess` is the only gate (STAB-7).
     published: bool,
-    /// Access token required by every client when published (minted on demand).
-    access_token: String,
     /// Folder the on-disk book mirror writes to (defaults to ~/Documents/OpenBook).
     book_dir: String,
     /// Bind a LOOPBACK TCP listener (`127.0.0.1:4319`) on the same sidecar so an
@@ -93,7 +92,6 @@ struct ServerInfo {
     managed: bool,
     published: bool,
     lan_address: Option<String>,
-    access_token: Option<String>,
     book_dir: Option<String>,
     /// Whether the loopback TCP listener for a local MCP/agent connector is on (STAB-5).
     agent_local_tcp: bool,
@@ -147,9 +145,9 @@ fn build_info(state: &AppState) -> ServerInfo {
     // Snapshot the config and release its lock before taking any other, so this
     // never holds `config` while waiting on `child` (publish/respawn hold `child`
     // and would otherwise deadlock against it).
-    let (published, access_token, book_dir, agent_local_tcp) = {
+    let (published, book_dir, agent_local_tcp) = {
         let cfg = state.config.lock().unwrap();
-        (cfg.published, cfg.access_token.clone(), cfg.book_dir.clone(), cfg.agent_local_tcp)
+        (cfg.published, cfg.book_dir.clone(), cfg.agent_local_tcp)
     };
     let running = state.child.lock().unwrap().is_some();
     let lan_address = if published && running {
@@ -165,7 +163,6 @@ fn build_info(state: &AppState) -> ServerInfo {
         managed: state.managed,
         published,
         lan_address,
-        access_token: if published { Some(access_token) } else { None },
         book_dir: Some(book_dir),
         agent_local_tcp,
     }
@@ -173,8 +170,11 @@ fn build_info(state: &AppState) -> ServerInfo {
 
 /// The TCP-bind CLI args for the sidecar. Pure + unit-tested (STAB-5).
 ///
-/// - `published` → bind `0.0.0.0:4319` for the LAN, plus `--access-token` when one
-///   is set (the LAN reachability gate).
+/// - `published` → bind `0.0.0.0:4319` for the LAN. NO `--access-token`: a LAN
+///   publish is TOKENLESS by owner decision (STAB-7). Publishing always serves the
+///   web UI, and a shared-secret gate runs BEFORE `guestAccess` — so a token would
+///   401 every `/api` call the served (tokenless) shell makes, leaving an empty
+///   page. The ONLY gate on the published bind is `guestAccess` (write/read/off).
 /// - else `agent_local_tcp` → bind LOOPBACK `127.0.0.1:4319` only, so an
 ///   out-of-process local MCP/agent connector can reach this exact library. NO
 ///   access token; the connector presents its own PAT for auth. Unlike the
@@ -187,17 +187,13 @@ fn build_info(state: &AppState) -> ServerInfo {
 ///
 /// `published` wins over `agent_local_tcp`: `0.0.0.0:4319` already covers loopback,
 /// so there is never a double-bind on the same port.
-fn tcp_bind_args(published: bool, agent_local_tcp: bool, access_token: &str) -> Vec<String> {
+fn tcp_bind_args(published: bool, agent_local_tcp: bool) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
     if published {
         args.push("--host".into());
         args.push("0.0.0.0".into());
         args.push("--port".into());
         args.push(DEFAULT_PORT.into());
-        if !access_token.is_empty() {
-            args.push("--access-token".into());
-            args.push(access_token.to_string());
-        }
     } else if agent_local_tcp {
         args.push("--host".into());
         args.push("127.0.0.1".into());
@@ -207,10 +203,26 @@ fn tcp_bind_args(published: bool, agent_local_tcp: bool, access_token: &str) -> 
     args
 }
 
+/// The bundled LAN web UI directory — a Next static export staged as the `web-ui`
+/// Tauri resource (see `scripts/build-web-ui.mjs` + `bundle.resources`). Returns
+/// `None` when the resource is absent (e.g. a dev run with no bundle) so the
+/// caller simply doesn't set `OPENBOOK_UI_DIR` and the sidecar stays API-only.
+/// DEV: point the sidecar at the export directly with
+/// `OPENBOOK_UI_DIR=packages/web/out` instead of relying on this bundled path.
+fn resolve_ui_dir(app: &AppHandle) -> Option<String> {
+    let dir = app.path().resource_dir().ok()?.join("web-ui");
+    if dir.join("index.html").is_file() {
+        Some(dir.to_string_lossy().to_string())
+    } else {
+        None
+    }
+}
+
 /// Spawn the server sidecar from the current config. It always listens on the
 /// Unix socket (the portless IPC transport); when published it *also* binds
-/// `0.0.0.0` with the access token for LAN access, and when the local-MCP/agent
-/// toggle is on it *also* binds loopback `127.0.0.1` for the connector (STAB-5).
+/// `0.0.0.0` for LAN access (tokenless — `guestAccess` is the only gate, STAB-7),
+/// and when the local-MCP/agent toggle is on it *also* binds loopback `127.0.0.1`
+/// for the connector (STAB-5).
 fn spawn_sidecar(
     app: &AppHandle,
     data_dir: &str,
@@ -236,7 +248,7 @@ fn spawn_sidecar(
 
     // Published LAN bind, or the STAB-5 loopback bind for a local MCP/agent
     // connector. Factored + pure so it's unit-testable (see tcp_bind_args).
-    args.extend(tcp_bind_args(cfg.published, cfg.agent_local_tcp, &cfg.access_token));
+    args.extend(tcp_bind_args(cfg.published, cfg.agent_local_tcp));
 
     // No Unix sockets here — serve a loopback TCP port so the host bridge has a
     // target even when neither published nor the MCP toggle is on (named-pipe
@@ -250,7 +262,7 @@ fn spawn_sidecar(
         args.push(DEFAULT_PORT.into());
     }
 
-    let (mut rx, child) = app
+    let mut command = app
         .shell()
         .sidecar("openbook-server")
         .map_err(|e| format!("failed to locate server sidecar: {e}"))?
@@ -262,7 +274,24 @@ fn spawn_sidecar(
         .env("OPENBOOK_SIDECAR", "1")
         // The loopback-owner hatch: the sidecar trusts requests stamped with this
         // per-run secret (see `AppState::local_secret`) as the machine owner.
-        .env("OPENBOOK_LOCAL_OWNER_SECRET", local_secret)
+        .env("OPENBOOK_LOCAL_OWNER_SECRET", local_secret);
+
+    // STAB-7 (LAN-hosted web UI): when PUBLISHED on the LAN, also hand the sidecar
+    // the bundled static web bundle (a Next static export staged as the `web-ui`
+    // Tauri resource) so a LAN browser can open `http://<ip>:4319/` directly. Gated
+    // on `published` so the portless / loopback-only defaults NEVER expose a UI —
+    // it tracks the `0.0.0.0` bind, which is also published-only. The served UI is
+    // tokenless (guest-gated, STAB-7); the sidecar must NOT also carry an access
+    // token, or every `/api` call the shell makes would 401 (empty shell). The
+    // sidecar reads OPENBOOK_UI_DIR (server.ts) and 404s every UI path when unset;
+    // an absent resource (a dev build with no bundle) simply leaves it unset.
+    if cfg.published {
+        if let Some(ui_dir) = resolve_ui_dir(app) {
+            command = command.env("OPENBOOK_UI_DIR", ui_dir);
+        }
+    }
+
+    let (mut rx, child) = command
         .spawn()
         .map_err(|e| format!("failed to spawn server sidecar: {e}"))?;
 
@@ -302,10 +331,12 @@ fn server_info(state: State<AppState>) -> ServerInfo {
     build_info(&state)
 }
 
-/// Publish (or unpublish) this instance on the LAN. Enabling mints a token (once)
-/// and respawns the server so it *also* binds `0.0.0.0`; disabling respawns it
-/// socket-only. The local UI uses IPC throughout, so there is no data hand-off
-/// and no client switch — only the LAN listener changes.
+/// Publish (or unpublish) this instance on the LAN. Enabling respawns the server so
+/// it *also* binds `0.0.0.0` and serves the bundled web UI; disabling respawns it
+/// socket-only. The LAN bind is TOKENLESS by owner decision (STAB-7) — publishing
+/// always serves the UI, and the ONLY gate on it is `guestAccess` (write/read/off).
+/// The local UI uses IPC throughout, so there is no data hand-off and no client
+/// switch — only the LAN listener changes.
 #[tauri::command]
 fn publish_server(app: AppHandle, state: State<AppState>, enabled: bool) -> Result<ServerInfo, String> {
     if !state.managed {
@@ -314,9 +345,6 @@ fn publish_server(app: AppHandle, state: State<AppState>, enabled: bool) -> Resu
     {
         let mut cfg = state.config.lock().unwrap();
         cfg.published = enabled;
-        if enabled && cfg.access_token.is_empty() {
-            cfg.access_token = generate_token();
-        }
         save_config(&state.config_path, &cfg);
     }
     respawn(&app, &state)?;
@@ -1146,33 +1174,38 @@ mod tcp_bind_tests {
         // The desktop default: neither published nor the local-MCP toggle → the
         // sidecar is portless (socket-only), so NOTHING listens on 4319 (STAB-5
         // security invariant: no listener unless a toggle is on).
-        assert!(tcp_bind_args(false, false, "").is_empty());
-        // An access token without a bind reason still binds nothing.
-        assert!(tcp_bind_args(false, false, "secret").is_empty());
+        assert!(tcp_bind_args(false, false).is_empty());
     }
 
     #[test]
     fn local_mcp_toggle_binds_loopback_only() {
         // Toggle on (not published) → loopback 127.0.0.1:4319, NEVER 0.0.0.0, and
         // NO access token (loopback-only; the connector presents its own PAT).
-        let args = tcp_bind_args(false, true, "secret");
+        let args = tcp_bind_args(false, true);
         assert_eq!(args, vec!["--host", "127.0.0.1", "--port", "4319"]);
         assert!(!args.iter().any(|a| a == "0.0.0.0"));
         assert!(!args.iter().any(|a| a == "--access-token"));
     }
 
     #[test]
-    fn published_binds_lan_with_token_and_wins_over_mcp() {
-        // Published binds 0.0.0.0 + the access token; and it WINS over the MCP
-        // toggle (0.0.0.0:4319 already covers loopback — no double-bind).
-        let args = tcp_bind_args(true, true, "secret");
-        assert_eq!(args, vec!["--host", "0.0.0.0", "--port", "4319", "--access-token", "secret"]);
+    fn published_binds_lan_tokenless_and_wins_over_mcp() {
+        // Published binds 0.0.0.0 and it WINS over the MCP toggle (0.0.0.0:4319
+        // already covers loopback — no double-bind). The LAN bind is TOKENLESS by
+        // owner decision (STAB-7): `guestAccess` is the only gate, and a token would
+        // 401 every /api call the served (tokenless) UI shell makes.
+        let args = tcp_bind_args(true, true);
+        assert_eq!(args, vec!["--host", "0.0.0.0", "--port", "4319"]);
+        assert!(!args.iter().any(|a| a == "--access-token"));
     }
 
     #[test]
-    fn published_without_token_omits_access_token() {
-        let args = tcp_bind_args(true, false, "");
+    fn published_never_passes_an_access_token() {
+        // Regression guard for the tokenless posture: a plain publish (no MCP) binds
+        // the LAN and passes NO `--access-token`, so the served shell's /api calls
+        // clear the gate and only `guestAccess` decides.
+        let args = tcp_bind_args(true, false);
         assert_eq!(args, vec!["--host", "0.0.0.0", "--port", "4319"]);
+        assert!(!args.iter().any(|a| a == "--access-token"));
     }
 }
 

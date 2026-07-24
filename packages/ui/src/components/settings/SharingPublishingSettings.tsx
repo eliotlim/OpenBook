@@ -20,7 +20,7 @@ import {useSharingCapability} from '@/components/ShareDialog';
  *   • Publish to the web (`✦.book.cloud` forwarding, desktop),
  *   • Default access (the library guest gate),
  *   • People (the member roster: invite, roles, status),
- *   • Advanced — local network (the LAN listener + token).
+ *   • Advanced — local network (the LAN listener; tokenless, guest-gated).
  * Server *plumbing* (which server, remote URL, tokens) lives in the Libraries &
  * servers screen (SET2-1 folded the old Connection tab in there) — splitting
  * policy from plumbing is the point (IA review, 2026-07).
@@ -163,9 +163,10 @@ function ForwardingSection() {
 }
 
 /**
- * Publish the desktop's local server on the LAN (a network listener + access
- * token). Distinct from forwarding: this exposes the server on the local
- * network directly, no relay involved.
+ * Publish the desktop's local server on the LAN — a network listener that also
+ * serves the web UI. Tokenless (STAB-7): the library's Default access (guest) gate
+ * is the only thing standing between a reachable browser and the library. Distinct
+ * from forwarding: this exposes the server on the local network directly, no relay.
  */
 function LanPublishSection() {
   const {serverControls} = usePlatformCapabilities();
@@ -243,16 +244,11 @@ function LanPublishSection() {
                 {copied === 'addr' ? t('connection.copied') : t('connection.copy')}
               </Button>
             </div>
-          </SettingsField>
-          <SettingsField label={t('connection.accessToken')} className="max-w-lg">
-            <div className="flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
-                {info.accessToken ?? '—'}
-              </code>
-              <Button variant="outline" size="sm" disabled={!info.accessToken} onClick={() => copy('tok', info.accessToken ?? '')}>
-                {copied === 'tok' ? t('connection.copied') : t('connection.copy')}
-              </Button>
-            </div>
+            {/* STAB-7 (LAN-hosted web UI): the sidecar now also serves the full web
+                app at this address, so anyone on the network can just open it in a
+                browser (no OpenBook install). Say so — and flag the guest-first
+                posture + the raw-LAN account sign-in caveat right where the URL is. */}
+            <p className="mt-1 text-xs text-muted-foreground">{t('connection.openInBrowserHint')}</p>
           </SettingsField>
         </div>
       ) : (

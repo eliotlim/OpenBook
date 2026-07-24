@@ -54,6 +54,7 @@ import {
 } from './agentTokens';
 import {mountAgentTokenRoutes} from './agentTokenRoutes';
 import {mountMcpHttp} from './mcpHttp';
+import {mountUi} from './ui';
 import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
 import type {RosterController} from './rosterSync';
@@ -277,6 +278,17 @@ export interface AppOptions {
    * external tools are simply unavailable.
    */
   mcp?: McpClientManager;
+  /**
+   * STAB-7 (LAN-hosted web UI): absolute path to a pre-built, client-only
+   * OpenBook web bundle (an `index.html` + hashed assets). When set, the sidecar
+   * also serves that UI from a `GET *` catch-all (see {@link mountUi}) so a LAN
+   * browser can open `http://<host>:<port>/` directly. Registered LAST, after
+   * every API/SSE/plugin route, so it never shadows `/api/*`. Unset (the default)
+   * ⇒ the sidecar serves only the API and a UI request 404s, exactly as before.
+   * The desktop wires this to its publish/LAN toggle (serve the UI only while
+   * sharing is on); a headless run can set it from `--ui-dir`.
+   */
+  uiDir?: string;
 }
 
 /**
@@ -298,6 +310,19 @@ function resolveAssetStorageBudgetBytes(opt: number | undefined): number {
 }
 
 export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono<AppEnv> {
+  // STAB-7 invariant: serving the LAN web UI and the shared-secret gate are
+  // MUTUALLY EXCLUSIVE. The `accessToken` gate runs before `guestAccess` and would
+  // 401 every `/api` call the served (tokenless) shell makes — the shipped-empty-
+  // shell bug. Fail closed at construction so that state can never boot: a LAN
+  // publish is tokenless (guest-gated); a token-gated bind must not also serve a UI.
+  if (opts.uiDir && opts.accessToken) {
+    throw new Error(
+      'createApp: `uiDir` and `accessToken` are mutually exclusive — the served LAN web UI is ' +
+        'tokenless (guest-gated), and a shared-secret gate would 401 every /api call the shell ' +
+        'makes, leaving an empty page. Drop one (STAB-7).',
+    );
+  }
+
   const app = new Hono<AppEnv>();
 
   // Live-collaboration catch-up memory (Collab T1): per-page ephemeral relay docs,
@@ -1857,6 +1882,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       }
     });
   });
+
+  // STAB-7: the LAN-served web UI catch-all. Mounted LAST so every API/SSE/plugin
+  // route above wins (they each return a Response, so Hono never falls through to
+  // this handler for them); the handler itself also refuses the `/api` + `/health`
+  // surface so an unmatched API path 404s as JSON, not the SPA shell. No-op unless
+  // `uiDir` is set — the sidecar's default stays API-only (a UI request 404s).
+  if (opts.uiDir) mountUi(app, opts.uiDir);
 
   app.onError((err, c) => {
     // Access-gate rejections (requireAccess/requireDbAccess/requireCreate) ride
