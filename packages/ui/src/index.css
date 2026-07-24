@@ -1242,6 +1242,70 @@ a.obe-mention {
   border-color: hsl(var(--primary) / 0.7);
   background: hsl(var(--primary) / 0.08);
 }
+/* Read-only / present image: clickable to open the lightbox. WKWebView only
+   fires clicks on non-button elements that carry an explicit cursor. */
+.obe-image-img-zoom { cursor: zoom-in; }
+
+/* ── Image lightbox (LBX-1) ─────────────────────────────────────────────────
+   A full-viewport overlay showing one picture fit-to-viewport over a dark
+   scrim. No zoom/pan yet (LBX-2) — the figure is a plain centring frame a
+   transform layer can wrap later. */
+.obe-lightbox-scrim {
+  background: hsl(0 0% 0% / 0.88);
+  backdrop-filter: blur(var(--overlay-blur));
+}
+.obe-lightbox-figure {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  min-height: 0;
+  max-width: 100%;
+  max-height: 100%;
+}
+.obe-lightbox-img {
+  display: block;
+  /* Fit to the viewport but never upscale past the picture's natural size:
+     `width/height: auto` keeps intrinsic dimensions, the max caps shrink it. */
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 85vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 12px 48px hsl(0 0% 0% / 0.55);
+}
+.obe-lightbox-caption {
+  max-width: 64ch;
+  color: hsl(0 0% 100% / 0.82);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  text-align: center;
+}
+.obe-lightbox-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 8px;
+  color: hsl(0 0% 100% / 0.85);
+  background: hsl(0 0% 0% / 0.35);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.obe-lightbox-close:hover {
+  background: hsl(0 0% 100% / 0.16);
+  color: hsl(0 0% 100%);
+}
+.obe-lightbox-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(0 0% 0% / 0.6), 0 0 0 4px hsl(0 0% 100% / 0.7);
+}
 
 /* ── HTML artifact block ─────────────────────────────────────────────────────
    A sandboxed-iframe document (SandboxedHtml) with a slim title bar and a

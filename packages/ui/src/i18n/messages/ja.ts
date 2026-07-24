@@ -661,6 +661,13 @@ export const ja: PartialMessages = {
       empty: 'プレビューする内容がまだありません。',
       error: 'このコンテンツを表示できませんでした。',
     },
+    image: {
+      expand: 'フルサイズで開く',
+      view: '画像をフルサイズで表示',
+      lightboxLabel: '画像ビューア',
+      close: '閉じる',
+      overlayDescription: '画像をウィンドウ全体に表示中。Esc か閉じるボタンでページに戻ります。',
+    },
   },
   general: {
     title: '一般',

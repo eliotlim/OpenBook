@@ -659,6 +659,13 @@ export const zh: PartialMessages = {
       empty: '暂无可预览的内容。',
       error: '无法显示此内容。',
     },
+    image: {
+      expand: '打开原图',
+      view: '查看原图',
+      lightboxLabel: '图片查看器',
+      close: '关闭',
+      overlayDescription: '图片正在全窗口显示。按 Esc 或关闭按钮返回页面。',
+    },
   },
   general: {
     title: '通用',
