@@ -635,3 +635,33 @@ test('table editing: type in cells, add a row and a column', {tag: ['@editor']},
   await page.locator('.obe-table-add-col').click();
   await expect(page.locator('.obe-table tr').first().locator('td')).toHaveCount(4);
 });
+
+// TBL-3: right-click inside a cell opens the table's Row/Column menu (not the
+// generic block menu), and its positional ops mutate the grid.
+test('table cell context menu: insert row, delete column, toggle header', {tag: ['@editor']}, async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/table');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.obe-table')).toBeVisible();
+  await expect(page.locator('.obe-table tr')).toHaveCount(3);
+  await expect(page.locator('.obe-table tr').first().locator('td')).toHaveCount(3);
+
+  // Right-click the first cell → the table cell menu, not the block menu.
+  await page.locator('.obe-table td').first().click({button: 'right'});
+  await expect(page.getByRole('menuitem', {name: 'Insert row below'})).toBeVisible();
+  await page.getByRole('menuitem', {name: 'Insert row below'}).click();
+  await expect(page.locator('.obe-table tr')).toHaveCount(4);
+
+  // Delete a column via the menu.
+  await page.locator('.obe-table td').first().click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Delete column'}).click();
+  await expect(page.locator('.obe-table tr').first().locator('td')).toHaveCount(2);
+
+  // Toggle the header row off.
+  await expect(page.locator('.obe-table-header')).toHaveCount(1);
+  await page.locator('.obe-table td').first().click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Toggle header row'}).click();
+  await expect(page.locator('.obe-table-header')).toHaveCount(0);
+});
