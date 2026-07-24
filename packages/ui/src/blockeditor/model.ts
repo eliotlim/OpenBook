@@ -1,6 +1,6 @@
 import * as Y from 'yjs';
 import {shortId} from '@book.dev/sdk';
-import {keyBetween, keysBetween, ORDER_KEY_REBALANCE_LENGTH} from './orderKeys';
+import {isOrderKey, keyBetween, keysBetween, ORDER_KEY_REBALANCE_LENGTH} from './orderKeys';
 
 /**
  * The block editor's document model: a CRDT block tree in a Y.Doc.
@@ -800,6 +800,13 @@ function ensureTableOrderInTx(table: BlockMap): void {
       prev = k;
       continue;
     }
+    if (prev !== null && !isOrderKey(prev)) {
+      // Malformed foreign key would throw on append — rebalance repairs the axis,
+      // rewriting every row's ord over the current render order (order preserved).
+      const keys = keysBetween(null, null, grid.rows.length);
+      grid.rows.forEach((r, i) => setBlockProp(r, 'ord', keys[i]));
+      break;
+    }
     const next = keyBetween(prev, null); // keyless rows render last — append
     setBlockProp(row, 'ord', next);
     prev = next;
@@ -809,6 +816,13 @@ function ensureTableOrderInTx(table: BlockMap): void {
   const colIds = columns.map((c) => c.id);
   let lastKey: string | null = columns.length > 0 ? columns[columns.length - 1].key : null;
   const maxSlots = grid.cells.reduce((m, r) => Math.max(m, r.length), 0);
+  if (colIds.length < maxSlots && lastKey !== null && !isOrderKey(lastKey)) {
+    // Malformed foreign key would throw on append — rebalance repairs the axis,
+    // rewriting every registry value over the current render order (order preserved).
+    const keys = keysBetween(null, null, columns.length);
+    columns.forEach((col, i) => setBlockProp(table, TABLE_COL_PREFIX + col.id, keys[i]));
+    lastKey = keys[keys.length - 1] ?? null;
+  }
   while (colIds.length < maxSlots) {
     const id = shortId('col');
     lastKey = keyBetween(lastKey, null);

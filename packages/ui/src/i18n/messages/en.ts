@@ -1154,6 +1154,13 @@ export const en = {
       empty: 'Nothing to preview yet.',
       error: 'This content could not be displayed.',
     },
+    image: {
+      expand: 'Open full size',
+      view: 'View image full size',
+      lightboxLabel: 'Image viewer',
+      close: 'Close',
+      overlayDescription: 'The image fills the window. Esc or the close button returns to the page.',
+    },
   },
   general: {
     title: 'General',
