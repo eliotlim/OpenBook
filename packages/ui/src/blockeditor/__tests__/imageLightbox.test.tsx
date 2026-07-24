@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 // A tiny probe that reflects the current store state into the DOM.
-const Probe = (): JSX.Element => {
+const Probe = () => {
   const s = useImageLightbox();
   return <div data-testid="probe" data-open={s ? 'yes' : 'no'} data-src={s?.src ?? ''} data-alt={s?.alt ?? ''} />;
 };
