@@ -1324,6 +1324,77 @@ export function cellNeighbor(doc: Y.Doc, cellId: string, dir: 'next' | 'prev' | 
   return blockId(cell);
 }
 
+// ── Cell-range selection (TBL-5) ───────────────────────────────────────────────
+// A rectangular multi-cell selection is LOCAL, per-user, ephemeral state (never
+// CRDT, never awareness). It is stored as two RENDER-order grid coordinates — an
+// anchor and a focus — so the rectangle is defined POSITIONALLY at selection
+// time: if a row/column is reordered afterwards, the same slots now hold
+// whatever moved there (matching how a spreadsheet range behaves). These pure
+// helpers resolve/serialize/clear a range against the live sorted grid.
+
+/** An inclusive rectangle of RENDER-order grid coordinates. */
+export interface CellRect {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+}
+
+/** Normalise two grid coordinates (any order) into an inclusive rectangle. */
+export function normalizeCellRect(a: {row: number; col: number}, b: {row: number; col: number}): CellRect {
+  return {
+    top: Math.min(a.row, b.row),
+    bottom: Math.max(a.row, b.row),
+    left: Math.min(a.col, b.col),
+    right: Math.max(a.col, b.col),
+  };
+}
+
+/** True when a grid coordinate falls inside the (inclusive) rectangle. */
+export const cellInRect = (rect: CellRect, row: number, col: number): boolean =>
+  row >= rect.top && row <= rect.bottom && col >= rect.left && col <= rect.right;
+
+/**
+ * The cell blocks of a rectangular range, in RENDER (sorted) order — a grid of
+ * `(bottom−top+1) × (right−left+1)`, `null` for a gap (a merge void or a ragged
+ * short row). Coordinates resolve against the live sorted grid, so a rectangle
+ * captured BEFORE a row/column reorder maps to whatever now occupies those
+ * slots (positional-at-selection, acceptance #7 sorted-vs-array).
+ */
+export function tableRangeCells(doc: Y.Doc, tableId: string, rect: CellRect): (BlockMap | null)[][] {
+  const found = findBlock(doc, tableId);
+  if (!found || blockType(found.block) !== 'table') return [];
+  const grid = tableGrid(found.block);
+  const out: (BlockMap | null)[][] = [];
+  for (let r = rect.top; r <= rect.bottom; r += 1) {
+    const rowCells = grid.cells[r] ?? [];
+    const line: (BlockMap | null)[] = [];
+    for (let c = rect.left; c <= rect.right; c += 1) {
+      const cell = rowCells[c] ?? null;
+      line.push(cell && blockType(cell) === 'cell' ? cell : null);
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+/** The rich-text runs of a range's cells (empty `[]` for a gap) — clipboard serialization. */
+export function tableRangeRuns(doc: Y.Doc, tableId: string, rect: CellRect): TextRun[][][] {
+  return tableRangeCells(doc, tableId, rect).map((line) => line.map((cell) => (cell ? cellRuns(cell) : [])));
+}
+
+/** Clear every cell text in a rectangular range in ONE transaction (one undo step). */
+export function clearCellRange(doc: Y.Doc, tableId: string, rect: CellRect): void {
+  doc.transact(() => {
+    for (const line of tableRangeCells(doc, tableId, rect)) {
+      for (const cell of line) {
+        const text = cell && blockText(cell);
+        if (text && text.length > 0) text.delete(0, text.length);
+      }
+    }
+  }, 'local');
+}
+
 function removeBlockInTx(doc: Y.Doc, id: string): void {
   const found = findBlock(doc, id);
   if (found) found.parent.delete(found.index, 1);

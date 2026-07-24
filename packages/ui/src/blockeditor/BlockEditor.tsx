@@ -35,14 +35,18 @@ import {
   moveBlocks,
   parentBlockOf,
   blockToJSON,
+  cellInRect,
   cellPosition,
+  clearCellRange,
   cloneBlock,
+  normalizeCellRect,
   removeBlock,
   rootBlocks,
   setBlockProp,
   tableCellColor,
   tableColumnColor,
   tableColumns,
+  tableRangeRuns,
   tableDeleteColumn,
   tableDeleteRow,
   tableDuplicateRow,
@@ -60,7 +64,7 @@ import {
 } from './model';
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
 import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
-import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
+import {blocksToHtml, blocksToMarkdown, cellRangeToHtml, cellRangeToTsv} from './exportBlocks';
 import {getCustomBlock} from './registry';
 import {CodeBlockView} from './CodeBlockView';
 import {ImageBlockView} from './ImageBlockView';
@@ -116,6 +120,25 @@ import {createSelectionReporter, LOCAL_SELECTION_THROTTLE_MS, type LocalSelectio
 
 // Re-exported so the page host can type its onSelectionChange handler. Collab T5.
 export {LOCAL_SELECTION_THROTTLE_MS, type LocalSelection};
+
+/**
+ * A rectangular multi-cell selection within ONE table (TBL-5). `anchor` is the
+ * fixed corner; `focus` moves under drag / shift-click / shift-arrow. Both are
+ * RENDER-order grid coordinates — LOCAL React state only, never CRDT or
+ * awareness (per-user, ephemeral). The BlockEditor root owns it and threads it
+ * to the table through {@link CellSelectionContext}.
+ */
+export interface CellSelection {
+  tableId: string;
+  anchor: {row: number; col: number};
+  focus: {row: number; col: number};
+}
+
+interface CellSelectionCtx {
+  sel: CellSelection | null;
+  setSel: (s: CellSelection | null) => void;
+}
+const CellSelectionContext = React.createContext<CellSelectionCtx | null>(null);
 
 /**
  * The block editor root: renders the block tree, owns the transient UI
@@ -226,6 +249,18 @@ export const BlockEditor: React.FC<{
   // rAF loop, clear state). Stashed so we can tear down on unmount / read-only
   // flip mid-drag — otherwise the listeners + self-scheduling rAF leak.
   const marqueeTeardownRef = useRef<(() => void) | null>(null);
+  // Teardown for an in-flight cell drag-select (remove window listeners, clear
+  // transient drag state). Stashed so we can tear down on unmount / read-only
+  // flip mid-drag — otherwise the listeners leak and the next move runs on a
+  // detached doc / an unmounted tree.
+  const cellDragTeardownRef = useRef<(() => void) | null>(null);
+  // Cell-range selection (TBL-5): a rectangle of table cells. LOCAL, per-user,
+  // ephemeral — never CRDT. A ref mirrors it so the document-level clipboard /
+  // keyboard listeners read the live value without re-subscribing every change.
+  const [cellSel, setCellSel] = useState<CellSelection | null>(null);
+  const cellSelRef = useRef(cellSel);
+  cellSelRef.current = cellSel;
+  const cellSelCtx = useMemo<CellSelectionCtx>(() => ({sel: cellSel, setSel: setCellSel}), [cellSel]);
 
   // Insert an inline page-link mention (chosen in the LinkPicker) at the caret.
   const insertMention = useCallback(
@@ -709,6 +744,155 @@ export const BlockEditor: React.FC<{
     return () => document.removeEventListener('keydown', listener);
   }, [hasSelection]);
 
+  // ── Cell-range selection (TBL-5) ────────────────────────────────────────────
+  // A native selection spanning >1 cell of the SAME table becomes a cell-range
+  // selection. It is NOT a block selection: a table is one top-level row, so the
+  // block converter above never fires for a within-table span (its spannedRows
+  // stays length 1); a span crossing the table boundary DOES hit ≥2 top-level
+  // rows and falls through to that block converter (acceptance #5, unchanged).
+  // Live during the drag via selectionchange; mouseup collapses the native range
+  // so the highlight is clean and the document-level cell keyboard takes over.
+  // Runs in BOTH modes — readOnly keeps SELECT + COPY (never clear/cut, #4).
+  React.useEffect(() => {
+    const cellIdOf = (node: Node | null): string | null => {
+      const el = node instanceof Element ? node : (node?.parentElement ?? null);
+      const cellEl = el?.closest?.('[data-block-text]') as HTMLElement | null;
+      const id = cellEl?.dataset.blockText;
+      if (!id) return null;
+      const found = findBlock(doc, id);
+      return found && blockType(found.block) === 'cell' ? id : null;
+    };
+    // The native selection reduced to a same-table cell span (anchor→focus),
+    // or null when it is collapsed, single-cell (plain text edit), or crosses
+    // out of the table.
+    const spanFromNative = (): CellSelection | null => {
+      const root = rootRef.current;
+      const sel = document.getSelection();
+      if (!root || !sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+      const range = sel.getRangeAt(0);
+      if (!root.contains(range.commonAncestorContainer)) return null;
+      const aId = cellIdOf(sel.anchorNode);
+      const fId = cellIdOf(sel.focusNode);
+      if (!aId || !fId || aId === fId) return null; // one cell → native text select
+      const aPos = cellPosition(doc, aId);
+      const fPos = cellPosition(doc, fId);
+      if (!aPos || !fPos || aPos.table !== fPos.table) return null; // crosses tables
+      return {
+        tableId: blockId(aPos.table),
+        anchor: {row: aPos.row, col: aPos.col},
+        focus: {row: fPos.row, col: fPos.col},
+      };
+    };
+    const onSelectionChange = (): void => {
+      const span = spanFromNative();
+      if (span) {
+        editor.clearSelection();
+        setCellSel(span); // live rectangle during the drag
+      }
+    };
+    const onMouseUp = (): void => {
+      const span = spanFromNative();
+      if (!span) return;
+      editor.clearSelection();
+      setCellSel(span);
+      // Collapse + blur so keydowns route to the document-level cell keyboard
+      // and no native highlight lingers under the cell highlight.
+      document.getSelection()?.removeAllRanges();
+      (document.activeElement as HTMLElement | null)?.blur();
+    };
+    const onClipboard = (e: ClipboardEvent, cut: boolean): void => {
+      const csel = cellSelRef.current;
+      if (!csel || !e.clipboardData) return; // block copy handler owns the rest
+      e.preventDefault();
+      const rect = normalizeCellRect(csel.anchor, csel.focus);
+      const grid = tableRangeRuns(doc, csel.tableId, rect);
+      e.clipboardData.setData('text/plain', cellRangeToTsv(grid));
+      e.clipboardData.setData('text/html', cellRangeToHtml(grid));
+      // Cut = copy + clear; the clear half is disabled on a read-only surface,
+      // so there Cut degrades to a plain Copy (never mutates — acceptance #4).
+      if (cut && !readOnly) {
+        clearCellRange(doc, csel.tableId, rect);
+        setLive('Cut');
+      } else {
+        setLive('Copied');
+      }
+    };
+    const onCopy = (e: ClipboardEvent): void => onClipboard(e, false);
+    const onCut = (e: ClipboardEvent): void => onClipboard(e, true);
+    document.addEventListener('selectionchange', onSelectionChange);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('copy', onCopy);
+    document.addEventListener('cut', onCut);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('cut', onCut);
+    };
+  }, [doc, editor, readOnly]);
+
+  // Cell-range keyboard: bound at the document level while a range exists (the
+  // range blurs the caret, so keys land on <body>). Escape clears; Backspace/
+  // Delete clears the cells in one undo step (disabled read-only); Shift+arrows
+  // extend the focus corner; a plain arrow collapses to a single-cell caret.
+  const hasCellSel = cellSel !== null;
+  React.useEffect(() => {
+    if (!hasCellSel) return;
+    const dirs: Record<string, {dr: number; dc: number}> = {
+      ArrowUp: {dr: -1, dc: 0},
+      ArrowDown: {dr: 1, dc: 0},
+      ArrowLeft: {dr: 0, dc: -1},
+      ArrowRight: {dr: 0, dc: 1},
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      const sel = cellSelRef.current;
+      if (!sel) return;
+      // Undo/redo while the range is shown: a cleared range blurs the caret, so
+      // TextBlockView's own Cmd+Z never sees the keys — route them here so the
+      // clear is immediately reversible (one transact = one step).
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) editor.undo.redo();
+        else editor.undo.undo();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setCellSel(null);
+        return;
+      }
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        if (readOnly) return; // clear disabled on a read-only surface
+        e.preventDefault();
+        clearCellRange(doc, sel.tableId, normalizeCellRect(sel.anchor, sel.focus));
+        setLive('Cleared cells');
+        return;
+      }
+      const d = dirs[e.key];
+      if (!d) return;
+      e.preventDefault();
+      const table = findBlock(doc, sel.tableId);
+      if (!table) return;
+      const grid = tableGrid(table.block);
+      const maxRow = grid.rows.length - 1;
+      const maxCol = grid.width - 1;
+      const focus = {
+        row: Math.max(0, Math.min(maxRow, sel.focus.row + d.dr)),
+        col: Math.max(0, Math.min(maxCol, sel.focus.col + d.dc)),
+      };
+      if (e.shiftKey) {
+        setCellSel({...sel, focus});
+        return;
+      }
+      // Plain arrow collapses the range to a single-cell caret at the moved focus.
+      setCellSel(null);
+      const cell = grid.cells[focus.row]?.[focus.col];
+      if (cell && blockType(cell) === 'cell') editor.requestCaret({blockId: blockId(cell), offset: 'end'});
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [hasCellSel, doc, editor, readOnly]);
+
   // ── Local caret → presence (Collab T5) ─────────────────────────────────────
   // Broadcast where this user's caret is so peers can render it as a remote
   // cursor (T4 deferred the editor-side caret tracking here). Throttled (~10Hz)
@@ -912,6 +1096,74 @@ export const BlockEditor: React.FC<{
     window.addEventListener('mouseup', onUp);
   };
 
+  // ── Cell drag-select (TBL-5) ─────────────────────────────────────────────────
+  // Each cell is its OWN contenteditable, and a browser will not extend a native
+  // text selection across separate editables — so a cell drag is tracked by grid
+  // COORDINATE (hit-testing the pointer against `[data-block-text]` cells),
+  // independent of the native selection. A press that never leaves its start
+  // cell stays a plain caret / intra-cell text drag; the moment the pointer
+  // enters a DIFFERENT cell of the SAME table it engages, blurs the caret, and
+  // lays down a live rectangle. Selection is allowed read-only (copy path).
+  const startCellDrag = (e: React.MouseEvent): void => {
+    if (e.button !== 0 || e.shiftKey) return;
+    const startEl = (e.target as HTMLElement).closest?.('[data-block-text]') as HTMLElement | null;
+    const startId = startEl?.dataset.blockText;
+    if (!startId) return;
+    const startPos = cellPosition(doc, startId);
+    if (!startPos) return; // the press was not inside a table cell
+    const tableId = blockId(startPos.table);
+    const anchor = {row: startPos.row, col: startPos.col};
+    let engaged = false;
+    // The cell of THIS table under a client point, or null (outside / other table).
+    const cellAt = (x: number, y: number): {row: number; col: number} | null => {
+      for (const el of document.elementsFromPoint(x, y)) {
+        const cEl = (el as HTMLElement).closest?.('[data-block-text]') as HTMLElement | null;
+        const cid = cEl?.dataset.blockText;
+        if (!cid) continue;
+        const p = cellPosition(doc, cid);
+        return p && blockId(p.table) === tableId ? {row: p.row, col: p.col} : null;
+      }
+      return null;
+    };
+    const onMove = (ev: MouseEvent): void => {
+      const cur = cellAt(ev.clientX, ev.clientY);
+      if (!cur) return;
+      if (!engaged) {
+        if (cur.row === anchor.row && cur.col === anchor.col) return; // still in start cell
+        engaged = true;
+        (document.activeElement as HTMLElement | null)?.blur();
+        editor.clearSelection();
+      }
+      // Suppress the native selection + keep the rectangle live under the pointer.
+      document.getSelection()?.removeAllRanges();
+      setCellSel({tableId, anchor, focus: cur});
+      ev.preventDefault();
+    };
+    // Single teardown for the whole gesture: detach the window listeners and
+    // drop the transient drag state. Invoked from onUp on a normal release AND
+    // from the unmount / read-only-flip effects when a drag is cut short — so
+    // neither listener leaks past the editor's lifetime (the next move would
+    // otherwise run cellPosition on a detached doc + setCellSel on a dead tree).
+    const teardown = (): void => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      engaged = false;
+      cellDragTeardownRef.current = null;
+    };
+    const onUp = (): void => {
+      const wasEngaged = engaged;
+      teardown();
+      if (wasEngaged) {
+        document.getSelection()?.removeAllRanges();
+        (document.activeElement as HTMLElement | null)?.blur();
+        suppressClickRef.current = true; // eat the trailing click (no caret jump)
+      }
+    };
+    cellDragTeardownRef.current = teardown;
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   // Cut a live marquee short when the editor unmounts, so its window listeners
   // and self-scheduling rAF don't outlive the component.
   React.useEffect(() => () => marqueeTeardownRef.current?.(), []);
@@ -920,6 +1172,17 @@ export const BlockEditor: React.FC<{
   // rather than leave it dangling on a now-frozen surface.
   React.useEffect(() => {
     if (readOnly) marqueeTeardownRef.current?.();
+  }, [readOnly]);
+
+  // Cut a live cell drag-select short when the editor unmounts, so its window
+  // listeners don't outlive the component (the next move would run on a detached
+  // doc + set state on an unmounted tree).
+  React.useEffect(() => () => cellDragTeardownRef.current?.(), []);
+
+  // A read-only flip mid-drag has no selection/copy path — tear the cell drag
+  // down too (selection-only, so low stakes, but keep parity with the marquee).
+  React.useEffect(() => {
+    if (readOnly) cellDragTeardownRef.current?.();
   }, [readOnly]);
 
   return (
@@ -939,10 +1202,15 @@ export const BlockEditor: React.FC<{
         // root (autoscroll drove it to the edge), no click reached onClick to
         // reset the flag and it would otherwise swallow this genuine next click.
         suppressClickRef.current = false;
-        // Shift-click extension is owned by the row's capture handler (which
-        // stops propagation) — a shift-mousedown reaching here is empty space.
+        // Shift-click extension is owned by the row's / cell's capture handler
+        // (which stops propagation) — a shift-mousedown reaching here is empty
+        // space, and must NOT collapse a live cell range it is extending.
         if (e.shiftKey) return;
-        startMarquee(e);
+        // Any fresh non-shift press starts over: drop a cell range (a drag then
+        // rebuilds one live; a plain click just places a caret).
+        setCellSel(null);
+        startCellDrag(e); // arms a coordinate-tracked cell drag when inside a cell
+        startMarquee(e); // no-ops inside a contenteditable (MARQUEE_EXCLUDE)
         if (e.target === rootRef.current) editor.clearSelection();
       }}
       onClick={(e) => {
@@ -985,11 +1253,13 @@ export const BlockEditor: React.FC<{
         }
       }}
     >
-      <KitPageLockContext.Provider value={readOnly}>
-        <KitLockContext.Provider value={readOnlyLock}>
-          <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} container={null} />
-        </KitLockContext.Provider>
-      </KitPageLockContext.Provider>
+      <CellSelectionContext.Provider value={cellSelCtx}>
+        <KitPageLockContext.Provider value={readOnly}>
+          <KitLockContext.Provider value={readOnlyLock}>
+            <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} container={null} />
+          </KitLockContext.Provider>
+        </KitPageLockContext.Provider>
+      </CellSelectionContext.Provider>
       {slash.open && (
         <SlashMenu
           state={slash}
@@ -2403,8 +2673,32 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   const rowDrag = drag?.axis === 'row' ? drag : null;
   const colDrag = drag?.axis === 'col' ? drag : null;
 
+  // Cell-range selection (TBL-5): the rectangle for THIS table, if any. Cell
+  // highlights are token-based (see `.obe-cell-selected`); `obe-cell-selecting`
+  // hides the native blue while a drag lays down the range.
+  const cellCtx = React.useContext(CellSelectionContext);
+  const activeCellSel = cellCtx?.sel && cellCtx.sel.tableId === id ? cellCtx.sel : null;
+  const cellRect = activeCellSel ? normalizeCellRect(activeCellSel.anchor, activeCellSel.focus) : null;
+  // Shift-click a cell extends the range from its anchor (the live range's
+  // anchor, else the focused cell of this table, else the clicked cell).
+  // preventDefault stops the browser laying its own cross-cell native range.
+  // Selection is allowed read-only (only clear/cut are gated).
+  const extendCellSelect = (r: number, c: number) => (e: React.MouseEvent): void => {
+    if (!cellCtx || !e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.getSelection()?.removeAllRanges();
+    let anchor = activeCellSel?.anchor;
+    if (!anchor) {
+      const fpos = editor.focusedId ? cellPosition(editor.doc, editor.focusedId) : null;
+      anchor = fpos && blockId(fpos.table) === id ? {row: fpos.row, col: fpos.col} : {row: r, col: c};
+    }
+    cellCtx.setSel({tableId: id, anchor, focus: {row: r, col: c}});
+  };
+
   return (
-    <div className={showHandles ? 'obe-table-wrap obe-has-grips' : 'obe-table-wrap'}>
+    <div className={[showHandles ? 'obe-table-wrap obe-has-grips' : 'obe-table-wrap', activeCellSel && 'obe-cell-selecting'].filter(Boolean).join(' ')}>
       <table className="obe-table">
         <tbody>
           {rows.map((row, r) => {
@@ -2436,6 +2730,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                     colDrag && dropIndex === cols && c === cols - 1 ? 'obe-drop-col-after' : '',
                     colDrag && colId && colDrag.id === colId ? 'obe-col-dragging' : '',
                     isColorToken(tint) ? `obe-bg-${tint}` : '',
+                    cellRect && cellInRect(cellRect, r, c) ? 'obe-cell-selected' : '',
                   ]
                     .filter(Boolean)
                     .join(' ');
@@ -2502,6 +2797,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                     <TableCellMenu key={blockId(cell)} cell={cell} tableId={id} editor={editor} suppress={editor.readOnly || lockText}>
                       <td
                         className={tdDropClass || undefined}
+                        onMouseDownCapture={extendCellSelect(r, c)}
                         onDragOver={showHandles ? overCol(c) : undefined}
                         onDrop={showHandles ? commitDrop : undefined}
                       >
