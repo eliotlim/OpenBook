@@ -8,7 +8,7 @@
 
 import {DEFAULT_ACCOUNT_URL} from './account';
 import type {Jwks, Principal, RevocationSet, VerifiedVia} from './identity';
-import type {EffectiveRole, MemberRole, PageVisibility} from './types';
+import type {AgentEditsMode, EffectiveRole, MemberRole, PageVisibility} from './types';
 
 /** What an unauthenticated (guest) caller may do on this instance. */
 export type GuestAccess =
@@ -46,6 +46,15 @@ export interface TrustedIssuerConfig {
 /** The instance's multi-user policy, persisted in the `settings` table. */
 export interface InstanceConfig {
   guestAccess: GuestAccess;
+  /**
+   * Instance-wide agent-edits mode (AGED-1): whether an agent (an MCP tool or the
+   * built-in AI) writes a page DIRECTLY or persists its change as a suggestion for a
+   * human to accept. Defaults to `'suggest'` (the safe default — no unattended agent
+   * edits). A page may override this per-page via its `agentEdits` policy; the
+   * effective decision is {@link resolveAgentEdits}. This is the CONTRACT only — no
+   * behaviour reads it yet (AGED-3/4 wire the MCP / AI layers to it).
+   */
+  agentEdits: AgentEditsMode;
   /**
    * A stable, opaque per-library identifier (STAB-5). Minted once at first
    * startup and persisted; it authorizes NOTHING (like {@link ownerSubject}, it's
@@ -143,6 +152,9 @@ export interface LibraryRoster {
 
 export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
   guestAccess: 'write',
+  // Agents SUGGEST by default (AGED-1) — no unattended direct edits until the owner
+  // opts the instance (or a page) into `'direct'`.
+  agentEdits: 'suggest',
   // Trust account.book.pub out of the box — it's the OpenBook identity authority
   // (the shared root that makes identities federate across instances). Only ever
   // consulted when an `iss=account.book.pub` assertion is actually presented; the
@@ -171,6 +183,13 @@ export const DEFAULT_INSTANCE_CONFIG: InstanceConfig = {
  */
 export interface InstanceInfo {
   guestAccess: GuestAccess;
+  /**
+   * The instance-wide agent-edits mode (AGED-1) — see {@link InstanceConfig.agentEdits}.
+   * Read-only here; a client changes it via `PUT /api/instance` (owner only). Exposed
+   * so the UI can render "agents suggest / edit directly" and resolve a page's
+   * `inherit` policy without a second probe. Optional: absent on a pre-AGED-1 server /
+   * a test fixture — a client then treats it as the safe `'suggest'` default. */
+  agentEdits?: AgentEditsMode;
   /**
    * The stable, opaque per-library identifier (STAB-5) — see
    * {@link InstanceConfig.instanceId}. An out-of-process MCP connector compares

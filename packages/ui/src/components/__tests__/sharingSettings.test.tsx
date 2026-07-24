@@ -34,7 +34,7 @@ describe('SharingSection (guest access)', () => {
         you: guestPrincipal('Caryl'),
         youRole: null,
       }),
-      setInstancePolicy: async () => ({guestAccess: 'write', trustedIssuers: []}),
+      setInstancePolicy: async () => ({guestAccess: 'write', agentEdits: 'suggest', trustedIssuers: []}),
     };
     wrap(client);
     expect(await screen.findByText('Guests & access')).toBeTruthy();
@@ -67,7 +67,7 @@ describe('SharingSection (guest access)', () => {
         you: guestPrincipal('Dana'),
         youRole: null,
       }),
-      setInstancePolicy: async () => ({guestAccess: 'read', trustedIssuers: []}),
+      setInstancePolicy: async () => ({guestAccess: 'read', agentEdits: 'suggest', trustedIssuers: []}),
     };
     wrap(client);
     expect(await screen.findByText('Only the library owner can change this.')).toBeTruthy();

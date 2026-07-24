@@ -18,7 +18,7 @@ import type {
   McpServerConfig,
   McpTestResult,
 } from './ai';
-import type {AclLevel, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
+import type {AclLevel, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult} from './backup';
@@ -1380,6 +1380,20 @@ export class HttpDataClient implements DataClient {
   async setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility> {
     const res = await this.request<{visibility: PageVisibility}>('PUT', API.pageVisibility(pageId), {visibility});
     return res.visibility;
+  }
+
+  /** A page's agent-edits policy (AGED-1; raw — `inherit` not yet resolved against
+   *  the instance mode). Gated on read of the page. */
+  async getPageAgentEdits(pageId: string): Promise<AgentEditsPolicy> {
+    const {agentEdits} = await this.request<{agentEdits: AgentEditsPolicy}>('GET', API.pageAgentEdits(pageId));
+    return agentEdits;
+  }
+
+  /** Set a page's agent-edits policy (AGED-1). jws-only: an agent PAT cannot change
+   *  the policy that governs whether agents edit directly. */
+  async setPageAgentEdits(pageId: string, agentEdits: AgentEditsPolicy): Promise<AgentEditsPolicy> {
+    const res = await this.request<{agentEdits: AgentEditsPolicy}>('PUT', API.pageAgentEdits(pageId), {agentEdits});
+    return res.agentEdits;
   }
 
   /** A page's per-page ACL grants (requires write on the page). */

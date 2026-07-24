@@ -85,7 +85,7 @@ describe('DiagnosticsBody', () => {
       setInstancePolicy: async (patch: Partial<InstanceConfig>) => {
         // Mirrors the server's repair rule: local transport + own verified subject.
         if (patch.ownerSubject === you.subject) stored = you.subject;
-        return {guestAccess: 'read', trustedIssuers: [], ownerSubject: stored} as InstanceConfig;
+        return {guestAccess: 'read', agentEdits: 'suggest', trustedIssuers: [], ownerSubject: stored} as InstanceConfig;
       },
     };
     wrap(client);
@@ -126,7 +126,7 @@ describe('DiagnosticsBody', () => {
       getInstanceInfo: async () => info({ownerSubject: stored, you, localOwner: true}),
       setInstancePolicy: async () => {
         stored = you.subject;
-        return {guestAccess: 'read', trustedIssuers: [], ownerSubject: stored} as InstanceConfig;
+        return {guestAccess: 'read', agentEdits: 'suggest', trustedIssuers: [], ownerSubject: stored} as InstanceConfig;
       },
     };
     wrap(client);
