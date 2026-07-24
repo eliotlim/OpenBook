@@ -1157,6 +1157,13 @@ export const en = {
       zoomLevel: '{percent}%',
     },
   },
+  editor: {
+    drag: {
+      // Multi-block drag requires count > 1, so no singular form is needed.
+      blockCount: '{count} blocks',
+      movedBlocks: 'Moved {count} blocks',
+    },
+  },
   general: {
     title: 'General',
     description: 'Language and how the app behaves.',

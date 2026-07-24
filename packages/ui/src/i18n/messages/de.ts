@@ -665,6 +665,13 @@ export const de: PartialMessages = {
       zoomLevel: '{percent} %',
     },
   },
+  editor: {
+    drag: {
+      // Mehrfach-Drag erfordert count > 1, daher keine Singularform nötig.
+      blockCount: '{count} Blöcke',
+      movedBlocks: '{count} Blöcke verschoben',
+    },
+  },
   general: {
     title: 'Allgemein',
     description: 'Sprache und das Verhalten der App.',

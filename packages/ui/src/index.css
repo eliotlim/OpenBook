@@ -872,6 +872,20 @@
 .obe-marqueeing * {
   user-select: none !important;
 }
+/* Multi-block drag ghost: a compact count pill the browser snapshots as the
+   drag image (see setGroupDragImage). Rendered off-screen, never interactive. */
+.obe-drag-ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+  border-radius: 6px;
+  box-shadow: 0 2px 8px hsl(var(--foreground) / 0.25);
+  white-space: nowrap;
+}
 .obe-indent-1 { margin-left: 1.6rem; }
 .obe-indent-2 { margin-left: 3.2rem; }
 .obe-indent-3 { margin-left: 4.8rem; }

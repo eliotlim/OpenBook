@@ -662,6 +662,13 @@ export const zh: PartialMessages = {
       zoomLevel: '{percent}%',
     },
   },
+  editor: {
+    drag: {
+      // 多块拖动要求 count > 1，因此无需单数形式。
+      blockCount: '{count} 个块',
+      movedBlocks: '已移动 {count} 个块',
+    },
+  },
   general: {
     title: '通用',
     description: '语言以及应用的行为。',

@@ -664,6 +664,13 @@ export const ja: PartialMessages = {
       zoomLevel: '{percent}%',
     },
   },
+  editor: {
+    drag: {
+      // 複数ブロックのドラッグは count > 1 が前提のため、単数形は不要。
+      blockCount: '{count} 個のブロック',
+      movedBlocks: '{count} 個のブロックを移動しました',
+    },
+  },
   general: {
     title: '一般',
     description: '言語とアプリの動作。',
