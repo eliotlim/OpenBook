@@ -340,6 +340,12 @@ export interface DataClient {
   getPageVisibility(pageId: string): Promise<PageVisibility | null>;
   /** Set a page's visibility scope (manager-only — gated on page write). */
   setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility>;
+  /** A page's agent-edits policy (AGED-1; raw — `inherit` not yet resolved against
+   *  the instance mode). Gated on read of the page. Resolve with {@link resolveAgentEdits}. */
+  getPageAgentEdits(pageId: string): Promise<AgentEditsPolicy>;
+  /** Set a page's agent-edits policy (AGED-1; jws-only — a PAT cannot change the
+   *  policy that governs whether agents edit directly). */
+  setPageAgentEdits(pageId: string, agentEdits: AgentEditsPolicy): Promise<AgentEditsPolicy>;
   /** A page's per-page ACL grants (manager-only — gated on page write). */
   listPageAcl(pageId: string): Promise<PageAcl[]>;
   /** Share a page with `invitee` (email or handle/subject) at `level`. */

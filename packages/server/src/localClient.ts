@@ -1,5 +1,6 @@
 import type {
   AclLevel,
+  AgentEditsPolicy,
   AgentTokenList,
   CreatedAgentToken,
   AiConfig,
@@ -480,6 +481,17 @@ export class LocalDataClient implements DataClient {
   async setPageVisibility(pageId: string, visibility: PageVisibility): Promise<PageVisibility> {
     await this.store.setPageVisibility(pageId, visibility);
     return visibility;
+  }
+
+  // Agent-edits policy (AGED-1) — mirrors the HTTP route: a missing/unset page
+  // resolves to `inherit` (the instance mode then decides).
+  async getPageAgentEdits(pageId: string): Promise<AgentEditsPolicy> {
+    return (await this.store.getPageAgentEdits(pageId)) ?? 'inherit';
+  }
+
+  async setPageAgentEdits(pageId: string, agentEdits: AgentEditsPolicy): Promise<AgentEditsPolicy> {
+    await this.store.setPageAgentEdits(pageId, agentEdits);
+    return agentEdits;
   }
 
   listPageAcl(pageId: string): Promise<PageAcl[]> {

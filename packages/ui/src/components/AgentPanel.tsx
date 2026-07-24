@@ -18,7 +18,7 @@ import type {TKey} from '@/i18n';
 import {useHud, useNavigation, useTranslation} from '@/providers';
 import {HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
 import {setReviewTarget} from '@/lib/reviewPane';
-import {aiBridge} from '@/lib/aiBridge';
+import {aiBridge, routeAiSuggestions} from '@/lib/aiBridge';
 import {lastSelection} from '@/lib/selection';
 import {cn} from '@/lib/utils';
 
@@ -175,6 +175,27 @@ export function AgentPanel() {
     inputRef.current?.focus();
   };
 
+  // AGED-4: route AI-authored suggestions through the resolved agent-edits policy.
+  // `direct` pages apply immediately (and lose their review row); `suggest` pages
+  // keep the review card. A policy/apply failure falls back to the safe default —
+  // showing the suggestions for review.
+  const routeSuggestions = async (suggestions: StoredSuggestion[]): Promise<void> => {
+    let routing;
+    try {
+      routing = await routeAiSuggestions(client, suggestions);
+    } catch {
+      setThread((items) => [...items, {kind: 'suggestions', suggestions}]);
+      return;
+    }
+    setThread((items) => {
+      const next = [...items];
+      if (routing.applied > 0) next.push({kind: 'applied', text: t('agent.applied', {count: routing.applied})});
+      if (routing.suggested.length > 0) next.push({kind: 'suggestions', suggestions: routing.suggested});
+      if (routing.failed.length > 0) next.push({kind: 'error', text: t('agent.applyFailed')});
+      return next;
+    });
+  };
+
   const handleEvent = (event: AgentChatEvent): void => {
     if (event.type === 'token') {
       // A live answer chunk — append to the streaming assistant bubble.
@@ -201,9 +222,12 @@ export function AgentPanel() {
       // way accumulate into a single collapsible block per burst.
       setThread((items) => appendStream(items, 'reasoning', event.text));
     } else if (event.type === 'suggestions') {
-      if (event.suggestions.length > 0) {
-        setThread((items) => [...items, {kind: 'suggestions', suggestions: event.suggestions}]);
-      }
+      // AGED-4: the built-in AI's writes follow the resolved agent-edits policy.
+      // The AI runs under the user's own session identity, so this suggest-vs-
+      // direct choice is enforced HERE on the client (the server can't tell an AI
+      // write from a human one). Under `direct` the change is applied at once and
+      // its review row dropped; under `suggest` the review card shows unchanged.
+      if (event.suggestions.length > 0) void routeSuggestions(event.suggestions);
     } else if (event.type === 'permission_request') {
       setThread((items) => [...settle(items), {kind: 'permission', summary: event.summary, permKind: event.kind ?? 'direct_edits'}]);
     } else if (event.type === 'interview') {
