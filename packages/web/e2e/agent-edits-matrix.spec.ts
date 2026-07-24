@@ -116,20 +116,17 @@ const MCP_MARKER = 'AGED6 MCP MARKER';
 test.describe('AGED-6 policy matrix — real MCP writes', () => {
   test.use({freshWorkspace: true});
 
-  // A remote MCP write resolves its mode through the PAT-looped policy client. An
-  // EXPLICIT page policy (`suggest`/`direct`) routes over `GET /api/pages/:id/
-  // agent-edits`, which a PAT may read — so those five cells behave exactly like
-  // the effective mode. The one cell held out below is `instance=direct` on an
-  // `inherit` page: resolving it needs the instance default (`GET /api/instance`),
-  // which the AGENT-6 scope-gate denies to ANY PAT, so the MCP client fails safe
-  // to `suggest`. That cell is captured (as its INTENDED behaviour) in the
-  // `test.fixme` beneath this loop — see the gap note there.
-  const REMOTE_CELLS = CELLS.filter((c) => !(c.instance === 'direct' && c.page === 'inherit'));
-
-  test('every explicit-policy cell applies directly or queues a suggestion per the resolved mode', async ({request}) => {
+  // A remote MCP write resolves its mode through the PAT-looped policy client over
+  // `GET /api/pages/:id/agent-edits`, which a PAT may read. AGED-6 made that route
+  // return the SERVER-RESOLVED `effective` mode alongside the raw policy, so ALL SIX
+  // cells — including `instance=direct` on an `inherit` page — now resolve correctly
+  // WITHOUT the privileged `GET /api/instance` read the AGENT-6 scope-gate denies to a
+  // PAT. The whole matrix is exercised here; the `inherit`-under-instance-`direct`
+  // cell has its own focused assertion below.
+  test('every cell applies directly or queues a suggestion per the resolved mode', async ({request}) => {
     const {pat} = await enableAgentApiAndMint(request);
 
-    for (const cell of REMOTE_CELLS) {
+    for (const cell of CELLS) {
       await setInstanceMode(request, cell.instance);
       const id = await makePage(request, `MCP ${cell.instance}/${cell.page}`);
       await setPagePolicy(request, id, cell.page);
@@ -148,17 +145,13 @@ test.describe('AGED-6 policy matrix — real MCP writes', () => {
     }
   });
 
-  // KNOWN GAP (AGED-6 integration finding). The instance-wide `direct` default is
-  // meant to govern remote MCP writes too ("the setting governs remote, backstopped
-  // server-side"). It does NOT reach an `inherit` page over `/api/mcp`: the MCP
-  // server resolves the instance default via `getInstanceInfo()` → `GET /api/instance`,
-  // a privileged route the AGENT-6 PAT scope-gate excludes, so the read throws and
-  // the client fails safe to `suggest`. Explicitly setting the PAGE to `direct`
-  // works today; the instance default via MCP does not. The built-in-AI vector is
-  // unaffected (it reads the instance mode under the user's own session). Un-skip
-  // once the MCP client can learn the resolved mode without the privileged instance
-  // read (e.g. server-resolved effective mode on the PAT-readable agent-edits route).
-  test.fixme('an inherit page honours the instance direct default over remote MCP', async ({request}) => {
+  // AGED-6 CLOSED THIS GAP. The instance-wide `direct` default now governs a remote
+  // MCP write to an `inherit` page. The MCP client learns the mode from the
+  // SERVER-RESOLVED `effective` field on `GET /api/pages/:id/agent-edits` (PAT-readable),
+  // so it no longer needs the privileged `GET /api/instance` read the AGENT-6 scope-gate
+  // denies — and the setting governs remote PATs on `inherit` pages, backstopped by the
+  // AGED-2 server write-gate.
+  test('an inherit page honours the instance direct default over remote MCP', async ({request}) => {
     const {pat} = await enableAgentApiAndMint(request);
     await setInstanceMode(request, 'direct');
     const id = await makePage(request, 'MCP direct/inherit');
@@ -166,6 +159,8 @@ test.describe('AGED-6 policy matrix — real MCP writes', () => {
 
     const reply = await mcpToolText(request, pat, 'append_to_page', {pageId: id, content: MCP_MARKER});
     expect(reply).toContain('Appended directly');
+    const readBack = await mcpToolText(request, pat, 'read_page', {pageId: id});
+    expect(readBack).toContain(MCP_MARKER);
   });
 
   test('provenance: a direct MCP write records the agent token as the author in the edit log', async ({request}) => {
@@ -173,7 +168,8 @@ test.describe('AGED-6 policy matrix — real MCP writes', () => {
     await setInstanceMode(request, 'direct');
     const id = await makePage(request, 'MCP provenance');
     // Pin the page to `direct` so the write applies directly over remote MCP (an
-    // inherit page would fail safe to suggest — see the gap note above).
+    // inherit page under this instance=direct default would resolve direct too since
+    // AGED-6 — pinning keeps this provenance check independent of that resolution).
     await setPagePolicy(request, id, 'direct');
 
     const reply = await mcpToolText(request, pat, 'append_to_page', {pageId: id, content: MCP_MARKER});

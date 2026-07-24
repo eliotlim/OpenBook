@@ -1,7 +1,8 @@
 /**
  * Agent-edits policy contract suite (AGED-1). Exercises the CONTRACT surface only —
  * defaults, the migration, the store accessors, `PUT/GET /api/pages/:id/agent-edits`
- * (jws-only write, read-gated read, enum validation, edit-log), the instance-level
+ * (jws-only write, read-gated read, enum validation, edit-log, and the AGED-6
+ * server-resolved `effective` mode on GET), the instance-level
  * `PUT /api/instance {agentEdits}` (enum-validated, owner-only), and that
  * `GET /api/instance` exposes the mode. No enforcement / no agent behaviour (AGED-2/3/4).
  */
@@ -147,6 +148,34 @@ describe('PUT /api/pages/:id/agent-edits (AGED-1)', () => {
     const res = await app().request(`/api/pages/${id}/agent-edits`, {headers: bearer(token)});
     expect(res.status).toBe(200);
     expect((await res.json()).agentEdits).toBe('inherit');
+  });
+
+  it('GET returns the server-resolved effective mode for an inherit page (AGED-6)', async () => {
+    await claim();
+    await enableAgentApi();
+    // Instance default = direct; the page inherits → effective resolves to direct,
+    // while the raw stored policy stays "inherit". A PAT (which cannot read the
+    // privileged instance route) can now learn the effective mode from this route.
+    await store.updateInstanceConfig({agentEdits: 'direct'});
+    const {id} = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
+    await store.setPageVisibility(id, 'public');
+    const token = await mintPat('read');
+    const res = await app().request(`/api/pages/${id}/agent-edits`, {headers: bearer(token)});
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {agentEdits: string; effective: string};
+    expect(body.agentEdits).toBe('inherit'); // raw policy unchanged (backward compatible)
+    expect(body.effective).toBe('direct'); // resolved against the instance default
+  });
+
+  it('GET effective mirrors an explicit page policy regardless of the instance default (AGED-6)', async () => {
+    await claim();
+    await store.updateInstanceConfig({agentEdits: 'direct'});
+    const {id} = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
+    await store.setPageAgentEdits(id, 'suggest'); // explicit page override beats instance
+    const res = await app().request(`/api/pages/${id}/agent-edits`, {headers: {[IDENTITY_HEADER]: await idFor('owner')}});
+    const body = (await res.json()) as {agentEdits: string; effective: string};
+    expect(body.agentEdits).toBe('suggest');
+    expect(body.effective).toBe('suggest');
   });
 
   it('accepts a jws owner write, persists it, and round-trips via GET', async () => {
