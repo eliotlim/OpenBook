@@ -1,5 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {ImageOff, ImagePlus, Loader2, Upload} from 'lucide-react';
+import {ImageOff, ImagePlus, Loader2, Maximize2, Upload} from 'lucide-react';
+import {t} from '@/i18n';
+import {openLightbox} from '@/lib/imageLightbox';
 import {blockId, blockProp, setBlockProp, type BlockMap} from './model';
 import {
   dataUrlMime,
@@ -203,6 +205,14 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
   // from the empty/broken placeholder.
   const loading = Boolean(assetId) && resolving && !objectUrl && !broken;
 
+  // Open the full-viewport lightbox (LBX-1) on whatever the block is currently
+  // showing. `trigger` is the element that opened it, so focus returns there on
+  // close. Guarded on a resolved src so a still-loading / broken block is inert.
+  const openView = (trigger: HTMLElement | null): void => {
+    if (!displaySrc) return;
+    openLightbox({src: displaySrc, alt, trigger});
+  };
+
   // The size cap is a soft, temporary limit → muted info tone; a bad file is a
   // hard error → destructive tone. Both announce via role="alert".
   const noticeEl = notice && (
@@ -269,12 +279,30 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
     <figure className="obe-image" contentEditable={false} data-block-image={id}>
       <div ref={frameRef} className="obe-image-frame" style={width ? {width} : undefined}>
         <img
-          className="obe-image-img"
+          className={`obe-image-img${readOnly ? ' obe-image-img-zoom' : ''}`}
           src={displaySrc ?? ''}
           alt={alt}
           draggable={false}
           onError={() => setBroken(true)}
           onLoad={() => setBroken(false)}
+          // Read-only / present mode: a plain click (or Enter/Space, since the
+          // image is a focusable button here) opens the lightbox. In edit mode
+          // the image stays inert so selection + drag-resize are unaffected —
+          // there the Expand button in the hover toolbar is the trigger.
+          {...(readOnly
+            ? {
+                role: 'button',
+                tabIndex: 0,
+                'aria-label': t('blocks.image.view'),
+                onClick: (e: React.MouseEvent<HTMLImageElement>) => openView(e.currentTarget),
+                onKeyDown: (e: React.KeyboardEvent<HTMLImageElement>) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    openView(e.currentTarget);
+                  }
+                },
+              }
+            : {})}
         />
         {!readOnly && (
           <>
@@ -297,6 +325,15 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
                   );
                 })}
               </div>
+              <button
+                type="button"
+                className="obe-image-tool"
+                aria-label={t('blocks.image.expand')}
+                title={t('blocks.image.expand')}
+                onClick={(e) => openView(e.currentTarget)}
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
               <button type="button" className="obe-image-tool" aria-label="Replace image" title="Replace image" onClick={pickFile}>
                 <Upload className="h-3.5 w-3.5" />
               </button>
