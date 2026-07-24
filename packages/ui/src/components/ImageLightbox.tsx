@@ -100,6 +100,13 @@ export default function ImageLightbox() {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') return; // Radix Dialog closes on Escape
       if (e.metaKey || e.altKey) return; // don't shadow browser/OS shortcuts
+      // Latent safety: never hijack keys typed into a form control (none exist in
+      // the lightbox today, but a caption editor or search box could arrive).
+      if (
+        e.target instanceof Element &&
+        e.target.closest('input, textarea, select, [contenteditable="true"]')
+      )
+        return;
       // Keyboard zoom is centred on the picture (cursor delta 0,0).
       if (e.key === '+' || e.key === '=') {
         e.preventDefault();
@@ -165,6 +172,12 @@ export default function ImageLightbox() {
       }
     }
   };
+  const cancelDrag = (e: React.PointerEvent): void => {
+    endDrag(e);
+    // Unlike pointerup, a pointercancel is not followed by a click — so clear the
+    // drag state here or a stale `moved` would swallow the next background click.
+    drag.current = null;
+  };
 
   // A background click (not a drag, not on the picture) dismisses.
   const onStageClick = (e: React.MouseEvent): void => {
@@ -216,7 +229,7 @@ export default function ImageLightbox() {
                 onPointerDown={onPointerDown}
                 onPointerMove={onPointerMove}
                 onPointerUp={endDrag}
-                onPointerCancel={endDrag}
+                onPointerCancel={cancelDrag}
               >
                 <img
                   ref={imgRef}
@@ -244,7 +257,7 @@ export default function ImageLightbox() {
                 type="button"
                 className="obe-lightbox-zoombtn"
                 aria-label={t('blocks.image.zoomOut')}
-                title={t('blocks.image.zoomOut')}
+                title={t('blocks.image.zoomOut') + ' (−)'}
                 onClick={() => {
                   const m = measure();
                   if (m) setTr((prev) => zoomByFactor(prev, 0.8, 0, 0, m));
@@ -252,14 +265,14 @@ export default function ImageLightbox() {
               >
                 <Minus className="h-4 w-4" aria-hidden />
               </button>
-              <span className="obe-lightbox-zoomvalue" aria-live="polite">
+              <span className="obe-lightbox-zoomvalue">
                 {t('blocks.image.zoomLevel', {percent})}
               </span>
               <button
                 type="button"
                 className="obe-lightbox-zoombtn"
                 aria-label={t('blocks.image.zoomIn')}
-                title={t('blocks.image.zoomIn')}
+                title={t('blocks.image.zoomIn') + ' (+)'}
                 onClick={() => {
                   const m = measure();
                   if (m) setTr((prev) => zoomByFactor(prev, 1.25, 0, 0, m));
@@ -271,7 +284,7 @@ export default function ImageLightbox() {
                 type="button"
                 className="obe-lightbox-zoombtn obe-lightbox-zoomreset"
                 aria-label={t('blocks.image.zoomReset')}
-                title={t('blocks.image.zoomReset')}
+                title={t('blocks.image.zoomReset') + ' (0)'}
                 disabled={!zoomed}
                 onClick={() => setTr(fitTransform())}
               >

@@ -1300,9 +1300,7 @@ a.obe-mention {
   max-width: 64ch;
   align-self: center;
   /* Never let a long caption on a short viewport push the picture off-screen:
-     clamp to a few lines and scroll the remainder. */
-  max-height: 20vh;
-  overflow-y: auto;
+     clamp to four lines (the clamp's ellipsis truncates the rest). */
   display: -webkit-box;
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;

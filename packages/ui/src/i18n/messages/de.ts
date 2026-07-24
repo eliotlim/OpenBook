@@ -657,7 +657,7 @@ export const de: PartialMessages = {
       replace: 'Bild ersetzen',
       lightboxLabel: 'Bildbetrachter',
       close: 'Schließen',
-      overlayDescription: 'Das Bild füllt das Fenster. Mit dem Scrollrad oder +/− zoomen, ziehen zum Verschieben, Doppelklick für 100 %. Esc oder Schließen kehrt zur Seite zurück.',
+      overlayDescription: 'Das Bild füllt das Fenster. Mit dem Scrollrad oder +/− zoomen, ziehen zum Verschieben, Doppelklick für 100 %; 0 zum Einpassen. Esc oder Schließen kehrt zur Seite zurück.',
       zoomControls: 'Zoom-Steuerung',
       zoomIn: 'Vergrößern',
       zoomOut: 'Verkleinern',

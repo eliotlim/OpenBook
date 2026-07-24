@@ -654,7 +654,7 @@ export const zh: PartialMessages = {
       replace: '替换图片',
       lightboxLabel: '图片查看器',
       close: '关闭',
-      overlayDescription: '图片正在全窗口显示。用滚轮或 +/− 缩放，拖动平移，双击切换 100%。按 Esc 或关闭按钮返回页面。',
+      overlayDescription: '图片正在全窗口显示。用滚轮或 +/− 缩放，拖动平移，双击切换 100%，按 0 适应窗口。按 Esc 或关闭按钮返回页面。',
       zoomControls: '缩放控件',
       zoomIn: '放大',
       zoomOut: '缩小',

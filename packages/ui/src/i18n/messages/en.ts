@@ -1149,7 +1149,7 @@ export const en = {
       replace: 'Replace image',
       lightboxLabel: 'Image viewer',
       close: 'Close',
-      overlayDescription: 'The image fills the window. Zoom with the scroll wheel or +/−, drag to pan, double-click to toggle 100%. Esc or the close button returns to the page.',
+      overlayDescription: 'The image fills the window. Zoom with the scroll wheel or +/−, drag to pan, double-click to toggle 100%; press 0 to fit. Esc or the close button returns to the page.',
       zoomControls: 'Zoom controls',
       zoomIn: 'Zoom in',
       zoomOut: 'Zoom out',
