@@ -55,7 +55,7 @@ import {
 } from './agentTokens';
 import {mountAgentTokenRoutes} from './agentTokenRoutes';
 import {mountMcpHttp} from './mcpHttp';
-import {agentMayEditDirectly, authoredSubject} from './agentWriteGate';
+import {agentMayEditDirectly, authoredSubject, resolveAgentEditsForPage} from './agentWriteGate';
 import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
 import type {RosterController} from './rosterSync';
@@ -1458,10 +1458,22 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // on page-write), the PUT is jws-only via `denyPatPolicy`: an agent PAT must NEVER
   // set the policy that governs whether agents may edit this page directly —
   // self-authorization. `requireAccess` 404s a page the caller can't even read.
+  //
+  // Alongside the raw stored `agentEdits` policy (which AGED-4/5's UI reads for the
+  // tri-state), the response carries the SERVER-RESOLVED `effective` mode (AGED-6):
+  // `resolveAgentEdits(rawPolicy, instanceMode)`, computed here because only the
+  // server may read its own instance config. This lets a PAT-scoped MCP client learn
+  // the effective mode for an `inherit` page WITHOUT the privileged `GET /api/instance`
+  // read (which the AGENT-6 scope-gate denies to PATs) — one PAT-readable call. The
+  // instance default is not confidential; exposing the resolved mode on a page the
+  // caller can already read leaks nothing. The write-gate (AGED-2) remains the
+  // authoritative backstop; this only lets the client avoid a needless suggestion.
   app.get(`${API.pages}/:id/agent-edits`, async (c) => {
     const id = c.req.param('id');
     await requireAccess(c, store, 'read', id);
-    return c.json({agentEdits: (await store.getPageAgentEdits(id)) ?? 'inherit'});
+    const agentEdits = (await store.getPageAgentEdits(id)) ?? 'inherit';
+    const effective = await resolveAgentEditsForPage(store, id);
+    return c.json({agentEdits, effective});
   });
 
   app.put(`${API.pages}/:id/agent-edits`, async (c) => {

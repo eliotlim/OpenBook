@@ -1,5 +1,6 @@
 import type {
   AclLevel,
+  AgentEditsMode,
   AgentEditsPolicy,
   AgentTokenList,
   CreatedAgentToken,
@@ -49,7 +50,7 @@ import type {
   SuggestionStatus,
   SuggestionUpdate,
 } from '@book.dev/sdk';
-import {BACKUP_CADENCES, BACKUP_CADENCE_MS, localPrincipal} from '@book.dev/sdk';
+import {BACKUP_CADENCES, BACKUP_CADENCE_MS, localPrincipal, resolveAgentEdits} from '@book.dev/sdk';
 import {PageStore} from './store';
 import {LocalSearchIndex} from './ai/localSearch';
 import {PageHub} from './hub';
@@ -491,6 +492,15 @@ export class LocalDataClient implements DataClient {
   // resolves to `inherit` (the instance mode then decides).
   async getPageAgentEdits(pageId: string): Promise<AgentEditsPolicy> {
     return (await this.store.getPageAgentEdits(pageId)) ?? 'inherit';
+  }
+
+  // Server-resolved effective mode (AGED-6) — mirrors the HTTP route: the raw policy
+  // resolved against the instance default (never `inherit`). The in-webview caller
+  // reads its own instance config freely, so this is a local resolve.
+  async getEffectiveAgentEdits(pageId: string): Promise<AgentEditsMode> {
+    const page = (await this.store.getPageAgentEdits(pageId)) ?? 'inherit';
+    const config = await this.store.getInstanceConfig();
+    return resolveAgentEdits(page, config.agentEdits);
   }
 
   async setPageAgentEdits(pageId: string, agentEdits: AgentEditsPolicy): Promise<AgentEditsPolicy> {

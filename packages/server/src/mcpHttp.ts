@@ -116,15 +116,18 @@ export function mountMcpHttp(app: Hono<AppEnv>, store: PageStore): void {
       // `store`, never a LocalDataClient (either would bypass authorize()). Empty base URL
       // + injected fetchImpl = every call routes back through the app's own middleware.
       const client = new HttpDataClient('', undefined, {fetchImpl});
-      // AGED-2 → AGED-3 seam. The old static `allowDirectEdits: false` is GONE: the
-      // agent-edits mode resolves PER PAGE (a page override can differ from the instance
-      // mode), so direct-vs-suggest MUST be decided per write, not once at mount. AGED-3
-      // reshaped `createOpenBookMcpServer` to take a POLICY CLIENT — a `DataClient` that
-      // also exposes `getPageAgentEdits(pageId)` — and each write tool resolves the mode
-      // per call. The PAT-looped `HttpDataClient` ALREADY IS that policy client: its
-      // `getPageAgentEdits` (AGED-1) routes through this same loop-back `fetchImpl`
-      // (`GET /api/pages/:id/agent-edits`), so the PAT's own read access governs it. And
-      // independently, the app.ts server write gate is the authoritative teeth on the
+      // AGED-2 → AGED-3 → AGED-6 seam. The old static `allowDirectEdits: false` is GONE:
+      // the agent-edits mode resolves PER PAGE (a page override can differ from the
+      // instance mode), so direct-vs-suggest MUST be decided per write, not once at mount.
+      // AGED-3 reshaped `createOpenBookMcpServer` to take a POLICY CLIENT — a `DataClient`
+      // that also exposes the per-page agent-edits accessor — and each write tool resolves
+      // the mode per call. AGED-6: the client reads `getEffectiveAgentEdits(pageId)` — the
+      // SERVER-RESOLVED effective mode on `GET /api/pages/:id/agent-edits` (`.effective`) —
+      // so an `inherit` page's instance default resolves WITHOUT the privileged
+      // `GET /api/instance` read (which the AGENT-6 scope-gate denies to a PAT). The
+      // PAT-looped `HttpDataClient` ALREADY IS that policy client: its accessor routes
+      // through this same loop-back `fetchImpl`, so the PAT's own read access governs it.
+      // And independently, the app.ts server write gate is the authoritative teeth on the
       // inner direct write — a suggest-mode direct edit 403s at the REST layer no matter
       // what the tool attempts, so an MCP-layer bug can never out-privilege the PAT.
       const server = createOpenBookMcpServer(client);
