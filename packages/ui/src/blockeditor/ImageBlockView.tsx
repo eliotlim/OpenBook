@@ -293,7 +293,9 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
             ? {
               role: 'button',
               tabIndex: 0,
-              'aria-label': t('blocks.image.view'),
+              // Fold the alt text into the accessible name when the author wrote
+              // one, so the trigger announces *which* picture it opens.
+              'aria-label': alt ? t('blocks.image.viewAlt', {alt}) : t('blocks.image.view'),
               onClick: (e: React.MouseEvent<HTMLImageElement>) => openView(e.currentTarget),
               onKeyDown: (e: React.KeyboardEvent<HTMLImageElement>) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -334,7 +336,7 @@ export const ImageBlockView: React.FC<{block: BlockMap; editor: BlockEditorContr
               >
                 <Maximize2 className="h-3.5 w-3.5" />
               </button>
-              <button type="button" className="obe-image-tool" aria-label="Replace image" title="Replace image" onClick={pickFile}>
+              <button type="button" className="obe-image-tool" aria-label={t('blocks.image.replace')} title={t('blocks.image.replace')} onClick={pickFile}>
                 <Upload className="h-3.5 w-3.5" />
               </button>
             </div>

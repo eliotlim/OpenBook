@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, it} from 'vitest';
+import {afterAll, afterEach, beforeAll, describe, expect, it} from 'vitest';
 import {act, cleanup, fireEvent, render, screen, waitFor} from '@testing-library/react';
 import {createDoc, rootBlocks} from '../model';
 import {BlockEditor} from '../BlockEditor';
@@ -76,7 +76,8 @@ describe('imageLightbox triggers (block view)', () => {
     const img = container.querySelector('img.obe-image-img') as HTMLImageElement;
     expect(img.classList.contains('obe-image-img-zoom')).toBe(true);
     expect(img.getAttribute('role')).toBe('button');
-    expect(img.getAttribute('aria-label')).toBe('View image full size');
+    // Alt-aware accessible name: the trigger announces which picture it opens.
+    expect(img.getAttribute('aria-label')).toBe('View image full size: A cat');
     act(() => fireEvent.click(img));
     expect(getLightbox()?.src).toBe(TINY_PNG);
   });
@@ -132,6 +133,117 @@ describe('ImageLightbox overlay', () => {
     act(() => openLightbox({src: TINY_PNG, alt: 'A cat', trigger: null}));
     expect(screen.getByRole('dialog')).toBeTruthy();
     fireEvent.keyDown(document, {key: 'Escape'});
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+});
+
+// The zoom/pan overlay (LBX-2). jsdom has no layout engine, so the geometry the
+// overlay reads (offsetWidth/Height, naturalWidth, getBoundingClientRect) is
+// stubbed to a known wide picture: natural 1600×900, fit-rendered 800×450 inside
+// a 1000×700 stage → hundredScale 2 (100% = scale 2, fit reads as 50%).
+describe('ImageLightbox overlay — zoom & pan (LBX-2)', () => {
+  const geom: Array<() => void> = [];
+  beforeAll(() => {
+    const def = (proto: object, prop: string, get: () => number): void => {
+      const prev = Object.getOwnPropertyDescriptor(proto, prop);
+      Object.defineProperty(proto, prop, {configurable: true, get});
+      geom.push(() => {
+        if (prev) Object.defineProperty(proto, prop, prev);
+        else delete (proto as Record<string, unknown>)[prop];
+      });
+    };
+    def(HTMLImageElement.prototype, 'naturalWidth', () => 1600);
+    def(HTMLImageElement.prototype, 'naturalHeight', () => 900);
+    def(HTMLElement.prototype, 'offsetWidth', () => 800);
+    def(HTMLElement.prototype, 'offsetHeight', () => 450);
+    const rectFor = function (this: HTMLElement): DOMRect {
+      // The stage is 1000×700; the picture reports its own transformed box, but
+      // the overlay only reads the stage rect for the pivot, so a stable rect is
+      // fine for both.
+      return {x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 700, width: 1000, height: 700, toJSON: () => ({})} as DOMRect;
+    };
+    const prevRect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = rectFor;
+    geom.push(() => {
+      HTMLElement.prototype.getBoundingClientRect = prevRect;
+    });
+  });
+  afterAll(() => geom.forEach((r) => r()));
+
+  const renderOverlay = () => render(
+    <I18nProvider>
+      <ImageLightbox />
+    </I18nProvider>,
+  );
+
+  const openAndLoad = () => {
+    act(() => openLightbox({src: TINY_PNG, alt: 'A cat', trigger: null}));
+    const img = screen.getByRole('dialog').querySelector('img.obe-lightbox-img') as HTMLImageElement;
+    act(() => fireEvent.load(img)); // marks the overlay 'ready' so chrome paints
+    return img;
+  };
+
+  it('shows the zoom indicator once loaded (fit reads below 100% for a big picture)', () => {
+    renderOverlay();
+    openAndLoad();
+    expect(screen.getByText('50%')).toBeTruthy(); // fit(1) / hundredScale(2)
+  });
+
+  it('double-click toggles fit ↔ 100% (indicator flips 50% ↔ 100%)', () => {
+    renderOverlay();
+    openAndLoad();
+    const stage = screen.getByRole('dialog').querySelector('.obe-lightbox-stage') as HTMLElement;
+    act(() => fireEvent.doubleClick(stage));
+    expect(screen.getByText('100%')).toBeTruthy();
+    act(() => fireEvent.doubleClick(stage));
+    expect(screen.getByText('50%')).toBeTruthy();
+  });
+
+  it('keyboard +/- zoom and 0 resets to fit', () => {
+    renderOverlay();
+    openAndLoad();
+    act(() => fireEvent.keyDown(document, {key: '+'}));
+    expect(screen.getByText('63%')).toBeTruthy(); // 1.25 / 2 → 63%
+    act(() => fireEvent.keyDown(document, {key: '0'}));
+    expect(screen.getByText('50%')).toBeTruthy();
+  });
+
+  it('the reset control is disabled at fit and re-fits after zooming', () => {
+    renderOverlay();
+    openAndLoad();
+    const reset = screen.getByLabelText('Reset zoom to fit') as HTMLButtonElement;
+    expect(reset.disabled).toBe(true);
+    act(() => fireEvent.keyDown(document, {key: '+'}));
+    expect(reset.disabled).toBe(false);
+    act(() => fireEvent.click(reset));
+    expect(screen.getByText('50%')).toBeTruthy();
+    expect((screen.getByLabelText('Reset zoom to fit') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('does NOT let Arrow/Space leak to a window keydown listener (PresentMode Deck)', () => {
+    renderOverlay();
+    openAndLoad();
+    const deck: string[] = [];
+    const spy = (e: KeyboardEvent): void => void deck.push(e.key);
+    window.addEventListener('keydown', spy); // bubble-phase, like the Deck
+    try {
+      act(() => fireEvent.keyDown(document.body, {key: 'ArrowRight'}));
+      act(() => fireEvent.keyDown(document.body, {key: ' '}));
+      act(() => fireEvent.keyDown(document.body, {key: 'ArrowLeft'}));
+      expect(deck).toEqual([]); // swallowed by the capture-phase guard
+      // Escape is deliberately NOT swallowed — Radix owns close.
+      act(() => fireEvent.keyDown(document.body, {key: 'Escape'}));
+      expect(deck).toEqual(['Escape']);
+    } finally {
+      window.removeEventListener('keydown', spy);
+    }
+  });
+
+  it('closes gracefully if the image source errors (objectURL revoked mid-view)', async () => {
+    renderOverlay();
+    const img = openAndLoad();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    act(() => fireEvent.error(img));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });

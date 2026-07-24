@@ -32,6 +32,7 @@ import {
   findBlock,
   makeBlock,
   moveBlock,
+  moveBlocks,
   parentBlockOf,
   blockToJSON,
   cellPosition,
@@ -53,6 +54,7 @@ import {
   type BlockType,
 } from './model';
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
+import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
 import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
 import {getCustomBlock} from './registry';
 import {CodeBlockView} from './CodeBlockView';
@@ -149,7 +151,11 @@ export interface BlockEditorHandle {
 
 export type DropRegion = 'above' | 'below' | 'left' | 'right';
 interface DragState {
+  /** The block whose handle is grabbed. */
   id: string;
+  /** Present (length ≥ 2) for a multi-block drag: the whole selection in
+   *  document order, `id` included. Absent for a single-block drag. */
+  ids?: string[];
   over: {id: string; region: DropRegion} | null;
 }
 
@@ -205,6 +211,16 @@ export const BlockEditor: React.FC<{
   const [linkPicker, setLinkPicker] = useState<{kind: 'page' | 'database'; blockId: string; anchorOffset: number} | null>(null);
   const [live, setLive] = useState(''); // aria-live announcements
   const [fileDragOver, setFileDragOver] = useState(false); // external image drag hovering the editor
+  // Marquee (rubber-band) rectangle, in obe-root-relative coords, while a
+  // drag-select is live; null the rest of the time. Rendered as an overlay.
+  const [marquee, setMarquee] = useState<{left: number; top: number; width: number; height: number} | null>(null);
+  // A marquee drag just ended → swallow the trailing `click` so it doesn't
+  // append a trailing paragraph (the click-below-last-block affordance).
+  const suppressClickRef = useRef(false);
+  // Teardown for an in-flight marquee drag (remove window listeners, cancel the
+  // rAF loop, clear state). Stashed so we can tear down on unmount / read-only
+  // flip mid-drag — otherwise the listeners + self-scheduling rAF leak.
+  const marqueeTeardownRef = useRef<(() => void) | null>(null);
 
   // Insert an inline page-link mention (chosen in the LinkPicker) at the caret.
   const insertMention = useCallback(
@@ -436,7 +452,20 @@ export const BlockEditor: React.FC<{
   };
 
   const performDrop = useCallback(
-    (sourceId: string, targetId: string, region: DropRegion): void => {
+    (sourceId: string, targetId: string, region: DropRegion, ids?: string[]): void => {
+      // Multi-block drag: move the whole (document-ordered) selection to the
+      // drop point in one undo step. Side-drops are disabled while multi-
+      // dragging (v1), so region is always above/below here.
+      if (ids && ids.length > 1) {
+        if (ids.includes(targetId)) return; // never drop the selection onto itself
+        const target = findBlock(doc, targetId);
+        if (!target) return;
+        const parentBlock = parentBlockOf(doc, target.parent);
+        const parentId = parentBlock ? blockId(parentBlock) : null;
+        moveBlocks(doc, ids, parentId, region === 'above' ? target.index : target.index + 1);
+        setLive(t('editor.drag.movedBlocks', {count: ids.length}));
+        return;
+      }
       if (sourceId === targetId) return;
       if (region === 'left' || region === 'right') {
         dropBeside(doc, sourceId, targetId, region);
@@ -750,6 +779,144 @@ export const BlockEditor: React.FC<{
     }
   };
 
+  // ── Marquee (rubber-band) rectangle select ───────────────────────────────
+  // A drag beginning on empty editor chrome (not text / a control) draws a
+  // rectangle that live-selects the top-level rows it intersects. It COEXISTS
+  // with the plain-click clear: a click that never moves ≥5px does nothing here
+  // and the existing handlers run. Read-only surfaces opt out — selection there
+  // has no copy/keyboard path wired, and we must never expose a mutation route.
+  const startMarquee = (e: React.MouseEvent): void => {
+    if (readOnly || e.button !== 0 || e.shiftKey) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const target = e.target as HTMLElement;
+    // Only empty chrome arms the marquee — never text, media, or a control.
+    if (target.closest(MARQUEE_EXCLUDE)) return;
+
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const scroller = scrollParent(root);
+    const readScroll = (): {top: number; left: number} =>
+      scroller === window
+        ? {top: window.scrollY, left: window.scrollX}
+        : {top: (scroller as HTMLElement).scrollTop, left: (scroller as HTMLElement).scrollLeft};
+    const startScroll = readScroll();
+
+    let engaged = false;
+    let raf: number | null = null;
+    let px = sx;
+    let py = sy;
+    let lastKey = '';
+
+    const selectIfChanged = (ids: string[]): void => {
+      const key = ids.join('|');
+      if (key === lastKey) return;
+      lastKey = key;
+      editor.setSelection(ids);
+    };
+
+    const recompute = (): void => {
+      const now = readScroll();
+      // Re-derive the anchor's CURRENT client position from the scroll delta so
+      // the rectangle stays pinned to the document point it started on while the
+      // page auto-scrolls under it.
+      const ax = sx + (startScroll.left - now.left);
+      const ay = sy + (startScroll.top - now.top);
+      const rect = marqueeRect(ax, ay, px, py); // client coords
+      const rows: {id: string; rect: Rect}[] = [];
+      root.querySelectorAll(':scope > [data-block-row]').forEach((el) => {
+        const r = (el as HTMLElement).getBoundingClientRect();
+        rows.push({id: (el as HTMLElement).dataset.blockRow!, rect: {left: r.left, top: r.top, right: r.right, bottom: r.bottom}});
+      });
+      selectIfChanged(rowsInMarquee(rect, rows));
+      const rr = root.getBoundingClientRect();
+      setMarquee({left: rect.left - rr.left, top: rect.top - rr.top, width: rect.right - rect.left, height: rect.bottom - rect.top});
+    };
+
+    const autoScroll = (): void => {
+      const margin = 48;
+      const speed = 14;
+      const bounds =
+        scroller === window
+          ? {top: 0, bottom: window.innerHeight}
+          : (() => {
+            const b = (scroller as HTMLElement).getBoundingClientRect();
+            return {top: b.top, bottom: b.bottom};
+          })();
+      let dy = 0;
+      if (py < bounds.top + margin) dy = -speed;
+      else if (py > bounds.bottom - margin) dy = speed;
+      if (dy === 0) return;
+      if (scroller === window) window.scrollBy(0, dy);
+      else (scroller as HTMLElement).scrollTop += dy;
+    };
+
+    // The rAF loop only drives AUTO-SCROLL: while the pointer sits in a hot zone
+    // no `mousemove` fires, so we need a self-scheduling tick to keep scrolling
+    // (and re-hit-testing) the document under a stationary pointer.
+    const loop = (): void => {
+      autoScroll();
+      recompute();
+      raf = engaged ? requestAnimationFrame(loop) : null;
+    };
+
+    const onMove = (ev: MouseEvent): void => {
+      px = ev.clientX;
+      py = ev.clientY;
+      if (!engaged) {
+        if (Math.abs(px - sx) < 5 && Math.abs(py - sy) < 5) return;
+        engaged = true;
+        // Block-selection takes over from the caret: drop focus + any native
+        // range so the block-selection keyboard router (document-level) engages.
+        (document.activeElement as HTMLElement | null)?.blur();
+        document.getSelection()?.removeAllRanges();
+        root.classList.add('obe-marqueeing'); // user-select:none while dragging
+        if (raf == null) raf = requestAnimationFrame(loop);
+      }
+      // Update the rectangle synchronously on every move so the overlay never
+      // waits on a frame (and never lags the pointer).
+      recompute();
+      ev.preventDefault();
+    };
+
+    // Single teardown for the whole gesture: detach the window listeners, kill
+    // the rAF loop, drop the overlay + drag class. Invoked from onUp on a normal
+    // release AND from the unmount / read-only-flip effects when a drag is cut
+    // short — so nothing leaks past the editor's lifetime.
+    const teardown = (): void => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (raf != null) cancelAnimationFrame(raf);
+      raf = null;
+      engaged = false;
+      root.classList.remove('obe-marqueeing');
+      setMarquee(null);
+      marqueeTeardownRef.current = null;
+    };
+
+    const onUp = (): void => {
+      const wasEngaged = engaged;
+      if (wasEngaged) recompute(); // final frame — keep whatever the release rect selected
+      teardown();
+      if (wasEngaged) suppressClickRef.current = true; // eat the trailing click
+      // A plain click (never engaged) falls through to the native handlers.
+    };
+
+    marqueeTeardownRef.current = teardown;
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  // Cut a live marquee short when the editor unmounts, so its window listeners
+  // and self-scheduling rAF don't outlive the component.
+  React.useEffect(() => () => marqueeTeardownRef.current?.(), []);
+
+  // A read-only flip mid-drag has no selection/copy path — tear the marquee down
+  // rather than leave it dangling on a now-frozen surface.
+  React.useEffect(() => {
+    if (readOnly) marqueeTeardownRef.current?.();
+  }, [readOnly]);
+
   return (
     <div
       ref={rootRef}
@@ -762,9 +929,22 @@ export const BlockEditor: React.FC<{
       onDragLeave={onRootDragLeave}
       onDrop={onRootDrop}
       onMouseDown={(e) => {
+        // A real click's mousedown always precedes its click, so clear any stale
+        // suppression here: if a marquee drag ended with the pointer OUTSIDE the
+        // root (autoscroll drove it to the edge), no click reached onClick to
+        // reset the flag and it would otherwise swallow this genuine next click.
+        suppressClickRef.current = false;
+        // Shift-click extension is owned by the row's capture handler (which
+        // stops propagation) — a shift-mousedown reaching here is empty space.
+        if (e.shiftKey) return;
+        startMarquee(e);
         if (e.target === rootRef.current) editor.clearSelection();
       }}
       onClick={(e) => {
+        if (suppressClickRef.current) {
+          suppressClickRef.current = false;
+          return; // a marquee drag just ended here — not a real click
+        }
         // Mentions navigate; links open in a new tab. (Mentions are
         // contenteditable=false so a plain click is unambiguous; links keep
         // the caret behavior on plain click only when editing is impossible.)
@@ -850,6 +1030,13 @@ export const BlockEditor: React.FC<{
       {toolbar && !readOnly && (
         <InlineToolbar state={toolbar} onToggle={toggleFormat} onColor={(key, token) => setFormat(key, token)} />
       )}
+      {marquee && (
+        <div
+          className="obe-marquee"
+          aria-hidden
+          style={{left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height}}
+        />
+      )}
       <div aria-live="polite" className="obe-sr-only">
         {live}
       </div>
@@ -858,6 +1045,41 @@ export const BlockEditor: React.FC<{
 };
 
 const topLevelIds = (doc: Y.Doc): string[] => rootBlocks(doc).map((b) => blockId(b));
+
+// Multi-block drag ghost: a small pill showing how many blocks are moving.
+// setDragImage needs the node in the document when it snapshots, so the pill is
+// appended off-screen and removed on the next tick (after the snapshot).
+function setGroupDragImage(e: React.DragEvent, count: number): void {
+  const ghost = document.createElement('div');
+  ghost.className = 'obe-drag-ghost';
+  ghost.textContent = t('editor.drag.blockCount', {count});
+  ghost.style.position = 'absolute';
+  ghost.style.top = '-1000px';
+  ghost.style.left = '-1000px';
+  document.body.appendChild(ghost);
+  e.dataTransfer.setDragImage(ghost, 12, 12);
+  setTimeout(() => ghost.remove(), 0);
+}
+
+// A marquee only arms on empty editor chrome. Anything a pointer-down should
+// "do something else" with — edit text, drag the handle, click a control,
+// interact with media / a kit widget — is excluded so the drag keeps its native
+// meaning (text selection, HTML5 block drag, button press).
+const MARQUEE_EXCLUDE =
+  '[contenteditable="true"], input, textarea, select, button, a, label, ' +
+  '[role="button"], [role="menuitem"], [role="slider"], [role="checkbox"], [role="tab"], ' +
+  'img, canvas, iframe, video, .obe-handle, .obe-gutter-btn';
+
+/** Nearest scrollable ancestor (for marquee auto-scroll); falls back to the window. */
+const scrollParent = (el: HTMLElement): HTMLElement | Window => {
+  let node: HTMLElement | null = el.parentElement;
+  while (node) {
+    const style = getComputedStyle(node);
+    if (/(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) return node;
+    node = node.parentElement;
+  }
+  return window;
+};
 
 function firstTextDescendant(doc: Y.Doc, id: string): string | null {
   const found = findBlock(doc, id);
@@ -879,7 +1101,7 @@ export interface RowShared {
   ui: EditorUI;
   drag: DragState | null;
   setDrag: React.Dispatch<React.SetStateAction<DragState | null>>;
-  performDrop: (sourceId: string, targetId: string, region: DropRegion) => void;
+  performDrop: (sourceId: string, targetId: string, region: DropRegion, ids?: string[]) => void;
   computeRegion: (e: React.DragEvent | React.PointerEvent, el: HTMLElement, allowSides: boolean) => DropRegion;
   depth: number;
   /** Type of the block whose children these rows are (null at the root) — a
@@ -913,7 +1135,10 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
   // Side-drop creates a columns layout (at the root) or grows one (inside a
   // column); never on the columns wrapper itself, nor inside groups/tables.
   const {container} = shared;
-  const allowSides = type !== 'columns' && (container === null || container === 'column');
+  // A multi-block drag only offers above/below (v1): side-drops build columns,
+  // which one-at-a-time semantics don't extend cleanly to a whole selection.
+  const multiDragging = (drag?.ids?.length ?? 0) > 1;
+  const allowSides = type !== 'columns' && (container === null || container === 'column') && !multiDragging;
   // Per-block colours (palette tokens → theme-aware classes on the body).
   const bg = blockProp<string>(block, 'bg');
   const fg = blockProp<string>(block, 'fg');
@@ -924,6 +1149,7 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
 
   const onDragOver = (e: React.DragEvent): void => {
     if (!drag || drag.id === id || editor.readOnly) return;
+    if (drag.ids?.includes(id)) return; // no drop indicator on a block that's moving
     e.preventDefault();
     e.stopPropagation();
     const region = computeRegion(e, rowRef.current!, allowSides);
@@ -931,10 +1157,10 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
   };
 
   const onDrop = (e: React.DragEvent): void => {
-    if (!drag) return;
+    if (!drag || drag.ids?.includes(id)) return;
     e.preventDefault();
     e.stopPropagation();
-    performDrop(drag.id, id, computeRegion(e, rowRef.current!, allowSides));
+    performDrop(drag.id, id, computeRegion(e, rowRef.current!, allowSides), drag.ids);
     setDrag(null);
   };
 
@@ -955,6 +1181,37 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragLeave={() => setDrag((d) => (d?.over?.id === id ? {...d, over: null} : d))}
+      // Shift-click a block extends the block selection contiguously. Only the
+      // top-level row owns this (capture beats the caret + stops the marquee /
+      // root handlers); a shift-click inside a nested block still resolves to
+      // its whole top-level container via this row's id.
+      onMouseDownCapture={
+        depth === 0 && !editor.readOnly
+          ? (e) => {
+            if (!e.shiftKey || e.button !== 0) return;
+            // Don't hijack native intra-block text extension ("caret at word 3,
+            // shift-click word 20" inside ONE block): when nothing is
+            // block-selected AND the shift-click lands on the row already hosting
+            // the caret, let the browser extend the text range. We only convert
+            // to block selection once a block is selected, or the shift-click
+            // jumps to a DIFFERENT top-level row.
+            const hostsFocus =
+              editor.focusedId != null &&
+              rowRef.current?.querySelector(`[data-block-text="${editor.focusedId}"]`) != null;
+            if (editor.selection.size === 0 && hostsFocus) return;
+            e.preventDefault();
+            e.stopPropagation();
+            (document.activeElement as HTMLElement | null)?.blur();
+            document.getSelection()?.removeAllRanges();
+            const order = rootBlocks(editor.doc).map((b) => blockId(b));
+            // Deliberate nearest-anchor (range-redefinition) semantics: the anchor
+            // is the currently-selected block NEAREST the target, so each
+            // shift-click REDEFINES the range from that anchor rather than only
+            // ever growing an initial one. See shiftClickRange's contract.
+            editor.setSelection(shiftClickRange(order, editor.selection, id, editor.focusedId));
+          }
+          : undefined
+      }
     >
       {!editor.readOnly && (
         <div className={`obe-gutter${depth > 0 ? ' obe-gutter-nested' : ''}`} contentEditable={false}>
@@ -989,12 +1246,21 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
               className="obe-gutter-btn obe-handle"
               draggable
               onDragStart={(e) => {
+                // A drag that starts on a SELECTED block (with others selected)
+                // moves the whole group; the ids are captured in document order.
+                const sel = editor.selection;
+                const multi = sel.has(id) && sel.size > 1;
+                const ids = multi ? rootBlocks(editor.doc).map(blockId).filter((b) => sel.has(b)) : undefined;
                 // dataTransfer is null on synthetic events (tests) — optional.
                 if (e.dataTransfer) {
                   e.dataTransfer.effectAllowed = 'move';
                   e.dataTransfer.setData('text/plain', id);
+                  if (multi && ids) setGroupDragImage(e, ids.length);
                 }
-                setDrag({id, over: null});
+                // Grabbing a block outside the selection collapses it to just
+                // that block (single-block move preserved).
+                if (!sel.has(id)) editor.setSelection([]);
+                setDrag({id, ids, over: null});
               }}
               onDragEnd={() => setDrag(null)}
               onClick={() => {
