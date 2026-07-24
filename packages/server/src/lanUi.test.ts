@@ -68,9 +68,11 @@ describe('STAB-7 — sidecar serves the LAN web UI alongside the API', () => {
     expect(Array.isArray(await pages.json())).toBe(true);
 
     // A round-trip write over the same origin proves the served UI could list/edit.
+    // X-OpenBook-Client is the first-party marker the sdk transport stamps on every
+    // request; STAB-8's guest-write gate 403s writes without it.
     const created = await fetch(`${base}/api/pages`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({name: 'LAN Page', data: {editorjs: {blocks: []}, values: [], names: []}}),
     });
     expect(created.status).toBe(201);
