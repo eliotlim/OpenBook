@@ -53,11 +53,13 @@ is refused at the REST layer no matter what the tool tries, so a bug or a
 misbehaving client can never out-privilege the token. A token also cannot change
 the agent-edits policy itself (that is owner-only) — it can only write within it.
 
-A page pinned to **Direct** applies a remote MCP write immediately. On a page
-that inherits the **Library default**, a remote MCP write currently resolves to a
-**suggestion** even when the library default is Direct — set the page itself to
-Direct if you want a remote agent to write it directly. (The built-in AI is not
-affected by this; only remote MCP tokens.)
+The library default governs remote PATs too. A page pinned to **Direct** applies
+a remote MCP write immediately; a page that inherits the **Library default**
+follows that default — so with the library set to Direct, a remote agent writes
+an inheriting page directly, exactly like the built-in AI. The connector learns
+the resolved mode from the server (the per-page agent-edits route returns the
+effective mode), so it never needs to read the privileged instance setting, and
+the server write-gate remains the authoritative backstop either way.
 
 ## The audit trail
 
