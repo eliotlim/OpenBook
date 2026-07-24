@@ -19,6 +19,7 @@ import {
   setBlockProp,
   tableDeleteColumn,
   tableDeleteRow,
+  tableGrid,
   tableInsertColumn,
   tableInsertRow,
   TEXT_BLOCKS,
@@ -1842,10 +1843,14 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   // ragged rows, or carry a non-`cell` block as a row child (the STAB-1 paste
   // poison). Guard every dereference so a malformed table renders a grid with
   // quiet fallbacks instead of throwing and white-screening the whole page.
-  const rows = blockChildren(block) ? [...blockChildren(block)!] : [];
+  // Row/column ORDER comes from the table order contract (model.ts): tableGrid
+  // sorts rows by their fractional `ord` key and binds cells to columns by id;
+  // legacy tables (no keys) fall through it in pure array order, unchanged.
+  const grid = tableGrid(block);
+  const rows = grid.rows;
   const header = blockProp<boolean>(block, 'header') ?? false;
   // Widest row wins so ragged rows pad to a rectangle at render.
-  const cols = rows.reduce((m, row) => Math.max(m, blockChildren(row)?.length ?? 0), 0);
+  const cols = grid.width;
   // Cells render TextBlockView directly (not through BlockBody), so the table
   // must apply the lock swap itself — a locked group / present mode / the
   // export viewer would otherwise leave cell text EDITABLE (a lock leak).
@@ -1858,7 +1863,7 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
       <table className="obe-table">
         <tbody>
           {rows.map((row, r) => {
-            const cells = blockChildren(row) ? [...blockChildren(row)!] : [];
+            const cells = grid.cells[r];
             return (
               <tr key={blockId(row)} className={header && r === 0 ? 'obe-table-header' : undefined}>
                 {Array.from({length: Math.max(cols, cells.length, 1)}, (_, c) => {
