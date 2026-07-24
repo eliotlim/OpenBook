@@ -3,11 +3,9 @@ import {z} from 'zod';
 import {
   appendBlocksToSnapshot,
   appendTextToSnapshot,
-  resolveAgentEdits,
   snapshotText,
   textSnapshot,
   type AgentEditsMode,
-  type AgentEditsPolicy,
   type DataClient,
   type PageSnapshot,
   type StoredSuggestion,
@@ -175,12 +173,13 @@ function setBlockTextInSnapshot(data: PageSnapshot, blockId: string, text: strin
  * contract the apps use. Read tools degrade gracefully (search is lexical
  * BM25 even with the AI engine off). Write tools that MUTATE existing content
  * are governed by the library's AGENT-EDITS POLICY (AGED-3), resolved PER WRITE
- * from the target page's `agentEdits` override and the instance-wide mode
- * (`resolveAgentEdits`): only a resolved `'direct'` applies the change
+ * from the SERVER-RESOLVED effective mode on the PAT-readable per-page route
+ * (AGED-6 — the page's `agentEdits` override already resolved against the
+ * instance-wide default): only a resolved `'direct'` applies the change
  * immediately; anything else persists a REVIEWABLE SUGGESTION — routed through
  * the same review layer (StoredSuggestion) as the in-app agent, so nothing an
  * MCP client writes lands until a human accepts it. The safe default is
- * `suggest`; the policy fetch failing (offline / a pre-AGED-1 server) fails safe
+ * `suggest`; the mode fetch failing (offline / a pre-AGED-6 server) fails safe
  * to `suggest`. The server is the AUTHORITATIVE backstop — it 403s a direct
  * write the policy forbids regardless of what the tool layer resolved. Creating
  * new pages/rows stays immediate (non-destructive).
@@ -216,15 +215,21 @@ const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
 const MCP_AUTHOR_NAME = 'MCP client';
 
 /**
- * The read accessors the per-write agent-edits resolution needs beyond the base
+ * The read accessor the per-write agent-edits resolution needs beyond the base
  * {@link DataClient}. An MCP server always runs against an `HttpDataClient`, which
- * has both (`getInstanceInfo` is already on `DataClient`; `getPageAgentEdits` is
- * the client's AGED-1 accessor) — so this is a structural widening, not a new
- * implementation burden.
+ * has it — so this is a structural widening, not a new implementation burden.
+ *
+ * AGED-6: resolution reads ONLY `getEffectiveAgentEdits` — the SERVER-RESOLVED
+ * effective mode on the PAT-readable per-page route (`GET /api/pages/:id/agent-edits`,
+ * `.effective`). It no longer needs the privileged `GET /api/instance` read (which the
+ * AGENT-6 scope-gate denies to a PAT), so the instance-wide `direct` default now
+ * governs an `inherit` page over remote MCP too. The server write-gate (AGED-2)
+ * remains the authoritative backstop for a forbidden direct write.
  */
 type PolicyClient = DataClient & {
-  /** A page's raw agent-edits policy (`inherit` unresolved), AGED-1. */
-  getPageAgentEdits(pageId: string): Promise<AgentEditsPolicy>;
+  /** A page's server-resolved effective agent-edits mode (`inherit` already resolved
+   *  against the instance default), AGED-6. */
+  getEffectiveAgentEdits(pageId: string): Promise<AgentEditsMode>;
 };
 
 /** Configuration for the MCP server. */
@@ -241,49 +246,26 @@ export interface OpenBookMcpOptions {
   allowDirectEdits?: boolean;
 }
 
-/** How long the (rarely-changing) instance-wide agent-edits mode is cached before a
- *  re-fetch. The PAGE policy is ALWAYS fetched fresh so an override bites at once. */
-const INSTANCE_MODE_TTL_MS = 5_000;
-
 export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookMcpOptions = {}): McpServer {
   const {version = '0.1.0'} = options;
   const server = new McpServer({name: 'openbook', version});
 
-  // ── Per-write agent-edits policy resolution (AGED-3) ─────────────────────────
-  // The instance mode changes rarely — cache it with a short TTL. The page policy
-  // is fetched FRESH every write so a per-page override takes effect immediately.
-  let instanceCache: {mode: AgentEditsMode | undefined; at: number} | null = null;
-  const instanceMode = async (): Promise<AgentEditsMode | undefined> => {
-    const now = Date.now();
-    if (instanceCache && now - instanceCache.at < INSTANCE_MODE_TTL_MS) return instanceCache.mode;
-    try {
-      const {agentEdits} = await client.getInstanceInfo();
-      instanceCache = {mode: agentEdits, at: now};
-      return agentEdits;
-    } catch {
-      // Unreachable / a pre-AGED-1 server — don't cache a failure; the safe default
-      // (`suggest`) is supplied by `resolveAgentEdits` when the page inherits.
-      return undefined;
-    }
-  };
-
   /**
-   * The effective agent-edits mode for a write to `pageId`, resolved fresh from the
-   * page policy against the (cached) instance mode. FAIL-SAFE: if the page policy
-   * can't be read (offline / a pre-AGED-1 server that 404s the route) return
-   * `'suggest'` — never direct. Callers treat ONLY an exact `'direct'` as direct
-   * (Sasha, AGED-1 review); the server backstops a forbidden direct write anyway.
+   * The effective agent-edits mode for a write to `pageId`, read FRESH per write from
+   * the SERVER-RESOLVED effective mode on the PAT-readable per-page route (AGED-6) —
+   * so a per-page override AND the instance-wide default both take effect immediately,
+   * without the privileged instance read. FAIL-SAFE: if the mode can't be read
+   * (offline / a pre-AGED-6 server that omits `effective`) return `'suggest'` — never
+   * direct. Callers treat ONLY an exact `'direct'` as direct (Sasha, AGED-1 review);
+   * the server write-gate backstops a forbidden direct write regardless.
    */
   const resolveWritePolicy = async (pageId: string): Promise<AgentEditsMode> => {
-    let page: AgentEditsPolicy;
     try {
-      page = await client.getPageAgentEdits(pageId);
+      const effective = await client.getEffectiveAgentEdits(pageId);
+      return effective === 'direct' ? 'direct' : 'suggest';
     } catch {
       return 'suggest';
     }
-    // An explicit page policy wins outright; the instance mode is only consulted
-    // (and only then paid for) when the page defers via `inherit`.
-    return resolveAgentEdits(page, page === 'inherit' ? await instanceMode() : undefined);
   };
 
   /**
