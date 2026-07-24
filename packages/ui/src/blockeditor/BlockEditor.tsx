@@ -184,6 +184,10 @@ export const BlockEditor: React.FC<{
   // A marquee drag just ended → swallow the trailing `click` so it doesn't
   // append a trailing paragraph (the click-below-last-block affordance).
   const suppressClickRef = useRef(false);
+  // Teardown for an in-flight marquee drag (remove window listeners, cancel the
+  // rAF loop, clear state). Stashed so we can tear down on unmount / read-only
+  // flip mid-drag — otherwise the listeners + self-scheduling rAF leak.
+  const marqueeTeardownRef = useRef<(() => void) | null>(null);
 
   // Insert an inline page-link mention (chosen in the LinkPicker) at the caret.
   const insertMention = useCallback(
@@ -829,22 +833,43 @@ export const BlockEditor: React.FC<{
       ev.preventDefault();
     };
 
-    const onUp = (): void => {
+    // Single teardown for the whole gesture: detach the window listeners, kill
+    // the rAF loop, drop the overlay + drag class. Invoked from onUp on a normal
+    // release AND from the unmount / read-only-flip effects when a drag is cut
+    // short — so nothing leaks past the editor's lifetime.
+    const teardown = (): void => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       if (raf != null) cancelAnimationFrame(raf);
+      raf = null;
+      engaged = false;
       root.classList.remove('obe-marqueeing');
-      if (engaged) {
-        recompute(); // final frame — keep whatever the release rect selected
-        setMarquee(null);
-        suppressClickRef.current = true; // eat the trailing click
-      }
+      setMarquee(null);
+      marqueeTeardownRef.current = null;
+    };
+
+    const onUp = (): void => {
+      const wasEngaged = engaged;
+      if (wasEngaged) recompute(); // final frame — keep whatever the release rect selected
+      teardown();
+      if (wasEngaged) suppressClickRef.current = true; // eat the trailing click
       // A plain click (never engaged) falls through to the native handlers.
     };
 
+    marqueeTeardownRef.current = teardown;
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
+
+  // Cut a live marquee short when the editor unmounts, so its window listeners
+  // and self-scheduling rAF don't outlive the component.
+  React.useEffect(() => () => marqueeTeardownRef.current?.(), []);
+
+  // A read-only flip mid-drag has no selection/copy path — tear the marquee down
+  // rather than leave it dangling on a now-frozen surface.
+  React.useEffect(() => {
+    if (readOnly) marqueeTeardownRef.current?.();
+  }, [readOnly]);
 
   return (
     <div
@@ -858,6 +883,11 @@ export const BlockEditor: React.FC<{
       onDragLeave={onRootDragLeave}
       onDrop={onRootDrop}
       onMouseDown={(e) => {
+        // A real click's mousedown always precedes its click, so clear any stale
+        // suppression here: if a marquee drag ended with the pointer OUTSIDE the
+        // root (autoscroll drove it to the edge), no click reached onClick to
+        // reset the flag and it would otherwise swallow this genuine next click.
+        suppressClickRef.current = false;
         // Shift-click extension is owned by the row's capture handler (which
         // stops propagation) — a shift-mousedown reaching here is empty space.
         if (e.shiftKey) return;
@@ -1094,11 +1124,25 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
         depth === 0 && !editor.readOnly
           ? (e) => {
             if (!e.shiftKey || e.button !== 0) return;
+            // Don't hijack native intra-block text extension ("caret at word 3,
+            // shift-click word 20" inside ONE block): when nothing is
+            // block-selected AND the shift-click lands on the row already hosting
+            // the caret, let the browser extend the text range. We only convert
+            // to block selection once a block is selected, or the shift-click
+            // jumps to a DIFFERENT top-level row.
+            const hostsFocus =
+              editor.focusedId != null &&
+              rowRef.current?.querySelector(`[data-block-text="${editor.focusedId}"]`) != null;
+            if (editor.selection.size === 0 && hostsFocus) return;
             e.preventDefault();
             e.stopPropagation();
             (document.activeElement as HTMLElement | null)?.blur();
             document.getSelection()?.removeAllRanges();
             const order = rootBlocks(editor.doc).map((b) => blockId(b));
+            // Deliberate nearest-anchor (range-redefinition) semantics: the anchor
+            // is the currently-selected block NEAREST the target, so each
+            // shift-click REDEFINES the range from that anchor rather than only
+            // ever growing an initial one. See shiftClickRange's contract.
             editor.setSelection(shiftClickRange(order, editor.selection, id, editor.focusedId));
           }
           : undefined
