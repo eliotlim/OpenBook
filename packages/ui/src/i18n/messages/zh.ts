@@ -655,6 +655,13 @@ export const zh: PartialMessages = {
       overlayDescription: '图片正在全窗口显示。按 Esc 或关闭按钮返回页面。',
     },
   },
+  editor: {
+    drag: {
+      // 多块拖动要求 count > 1，因此无需单数形式。
+      blockCount: '{count} 个块',
+      movedBlocks: '已移动 {count} 个块',
+    },
+  },
   general: {
     title: '通用',
     description: '语言以及应用的行为。',

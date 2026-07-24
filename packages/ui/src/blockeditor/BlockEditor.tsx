@@ -436,7 +436,7 @@ export const BlockEditor: React.FC<{
         const parentBlock = parentBlockOf(doc, target.parent);
         const parentId = parentBlock ? blockId(parentBlock) : null;
         moveBlocks(doc, ids, parentId, region === 'above' ? target.index : target.index + 1);
-        setLive(`Moved ${ids.length} blocks`);
+        setLive(t('editor.drag.movedBlocks', {count: ids.length}));
         return;
       }
       if (sourceId === targetId) return;
@@ -1025,7 +1025,7 @@ const topLevelIds = (doc: Y.Doc): string[] => rootBlocks(doc).map((b) => blockId
 function setGroupDragImage(e: React.DragEvent, count: number): void {
   const ghost = document.createElement('div');
   ghost.className = 'obe-drag-ghost';
-  ghost.textContent = `${count} blocks`;
+  ghost.textContent = t('editor.drag.blockCount', {count});
   ghost.style.position = 'absolute';
   ghost.style.top = '-1000px';
   ghost.style.left = '-1000px';

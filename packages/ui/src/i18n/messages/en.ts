@@ -1150,6 +1150,13 @@ export const en = {
       overlayDescription: 'The image fills the window. Esc or the close button returns to the page.',
     },
   },
+  editor: {
+    drag: {
+      // Multi-block drag requires count > 1, so no singular form is needed.
+      blockCount: '{count} blocks',
+      movedBlocks: 'Moved {count} blocks',
+    },
+  },
   general: {
     title: 'General',
     description: 'Language and how the app behaves.',

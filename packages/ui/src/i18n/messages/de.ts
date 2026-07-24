@@ -658,6 +658,13 @@ export const de: PartialMessages = {
       overlayDescription: 'Das Bild füllt das Fenster. Esc oder Schließen kehrt zur Seite zurück.',
     },
   },
+  editor: {
+    drag: {
+      // Mehrfach-Drag erfordert count > 1, daher keine Singularform nötig.
+      blockCount: '{count} Blöcke',
+      movedBlocks: '{count} Blöcke verschoben',
+    },
+  },
   general: {
     title: 'Allgemein',
     description: 'Sprache und das Verhalten der App.',
