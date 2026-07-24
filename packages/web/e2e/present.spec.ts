@@ -75,13 +75,16 @@ test('present button in the page-actions cluster opens the deck', {tag: ['@edito
   // button always renders in the cluster (disabled on Home), so it anchors the
   // "cluster is mounted" wait without depending on doc-action registration.
   await page.goto('/');
-  await expect(page.getByRole('button', {name: 'Copy link'}).first()).toBeVisible();
-  await expect(page.getByRole('button', {name: 'Present', exact: true})).toHaveCount(0);
+  // Scope to the sticky nav bar: pages leaked by other specs render sidebar
+  // row-action "Present"/"Copy link" buttons that a page-wide query matches.
+  const topNav = page.locator('nav.sticky');
+  await expect(topNav.getByRole('button', {name: 'Copy link'})).toBeVisible();
+  await expect(topNav.getByRole('button', {name: 'Present', exact: true})).toHaveCount(0);
 
   // …a document page does, and one click opens the deck.
   await page.goto(`/?page=${id}`);
-  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
-  const presentButton = page.getByRole('button', {name: 'Present', exact: true});
+  await expect(topNav.getByRole('button', {name: 'Page actions'})).toBeVisible();
+  const presentButton = topNav.getByRole('button', {name: 'Present', exact: true});
   await presentButton.click();
   const present = page.locator('.ob-present');
   await expect(present).toBeVisible();
