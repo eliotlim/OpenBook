@@ -764,6 +764,19 @@ export function ensureNotEmpty(doc: Y.Doc): void {
 /** Prefix of the column-registry entries in a table block's props. */
 export const TABLE_COL_PREFIX = 'col:';
 
+/**
+ * Prefix of the per-column colour entries (TBL-4). One entry per tinted column:
+ *   table.props['colbg:<colId>'] = <palette token>
+ * Keyed on the STABLE `colId` (not a render index), so a column tint survives
+ * reorder (moves rewrite only the `col:` order key), concurrent inserts (a new
+ * cell in a tinted column inherits via the colId → token lookup — nothing is
+ * stored per cell), and clipboard/clone (it rides in table props like the `col:`
+ * registry). A ROW tint is the ordinary block `bg` prop on the row block, so a
+ * duplicated row keeps it for free ({@link tableDuplicateRow} clones props). At
+ * render/export a cell composites ROW-over-COLUMN (see {@link tableCellColor}).
+ */
+export const TABLE_COLBG_PREFIX = 'colbg:';
+
 const rowOrd = (row: BlockMap): string | null => {
   const v = blockProp<unknown>(row, 'ord');
   return typeof v === 'string' && v.length > 0 ? v : null;
@@ -1066,7 +1079,9 @@ export function tableDuplicateRow(doc: Y.Doc, tableId: string, rowIndex: number)
     });
     const arrayIndex = indexOfBlock(rowsArr, blockId(source));
     const at = arrayIndex >= 0 ? arrayIndex + 1 : rowsArr.length;
-    rowsArr.insert(Math.min(at, rowsArr.length), [makeBlock({type: 'row', props: {ord}, children})]);
+    // Carry the source row's own props (e.g. its `bg` tint — TBL-4) onto the
+    // clone, overriding only `ord` with the fresh position key.
+    rowsArr.insert(Math.min(at, rowsArr.length), [makeBlock({type: 'row', props: {...cloneBlockProps(source), ord}, children})]);
   }, 'local');
 }
 
@@ -1130,6 +1145,9 @@ export function tableDeleteColumn(doc: Y.Doc, tableId: string, colIndex: number)
       return;
     }
     setBlockProp(table.block, TABLE_COL_PREFIX + grid.colIds[colIndex], undefined);
+    // Drop the column's colour entry too, so a deleted column leaves no orphan
+    // `colbg:` prop behind (TBL-4).
+    setBlockProp(table.block, TABLE_COLBG_PREFIX + grid.colIds[colIndex], undefined);
     grid.rows.forEach((row, r) => {
       const cell = grid.cells[r][colIndex];
       if (!cell) return;
@@ -1195,6 +1213,59 @@ export function tableMoveColumn(doc: Y.Doc, tableId: string, colId: string, toIn
     const final = [...rest.slice(0, at), columns[from], ...rest.slice(at)];
     const keys = keysBetween(null, null, final.length);
     final.forEach((c, i) => setBlockProp(table.block, TABLE_COL_PREFIX + c.id, keys[i]));
+  }, 'local');
+}
+
+// ── Table colours (TBL-4) ────────────────────────────────────────────────────
+
+/** The palette token tinting a row (its block `bg` prop), or null. */
+export function tableRowColor(row: BlockMap): string | null {
+  const v = blockProp<unknown>(row, 'bg');
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+/** The palette token tinting a column (keyed on its stable `colId`), or null. */
+export function tableColumnColor(table: BlockMap, colId: string): string | null {
+  const v = blockProp<unknown>(table, TABLE_COLBG_PREFIX + colId);
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+/**
+ * The composited tint for a cell: the ROW colour wins over the COLUMN colour
+ * where both apply (a row band reads as intentional over a column band), else
+ * the column colour, else null. `colId` is the cell's `col` binding. Pure — the
+ * one definition of cell-tint precedence shared by render and export.
+ */
+export function tableCellColor(table: BlockMap, row: BlockMap, colId: string | null): string | null {
+  return tableRowColor(row) ?? (colId ? tableColumnColor(table, colId) : null);
+}
+
+/**
+ * Tint (or clear, with `token === null`) a row — writes the row's block `bg`
+ * prop. One transact = one undo step. `rowId` is resolved live so a reordered
+ * table still tints the right row.
+ */
+export function setTableRowColor(doc: Y.Doc, tableId: string, rowId: string, token: string | null): void {
+  doc.transact(() => {
+    const table = findBlock(doc, tableId);
+    if (!table) return;
+    const row = tableGrid(table.block).rows.find((r) => blockId(r) === rowId);
+    if (!row) return;
+    setBlockProp(row, 'bg', token ?? undefined);
+  }, 'local');
+}
+
+/**
+ * Tint (or clear, with `token === null`) a column — writes the table-level
+ * `colbg:<colId>` prop keyed on the stable column id. One transact = one undo
+ * step. No-op if the column is not registered.
+ */
+export function setTableColumnColor(doc: Y.Doc, tableId: string, colId: string, token: string | null): void {
+  doc.transact(() => {
+    const table = findBlock(doc, tableId);
+    if (!table) return;
+    if (tableColumns(table.block).every((c) => c.id !== colId)) return;
+    setBlockProp(table.block, TABLE_COLBG_PREFIX + colId, token ?? undefined);
   }, 'local');
 }
 

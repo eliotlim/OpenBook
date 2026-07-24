@@ -40,6 +40,8 @@ import {
   removeBlock,
   rootBlocks,
   setBlockProp,
+  tableCellColor,
+  tableColumnColor,
   tableColumns,
   tableDeleteColumn,
   tableDeleteRow,
@@ -49,6 +51,9 @@ import {
   tableInsertRow,
   tableMoveColumn,
   tableMoveRow,
+  tableRowColor,
+  setTableColumnColor,
+  setTableRowColor,
   TEXT_BLOCKS,
   type BlockMap,
   type BlockType,
@@ -2137,6 +2142,34 @@ const ColumnsView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}
  * the anchors below. Rendered inside a {@link ContextMenuContent}; content is
  * mounted fresh on each open, so the position is always read live from the doc.
  */
+/**
+ * A "Row colour" / "Column colour" submenu for the table cell menu (TBL-4):
+ * the 9 palette swatches + a leading "Default" that clears the tint, styled
+ * like the block-menu Background submenu. `current` gets a trailing check.
+ * Apply/Clear each run through one transacting op = one undo step.
+ */
+const TableColorSubmenu: React.FC<{
+  label: string;
+  current: string | null;
+  onPick: (token: string | null) => void;
+}> = ({label, current, onPick}) => (
+  <ContextMenuSub>
+    <ContextMenuSubTrigger>{label}</ContextMenuSubTrigger>
+    <ContextMenuSubContent className="w-40">
+      {COLOR_MENU.map((c) => (
+        <ContextMenuItem key={c.id ?? 'default'} onSelect={() => onPick(c.id)}>
+          <span
+            className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`}
+            aria-hidden
+          />
+          {c.label}
+          {(c.id ?? null) === current && <Check className="ml-auto h-3.5 w-3.5" />}
+        </ContextMenuItem>
+      ))}
+    </ContextMenuSubContent>
+  </ContextMenuSub>
+);
+
 const TableCellMenuContent: React.FC<{
   cell: BlockMap;
   tableId: string;
@@ -2150,8 +2183,12 @@ const TableCellMenuContent: React.FC<{
   const {row, col, table, rows: rowCount, cols: colCount} = pos;
   // Ids for the move ops, resolved from the SORTED grid so a reordered table
   // still targets the right row/column (the sorted-vs-array trap, acceptance #6).
-  const rowId = blockId(tableGrid(table).rows[row]);
+  const rowBlock = tableGrid(table).rows[row];
+  const rowId = blockId(rowBlock);
   const colId = tableColumns(table)[col]?.id;
+  // Live colours for the swatch checks (TBL-4).
+  const rowColor = tableRowColor(rowBlock);
+  const colColor = colId ? tableColumnColor(table, colId) : null;
   const header = blockProp<boolean>(table, 'header') ?? false;
   const toggleHeader = (): void => {
     doc.transact(() => setBlockProp(table, 'header', !header), 'local');
@@ -2181,6 +2218,12 @@ const TableCellMenuContent: React.FC<{
       <ContextMenuItem disabled={row >= rowCount - 1} onSelect={() => tableMoveRow(doc, tableId, rowId, row + 1)}>
         <ChevronDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowDown')}
       </ContextMenuItem>
+      {/* TBL-4: row tint = the row block's `bg` prop. */}
+      <TableColorSubmenu
+        label={t('menu.table.rowColour')}
+        current={rowColor}
+        onPick={(token) => setTableRowColor(doc, tableId, rowId, token)}
+      />
       <ContextMenuItem
         className="text-destructive focus:text-destructive"
         onSelect={() => tableDeleteRow(doc, tableId, row)}
@@ -2196,7 +2239,15 @@ const TableCellMenuContent: React.FC<{
       <ContextMenuItem onSelect={() => tableInsertColumn(doc, tableId, col + 1)}>
         <ArrowRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnRight')}
       </ContextMenuItem>
-      {/* TBL-4 anchor: a "Column colour" submenu (keyed on the colId) goes here. */}
+      {/* TBL-4 anchor: column tint = the table-level `colbg:<colId>` prop, keyed
+          on the stable column id (survives reorder / concurrent inserts). */}
+      {colId && (
+        <TableColorSubmenu
+          label={t('menu.table.columnColour')}
+          current={colColor}
+          onPick={(token) => setTableColumnColor(doc, tableId, colId, token)}
+        />
+      )}
       {/* TBL-2 anchor: Move column left / right. Disabled at the extremes; ops take
           the column id + a sorted target index (moved column removed). */}
       <ContextMenuItem
@@ -2377,10 +2428,14 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                 {Array.from({length: Math.max(cols, cells.length, 1)}, (_, c) => {
                   const cell = cells[c];
                   const colId = columns[c]?.id;
+                  // Cell tint composites ROW-over-COLUMN (TBL-4). Both are palette
+                  // tokens → theme-aware `obe-bg-*` alpha classes (dark-safe).
+                  const tint = tableCellColor(block, row, colId ?? null);
                   const tdDropClass = [
                     colDrag && dropIndex === c ? 'obe-drop-col-before' : '',
                     colDrag && dropIndex === cols && c === cols - 1 ? 'obe-drop-col-after' : '',
                     colDrag && colId && colDrag.id === colId ? 'obe-col-dragging' : '',
+                    isColorToken(tint) ? `obe-bg-${tint}` : '',
                   ]
                     .filter(Boolean)
                     .join(' ');
