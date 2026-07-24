@@ -790,9 +790,9 @@ export const BlockEditor: React.FC<{
         scroller === window
           ? {top: 0, bottom: window.innerHeight}
           : (() => {
-              const b = (scroller as HTMLElement).getBoundingClientRect();
-              return {top: b.top, bottom: b.bottom};
-            })();
+            const b = (scroller as HTMLElement).getBoundingClientRect();
+            return {top: b.top, bottom: b.bottom};
+          })();
       let dy = 0;
       if (py < bounds.top + margin) dy = -speed;
       else if (py > bounds.bottom - margin) dy = speed;
@@ -801,11 +801,13 @@ export const BlockEditor: React.FC<{
       else (scroller as HTMLElement).scrollTop += dy;
     };
 
+    // The rAF loop only drives AUTO-SCROLL: while the pointer sits in a hot zone
+    // no `mousemove` fires, so we need a self-scheduling tick to keep scrolling
+    // (and re-hit-testing) the document under a stationary pointer.
     const loop = (): void => {
-      if (!engaged) return;
       autoScroll();
       recompute();
-      raf = requestAnimationFrame(loop);
+      raf = engaged ? requestAnimationFrame(loop) : null;
     };
 
     const onMove = (ev: MouseEvent): void => {
@@ -819,8 +821,11 @@ export const BlockEditor: React.FC<{
         (document.activeElement as HTMLElement | null)?.blur();
         document.getSelection()?.removeAllRanges();
         root.classList.add('obe-marqueeing'); // user-select:none while dragging
-        raf = requestAnimationFrame(loop);
+        if (raf == null) raf = requestAnimationFrame(loop);
       }
+      // Update the rectangle synchronously on every move so the overlay never
+      // waits on a frame (and never lags the pointer).
+      recompute();
       ev.preventDefault();
     };
 
@@ -1088,14 +1093,14 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
       onMouseDownCapture={
         depth === 0 && !editor.readOnly
           ? (e) => {
-              if (!e.shiftKey || e.button !== 0) return;
-              e.preventDefault();
-              e.stopPropagation();
-              (document.activeElement as HTMLElement | null)?.blur();
-              document.getSelection()?.removeAllRanges();
-              const order = rootBlocks(editor.doc).map((b) => blockId(b));
-              editor.setSelection(shiftClickRange(order, editor.selection, id, editor.focusedId));
-            }
+            if (!e.shiftKey || e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            (document.activeElement as HTMLElement | null)?.blur();
+            document.getSelection()?.removeAllRanges();
+            const order = rootBlocks(editor.doc).map((b) => blockId(b));
+            editor.setSelection(shiftClickRange(order, editor.selection, id, editor.focusedId));
+          }
           : undefined
       }
     >
