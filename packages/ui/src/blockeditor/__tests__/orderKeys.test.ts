@@ -37,7 +37,7 @@ describe('orderKeys — fractional order keys', () => {
 
   it('midpoint density: repeated insertion into the SAME gap always fits', () => {
     // Worst case for precision — always split the same gap, 200 times.
-    let lo = keyBetween(null, null);
+    const lo = keyBetween(null, null);
     const hi = keyBetween(lo, null);
     let prev = lo;
     for (let i = 0; i < 200; i += 1) {
