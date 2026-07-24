@@ -229,7 +229,7 @@ describe('asset storage budget (A6)', () => {
     const app = createApp(store, undefined, new PageHub(), {assetStorageBudgetBytes: 10});
     const page = await store.upsertPage({name: `p-${seq}`, data: emptySnap()});
     const upload = (b: Uint8Array<ArrayBuffer>) =>
-      app.request(`/api/assets?pageId=${page.id}`, {method: 'POST', headers: {'Content-Type': 'image/png'}, body: b});
+      app.request(`/api/assets?pageId=${page.id}`, {method: 'POST', headers: {'Content-Type': 'image/png', 'X-OpenBook-Client': '1'}, body: b});
 
     const ok = await upload(new Uint8Array(bytesFor(1, 8)));
     expect(ok.status).toBe(201);

@@ -85,29 +85,29 @@ const appWith = (opts: {ai?: AiService; aiUsage?: AiUsageLog}) =>
 const post = (app: ReturnType<typeof appWith>, path: string, body: unknown, jws?: string) =>
   app.request(path, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
     body: JSON.stringify(body),
   });
 
 const get = (app: ReturnType<typeof appWith>, path: string, jws?: string) =>
-  app.request(path, {headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+  app.request(path, {headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
 
 const put = (app: ReturnType<typeof appWith>, path: string, body: unknown, jws?: string) =>
   app.request(path, {
     method: 'PUT',
-    headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
     body: JSON.stringify(body),
   });
 
 const patch = (app: ReturnType<typeof appWith>, path: string, body: unknown, jws?: string) =>
   app.request(path, {
     method: 'PATCH',
-    headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
     body: JSON.stringify(body),
   });
 
 const del = (app: ReturnType<typeof appWith>, path: string, jws?: string) =>
-  app.request(path, {method: 'DELETE', headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+  app.request(path, {method: 'DELETE', headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
 
 /** A scripted engine that answers in one turn and emits the given usage. */
 const usageEngine = (usage: TokenUsage): AiEngine => ({

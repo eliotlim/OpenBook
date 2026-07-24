@@ -122,7 +122,7 @@ describe('asset routes — open instance', () => {
   const upload = (a: ReturnType<typeof app>, pageId: string, bytes: Uint8Array<ArrayBuffer>, mime = 'image/png') =>
     a.request(`/api/assets?pageId=${encodeURIComponent(pageId)}`, {
       method: 'POST',
-      headers: {'Content-Type': mime},
+      headers: {'Content-Type': mime, 'X-OpenBook-Client': '1'},
       body: bytes,
     });
 
@@ -162,7 +162,7 @@ describe('asset routes — open instance', () => {
     const bytes = new Uint8Array([5, 6, 7, 8, 9, 200, 201]);
     const res = await a.request(`/api/assets?pageId=${page.id}`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({data: Buffer.from(bytes).toString('base64'), mime: 'image/webp'}),
     });
     expect(res.status).toBe(201);
@@ -251,7 +251,7 @@ describe('asset routes — open instance', () => {
     bytes[0] = 137; // non-empty
     const res = await a.request(`/api/assets?pageId=${page.id}`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({data: Buffer.from(bytes).toString('base64'), mime: 'image/png'}),
     });
     expect(res.status).toBe(201);
@@ -267,7 +267,7 @@ describe('asset routes — open instance', () => {
     const over = new Uint8Array(10 * 1024 * 1024 + 4096);
     const res = await a.request(`/api/assets?pageId=${page.id}`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({data: Buffer.from(over).toString('base64'), mime: 'image/png'}),
     });
     expect(res.status).toBe(413);
@@ -276,7 +276,7 @@ describe('asset routes — open instance', () => {
   it('400s a missing pageId and an empty body', async () => {
     const a = app();
     const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
-    const noPage = await a.request('/api/assets', {method: 'POST', headers: {'Content-Type': 'image/png'}, body: new Uint8Array([1])});
+    const noPage = await a.request('/api/assets', {method: 'POST', headers: {'Content-Type': 'image/png', 'X-OpenBook-Client': '1'}, body: new Uint8Array([1])});
     expect(noPage.status).toBe(400);
     const empty = await upload(a, page.id, new Uint8Array([]));
     expect(empty.status).toBe(400);
@@ -320,7 +320,7 @@ describe('asset routes — open instance', () => {
     const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
     const res = await a.request(`/api/assets?pageId=${page.id}`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({data: Buffer.from([1, 2, 3]).toString('base64'), mime: 'image/png\r\nSet-Cookie: x=y'}),
     });
     expect(res.status).toBe(400);
@@ -339,7 +339,7 @@ describe('asset routes — open instance', () => {
 describe('asset routes — claimed instance read-gate (no leak)', () => {
   const app = () => createApp(store, undefined, new PageHub(), {identity: new IdentityService(store)});
   const req = (a: ReturnType<typeof app>, path: string, jws?: string) =>
-    a.request(path, {headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+    a.request(path, {headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
 
   let restr: string; // a restricted page, ACL-granted to `granted` only
   let assetId: string; // an asset referenced ONLY by `restr`

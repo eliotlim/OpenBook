@@ -66,7 +66,7 @@ const app = () => createApp(store, undefined, new PageHub(), {identity: new Iden
 const putInstance = (a: ReturnType<typeof app>, body: unknown, jws?: string) =>
   a.request('/api/instance', {
     method: 'PUT',
-    headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
     body: JSON.stringify(body),
   });
 

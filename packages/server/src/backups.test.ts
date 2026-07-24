@@ -183,7 +183,7 @@ describe('backup HTTP routes', () => {
     const disabled = await (
       await app.request('/api/backups', {
         method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
         body: JSON.stringify({enabled: false}),
       })
     ).json();
@@ -193,7 +193,7 @@ describe('backup HTTP routes', () => {
     const enabled = await (
       await app.request('/api/backups', {
         method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
         body: JSON.stringify({enabled: true}),
       })
     ).json();
@@ -201,7 +201,7 @@ describe('backup HTTP routes', () => {
 
     const run = await app.request('/api/backups/run', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({cadence: 'weekly'}),
     });
     expect(run.status).toBe(200);

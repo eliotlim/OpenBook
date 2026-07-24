@@ -20,13 +20,13 @@ test.beforeAll(async ({dataServer}) => {
   await Promise.all(
     (bundle.pages ?? [])
       .filter((p) => p.name && PAGE_NAMES.includes(p.name))
-      .map((p) => fetch(`${dataServer}/api/pages/${p.id}`, {method: 'DELETE'}).catch(() => undefined)),
+      .map((p) => fetch(`${dataServer}/api/pages/${p.id}`, {method: 'DELETE', headers: {'X-OpenBook-Client': '1'}}).catch(() => undefined)),
   );
   ids = [];
   for (const name of PAGE_NAMES) {
     const res = await fetch(`${dataServer}/api/pages`, {
       method: 'POST',
-      headers: {'content-type': 'application/json'},
+      headers: {'content-type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({name, data: {editorjs: {blocks: []}, values: [], names: []}}),
     });
     ids.push(((await res.json()) as {id: string}).id);

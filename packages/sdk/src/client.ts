@@ -879,6 +879,14 @@ export interface HttpDataClientOptions {
 /** Identity header names (kept in sync with the server's `principal.ts`). */
 const IDENTITY_HEADER = 'X-OpenBook-Identity';
 const GUEST_NAME_HEADER = 'X-OpenBook-Guest-Name';
+/**
+ * First-party-client marker (STAB-8, kept in sync with the sdk's `CLIENT_HEADER`
+ * and the server's guest-write gate). Sent on EVERY request so an unauthenticated
+ * guest write is a non-simple cross-origin request the browser can't forge as a
+ * plain form/`fetch` POST. Reads carry it too — harmless, and it means the desktop
+ * IPC / web / forwarded transports are uniform.
+ */
+const CLIENT_HEADER = 'X-OpenBook-Client';
 
 /**
  * The data server REJECTED the caller's identity assertion (HTTP 401): the JWS is
@@ -953,6 +961,10 @@ export class HttpDataClient implements DataClient {
    */
   private authFetch(input: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = {...(init.headers as Record<string, string> | undefined)};
+    // Mark the request as a first-party client call (STAB-8). Cheap and unconditional
+    // so the server's guest-write gate admits it over every transport (desktop IPC,
+    // web same-origin, forwarded tunnel — the tunnel forwards it verbatim).
+    headers[CLIENT_HEADER] = '1';
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     const id = this.getIdentity?.();
     if (id?.jws) headers[IDENTITY_HEADER] = id.jws;

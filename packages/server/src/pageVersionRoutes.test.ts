@@ -193,9 +193,9 @@ describe('PVH-3 — version access is page-capability-gated (claimed instance)',
   let vid: string;
 
   const get = (a: ReturnType<typeof makeApp>, path: string, jws?: string) =>
-    a.request(path, {headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+    a.request(path, {headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
   const post = (a: ReturnType<typeof makeApp>, path: string, jws?: string) =>
-    a.request(path, {method: 'POST', headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+    a.request(path, {method: 'POST', headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
 
   beforeEach(async () => {
     await store.updateInstanceConfig({trustedIssuers: [{issuer: ISS, jwks}], ownerSubject: `${ISS}#owner`});
@@ -276,7 +276,7 @@ describe('PVH-3 — restore rejects a server-managed page (403)', () => {
 
     const a = createApp(store, undefined, new PageHub(), {identity: new IdentityService(store), aiUsage: usage});
     // rejectManagedPage runs before the version lookup, so any vid is rejected 403.
-    const res = await a.request(`/api/pages/${hostPage}/versions/${randomUUID()}/restore`, {method: 'POST'});
+    const res = await a.request(`/api/pages/${hostPage}/versions/${randomUUID()}/restore`, {method: 'POST', headers: {'X-OpenBook-Client': '1'}});
     expect(res.status).toBe(403);
   });
 });

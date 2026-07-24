@@ -59,7 +59,7 @@ const app = (embedded = false) => createApp(store, undefined, new PageHub(), {id
 const req = (a: ReturnType<typeof app>, method: string, path: string, jws?: string, body?: unknown) =>
   a.request(path, {
     method,
-    headers: {...(body !== undefined ? {'Content-Type': 'application/json'} : {}), ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    headers: {...(body !== undefined ? {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'} : {}), ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
     ...(body !== undefined ? {body: JSON.stringify(body)} : {}),
   });
 
