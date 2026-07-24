@@ -177,6 +177,8 @@ export const de: PartialMessages = {
       moveColumnRight: 'Spalte nach rechts',
       deleteRow: 'Zeile löschen',
       deleteColumn: 'Spalte löschen',
+      rowColour: 'Zeilenfarbe',
+      columnColour: 'Spaltenfarbe',
       toggleHeader: 'Kopfzeile umschalten',
     },
   },

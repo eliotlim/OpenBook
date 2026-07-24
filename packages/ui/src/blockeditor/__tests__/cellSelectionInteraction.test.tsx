@@ -110,6 +110,63 @@ describe('cell-range keyboard', () => {
   });
 });
 
+describe('tint × selection composition (TBL-4 × TBL-5)', () => {
+  // A merge-guard: the td must carry BOTH the TBL-4 tint class (`obe-bg-<tok>`)
+  // AND the TBL-5 selection class (`obe-cell-selected`) at once — the 2px inset
+  // ring is the load-bearing signal over a same-hue tint. Column c0 is tinted
+  // blue; selecting the whole table must leave the c0 cells tinted AND ringed.
+  const tintedSeed = () =>
+    createDoc([
+      {
+        id: 'tbl',
+        type: 'table',
+        props: {header: false, 'col:c0': 'a0', 'col:c1': 'a1', 'colbg:c0': 'blue'},
+        children: [
+          {id: 'row0', type: 'row', props: {ord: 'a0'}, children: [
+            {id: 'r0c0', type: 'cell', props: {col: 'c0'}, text: [{t: 'A1'}]},
+            {id: 'r0c1', type: 'cell', props: {col: 'c1'}, text: [{t: 'B1'}]},
+          ]},
+          {id: 'row1', type: 'row', props: {ord: 'a1'}, children: [
+            {id: 'r1c0', type: 'cell', props: {col: 'c0'}, text: [{t: 'A2'}]},
+            {id: 'r1c1', type: 'cell', props: {col: 'c1'}, text: [{t: 'B2'}]},
+          ]},
+        ],
+      },
+    ]);
+
+  it('a tinted column cell inside a selection carries BOTH obe-bg-blue and obe-cell-selected', () => {
+    const doc = tintedSeed();
+    const {container} = render(<BlockEditor doc={doc} readOnly={false} />);
+    const tdOf = (id: string) =>
+      (container.querySelector(`[data-block-text="${id}"]`) as HTMLElement).closest('td') as HTMLElement;
+
+    // Before selecting: the c0 column cells are already tinted (TBL-4 alone).
+    expect(tdOf('r0c0').classList.contains('obe-bg-blue')).toBe(true);
+    expect(tdOf('r0c0').classList.contains('obe-cell-selected')).toBe(false);
+
+    // Select the whole table (r0c0 → r1c1) via a native intra-table span.
+    const el = (id: string) => container.querySelector(`[data-block-text="${id}"]`) as HTMLElement;
+    const range = document.createRange();
+    range.setStart(el('r0c0'), 0);
+    range.setEnd(el('r1c1'), el('r1c1').childNodes.length);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+    fireEvent(document, new Event('selectionchange'));
+
+    // The tinted c0 cell now composes BOTH classes; the untinted c1 cell is
+    // only selected. Neither side dropped the other's class.
+    const c0 = tdOf('r0c0');
+    expect(c0.classList.contains('obe-bg-blue')).toBe(true);
+    expect(c0.classList.contains('obe-cell-selected')).toBe(true);
+    expect(tdOf('r1c0').classList.contains('obe-bg-blue')).toBe(true);
+    expect(tdOf('r1c0').classList.contains('obe-cell-selected')).toBe(true);
+    const c1 = tdOf('r0c1');
+    expect(c1.classList.contains('obe-bg-blue')).toBe(false);
+    expect(c1.classList.contains('obe-cell-selected')).toBe(true);
+  });
+});
+
 describe('cell drag-select teardown (leak guard)', () => {
   it('unmount mid drag detaches the gesture window listeners — no stray move on a dead tree', () => {
     // Track live window mousemove/mouseup listeners so we can prove the

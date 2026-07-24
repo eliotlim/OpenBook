@@ -302,6 +302,8 @@ export const en = {
       moveColumnRight: 'Move column right',
       deleteRow: 'Delete row',
       deleteColumn: 'Delete column',
+      rowColour: 'Row colour',
+      columnColour: 'Column colour',
       toggleHeader: 'Toggle header row',
     },
   },

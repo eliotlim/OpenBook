@@ -838,6 +838,39 @@ test('table cell context menu: insert row, delete column, toggle header', {tag: 
   await expect(page.locator('.obe-table-header')).toHaveCount(0);
 });
 
+test('table colours: tint a row and a column via the menu; row wins (TBL-4)', {tag: ['@editor']}, async ({page}) => {
+  await freshLab(page);
+  await caretAtEnd(page, 2);
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('/table');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.obe-table')).toBeVisible();
+  await expect(page.locator('.obe-table tr')).toHaveCount(3);
+
+  const rows = page.locator('.obe-table tr');
+  // Tint row 1 (a body row) green via the "Row colour" submenu.
+  await rows.nth(1).locator('td').first().click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Row colour'}).hover();
+  await page.getByRole('menuitem', {name: 'Green'}).click();
+  await expect(rows.nth(1).locator('td.obe-bg-green')).toHaveCount(3);
+
+  // Tint column 0 blue via the "Column colour" submenu.
+  await rows.nth(0).locator('td').first().click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Column colour'}).hover();
+  await page.getByRole('menuitem', {name: 'Blue'}).click();
+  // Column 0 is blue in the untinted rows; the row-1 cell stays green (row wins).
+  await expect(rows.nth(0).locator('td').first()).toHaveClass(/obe-bg-blue/);
+  await expect(rows.nth(2).locator('td').first()).toHaveClass(/obe-bg-blue/);
+  await expect(rows.nth(1).locator('td').first()).toHaveClass(/obe-bg-green/);
+
+  // Clear the row tint; column blue then shows through at the intersection.
+  await rows.nth(1).locator('td').first().click({button: 'right'});
+  await page.getByRole('menuitem', {name: 'Row colour'}).hover();
+  await page.getByRole('menuitem', {name: 'Default'}).click();
+  await expect(rows.nth(1).locator('td').first()).toHaveClass(/obe-bg-blue/);
+  await expect(rows.nth(1).locator('td.obe-bg-green')).toHaveCount(0);
+});
+
 // ── Marquee (rubber-band) select + shift-click extension (SEL-1) ─────────────
 
 /** Grow the lab from its 3 seeded blocks to 5 top-level blocks. */

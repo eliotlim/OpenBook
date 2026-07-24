@@ -325,10 +325,18 @@ function renderBlocks(blocks: ExportBlock[], ctx: RenderCtx): string {
       break;
     case 'table': {
       const content = Array.isArray(d.content) ? (d.content as unknown[][]) : [];
+      // TBL-4: per-cell tint tokens (parallel to `content`) → inline background.
+      const colors = Array.isArray(d.cellColors) ? (d.cellColors as unknown[][]) : [];
       const cell = (c: unknown) => inlineToHtml(parseInline(str(c)), ctx);
+      const tint = (ri: number, ci: number): string => {
+        const tok = colors[ri]?.[ci];
+        return typeof tok === 'string' && COLOR_EXPORT_HEX[tok] ? ` style="background:${COLOR_EXPORT_HEX[tok].hl}"` : '';
+      };
       const rowsHtml = content.map((row, ri) => {
         const cells = (Array.isArray(row) ? row : [])
-          .map((c) => (ri === 0 && d.withHeadings === true ? `<th>${cell(c)}</th>` : `<td>${cell(c)}</td>`))
+          .map((c, ci) =>
+            ri === 0 && d.withHeadings === true ? `<th${tint(ri, ci)}>${cell(c)}</th>` : `<td${tint(ri, ci)}>${cell(c)}</td>`,
+          )
           .join('');
         return `<tr>${cells}</tr>`;
       });

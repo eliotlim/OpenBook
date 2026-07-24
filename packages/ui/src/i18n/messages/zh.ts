@@ -176,6 +176,8 @@ export const zh: PartialMessages = {
       moveColumnRight: '右移列',
       deleteRow: '删除行',
       deleteColumn: '删除列',
+      rowColour: '行颜色',
+      columnColour: '列颜色',
       toggleHeader: '切换标题行',
     },
   },

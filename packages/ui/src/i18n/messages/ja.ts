@@ -176,6 +176,8 @@ export const ja: PartialMessages = {
       moveColumnRight: '列を右へ移動',
       deleteRow: '行を削除',
       deleteColumn: '列を削除',
+      rowColour: '行の色',
+      columnColour: '列の色',
       toggleHeader: 'ヘッダー行を切り替え',
     },
   },
