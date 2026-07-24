@@ -36,7 +36,6 @@ import type {
   PageSubscription,
   StoredPageVersion,
   PageVisibility,
-  AgentEditsPolicy,
   PluginPackage,
   RowInput,
   RowUpdate,
