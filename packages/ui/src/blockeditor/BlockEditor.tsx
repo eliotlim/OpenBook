@@ -244,6 +244,11 @@ export const BlockEditor: React.FC<{
   // rAF loop, clear state). Stashed so we can tear down on unmount / read-only
   // flip mid-drag — otherwise the listeners + self-scheduling rAF leak.
   const marqueeTeardownRef = useRef<(() => void) | null>(null);
+  // Teardown for an in-flight cell drag-select (remove window listeners, clear
+  // transient drag state). Stashed so we can tear down on unmount / read-only
+  // flip mid-drag — otherwise the listeners leak and the next move runs on a
+  // detached doc / an unmounted tree.
+  const cellDragTeardownRef = useRef<(() => void) | null>(null);
   // Cell-range selection (TBL-5): a rectangle of table cells. LOCAL, per-user,
   // ephemeral — never CRDT. A ref mirrors it so the document-level clipboard /
   // keyboard listeners read the live value without re-subscribing every change.
@@ -1129,15 +1134,27 @@ export const BlockEditor: React.FC<{
       setCellSel({tableId, anchor, focus: cur});
       ev.preventDefault();
     };
-    const onUp = (): void => {
+    // Single teardown for the whole gesture: detach the window listeners and
+    // drop the transient drag state. Invoked from onUp on a normal release AND
+    // from the unmount / read-only-flip effects when a drag is cut short — so
+    // neither listener leaks past the editor's lifetime (the next move would
+    // otherwise run cellPosition on a detached doc + setCellSel on a dead tree).
+    const teardown = (): void => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      if (engaged) {
+      engaged = false;
+      cellDragTeardownRef.current = null;
+    };
+    const onUp = (): void => {
+      const wasEngaged = engaged;
+      teardown();
+      if (wasEngaged) {
         document.getSelection()?.removeAllRanges();
         (document.activeElement as HTMLElement | null)?.blur();
         suppressClickRef.current = true; // eat the trailing click (no caret jump)
       }
     };
+    cellDragTeardownRef.current = teardown;
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
   };
@@ -1150,6 +1167,17 @@ export const BlockEditor: React.FC<{
   // rather than leave it dangling on a now-frozen surface.
   React.useEffect(() => {
     if (readOnly) marqueeTeardownRef.current?.();
+  }, [readOnly]);
+
+  // Cut a live cell drag-select short when the editor unmounts, so its window
+  // listeners don't outlive the component (the next move would run on a detached
+  // doc + set state on an unmounted tree).
+  React.useEffect(() => () => cellDragTeardownRef.current?.(), []);
+
+  // A read-only flip mid-drag has no selection/copy path — tear the cell drag
+  // down too (selection-only, so low stakes, but keep parity with the marquee).
+  React.useEffect(() => {
+    if (readOnly) cellDragTeardownRef.current?.();
   }, [readOnly]);
 
   return (

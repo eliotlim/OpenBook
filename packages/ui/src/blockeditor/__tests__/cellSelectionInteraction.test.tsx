@@ -1,4 +1,4 @@
-import {describe, it, expect, afterEach} from 'vitest';
+import {describe, it, expect, afterEach, vi} from 'vitest';
 import {render, cleanup, fireEvent} from '@testing-library/react';
 import {createDoc, findBlock, blockText} from '../model';
 import {registerArtifactKit} from '../kit';
@@ -107,5 +107,58 @@ describe('cell-range keyboard', () => {
     fireEvent.keyDown(document, {key: 'Backspace'});
     const textOf = (id: string) => blockText(findBlock(doc, id)!.block)!.toString();
     expect([textOf('r0c0'), textOf('r1c1')]).toEqual(['A1', 'B2']); // unchanged
+  });
+});
+
+describe('cell drag-select teardown (leak guard)', () => {
+  it('unmount mid drag detaches the gesture window listeners — no stray move on a dead tree', () => {
+    // Track live window mousemove/mouseup listeners so we can prove the
+    // per-gesture pair armed by startCellDrag is detached when the editor
+    // unmounts mid-drag (otherwise the next move runs cellPosition on a
+    // detached doc + setCellSel on an unmounted tree).
+    const live = new Set<EventListenerOrEventListenerObject>();
+    const origAdd = window.addEventListener.bind(window);
+    const origRemove = window.removeEventListener.bind(window);
+    const addSpy = vi
+      .spyOn(window, 'addEventListener')
+      .mockImplementation((type: string, fn: EventListenerOrEventListenerObject | null, opts?: boolean | AddEventListenerOptions) => {
+        if (!fn) return;
+        if (type === 'mousemove' || type === 'mouseup') live.add(fn);
+        return origAdd(type, fn, opts);
+      });
+    const removeSpy = vi
+      .spyOn(window, 'removeEventListener')
+      .mockImplementation((type: string, fn: EventListenerOrEventListenerObject | null, opts?: boolean | EventListenerOptions) => {
+        if (!fn) return;
+        if (type === 'mousemove' || type === 'mouseup') live.delete(fn);
+        return origRemove(type, fn, opts);
+      });
+
+    const doc = seed();
+    const {container, unmount} = render(<BlockEditor doc={doc} readOnly={false} />);
+    const cell = container.querySelector('[data-block-text="r0c0"]') as HTMLElement;
+
+    // Press inside a cell → arms the coordinate-tracked cell drag (window
+    // mousemove + mouseup); the marquee no-ops inside a contenteditable.
+    const before = new Set(live);
+    fireEvent.mouseDown(cell, {button: 0, clientX: 5, clientY: 5});
+    const armed = [...live].filter((h) => !before.has(h));
+    expect(armed.length).toBe(2); // mousemove + mouseup are live
+
+    // Unmount mid-drag, then let a stray move + release fire on window.
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    unmount();
+    expect(armed.every((h) => !live.has(h))).toBe(true); // teardown removed both
+
+    expect(() => {
+      fireEvent(window, new MouseEvent('mousemove', {clientX: 40, clientY: 40}));
+      fireEvent(window, new MouseEvent('mouseup'));
+    }).not.toThrow();
+    // No React "setState on unmounted" / "not wrapped in act" warning fired.
+    expect(errSpy).not.toHaveBeenCalled();
+
+    errSpy.mockRestore();
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
   });
 });
