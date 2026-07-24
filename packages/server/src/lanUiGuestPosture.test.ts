@@ -69,10 +69,12 @@ describe('STAB-7 — the served-UI origin is guest-gated (no access token on the
 
     // …then the app it just booted writes to the SAME origin's /api with no
     // identity header and no access token — a plain LAN guest. guestAccess=write
-    // lets it through.
+    // lets it through. The served UI's sdk transport stamps X-OpenBook-Client on
+    // every request (STAB-8's first-party marker); without it the guest-write
+    // gate 403s regardless of guestAccess.
     const created = await app.request('/api/pages', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: pageBody(`lan-guest-${seq}`),
     });
     expect(created.status).toBe(201);
@@ -87,10 +89,12 @@ describe('STAB-7 — the served-UI origin is guest-gated (no access token on the
     // Reads over the served origin still work…
     expect((await app.request('/api/pages')).status).toBe(200);
     // …but a guest write is refused by the gate, NOT waved through for lack of a
-    // token. This is the whole point of the guest-first posture.
+    // token. This is the whole point of the guest-first posture. The first-party
+    // client header is present, so the 403 is guestAccess=read speaking — not
+    // STAB-8's missing-header gate.
     const blocked = await app.request('/api/pages', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: pageBody(`lan-guest-ro-${seq}`),
     });
     expect(blocked.status).toBe(403);

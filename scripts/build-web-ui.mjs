@@ -33,13 +33,15 @@ const webDir = join(repoRoot, 'packages', 'web');
 const outDir = join(webDir, 'out');
 const stageDir = join(repoRoot, 'packages', 'app', 'src-tauri', 'resources', 'web-ui');
 
-// The export imports @book.dev/ui + @book.dev/sdk from their dists. `build:libs`
-// builds them before this in the full flow, but a standalone invocation may run
-// first — build them on demand so this script is self-sufficient (matching
-// build-sidecar.mjs's on-demand mcp/viewer builds).
+// The export imports @book.dev/ui + @book.dev/sdk from their dists, and
+// @book.dev/server/browser from the server's tsup dist (which build:sidecar
+// does NOT produce). `build:libs` builds them before this in the full flow, but
+// a standalone invocation may run first — build them on demand so this script
+// is self-sufficient (matching build-sidecar.mjs's on-demand mcp/viewer builds).
 for (const [pkg, dist] of [
   ['@book.dev/sdk', join(repoRoot, 'packages', 'sdk', 'dist', 'index.js')],
   ['@book.dev/ui', join(repoRoot, 'packages', 'ui', 'dist', 'index.js')],
+  ['@book.dev/server', join(repoRoot, 'packages', 'server', 'dist', 'browser.js')],
 ]) {
   if (!existsSync(dist)) {
     console.log(`${pkg} dist missing — building it (pnpm --filter ${pkg} run build)…`);
