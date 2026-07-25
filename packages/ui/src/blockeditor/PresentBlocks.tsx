@@ -12,6 +12,7 @@ const CLOSED: EditorUI['slash'] = {open: false, blockId: '', anchorOffset: 0, qu
 const READONLY_UI: EditorUI = {
   slash: CLOSED,
   mention: CLOSED,
+  wiki: CLOSED,
   emoji: CLOSED,
   spellcheck: false,
   openSlash() {},
@@ -22,6 +23,10 @@ const READONLY_UI: EditorUI = {
   updateMention() {},
   closeMention() {},
   mentionKey() {},
+  openWiki() {},
+  updateWiki() {},
+  closeWiki() {},
+  wikiKey() {},
   openEmoji() {},
   updateEmoji() {},
   closeEmoji() {},

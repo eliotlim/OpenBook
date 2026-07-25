@@ -34,8 +34,10 @@ export interface PageLinkBridge {
   /** Database ROWS whose title matches `query` (rows are pages too, so `@` can
    *  link one). Async — rows live under each database, not the page list. */
   searchRows?: (query: string, limit?: number) => Promise<PageLinkResult[]>;
-  /** Create a new page titled `name` (no navigation); resolves its id. */
-  createPage: (name: string) => Promise<string>;
+  /** Create a new page titled `name` (no navigation); resolves its id. Pass
+   *  `parentId` to nest it under a page (the "[[" wikilink auto-create nests the
+   *  new page under the page it was typed in). */
+  createPage: (name: string, parentId?: string | null) => Promise<string>;
 }
 
 let bridge: PageLinkBridge | null = null;
@@ -65,6 +67,6 @@ export const pageLinks: PageLinkBridge = {
   icon: (id) => bridge?.icon(id) ?? '📄',
   searchPages: (query, opts) => bridge?.searchPages(query, opts) ?? [],
   searchRows: (query, limit) => bridge?.searchRows?.(query, limit) ?? Promise.resolve([]),
-  createPage: (name) =>
-    bridge ? bridge.createPage(name) : Promise.reject(new Error('page links not ready')),
+  createPage: (name, parentId) =>
+    bridge ? bridge.createPage(name, parentId) : Promise.reject(new Error('page links not ready')),
 };
