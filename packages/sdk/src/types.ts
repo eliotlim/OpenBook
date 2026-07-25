@@ -82,6 +82,38 @@ export interface PageMeta {
   updatedAt: string;
 }
 
+/** One node in the page-link graph — a live page (standalone or database row). */
+export interface PageGraphNode {
+  id: string;
+  name: string | null;
+  /** The page's emoji icon, or `null`/absent when none is set. */
+  icon?: string | null;
+}
+
+/**
+ * A directed link between two pages in the graph. `kind` distinguishes an inline
+ * `@`-mention in the source page's document (`'mention'`) from a structured
+ * relation reference in its properties (`'relation'`), so the two can be rendered
+ * distinctly.
+ */
+export interface PageGraphEdge {
+  from: string;
+  to: string;
+  kind: 'mention' | 'relation';
+}
+
+/**
+ * The whole page-link graph: every live, readable page as a node, plus every
+ * directed link (mention or relation) whose BOTH endpoints are readable by the
+ * requesting principal. Edges are computed on the fly from page content +
+ * properties (no persisted edge table); self-loops and edges to missing/deleted
+ * pages are dropped.
+ */
+export interface PageGraph {
+  nodes: PageGraphNode[];
+  edges: PageGraphEdge[];
+}
+
 /** A full page as returned by the store. `data` is the document snapshot. */
 export interface StoredPage {
   id: string;

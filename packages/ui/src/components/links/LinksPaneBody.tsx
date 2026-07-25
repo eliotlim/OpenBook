@@ -1,9 +1,12 @@
 import {useCallback, useEffect, useState, type KeyboardEvent as ReactKeyboardEvent} from 'react';
-import {Link2, Search} from 'lucide-react';
+import {Link2, Network, Search} from 'lucide-react';
 import type {PageMeta} from '@book.dev/sdk';
 import {snapshotText} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {getLinksTarget, subscribeLinksPane} from '@/lib/linksPane';
+import {setGraphTarget} from '@/lib/graphPane';
+import {GRAPH_PANE_ID} from '@/lib/homePage';
+import {IconButton} from '@/components/ui/icon-button';
 import {useNavigation, useTranslation} from '@/providers';
 import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
@@ -143,7 +146,7 @@ function useUnlinkedMentions(
  */
 export function LinksPaneBody() {
   const {t} = useTranslation();
-  const {selectPage, selectPageAtBlock, pageLabel, pages, closeSplit} = useNavigation();
+  const {selectPage, selectPageAtBlock, pageLabel, pages, closeSplit, openInSplit} = useNavigation();
   const client = useData();
   const [target, setTarget] = useState(getLinksTarget());
   useEffect(() => subscribeLinksPane(() => setTarget(getLinksTarget())), []);
@@ -202,9 +205,24 @@ export function LinksPaneBody() {
 
   return (
     <div className="flex h-full flex-col" onKeyDown={onKeyDown}>
-      <div className="shrink-0 border-b border-border px-4 py-2.5">
-        <p className="truncate text-sm font-semibold">{t('links.title')}</p>
-        <p className="truncate text-xs text-muted-foreground">{pageId ? pageLabel(pageId) : t('links.noPage')}</p>
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold">{t('links.title')}</p>
+          <p className="truncate text-xs text-muted-foreground">{pageId ? pageLabel(pageId) : t('links.noPage')}</p>
+        </div>
+        {pageId && (
+          <IconButton
+            size="sm"
+            aria-label={t('command.pageGraph')}
+            title={t('command.pageGraph')}
+            onClick={() => {
+              setGraphTarget(pageId);
+              openInSplit(GRAPH_PANE_ID);
+            }}
+          >
+            <Network className="h-3.5 w-3.5" />
+          </IconButton>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">

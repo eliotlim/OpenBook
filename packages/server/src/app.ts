@@ -1088,6 +1088,19 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.json(await store.filterReadablePages(c.get('principal'), backlinks));
   });
 
+  // The whole-library page-link graph. Gated exactly like GET /api/pages: the
+  // per-principal read filter IS the access control (no requireAccess on a single
+  // page — this is a library-wide read), so a guest passes the same read gate as
+  // the page list. The graph builder is threaded the principal's `canReadPage`
+  // predicate (access base resolved once, amortised across pages) — mirroring
+  // /api/ai/search — so a restricted page is dropped as a node AND its edges are
+  // dropped from both directions. Sasha: this is the read-gate seam.
+  app.get(API.pageGraph, async (c) => {
+    const principal = c.get('principal');
+    const base = await store.accessBase(principal);
+    return c.json(await store.pageGraph((pageId) => store.canReadPage(principal, pageId, base)));
+  });
+
   // ── Page version history (PVH-3) ───────────────────────────────────────────────
   //
   // Read/restore of the snapshot-on-save history captured in the page upsert (PVH-1).
