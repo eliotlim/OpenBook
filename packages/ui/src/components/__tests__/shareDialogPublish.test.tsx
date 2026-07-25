@@ -28,15 +28,16 @@ vi.mock('@/providers', async (orig) => {
   };
 });
 
-const info = (): InstanceInfo => ({
+const info = (over: Partial<InstanceInfo> = {}): InstanceInfo => ({
   guestAccess: 'write',
   ownerSubject: null,
   trustedIssuers: [],
   audience: null,
   you: guestPrincipal('Rae'),
+  ...over,
 });
 
-const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}) =>
+const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}, instance: Partial<InstanceInfo> = {}) =>
   render(
     <I18nProvider>
       <DataProvider
@@ -44,7 +45,7 @@ const wrap = (visibility: PageVisibility, over: Partial<DataClient> = {}) =>
           {
             getPageVisibility: async () => visibility,
             listPageAcl: async () => [],
-            getInstanceInfo: async () => info(),
+            getInstanceInfo: async () => info(instance),
             setPageVisibility: vi.fn(async (_id: string, v: PageVisibility) => v),
             ...over,
           } as unknown as DataClient
@@ -97,5 +98,33 @@ describe('ShareDialog — per-page Publish affordance (GATE-6)', () => {
     open();
     fireEvent.click(await screen.findByRole('button', {name: 'Serve published pages'}));
     await waitFor(() => expect(setSiteVisibility).toHaveBeenCalledWith('published'));
+  });
+
+  it('does NOT claim "Published" when the guest gate is off — it shows the guest-off caveat instead', async () => {
+    // Public page + serving address, but signed-out reads are denied by the guest
+    // gate: the page isn't actually reachable, so the live indicator must not show.
+    wrap('public', {}, {guestAccess: 'off'});
+    open();
+    // The guest-off caveat explains why the page isn't reachable. It appears in the
+    // Publish row (this fix) alongside the SiteVisibilityControl's own copy of the
+    // same caveat, so there is at least one — assert on all matches.
+    expect((await screen.findAllByText(/Guest access is off/)).length).toBeGreaterThanOrEqual(1);
+    // …and the page is NOT advertised as live.
+    expect(screen.queryByText('Published')).toBeNull();
+  });
+
+  it('shows "Published" when the guest gate admits signed-out reads (read)', async () => {
+    wrap('public', {}, {guestAccess: 'read'});
+    open();
+    expect(await screen.findByText('Published')).toBeTruthy();
+    expect(screen.getByText(/open this page at rae\.book\.cloud/)).toBeTruthy();
+    expect(screen.queryByText(/Guest access is off/)).toBeNull();
+  });
+
+  it('shows "Published" when the guest gate admits signed-out reads (write)', async () => {
+    wrap('public', {}, {guestAccess: 'write'});
+    open();
+    expect(await screen.findByText('Published')).toBeTruthy();
+    expect(screen.queryByText(/Guest access is off/)).toBeNull();
   });
 });

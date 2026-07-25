@@ -211,10 +211,15 @@ function InlinePublish() {
 }
 
 /**
- * The per-page "Publish to the web" affordance (GATE-6). Three states, all under a
+ * The per-page "Publish to the web" affordance (GATE-6). Four states, all under a
  * reachable published address:
- *   - `live` — the page resolves to `public` and the address serves public pages,
- *     so it's open at the site address: a "Published" indicator with the address.
+ *   - `live` — the page resolves to `public`, the address serves public pages, AND
+ *     the instance guest gate admits signed-out reads, so it's genuinely open at the
+ *     site address: a "Published" indicator with the address.
+ *   - `guestOff` — the page + address both say public, but the instance guest gate is
+ *     `off`, so signed-out visitors still can't read it. Instead of claiming
+ *     "Published" (a lie) or rendering nothing, show the amber guest-off caveat that
+ *     explains why the page isn't reachable and where to fix it.
  *   - `canPublish` (page not yet public) — a primary "Publish page" button that
  *     flips the page to `public` in one click (immediately live when the address is
  *     "Only published pages"/"Public", which a new site now defaults to).
@@ -224,12 +229,14 @@ function InlinePublish() {
 function PublishRow({
   live,
   canPublish,
+  guestOff,
   host,
   busy,
   onPublish,
 }: {
   live: boolean;
   canPublish: boolean;
+  guestOff: boolean;
   host: string;
   busy: boolean;
   onPublish: () => void;
@@ -246,6 +253,19 @@ function PublishRow({
           </span>
         </span>
       </div>
+    );
+  }
+  // Scope + address both resolve public, but the guest gate is closed — a signed-out
+  // visitor still 404s. Explain the one thing the publish flow can't paper over
+  // (reusing the SiteVisibilityControl caveat idiom) rather than under-/over-claiming.
+  if (guestOff) {
+    return (
+      <p
+        aria-live="polite"
+        className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground"
+      >
+        {t('forwarding.visibility.guestOffCaveat')}
+      </p>
     );
   }
   if (!canPublish) return null;
@@ -530,14 +550,25 @@ export default function ShareDialog({
                 once it is. Shown only while THIS device is actually publishing
                 (`publishedHost`) and the viewer manages sharing. "Published" means
                 the page resolves to `public` AND the address serves public pages to
-                signed-out visitors (`public`/`published` scope); short of that, the
-                address-mismatch notice further down guides the fix. Publishing is a
+                signed-out visitors (`public`/`published` scope) AND the instance
+                guest gate isn't `off` (a closed gate 404s signed-out reads even at an
+                open address — surfaced inline as the guest-off caveat); short of that,
+                the address-mismatch notice further down guides the fix. Publishing is a
                 one-click scope→public because a new site's address now defaults to
                 "Only published pages", so a public page is immediately live. */}
             {canManage && !browserLocal && publishedHost && (
               <PublishRow
-                live={effectiveScope === 'public' && (siteVisibility === 'public' || siteVisibility === 'published')}
+                live={
+                  effectiveScope === 'public' &&
+                  (siteVisibility === 'public' || siteVisibility === 'published') &&
+                  guestAccess !== 'off'
+                }
                 canPublish={effectiveScope !== 'public'}
+                guestOff={
+                  effectiveScope === 'public' &&
+                  (siteVisibility === 'public' || siteVisibility === 'published') &&
+                  guestAccess === 'off'
+                }
                 host={publishedHost}
                 busy={loading}
                 onPublish={() => void changeScope('public')}
