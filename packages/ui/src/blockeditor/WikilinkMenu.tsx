@@ -77,12 +77,17 @@ export const WikilinkMenu: React.FC<{
       .filter((r) => !seen.has(r.id))
       .map((r) => ({kind: 'page', id: r.id, label: r.label, page: r}));
     const results = [...pages, ...rowItems];
-    // The Create row leads the list when the typed name matches no existing page
+    // The Create row is offered when the typed name matches no existing page
     // EXACTLY (a lookalike prefix still offers create — that's the whole point of
     // duplicate names). Suppressed for an empty query (nothing to name).
+    // Placement: when there ARE matches, Create goes LAST so the highlight (index
+    // 0) sits on the first real match and Enter links a near-match rather than
+    // spawning a duplicate child. Only when there are NO matches does Create lead
+    // and become the auto-selected row.
     const hasExact = results.some((it) => it.label.trim().toLowerCase() === ql);
     if (q !== '' && !hasExact) {
-      return [{kind: 'create', id: 'create', label: t('mention.create', {name: q}), name: q}, ...results];
+      const createItem: WikiItem = {kind: 'create', id: 'create', label: t('mention.create', {name: q}), name: q};
+      return results.length > 0 ? [...results, createItem] : [createItem];
     }
     return results;
   }, [query, rows]);

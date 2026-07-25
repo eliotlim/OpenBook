@@ -157,17 +157,53 @@ describe('wikilink accept — create path (child of current page)', () => {
     expect(anchor!.getAttribute('data-page-id')).toBe('new-page-1');
   });
 
-  it('shows the Create row FIRST and suppresses it on an exact match', () => {
-    const {container, el} = mount();
-    typeText(el, '[[Ro'); // partial → Create row + Roadmap
-    let labels = [...container.querySelectorAll('.obe-slash-label')].map((n) => n.textContent);
-    expect(labels[0]).toMatch(/Create/);
-    expect(labels).toContain('Roadmap');
-    // Complete the exact name → Create row disappears.
-    typeText(el, 'admap');
-    labels = [...container.querySelectorAll('.obe-slash-label')].map((n) => n.textContent);
-    expect(labels.some((l) => /Create/.test(l ?? ''))).toBe(false);
-    expect(labels).toContain('Roadmap');
+  it('renders the Create row LAST with matches, FIRST + selected with none, and suppresses it on an exact match', () => {
+    // (a) Partial name WITH a match → Create goes LAST and the first real match is
+    // the auto-highlighted row, so Enter links the near-match instead of spawning
+    // a duplicate child page.
+    {
+      const {container, el} = mount();
+      typeText(el, '[[Ro'); // partial → Roadmap + Create (last)
+      const labels = [...container.querySelectorAll('.obe-slash-label')].map((n) => n.textContent);
+      expect(labels[0]).toBe('Roadmap');
+      expect(labels[labels.length - 1]).toMatch(/Create/);
+      const options = [...container.querySelectorAll('[role="option"]')];
+      expect(options[0].getAttribute('aria-selected')).toBe('true');
+      expect(options[0].querySelector('.obe-slash-label')?.textContent).toBe('Roadmap');
+      cleanup();
+    }
+    // (b) Name with NO matches → Create leads and is the auto-selected row.
+    {
+      const {container, el} = mount();
+      typeText(el, '[[Zzz'); // matches nothing → Create only
+      const labels = [...container.querySelectorAll('.obe-slash-label')].map((n) => n.textContent);
+      expect(labels[0]).toMatch(/Create/);
+      expect(labels.every((l) => !/Roadmap|Notes/.test(l ?? ''))).toBe(true);
+      const options = [...container.querySelectorAll('[role="option"]')];
+      expect(options[0].getAttribute('aria-selected')).toBe('true');
+      expect(options[0].querySelector('.obe-slash-label')?.textContent).toMatch(/Create/);
+      cleanup();
+    }
+    // (c) Exact match → the Create row is suppressed entirely.
+    {
+      const {container, el} = mount();
+      typeText(el, '[[Roadmap');
+      const labels = [...container.querySelectorAll('.obe-slash-label')].map((n) => n.textContent);
+      expect(labels.some((l) => /Create/.test(l ?? ''))).toBe(false);
+      expect(labels).toContain('Roadmap');
+    }
+  });
+});
+
+describe('wikilink empty brackets "[[]]"', () => {
+  it('typing "[[]]" inserts NO chip and leaves the literal text', () => {
+    const {doc, container, el} = mount();
+    typeText(el, '[[]]'); // the closing "]]" must NOT commit the top-ranked page
+    // No mention chip was inserted…
+    expect(container.querySelector('a.obe-mention')).toBeFalsy();
+    expect(runs(doc).some((x) => x.m)).toBe(false);
+    // …and the literal "[[]]" survives verbatim.
+    expect(blockPlainText(rootBlocks(doc).get(0))).toBe('[[]]');
   });
 });
 

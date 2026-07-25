@@ -180,7 +180,7 @@ export const TextBlockView: React.FC<{
       // commits the highlighted row (existing page or the Create row) instead of
       // typing a literal "]". The menu owns removing the "[[query]" literal and
       // inserting the chip; this only swallows the final "]".
-      if (data === ']' && ui.wiki.open && ui.wiki.blockId === id && ui.wiki.query.trim() !== '') {
+      if (data === ']' && ui.wiki.open && ui.wiki.blockId === id && ui.wiki.query.replace(/\]+$/, '').trim() !== '') {
         const before = text.toString().slice(0, sel.start);
         if (before.endsWith(']')) {
           ui.wikiKey('Enter');

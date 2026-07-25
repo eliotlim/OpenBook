@@ -498,7 +498,7 @@ export const en = {
   },
   mention: {
     label: 'Link to page',
-    create: 'Create page “{name}”',
+    create: 'Create subpage “{name}”',
     empty: 'No pages — keep typing to create one.',
   },
   properties: {
