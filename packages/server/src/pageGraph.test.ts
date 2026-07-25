@@ -2,7 +2,14 @@ import {rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {afterEach, beforeEach, describe, expect, it} from 'vitest';
-import {mintIdentityKeypair, signIdentity, type IdentityClaims, type IdentityKeypair, type Jwks} from '@book.dev/sdk';
+import {
+  guestPrincipal,
+  mintIdentityKeypair,
+  signIdentity,
+  type IdentityClaims,
+  type IdentityKeypair,
+  type Jwks,
+} from '@book.dev/sdk';
 import {PgliteDb} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
@@ -204,6 +211,94 @@ describe('GET /api/page-graph — route read-gating end to end', () => {
   });
 });
 
+describe('GET /api/page-graph — blanket-read fast path (Sasha)', () => {
+  const ISS = 'https://account.book.pub';
+  let kp: IdentityKeypair;
+  let jwks: Jwks;
+
+  const idFor = (sub: string): Promise<string> =>
+    signIdentity(
+      kp.privateKey,
+      {
+        iss: ISS,
+        sub,
+        name: sub,
+        iat: Math.floor(Date.now() / 1000) - 30,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        jti: `jti-${sub}-${Math.random()}`,
+      },
+      kp.publicJwk.kid,
+    );
+
+  beforeEach(async () => {
+    kp = await mintIdentityKeypair('k1');
+    jwks = {keys: [kp.publicJwk]};
+  });
+
+  const appWithIdentity = () => createApp(store, undefined, new PageHub(), {identity: new IdentityService(store)});
+
+  it('store.blanketReadDecision returns true (owner) / false (guest-off) / null (per-page)', async () => {
+    // Unclaimed + guest access disabled → uniformly DENIED (false).
+    await store.updateInstanceConfig({guestAccess: 'off'});
+    expect(await store.blanketReadDecision(guestPrincipal())).toBe(false);
+
+    // Claim + trust the issuer; a claimed owner is uniformly READABLE (true).
+    await store.updateInstanceConfig({trustedIssuers: [{issuer: ISS, jwks}], defaultVisibility: 'public', guestAccess: 'read'});
+    await store.claimOwnership(`${ISS}#owner`);
+    const owner = {kind: 'user', subject: `${ISS}#owner`, issuer: ISS, name: 'owner', verifiedVia: 'jws'} as const;
+    expect(await store.blanketReadDecision(owner)).toBe(true);
+
+    // A claimed-instance guest is neither — the decision is per page (null).
+    expect(await store.blanketReadDecision(guestPrincipal())).toBeNull();
+  });
+
+  it('owner-unfiltered: blanket-true serves the whole graph incl. a restricted node', async () => {
+    await store.updateInstanceConfig({trustedIssuers: [{issuer: ISS, jwks}], defaultVisibility: 'public'});
+    await store.claimOwnership(`${ISS}#owner`);
+    const b = await store.upsertPage({name: 'B', data: emptySnapshot()});
+    const r = await store.upsertPage({name: 'R', data: emptySnapshot()});
+    await store.setPageVisibility(r.id, 'restricted');
+    const a = await store.upsertPage({name: 'A', data: mentionSnapshot([r.id, b.id])});
+
+    const res = await appWithIdentity().request('/api/page-graph', {headers: {[IDENTITY_HEADER]: await idFor('owner')}});
+    expect(res.status).toBe(200);
+    const graph = (await res.json()) as {nodes: {id: string}[]; edges: {from: string; to: string}[]};
+    expect(graph.nodes.map((n) => n.id).sort()).toEqual([a.id, b.id, r.id].sort());
+    expect(graph.edges).toContainEqual(expect.objectContaining({from: a.id, to: r.id}));
+  });
+
+  it('denied-empty: blanket-false (unclaimed, guest access off) serves an empty graph', async () => {
+    // Pages exist, but with guest access disabled on an unclaimed instance the whole
+    // library is uniformly unreadable → the route returns {nodes:[],edges:[]}.
+    const b = await store.upsertPage({name: 'B', data: emptySnapshot()});
+    await store.upsertPage({name: 'A', data: mentionSnapshot([b.id])});
+    await store.updateInstanceConfig({guestAccess: 'off'});
+
+    // No identity provider ⇒ the guest reaches the route (no guest-gate 401); the
+    // blanket fast path denies it.
+    const res = await createApp(store, undefined, new PageHub()).request('/api/page-graph');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({nodes: [], edges: []});
+  });
+
+  it('mixed-filtered: blanket-null threads the per-page predicate (guest drops a restricted node)', async () => {
+    await store.updateInstanceConfig({trustedIssuers: [{issuer: ISS, jwks}], defaultVisibility: 'public'});
+    await store.claimOwnership(`${ISS}#owner`);
+    const b = await store.upsertPage({name: 'B', data: emptySnapshot()});
+    const r = await store.upsertPage({name: 'R', data: emptySnapshot()});
+    await store.setPageVisibility(r.id, 'restricted');
+    const a = await store.upsertPage({name: 'A', data: mentionSnapshot([r.id, b.id])});
+
+    // Guest (no identity header) on a CLAIMED instance → per-page filter.
+    const res = await appWithIdentity().request('/api/page-graph');
+    expect(res.status).toBe(200);
+    const graph = (await res.json()) as {nodes: {id: string}[]; edges: {from: string; to: string}[]};
+    expect(graph.nodes.map((n) => n.id).sort()).toEqual([a.id, b.id].sort()); // R filtered
+    expect(graph.edges).not.toContainEqual(expect.objectContaining({to: r.id}));
+    expect(graph.edges).toContainEqual(expect.objectContaining({from: a.id, to: b.id}));
+  });
+});
+
 describe('store.pageGraph — 500-page synthetic library timing', () => {
   it('builds the graph over 500 pages within a reasonable budget', async () => {
     const N = 500;
@@ -233,5 +328,18 @@ describe('store.pageGraph — 500-page synthetic library timing', () => {
     const filteredMs = performance.now() - t1;
     console.log(`[OB-33 perf] pageGraph (read-filtered) over ${N} pages: build=${filteredMs.toFixed(1)}ms`);
     expect(filtered.edges.length).toBe(N * 3);
+
+    // Sasha INFO: the REAL cost — the actual `canReadPage` predicate (a DB read per
+    // node) threaded over the 500-page fixture, i.e. the per-page path the route
+    // takes when the blanket fast path doesn't apply. Logged only; no threshold.
+    const principal = guestPrincipal();
+    const base = await store.accessBase(principal);
+    const t2 = performance.now();
+    const realFiltered = await store.pageGraph((pageId) => store.canReadPage(principal, pageId, base));
+    const realMs = performance.now() - t2;
+    console.log(
+      `[OB-33 perf] pageGraph (real canReadPage) over ${N} pages: ` +
+        `nodes=${realFiltered.nodes.length} edges=${realFiltered.edges.length} build=${realMs.toFixed(1)}ms`,
+    );
   });
 });

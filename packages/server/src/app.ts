@@ -1091,13 +1091,22 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // The whole-library page-link graph. Gated exactly like GET /api/pages: the
   // per-principal read filter IS the access control (no requireAccess on a single
   // page — this is a library-wide read), so a guest passes the same read gate as
-  // the page list. The graph builder is threaded the principal's `canReadPage`
-  // predicate (access base resolved once, amortised across pages) — mirroring
-  // /api/ai/search — so a restricted page is dropped as a node AND its edges are
-  // dropped from both directions. Sasha: this is the read-gate seam.
+  // the page list. A blanket fast path (mirroring filterReadablePages) resolves
+  // the page-independent decision once — uniformly-readable ⇒ unfiltered build,
+  // uniformly-denied ⇒ empty graph — else the graph builder is threaded the
+  // principal's `canReadPage` predicate (access base resolved once, amortised
+  // across pages, mirroring /api/ai/search) so a restricted page is dropped as a
+  // node AND its edges are dropped from both directions. Sasha: read-gate seam.
   app.get(API.pageGraph, async (c) => {
     const principal = c.get('principal');
     const base = await store.accessBase(principal);
+    // Blanket fast path (mirrors filterReadablePages): when the whole library is
+    // uniformly readable (owner/admin/blanket-guest) or uniformly denied, skip the
+    // per-page `canReadPage` predicate — a linear N-await over every page.
+    const blanket = await store.blanketReadDecision(principal, base);
+    if (blanket !== null) {
+      return c.json(blanket ? await store.pageGraph() : {nodes: [], edges: []});
+    }
     return c.json(await store.pageGraph((pageId) => store.canReadPage(principal, pageId, base)));
   });
 

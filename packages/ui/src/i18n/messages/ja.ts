@@ -358,7 +358,7 @@ export const ja: PartialMessages = {
     wholeLibrary: 'ライブラリ全体',
     mention: 'メンション',
     relation: 'リレーション',
-    showingXofY: '{total} ページ中 {shown} ページを表示',
+    cap: 'この近傍の {total} ページ中、最も近い {shown} ページを表示',
     loading: 'グラフを読み込み中…',
     empty: 'リンクされたページはまだありません',
     emptyHint: '@メンションやデータベースのリレーションでページをリンクすると、そのつながりがグラフとして表示されます。',

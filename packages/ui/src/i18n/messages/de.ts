@@ -359,7 +359,7 @@ export const de: PartialMessages = {
     wholeLibrary: 'Gesamte Bibliothek',
     mention: 'Erwähnung',
     relation: 'Beziehung',
-    showingXofY: '{shown} von {total} Seiten',
+    cap: 'Die {shown} nächstgelegenen von {total} Seiten in dieser Umgebung',
     loading: 'Graph wird geladen…',
     empty: 'Noch keine verknüpften Seiten',
     emptyHint: 'Verknüpfe Seiten mit @-Erwähnungen oder Datenbankbeziehungen — die Verbindungen erscheinen hier als Graph.',

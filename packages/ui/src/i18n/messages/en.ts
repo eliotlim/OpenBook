@@ -505,7 +505,7 @@ export const en = {
     wholeLibrary: 'Whole library',
     mention: 'Mention',
     relation: 'Relation',
-    showingXofY: 'Showing {shown} of {total} pages',
+    cap: 'Showing the {shown} closest pages of {total} in this neighborhood',
     loading: 'Loading graph…',
     empty: 'No linked pages yet',
     emptyHint: 'Link pages with @-mentions or database relations — the connections appear here as a graph.',

@@ -356,7 +356,7 @@ export const zh: PartialMessages = {
     wholeLibrary: '整个库',
     mention: '提及',
     relation: '关系',
-    showingXofY: '显示 {total} 个页面中的 {shown} 个',
+    cap: '显示此邻域中 {total} 个页面里最近的 {shown} 个',
     loading: '正在加载图谱…',
     empty: '还没有链接的页面',
     emptyHint: '用 @ 提及或数据库关系链接页面——这些连接会在这里以图谱显示。',

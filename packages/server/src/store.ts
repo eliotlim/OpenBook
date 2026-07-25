@@ -2785,6 +2785,19 @@ export class PageStore {
     return null;
   }
 
+  /**
+   * The page-independent read decision for a whole-library read, or `null` when
+   * it must be resolved per page. A thin PUBLIC seam over {@link blanketRead} —
+   * the page-graph route uses it exactly like {@link filterReadablePages}'s fast
+   * path: `true` ⇒ the whole library is readable (owner/admin/blanket-guest) so
+   * the graph builder can skip the per-page predicate; `false` ⇒ nothing is
+   * readable so return an empty graph; `null` ⇒ thread `canReadPage` per node.
+   */
+  async blanketReadDecision(principal: Principal, base?: AccessBase): Promise<boolean | null> {
+    const b = base ?? (await this.accessBase(principal));
+    return this.blanketRead(principal, b);
+  }
+
   /** May the principal read this page? (existence-aware: a missing page ⇒ false). */
   async canReadPage(principal: Principal, pageId: string, base?: AccessBase): Promise<boolean> {
     const {decision, exists} = await this.decidePageAccess(principal, pageId, base);

@@ -1,4 +1,13 @@
-import {createContext, useContext, useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent} from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import {
   Background,
   BackgroundVariant,
@@ -15,7 +24,7 @@ import '@xyflow/react/dist/style.css';
 import {Network} from 'lucide-react';
 import type {PageGraph, PageGraphNode} from '@book.dev/sdk';
 import {layeredLayout, type DataflowGraph} from '@/blockeditor/kit/dataflow';
-import {getGraphTarget, subscribeGraphPane} from '@/lib/graphPane';
+import {getGraphTarget, setGraphTarget, subscribeGraphPane} from '@/lib/graphPane';
 import {useData} from '@/data';
 import {useNavigation, useTheme, useTranslation} from '@/providers';
 import {PageIcon} from '@/components/PageIcon';
@@ -53,26 +62,49 @@ const HoverContext = createContext<{
   setHovered: (id: string | null) => void;
     }>({hovered: null, connected: new Set(), setHovered: () => undefined});
 
+/**
+ * Node activation (navigate + re-centre) shared via context so the changing
+ * handler doesn't have to live in the memoised node OBJECTS — rebuilding those on
+ * every render makes react-flow swallow the click (the HoverContext lesson). The
+ * provider value is a stable `useCallback`, so PageNode reads a steady function.
+ */
+const ActivateContext = createContext<(id: string) => void>(() => undefined);
+
 function PageNode({id, data}: NodeProps<GraphFlowNode>) {
   const {node, isCurrent} = data;
   const {hovered, connected, setHovered} = useContext(HoverContext);
+  const activate = useContext(ActivateContext);
   const dimmed = hovered !== null && !connected.has(id);
+  const label = node.name?.trim() || 'Untitled';
   return (
     <div
       data-graph-node={isCurrent ? 'current' : 'page'}
+      // Keyboard parity with a click: Enter/Space on the focused node navigates.
+      // react-flow's own node focus is disabled (`nodesFocusable={false}`) so this
+      // is the single focus target — no nested tabstop.
+      tabIndex={0}
+      role="button"
+      aria-label={label}
+      aria-current={isCurrent ? 'page' : undefined}
+      title={label}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate(id);
+        }
+      }}
       onMouseEnter={() => setHovered(id)}
       onMouseLeave={() => setHovered(null)}
       className={cn(
         'flex w-48 items-center gap-2 rounded-lg border bg-card px-3 py-2 shadow-sm transition-opacity duration-150',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
         isCurrent ? 'border-primary ring-2 ring-primary/30' : 'border-border',
         dimmed && 'opacity-30',
       )}
     >
       <Handle type="target" position={Position.Left} className="!h-2 !w-2 !border-border !bg-muted-foreground/40" />
       <PageIcon value={node.icon ?? null} className="shrink-0 leading-none" />
-      <span className={cn('min-w-0 truncate text-xs', isCurrent ? 'font-semibold' : 'font-medium')}>
-        {node.name?.trim() || 'Untitled'}
-      </span>
+      <span className={cn('min-w-0 truncate text-xs', isCurrent ? 'font-semibold' : 'font-medium')}>{label}</span>
       <Handle type="source" position={Position.Right} className="!h-2 !w-2 !border-border !bg-muted-foreground/40" />
     </div>
   );
@@ -82,35 +114,50 @@ const nodeTypes = {page: PageNode};
 
 const EMPTY: PageGraph = {nodes: [], edges: []};
 
+/**
+ * How long to wait after a page-set ping before refetching — coalesces the
+ * per-keystroke `subscribePages` burst so the graph doesn't stampede `pageGraph`
+ * (the same r2 pattern the Links pane now uses).
+ */
+const REFRESH_DEBOUNCE_MS = 250;
+
 /** Fetch the whole-library graph, kept live off the page-list subscription. */
 function usePageGraph(revision: number): {graph: PageGraph; loading: boolean} {
   const client = useData();
   const [graph, setGraph] = useState<PageGraph>(EMPTY);
   const [loading, setLoading] = useState(false);
+  // Monotonic request id: a slow in-flight fetch that resolves after a newer
+  // refresh started must not clobber the fresher result.
+  const reqId = useRef(0);
+
+  const refresh = useCallback(() => {
+    const myReq = ++reqId.current;
+    setLoading(true);
+    void client
+      .pageGraph()
+      .then((g) => {
+        if (myReq === reqId.current) setGraph(g);
+      })
+      .catch(() => {
+        if (myReq === reqId.current) setGraph(EMPTY);
+      })
+      .finally(() => {
+        if (myReq === reqId.current) setLoading(false);
+      });
+  }, [client]);
 
   useEffect(() => {
-    let live = true;
-    const refresh = (): void => {
-      setLoading(true);
-      void client
-        .pageGraph()
-        .then((g) => {
-          if (live) setGraph(g);
-        })
-        .catch(() => {
-          if (live) setGraph(EMPTY);
-        })
-        .finally(() => {
-          if (live) setLoading(false);
-        });
-    };
     refresh();
-    const unsub = client.subscribePages(() => refresh());
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsub = client.subscribePages(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(refresh, REFRESH_DEBOUNCE_MS);
+    });
     return () => {
-      live = false;
+      if (timer) clearTimeout(timer);
       unsub();
     };
-  }, [client, revision]);
+  }, [client, refresh, revision]);
 
   return {graph, loading};
 }
@@ -118,12 +165,17 @@ function usePageGraph(revision: number): {graph: PageGraph; loading: boolean} {
 /**
  * The centred page's N-hop neighbourhood (undirected), capped at {@link
  * MAX_NODES} closest-first. With no centre, the highest-degree slice of the whole
- * graph. Returns the kept sub-graph plus the total node count so the pane can
- * report "showing X of Y".
+ * graph. Returns the kept sub-graph, the size of the neighbourhood BEFORE the cap
+ * (`scope`), and whether the {@link MAX_NODES} cap actually truncated (`capped`)
+ * — so the pane surfaces the "showing the N closest" note ONLY on real
+ * truncation, never merely because a neighbourhood is a subset of the library.
  */
-function neighbourhood(graph: PageGraph, centre: string | null): {sub: PageGraph; total: number} {
+function neighbourhood(
+  graph: PageGraph,
+  centre: string | null,
+): {sub: PageGraph; scope: number; capped: boolean} {
   const total = graph.nodes.length;
-  if (total === 0) return {sub: EMPTY, total};
+  if (total === 0) return {sub: EMPTY, scope: 0, capped: false};
 
   // Adjacency (undirected) for BFS + degree.
   const adj = new Map<string, Set<string>>();
@@ -136,6 +188,9 @@ function neighbourhood(graph: PageGraph, centre: string | null): {sub: PageGraph
   }
 
   let keep: Set<string>;
+  // Pages in view BEFORE the MAX_NODES cap — the centred neighbourhood, or the
+  // whole library with no centre. `capped` is a real truncation, not a subset.
+  let scope: number;
   if (centre && graph.nodes.some((n) => n.id === centre)) {
     // BFS out to MAX_HOPS, collecting in distance order so a truncation keeps the
     // nearest pages.
@@ -154,10 +209,12 @@ function neighbourhood(graph: PageGraph, centre: string | null): {sub: PageGraph
       }
       frontier = next;
     }
+    scope = ordered.length;
     keep = new Set(ordered.slice(0, MAX_NODES));
   } else {
     // No centre: keep the highest-degree nodes.
     const byDegree = [...graph.nodes].sort((a, b) => (adj.get(b.id)?.size ?? 0) - (adj.get(a.id)?.size ?? 0));
+    scope = byDegree.length;
     keep = new Set(byDegree.slice(0, MAX_NODES).map((n) => n.id));
   }
 
@@ -165,7 +222,7 @@ function neighbourhood(graph: PageGraph, centre: string | null): {sub: PageGraph
     nodes: graph.nodes.filter((n) => keep.has(n.id)),
     edges: graph.edges.filter((e) => keep.has(e.from) && keep.has(e.to)),
   };
-  return {sub, total};
+  return {sub, scope, capped: scope > MAX_NODES};
 }
 
 export function GraphPaneBody() {
@@ -178,7 +235,7 @@ export function GraphPaneBody() {
   const centre = target.pageId;
 
   const {graph, loading} = usePageGraph(target.revision);
-  const {sub, total} = useMemo(() => neighbourhood(graph, centre), [graph, centre]);
+  const {sub, scope, capped} = useMemo(() => neighbourhood(graph, centre), [graph, centre]);
   const shown = sub.nodes.length;
   // The graph is about CONNECTIONS: an isolated page (or an empty library) has
   // nothing to draw, so it gets the empty state rather than a lone dot.
@@ -260,10 +317,18 @@ export function GraphPaneBody() {
     return () => clearTimeout(timer);
   }, [instance, shape]);
 
-  const onNodeClick = (id: string): void => {
-    focusPane('primary');
-    selectPage(id);
-  };
+  // Activate a node (click or Enter/Space): navigate the primary pane to it AND
+  // re-centre the graph on it, so the highlight follows the current page and the
+  // neighbourhood recomputes around the clicked node. Stable so ActivateContext
+  // doesn't churn the memoised node objects.
+  const activate = useCallback(
+    (id: string): void => {
+      focusPane('primary');
+      selectPage(id);
+      setGraphTarget(id);
+    },
+    [focusPane, selectPage],
+  );
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>): void => {
     if (e.key === 'Escape') {
@@ -306,40 +371,59 @@ export function GraphPaneBody() {
         </div>
       </div>
 
-      {hasGraph && shown < total && (
-        <p className="shrink-0 bg-muted/40 px-4 py-1 text-[11px] text-muted-foreground" data-graph-cap>
-          {t('graph.showingXofY', {shown: String(shown), total: String(total)})}
+      {/* Cap note — fires ONLY on real truncation (the MAX_NODES cap cut nodes),
+          not merely because a neighbourhood is a subset of the library. */}
+      {hasGraph && capped && (
+        <p
+          className="shrink-0 bg-muted/40 px-4 py-1 text-[11px] text-muted-foreground"
+          data-graph-cap
+          aria-live="polite"
+        >
+          {t('graph.cap', {shown: String(shown), total: String(scope)})}
         </p>
       )}
 
-      <div className="relative min-h-0 flex-1">
+      <div
+        className="relative min-h-0 flex-1"
+        role="region"
+        aria-label={t('pane.graph')}
+      >
         {!hasGraph ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center" data-graph-empty>
+          <div
+            className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center"
+            data-graph-empty
+            aria-live="polite"
+          >
             <Network className="h-6 w-6 text-muted-foreground/50" aria-hidden />
             <p className="text-sm text-muted-foreground">{loading ? t('graph.loading') : t('graph.empty')}</p>
             {!loading && <p className="max-w-xs text-xs text-muted-foreground/70">{t('graph.emptyHint')}</p>}
           </div>
         ) : (
-          <HoverContext.Provider value={hoverValue}>
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              colorMode={colorScheme === 'dark' ? 'dark' : 'light'}
-              fitView
-              fitViewOptions={{padding: 0.15, maxZoom: 1.1}}
-              onInit={setInstance}
-              minZoom={0.2}
-              nodesConnectable={false}
-              nodesDraggable
-              deleteKeyCode={null}
-              onNodeClick={(_, node) => onNodeClick(node.id)}
-              proOptions={{hideAttribution: false}}
-            >
-              <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
-              <Controls showInteractive={false} />
-            </ReactFlow>
-          </HoverContext.Provider>
+          <ActivateContext.Provider value={activate}>
+            <HoverContext.Provider value={hoverValue}>
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                colorMode={colorScheme === 'dark' ? 'dark' : 'light'}
+                fitView
+                fitViewOptions={{padding: 0.15, maxZoom: 1.1}}
+                onInit={setInstance}
+                minZoom={0.2}
+                nodesConnectable={false}
+                nodesDraggable
+                // Node keyboard focus lives on the inner PageNode div (single
+                // tabstop, Enter/Space to activate) — see PageNode.
+                nodesFocusable={false}
+                deleteKeyCode={null}
+                onNodeClick={(_, node) => activate(node.id)}
+                proOptions={{hideAttribution: false}}
+              >
+                <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+                <Controls showInteractive={false} />
+              </ReactFlow>
+            </HoverContext.Provider>
+          </ActivateContext.Provider>
         )}
       </div>
     </div>
