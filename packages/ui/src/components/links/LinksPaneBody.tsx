@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useState, type KeyboardEvent as ReactKeyboardEvent} from 'react';
+import {useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent} from 'react';
 import {Link2, Network, Search} from 'lucide-react';
 import type {PageMeta} from '@book.dev/sdk';
 import {snapshotText} from '@book.dev/sdk';
@@ -10,6 +10,7 @@ import {IconButton} from '@/components/ui/icon-button';
 import {useNavigation, useTranslation} from '@/providers';
 import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
 import {PageIcon} from '@/components/PageIcon';
+import {filterUnlinkedMentions, toSnippet, type MentionRow} from './linksFilter';
 
 /** A backlink row: the linking page plus a short text preview of its content. */
 interface BacklinkRow {
@@ -17,20 +18,12 @@ interface BacklinkRow {
   snippet: string;
 }
 
-/** An unlinked-mention row: a page whose text names this page without linking it. */
-interface MentionRow {
-  pageId: string;
-  title: string;
-  snippet: string;
-  /** The block the match came from, for anchored navigation (when available). */
-  blockId: string | null;
-}
-
-/** Trim page text into a compact one-line snippet for a row. */
-function toSnippet(text: string, max = 140): string {
-  const flat = text.replace(/\s+/g, ' ').trim();
-  return flat.length > max ? `${flat.slice(0, max).trimEnd()}…` : flat;
-}
+/**
+ * How long to wait after a page-set ping before refetching. The
+ * `subscribePages` channel fires per keystroke elsewhere; coalescing bursts
+ * keeps the pane from stampeding `listBacklinks` / `aiSearch`.
+ */
+const REFRESH_DEBOUNCE_MS = 250;
 
 /**
  * Fetch a page's backlinks and, for each, a short content preview. Kept live:
@@ -43,8 +36,15 @@ function useBacklinks(pageId: string | null, revision: number): {rows: BacklinkR
   const client = useData();
   const [rows, setRows] = useState<BacklinkRow[]>([]);
   const [loading, setLoading] = useState(false);
+  // Monotonic request id: a slow in-flight fetch that resolves after a newer
+  // refresh started must not clobber the fresher result.
+  const reqId = useRef(0);
+  // Snippet cache keyed by page id + `updatedAt` so an unchanged backlink skips
+  // its per-page `getPage` on every re-ping. Pruned to the live set each refresh.
+  const snippetCache = useRef(new Map<string, string>());
 
   const refresh = useCallback(() => {
+    const myReq = ++reqId.current;
     if (!pageId) {
       setRows([]);
       return;
@@ -53,26 +53,50 @@ function useBacklinks(pageId: string | null, revision: number): {rows: BacklinkR
     void client
       .listBacklinks(pageId)
       .then(async (pages) => {
+        if (myReq !== reqId.current) return; // superseded
         hydratePageIcons(pages); // backlinks can be DB rows that aren't in the sidebar
         const withSnippets = await Promise.all(
           pages.map(async (page): Promise<BacklinkRow> => {
+            const cacheKey = `${page.id}:${page.updatedAt}`;
+            const cached = snippetCache.current.get(cacheKey);
+            if (cached !== undefined) return {page, snippet: cached};
             try {
               const full = await client.getPage(page.id);
-              return {page, snippet: toSnippet(snapshotText(full?.data))};
+              const snippet = toSnippet(snapshotText(full?.data));
+              snippetCache.current.set(cacheKey, snippet);
+              return {page, snippet};
             } catch {
               return {page, snippet: ''};
             }
           }),
         );
+        if (myReq !== reqId.current) return; // superseded during snippet fetch
+        // Bound the cache to the current backlink set (drops stale ids/revisions).
+        const liveKeys = new Set(pages.map((p) => `${p.id}:${p.updatedAt}`));
+        for (const key of snippetCache.current.keys()) {
+          if (!liveKeys.has(key)) snippetCache.current.delete(key);
+        }
         setRows(withSnippets);
       })
-      .catch(() => setRows([]))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (myReq === reqId.current) setRows([]);
+      })
+      .finally(() => {
+        if (myReq === reqId.current) setLoading(false);
+      });
   }, [client, pageId]);
 
   useEffect(() => {
     refresh();
-    return client.subscribePages(() => refresh());
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsub = client.subscribePages(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(refresh, REFRESH_DEBOUNCE_MS);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsub();
+    };
   }, [client, refresh, revision]);
 
   return {rows, loading};
@@ -95,41 +119,47 @@ function useUnlinkedMentions(
   const client = useData();
   const [rows, setRows] = useState<MentionRow[]>([]);
   const [loading, setLoading] = useState(false);
+  // Monotonic request id: drop a stale in-flight search that resolves late.
+  const reqId = useRef(0);
 
   const query = name.trim();
   const backlinkKey = [...backlinkIds].sort().join(',');
 
   const refresh = useCallback(() => {
+    const myReq = ++reqId.current;
     if (!pageId || query.length === 0) {
       setRows([]);
       return;
     }
     setLoading(true);
     const needle = query.toLowerCase();
+    // Server clamps the search limit to 25; asking for more is wasted.
     void client
-      .aiSearch(query, 30)
+      .aiSearch(query, 25)
       .then((res) => {
-        const seen = new Set<string>();
-        const out: MentionRow[] = [];
-        for (const hit of res.results) {
-          if (hit.pageId === pageId) continue; // self
-          if (backlinkIds.has(hit.pageId)) continue; // already linked
-          if (seen.has(hit.pageId)) continue; // one row per page
-          const haystack = `${hit.title} ${hit.snippet}`.toLowerCase();
-          if (!haystack.includes(needle)) continue; // must actually name this page
-          seen.add(hit.pageId);
-          out.push({pageId: hit.pageId, title: hit.title, snippet: toSnippet(hit.snippet), blockId: hit.blockId ?? null});
-        }
-        setRows(out);
+        if (myReq !== reqId.current) return; // superseded
+        setRows(filterUnlinkedMentions(res.results, {selfId: pageId, backlinkIds, needle}));
       })
-      .catch(() => setRows([]))
-      .finally(() => setLoading(false));
+      .catch(() => {
+        if (myReq === reqId.current) setRows([]);
+      })
+      .finally(() => {
+        if (myReq === reqId.current) setLoading(false);
+      });
     // backlinkKey re-filters when the backlink set changes; query drives the search.
   }, [client, pageId, query, backlinkKey]);
 
   useEffect(() => {
     refresh();
-    return client.subscribePages(() => refresh());
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const unsub = client.subscribePages(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(refresh, REFRESH_DEBOUNCE_MS);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsub();
+    };
   }, [client, refresh, revision]);
 
   return {rows, loading};
@@ -236,9 +266,12 @@ export function LinksPaneBody() {
           </div>
         )}
 
-        {pageId && (
-          <section className="mb-5 flex flex-col gap-1.5" aria-label={t('links.backlinks')}>
-            <h3 className="px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {pageId && !empty && (
+          <section className="mb-4 flex flex-col gap-1.5" aria-labelledby="links-backlinks-heading">
+            <h3
+              id="links-backlinks-heading"
+              className="px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+            >
               {t('links.backlinks')}
               {backlinks.length > 0 && ` · ${backlinks.length}`}
             </h3>
@@ -266,9 +299,12 @@ export function LinksPaneBody() {
           </section>
         )}
 
-        {pageId && (
-          <section className="flex flex-col gap-1.5" aria-label={t('links.unlinkedMentions')}>
-            <h3 className="px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+        {pageId && !empty && (
+          <section className="flex flex-col gap-1.5" aria-labelledby="links-mentions-heading">
+            <h3
+              id="links-mentions-heading"
+              className="px-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+            >
               {t('links.unlinkedMentions')}
               {mentions.length > 0 && ` · ${mentions.length}`}
             </h3>

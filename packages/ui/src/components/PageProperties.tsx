@@ -307,7 +307,7 @@ export const BacklinksControl: React.FC<{pageId: string}> = ({pageId}) => {
     <button
       type="button"
       onClick={openPane}
-      aria-label={t('links.open')}
+      aria-label={`${t('links.open')} — ${label}`}
       title={t('links.open')}
       className={cn(
         'inline-flex items-center gap-1 rounded px-1.5 py-1 text-sm transition-colors hover:bg-hover hover:text-foreground',
