@@ -79,6 +79,17 @@ export const HISTORY_PANE_ID = 'history';
  */
 export const LINKS_PANE_ID = 'links';
 
+/**
+ * The Page-graph split-pane mode — a pseudo-page hosting the whole-library link
+ * graph (OB-33): every readable page as a node, mention vs relation edges drawn
+ * distinctly, the current page highlighted, and node-click navigation. Unlike
+ * {@link FLOW_PANE_ID} (one page's reactive wiring) this spans the library, but
+ * it CENTRES on a page — an N-hop neighbourhood of it — so it acts on a target
+ * and persists as `?split=graph&paneTarget=<pageId>` (round-tripped via
+ * `lib/paneTarget.ts`). The page it targets is tracked in `lib/graphPane.ts`.
+ */
+export const GRAPH_PANE_ID = 'graph';
+
 /** Which Home widgets are shown. All on by default; configurable per device. */
 export interface HomeWidgets {
   actions: boolean;

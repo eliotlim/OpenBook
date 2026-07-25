@@ -9,16 +9,19 @@
  * Only panes that act on a page are listed: the customise pane
  * ({@link CUSTOMISE_PANE_ID} → `pageCustomise`), the review pane
  * ({@link REVIEW_PANE_ID} → `reviewPane`), the version-history pane
- * ({@link HISTORY_PANE_ID} → `historyPane`) and the linked-references pane
- * ({@link LINKS_PANE_ID} → `linksPane`). The config pane hosts an in-memory
+ * ({@link HISTORY_PANE_ID} → `historyPane`), the linked-references pane
+ * ({@link LINKS_PANE_ID} → `linksPane`) and the page-graph pane
+ * ({@link GRAPH_PANE_ID} → `graphPane`, which the graph CENTRES on). The config
+ * pane hosts an in-memory
  * kit-block config (no page) and the agent pane has no page target, so both
  * stay ephemeral and are not persisted.
  */
-import {CUSTOMISE_PANE_ID, HISTORY_PANE_ID, LINKS_PANE_ID, REVIEW_PANE_ID} from './homePage';
+import {CUSTOMISE_PANE_ID, GRAPH_PANE_ID, HISTORY_PANE_ID, LINKS_PANE_ID, REVIEW_PANE_ID} from './homePage';
 import {getPageCustomiseTarget, setPageCustomiseTarget, subscribePageCustomise} from './pageCustomise';
 import {getReviewTarget, setReviewTarget, subscribeReviewPane} from './reviewPane';
 import {getHistoryTarget, setHistoryTarget, subscribeHistoryPane} from './historyPane';
 import {getLinksTarget, setLinksTarget, subscribeLinksPane} from './linksPane';
+import {getGraphTarget, setGraphTarget, subscribeGraphPane} from './graphPane';
 
 export interface PaneTargetStore {
   /** The page the pane currently targets, or `null`. */
@@ -50,6 +53,11 @@ export const PANE_TARGET_STORES: Record<string, PaneTargetStore> = {
     get: () => getLinksTarget().pageId,
     set: (pageId) => setLinksTarget(pageId),
     subscribe: subscribeLinksPane,
+  },
+  [GRAPH_PANE_ID]: {
+    get: () => getGraphTarget().pageId,
+    set: (pageId) => setGraphTarget(pageId),
+    subscribe: subscribeGraphPane,
   },
 };
 

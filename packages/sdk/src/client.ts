@@ -18,7 +18,7 @@ import type {
   McpServerConfig,
   McpTestResult,
 } from './ai';
-import type {AclLevel, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
+import type {AclLevel, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult} from './backup';
@@ -101,6 +101,12 @@ export interface DataClient {
   setPageProperties(id: string, properties: Record<string, unknown>): Promise<StoredPage>;
   /** List the live pages that link to `id` (via `@`-mentions), newest first. */
   listBacklinks(id: string): Promise<PageMeta[]>;
+  /**
+   * The whole-library page-link graph: readable pages as nodes + their
+   * mention/relation edges (both endpoints readable). Edges are derived on the
+   * fly. Read-filtered per principal like {@link listPages}.
+   */
+  pageGraph(): Promise<PageGraph>;
 
   // ── Page version history (PVH-3) ─────────────────────────────────────────────
   /**
@@ -1050,6 +1056,10 @@ export class HttpDataClient implements DataClient {
 
   async listBacklinks(id: string): Promise<PageMeta[]> {
     return this.request<PageMeta[]>('GET', API.pageBacklinks(id));
+  }
+
+  async pageGraph(): Promise<PageGraph> {
+    return this.request<PageGraph>('GET', API.pageGraph);
   }
 
   async listVersions(pageId: string, opts?: {limit?: number}): Promise<PageVersionMeta[]> {

@@ -13,7 +13,7 @@ import {useData} from '@/data';
 import {setPageLinkBridge, type PageLinkResult} from '@/lib/pageLinks';
 import {hydratePageIcons, readPageIcon, readStoredPageIcon, writePageIcon} from '@/lib/pageIcon';
 import {recordRecent} from '@/lib/recents';
-import {AGENT_PANE_ID, CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, LINKS_PANE_ID, REVIEW_PANE_ID, TRASH_PAGE_ID} from '@/lib/homePage';
+import {AGENT_PANE_ID, CONFIG_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, GRAPH_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, LINKS_PANE_ID, REVIEW_PANE_ID, TRASH_PAGE_ID} from '@/lib/homePage';
 import {PANE_TARGET_STORES, paneHasTarget} from '@/lib/paneTarget';
 import {registerKitPanelNav} from '@/blockeditor/kit/kitPanel';
 import {t as bareT} from '@/i18n';
@@ -485,6 +485,7 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
       if (id === CUSTOMISE_PANE_ID) return bareT('pane.customise');
       if (id === REVIEW_PANE_ID) return bareT('pane.review');
       if (id === LINKS_PANE_ID) return bareT('pane.links');
+      if (id === GRAPH_PANE_ID) return bareT('pane.graph');
       if (id === AGENT_PANE_ID) return bareT('pane.agent');
       if (id === HISTORY_PANE_ID) return bareT('pane.history');
       const meta = pages.find((p) => p.id === id);

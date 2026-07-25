@@ -1,16 +1,18 @@
 import {describe, it, expect, beforeEach} from 'vitest';
 import {PANE_TARGET_STORES, paneHasTarget} from '../paneTarget';
-import {CONFIG_PANE_ID, AGENT_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, LINKS_PANE_ID, REVIEW_PANE_ID} from '../homePage';
+import {CONFIG_PANE_ID, AGENT_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, GRAPH_PANE_ID, HISTORY_PANE_ID, LINKS_PANE_ID, REVIEW_PANE_ID} from '../homePage';
 import {getPageCustomiseTarget, setPageCustomiseTarget} from '../pageCustomise';
 import {getReviewTarget, setReviewTarget} from '../reviewPane';
 import {getHistoryTarget, setHistoryTarget} from '../historyPane';
 import {getLinksTarget, setLinksTarget} from '../linksPane';
+import {getGraphTarget, setGraphTarget} from '../graphPane';
 
 beforeEach(() => {
   setPageCustomiseTarget(null);
   setReviewTarget(null);
   setHistoryTarget(null);
   setLinksTarget(null);
+  setGraphTarget(null);
 });
 
 describe('paneHasTarget', () => {
@@ -19,6 +21,7 @@ describe('paneHasTarget', () => {
     expect(paneHasTarget(REVIEW_PANE_ID)).toBe(true);
     expect(paneHasTarget(HISTORY_PANE_ID)).toBe(true);
     expect(paneHasTarget(LINKS_PANE_ID)).toBe(true);
+    expect(paneHasTarget(GRAPH_PANE_ID)).toBe(true);
   });
 
   it('is false for ephemeral / page panes and nullish ids', () => {
@@ -54,6 +57,12 @@ describe('PANE_TARGET_STORES', () => {
     PANE_TARGET_STORES[LINKS_PANE_ID].set('p6');
     expect(getLinksTarget().pageId).toBe('p6');
     expect(PANE_TARGET_STORES[LINKS_PANE_ID].get()).toBe('p6');
+  });
+
+  it('graph maps to the graphPane store (round-trips)', () => {
+    PANE_TARGET_STORES[GRAPH_PANE_ID].set('p7');
+    expect(getGraphTarget().pageId).toBe('p7');
+    expect(PANE_TARGET_STORES[GRAPH_PANE_ID].get()).toBe('p7');
   });
 
   it('notifies subscribers when a target changes', () => {

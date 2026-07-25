@@ -16,6 +16,9 @@ export type {
   AclLevel,
   Member,
   PageAcl,
+  PageGraph,
+  PageGraphNode,
+  PageGraphEdge,
 } from './types';
 export {emptyPageSnapshot, PAGE_VISIBILITIES} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
@@ -187,6 +190,7 @@ export {
   makeVerification,
   extractMentionIds,
   propertiesReferencePage,
+  extractPropertyReferenceIds,
   type VerificationValue,
 } from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, onIdentityChange, onServerOverrideChange, getForwardingAudience, setForwardingAudience, isMixedContentBlocked} from './connection';

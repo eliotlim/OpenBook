@@ -113,6 +113,31 @@ export function propertiesReferencePage(properties: Record<string, unknown> | nu
   return false;
 }
 
+/**
+ * Pure: every distinct string a page's `properties` reference — the candidate
+ * relation targets. Collects scalar string values and string elements of
+ * array-valued properties (a `relation`). Deduped, order-preserving. This is the
+ * out-edge counterpart of {@link propertiesReferencePage} (which answers the
+ * question for a single id): the page-graph builder intersects the returned ids
+ * with the set of real page ids, so arbitrary non-id strings (a text property's
+ * value) naturally fall away.
+ */
+export function extractPropertyReferenceIds(properties: Record<string, unknown> | null | undefined): string[] {
+  if (!properties) return [];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const add = (value: unknown): void => {
+    if (typeof value !== 'string' || value.length === 0 || seen.has(value)) return;
+    seen.add(value);
+    ids.push(value);
+  };
+  for (const value of Object.values(properties)) {
+    if (Array.isArray(value)) for (const el of value) add(el);
+    else add(value);
+  }
+  return ids;
+}
+
 export function extractMentionIds(snapshot: Pick<PageSnapshot, 'editorjs'>): string[] {
   const json = JSON.stringify(snapshot.editorjs ?? {});
   const ids: string[] = [];
