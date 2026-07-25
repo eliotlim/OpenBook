@@ -10,6 +10,7 @@ import {GitFork,
   FilePlus2,
   FlaskConical,
   History,
+  Link2,
   Monitor,
   Moon,
   Palette,
@@ -30,12 +31,13 @@ import {seedSampleDocument} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
 import {SHORTCUTS, type ShortcutCombo} from '@/lib/shortcuts';
-import {AGENT_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
+import {AGENT_PANE_ID, CUSTOMISE_PANE_ID, FLOW_PANE_ID, HISTORY_PANE_ID, HOME_PAGE_ID, LINKS_PANE_ID, REVIEW_PANE_ID} from '@/lib/homePage';
 import {SETTINGS_TABS} from '@/lib/hud';
 import {settingsKeywordsForTab} from '@/lib/settingsIndex';
 import {setPageCustomiseTarget} from '@/lib/pageCustomise';
 import {setReviewTarget} from '@/lib/reviewPane';
 import {setHistoryTarget} from '@/lib/historyPane';
+import {setLinksTarget} from '@/lib/linksPane';
 import {requestShareDialog} from '@/lib/shareDialog';
 import {togglePageFullWidth} from '@/lib/pageFullWidth';
 import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
@@ -255,6 +257,19 @@ export function useAppCommands(): AppCommand[] {
           if (!currentPageId) return;
           setReviewTarget(currentPageId);
           openInSplit(REVIEW_PANE_ID);
+        },
+      },
+      {
+        id: 'linked-references',
+        group: 'view',
+        title: t('command.linkedReferences'),
+        keywords: 'linked references backlinks links mentions unlinked incoming who links here',
+        icon: Link2,
+        disabled: !currentPageId || currentPageId === HOME_PAGE_ID,
+        run: () => {
+          if (!currentPageId) return;
+          setLinksTarget(currentPageId);
+          openInSplit(LINKS_PANE_ID);
         },
       },
       {
