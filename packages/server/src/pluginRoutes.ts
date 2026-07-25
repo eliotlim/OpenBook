@@ -13,16 +13,21 @@ const MAX_PLUGIN_BYTES = 2 * 1024 * 1024;
  * — signature verification happens client-side against the user's trusted
  * registry keys (the server never decides what the user trusts).
  *
- * Access: MUTATIONS (install / enable / disable / remove) are instance-writer
- * only (`requireCreate` — a writer at the instance default scope: local-owner
- * / owner / admin), since an
- * installed plugin is executable code that runs in EVERY connected client.
- * The LIST stays open to any principal that passes the request gate: every
- * client (viewers included) syncs it on boot to run the enabled set
- * (`PluginBoot` → `syncPlugins`).
+ * Access: the WHOLE surface — the LIST and the mutations (install / enable /
+ * disable / remove) — is instance-writer only (`requireCreate` — a writer at the
+ * instance default scope: local-owner / owner / admin), since an installed plugin
+ * is executable code that runs in EVERY connected client. The LIST is gated too
+ * (GATE-7): each package carries its inline TS `files`, so an ungated list would
+ * hand the library's plugin source to any anonymous reader a claimed,
+ * internet-exposable (`published`-scope) instance exposes. On the legacy single-user
+ * (unclaimed) instance the guest keeps write, so `PluginBoot` → `syncPlugins` still
+ * loads the enabled set; a claimed instance's viewers simply don't run plugins.
  */
 export function mountPluginRoutes(app: Hono<AppEnv>, store: PageStore): void {
-  app.get(API.plugins, async (c) => c.json(await store.listPlugins()));
+  app.get(API.plugins, async (c) => {
+    await requireCreate(c, store);
+    return c.json(await store.listPlugins());
+  });
 
   app.post(API.plugins, async (c) => {
     await requireCreate(c, store);

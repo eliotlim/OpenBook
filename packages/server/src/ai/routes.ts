@@ -4,7 +4,7 @@ import {streamSSE} from 'hono/streaming';
 import {API, isPaidProvider, providerSettings, snapshotText, type AgentChatMessage, type AiConfig, type AiEffort, type AiPricingTable, type AiProvider, type AiSkill, type McpClientConfig, type McpServerConfig, type PluginAgentTool, type Principal} from '@book.dev/sdk';
 import type {PageStore} from '../store';
 import type {AppEnv} from '../appEnv';
-import {requireCreate, requireInstanceAdmin} from '../access';
+import {requireAuthenticatedRead, requireCreate, requireInstanceAdmin} from '../access';
 import {AgentRunner, type AgentMessage} from './agent';
 import type {AiService} from './service';
 import {McpConfigError, type ExternalAgentTool, type McpClientManager} from './mcpClients';
@@ -36,6 +36,13 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   };
 
   app.get(API.aiStatus, async (c) => {
+    // Engine status is instance-configuration metadata (provider, model, ready flag)
+    // that an anonymous reader on a claimed, internet-exposable (`published`-scope)
+    // instance has no business enumerating (GATE-7). Require a verified identity; the
+    // legacy single-user (unclaimed, loopback-only) path stays open. AI affordances on
+    // the anon viewer surface just don't render — every client call site already
+    // degrades on a rejected `aiStatus()` (AgentPanel/AiBridgeHost/AiSettings catch it).
+    await requireAuthenticatedRead(c, store);
     // The instance's PAID-PROVIDER API KEYS never leave the server. Inference runs
     // entirely server-side, so NO client (writer/owner/loopback included) needs the
     // key — returning it only widens the leak surface. We strip every stored key for
@@ -238,7 +245,14 @@ export function mountAiRoutes(app: Hono<AppEnv>, ai: AiService, store: PageStore
   });
 
   // ── Prompt/recipe skills (per-library, user-authored markdown) ─────────────
-  app.get(API.aiSkills, async (c) => c.json(await ai.skills.list()));
+  // The list carries the authored prompt/recipe bodies (instructions injected into
+  // agent runs) — instance-shared configuration, not viewer content — so the LIST is
+  // writer-gated like its own mutations (GATE-7), never handed to an anonymous reader
+  // on a claimed instance. The legacy single-user (unclaimed) guest keeps write.
+  app.get(API.aiSkills, async (c) => {
+    await requireCreate(c, store);
+    return c.json(await ai.skills.list());
+  });
 
   app.put(API.aiSkills, async (c) => {
     // Skills are library-shared prompt/recipe definitions injected into every
