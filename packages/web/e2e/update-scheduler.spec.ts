@@ -1,6 +1,15 @@
 import {test, expect} from './fixtures';
 import type {Page} from '@playwright/test';
 
+// Structural per-test isolation (OB-223). These specs exercise the update
+// scheduler + the Settings ▸ Updates section — behaviour that is independent of
+// any open document. Without a wipe, `/?updates=…` reopens the worker's first
+// leaked page (list[0]), so the Settings dialog opened OVER a mounting block
+// editor whose autosave/CRDT churn kept detaching the "General" tab button mid
+// click ("element is not stable" / "detached from the DOM" → 30s timeout). A
+// wiped workspace lands on Home — a static surface — so the dialog stays stable.
+test.use({freshWorkspace: true});
+
 // The background update scheduler (ui/components/UpdateScheduler) mounts in
 // DefaultLayout and is inert without the `updates` capability; `?updates=<mode>`
 // injects the mock capability (web/src/pages/index.tsx), which counts its calls
