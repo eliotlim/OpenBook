@@ -24,6 +24,17 @@ const textData = (text: string) => ({
   names: [],
 });
 
+/** A page snapshot that BOTH @-links `targetId` AND names it in plain text. */
+const linkAndNameData = (targetId: string, name: string) => ({
+  editorjs: {
+    blocks: [
+      {type: 'paragraph', data: {text: `Notes on ${name} — see <a data-page-id="${targetId}">the target</a> too.`}},
+    ],
+  },
+  values: [],
+  names: [],
+});
+
 /** The split side pane aside (aria-label "Split view"). */
 const paneOf = (page: import('@playwright/test').Page) => page.getByRole('complementary', {name: 'Split view'});
 
@@ -79,6 +90,31 @@ test('command palette opens the pane; unlinked mentions surface with backlink/se
   await expect(mentions.getByRole('button', {name: /Mentioning Page/})).toBeVisible();
   await expect(mentions.getByRole('button', {name: /Linking Page/})).toHaveCount(0);
   await expect(mentions.getByRole('button')).toHaveCount(1);
+});
+
+test('a page that both links and names the target appears under Backlinks only', {tag: ['@shell']}, async ({
+  page,
+  request,
+}) => {
+  const targetId = await newPage(request, 'Platypus Digest');
+  // This page @-links the target AND spells its name in plain text. The
+  // already-linked exclusion must win: it's a Backlink, never an unlinked mention.
+  await newPage(request, 'Link And Name Page', linkAndNameData(targetId, 'Platypus Digest'));
+
+  await page.goto(`/?page=${targetId}`);
+  await expect(page.getByRole('button', {name: 'Page actions'})).toBeVisible();
+
+  await page.getByLabel('Page title').hover();
+  await page.getByRole('button', {name: 'Linked references'}).click();
+
+  const pane = paneOf(page);
+  const backlinks = pane.getByRole('region', {name: 'Backlinks'});
+  const mentions = pane.getByRole('region', {name: 'Unlinked mentions'});
+
+  // Present under Backlinks…
+  await expect(backlinks.getByRole('button', {name: /Link And Name Page/})).toBeVisible();
+  // …and absent from Unlinked mentions (the already-linked exclusion).
+  await expect(mentions.getByRole('button', {name: /Link And Name Page/})).toHaveCount(0);
 });
 
 test('empty state shows when a page has no backlinks or mentions', {tag: ['@shell']}, async ({page, request}) => {
