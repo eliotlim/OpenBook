@@ -1,6 +1,15 @@
 import {test, expect} from './fixtures';
 import {SERVER} from './seed';
 
+// Structural per-test isolation (OB-223): wipe the worker's workspace before
+// each test so the decks this file creates don't leak onto sibling specs sharing
+// the worker (that cross-spec pollution is what destabilised the neighbouring
+// update-scheduler spec). Note this does NOT make bare `/` render Home — a page
+// created *within* a test repopulates the workspace, and the startup resolver
+// then reopens that page (list[0]) rather than Home; the Home assertion below
+// pins Home explicitly with `?page=home` instead.
+test.use({freshWorkspace: true});
+
 // Present mode: a page rendered as a slide deck (split at dividers), read-only
 // but with live widgets, speaker notes surfaced only in the presenter console.
 test('present mode: slides, navigation, a live widget, and speaker notes', {tag: ['@editor']}, async ({page, request}) => {
@@ -71,12 +80,17 @@ test('present button in the page-actions cluster opens the deck', {tag: ['@edito
   });
   const {id} = (await res.json()) as {id: string};
 
-  // Home offers no Present control (nothing to present there). The copy-link
+  // Home offers no Present control (nothing to present there). Address Home
+  // explicitly (`?page=home`): bare `/` is NOT reliably Home — with any page in
+  // the workspace and no last-visited page, the startup resolver reopens the
+  // first page (list[0]), which here is the deck just created above, so `/` would
+  // render a document whose cluster legitimately shows Present. `?page=home`
+  // pins the Home pseudo-page regardless of workspace contents. The copy-link
   // button always renders in the cluster (disabled on Home), so it anchors the
   // "cluster is mounted" wait without depending on doc-action registration.
-  await page.goto('/');
-  // Scope to the sticky nav bar: pages leaked by other specs render sidebar
-  // row-action "Present"/"Copy link" buttons that a page-wide query matches.
+  await page.goto('/?page=home');
+  // Scope to the sticky nav bar: the sidebar renders row-action "Present"/"Copy
+  // link" buttons that a page-wide query would also match.
   const topNav = page.locator('nav.sticky');
   await expect(topNav.getByRole('button', {name: 'Copy link'})).toBeVisible();
   await expect(topNav.getByRole('button', {name: 'Present', exact: true})).toHaveCount(0);
