@@ -38,8 +38,12 @@ export interface CaretRequest {
 export interface BlockEditorController {
   doc: Y.Doc;
   version: number;
-  /** Undo/redo over local edits (a live wrapper — see useBlockEditor). */
-  undo: {undo(): void; redo(): void};
+  /** Undo/redo over local edits (a live wrapper — see useBlockEditor).
+   *  `stopCapturing` forces the next tracked change to start a fresh undo item
+   *  even inside the capture window — the "[[" wikilink accept uses it so a
+   *  single undo restores the literal typed text rather than reverting the
+   *  typing too. */
+  undo: {undo(): void; redo(): void; stopCapturing(): void};
   readOnly: boolean;
 
   /** Set by structural ops; consumed by the focused block after render. */
@@ -108,6 +112,7 @@ export function useBlockEditor(doc: Y.Doc, readOnly = false): BlockEditorControl
     () => ({
       undo: () => undoRef.current?.undo(),
       redo: () => undoRef.current?.redo(),
+      stopCapturing: () => undoRef.current?.stopCapturing(),
     }),
     [],
   );

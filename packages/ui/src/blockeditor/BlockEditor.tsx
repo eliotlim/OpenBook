@@ -102,6 +102,7 @@ import {TextBlockView} from './TextBlockView';
 import {COLOR_TOKENS, isColorToken} from './colors';
 import {SlashMenu, type SlashState} from './SlashMenu';
 import {MentionMenu} from './MentionMenu';
+import {WikilinkMenu} from './WikilinkMenu';
 import {EmojiMenu} from './EmojiMenu';
 import {LinkPicker} from './LinkPicker';
 import {hasKitConfig, openKitConfig} from './kit/kitConfig';
@@ -151,6 +152,7 @@ const CellSelectionContext = React.createContext<CellSelectionCtx | null>(null);
 export interface EditorUI {
   slash: SlashState;
   mention: SlashState;
+  wiki: SlashState;
   emoji: SlashState;
   spellcheck: boolean;
   openSlash(blockId: string, anchorOffset: number): void;
@@ -161,6 +163,11 @@ export interface EditorUI {
   updateMention(caret: number): void;
   closeMention(): void;
   mentionKey(key: string): void;
+  /** "[[" wikilink menu — anchorOffset is the FIRST "[" of the pair. */
+  openWiki(blockId: string, anchorOffset: number): void;
+  updateWiki(caret: number): void;
+  closeWiki(): void;
+  wikiKey(key: string): void;
   openEmoji(blockId: string, anchorOffset: number): void;
   updateEmoji(caret: number): void;
   closeEmoji(): void;
@@ -233,6 +240,7 @@ export const BlockEditor: React.FC<{
 
   const [slash, setSlash] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
   const [mention, setMention] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
+  const [wiki, setWiki] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0, trigger: '[['});
   const [emoji, setEmoji] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -291,6 +299,18 @@ export const BlockEditor: React.FC<{
       editor.requestCaret({blockId, offset: start + str.length});
     },
     [doc, editor],
+  );
+
+  // Auto-create a page for a "[[" wikilink whose name matches nothing: the new
+  // page nests under the current page (parentId = pageId) and its typed name is
+  // used as the chip label immediately (the reload behind createPage means
+  // pageLinks.label would also resolve it, but the typed name avoids a flash).
+  const createWikiPage = useCallback(
+    async (name: string): Promise<PageLinkResult> => {
+      const id = await pageLinks.createPage(name, pageId ?? null);
+      return {id, label: name, icon: pageLinks.icon(id)};
+    },
+    [pageId],
   );
 
   // Embed a live database view as its own block (the "Link to database"
@@ -422,8 +442,11 @@ export const BlockEditor: React.FC<{
       // text into the query and close the menu on the first keystroke. The
       // caller passes the post-edit caret (the DOM selection is a render
       // behind here).
-      const after = s.slice(state.anchorOffset + 1);
-      return after.slice(0, Math.max(0, caret - state.anchorOffset - 1));
+      // The query starts after the trigger — one char for "/"/"@"/":", two for
+      // the "[[" wikilink (state.trigger records the literal so this is generic).
+      const triggerLen = state.trigger?.length ?? 1;
+      const after = s.slice(state.anchorOffset + triggerLen);
+      return after.slice(0, Math.max(0, caret - state.anchorOffset - triggerLen));
     },
     [doc],
   );
@@ -431,19 +454,25 @@ export const BlockEditor: React.FC<{
   const ui = useMemo<EditorUI>(() => {
     const closeSlash = (): void => setSlash((s) => ({...s, open: false, query: '', index: 0}));
     const closeMention = (): void => setMention((s) => ({...s, open: false, query: '', index: 0}));
+    const closeWiki = (): void => setWiki((s) => ({...s, open: false, query: '', index: 0}));
     const closeEmoji = (): void => setEmoji((s) => ({...s, open: false, query: '', index: 0}));
     // The query tracker is trigger-agnostic — it just slices text after the
-    // anchor up to the caret, so the slash, mention and emoji menus share it.
+    // anchor up to the caret, so the slash, mention, wikilink and emoji menus
+    // share it. `trigger` is the literal sequence (one char for "/"/"@"/":",
+    // two for the "[[" wikilink) — the menu closes if it's been edited away.
     const triggerOpen = (caret: number, s: SlashState, trigger: string): SlashState => {
       if (!s.open) return s;
       const found = findBlock(doc, s.blockId);
       const text = found && blockText(found.block);
-      if (!text || text.toString()[s.anchorOffset] !== trigger) return {...s, open: false}; // trigger deleted
+      if (!text || text.toString().slice(s.anchorOffset, s.anchorOffset + trigger.length) !== trigger) {
+        return {...s, open: false}; // trigger deleted
+      }
       return {...s, query: slashQuery(s, caret), index: 0};
     };
     return {
       slash,
       mention,
+      wiki,
       emoji,
       spellcheck,
       openSlash: (id, anchorOffset) => {
@@ -451,6 +480,7 @@ export const BlockEditor: React.FC<{
         // typing e.g. "/ :" never stacks two popovers.
         setSlash({open: true, blockId: id, anchorOffset, query: '', index: 0});
         closeMention();
+        closeWiki();
         closeEmoji();
       },
       updateSlash: (caret) => setSlash((s) => triggerOpen(caret, s, '/')),
@@ -462,15 +492,26 @@ export const BlockEditor: React.FC<{
       openMention: (id, anchorOffset) => {
         setMention({open: true, blockId: id, anchorOffset, query: '', index: 0});
         closeSlash();
+        closeWiki();
         closeEmoji();
       },
       updateMention: (caret) => setMention((s) => triggerOpen(caret, s, '@')),
       closeMention,
       mentionKey: (key) => setMention((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}})),
+      openWiki: (id, anchorOffset) => {
+        setWiki({open: true, blockId: id, anchorOffset, query: '', index: 0, trigger: '[['});
+        closeSlash();
+        closeMention();
+        closeEmoji();
+      },
+      updateWiki: (caret) => setWiki((s) => triggerOpen(caret, s, s.trigger ?? '[[')),
+      closeWiki,
+      wikiKey: (key) => setWiki((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}})),
       openEmoji: (id, anchorOffset) => {
         setEmoji({open: true, blockId: id, anchorOffset, query: '', index: 0});
         closeSlash();
         closeMention();
+        closeWiki();
       },
       updateEmoji: (caret) => setEmoji((s) => triggerOpen(caret, s, ':')),
       closeEmoji,
@@ -479,7 +520,7 @@ export const BlockEditor: React.FC<{
       scheduleToolbar,
       leaveToTitle: onLeaveToTitle,
     };
-  }, [slash, mention, emoji, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck, onLeaveToTitle]);
+  }, [slash, mention, wiki, emoji, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck, onLeaveToTitle]);
 
   // ── Drag and drop ────────────────────────────────────────────────────────
   const computeRegion = (e: React.DragEvent | React.PointerEvent, el: HTMLElement, allowSides: boolean): DropRegion => {
@@ -1279,6 +1320,17 @@ export const BlockEditor: React.FC<{
           onClose={ui.closeMention}
           onMentionPage={insertMention}
           onInsertText={insertTextAt}
+        />
+      )}
+      {wiki.open && (
+        <WikilinkMenu
+          state={wiki}
+          editor={editor}
+          anchorEl={blockEl(wiki.blockId)}
+          parentPageId={pageId}
+          onClose={ui.closeWiki}
+          onMentionPage={insertMention}
+          onCreatePage={createWikiPage}
         />
       )}
       {emoji.open && (

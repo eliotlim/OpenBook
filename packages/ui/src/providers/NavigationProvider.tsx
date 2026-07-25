@@ -714,8 +714,11 @@ export const NavigationProvider: React.FC<PropsWithChildren<unknown>> = ({childr
   }, [pages]);
 
   const createLinkedPage = useCallback(
-    async (name: string): Promise<string> => {
-      const page = await client.savePage({name: name.trim() || null, data: emptyPageSnapshot()});
+    async (name: string, parentId: string | null = null): Promise<string> => {
+      // Duplicate names are allowed (migration 0015) — a "[[" wikilink to a name
+      // that already exists still creates a fresh child page when the user picks
+      // the explicit Create row, so no dedupe here.
+      const page = await client.savePage({name: name.trim() || null, data: emptyPageSnapshot(), parentId});
       await reload();
       return page.id;
     },

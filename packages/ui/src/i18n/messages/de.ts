@@ -366,7 +366,7 @@ export const de: PartialMessages = {
   },
   mention: {
     label: 'Mit Seite verknüpfen',
-    create: 'Seite „{name}“ erstellen',
+    create: 'Unterseite „{name}“ erstellen',
     empty: 'Keine Seiten — weiter tippen, um eine zu erstellen.',
   },
   emoji: {

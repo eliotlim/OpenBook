@@ -363,7 +363,7 @@ export const zh: PartialMessages = {
   },
   mention: {
     label: '链接到页面',
-    create: '创建页面“{name}”',
+    create: '创建子页面“{name}”',
     empty: '没有页面 — 继续输入即可创建。',
   },
   emoji: {

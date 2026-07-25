@@ -365,7 +365,7 @@ export const ja: PartialMessages = {
   },
   mention: {
     label: 'ページにリンク',
-    create: 'ページ「{name}」を作成',
+    create: 'サブページ「{name}」を作成',
     empty: 'ページがありません — 入力を続けると作成できます。',
   },
   emoji: {
