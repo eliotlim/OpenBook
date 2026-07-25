@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
-import {Check, Link2, Loader2, Share2, Trash2} from 'lucide-react';
+import {Check, Globe, Link2, Loader2, Share2, Trash2} from 'lucide-react';
 import {PAGE_VISIBILITIES, type AclLevel, type GuestAccess, type InstanceInfo, type PageAcl, type PageVisibility} from '@book.dev/sdk';
 import {useData} from '@/data';
 import {useForwarding, useHud, useOptionalAccount, usePlatformCapabilities, useTranslation} from '@/providers';
@@ -206,6 +206,56 @@ function InlinePublish() {
       )}
       {claimRefusal === 'claim-failed' && <p className="text-sm text-destructive">{t('forwarding.claimFailed')}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * The per-page "Publish to the web" affordance (GATE-6). Three states, all under a
+ * reachable published address:
+ *   - `live` — the page resolves to `public` and the address serves public pages,
+ *     so it's open at the site address: a "Published" indicator with the address.
+ *   - `canPublish` (page not yet public) — a primary "Publish page" button that
+ *     flips the page to `public` in one click (immediately live when the address is
+ *     "Only published pages"/"Public", which a new site now defaults to).
+ *   - neither (page public but the address doesn't serve it) — renders nothing; the
+ *     address-mismatch notice below the scope picker owns that case.
+ */
+function PublishRow({
+  live,
+  canPublish,
+  host,
+  busy,
+  onPublish,
+}: {
+  live: boolean;
+  canPublish: boolean;
+  host: string;
+  busy: boolean;
+  onPublish: () => void;
+}) {
+  const {t} = useTranslation();
+  if (live) {
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5">
+        <Globe className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className="text-xs font-medium text-foreground">{t('share.publishState.live')}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {t('share.publishState.liveHint', {host})}
+          </span>
+        </span>
+      </div>
+    );
+  }
+  if (!canPublish) return null;
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/40 px-3 py-2.5">
+      <p className="text-xs text-muted-foreground">{t('share.publishState.hint', {host})}</p>
+      <Button size="sm" className="self-start" disabled={busy} onClick={onPublish}>
+        <Globe className="h-4 w-4" />
+        {t('share.publishState.action')}
+      </Button>
     </div>
   );
 }
@@ -475,6 +525,25 @@ export default function ShareDialog({
               </p>
             )}
 
+            {/* Publish to the web (GATE-6): the clear, primary "make this page
+                reachable at your site address" affordance, plus a live indicator
+                once it is. Shown only while THIS device is actually publishing
+                (`publishedHost`) and the viewer manages sharing. "Published" means
+                the page resolves to `public` AND the address serves public pages to
+                signed-out visitors (`public`/`published` scope); short of that, the
+                address-mismatch notice further down guides the fix. Publishing is a
+                one-click scope→public because a new site's address now defaults to
+                "Only published pages", so a public page is immediately live. */}
+            {canManage && !browserLocal && publishedHost && (
+              <PublishRow
+                live={effectiveScope === 'public' && (siteVisibility === 'public' || siteVisibility === 'published')}
+                canPublish={effectiveScope !== 'public'}
+                host={publishedHost}
+                busy={loading}
+                onPublish={() => void changeScope('public')}
+              />
+            )}
+
             {/* Visibility scope */}
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="share-scope">{t('share.scopeLabel')}</Label>
@@ -540,33 +609,37 @@ export default function ShareDialog({
               )}
             </div>
 
-            {/* Published-address audience scope (SHR-8). The *.book.cloud address
-                carries its OWN scope on the account — Private (`restricted`) by
-                default — and the edge serves ONLY a Public address anonymously. So a
-                page set "Anyone with the link" is STILL bounced for signed-out
-                visitors until the ADDRESS is Public too. Rather than silently imply
-                the link works, call out the mismatch and offer the one flip that
-                fixes it, right beside the address toggle. Owner-only + only while
-                this device is actually publishing (`publishedHost`). */}
+            {/* Published-address audience scope (SHR-8 / GATE-5). The *.book.cloud
+                address carries its OWN scope on the account. Two scopes serve a
+                public page to signed-out visitors: "Only published pages"
+                (`published` — the recommended default, exposes only pages you
+                publish) and "Public" (`public` — the whole library). So the "your
+                link is a lie" mismatch only remains when the address is Private /
+                signed-in-only (`restricted`/`authenticated`/`members`) — there we
+                call it out and offer the one-click recommended fix (turn on
+                published-pages). Owner-only + only while this device is actually
+                publishing (`publishedHost`). */}
             {canManage && publishedHost && siteVisibility && (
               <div className="flex flex-col gap-2">
-                {effectiveScope === 'public' && siteVisibility !== 'public' && (
+                {effectiveScope === 'public' &&
+                  siteVisibility !== 'public' &&
+                  siteVisibility !== 'published' && (
                   <div
                     aria-live="polite"
                     className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2"
                   >
                     {/* A "your link is silently bounced" warning must not read
-                        low-priority — full-contrast body (not muted) on the caution
-                        surface, with the one-click fix right here (Devon F5). */}
+                          low-priority — full-contrast body (not muted) on the caution
+                          surface, with the one-click recommended fix right here. */}
                     <p className="text-xs text-foreground">{t('share.siteRestrictedNotice')}</p>
                     <Button
                       variant="outline"
                       size="sm"
                       className="self-start"
                       disabled={siteVisibilityBusy}
-                      onClick={() => void setSiteVisibility('public')}
+                      onClick={() => void setSiteVisibility('published')}
                     >
-                      {t('share.makeSitePublic')}
+                      {t('share.makeSitePublished')}
                     </Button>
                   </div>
                 )}
