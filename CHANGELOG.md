@@ -1,3 +1,14 @@
+## 3.4.3 (2026-07-25)
+
+### 🩹 Fixes
+
+- **ui:** button icon↔text spacing — gap in the Button primitive + call-site margin sweep (UX-B1) ([#217](https://github.com/eliotlim/OpenBook/pull/217))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.4.2 (2026-07-24)
 
 ### 🩹 Fixes
