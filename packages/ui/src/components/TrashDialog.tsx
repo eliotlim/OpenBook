@@ -59,7 +59,7 @@ export default function TrashDialog() {
         <DialogTrigger asChild>
           <Button
             variant="ghost"
-            className={cn('flex h-7 grow justify-start gap-2 px-2 text-muted-foreground', SIDEBAR_HOVER)}
+            className={cn('flex h-7 grow justify-start px-2 text-muted-foreground', SIDEBAR_HOVER)}
             aria-label={t('nav.trash')}
           >
             <Trash2 className="h-4 w-4 shrink-0" />

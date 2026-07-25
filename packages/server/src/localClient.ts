@@ -31,6 +31,7 @@ import type {
   MemberRole,
   MemberStatus,
   PageAcl,
+  PageGraph,
   PageInput,
   PageMeta,
   PageVersionMeta,
@@ -152,6 +153,14 @@ export class LocalDataClient implements DataClient {
 
   listBacklinks(id: string): Promise<PageMeta[]> {
     return this.store.listBacklinks(id);
+  }
+
+  // In-webview = single principal with full read access, so the graph is returned
+  // unfiltered (no per-principal canReadPage predicate) — the same posture as
+  // listBacklinks/listPages here. The HTTP transport is where per-principal read
+  // gating applies on a shared instance.
+  pageGraph(): Promise<PageGraph> {
+    return this.store.pageGraph();
   }
 
   // ── Page version history (PVH-3) ─────────────────────────────────────────────

@@ -13,6 +13,13 @@ export const API = {
   pageProperties: (id: string): string => `/api/pages/${encodeURIComponent(id)}/properties`,
   /** Pages that link to this one (the backlink graph): `GET`. */
   pageBacklinks: (id: string): string => `/api/pages/${encodeURIComponent(id)}/backlinks`,
+  /**
+   * The whole-library page-link graph — every readable page as a node, plus every
+   * mention/relation edge whose both endpoints are readable: `GET`. Edges are
+   * derived on the fly (no persisted edge table). Read-gated per principal like
+   * the page list; a guest passes the STAB-8 read gate. Returns {@link PageGraph}.
+   */
+  pageGraph: '/api/page-graph',
   /** Restore a trashed page (and the subtree trashed with it): `POST`. */
   pageRestore: (id: string): string => `/api/pages/${encodeURIComponent(id)}/restore`,
   /** A page's captured version history (PVH-1): `GET` (metadata list, newest first;

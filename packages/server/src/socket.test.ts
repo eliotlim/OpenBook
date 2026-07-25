@@ -14,7 +14,13 @@ function sock(socketPath: string, method: string, path: string, body?: unknown):
         socketPath,
         method,
         path,
-        headers: payload ? {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload)} : {},
+        // The desktop IPC transport is a real `HttpDataClient`, so it stamps the
+        // first-party `X-OpenBook-Client` marker (STAB-8) on every request; mirror
+        // that here or the server's guest-write gate 403s a socket write.
+        headers: {
+          'X-OpenBook-Client': '1',
+          ...(payload ? {'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload)} : {}),
+        },
       },
       (res) => {
         let raw = '';

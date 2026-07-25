@@ -73,6 +73,11 @@ function startPolicyBlindProxy(targetUrl: string, port: number): Promise<{url: s
       const headers: Record<string, string> = {};
       if (req.headers['content-type']) headers['content-type'] = String(req.headers['content-type']);
       if (req.headers.authorization) headers.authorization = String(req.headers.authorization);
+      // Relay the STAB-8 first-party-client marker verbatim, exactly as the real
+      // forwarding tunnel does (it is not in the tunnel's strip-list). Without it the
+      // server's guest-write gate 403s the forwarded suggestion write as a drive-by,
+      // which would mask the fail-safe path we're actually exercising here.
+      if (req.headers['x-openbook-client']) headers['x-openbook-client'] = String(req.headers['x-openbook-client']);
       fetch(targetUrl + path, {method: req.method, headers, body: chunks.length ? Buffer.concat(chunks) : undefined})
         .then(async (r) => {
           const buf = Buffer.from(await r.arrayBuffer());

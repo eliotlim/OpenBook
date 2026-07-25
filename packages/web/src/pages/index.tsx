@@ -1,5 +1,5 @@
 import {useEffect, useMemo, useState} from 'react';
-import type {GetServerSideProps, InferGetServerSidePropsType} from 'next';
+import type {GetServerSideProps} from 'next';
 import Head from 'next/head';
 import {HttpDataClient, getServerUrlOverride, getServerTokenOverride, getIdentityCredential, onIdentityChange, onServerOverrideChange, type DataClient} from '@book.dev/sdk';
 import {
@@ -18,6 +18,14 @@ import SettingsDeepLink from '@/components/SettingsDeepLink';
 // settings override (`openbook.serverUrl`, also how e2e points at its fixture
 // server) or a build-time `NEXT_PUBLIC_OPENBOOK_SERVER`.
 const REMOTE_SERVER_URL = process.env.NEXT_PUBLIC_OPENBOOK_SERVER;
+
+// STAB-7 (LAN-hosted web UI): when the app is built as the sidecar-served static
+// export (`NEXT_PUBLIC_OPENBOOK_SAMEORIGIN=1`), the data layer is the sidecar's
+// OWN `/api` at this exact origin — the page was served BY the sidecar. Force the
+// same-origin `HttpDataClient('')` transport (like a forwarded site), overriding
+// the in-browser PGlite default, so a LAN browser reads/writes the shared library
+// rather than a private per-browser store.
+const SAME_ORIGIN_UI = process.env.NEXT_PUBLIC_OPENBOOK_SAMEORIGIN === '1';
 
 // The embedded store is browser-only (PGlite WASM + IndexedDB). Open it lazily,
 // once per tab: a module-level promise means React StrictMode's double-mounted
@@ -53,9 +61,16 @@ function useWebClient(forwardedPrefix: string | null): {client: DataClient | nul
     // reachable at *this* origin's /api — the edge routes it through the tunnel.
     // Same-origin (empty base), no token: the edge injects the signed viewer
     // principal. Takes precedence over a local override and the in-browser store.
-    if (forwardedPrefix) {
+    //
+    // STAB-7: the sidecar-served LAN export takes the SAME same-origin branch —
+    // the sidecar served this page, so its `/api` is right here. No edge injects a
+    // principal on the LAN; the sidecar applies its `guestAccess` policy directly.
+    // STAB-8 note: when guest writes start requiring a custom client header, it
+    // plumbs into THIS `HttpDataClient`'s fetch wrapper (a `fetchImpl` that stamps
+    // e.g. `X-OpenBook-Client`), not the server's static handler.
+    if (forwardedPrefix || SAME_ORIGIN_UI) {
       const client = new HttpDataClient('', undefined, {getIdentity: getIdentityCredential, subscribeIdentity: onIdentityChange});
-      setState({client, browserLocal: false, connKey: `fwd:${forwardedPrefix}`});
+      setState({client, browserLocal: false, connKey: forwardedPrefix ? `fwd:${forwardedPrefix}` : 'same-origin'});
       return () => client.dispose();
     }
     const override = getServerUrlOverride() ?? REMOTE_SERVER_URL;
@@ -190,10 +205,9 @@ function useUpdatesPreview(): PlatformCapabilities['updates'] | undefined {
 // in-browser store. Absent on the canonical app.book.pub, so that stays local-first.
 const PREFIX_HEADER = 'x-openbook-prefix';
 
-export const getServerSideProps: GetServerSideProps<{
-  forwardedPrefix: string | null;
-  forwardedHost: string | null;
-}> = async ({req}) => {
+type HomeProps = {forwardedPrefix: string | null; forwardedHost: string | null};
+
+const forwardedPrefixGssp: GetServerSideProps<HomeProps> = async ({req}) => {
   const raw = req.headers[PREFIX_HEADER];
   const forwardedPrefix = (Array.isArray(raw) ? raw[0] : raw) || null;
   // On a forwarded site the request host is the `<prefix>.book.cloud` origin the
@@ -202,7 +216,14 @@ export const getServerSideProps: GetServerSideProps<{
   return {props: {forwardedPrefix, forwardedHost}};
 };
 
-export default function Home({forwardedPrefix, forwardedHost}: InferGetServerSidePropsType<typeof getServerSideProps>) {
+// STAB-7: a static export (`output: 'export'`) can't run `getServerSideProps`, so
+// it's dropped in the LAN same-origin build — Next treats a non-function export as
+// absent. The forwarded-prefix header only exists behind the *.book.cloud edge,
+// which the LAN never has, so there is nothing to read there anyway. Home defaults
+// both props to null and takes its same-origin path from `SAME_ORIGIN_UI` instead.
+export const getServerSideProps = SAME_ORIGIN_UI ? undefined : forwardedPrefixGssp;
+
+export default function Home({forwardedPrefix = null, forwardedHost = null}: Partial<HomeProps> = {}) {
   const {client, browserLocal, connKey} = useWebClient(forwardedPrefix);
   const shellPreview = useDesktopShellPreview();
   const updatesPreview = useUpdatesPreview();

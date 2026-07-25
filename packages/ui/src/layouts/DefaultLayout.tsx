@@ -16,6 +16,7 @@ import {AssetBridgeHost} from '@/components/AssetBridgeHost';
 import {PageAppearanceHost} from '@/components/PageAppearanceHost';
 import Settings from '@/components/Settings';
 import PresentMode from '@/components/PresentMode';
+import ImageLightbox from '@/components/ImageLightbox';
 import EmojiPickerHost from '@/components/EmojiPickerHost';
 import TitlebarTabs from '@/components/TitlebarTabs';
 import WindowControls from '@/components/WindowControls';
@@ -94,6 +95,9 @@ export default function DefaultLayout(props: DefaultLayoutProps) {
           <ShareDialogHost/>
           <Settings/>
           <PresentMode/>
+          {/* Mounted AFTER PresentMode so, opened from a present-mode image, its
+              portal stacks above the deck's z-50 Dialog (the lightbox uses z-60). */}
+          <ImageLightbox/>
           <TemplateGallery/>
           <ImportDialog/>
           <MovePageDialog/>

@@ -175,6 +175,18 @@ export const TextBlockView: React.FC<{
         ui.emojiKey(':');
         return;
       }
+      // Bracket-terminated wikilink accept, mirroring the ":smile:" pattern: with
+      // the "[[" menu open on a non-empty query, the closing "]" of a typed "]]"
+      // commits the highlighted row (existing page or the Create row) instead of
+      // typing a literal "]". The menu owns removing the "[[query]" literal and
+      // inserting the chip; this only swallows the final "]".
+      if (data === ']' && ui.wiki.open && ui.wiki.blockId === id && ui.wiki.query.replace(/\]+$/, '').trim() !== '') {
+        const before = text.toString().slice(0, sel.start);
+        if (before.endsWith(']')) {
+          ui.wikiKey('Enter');
+          return;
+        }
+      }
       // Slash / mention / emoji menus: '/', '@' or ':' at the start or after
       // whitespace (a mid-word ':' like "3:30" must not trigger the picker).
       if ((data === '/' || data === '@' || data === ':') && !isCode && type !== 'cell') {
@@ -188,6 +200,22 @@ export const TextBlockView: React.FC<{
           if (data === '/') ui.openSlash(id, sel.start);
           else if (data === '@') ui.openMention(id, sel.start);
           else ui.openEmoji(id, sel.start);
+          return;
+        }
+      }
+      // Wikilink menu: the second "[" of a "[[" pair opens the page-link picker
+      // (a Notion-style alternative to "@"). The pair must sit at the start or
+      // after whitespace so "arr[[0]]"-style text stays literal; never in a code
+      // block or inline-code run (those keep "[[" literal per spec).
+      if (data === '[' && !isCode && type !== 'cell' && !attrsAt(text, sel.start).c) {
+        const before = text.toString().slice(0, sel.start);
+        if (before.endsWith('[') && (before.length === 1 || /\s/.test(before[before.length - 2]))) {
+          apply(() => {
+            deleteSelection(sel);
+            insertPlain(sel.start, data);
+          });
+          editor.requestCaret({blockId: id, offset: sel.start + 1});
+          ui.openWiki(id, sel.start - 1); // anchor at the FIRST "["
           return;
         }
       }
@@ -210,13 +238,14 @@ export const TextBlockView: React.FC<{
       editor.requestCaret({blockId: id, offset: sel.start + data.length});
       if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash(sel.start + data.length);
       if (ui.mention.open && ui.mention.blockId === id) ui.updateMention(sel.start + data.length);
+      if (ui.wiki.open && ui.wiki.blockId === id) ui.updateWiki(sel.start + data.length);
       if (ui.emoji.open && ui.emoji.blockId === id) ui.updateEmoji(sel.start + data.length);
       return;
     }
 
     case 'insertParagraph': {
       ev.preventDefault();
-      if (ui.slash.open || ui.mention.open || ui.emoji.open) return; // Enter belongs to the open menu
+      if (ui.slash.open || ui.mention.open || ui.wiki.open || ui.emoji.open) return; // Enter belongs to the open menu
       if (type === 'cell') {
         // Tables are grids: Enter moves down the column, growing the table
         // at the bottom edge — it never splits a cell.
@@ -273,6 +302,7 @@ export const TextBlockView: React.FC<{
         editor.requestCaret({blockId: id, offset: sel.start - len});
         if (ui.slash.open && ui.slash.blockId === id) ui.updateSlash(sel.start - len);
         if (ui.mention.open && ui.mention.blockId === id) ui.updateMention(sel.start - len);
+        if (ui.wiki.open && ui.wiki.blockId === id) ui.updateWiki(sel.start - len);
         if (ui.emoji.open && ui.emoji.blockId === id) ui.updateEmoji(sel.start - len);
       } else if (type === 'cell') {
         // Never merge table cells — Backspace at a cell's start is a no-op.
@@ -451,6 +481,13 @@ export const TextBlockView: React.FC<{
       if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(e.key)) {
         e.preventDefault();
         ui.mentionKey(e.key);
+        return;
+      }
+    }
+    if (ui.wiki.open && ui.wiki.blockId === id) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(e.key)) {
+        e.preventDefault();
+        ui.wikiKey(e.key);
         return;
       }
     }

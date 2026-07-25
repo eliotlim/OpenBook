@@ -116,7 +116,7 @@ export default function AccountSwitcher() {
           })}
         </ul>
         <Button variant="outline" size="sm" className="self-start" onClick={addAccount}>
-          <PlusIcon className="mr-1.5 h-4 w-4" />
+          <PlusIcon className="h-4 w-4" />
           {t('account.switcher.addAnother')}
         </Button>
         {error && <p className="text-sm text-destructive">{error}</p>}
@@ -132,11 +132,11 @@ export default function AccountSwitcher() {
           </dl>
           <div className="mt-1 flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={syncNow} disabled={status === 'syncing'}>
-              <ArrowPathIcon className="mr-1.5 h-4 w-4" />
+              <ArrowPathIcon className="h-4 w-4" />
               {t('account.signin.syncNow')}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => openExternal(`${accountUrl}/dashboard`)}>
-              <ArrowTopRightOnSquareIcon className="mr-1.5 h-4 w-4" />
+              <ArrowTopRightOnSquareIcon className="h-4 w-4" />
               {t('account.signin.openDashboard')}
             </Button>
             <Button variant="ghost" size="sm" onClick={signOut} className="text-destructive hover:text-destructive">

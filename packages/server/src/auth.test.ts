@@ -81,7 +81,7 @@ describe('access-token auth', () => {
   it('gates writes too, not just reads', async () => {
     const app = createApp(store, undefined, new PageHub(), {accessToken: TOKEN});
     const body = JSON.stringify({name: `n-${seq}`, data: {editorjs: {blocks: []}, values: [], names: []}});
-    const noauth = await app.request('/api/pages', {method: 'POST', headers: {'Content-Type': 'application/json'}, body});
+    const noauth = await app.request('/api/pages', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'}, body});
     expect(noauth.status).toBe(401);
     const authed = await app.request('/api/pages', {
       method: 'POST',

@@ -7,6 +7,7 @@ import {
   API,
   AGENT_EDITS_MODES,
   AGENT_EDITS_POLICIES,
+  CLIENT_HEADER,
   FORWARDED_HEADER,
   PAGE_VISIBILITIES,
   type AclLevel,
@@ -56,6 +57,7 @@ import {
 import {mountAgentTokenRoutes} from './agentTokenRoutes';
 import {mountMcpHttp} from './mcpHttp';
 import {agentMayEditDirectly, authoredSubject, resolveAgentEditsForPage} from './agentWriteGate';
+import {mountUi} from './ui';
 import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
 import type {RosterController} from './rosterSync';
@@ -79,6 +81,33 @@ function safeEqual(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i += 1) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+/**
+ * The set of browser origins that are the APP ITSELF (STAB-8). The sidecar serves the
+ * library over loopback while any TCP listener is bound (LAN publish, `pnpm dev`
+ * :4319, the STAB-5 MCP-loopback toggle, and unconditionally on Windows where a Unix
+ * socket isn't available), so — before this gate — a wildcard `cors()` let ANY web
+ * page the browser visited read the response of a cross-origin request to it. We now
+ * reflect `Access-Control-Allow-Origin` ONLY for the app's own webview / dev origins;
+ * every foreign origin gets no ACAO, so the browser refuses to expose the response
+ * cross-origin. Requests with NO `Origin` header (same-origin browser fetches, curl,
+ * the desktop IPC transport, the MCP connector, the forwarded-tunnel local hop) are
+ * not CORS-relevant and are untouched — `cors()` sets nothing for them.
+ *
+ *  - `tauri://localhost` — the desktop WKWebView origin (macOS / Linux).
+ *  - `http(s)://tauri.localhost` — the Windows WebView2 origin.
+ *  - `http(s)://localhost[:port]`, `http(s)://127.0.0.1[:port]`, `http(s)://[::1][:port]`
+ *    — the web dev server (`pnpm dev` on :3000) reaching the data server on :4319, and
+ *    the STAB-7 same-origin served UI. Loopback hosts only; a real LAN IP is never
+ *    reflected, so a published instance stays browser-unreadable from a foreign page.
+ */
+const APP_ORIGIN_LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+export function isAppOrigin(origin: string): boolean {
+  if (!origin) return false;
+  if (origin === 'tauri://localhost') return true;
+  if (origin === 'http://tauri.localhost' || origin === 'https://tauri.localhost') return true;
+  return APP_ORIGIN_LOOPBACK.test(origin);
 }
 
 /**
@@ -258,6 +287,17 @@ export interface AppOptions {
    * external tools are simply unavailable.
    */
   mcp?: McpClientManager;
+  /**
+   * STAB-7 (LAN-hosted web UI): absolute path to a pre-built, client-only
+   * OpenBook web bundle (an `index.html` + hashed assets). When set, the sidecar
+   * also serves that UI from a `GET *` catch-all (see {@link mountUi}) so a LAN
+   * browser can open `http://<host>:<port>/` directly. Registered LAST, after
+   * every API/SSE/plugin route, so it never shadows `/api/*`. Unset (the default)
+   * ⇒ the sidecar serves only the API and a UI request 404s, exactly as before.
+   * The desktop wires this to its publish/LAN toggle (serve the UI only while
+   * sharing is on); a headless run can set it from `--ui-dir`.
+   */
+  uiDir?: string;
 }
 
 /**
@@ -279,6 +319,19 @@ function resolveAssetStorageBudgetBytes(opt: number | undefined): number {
 }
 
 export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new PageHub(), opts: AppOptions = {}): Hono<AppEnv> {
+  // STAB-7 invariant: serving the LAN web UI and the shared-secret gate are
+  // MUTUALLY EXCLUSIVE. The `accessToken` gate runs before `guestAccess` and would
+  // 401 every `/api` call the served (tokenless) shell makes — the shipped-empty-
+  // shell bug. Fail closed at construction so that state can never boot: a LAN
+  // publish is tokenless (guest-gated); a token-gated bind must not also serve a UI.
+  if (opts.uiDir && opts.accessToken) {
+    throw new Error(
+      'createApp: `uiDir` and `accessToken` are mutually exclusive — the served LAN web UI is ' +
+        'tokenless (guest-gated), and a shared-secret gate would 401 every /api call the shell ' +
+        'makes, leaving an empty page. Drop one (STAB-7).',
+    );
+  }
+
   const app = new Hono<AppEnv>();
 
   // Live-collaboration catch-up memory (Collab T1): per-page ephemeral relay docs,
@@ -339,7 +392,28 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // on shutdown BEFORE the store closes — the no-lost-edit-on-shutdown guarantee.
   (app as AppWithCollab).collabPersist = persister;
 
-  app.use('*', cors());
+  // App-origin CORS allowlist (STAB-8, replaces the old wildcard `cors()`). Reflect
+  // ACAO only for the app's own origins (see {@link isAppOrigin}); a foreign origin
+  // gets no ACAO (its response is unreadable cross-origin) and, on a preflight, no
+  // allowed methods/headers either. `allowHeaders` enumerates every header a
+  // first-party client sends so the app's OWN cross-origin preflight (dev :3000 → the
+  // data server, or the STAB-7 served UI) succeeds — including `X-OpenBook-Client`,
+  // the marker the guest-write gate below requires.
+  app.use(
+    '*',
+    cors({
+      origin: (origin) => (isAppOrigin(origin) ? origin : null),
+      allowMethods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowHeaders: [
+        'Content-Type',
+        'Authorization',
+        'X-OpenBook-Identity',
+        'X-OpenBook-Guest-Name',
+        'X-OpenBook-Local',
+        CLIENT_HEADER,
+      ],
+    }),
+  );
 
   // API responses are dynamic; never let a client cache them. The desktop
   // WKWebView shell heuristically caches header-less GETs, which made the Trash
@@ -547,6 +621,48 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
           console.error('OpenBook claim-on-sign-in failed:', err);
         });
       }
+    }
+    return next();
+  });
+
+  // Guest-write origin hardening (STAB-8). Runs AFTER principal resolution above, so
+  // `c.principal` is always set, and independently of whether an identity provider is
+  // configured — so it closes the default `guestAccess:'write'` cross-origin write on
+  // a legacy instance too.
+  //
+  // A `guest` is the ONLY principal a browser can reach by a CORS SIMPLE request:
+  // every credentialed principal already rides a non-simple header of its own
+  // (`X-OpenBook-Identity` JWS and `Authorization: Bearer` PAT resolve to a NON-guest
+  // kind; `X-OpenBook-Local` owner secret re-maps to the local principal — OpenBook
+  // auth is header-based, never cookie-based, so an authenticated request is
+  // inherently non-simple and cannot be forged cross-origin as a plain form/`fetch`).
+  // So an UNAUTHENTICATED mutating request must carry the first-party
+  // `X-OpenBook-Client` header, which a cross-origin simple request cannot attach
+  // without a preflight the app-origin allowlist denies for a foreign origin.
+  // (Requiring it unconditionally — not only when a foreign `Origin` is present — also
+  // closes the `Origin: null` / origin-stripped-by-a-privacy-extension edge.)
+  //
+  // An `Authorization` header ALSO exempts: the legacy instance `accessToken` (a LAN
+  // reachability shared secret) authenticates a request but leaves its principal
+  // `guest`, yet `Authorization` is itself a forbidden/non-simple header a foreign
+  // simple request can never set — so a bearer-authed API write (curl / a headless
+  // integration that isn't the sdk) is provably not a browser forgery and stays
+  // reachable without the client marker.
+  //
+  // Reads are never gated: a foreign page can't read the cross-origin response
+  // regardless (no ACAO), and `EventSource` can't set headers, so `/api/live` SSE
+  // stays reachable. Every first-party transport sends the header via the sdk
+  // `HttpDataClient`; the forwarding tunnel relays it verbatim (it is not in the
+  // tunnel's strip-list).
+  app.use('/api/*', async (c, next) => {
+    const method = c.req.method;
+    const mutating = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
+    const nonSimpleAuth = c.req.header(CLIENT_HEADER) || c.req.header('Authorization');
+    if (mutating && c.get('principal')?.kind === 'guest' && !nonSimpleAuth) {
+      return c.json(
+        {error: 'this write must originate from an OpenBook client (missing X-OpenBook-Client header)'},
+        403,
+      );
     }
     return next();
   });
@@ -1013,6 +1129,28 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await requireAccess(c, store, 'read', c.req.param('id'));
     const backlinks = await store.listBacklinks(c.req.param('id'));
     return c.json(await store.filterReadablePages(c.get('principal'), backlinks));
+  });
+
+  // The whole-library page-link graph. Gated exactly like GET /api/pages: the
+  // per-principal read filter IS the access control (no requireAccess on a single
+  // page — this is a library-wide read), so a guest passes the same read gate as
+  // the page list. A blanket fast path (mirroring filterReadablePages) resolves
+  // the page-independent decision once — uniformly-readable ⇒ unfiltered build,
+  // uniformly-denied ⇒ empty graph — else the graph builder is threaded the
+  // principal's `canReadPage` predicate (access base resolved once, amortised
+  // across pages, mirroring /api/ai/search) so a restricted page is dropped as a
+  // node AND its edges are dropped from both directions. Sasha: read-gate seam.
+  app.get(API.pageGraph, async (c) => {
+    const principal = c.get('principal');
+    const base = await store.accessBase(principal);
+    // Blanket fast path (mirrors filterReadablePages): when the whole library is
+    // uniformly readable (owner/admin/blanket-guest) or uniformly denied, skip the
+    // per-page `canReadPage` predicate — a linear N-await over every page.
+    const blanket = await store.blanketReadDecision(principal, base);
+    if (blanket !== null) {
+      return c.json(blanket ? await store.pageGraph() : {nodes: [], edges: []});
+    }
+    return c.json(await store.pageGraph((pageId) => store.canReadPage(principal, pageId, base)));
   });
 
   // ── Page version history (PVH-3) ───────────────────────────────────────────────
@@ -1864,6 +2002,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       }
     });
   });
+
+  // STAB-7: the LAN-served web UI catch-all. Mounted LAST so every API/SSE/plugin
+  // route above wins (they each return a Response, so Hono never falls through to
+  // this handler for them); the handler itself also refuses the `/api` + `/health`
+  // surface so an unmatched API path 404s as JSON, not the SPA shell. No-op unless
+  // `uiDir` is set — the sidecar's default stays API-only (a UI request 404s).
+  if (opts.uiDir) mountUi(app, opts.uiDir);
 
   app.onError((err, c) => {
     // Access-gate rejections (requireAccess/requireDbAccess/requireCreate) ride

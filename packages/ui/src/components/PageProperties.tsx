@@ -19,11 +19,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import {Popover, PopoverContent, PopoverTrigger} from '@/components/ui/popover';
 import {PersonChip, useIdentity} from '@/components/database/databaseCells';
 import {DatabaseRowProperties} from '@/components/database/DatabaseRowProperties';
-import {hydratePageIcons, readPageIcon, subscribePageIcon} from '@/lib/pageIcon';
-import {PageIcon} from '@/components/PageIcon';
+import {hydratePageIcons} from '@/lib/pageIcon';
+import {LINKS_PANE_ID} from '@/lib/homePage';
+import {setLinksTarget} from '@/lib/linksPane';
 import {hydratePageAppearance} from '@/lib/pageAppearance';
 import {cn} from '@/lib/utils';
 
@@ -278,63 +278,45 @@ function usePageBacklinks(pageId: string): PageMeta[] {
 }
 
 /**
- * Backlinks, collapsed: a compact "N backlinks" chip in the header controls that
- * opens the list on click (hidden weight by default — the links are rarely the
- * point, but the count is a useful signal). Lives beside owner / verification.
+ * Backlinks chip: a compact "N backlinks" affordance in the header controls.
+ * The count is the signal; clicking opens the persistent Linked-references side
+ * pane (backlinks + unlinked mentions), where the links themselves live. The
+ * chip stays interactive even at zero, so the pane's unlinked-mentions section
+ * is always reachable (and it's keyboard-focusable, unlike the old muted span).
+ * Lives beside owner / verification.
  */
 export const BacklinksControl: React.FC<{pageId: string}> = ({pageId}) => {
   const {t} = useTranslation();
-  const {selectPage, pageLabel} = useNavigation();
+  const {openInSplit} = useNavigation();
   const links = usePageBacklinks(pageId);
-  const [open, setOpen] = React.useState(false);
-  // Backlink chips show each page's icon (localStorage) — re-render when one changes.
-  const [, bumpIcon] = React.useReducer((x: number) => x + 1, 0);
-  React.useEffect(() => subscribePageIcon(bumpIcon), []);
-
   const count = links.length;
-  if (count === 0) {
-    return (
-      <span className="inline-flex items-center gap-1 px-1.5 py-1 text-sm text-muted-foreground/40">
-        <Link2 className="h-3.5 w-3.5" />
-        {t('properties.noBacklinks')}
-      </span>
-    );
-  }
+
+  const openPane = (): void => {
+    setLinksTarget(pageId);
+    openInSplit(LINKS_PANE_ID);
+  };
+
+  const label =
+    count === 0
+      ? t('properties.noBacklinks')
+      : count === 1
+        ? t('properties.backlinkCountOne')
+        : t('properties.backlinkCount', {count});
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-sm text-muted-foreground transition-colors hover:bg-hover hover:text-foreground"
-        >
-          <Link2 className="h-3.5 w-3.5" />
-          {count === 1 ? t('properties.backlinkCountOne') : t('properties.backlinkCount', {count})}
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 p-1.5">
-        <p className="px-1.5 pb-1 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          {t('properties.backlinks')}
-        </p>
-        <div className="flex max-h-72 flex-col overflow-y-auto">
-          {links.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => {
-                selectPage(p.id);
-                setOpen(false);
-              }}
-              className="flex items-center gap-1.5 rounded px-1.5 py-1 text-left text-sm transition-colors hover:bg-hover"
-              title={p.name?.trim() || pageLabel(p.id)}
-            >
-              <PageIcon value={readPageIcon(p.id)} className="leading-none" />
-              <span className="truncate">{p.name?.trim() || pageLabel(p.id)}</span>
-            </button>
-          ))}
-        </div>
-      </PopoverContent>
-    </Popover>
+    <button
+      type="button"
+      onClick={openPane}
+      aria-label={`${t('links.open')} — ${label}`}
+      title={t('links.open')}
+      className={cn(
+        'inline-flex items-center gap-1 rounded px-1.5 py-1 text-sm transition-colors hover:bg-hover hover:text-foreground',
+        count === 0 ? 'text-muted-foreground/60' : 'text-muted-foreground',
+      )}
+    >
+      <Link2 className="h-3.5 w-3.5" />
+      {label}
+    </button>
   );
 };
 

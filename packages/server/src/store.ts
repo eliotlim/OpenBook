@@ -42,7 +42,7 @@ import type {
   SuggestionUpdate,
   VerifiedVia,
 } from '@book.dev/sdk';
-import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
 import {authoredSubject} from './agentWriteGate';
 import type {Db} from './dbCore';
 import type {IndexablePage} from './ai/search';
@@ -1194,6 +1194,65 @@ export class PageStore {
           propertiesReferencePage(parseJson<Record<string, unknown>>(row.properties, {}), id),
       )
       .map(metaFromRow);
+  }
+
+  /**
+   * The whole-library page-link graph, computed on the fly (no persisted edge
+   * table). One pass over every live page (standalone pages AND database rows —
+   * relations are set on rows): each page's out-edges are its document
+   * `@`-mentions ({@link extractMentionIds}, `kind:'mention'`) plus its property
+   * references ({@link extractPropertyReferenceIds}, `kind:'relation'`). Edges
+   * are kept only when the TARGET is a real live page (drops references to
+   * deleted/missing pages and non-id property strings) and `from !== to`
+   * (self-loops dropped).
+   *
+   * When `canRead` is supplied (the per-principal read gate the route threads in,
+   * mirroring `/api/ai/search`), the graph is filtered default-deny: a node is
+   * dropped unless it is readable, and an edge is dropped unless BOTH endpoints
+   * are readable — so a restricted page can neither appear as a node nor leak via
+   * an edge to/from a page you can see.
+   */
+  async pageGraph(canRead?: (pageId: string) => Promise<boolean>): Promise<PageGraph> {
+    const rows = await this.db.query<PageRow>(
+      `SELECT p.id, p.name, p.data, p.properties, (p.properties->>'sys_icon') AS icon
+         FROM pages p
+        WHERE p.deleted_at IS NULL`,
+    );
+    // The set of real, live page ids — the only valid edge targets.
+    const liveIds = new Set(rows.map((r) => r.id));
+
+    // Per-principal read filter (default-deny). Resolve the readable id set once
+    // up front so edge filtering is a couple of set lookups, not an await per
+    // endpoint.
+    let readable: Set<string> | null = null;
+    if (canRead) {
+      readable = new Set<string>();
+      for (const id of liveIds) {
+        if (await canRead(id)) readable.add(id);
+      }
+    }
+    const isReadable = (id: string): boolean => (readable ? readable.has(id) : true);
+
+    const edges: PageGraphEdge[] = [];
+    const seenEdge = new Set<string>();
+    const pushEdge = (from: string, to: string, kind: PageGraphEdge['kind']): void => {
+      if (from === to) return; // self-loop
+      if (!liveIds.has(to)) return; // target deleted/missing (or not a page id)
+      if (!isReadable(from) || !isReadable(to)) return; // both endpoints must be readable
+      const key = `${from} ${to} ${kind}`;
+      if (seenEdge.has(key)) return;
+      seenEdge.add(key);
+      edges.push({from, to, kind});
+    };
+
+    for (const row of rows) {
+      for (const to of extractMentionIds(parseSnapshot(row.data))) pushEdge(row.id, to, 'mention');
+      for (const to of extractPropertyReferenceIds(parseJson<Record<string, unknown>>(row.properties, {})))
+        pushEdge(row.id, to, 'relation');
+    }
+
+    const nodes = rows.filter((row) => isReadable(row.id)).map((row) => ({id: row.id, name: row.name, icon: row.icon ?? null}));
+    return {nodes, edges};
   }
 
   /**
@@ -2749,6 +2808,19 @@ export class PageStore {
     }
     if (base.role === 'admin') return true;
     return null;
+  }
+
+  /**
+   * The page-independent read decision for a whole-library read, or `null` when
+   * it must be resolved per page. A thin PUBLIC seam over {@link blanketRead} —
+   * the page-graph route uses it exactly like {@link filterReadablePages}'s fast
+   * path: `true` ⇒ the whole library is readable (owner/admin/blanket-guest) so
+   * the graph builder can skip the per-page predicate; `false` ⇒ nothing is
+   * readable so return an empty graph; `null` ⇒ thread `canReadPage` per node.
+   */
+  async blanketReadDecision(principal: Principal, base?: AccessBase): Promise<boolean | null> {
+    const b = base ?? (await this.accessBase(principal));
+    return this.blanketRead(principal, b);
   }
 
   /** May the principal read this page? (existence-aware: a missing page ⇒ false). */

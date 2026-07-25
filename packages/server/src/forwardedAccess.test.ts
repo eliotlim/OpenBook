@@ -92,12 +92,12 @@ const claimAndBind = () =>
   });
 
 const get = (a: ReturnType<typeof app>, path: string, jws?: string) =>
-  a.request(path, {headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+  a.request(path, {headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
 
 const put = (a: ReturnType<typeof app>, id: string, jws?: string) =>
   a.request(`/api/pages/${id}`, {
     method: 'PUT',
-    headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
     body: JSON.stringify({id, name: `p-${seq}`, data: snapshot()}),
   });
 
@@ -273,7 +273,7 @@ describe('loopback-owner recovery from an audience lockout (relax only)', () => 
   const putInstance = (a: ReturnType<typeof app>, patch: Record<string, unknown>, jws?: string) =>
     a.request('/api/instance', {
       method: 'PUT',
-      headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
       body: JSON.stringify(patch),
     });
 

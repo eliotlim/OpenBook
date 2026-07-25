@@ -1,6 +1,6 @@
 import {isSafeHref} from '@book.dev/sdk';
 import type {BlockJSON, InlineAttrs, TextRun} from './model';
-import {decodeSnapshot} from './model';
+import {decodeSnapshot, TABLE_COLBG_PREFIX} from './model';
 import {COLOR_EXPORT_HEX} from './colors';
 import {resolveOptionsFromProps, varNameFromLabel} from './kit/options';
 import {computeExportCells, type ExportCell} from './kit/scope';
@@ -36,6 +36,52 @@ function runToHtml(run: TextRun): string {
 }
 
 const textHtml = (runs: TextRun[] | undefined): string => (runs ?? []).map(runToHtml).join('');
+
+// ── Cell-range clipboard (TBL-5) ─────────────────────────────────────────────
+// A copied multi-cell selection is a rectangular grid of rich-text runs
+// (`grid[r][c]` = a cell's runs). TSV feeds text/plain consumers (spreadsheets,
+// editors); the HTML <table> round-trips through the paste importer
+// (normalizeTableGrid → tableFromRuns) back into a fresh table block.
+
+/** A cell RANGE as tab/newline-separated plain text (text/plain flavour). Tabs
+ *  and newlines inside a cell collapse to a space so the row/column grid stays
+ *  unambiguous. */
+export function cellRangeToTsv(grid: TextRun[][][]): string {
+  return grid
+    .map((row) => row.map((cell) => cell.map((r) => r.t).join('').replace(/[\t\n]+/g, ' ')).join('\t'))
+    .join('\n');
+}
+
+/** A cell RANGE as an HTML `<table>` (text/html flavour) — pasting it into an
+ *  OpenBook page recreates a table with the same grid (acceptance #3). */
+export function cellRangeToHtml(grid: TextRun[][][]): string {
+  const body = grid
+    .map((row) => `<tr>${row.map((cell) => `<td>${textHtml(cell)}</td>`).join('')}</tr>`)
+    .join('');
+  return `<table class="obe-x-table"><tbody>${body}</tbody></table>`;
+}
+
+type Props = Record<string, unknown> | undefined;
+const strProp = (p: Props, k: string): string | null => (typeof p?.[k] === 'string' && (p[k] as string) ? (p[k] as string) : null);
+
+/**
+ * The composited tint token for a table cell in an export projection (TBL-4):
+ * the ROW colour (`row.props.bg`) wins over the COLUMN colour
+ * (`table.props['colbg:<colId>']`, keyed on the cell's `col` binding), matching
+ * the editor's {@link tableCellColor} precedence. Returns the palette token, or
+ * null. Column lookup is by colId so it is order-independent.
+ */
+function tableCellTint(tableProps: Props, rowProps: Props, cellProps: Props): string | null {
+  const rowBg = strProp(rowProps, 'bg');
+  if (rowBg) return rowBg;
+  const colId = strProp(cellProps, 'col');
+  return colId ? strProp(tableProps, TABLE_COLBG_PREFIX + colId) : null;
+}
+
+/** An inline `style="background:…"` for a cell tint token, or '' (for the
+ *  self-contained HTML/PDF exports that can't use the theme CSS classes). */
+const tintStyle = (token: string | null): string =>
+  token && COLOR_EXPORT_HEX[token] ? ` style="background:${COLOR_EXPORT_HEX[token].hl}"` : '';
 
 /** The current value of a June-2026 kit input rendered as HTML (selection text
  *  for the choosers, escaped/markup text for long/rich text). */
@@ -170,7 +216,10 @@ export function blocksToHtml(blocks: BlockJSON[]): string {
       const body = rows
         .map((row, r) => {
           const tag = header && r === 0 ? 'th' : 'td';
-          const cells = (row.children ?? []).map((cell) => `<${tag}>${textHtml(cell.text)}</${tag}>`).join('');
+          // TBL-4: carry row/column tints as inline styles into the clipboard HTML.
+          const cells = (row.children ?? [])
+            .map((cell) => `<${tag}${tintStyle(tableCellTint(b.props, row.props, cell.props))}>${textHtml(cell.text)}</${tag}>`)
+            .join('');
           return `<tr>${cells}</tr>`;
         })
         .join('');
@@ -487,8 +536,12 @@ export function projectBlocksForExport(blocks: BlockJSON[], computed?: Map<strin
         i += 1;
         break;
       case 'table': {
-        const content = (b.children ?? []).map((row) => (row.children ?? []).map((cell) => textHtml(cell.text)));
-        sink.push({id: b.id, type: 'table', data: {withHeadings: Boolean(b.props?.header), content}});
+        const rows = b.children ?? [];
+        const content = rows.map((row) => (row.children ?? []).map((cell) => textHtml(cell.text)));
+        // TBL-4: parallel per-cell tint tokens (row-over-column) so the static
+        // HTML/PDF exporter can paint them with COLOR_EXPORT_HEX.
+        const cellColors = rows.map((row) => (row.children ?? []).map((cell) => tableCellTint(b.props, row.props, cell.props)));
+        sink.push({id: b.id, type: 'table', data: {withHeadings: Boolean(b.props?.header), content, cellColors}});
         i += 1;
         break;
       }

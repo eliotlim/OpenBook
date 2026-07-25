@@ -92,7 +92,7 @@ describe('POST /api/maintenance/compact route', () => {
   it('embedded mode → 200 with before/after/reclaimed', async () => {
     await store.upsertPage({name: 'p', data: snap('hello')});
     const app = createApp(store, undefined, new PageHub(), {embedded: true});
-    const res = await app.request('/api/maintenance/compact', {method: 'POST'});
+    const res = await app.request('/api/maintenance/compact', {method: 'POST', headers: {'X-OpenBook-Client': '1'}});
     expect(res.status).toBe(200);
     const body = (await res.json()) as {before: number; after: number; reclaimed: number};
     expect(body.before).toBeGreaterThan(0);
@@ -101,7 +101,7 @@ describe('POST /api/maintenance/compact route', () => {
 
   it('external-Postgres mode (embedded:false) → 409, no VACUUM issued', async () => {
     const app = createApp(store, undefined, new PageHub(), {embedded: false});
-    const res = await app.request('/api/maintenance/compact', {method: 'POST'});
+    const res = await app.request('/api/maintenance/compact', {method: 'POST', headers: {'X-OpenBook-Client': '1'}});
     expect(res.status).toBe(409);
   });
 });

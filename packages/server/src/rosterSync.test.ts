@@ -687,7 +687,7 @@ describe('roster sync route (/api/library/sync + legacy /api/workspace/sync)', (
     createApp(store, undefined, new PageHub(), {identity: new IdentityService(store), roster: syncer()});
 
   const post = (a: ReturnType<typeof app>, path: string, jws?: string) =>
-    a.request(path, {method: 'POST', headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+    a.request(path, {method: 'POST', headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
 
   it('an admin triggers an on-demand reconcile; a viewer/guest is forbidden', async () => {
     next = {libraryId: 'ws1', members: [{subject: sub('zara'), role: 'viewer'}]};

@@ -67,6 +67,29 @@ export const AGENT_PANE_ID = 'agent';
  */
 export const HISTORY_PANE_ID = 'history';
 
+/**
+ * The Linked-references split-pane mode — a pseudo-page hosting a page's
+ * persistent links surface: its **Backlinks** (pages that `@`-mention or relate
+ * to it) and **Unlinked mentions** (pages whose text names it without linking).
+ * Promotes the transient backlinks popover chip to a durable side pane. Like
+ * {@link HISTORY_PANE_ID} / {@link REVIEW_PANE_ID} it reuses the side pane and
+ * acts on a specific page, so it persists as `?split=links&paneTarget=<pageId>`
+ * (round-tripped through the URL via `lib/paneTarget.ts`). The page it targets is
+ * tracked in `lib/linksPane.ts`.
+ */
+export const LINKS_PANE_ID = 'links';
+
+/**
+ * The Page-graph split-pane mode — a pseudo-page hosting the whole-library link
+ * graph (OB-33): every readable page as a node, mention vs relation edges drawn
+ * distinctly, the current page highlighted, and node-click navigation. Unlike
+ * {@link FLOW_PANE_ID} (one page's reactive wiring) this spans the library, but
+ * it CENTRES on a page — an N-hop neighbourhood of it — so it acts on a target
+ * and persists as `?split=graph&paneTarget=<pageId>` (round-tripped via
+ * `lib/paneTarget.ts`). The page it targets is tracked in `lib/graphPane.ts`.
+ */
+export const GRAPH_PANE_ID = 'graph';
+
 /** Which Home widgets are shown. All on by default; configurable per device. */
 export interface HomeWidgets {
   actions: boolean;

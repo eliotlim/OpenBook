@@ -857,6 +857,35 @@
   background: hsl(var(--accent) / 0.55);
   box-shadow: 0 0 0 2px hsl(var(--ring) / 0.35);
 }
+/* Rubber-band marquee: a translucent accent rectangle over the content column.
+   Non-interactive (clicks fall through to the editor) and theme-aware via the
+   accent/ring tokens. `obe-marqueeing` freezes text selection during the drag. */
+.obe-marquee {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  background: hsl(var(--ring) / 0.14);
+  border: 1px solid hsl(var(--ring) / 0.65);
+  border-radius: 4px;
+}
+.obe-marqueeing,
+.obe-marqueeing * {
+  user-select: none !important;
+}
+/* Multi-block drag ghost: a compact count pill the browser snapshots as the
+   drag image (see setGroupDragImage). Rendered off-screen, never interactive. */
+.obe-drag-ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: hsl(var(--primary-foreground));
+  background: hsl(var(--primary));
+  border-radius: 6px;
+  box-shadow: 0 2px 8px hsl(var(--foreground) / 0.25);
+  white-space: nowrap;
+}
 .obe-indent-1 { margin-left: 1.6rem; }
 .obe-indent-2 { margin-left: 3.2rem; }
 .obe-indent-3 { margin-left: 4.8rem; }
@@ -1242,6 +1271,144 @@ a.obe-mention {
   border-color: hsl(var(--primary) / 0.7);
   background: hsl(var(--primary) / 0.08);
 }
+/* Read-only / present image: clickable to open the lightbox. WKWebView only
+   fires clicks on non-button elements that carry an explicit cursor. */
+.obe-image-img-zoom { cursor: zoom-in; }
+
+/* ── Image lightbox (LBX-1 + zoom/pan LBX-2) ─────────────────────────────────
+   A full-viewport overlay showing one picture over a dark scrim. The picture
+   lives in a `stage` that fills the surface and clips overflow; a CSS transform
+   on the live <img> does the zoom/pan (so GIFs keep animating — no canvas). The
+   caption sits below the stage; a slim zoom bar + close button are chrome. */
+.obe-lightbox-scrim {
+  background: hsl(0 0% 0% / 0.88);
+  backdrop-filter: blur(var(--overlay-blur));
+}
+.obe-lightbox {
+  padding: 1.5rem;
+  gap: 0.75rem;
+}
+/* The pan/zoom surface: fills the available space, centres the picture, clips
+   the zoomed image to the viewport. */
+.obe-lightbox-stage {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  touch-action: none; /* we own wheel/pointer gestures */
+  cursor: default;
+}
+.obe-lightbox-stage-zoomed {
+  cursor: grab;
+}
+.obe-lightbox-stage-zoomed:active {
+  cursor: grabbing;
+}
+.obe-lightbox-img {
+  display: block;
+  /* Fit to the stage but never upscale past the picture's natural size:
+     `width/height: auto` keeps intrinsic dimensions, the max caps shrink it.
+     The zoom/pan transform is applied inline around the picture's centre. */
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  transform-origin: center center;
+  border-radius: 6px;
+  box-shadow: 0 12px 48px hsl(0 0% 0% / 0.55);
+  will-change: transform;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.obe-lightbox-caption {
+  flex: 0 0 auto;
+  max-width: 64ch;
+  align-self: center;
+  /* Never let a long caption on a short viewport push the picture off-screen:
+     clamp to four lines (the clamp's ellipsis truncates the rest). */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  color: hsl(0 0% 100% / 0.82);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  text-align: center;
+}
+/* ── Zoom bar chrome ─────────────────────────────────────────────────────── */
+.obe-lightbox-zoombar {
+  position: absolute;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border-radius: 10px;
+  background: hsl(0 0% 0% / 0.45);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px hsl(0 0% 0% / 0.4);
+}
+.obe-lightbox-zoombtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 7px;
+  color: hsl(0 0% 100% / 0.85);
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+.obe-lightbox-zoombtn:hover:not(:disabled) {
+  background: hsl(0 0% 100% / 0.16);
+  color: hsl(0 0% 100%);
+}
+.obe-lightbox-zoombtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.obe-lightbox-zoombtn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(0 0% 0% / 0.6), 0 0 0 4px hsl(0 0% 100% / 0.7);
+}
+.obe-lightbox-zoomvalue {
+  min-width: 3.5rem;
+  padding: 0 0.35rem;
+  color: hsl(0 0% 100% / 0.9);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  user-select: none;
+}
+.obe-lightbox-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 8px;
+  color: hsl(0 0% 100% / 0.85);
+  background: hsl(0 0% 0% / 0.35);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.obe-lightbox-close:hover {
+  background: hsl(0 0% 100% / 0.16);
+  color: hsl(0 0% 100%);
+}
+.obe-lightbox-close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(0 0% 0% / 0.6), 0 0 0 4px hsl(0 0% 100% / 0.7);
+}
 
 /* ── HTML artifact block ─────────────────────────────────────────────────────
    A sandboxed-iframe document (SandboxedHtml) with a slim title bar and a
@@ -1413,6 +1580,8 @@ a.obe-mention {
 :is(.ob-present, .ob-viewer) .obe-kit-gear,
 :is(.ob-present, .ob-viewer) .obe-cnt-add,
 :is(.ob-present, .ob-viewer) .obe-table-add,
+:is(.ob-present, .ob-viewer) .obe-table-row-grip,
+:is(.ob-present, .ob-viewer) .obe-table-col-grip,
 :is(.ob-present, .ob-viewer) .obe-code-actions,
 :is(.ob-present, .ob-viewer) .obe-artifact-tool,
 :is(.ob-present, .ob-viewer) .obe-artifact-resize,
@@ -1635,9 +1804,29 @@ a.obe-mention {
 }
 .obe-table td .obe-text { padding: 0.35rem 0.5rem; }
 .obe-table-header td {
-  background: hsl(var(--muted) / 0.5);
   font-weight: 600;
 }
+/* Header fill only where the cell has no row/column tint (TBL-4) — a tinted
+   header cell shows its `obe-bg-*` colour instead, staying bold. */
+.obe-table-header td:not([class*='obe-bg-']) {
+  background: hsl(var(--muted) / 0.5);
+}
+/* ── Multi-cell selection (TBL-5) ────────────────────────────────────────────
+   A rectangle of selected table cells — distinct from obe-row-selected (a whole
+   top-level block). Token-based accent tint + inset ring: theme-aware, dark-safe,
+   and translucent so it never obscures the cell text (aligns with the marquee's
+   --ring usage). `obe-cell-selecting` hides the native blue mid-drag so only the
+   cell highlight reads (the native range is collapsed on mouseup).
+   Declared AFTER the TBL-4 header-tint rule so the selection's ring background
+   wins on equal-specificity header cells — the 2px inset ring is the load-bearing
+   signal over a same-hue tint. */
+.obe-table td.obe-cell-selected {
+  background: hsl(var(--ring) / 0.16);
+  box-shadow: inset 0 0 0 2px hsl(var(--ring) / 0.55);
+}
+.obe-table-header td.obe-cell-selected { background: hsl(var(--ring) / 0.22); }
+.obe-cell-selecting ::selection { background: transparent; }
+.obe-cell-selecting ::-moz-selection { background: transparent; }
 .obe-table-add {
   position: absolute;
   display: grid;
@@ -1672,6 +1861,41 @@ a.obe-mention {
 }
 .obe-table-tools button:hover { background: var(--hover); }
 .obe-table-tools button[aria-pressed='true'] { background: hsl(var(--accent)); color: hsl(var(--foreground)); }
+
+/* TBL-2 drag-reorder: row/column grips live in a gutter reserved only when the
+   handles are shown (editable, unlocked) — readOnly/present stay tight. Cells
+   are the positioning context so a grip anchors to the edge of its row/column. */
+.obe-table-wrap.obe-has-grips { padding-top: 1.3rem; padding-left: 1.3rem; }
+.obe-has-grips .obe-table-add-col { top: 1.3rem; }
+.obe-has-grips .obe-table-add-row { left: 1.3rem; }
+.obe-table td { position: relative; }
+.obe-table-row-grip,
+.obe-table-col-grip {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  color: hsl(var(--muted-foreground) / 0.7);
+  border-radius: 5px;
+  opacity: 0;
+  transition: opacity 120ms ease, background 120ms ease;
+  cursor: grab; /* explicit for WKWebView — desktop clicks need a pointer cursor */
+  z-index: 1;
+}
+.obe-table-row-grip:active,
+.obe-table-col-grip:active { cursor: grabbing; }
+.obe-table-row-grip { left: -1.3rem; top: 0; bottom: 0; width: 1.3rem; }
+.obe-table-col-grip { top: -1.3rem; left: 0; right: 0; height: 1.3rem; }
+.obe-table tr:hover .obe-table-row-grip { opacity: 0.55; }
+.obe-table-wrap:hover .obe-table-col-grip { opacity: 0.55; }
+.obe-table-row-grip:hover,
+.obe-table-col-grip:hover { opacity: 1; background: var(--hover); }
+/* Insertion indicators — a primary-coloured bar at the target boundary. */
+.obe-table tr.obe-drop-row-above > td { box-shadow: inset 0 2px 0 0 hsl(var(--primary)); }
+.obe-table tr.obe-drop-row-below > td { box-shadow: inset 0 -2px 0 0 hsl(var(--primary)); }
+.obe-table td.obe-drop-col-before { box-shadow: inset 2px 0 0 0 hsl(var(--primary)); }
+.obe-table td.obe-drop-col-after { box-shadow: inset -2px 0 0 0 hsl(var(--primary)); }
+.obe-table tr.obe-row-dragging > td,
+.obe-table td.obe-col-dragging { opacity: 0.45; }
 
 /* Slash menu */
 .obe-slash {

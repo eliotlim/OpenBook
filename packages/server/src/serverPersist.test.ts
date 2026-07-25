@@ -68,7 +68,7 @@ const postUpdate = (app: ReturnType<typeof createApp>, id: string, update: Uint8
   Promise.resolve(
     app.request(`/api/pages/${id}/updates`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({update: Buffer.from(update).toString('base64'), clientId}),
     }),
   );
@@ -141,7 +141,7 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
 
     const res = await app.request(`/api/pages/${id}/sync`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({sv: ''}),
     });
     const body = (await res.json()) as {update: string | null; savedSv: string | null};
@@ -171,7 +171,7 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     expect(writes).toBe(0); // the server never persisted — the client save stays the writer
     const res = await app.request(`/api/pages/${id}/sync`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({sv: ''}),
     });
     // Flag off ⇒ the /sync response is byte-identical to pre-T9: `savedSv` is omitted
@@ -218,7 +218,7 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     // Restore the 'RESTORED' version through the real route.
     const res = await app.request(`/api/pages/${id}/versions/${vid}/restore`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: '{}',
     });
     expect(res.status).toBe(200);
@@ -305,7 +305,7 @@ describe('Collab T9 — server-authoritative persistence (opt-in)', () => {
     // restore's own `upsertPage` cannot run yet.
     const restoreP = app.request(`/api/pages/${id}/versions/${vid}/restore`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: '{}',
     });
 

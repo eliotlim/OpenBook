@@ -82,6 +82,38 @@ export interface PageMeta {
   updatedAt: string;
 }
 
+/** One node in the page-link graph — a live page (standalone or database row). */
+export interface PageGraphNode {
+  id: string;
+  name: string | null;
+  /** The page's emoji icon, or `null`/absent when none is set. */
+  icon?: string | null;
+}
+
+/**
+ * A directed link between two pages in the graph. `kind` distinguishes an inline
+ * `@`-mention in the source page's document (`'mention'`) from a structured
+ * relation reference in its properties (`'relation'`), so the two can be rendered
+ * distinctly.
+ */
+export interface PageGraphEdge {
+  from: string;
+  to: string;
+  kind: 'mention' | 'relation';
+}
+
+/**
+ * The whole page-link graph: every live, readable page as a node, plus every
+ * directed link (mention or relation) whose BOTH endpoints are readable by the
+ * requesting principal. Edges are computed on the fly from page content +
+ * properties (no persisted edge table); self-loops and edges to missing/deleted
+ * pages are dropped.
+ */
+export interface PageGraph {
+  nodes: PageGraphNode[];
+  edges: PageGraphEdge[];
+}
+
 /** A full page as returned by the store. `data` is the document snapshot. */
 export interface StoredPage {
   id: string;
@@ -317,17 +349,13 @@ export interface ServerInfo {
   managed: boolean;
   /**
    * Whether the server is published on the LAN (bound beyond loopback). When
-   * true, the library is reachable by other devices and an {@link accessToken}
-   * is required. Off by default.
+   * true, the library is reachable by other devices at {@link lanAddress} and the
+   * sidecar also serves the web UI there. The LAN bind is TOKENLESS (STAB-7): the
+   * only gate is the library's guest-access setting (write/read/off). Off by default.
    */
   published?: boolean;
   /** The shareable LAN URL (`http://<ip>:<port>`) when published; else null. */
   lanAddress?: string | null;
-  /**
-   * The access token clients must present when {@link published}. Surfaced so the
-   * UI can show/copy it for other devices; the local UI sends it automatically.
-   */
-  accessToken?: string | null;
   /** Folder the on-disk book mirror writes to (durable mode). */
   bookDir?: string | null;
   /**
@@ -354,7 +382,8 @@ export interface ServerControls {
   start?(): Promise<ServerInfo>;
   stop?(): Promise<ServerInfo>;
   /** Publish (or unpublish) the server on the LAN — adds the `0.0.0.0` bind and
-   *  requires the access token. The local UI keeps using IPC; resolves the new
+   *  serves the web UI there. Tokenless (STAB-7): the library's guest-access
+   *  setting is the only gate. The local UI keeps using IPC; resolves the new
    *  status. */
   publish?(enabled: boolean): Promise<ServerInfo>;
   /** Open a native folder picker to choose the book-mirror directory. Resolves

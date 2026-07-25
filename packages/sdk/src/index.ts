@@ -18,6 +18,9 @@ export type {
   PageAcl,
   AgentEditsMode,
   AgentEditsPolicy,
+  PageGraph,
+  PageGraphNode,
+  PageGraphEdge,
 } from './types';
 export {emptyPageSnapshot, PAGE_VISIBILITIES, AGENT_EDITS_MODES, AGENT_EDITS_POLICIES, resolveAgentEdits} from './types';
 export {API, type ApiError, type CompactResult} from './routes';
@@ -189,6 +192,7 @@ export {
   makeVerification,
   extractMentionIds,
   propertiesReferencePage,
+  extractPropertyReferenceIds,
   type VerificationValue,
 } from './pageProperties';
 export {getServerUrlOverride, setServerUrlOverride, getServerTokenOverride, setServerTokenOverride, getIdentityCredential, setIdentityToken, setGuestName, onIdentityChange, onServerOverrideChange, getForwardingAudience, setForwardingAudience, isMixedContentBlocked} from './connection';
@@ -218,6 +222,7 @@ export {
   principalFromClaims,
   unverifiedPrincipalFromClaims,
   LOCAL_OWNER_HEADER,
+  CLIENT_HEADER,
   type Principal,
   type PrincipalKind,
   type VerifiedVia,

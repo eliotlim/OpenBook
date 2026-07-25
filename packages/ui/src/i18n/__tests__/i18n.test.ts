@@ -15,7 +15,7 @@ describe('t', () => {
 
   it('interpolates {var} placeholders', () => {
     setLocale('en');
-    expect(t('mention.create', {name: 'Roadmap'})).toBe('Create page “Roadmap”');
+    expect(t('mention.create', {name: 'Roadmap'})).toBe('Create subpage “Roadmap”');
     expect(t('backup.exported', {count: 3})).toBe('Exported 3 pages.');
   });
 

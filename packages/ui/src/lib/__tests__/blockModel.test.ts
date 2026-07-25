@@ -13,6 +13,8 @@ import {
   mergeWithPrevious,
   migrateLegacyBlocks,
   moveBlock,
+  moveBlocks,
+  orderedTopMost,
   type NewBlock,
   removeBlock,
   rootBlocks,
@@ -87,6 +89,122 @@ describe('block model basics', () => {
     expect(texts(doc)).toEqual(['c', 'a', 'b']);
     moveBlock(doc, docToJSON(doc)[0].id, null, 3);
     expect(texts(doc)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('moveBlocks (multi-block move)', () => {
+  const five = () =>
+    createDoc([
+      {type: 'paragraph', text: 'a'},
+      {type: 'paragraph', text: 'b'},
+      {type: 'paragraph', text: 'c'},
+      {type: 'paragraph', text: 'd'},
+      {type: 'paragraph', text: 'e'},
+    ]);
+  const ids = (doc: Y.Doc): Record<string, string> =>
+    Object.fromEntries(docToJSON(doc).map((b) => [(b.text ?? []).map((r) => r.t).join(''), b.id]));
+
+  it('moves an adjacent selection forward, preserving order (toIndex is a current-doc index)', () => {
+    const doc = five();
+    const {a, b} = ids(doc);
+    // Select a,b; drop below d (d.index 3 → below ⇒ toIndex 4).
+    moveBlocks(doc, [a, b], null, 4);
+    expect(texts(doc)).toEqual(['c', 'd', 'a', 'b', 'e']);
+  });
+
+  it('moves a selection backward, preserving order', () => {
+    const doc = five();
+    const {d, e} = ids(doc);
+    // Select d,e; drop above b (b.index 1 → above ⇒ toIndex 1).
+    moveBlocks(doc, [d, e], null, 1);
+    expect(texts(doc)).toEqual(['a', 'd', 'e', 'b', 'c']);
+  });
+
+  it('gathers a NON-contiguous selection contiguously at the drop point', () => {
+    const doc = five();
+    const {a, c} = ids(doc);
+    // Select a,c; drop below e (e.index 4 → below ⇒ toIndex 5).
+    moveBlocks(doc, [a, c], null, 5);
+    expect(texts(doc)).toEqual(['b', 'd', 'e', 'a', 'c']);
+  });
+
+  it('passes ids in any order but always lands in document order', () => {
+    const doc = five();
+    const {a, b, c} = ids(doc);
+    moveBlocks(doc, [c, a, b], null, 5); // reversed / shuffled input
+    expect(texts(doc)).toEqual(['d', 'e', 'a', 'b', 'c']);
+  });
+
+  it('one undo restores everything (single transaction)', () => {
+    const doc = five();
+    const undo = new Y.UndoManager(rootBlocks(doc), {trackedOrigins: new Set(['local'])});
+    const {a, b} = ids(doc);
+    moveBlocks(doc, [a, b], null, 4);
+    expect(texts(doc)).toEqual(['c', 'd', 'a', 'b', 'e']);
+    undo.undo();
+    expect(texts(doc)).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('orderedTopMost dedupes descendants to the top-most, in document order', () => {
+    const doc = five();
+    const {a, b} = ids(doc);
+    dropBeside(doc, b, a, 'right'); // wraps a|b into a columns layout at index 0
+    const columns = docToJSON(doc)[0];
+    const innerA = columns.children![0].children![0].id;
+    // The columns block plus one of its descendants collapses to just columns.
+    expect(orderedTopMost(doc, [innerA, columns.id])).toEqual([columns.id]);
+  });
+
+  it('moving a selection that includes a descendant does not duplicate the child', () => {
+    const doc = createDoc([
+      {type: 'paragraph', text: 'a'},
+      {type: 'paragraph', text: 'b'},
+      {type: 'paragraph', text: 'c'},
+    ]);
+    const [a, b] = docToJSON(doc);
+    dropBeside(doc, b.id, a.id, 'right'); // root: [columns(a|b), c]
+    const columns = docToJSON(doc)[0];
+    const innerA = columns.children![0].children![0].id;
+    // Select columns AND its descendant a; drop below c (c.index 1 → toIndex 2).
+    moveBlocks(doc, [columns.id, innerA], null, 2);
+    const json = docToJSON(doc);
+    expect(json.map((x) => x.type)).toEqual(['paragraph', 'columns']);
+    expect(json[0].text![0].t).toBe('c');
+    // a survives exactly once, still inside the columns layout.
+    const cols = json[1].children!;
+    expect(cols[0].children![0].text![0].t).toBe('a');
+    expect(cols[1].children![0].text![0].t).toBe('b');
+  });
+
+  it('moves selected blocks into a column', () => {
+    const doc = createDoc([
+      {type: 'paragraph', text: 'a'},
+      {type: 'paragraph', text: 'b'},
+      {type: 'paragraph', text: 'c'},
+    ]);
+    const [a, b] = docToJSON(doc);
+    dropBeside(doc, b.id, a.id, 'right'); // root: [columns(a|b), c]
+    const col0 = docToJSON(doc)[0].children![0].id;
+    const c = docToJSON(doc)[1].id;
+    moveBlocks(doc, [c], col0, 1); // into column 0, after a
+    const cols = docToJSON(doc)[0].children!;
+    expect(cols[0].children!.map((x) => x.text![0].t)).toEqual(['a', 'c']);
+    expect(cols[1].children!.map((x) => x.text![0].t)).toEqual(['b']);
+    expect(docToJSON(doc)).toHaveLength(1); // c left the root
+  });
+
+  it('refuses to drop a container into its own subtree (whole move is a no-op)', () => {
+    const doc = createDoc([
+      {type: 'paragraph', text: 'a'},
+      {type: 'paragraph', text: 'b'},
+    ]);
+    const [a, b] = docToJSON(doc);
+    dropBeside(doc, b.id, a.id, 'right');
+    const columns = docToJSON(doc)[0];
+    const col0 = columns.children![0].id;
+    moveBlocks(doc, [columns.id], col0, 0); // would nest columns in its own column
+    expect(docToJSON(doc)[0].type).toBe('columns'); // unchanged, no crash
+    expect(docToJSON(doc)[0].children).toHaveLength(2);
   });
 });
 
@@ -325,7 +443,7 @@ describe('htmlToBlocks (clipboard import)', () => {
     expect(blocks[1].text).toEqual([{t: 'plain '}, {t: 'bold', a: {b: true}}, {t: ' '}, {t: 'link', a: {a: 'https://x.y'}}]);
     expect(blocks[3].props).toEqual({checked: true});
     expect(blocks[4].props).toEqual({kind: 'number'});
-    expect(blocks[8].props).toEqual({header: true});
+    expect(blocks[8].props).toMatchObject({header: true}); // + col:* order-key registry (TBL-1)
     expect((blocks[8].children?.[1].children?.[1] as {text: {t: string}[]}).text[0].t).toBe('2');
   });
 
@@ -415,7 +533,7 @@ describe('htmlToBlocks — Notion-shaped table normalization', () => {
       '<table><thead><tr><th>H1</th><th>H2</th></tr></thead>' +
         '<tbody><tr><td>a</td><td>b</td></tr></tbody></table>',
     );
-    expect(blocks[0].props).toEqual({header: true});
+    expect(blocks[0].props).toMatchObject({header: true}); // + col:* order-key registry (TBL-1)
     expect(grid(blocks[0])).toEqual([
       ['H1', 'H2'],
       ['a', 'b'],

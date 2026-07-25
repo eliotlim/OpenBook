@@ -66,11 +66,15 @@ type IconComp = React.ComponentType<{className?: string}>;
 export interface SlashState {
   open: boolean;
   blockId: string;
-  /** Offset of the '/' character inside the block's text. */
+  /** Offset of the trigger's FIRST character inside the block's text. */
   anchorOffset: number;
   query: string;
   index: number;
   keyEvent?: {key: string; n: number};
+  /** The literal trigger sequence that opened this menu ("/" / "@" / ":" are
+   *  single-char and leave this undefined; the wikilink menu sets "[[" so the
+   *  query tracker and the accept-path know the trigger is two characters). */
+  trigger?: string;
 }
 
 /** Slash-menu categories, in display order. */

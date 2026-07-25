@@ -13,6 +13,7 @@
     "build:web": "pnpm --filter @book.dev/web run build",
     "build:desktop": "pnpm --filter @book.dev/app run tauri build",
     "build:sidecar": "pnpm --filter @book.dev/server run build:sidecar",
+    "build:web-ui": "node scripts/build-web-ui.mjs",
     "commitlint": "commitlint --edit",
     "dev:prepare": "pnpm --filter @book.dev/sdk run build && pnpm --filter @book.dev/ui run build",
     "dev": "pnpm run dev:prepare && concurrently --kill-others \"pnpm:watch-sdk\" \"pnpm:watch-server\" \"pnpm:watch-app\" \"pnpm:watch-web\" \"pnpm:watch-ui\" \"pnpm:watch-ui-css\" \"pnpm:watch-ui-types\"",

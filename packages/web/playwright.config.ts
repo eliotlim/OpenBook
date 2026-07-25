@@ -44,6 +44,12 @@ export default defineConfig({
     baseURL: `http://localhost:${WEB_PORT}`,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
+    // STAB-8: the server's guest-write gate rejects an unauthenticated mutating
+    // request that lacks the first-party `X-OpenBook-Client` marker. Real clients send
+    // it via the sdk transport; the `request` fixture's hand-rolled seed writes need it
+    // set here so they aren't 403'd. (Node-context raw `fetch` calls in specs/fixtures
+    // set it inline — `extraHTTPHeaders` only covers Playwright-issued requests.)
+    extraHTTPHeaders: {'X-OpenBook-Client': '1'},
   },
   projects: [{name: 'chromium', use: {...devices['Desktop Chrome']}}],
   webServer: {

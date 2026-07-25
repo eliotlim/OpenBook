@@ -78,12 +78,12 @@ const claim = async (): Promise<void> => {
 const post = (a: ReturnType<typeof app>, path: string, body: unknown, jws?: string) =>
   a.request(path, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
+    headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})},
     body: JSON.stringify(body),
   });
 
 const get = (a: ReturnType<typeof app>, path: string, jws?: string) =>
-  a.request(path, {headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+  a.request(path, {headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
 
 describe('resolveInvitee (§4.3 / §4.4)', () => {
   it('resolves an email to a lowercased persona', async () => {

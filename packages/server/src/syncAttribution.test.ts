@@ -82,7 +82,7 @@ describe('offline attribution through sync/merge (OB-170)', () => {
     const page: StoredPage = await (
       await appA.request('/api/pages', {
         method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-OpenBook-Guest-Name': 'Caryl'},
+        headers: {'Content-Type': 'application/json', 'X-OpenBook-Guest-Name': 'Caryl', 'X-OpenBook-Client': '1'},
         body: JSON.stringify({name: `sync-guest-${seq}`, data: docWithBlock('hi')}),
       })
     ).json();

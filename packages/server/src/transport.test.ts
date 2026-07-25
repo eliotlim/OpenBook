@@ -19,7 +19,7 @@ function fakeSource(): LiveSourceLike & {emit: (type: string, data: string) => v
   };
 }
 
-const okFetch: FetchLike = async () => new Response('[]', {status: 200, headers: {'Content-Type': 'application/json'}});
+const okFetch: FetchLike = async () => new Response('[]', {status: 200, headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'}});
 
 describe('HttpDataClient — pluggable transport', () => {
   it('routes requests through an injected fetchImpl instead of global fetch', async () => {

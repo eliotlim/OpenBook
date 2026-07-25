@@ -113,7 +113,7 @@ describe('HTML asset inertness — open instance', () => {
     const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
     const res = await a.request(`/api/assets?pageId=${page.id}`, {
       method: 'POST',
-      headers: {'Content-Type': 'text/html'},
+      headers: {'Content-Type': 'text/html', 'X-OpenBook-Client': '1'},
       body: htmlBytes(),
     });
     expect(res.status).toBe(201);
@@ -135,7 +135,7 @@ describe('HTML asset inertness — open instance', () => {
     const page = await store.upsertPage({name: `p-${seq}`, data: snapshot()});
     const res = await a.request(`/api/assets?pageId=${page.id}`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', 'X-OpenBook-Client': '1'},
       body: JSON.stringify({data: Buffer.from(htmlBytes()).toString('base64'), mime: 'text/html'}),
     });
     expect(res.status).toBe(201);
@@ -152,7 +152,7 @@ describe('HTML asset inertness — open instance', () => {
     const {id} = (await (
       await a.request(`/api/assets?pageId=${page.id}`, {
         method: 'POST',
-        headers: {'Content-Type': 'text/html'},
+        headers: {'Content-Type': 'text/html', 'X-OpenBook-Client': '1'},
         body: htmlBytes(),
       })
     ).json()) as {id: string};
@@ -171,7 +171,7 @@ describe('HTML asset inertness — open instance', () => {
     const {id} = (await (
       await a.request(`/api/assets?pageId=${page.id}`, {
         method: 'POST',
-        headers: {'Content-Type': 'text/html'},
+        headers: {'Content-Type': 'text/html', 'X-OpenBook-Client': '1'},
         body: bytes,
       })
     ).json()) as {id: string};
@@ -191,7 +191,7 @@ describe('HTML asset inertness — open instance', () => {
     const upload = () =>
       a.request(`/api/assets?pageId=${page.id}`, {
         method: 'POST',
-        headers: {'Content-Type': 'text/html'},
+        headers: {'Content-Type': 'text/html', 'X-OpenBook-Client': '1'},
         body: htmlBytes(),
       });
     const first = (await (await upload()).json()) as {id: string};
@@ -200,7 +200,7 @@ describe('HTML asset inertness — open instance', () => {
     // A different HTML payload hashes differently.
     const other = await a.request(`/api/assets?pageId=${page.id}`, {
       method: 'POST',
-      headers: {'Content-Type': 'text/html'},
+      headers: {'Content-Type': 'text/html', 'X-OpenBook-Client': '1'},
       body: new Uint8Array(new TextEncoder().encode('<p>different</p>')),
     });
     expect(((await other.json()) as {id: string}).id).not.toBe(first.id);
@@ -225,7 +225,7 @@ describe('HTML asset inertness — open instance', () => {
     for (const {mime, body} of cases) {
       const res = await a.request(`/api/assets?pageId=${page.id}`, {
         method: 'POST',
-        headers: {'Content-Type': mime},
+        headers: {'Content-Type': mime, 'X-OpenBook-Client': '1'},
         body: new Uint8Array(new TextEncoder().encode(body)),
       });
       expect(res.status).toBe(201);
@@ -249,7 +249,7 @@ describe('HTML asset inertness — open instance', () => {
     for (const mime of ['TEXT/HTML', 'text/html;charset=utf-8']) {
       const res = await a.request(`/api/assets?pageId=${page.id}`, {
         method: 'POST',
-        headers: {'Content-Type': mime},
+        headers: {'Content-Type': mime, 'X-OpenBook-Client': '1'},
         body: new Uint8Array(new TextEncoder().encode(`<script>alert(1)</script><!-- ${mime} -->`)),
       });
       expect(res.status).toBe(201);
@@ -271,7 +271,7 @@ describe('HTML asset inertness — open instance', () => {
     huge[0] = 0x3c; // '<' — non-empty, HTML-ish
     const res = await a.request(`/api/assets?pageId=${page.id}`, {
       method: 'POST',
-      headers: {'Content-Type': 'text/html'},
+      headers: {'Content-Type': 'text/html', 'X-OpenBook-Client': '1'},
       body: huge,
     });
     expect(res.status).toBe(413);
@@ -283,7 +283,7 @@ describe('HTML asset inertness — open instance', () => {
 describe('HTML asset read-gate — claimed instance (no existence oracle)', () => {
   const app = () => createApp(store, undefined, new PageHub(), {identity: new IdentityService(store)});
   const req = (a: ReturnType<typeof app>, path: string, jws?: string) =>
-    a.request(path, {headers: jws ? {[IDENTITY_HEADER]: jws} : {}});
+    a.request(path, {headers: {'X-OpenBook-Client': '1', ...(jws ? {[IDENTITY_HEADER]: jws} : {})}});
 
   let restr: string; // a restricted page, readable only by owner + ACL grantee
   let assetId: string; // an HTML asset referenced ONLY by `restr`

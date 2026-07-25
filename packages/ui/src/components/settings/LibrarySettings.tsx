@@ -290,7 +290,7 @@ function AddLibraryRow() {
       </SettingsField>
       <div>
         <Button onClick={submit} disabled={!url.trim()}>
-          <PlusIcon className="mr-2 h-4 w-4" />
+          <PlusIcon className="h-4 w-4" />
           {t('library.addButton')}
         </Button>
       </div>

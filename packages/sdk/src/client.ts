@@ -18,7 +18,7 @@ import type {
   McpServerConfig,
   McpTestResult,
 } from './ai';
-import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
+import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
 import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult} from './backup';
@@ -101,6 +101,12 @@ export interface DataClient {
   setPageProperties(id: string, properties: Record<string, unknown>): Promise<StoredPage>;
   /** List the live pages that link to `id` (via `@`-mentions), newest first. */
   listBacklinks(id: string): Promise<PageMeta[]>;
+  /**
+   * The whole-library page-link graph: readable pages as nodes + their
+   * mention/relation edges (both endpoints readable). Edges are derived on the
+   * fly. Read-filtered per principal like {@link listPages}.
+   */
+  pageGraph(): Promise<PageGraph>;
 
   // ── Page version history (PVH-3) ─────────────────────────────────────────────
   /**
@@ -892,6 +898,14 @@ export interface HttpDataClientOptions {
 /** Identity header names (kept in sync with the server's `principal.ts`). */
 const IDENTITY_HEADER = 'X-OpenBook-Identity';
 const GUEST_NAME_HEADER = 'X-OpenBook-Guest-Name';
+/**
+ * First-party-client marker (STAB-8, kept in sync with the sdk's `CLIENT_HEADER`
+ * and the server's guest-write gate). Sent on EVERY request so an unauthenticated
+ * guest write is a non-simple cross-origin request the browser can't forge as a
+ * plain form/`fetch` POST. Reads carry it too — harmless, and it means the desktop
+ * IPC / web / forwarded transports are uniform.
+ */
+const CLIENT_HEADER = 'X-OpenBook-Client';
 
 /**
  * The data server REJECTED the caller's identity assertion (HTTP 401): the JWS is
@@ -966,6 +980,10 @@ export class HttpDataClient implements DataClient {
    */
   private authFetch(input: string, init: RequestInit = {}): Promise<Response> {
     const headers: Record<string, string> = {...(init.headers as Record<string, string> | undefined)};
+    // Mark the request as a first-party client call (STAB-8). Cheap and unconditional
+    // so the server's guest-write gate admits it over every transport (desktop IPC,
+    // web same-origin, forwarded tunnel — the tunnel forwards it verbatim).
+    headers[CLIENT_HEADER] = '1';
     if (this.token) headers.Authorization = `Bearer ${this.token}`;
     const id = this.getIdentity?.();
     if (id?.jws) headers[IDENTITY_HEADER] = id.jws;
@@ -1051,6 +1069,10 @@ export class HttpDataClient implements DataClient {
 
   async listBacklinks(id: string): Promise<PageMeta[]> {
     return this.request<PageMeta[]>('GET', API.pageBacklinks(id));
+  }
+
+  async pageGraph(): Promise<PageGraph> {
+    return this.request<PageGraph>('GET', API.pageGraph);
   }
 
   async listVersions(pageId: string, opts?: {limit?: number}): Promise<PageVersionMeta[]> {

@@ -1,3 +1,75 @@
+## 3.4.3 (2026-07-25)
+
+### 🩹 Fixes
+
+- **ui:** button icon↔text spacing — gap in the Button primitive + call-site margin sweep (UX-B1) ([#217](https://github.com/eliotlim/OpenBook/pull/217))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
+## 3.4.2 (2026-07-24)
+
+### 🩹 Fixes
+
+- **build:** spawn pnpm through a shell on Windows in the release build scripts ([#216](https://github.com/eliotlim/OpenBook/pull/216))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
+## 3.4.1 (2026-07-24)
+
+### 🩹 Fixes
+
+- **app,build:** unbreak release beforeBuildCommand — build:web-ui is a workspace-root script ([#215](https://github.com/eliotlim/OpenBook/pull/215), [#204](https://github.com/eliotlim/OpenBook/issues/204), [#205](https://github.com/eliotlim/OpenBook/issues/205))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
+## 3.4.0 (2026-07-24)
+
+### 🚀 Features
+
+- **blockeditor:** image lightbox — fullscreen embedded images & GIFs (LBX-1) ([#206](https://github.com/eliotlim/OpenBook/pull/206))
+- **blockeditor:** table order contract — fractional keys + column identity (TBL-1) ([#207](https://github.com/eliotlim/OpenBook/pull/207))
+- **blockeditor:** marquee rectangle select + shift-click extension (SEL-1) ([#208](https://github.com/eliotlim/OpenBook/pull/208))
+- **blockeditor:** multi-block drag — move the whole selection in one drop (SEL-2) ([#211](https://github.com/eliotlim/OpenBook/pull/211))
+- **blockeditor:** per-cell table context menus + duplicate row (TBL-3) ([#209](https://github.com/eliotlim/OpenBook/pull/209))
+- **blockeditor:** table drag-reorder — row/column grips + keyboard moves (TBL-2) ([#212](https://github.com/eliotlim/OpenBook/pull/212))
+- **blockeditor:** table row & column colouring — tint tokens, menu pickers, export fidelity (TBL-4) ([#213](https://github.com/eliotlim/OpenBook/pull/213))
+- **blockeditor:** multi-cell table selection — drag/shift range, copy, clear (TBL-5) ([#214](https://github.com/eliotlim/OpenBook/pull/214))
+- **server,web,desktop:** serve the LAN web UI from the sidecar — tokenless, guest-gated (STAB-7) ([#205](https://github.com/eliotlim/OpenBook/pull/205))
+- **ui:** lightbox zoom & pan — wheel/pinch, drag, fit↔100%, keyboard (LBX-2) ([#210](https://github.com/eliotlim/OpenBook/pull/210))
+
+### 🩹 Fixes
+
+- **server,sdk:** app-origin CORS allowlist + guest-write header gate — close the drive-by loopback hole (STAB-8) ([#204](https://github.com/eliotlim/OpenBook/pull/204))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
+## 3.3.3 (2026-07-23)
+
+### 🩹 Fixes
+
+- **app,ui:** desktop error boundary + poison-page crash-loop recovery (STAB-3) ([#199](https://github.com/eliotlim/OpenBook/pull/199))
+- **blockeditor:** Notion table paste normalization + render guards — end the white-screen crash loop (STAB-1/2) ([#203](https://github.com/eliotlim/OpenBook/pull/203))
+- **desktop:** hide window on close and drain the sidecar off the main thread (STAB-6) ([#202](https://github.com/eliotlim/OpenBook/pull/202))
+- **mcp,desktop,server:** unify the local MCP endpoint — loopback bind on toggle + instance verification (STAB-5) ([#201](https://github.com/eliotlim/OpenBook/pull/201))
+- **ui,desktop:** stop file drops hijacking the webview; origin-guard navigation (STAB-4) ([#200](https://github.com/eliotlim/OpenBook/pull/200))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Eliot Lim @eliotlim
+
 ## 3.3.2 (2026-07-18)
 
 ### 🚀 Features

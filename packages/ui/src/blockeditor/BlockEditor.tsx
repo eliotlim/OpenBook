@@ -1,5 +1,26 @@
 import React, {useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState} from 'react';
-import {Boxes, Check, ChevronDown, ChevronRight, EyeOff, GripVertical, Lock, LockOpen, Plus, RefreshCw} from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  Boxes,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Copy,
+  EyeOff,
+  GripHorizontal,
+  GripVertical,
+  Heading,
+  Lock,
+  LockOpen,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 import type * as Y from 'yjs';
 import {
   blockChildren,
@@ -11,22 +32,39 @@ import {
   findBlock,
   makeBlock,
   moveBlock,
+  moveBlocks,
   parentBlockOf,
   blockToJSON,
+  cellInRect,
+  cellPosition,
+  clearCellRange,
   cloneBlock,
+  normalizeCellRect,
   removeBlock,
   rootBlocks,
   setBlockProp,
+  tableCellColor,
+  tableColumnColor,
+  tableColumns,
+  tableRangeRuns,
   tableDeleteColumn,
   tableDeleteRow,
+  tableDuplicateRow,
+  tableGrid,
   tableInsertColumn,
   tableInsertRow,
+  tableMoveColumn,
+  tableMoveRow,
+  tableRowColor,
+  setTableColumnColor,
+  setTableRowColor,
   TEXT_BLOCKS,
   type BlockMap,
   type BlockType,
 } from './model';
 import {rangeHasAttr, readSelection, readSelectionDirected, writeSelection} from './richtext';
-import {blocksToHtml, blocksToMarkdown} from './exportBlocks';
+import {marqueeRect, rowsInMarquee, shiftClickRange, type Rect} from './marquee';
+import {blocksToHtml, blocksToMarkdown, cellRangeToHtml, cellRangeToTsv} from './exportBlocks';
 import {getCustomBlock} from './registry';
 import {CodeBlockView} from './CodeBlockView';
 import {ImageBlockView} from './ImageBlockView';
@@ -50,6 +88,7 @@ import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuShortcut,
   ContextMenuSub,
@@ -63,6 +102,7 @@ import {TextBlockView} from './TextBlockView';
 import {COLOR_TOKENS, isColorToken} from './colors';
 import {SlashMenu, type SlashState} from './SlashMenu';
 import {MentionMenu} from './MentionMenu';
+import {WikilinkMenu} from './WikilinkMenu';
 import {EmojiMenu} from './EmojiMenu';
 import {LinkPicker} from './LinkPicker';
 import {hasKitConfig, openKitConfig} from './kit/kitConfig';
@@ -83,6 +123,25 @@ import {createSelectionReporter, LOCAL_SELECTION_THROTTLE_MS, type LocalSelectio
 export {LOCAL_SELECTION_THROTTLE_MS, type LocalSelection};
 
 /**
+ * A rectangular multi-cell selection within ONE table (TBL-5). `anchor` is the
+ * fixed corner; `focus` moves under drag / shift-click / shift-arrow. Both are
+ * RENDER-order grid coordinates — LOCAL React state only, never CRDT or
+ * awareness (per-user, ephemeral). The BlockEditor root owns it and threads it
+ * to the table through {@link CellSelectionContext}.
+ */
+export interface CellSelection {
+  tableId: string;
+  anchor: {row: number; col: number};
+  focus: {row: number; col: number};
+}
+
+interface CellSelectionCtx {
+  sel: CellSelection | null;
+  setSel: (s: CellSelection | null) => void;
+}
+const CellSelectionContext = React.createContext<CellSelectionCtx | null>(null);
+
+/**
  * The block editor root: renders the block tree, owns the transient UI
  * (slash menu, inline toolbar, drag state, block selection), and routes
  * structural keyboard commands. Pure UI — all document state lives in the
@@ -93,6 +152,7 @@ export {LOCAL_SELECTION_THROTTLE_MS, type LocalSelection};
 export interface EditorUI {
   slash: SlashState;
   mention: SlashState;
+  wiki: SlashState;
   emoji: SlashState;
   spellcheck: boolean;
   openSlash(blockId: string, anchorOffset: number): void;
@@ -103,6 +163,11 @@ export interface EditorUI {
   updateMention(caret: number): void;
   closeMention(): void;
   mentionKey(key: string): void;
+  /** "[[" wikilink menu — anchorOffset is the FIRST "[" of the pair. */
+  openWiki(blockId: string, anchorOffset: number): void;
+  updateWiki(caret: number): void;
+  closeWiki(): void;
+  wikiKey(key: string): void;
   openEmoji(blockId: string, anchorOffset: number): void;
   updateEmoji(caret: number): void;
   closeEmoji(): void;
@@ -121,7 +186,11 @@ export interface BlockEditorHandle {
 
 export type DropRegion = 'above' | 'below' | 'left' | 'right';
 interface DragState {
+  /** The block whose handle is grabbed. */
   id: string;
+  /** Present (length ≥ 2) for a multi-block drag: the whole selection in
+   *  document order, `id` included. Absent for a single-block drag. */
+  ids?: string[];
   over: {id: string; region: DropRegion} | null;
 }
 
@@ -171,12 +240,35 @@ export const BlockEditor: React.FC<{
 
   const [slash, setSlash] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
   const [mention, setMention] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
+  const [wiki, setWiki] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0, trigger: '[['});
   const [emoji, setEmoji] = useState<SlashState>({open: false, blockId: '', anchorOffset: 0, query: '', index: 0});
   const [toolbar, setToolbar] = useState<ToolbarState | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
   const [linkPicker, setLinkPicker] = useState<{kind: 'page' | 'database'; blockId: string; anchorOffset: number} | null>(null);
   const [live, setLive] = useState(''); // aria-live announcements
   const [fileDragOver, setFileDragOver] = useState(false); // external image drag hovering the editor
+  // Marquee (rubber-band) rectangle, in obe-root-relative coords, while a
+  // drag-select is live; null the rest of the time. Rendered as an overlay.
+  const [marquee, setMarquee] = useState<{left: number; top: number; width: number; height: number} | null>(null);
+  // A marquee drag just ended → swallow the trailing `click` so it doesn't
+  // append a trailing paragraph (the click-below-last-block affordance).
+  const suppressClickRef = useRef(false);
+  // Teardown for an in-flight marquee drag (remove window listeners, cancel the
+  // rAF loop, clear state). Stashed so we can tear down on unmount / read-only
+  // flip mid-drag — otherwise the listeners + self-scheduling rAF leak.
+  const marqueeTeardownRef = useRef<(() => void) | null>(null);
+  // Teardown for an in-flight cell drag-select (remove window listeners, clear
+  // transient drag state). Stashed so we can tear down on unmount / read-only
+  // flip mid-drag — otherwise the listeners leak and the next move runs on a
+  // detached doc / an unmounted tree.
+  const cellDragTeardownRef = useRef<(() => void) | null>(null);
+  // Cell-range selection (TBL-5): a rectangle of table cells. LOCAL, per-user,
+  // ephemeral — never CRDT. A ref mirrors it so the document-level clipboard /
+  // keyboard listeners read the live value without re-subscribing every change.
+  const [cellSel, setCellSel] = useState<CellSelection | null>(null);
+  const cellSelRef = useRef(cellSel);
+  cellSelRef.current = cellSel;
+  const cellSelCtx = useMemo<CellSelectionCtx>(() => ({sel: cellSel, setSel: setCellSel}), [cellSel]);
 
   // Insert an inline page-link mention (chosen in the LinkPicker) at the caret.
   const insertMention = useCallback(
@@ -207,6 +299,18 @@ export const BlockEditor: React.FC<{
       editor.requestCaret({blockId, offset: start + str.length});
     },
     [doc, editor],
+  );
+
+  // Auto-create a page for a "[[" wikilink whose name matches nothing: the new
+  // page nests under the current page (parentId = pageId) and its typed name is
+  // used as the chip label immediately (the reload behind createPage means
+  // pageLinks.label would also resolve it, but the typed name avoids a flash).
+  const createWikiPage = useCallback(
+    async (name: string): Promise<PageLinkResult> => {
+      const id = await pageLinks.createPage(name, pageId ?? null);
+      return {id, label: name, icon: pageLinks.icon(id)};
+    },
+    [pageId],
   );
 
   // Embed a live database view as its own block (the "Link to database"
@@ -338,8 +442,11 @@ export const BlockEditor: React.FC<{
       // text into the query and close the menu on the first keystroke. The
       // caller passes the post-edit caret (the DOM selection is a render
       // behind here).
-      const after = s.slice(state.anchorOffset + 1);
-      return after.slice(0, Math.max(0, caret - state.anchorOffset - 1));
+      // The query starts after the trigger — one char for "/"/"@"/":", two for
+      // the "[[" wikilink (state.trigger records the literal so this is generic).
+      const triggerLen = state.trigger?.length ?? 1;
+      const after = s.slice(state.anchorOffset + triggerLen);
+      return after.slice(0, Math.max(0, caret - state.anchorOffset - triggerLen));
     },
     [doc],
   );
@@ -347,19 +454,25 @@ export const BlockEditor: React.FC<{
   const ui = useMemo<EditorUI>(() => {
     const closeSlash = (): void => setSlash((s) => ({...s, open: false, query: '', index: 0}));
     const closeMention = (): void => setMention((s) => ({...s, open: false, query: '', index: 0}));
+    const closeWiki = (): void => setWiki((s) => ({...s, open: false, query: '', index: 0}));
     const closeEmoji = (): void => setEmoji((s) => ({...s, open: false, query: '', index: 0}));
     // The query tracker is trigger-agnostic — it just slices text after the
-    // anchor up to the caret, so the slash, mention and emoji menus share it.
+    // anchor up to the caret, so the slash, mention, wikilink and emoji menus
+    // share it. `trigger` is the literal sequence (one char for "/"/"@"/":",
+    // two for the "[[" wikilink) — the menu closes if it's been edited away.
     const triggerOpen = (caret: number, s: SlashState, trigger: string): SlashState => {
       if (!s.open) return s;
       const found = findBlock(doc, s.blockId);
       const text = found && blockText(found.block);
-      if (!text || text.toString()[s.anchorOffset] !== trigger) return {...s, open: false}; // trigger deleted
+      if (!text || text.toString().slice(s.anchorOffset, s.anchorOffset + trigger.length) !== trigger) {
+        return {...s, open: false}; // trigger deleted
+      }
       return {...s, query: slashQuery(s, caret), index: 0};
     };
     return {
       slash,
       mention,
+      wiki,
       emoji,
       spellcheck,
       openSlash: (id, anchorOffset) => {
@@ -367,6 +480,7 @@ export const BlockEditor: React.FC<{
         // typing e.g. "/ :" never stacks two popovers.
         setSlash({open: true, blockId: id, anchorOffset, query: '', index: 0});
         closeMention();
+        closeWiki();
         closeEmoji();
       },
       updateSlash: (caret) => setSlash((s) => triggerOpen(caret, s, '/')),
@@ -378,15 +492,26 @@ export const BlockEditor: React.FC<{
       openMention: (id, anchorOffset) => {
         setMention({open: true, blockId: id, anchorOffset, query: '', index: 0});
         closeSlash();
+        closeWiki();
         closeEmoji();
       },
       updateMention: (caret) => setMention((s) => triggerOpen(caret, s, '@')),
       closeMention,
       mentionKey: (key) => setMention((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}})),
+      openWiki: (id, anchorOffset) => {
+        setWiki({open: true, blockId: id, anchorOffset, query: '', index: 0, trigger: '[['});
+        closeSlash();
+        closeMention();
+        closeEmoji();
+      },
+      updateWiki: (caret) => setWiki((s) => triggerOpen(caret, s, s.trigger ?? '[[')),
+      closeWiki,
+      wikiKey: (key) => setWiki((s) => ({...s, keyEvent: {key, n: (s.keyEvent?.n ?? 0) + 1}})),
       openEmoji: (id, anchorOffset) => {
         setEmoji({open: true, blockId: id, anchorOffset, query: '', index: 0});
         closeSlash();
         closeMention();
+        closeWiki();
       },
       updateEmoji: (caret) => setEmoji((s) => triggerOpen(caret, s, ':')),
       closeEmoji,
@@ -395,7 +520,7 @@ export const BlockEditor: React.FC<{
       scheduleToolbar,
       leaveToTitle: onLeaveToTitle,
     };
-  }, [slash, mention, emoji, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck, onLeaveToTitle]);
+  }, [slash, mention, wiki, emoji, doc, slashQuery, toggleFormat, scheduleToolbar, spellcheck, onLeaveToTitle]);
 
   // ── Drag and drop ────────────────────────────────────────────────────────
   const computeRegion = (e: React.DragEvent | React.PointerEvent, el: HTMLElement, allowSides: boolean): DropRegion => {
@@ -408,7 +533,20 @@ export const BlockEditor: React.FC<{
   };
 
   const performDrop = useCallback(
-    (sourceId: string, targetId: string, region: DropRegion): void => {
+    (sourceId: string, targetId: string, region: DropRegion, ids?: string[]): void => {
+      // Multi-block drag: move the whole (document-ordered) selection to the
+      // drop point in one undo step. Side-drops are disabled while multi-
+      // dragging (v1), so region is always above/below here.
+      if (ids && ids.length > 1) {
+        if (ids.includes(targetId)) return; // never drop the selection onto itself
+        const target = findBlock(doc, targetId);
+        if (!target) return;
+        const parentBlock = parentBlockOf(doc, target.parent);
+        const parentId = parentBlock ? blockId(parentBlock) : null;
+        moveBlocks(doc, ids, parentId, region === 'above' ? target.index : target.index + 1);
+        setLive(t('editor.drag.movedBlocks', {count: ids.length}));
+        return;
+      }
       if (sourceId === targetId) return;
       if (region === 'left' || region === 'right') {
         dropBeside(doc, sourceId, targetId, region);
@@ -647,6 +785,155 @@ export const BlockEditor: React.FC<{
     return () => document.removeEventListener('keydown', listener);
   }, [hasSelection]);
 
+  // ── Cell-range selection (TBL-5) ────────────────────────────────────────────
+  // A native selection spanning >1 cell of the SAME table becomes a cell-range
+  // selection. It is NOT a block selection: a table is one top-level row, so the
+  // block converter above never fires for a within-table span (its spannedRows
+  // stays length 1); a span crossing the table boundary DOES hit ≥2 top-level
+  // rows and falls through to that block converter (acceptance #5, unchanged).
+  // Live during the drag via selectionchange; mouseup collapses the native range
+  // so the highlight is clean and the document-level cell keyboard takes over.
+  // Runs in BOTH modes — readOnly keeps SELECT + COPY (never clear/cut, #4).
+  React.useEffect(() => {
+    const cellIdOf = (node: Node | null): string | null => {
+      const el = node instanceof Element ? node : (node?.parentElement ?? null);
+      const cellEl = el?.closest?.('[data-block-text]') as HTMLElement | null;
+      const id = cellEl?.dataset.blockText;
+      if (!id) return null;
+      const found = findBlock(doc, id);
+      return found && blockType(found.block) === 'cell' ? id : null;
+    };
+    // The native selection reduced to a same-table cell span (anchor→focus),
+    // or null when it is collapsed, single-cell (plain text edit), or crosses
+    // out of the table.
+    const spanFromNative = (): CellSelection | null => {
+      const root = rootRef.current;
+      const sel = document.getSelection();
+      if (!root || !sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+      const range = sel.getRangeAt(0);
+      if (!root.contains(range.commonAncestorContainer)) return null;
+      const aId = cellIdOf(sel.anchorNode);
+      const fId = cellIdOf(sel.focusNode);
+      if (!aId || !fId || aId === fId) return null; // one cell → native text select
+      const aPos = cellPosition(doc, aId);
+      const fPos = cellPosition(doc, fId);
+      if (!aPos || !fPos || aPos.table !== fPos.table) return null; // crosses tables
+      return {
+        tableId: blockId(aPos.table),
+        anchor: {row: aPos.row, col: aPos.col},
+        focus: {row: fPos.row, col: fPos.col},
+      };
+    };
+    const onSelectionChange = (): void => {
+      const span = spanFromNative();
+      if (span) {
+        editor.clearSelection();
+        setCellSel(span); // live rectangle during the drag
+      }
+    };
+    const onMouseUp = (): void => {
+      const span = spanFromNative();
+      if (!span) return;
+      editor.clearSelection();
+      setCellSel(span);
+      // Collapse + blur so keydowns route to the document-level cell keyboard
+      // and no native highlight lingers under the cell highlight.
+      document.getSelection()?.removeAllRanges();
+      (document.activeElement as HTMLElement | null)?.blur();
+    };
+    const onClipboard = (e: ClipboardEvent, cut: boolean): void => {
+      const csel = cellSelRef.current;
+      if (!csel || !e.clipboardData) return; // block copy handler owns the rest
+      e.preventDefault();
+      const rect = normalizeCellRect(csel.anchor, csel.focus);
+      const grid = tableRangeRuns(doc, csel.tableId, rect);
+      e.clipboardData.setData('text/plain', cellRangeToTsv(grid));
+      e.clipboardData.setData('text/html', cellRangeToHtml(grid));
+      // Cut = copy + clear; the clear half is disabled on a read-only surface,
+      // so there Cut degrades to a plain Copy (never mutates — acceptance #4).
+      if (cut && !readOnly) {
+        clearCellRange(doc, csel.tableId, rect);
+        setLive('Cut');
+      } else {
+        setLive('Copied');
+      }
+    };
+    const onCopy = (e: ClipboardEvent): void => onClipboard(e, false);
+    const onCut = (e: ClipboardEvent): void => onClipboard(e, true);
+    document.addEventListener('selectionchange', onSelectionChange);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('copy', onCopy);
+    document.addEventListener('cut', onCut);
+    return () => {
+      document.removeEventListener('selectionchange', onSelectionChange);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('copy', onCopy);
+      document.removeEventListener('cut', onCut);
+    };
+  }, [doc, editor, readOnly]);
+
+  // Cell-range keyboard: bound at the document level while a range exists (the
+  // range blurs the caret, so keys land on <body>). Escape clears; Backspace/
+  // Delete clears the cells in one undo step (disabled read-only); Shift+arrows
+  // extend the focus corner; a plain arrow collapses to a single-cell caret.
+  const hasCellSel = cellSel !== null;
+  React.useEffect(() => {
+    if (!hasCellSel) return;
+    const dirs: Record<string, {dr: number; dc: number}> = {
+      ArrowUp: {dr: -1, dc: 0},
+      ArrowDown: {dr: 1, dc: 0},
+      ArrowLeft: {dr: 0, dc: -1},
+      ArrowRight: {dr: 0, dc: 1},
+    };
+    const onKey = (e: KeyboardEvent): void => {
+      const sel = cellSelRef.current;
+      if (!sel) return;
+      // Undo/redo while the range is shown: a cleared range blurs the caret, so
+      // TextBlockView's own Cmd+Z never sees the keys — route them here so the
+      // clear is immediately reversible (one transact = one step).
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) editor.undo.redo();
+        else editor.undo.undo();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setCellSel(null);
+        return;
+      }
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        if (readOnly) return; // clear disabled on a read-only surface
+        e.preventDefault();
+        clearCellRange(doc, sel.tableId, normalizeCellRect(sel.anchor, sel.focus));
+        setLive('Cleared cells');
+        return;
+      }
+      const d = dirs[e.key];
+      if (!d) return;
+      e.preventDefault();
+      const table = findBlock(doc, sel.tableId);
+      if (!table) return;
+      const grid = tableGrid(table.block);
+      const maxRow = grid.rows.length - 1;
+      const maxCol = grid.width - 1;
+      const focus = {
+        row: Math.max(0, Math.min(maxRow, sel.focus.row + d.dr)),
+        col: Math.max(0, Math.min(maxCol, sel.focus.col + d.dc)),
+      };
+      if (e.shiftKey) {
+        setCellSel({...sel, focus});
+        return;
+      }
+      // Plain arrow collapses the range to a single-cell caret at the moved focus.
+      setCellSel(null);
+      const cell = grid.cells[focus.row]?.[focus.col];
+      if (cell && blockType(cell) === 'cell') editor.requestCaret({blockId: blockId(cell), offset: 'end'});
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [hasCellSel, doc, editor, readOnly]);
+
   // ── Local caret → presence (Collab T5) ─────────────────────────────────────
   // Broadcast where this user's caret is so peers can render it as a remote
   // cursor (T4 deferred the editor-side caret tracking here). Throttled (~10Hz)
@@ -722,6 +1009,223 @@ export const BlockEditor: React.FC<{
     }
   };
 
+  // ── Marquee (rubber-band) rectangle select ───────────────────────────────
+  // A drag beginning on empty editor chrome (not text / a control) draws a
+  // rectangle that live-selects the top-level rows it intersects. It COEXISTS
+  // with the plain-click clear: a click that never moves ≥5px does nothing here
+  // and the existing handlers run. Read-only surfaces opt out — selection there
+  // has no copy/keyboard path wired, and we must never expose a mutation route.
+  const startMarquee = (e: React.MouseEvent): void => {
+    if (readOnly || e.button !== 0 || e.shiftKey) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const target = e.target as HTMLElement;
+    // Only empty chrome arms the marquee — never text, media, or a control.
+    if (target.closest(MARQUEE_EXCLUDE)) return;
+
+    const sx = e.clientX;
+    const sy = e.clientY;
+    const scroller = scrollParent(root);
+    const readScroll = (): {top: number; left: number} =>
+      scroller === window
+        ? {top: window.scrollY, left: window.scrollX}
+        : {top: (scroller as HTMLElement).scrollTop, left: (scroller as HTMLElement).scrollLeft};
+    const startScroll = readScroll();
+
+    let engaged = false;
+    let raf: number | null = null;
+    let px = sx;
+    let py = sy;
+    let lastKey = '';
+
+    const selectIfChanged = (ids: string[]): void => {
+      const key = ids.join('|');
+      if (key === lastKey) return;
+      lastKey = key;
+      editor.setSelection(ids);
+    };
+
+    const recompute = (): void => {
+      const now = readScroll();
+      // Re-derive the anchor's CURRENT client position from the scroll delta so
+      // the rectangle stays pinned to the document point it started on while the
+      // page auto-scrolls under it.
+      const ax = sx + (startScroll.left - now.left);
+      const ay = sy + (startScroll.top - now.top);
+      const rect = marqueeRect(ax, ay, px, py); // client coords
+      const rows: {id: string; rect: Rect}[] = [];
+      root.querySelectorAll(':scope > [data-block-row]').forEach((el) => {
+        const r = (el as HTMLElement).getBoundingClientRect();
+        rows.push({id: (el as HTMLElement).dataset.blockRow!, rect: {left: r.left, top: r.top, right: r.right, bottom: r.bottom}});
+      });
+      selectIfChanged(rowsInMarquee(rect, rows));
+      const rr = root.getBoundingClientRect();
+      setMarquee({left: rect.left - rr.left, top: rect.top - rr.top, width: rect.right - rect.left, height: rect.bottom - rect.top});
+    };
+
+    const autoScroll = (): void => {
+      const margin = 48;
+      const speed = 14;
+      const bounds =
+        scroller === window
+          ? {top: 0, bottom: window.innerHeight}
+          : (() => {
+            const b = (scroller as HTMLElement).getBoundingClientRect();
+            return {top: b.top, bottom: b.bottom};
+          })();
+      let dy = 0;
+      if (py < bounds.top + margin) dy = -speed;
+      else if (py > bounds.bottom - margin) dy = speed;
+      if (dy === 0) return;
+      if (scroller === window) window.scrollBy(0, dy);
+      else (scroller as HTMLElement).scrollTop += dy;
+    };
+
+    // The rAF loop only drives AUTO-SCROLL: while the pointer sits in a hot zone
+    // no `mousemove` fires, so we need a self-scheduling tick to keep scrolling
+    // (and re-hit-testing) the document under a stationary pointer.
+    const loop = (): void => {
+      autoScroll();
+      recompute();
+      raf = engaged ? requestAnimationFrame(loop) : null;
+    };
+
+    const onMove = (ev: MouseEvent): void => {
+      px = ev.clientX;
+      py = ev.clientY;
+      if (!engaged) {
+        if (Math.abs(px - sx) < 5 && Math.abs(py - sy) < 5) return;
+        engaged = true;
+        // Block-selection takes over from the caret: drop focus + any native
+        // range so the block-selection keyboard router (document-level) engages.
+        (document.activeElement as HTMLElement | null)?.blur();
+        document.getSelection()?.removeAllRanges();
+        root.classList.add('obe-marqueeing'); // user-select:none while dragging
+        if (raf == null) raf = requestAnimationFrame(loop);
+      }
+      // Update the rectangle synchronously on every move so the overlay never
+      // waits on a frame (and never lags the pointer).
+      recompute();
+      ev.preventDefault();
+    };
+
+    // Single teardown for the whole gesture: detach the window listeners, kill
+    // the rAF loop, drop the overlay + drag class. Invoked from onUp on a normal
+    // release AND from the unmount / read-only-flip effects when a drag is cut
+    // short — so nothing leaks past the editor's lifetime.
+    const teardown = (): void => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      if (raf != null) cancelAnimationFrame(raf);
+      raf = null;
+      engaged = false;
+      root.classList.remove('obe-marqueeing');
+      setMarquee(null);
+      marqueeTeardownRef.current = null;
+    };
+
+    const onUp = (): void => {
+      const wasEngaged = engaged;
+      if (wasEngaged) recompute(); // final frame — keep whatever the release rect selected
+      teardown();
+      if (wasEngaged) suppressClickRef.current = true; // eat the trailing click
+      // A plain click (never engaged) falls through to the native handlers.
+    };
+
+    marqueeTeardownRef.current = teardown;
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  // ── Cell drag-select (TBL-5) ─────────────────────────────────────────────────
+  // Each cell is its OWN contenteditable, and a browser will not extend a native
+  // text selection across separate editables — so a cell drag is tracked by grid
+  // COORDINATE (hit-testing the pointer against `[data-block-text]` cells),
+  // independent of the native selection. A press that never leaves its start
+  // cell stays a plain caret / intra-cell text drag; the moment the pointer
+  // enters a DIFFERENT cell of the SAME table it engages, blurs the caret, and
+  // lays down a live rectangle. Selection is allowed read-only (copy path).
+  const startCellDrag = (e: React.MouseEvent): void => {
+    if (e.button !== 0 || e.shiftKey) return;
+    const startEl = (e.target as HTMLElement).closest?.('[data-block-text]') as HTMLElement | null;
+    const startId = startEl?.dataset.blockText;
+    if (!startId) return;
+    const startPos = cellPosition(doc, startId);
+    if (!startPos) return; // the press was not inside a table cell
+    const tableId = blockId(startPos.table);
+    const anchor = {row: startPos.row, col: startPos.col};
+    let engaged = false;
+    // The cell of THIS table under a client point, or null (outside / other table).
+    const cellAt = (x: number, y: number): {row: number; col: number} | null => {
+      for (const el of document.elementsFromPoint(x, y)) {
+        const cEl = (el as HTMLElement).closest?.('[data-block-text]') as HTMLElement | null;
+        const cid = cEl?.dataset.blockText;
+        if (!cid) continue;
+        const p = cellPosition(doc, cid);
+        return p && blockId(p.table) === tableId ? {row: p.row, col: p.col} : null;
+      }
+      return null;
+    };
+    const onMove = (ev: MouseEvent): void => {
+      const cur = cellAt(ev.clientX, ev.clientY);
+      if (!cur) return;
+      if (!engaged) {
+        if (cur.row === anchor.row && cur.col === anchor.col) return; // still in start cell
+        engaged = true;
+        (document.activeElement as HTMLElement | null)?.blur();
+        editor.clearSelection();
+      }
+      // Suppress the native selection + keep the rectangle live under the pointer.
+      document.getSelection()?.removeAllRanges();
+      setCellSel({tableId, anchor, focus: cur});
+      ev.preventDefault();
+    };
+    // Single teardown for the whole gesture: detach the window listeners and
+    // drop the transient drag state. Invoked from onUp on a normal release AND
+    // from the unmount / read-only-flip effects when a drag is cut short — so
+    // neither listener leaks past the editor's lifetime (the next move would
+    // otherwise run cellPosition on a detached doc + setCellSel on a dead tree).
+    const teardown = (): void => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      engaged = false;
+      cellDragTeardownRef.current = null;
+    };
+    const onUp = (): void => {
+      const wasEngaged = engaged;
+      teardown();
+      if (wasEngaged) {
+        document.getSelection()?.removeAllRanges();
+        (document.activeElement as HTMLElement | null)?.blur();
+        suppressClickRef.current = true; // eat the trailing click (no caret jump)
+      }
+    };
+    cellDragTeardownRef.current = teardown;
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  // Cut a live marquee short when the editor unmounts, so its window listeners
+  // and self-scheduling rAF don't outlive the component.
+  React.useEffect(() => () => marqueeTeardownRef.current?.(), []);
+
+  // A read-only flip mid-drag has no selection/copy path — tear the marquee down
+  // rather than leave it dangling on a now-frozen surface.
+  React.useEffect(() => {
+    if (readOnly) marqueeTeardownRef.current?.();
+  }, [readOnly]);
+
+  // Cut a live cell drag-select short when the editor unmounts, so its window
+  // listeners don't outlive the component (the next move would run on a detached
+  // doc + set state on an unmounted tree).
+  React.useEffect(() => () => cellDragTeardownRef.current?.(), []);
+
+  // A read-only flip mid-drag has no selection/copy path — tear the cell drag
+  // down too (selection-only, so low stakes, but keep parity with the marquee).
+  React.useEffect(() => {
+    if (readOnly) cellDragTeardownRef.current?.();
+  }, [readOnly]);
+
   return (
     <div
       ref={rootRef}
@@ -734,9 +1238,27 @@ export const BlockEditor: React.FC<{
       onDragLeave={onRootDragLeave}
       onDrop={onRootDrop}
       onMouseDown={(e) => {
+        // A real click's mousedown always precedes its click, so clear any stale
+        // suppression here: if a marquee drag ended with the pointer OUTSIDE the
+        // root (autoscroll drove it to the edge), no click reached onClick to
+        // reset the flag and it would otherwise swallow this genuine next click.
+        suppressClickRef.current = false;
+        // Shift-click extension is owned by the row's / cell's capture handler
+        // (which stops propagation) — a shift-mousedown reaching here is empty
+        // space, and must NOT collapse a live cell range it is extending.
+        if (e.shiftKey) return;
+        // Any fresh non-shift press starts over: drop a cell range (a drag then
+        // rebuilds one live; a plain click just places a caret).
+        setCellSel(null);
+        startCellDrag(e); // arms a coordinate-tracked cell drag when inside a cell
+        startMarquee(e); // no-ops inside a contenteditable (MARQUEE_EXCLUDE)
         if (e.target === rootRef.current) editor.clearSelection();
       }}
       onClick={(e) => {
+        if (suppressClickRef.current) {
+          suppressClickRef.current = false;
+          return; // a marquee drag just ended here — not a real click
+        }
         // Mentions navigate; links open in a new tab. (Mentions are
         // contenteditable=false so a plain click is unambiguous; links keep
         // the caret behavior on plain click only when editing is impossible.)
@@ -772,11 +1294,13 @@ export const BlockEditor: React.FC<{
         }
       }}
     >
-      <KitPageLockContext.Provider value={readOnly}>
-        <KitLockContext.Provider value={readOnlyLock}>
-          <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} container={null} />
-        </KitLockContext.Provider>
-      </KitPageLockContext.Provider>
+      <CellSelectionContext.Provider value={cellSelCtx}>
+        <KitPageLockContext.Provider value={readOnly}>
+          <KitLockContext.Provider value={readOnlyLock}>
+            <BlockList list={rootBlocks(doc)} editor={editor} ui={ui} drag={drag} setDrag={setDrag} performDrop={performDrop} computeRegion={computeRegion} depth={0} container={null} />
+          </KitLockContext.Provider>
+        </KitPageLockContext.Provider>
+      </CellSelectionContext.Provider>
       {slash.open && (
         <SlashMenu
           state={slash}
@@ -796,6 +1320,17 @@ export const BlockEditor: React.FC<{
           onClose={ui.closeMention}
           onMentionPage={insertMention}
           onInsertText={insertTextAt}
+        />
+      )}
+      {wiki.open && (
+        <WikilinkMenu
+          state={wiki}
+          editor={editor}
+          anchorEl={blockEl(wiki.blockId)}
+          parentPageId={pageId}
+          onClose={ui.closeWiki}
+          onMentionPage={insertMention}
+          onCreatePage={createWikiPage}
         />
       )}
       {emoji.open && (
@@ -822,6 +1357,13 @@ export const BlockEditor: React.FC<{
       {toolbar && !readOnly && (
         <InlineToolbar state={toolbar} onToggle={toggleFormat} onColor={(key, token) => setFormat(key, token)} />
       )}
+      {marquee && (
+        <div
+          className="obe-marquee"
+          aria-hidden
+          style={{left: marquee.left, top: marquee.top, width: marquee.width, height: marquee.height}}
+        />
+      )}
       <div aria-live="polite" className="obe-sr-only">
         {live}
       </div>
@@ -830,6 +1372,41 @@ export const BlockEditor: React.FC<{
 };
 
 const topLevelIds = (doc: Y.Doc): string[] => rootBlocks(doc).map((b) => blockId(b));
+
+// Multi-block drag ghost: a small pill showing how many blocks are moving.
+// setDragImage needs the node in the document when it snapshots, so the pill is
+// appended off-screen and removed on the next tick (after the snapshot).
+function setGroupDragImage(e: React.DragEvent, count: number): void {
+  const ghost = document.createElement('div');
+  ghost.className = 'obe-drag-ghost';
+  ghost.textContent = t('editor.drag.blockCount', {count});
+  ghost.style.position = 'absolute';
+  ghost.style.top = '-1000px';
+  ghost.style.left = '-1000px';
+  document.body.appendChild(ghost);
+  e.dataTransfer.setDragImage(ghost, 12, 12);
+  setTimeout(() => ghost.remove(), 0);
+}
+
+// A marquee only arms on empty editor chrome. Anything a pointer-down should
+// "do something else" with — edit text, drag the handle, click a control,
+// interact with media / a kit widget — is excluded so the drag keeps its native
+// meaning (text selection, HTML5 block drag, button press).
+const MARQUEE_EXCLUDE =
+  '[contenteditable="true"], input, textarea, select, button, a, label, ' +
+  '[role="button"], [role="menuitem"], [role="slider"], [role="checkbox"], [role="tab"], ' +
+  'img, canvas, iframe, video, .obe-handle, .obe-gutter-btn';
+
+/** Nearest scrollable ancestor (for marquee auto-scroll); falls back to the window. */
+const scrollParent = (el: HTMLElement): HTMLElement | Window => {
+  let node: HTMLElement | null = el.parentElement;
+  while (node) {
+    const style = getComputedStyle(node);
+    if (/(auto|scroll|overlay)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) return node;
+    node = node.parentElement;
+  }
+  return window;
+};
 
 function firstTextDescendant(doc: Y.Doc, id: string): string | null {
   const found = findBlock(doc, id);
@@ -851,7 +1428,7 @@ export interface RowShared {
   ui: EditorUI;
   drag: DragState | null;
   setDrag: React.Dispatch<React.SetStateAction<DragState | null>>;
-  performDrop: (sourceId: string, targetId: string, region: DropRegion) => void;
+  performDrop: (sourceId: string, targetId: string, region: DropRegion, ids?: string[]) => void;
   computeRegion: (e: React.DragEvent | React.PointerEvent, el: HTMLElement, allowSides: boolean) => DropRegion;
   depth: number;
   /** Type of the block whose children these rows are (null at the root) — a
@@ -885,7 +1462,10 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
   // Side-drop creates a columns layout (at the root) or grows one (inside a
   // column); never on the columns wrapper itself, nor inside groups/tables.
   const {container} = shared;
-  const allowSides = type !== 'columns' && (container === null || container === 'column');
+  // A multi-block drag only offers above/below (v1): side-drops build columns,
+  // which one-at-a-time semantics don't extend cleanly to a whole selection.
+  const multiDragging = (drag?.ids?.length ?? 0) > 1;
+  const allowSides = type !== 'columns' && (container === null || container === 'column') && !multiDragging;
   // Per-block colours (palette tokens → theme-aware classes on the body).
   const bg = blockProp<string>(block, 'bg');
   const fg = blockProp<string>(block, 'fg');
@@ -896,6 +1476,7 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
 
   const onDragOver = (e: React.DragEvent): void => {
     if (!drag || drag.id === id || editor.readOnly) return;
+    if (drag.ids?.includes(id)) return; // no drop indicator on a block that's moving
     e.preventDefault();
     e.stopPropagation();
     const region = computeRegion(e, rowRef.current!, allowSides);
@@ -903,10 +1484,10 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
   };
 
   const onDrop = (e: React.DragEvent): void => {
-    if (!drag) return;
+    if (!drag || drag.ids?.includes(id)) return;
     e.preventDefault();
     e.stopPropagation();
-    performDrop(drag.id, id, computeRegion(e, rowRef.current!, allowSides));
+    performDrop(drag.id, id, computeRegion(e, rowRef.current!, allowSides), drag.ids);
     setDrag(null);
   };
 
@@ -927,6 +1508,37 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
       onDragOver={onDragOver}
       onDrop={onDrop}
       onDragLeave={() => setDrag((d) => (d?.over?.id === id ? {...d, over: null} : d))}
+      // Shift-click a block extends the block selection contiguously. Only the
+      // top-level row owns this (capture beats the caret + stops the marquee /
+      // root handlers); a shift-click inside a nested block still resolves to
+      // its whole top-level container via this row's id.
+      onMouseDownCapture={
+        depth === 0 && !editor.readOnly
+          ? (e) => {
+            if (!e.shiftKey || e.button !== 0) return;
+            // Don't hijack native intra-block text extension ("caret at word 3,
+            // shift-click word 20" inside ONE block): when nothing is
+            // block-selected AND the shift-click lands on the row already hosting
+            // the caret, let the browser extend the text range. We only convert
+            // to block selection once a block is selected, or the shift-click
+            // jumps to a DIFFERENT top-level row.
+            const hostsFocus =
+              editor.focusedId != null &&
+              rowRef.current?.querySelector(`[data-block-text="${editor.focusedId}"]`) != null;
+            if (editor.selection.size === 0 && hostsFocus) return;
+            e.preventDefault();
+            e.stopPropagation();
+            (document.activeElement as HTMLElement | null)?.blur();
+            document.getSelection()?.removeAllRanges();
+            const order = rootBlocks(editor.doc).map((b) => blockId(b));
+            // Deliberate nearest-anchor (range-redefinition) semantics: the anchor
+            // is the currently-selected block NEAREST the target, so each
+            // shift-click REDEFINES the range from that anchor rather than only
+            // ever growing an initial one. See shiftClickRange's contract.
+            editor.setSelection(shiftClickRange(order, editor.selection, id, editor.focusedId));
+          }
+          : undefined
+      }
     >
       {!editor.readOnly && (
         <div className={`obe-gutter${depth > 0 ? ' obe-gutter-nested' : ''}`} contentEditable={false}>
@@ -961,12 +1573,21 @@ export const BlockRow: React.FC<RowShared & {block: BlockMap}> = ({block, ...sha
               className="obe-gutter-btn obe-handle"
               draggable
               onDragStart={(e) => {
+                // A drag that starts on a SELECTED block (with others selected)
+                // moves the whole group; the ids are captured in document order.
+                const sel = editor.selection;
+                const multi = sel.has(id) && sel.size > 1;
+                const ids = multi ? rootBlocks(editor.doc).map(blockId).filter((b) => sel.has(b)) : undefined;
                 // dataTransfer is null on synthetic events (tests) — optional.
                 if (e.dataTransfer) {
                   e.dataTransfer.effectAllowed = 'move';
                   e.dataTransfer.setData('text/plain', id);
+                  if (multi && ids) setGroupDragImage(e, ids.length);
                 }
-                setDrag({id, over: null});
+                // Grabbing a block outside the selection collapses it to just
+                // that block (single-block move preserved).
+                if (!sel.has(id)) editor.setSelection([]);
+                setDrag({id, ids, over: null});
               }}
               onDragEnd={() => setDrag(null)}
               onClick={() => {
@@ -1835,6 +2456,201 @@ const ColumnsView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}
 
 // ── Table ─────────────────────────────────────────────────────────────────────
 
+/**
+ * The row/column actions for a single table cell, computed from that cell's
+ * SORTED grid position via {@link cellPosition} — so every op targets the right
+ * index even after the row/column has been reordered (the sorted-vs-array trap).
+ * Positional ops only; TBL-2 adds Move items and TBL-4 adds colour submenus at
+ * the anchors below. Rendered inside a {@link ContextMenuContent}; content is
+ * mounted fresh on each open, so the position is always read live from the doc.
+ */
+/**
+ * A "Row colour" / "Column colour" submenu for the table cell menu (TBL-4):
+ * the 9 palette swatches + a leading "Default" that clears the tint, styled
+ * like the block-menu Background submenu. `current` gets a trailing check.
+ * Apply/Clear each run through one transacting op = one undo step.
+ */
+const TableColorSubmenu: React.FC<{
+  label: string;
+  current: string | null;
+  onPick: (token: string | null) => void;
+}> = ({label, current, onPick}) => (
+  <ContextMenuSub>
+    <ContextMenuSubTrigger>{label}</ContextMenuSubTrigger>
+    <ContextMenuSubContent className="w-40">
+      {COLOR_MENU.map((c) => (
+        <ContextMenuItem key={c.id ?? 'default'} onSelect={() => onPick(c.id)}>
+          <span
+            className={`obe-mi-sw obe-mi-sw-fill ${c.id ? `obe-hl-${c.id}` : 'obe-mi-sw-reset'}`}
+            aria-hidden
+          />
+          {c.label}
+          {(c.id ?? null) === current && <Check className="ml-auto h-3.5 w-3.5" />}
+        </ContextMenuItem>
+      ))}
+    </ContextMenuSubContent>
+  </ContextMenuSub>
+);
+
+const TableCellMenuContent: React.FC<{
+  cell: BlockMap;
+  tableId: string;
+  editor: BlockEditorController;
+}> = ({cell, tableId, editor}) => {
+  const doc = editor.doc;
+  const pos = cellPosition(doc, blockId(cell));
+  // An orphaned cell (its column was deleted concurrently) has no grid
+  // position — fall back to nothing rather than fire ops at a bad index.
+  if (!pos) return null;
+  const {row, col, table, rows: rowCount, cols: colCount} = pos;
+  // Ids for the move ops, resolved from the SORTED grid so a reordered table
+  // still targets the right row/column (the sorted-vs-array trap, acceptance #6).
+  const rowBlock = tableGrid(table).rows[row];
+  const rowId = blockId(rowBlock);
+  const colId = tableColumns(table)[col]?.id;
+  // Live colours for the swatch checks (TBL-4).
+  const rowColor = tableRowColor(rowBlock);
+  const colColor = colId ? tableColumnColor(table, colId) : null;
+  const header = blockProp<boolean>(table, 'header') ?? false;
+  const toggleHeader = (): void => {
+    doc.transact(() => setBlockProp(table, 'header', !header), 'local');
+  };
+  return (
+    <ContextMenuContent className="w-52">
+      <ContextMenuLabel>{t('menu.table.sectionRow')}</ContextMenuLabel>
+      {/* Rendering is positional: with `header`, sorted row 0 IS the header.
+          Inserting above it would make the blank new row the header and
+          silently demote the real one — so hide the item in that case. */}
+      {!(header && row === 0) && (
+        <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row)}>
+          <ArrowUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowAbove')}
+        </ContextMenuItem>
+      )}
+      <ContextMenuItem onSelect={() => tableInsertRow(doc, tableId, row + 1)}>
+        <ArrowDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertRowBelow')}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => tableDuplicateRow(doc, tableId, row)}>
+        <Copy className="mr-2 h-3.5 w-3.5" /> {t('menu.table.duplicateRow')}
+      </ContextMenuItem>
+      {/* TBL-2 anchor: Move row up / down. Disabled at the extremes; ops take the
+          row id + a sorted target index (moved row removed) per the contract. */}
+      <ContextMenuItem disabled={row === 0} onSelect={() => tableMoveRow(doc, tableId, rowId, row - 1)}>
+        <ChevronUp className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowUp')}
+      </ContextMenuItem>
+      <ContextMenuItem disabled={row >= rowCount - 1} onSelect={() => tableMoveRow(doc, tableId, rowId, row + 1)}>
+        <ChevronDown className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveRowDown')}
+      </ContextMenuItem>
+      {/* TBL-4: row tint = the row block's `bg` prop. */}
+      <TableColorSubmenu
+        label={t('menu.table.rowColour')}
+        current={rowColor}
+        onPick={(token) => setTableRowColor(doc, tableId, rowId, token)}
+      />
+      <ContextMenuItem
+        className="text-destructive focus:text-destructive"
+        onSelect={() => tableDeleteRow(doc, tableId, row)}
+      >
+        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteRow')}
+      </ContextMenuItem>
+
+      <ContextMenuSeparator />
+      <ContextMenuLabel>{t('menu.table.sectionColumn')}</ContextMenuLabel>
+      <ContextMenuItem onSelect={() => tableInsertColumn(doc, tableId, col)}>
+        <ArrowLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnLeft')}
+      </ContextMenuItem>
+      <ContextMenuItem onSelect={() => tableInsertColumn(doc, tableId, col + 1)}>
+        <ArrowRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.insertColumnRight')}
+      </ContextMenuItem>
+      {/* TBL-4 anchor: column tint = the table-level `colbg:<colId>` prop, keyed
+          on the stable column id (survives reorder / concurrent inserts). */}
+      {colId && (
+        <TableColorSubmenu
+          label={t('menu.table.columnColour')}
+          current={colColor}
+          onPick={(token) => setTableColumnColor(doc, tableId, colId, token)}
+        />
+      )}
+      {/* TBL-2 anchor: Move column left / right. Disabled at the extremes; ops take
+          the column id + a sorted target index (moved column removed). */}
+      <ContextMenuItem
+        disabled={col === 0 || !colId}
+        onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col - 1)}
+      >
+        <ChevronLeft className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnLeft')}
+      </ContextMenuItem>
+      <ContextMenuItem
+        disabled={col >= colCount - 1 || !colId}
+        onSelect={() => colId && tableMoveColumn(doc, tableId, colId, col + 1)}
+      >
+        <ChevronRight className="mr-2 h-3.5 w-3.5" /> {t('menu.table.moveColumnRight')}
+      </ContextMenuItem>
+      <ContextMenuItem
+        className="text-destructive focus:text-destructive"
+        onSelect={() => tableDeleteColumn(doc, tableId, col)}
+      >
+        <Trash2 className="mr-2 h-3.5 w-3.5" /> {t('menu.table.deleteColumn')}
+      </ContextMenuItem>
+
+      <ContextMenuSeparator />
+      <ContextMenuItem onSelect={toggleHeader}>
+        <Heading className="mr-2 h-3.5 w-3.5" /> {t('menu.table.toggleHeader')}
+      </ContextMenuItem>
+    </ContextMenuContent>
+  );
+};
+
+/**
+ * Wraps a cell's `<td>` in its own right-click menu. The trigger stops the
+ * contextmenu event from bubbling to the table block's {@link BlockRowMenu}, so
+ * inside a cell you get the table menu and on the table chrome (padding cells,
+ * gaps) you still get the block menu — acceptance #1/#2. When `suppress` (read-
+ * only page or a kit-locked cell) it renders the plain `<td>` with no menu, so
+ * a locked table exposes no mutating items — acceptance #4.
+ */
+export const TableCellMenu: React.FC<{
+  cell: BlockMap;
+  tableId: string;
+  editor: BlockEditorController;
+  suppress: boolean;
+  children: React.ReactNode;
+}> = ({cell, tableId, editor, suppress, children}) => {
+  if (suppress) return <>{children}</>;
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild onContextMenu={(e) => e.stopPropagation()}>
+        {children}
+      </ContextMenuTrigger>
+      <TableCellMenuContent cell={cell} tableId={tableId} editor={editor} />
+    </ContextMenu>
+  );
+};
+
+/**
+ * A live drag of a table row or column, by its GRIP handle. `from` is the grip's
+ * SORTED position (a render index into `tableGrid`/`tableColumns`), `id` the row
+ * block id or column id. `dropIndex` is a boundary in the current sorted order
+ * (0…N) — the insertion slot shown by the indicator; it is converted to the
+ * op's `toIndex` (moved item removed) at drop time. See {@link TableView}.
+ */
+interface TableDrag {
+  axis: 'row' | 'col';
+  from: number;
+  id: string;
+}
+
+/**
+ * Convert a drop indicator boundary (`dropIndex`, a slot 0…N in the CURRENT
+ * sorted order) plus the moved item's current sorted position (`from`) into the
+ * op's `toIndex` — the target counted with the moved item removed, per the
+ * table order contract. Returns null for a no-op drop (dropping onto either
+ * boundary of the item's own slot). Exported so the grip wiring is unit-tested
+ * in isolation from the DOM (acceptance #6/#7 — the sorted-vs-array trap).
+ */
+export function tableDropTarget(dropIndex: number, from: number): number | null {
+  if (dropIndex === from || dropIndex === from + 1) return null;
+  return dropIndex > from ? dropIndex - 1 : dropIndex;
+}
+
 const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) => {
   const {editor, ui} = shared;
   const id = blockId(block);
@@ -1842,37 +2658,187 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
   // ragged rows, or carry a non-`cell` block as a row child (the STAB-1 paste
   // poison). Guard every dereference so a malformed table renders a grid with
   // quiet fallbacks instead of throwing and white-screening the whole page.
-  const rows = blockChildren(block) ? [...blockChildren(block)!] : [];
+  // Row/column ORDER comes from the table order contract (model.ts): tableGrid
+  // sorts rows by their fractional `ord` key and binds cells to columns by id;
+  // legacy tables (no keys) fall through it in pure array order, unchanged.
+  const grid = tableGrid(block);
+  const rows = grid.rows;
+  const columns = tableColumns(block);
   const header = blockProp<boolean>(block, 'header') ?? false;
   // Widest row wins so ragged rows pad to a rectangle at render.
-  const cols = rows.reduce((m, row) => Math.max(m, blockChildren(row)?.length ?? 0), 0);
+  const cols = grid.width;
   // Cells render TextBlockView directly (not through BlockBody), so the table
   // must apply the lock swap itself — a locked group / present mode / the
   // export viewer would otherwise leave cell text EDITABLE (a lock leak).
   const locked = useKitLock();
   const lockText = locked && !editor.readOnly;
   const cellEditor = useMemo(() => (lockText ? {...editor, readOnly: true} : editor), [editor, lockText]);
+  // Drag handles are chrome — hidden in readOnly and in a kit-locked / present
+  // context (acceptance #4; also enumerated in the `.ob-present` CSS hide-list).
+  const showHandles = !editor.readOnly && !lockText;
+
+  // Internal (grip) drag state — separate from the block-level `shared.drag`
+  // that moves the whole table block. HTML5 drag on PLAIN grip elements (never a
+  // Radix trigger — that kills native drag; see BlockRow) so caret / cell edits
+  // and the block gutter are untouched (acceptance #5).
+  const [drag, setDrag] = useState<TableDrag | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
+  const clearDrag = useCallback(() => {
+    setDrag(null);
+    setDropIndex(null);
+  }, []);
+
+  const startDrag = (d: TableDrag) => (e: React.DragEvent): void => {
+    e.dataTransfer.effectAllowed = 'move';
+    // Some engines refuse to start a drag without payload; the value is unused.
+    e.dataTransfer.setData('text/plain', d.id);
+    setDrag(d);
+  };
+  const overRow = (r: number) => (e: React.DragEvent): void => {
+    if (drag?.axis !== 'row') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDropIndex(e.clientY > rect.top + rect.height / 2 ? r + 1 : r);
+  };
+  const overCol = (c: number) => (e: React.DragEvent): void => {
+    if (drag?.axis !== 'col') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = e.currentTarget.getBoundingClientRect();
+    setDropIndex(e.clientX > rect.left + rect.width / 2 ? c + 1 : c);
+  };
+  const commitDrop = (e: React.DragEvent): void => {
+    e.preventDefault();
+    // Stop propagation so a drop on a td doesn't bubble to the tr and fire twice.
+    e.stopPropagation();
+    if (drag && dropIndex !== null) {
+      const to = tableDropTarget(dropIndex, drag.from);
+      if (to !== null) {
+        if (drag.axis === 'row') tableMoveRow(editor.doc, id, drag.id, to);
+        else tableMoveColumn(editor.doc, id, drag.id, to);
+      }
+    }
+    clearDrag();
+  };
+
+  const rowDrag = drag?.axis === 'row' ? drag : null;
+  const colDrag = drag?.axis === 'col' ? drag : null;
+
+  // Cell-range selection (TBL-5): the rectangle for THIS table, if any. Cell
+  // highlights are token-based (see `.obe-cell-selected`); `obe-cell-selecting`
+  // hides the native blue while a drag lays down the range.
+  const cellCtx = React.useContext(CellSelectionContext);
+  const activeCellSel = cellCtx?.sel && cellCtx.sel.tableId === id ? cellCtx.sel : null;
+  const cellRect = activeCellSel ? normalizeCellRect(activeCellSel.anchor, activeCellSel.focus) : null;
+  // Shift-click a cell extends the range from its anchor (the live range's
+  // anchor, else the focused cell of this table, else the clicked cell).
+  // preventDefault stops the browser laying its own cross-cell native range.
+  // Selection is allowed read-only (only clear/cut are gated).
+  const extendCellSelect = (r: number, c: number) => (e: React.MouseEvent): void => {
+    if (!cellCtx || !e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.getSelection()?.removeAllRanges();
+    let anchor = activeCellSel?.anchor;
+    if (!anchor) {
+      const fpos = editor.focusedId ? cellPosition(editor.doc, editor.focusedId) : null;
+      anchor = fpos && blockId(fpos.table) === id ? {row: fpos.row, col: fpos.col} : {row: r, col: c};
+    }
+    cellCtx.setSel({tableId: id, anchor, focus: {row: r, col: c}});
+  };
 
   return (
-    <div className="obe-table-wrap">
+    <div className={[showHandles ? 'obe-table-wrap obe-has-grips' : 'obe-table-wrap', activeCellSel && 'obe-cell-selecting'].filter(Boolean).join(' ')}>
       <table className="obe-table">
         <tbody>
           {rows.map((row, r) => {
-            const cells = blockChildren(row) ? [...blockChildren(row)!] : [];
+            const cells = grid.cells[r];
+            const rowId = blockId(row);
+            const trClass = [
+              header && r === 0 ? 'obe-table-header' : '',
+              rowDrag && dropIndex === r ? 'obe-drop-row-above' : '',
+              rowDrag && dropIndex === rows.length && r === rows.length - 1 ? 'obe-drop-row-below' : '',
+              rowDrag?.id === rowId ? 'obe-row-dragging' : '',
+            ]
+              .filter(Boolean)
+              .join(' ');
             return (
-              <tr key={blockId(row)} className={header && r === 0 ? 'obe-table-header' : undefined}>
+              <tr
+                key={rowId}
+                className={trClass || undefined}
+                onDragOver={showHandles ? overRow(r) : undefined}
+                onDrop={showHandles ? commitDrop : undefined}
+              >
                 {Array.from({length: Math.max(cols, cells.length, 1)}, (_, c) => {
                   const cell = cells[c];
+                  const colId = columns[c]?.id;
+                  // Cell tint composites ROW-over-COLUMN (TBL-4). Both are palette
+                  // tokens → theme-aware `obe-bg-*` alpha classes (dark-safe).
+                  const tint = tableCellColor(block, row, colId ?? null);
+                  const tdDropClass = [
+                    colDrag && dropIndex === c ? 'obe-drop-col-before' : '',
+                    colDrag && dropIndex === cols && c === cols - 1 ? 'obe-drop-col-after' : '',
+                    colDrag && colId && colDrag.id === colId ? 'obe-col-dragging' : '',
+                    isColorToken(tint) ? `obe-bg-${tint}` : '',
+                    cellRect && cellInRect(cellRect, r, c) ? 'obe-cell-selected' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ');
+                  // Grips: a row grip on the first cell (left gutter), a column
+                  // grip on the top cell (header edge). Plain draggable divs.
+                  // aria-hidden: the grips are mouse-only drag affordances and not
+                  // focusable; the canonical a11y path for reordering is the
+                  // context-menu "Move" items.
+                  const grips = showHandles && (
+                    <>
+                      {c === 0 && cell && (
+                        <span
+                          className="obe-table-row-grip"
+                          contentEditable={false}
+                          draggable
+                          aria-hidden="true"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onDragStart={startDrag({axis: 'row', from: r, id: rowId})}
+                          onDragEnd={clearDrag}
+                        >
+                          <GripVertical className="h-3.5 w-3.5" />
+                        </span>
+                      )}
+                      {r === 0 && cell && colId && (
+                        <span
+                          className="obe-table-col-grip"
+                          contentEditable={false}
+                          draggable
+                          aria-hidden="true"
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onDragStart={startDrag({axis: 'col', from: c, id: colId})}
+                          onDragEnd={clearDrag}
+                        >
+                          <GripHorizontal className="h-3.5 w-3.5" />
+                        </span>
+                      )}
+                    </>
+                  );
                   if (!cell) {
                     // Padding for a ragged row — an empty structural cell.
-                    return <td key={`pad-${r}-${c}`} aria-hidden />;
+                    return (
+                      <td
+                        key={`pad-${r}-${c}`}
+                        aria-hidden
+                        className={tdDropClass || undefined}
+                        onDragOver={showHandles ? overCol(c) : undefined}
+                        onDrop={showHandles ? commitDrop : undefined}
+                      />
+                    );
                   }
                   if (blockType(cell) !== 'cell') {
                     // A non-cell child (a container mis-inserted as a cell
                     // sibling): render a quiet fallback rather than feed a
                     // text-less block to TextBlockView (which would throw).
                     return (
-                      <td key={blockId(cell)}>
+                      <td key={blockId(cell)} className={tdDropClass || undefined}>
                         <div className="obe-unknown" contentEditable={false}>
                           Unsupported cell
                         </div>
@@ -1880,9 +2846,17 @@ const TableView: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
                     );
                   }
                   return (
-                    <td key={blockId(cell)}>
-                      <TextBlockView block={cell} editor={cellEditor} ui={ui} />
-                    </td>
+                    <TableCellMenu key={blockId(cell)} cell={cell} tableId={id} editor={editor} suppress={editor.readOnly || lockText}>
+                      <td
+                        className={tdDropClass || undefined}
+                        onMouseDownCapture={extendCellSelect(r, c)}
+                        onDragOver={showHandles ? overCol(c) : undefined}
+                        onDrop={showHandles ? commitDrop : undefined}
+                      >
+                        {grips}
+                        <TextBlockView block={cell} editor={cellEditor} ui={ui} />
+                      </td>
+                    </TableCellMenu>
                   );
                 })}
               </tr>

@@ -294,7 +294,7 @@ export default function AgentTokensSettings() {
               <p className="text-xs text-muted-foreground">{t('agents.localMcpFollowsDefault')}</p>
               <div>
                 <Button variant="secondary" size="sm" onClick={() => void copyConnectorConfig()}>
-                  {connectorCopied ? <Check className="mr-1.5 h-3.5 w-3.5" /> : <Copy className="mr-1.5 h-3.5 w-3.5" />}
+                  {connectorCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                   {connectorCopied ? t('agents.copied') : t('agents.localMcpCopy')}
                 </Button>
               </div>
@@ -373,7 +373,7 @@ export default function AgentTokensSettings() {
                       {created.token}
                     </code>
                     <Button variant="secondary" size="sm" onClick={() => void copy()}>
-                      {copied ? <Check className="mr-1.5 h-3.5 w-3.5" /> : <Copy className="mr-1.5 h-3.5 w-3.5" />}
+                      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                       {copied ? t('agents.copied') : t('agents.copy')}
                     </Button>
                   </div>
