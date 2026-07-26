@@ -4,6 +4,7 @@ import type {
   AccessCtx,
   AclEntry,
   AclLevel,
+  AgentEditsPolicy,
   AgentTokenMeta,
   AgentTokenScope,
   BackupConfig,
@@ -42,6 +43,7 @@ import type {
   VerifiedVia,
 } from '@book.dev/sdk';
 import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {authoredSubject} from './agentWriteGate';
 import type {Db} from './dbCore';
 import type {IndexablePage} from './ai/search';
 import type {AgentTokenRow} from './agentTokens';
@@ -955,7 +957,7 @@ export class PageStore {
     const stamped = stampSnapshotMtimes(priorData, input.data ?? EMPTY_SNAPSHOT, new Date().toISOString());
     const data = authorsByBlock
       ? stampSnapshotAuthorsPerBlock(priorData, stamped, authorsByBlock)
-      : stampSnapshotAuthors(priorData, stamped, verifiedSubject(author));
+      : stampSnapshotAuthors(priorData, stamped, authoredSubject(author));
     // PVH-1: snapshot the state being REPLACED (the prior `data`) into
     // `page_versions` — a row = "what the page was before this save", the state you
     // can roll back TO. Runs BEFORE the upsert, in the same transaction, reading the
@@ -2519,6 +2521,29 @@ export class PageStore {
       [pageId, visibility],
     );
     if (rows.length > 0) this.bumpAccess(); // scope change alters who may read (Collab T1)
+    return rows.length > 0;
+  }
+
+  /** A page's raw agent-edits policy (AGED-1; `inherit` not yet resolved against the
+   *  instance mode), or `null` when the page doesn't exist. */
+  async getPageAgentEdits(pageId: string): Promise<AgentEditsPolicy | null> {
+    const rows = await this.db.query<{agent_edits: string}>(
+      'SELECT agent_edits FROM pages WHERE id = $1',
+      [pageId],
+    );
+    return rows.length > 0 ? (rows[0].agent_edits as AgentEditsPolicy) : null;
+  }
+
+  /** Set a page's agent-edits policy (AGED-1). Returns `false` when the page is
+   *  missing. Like {@link setPageVisibility}, deliberately does NOT touch
+   *  `updated_at`: the policy is an access attribute, not document content, so it
+   *  must not look like an edit to the mirror/mtimes. Enum-validated by the route;
+   *  callers must pass a valid {@link AgentEditsPolicy}. */
+  async setPageAgentEdits(pageId: string, policy: AgentEditsPolicy): Promise<boolean> {
+    const rows = await this.db.query(
+      'UPDATE pages SET agent_edits = $2 WHERE id = $1 RETURNING id',
+      [pageId, policy],
+    );
     return rows.length > 0;
   }
 

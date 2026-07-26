@@ -229,8 +229,17 @@ const DB_ROWS_RE = /^\/api\/databases\/[^/]+\/rows(\/.*)?$/;
  * page-write, so a write-PAT would otherwise re-share a page (a durable grant that
  * SURVIVES the token's revocation — a permanent backdoor) or flip a restricted page
  * to `public` (a confidentiality break). Carved out here AND independently refused at
- * the two handlers (`denyPatSharing`). */
+ * the two handlers (`denyPatPolicy`). */
 const SHARING_CONTROL_RE = /\/(acl|visibility)$/;
+
+/**
+ * Page AGENT-EDITS policy sub-path (`…/agent-edits`, AGED-1). The WRITE is jws-only —
+ * a PAT setting `agentEdits='direct'` would be self-authorization (the token relaxing
+ * the policy that governs whether agents may edit that page directly). Unlike the
+ * sharing controls, the GET is a normal read (any principal that can read the page,
+ * so a read-PAT may observe the policy), so only UNSAFE methods are carved out here.
+ * Also independently refused at the PUT handler (`denyPatPolicy`). */
+const AGENT_EDITS_CONTROL_RE = /\/agent-edits$/;
 
 function isSafeMethod(method: string): boolean {
   return method === 'GET' || method === 'HEAD';
@@ -268,6 +277,9 @@ export function agentScopeAllows(scope: AgentTokenScope, method: string, path: s
   if (method === 'OPTIONS') return true;
   // Sharing/exposure controls are NEVER a PAT surface — deny for any scope/method.
   if (SHARING_CONTROL_RE.test(path)) return false;
+  // Agent-edits POLICY: the WRITE is jws-only (self-authorization guard); the GET is
+  // a normal page read, so only deny the unsafe methods here.
+  if (AGENT_EDITS_CONTROL_RE.test(path) && !isSafeMethod(method)) return false;
   return scope === 'write' ? writeAllowed(method, path) : readAllowed(method, path);
 }
 

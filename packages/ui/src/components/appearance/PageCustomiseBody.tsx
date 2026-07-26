@@ -1,8 +1,12 @@
 import {Image as ImageIcon, SlidersHorizontal, Trash2} from 'lucide-react';
-import {useEffect, useMemo, useState, type CSSProperties} from 'react';
+import {useCallback, useEffect, useMemo, useState, type CSSProperties} from 'react';
+import {resolveAgentEdits, type AgentEditsMode, type AgentEditsPolicy, type DataClient} from '@book.dev/sdk';
 import {useHud, useNavigation, useTheme, useTranslation} from '@/providers';
+import {useOptionalData} from '@/data/DataProvider';
+import {useCanWrite} from '@/lib/useCanWrite';
 import {cn} from '@/lib/utils';
 import {Switch} from '@/components/ui/switch';
+import {Select} from '@/components/ui/select';
 import {usePageFullWidth, writePageFullWidth} from '@/lib/pageFullWidth';
 import {getTheme, mergeAppearance, PAGE_BACKGROUNDS, type AppearanceOverride} from '@/lib/themes';
 import {composePageAppearance, hasPageTheme, usePageTheme, writePageTheme} from '@/lib/pageTheme';
@@ -178,6 +182,102 @@ function PresetPicker({pageId, scheme}: {pageId: string; scheme: 'light' | 'dark
 }
 
 /**
+ * Per-page agent-edits override (AGED-5). A tri-state over the library default:
+ * `Inherit` follows the library setting (and shows what that currently resolves
+ * to), while `Suggest` / `Direct` pin this one page regardless. Unlike the
+ * appearance controls above (localStorage), this is a SERVER policy — persisted
+ * via the SDK accessors, gated on page write.
+ *
+ * Owner/admin-gated: the whole field hides for a caller who can't write the page
+ * ({@link useCanWrite} — a viewer or a claimed-instance guest), so we never render
+ * a control that would 403. The server's `authorize()` (jws-only + page-write) is
+ * the sole enforcement regardless.
+ */
+export function PageAgentEditsField({pageId}: {pageId: string}) {
+  // Read the data context optionally so a reduced harness (previews, the
+  // appearance-controls unit tests) renders the rest of the pane without a
+  // <DataProvider>. Without a client there's no server policy to read, so the
+  // whole field drops out — the real app always supplies one.
+  const client = useOptionalData();
+  if (!client) return null;
+  return <PageAgentEditsFieldInner pageId={pageId} client={client} />;
+}
+
+function PageAgentEditsFieldInner({pageId, client}: {pageId: string; client: DataClient}) {
+  const {t} = useTranslation();
+  const canWrite = useCanWrite();
+  const [policy, setPolicy] = useState<AgentEditsPolicy | null>(null);
+  const [instanceMode, setInstanceMode] = useState<AgentEditsMode | undefined>(undefined);
+  const [unavailable, setUnavailable] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPolicy(null);
+    setUnavailable(false);
+    void Promise.all([client.getPageAgentEdits(pageId), client.getInstanceInfo()])
+      .then(([p, info]) => {
+        if (cancelled) return;
+        setPolicy(p);
+        setInstanceMode(info.agentEdits);
+      })
+      .catch(() => {
+        // Older server without the route (or offline): drop the control rather
+        // than show a dead select.
+        if (!cancelled) setUnavailable(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, pageId]);
+
+  const change = useCallback(
+    async (next: AgentEditsPolicy) => {
+      const prev = policy;
+      setPolicy(next); // optimistic
+      setBusy(true);
+      try {
+        await client.setPageAgentEdits(pageId, next);
+      } catch {
+        setPolicy(prev); // roll back on failure (e.g. a 403 the UI didn't foresee)
+      } finally {
+        setBusy(false);
+      }
+    },
+    [client, pageId, policy],
+  );
+
+  // Hide entirely for a non-writer (viewer / guest) or an unavailable server, and
+  // while the first read is in flight — no flicker of a control that may vanish.
+  if (!canWrite || unavailable || policy === null) return null;
+
+  // When inheriting, spell out what the library default currently resolves to.
+  const effective = resolveAgentEdits('inherit', instanceMode);
+  const inheritHint =
+    policy === 'inherit'
+      ? effective === 'direct'
+        ? t('appearance.agentEditsInheritingDirect')
+        : t('appearance.agentEditsInheritingSuggest')
+      : undefined;
+
+  return (
+    <Field label={t('appearance.agentEdits')} hint={t('appearance.agentEditsHint')}>
+      <Select
+        value={policy}
+        aria-label={t('appearance.agentEdits')}
+        disabled={busy}
+        onChange={(e) => void change(e.target.value as AgentEditsPolicy)}
+      >
+        <option value="inherit">{t('appearance.agentEditsInherit')}</option>
+        <option value="suggest">{t('appearance.agentEditsSuggest')}</option>
+        <option value="direct">{t('appearance.agentEditsDirect')}</option>
+      </Select>
+      {inheritHint && <span className="text-xs text-muted-foreground">{inheritHint}</span>}
+    </Field>
+  );
+}
+
+/**
  * Per-page customisation. A whole-page theme preset (#4) sets control colour,
  * font, background, and cover at once; the individual pickers (#5) then tweak
  * each aspect. Writes page-scoped overrides (theme via {@link writePageTheme},
@@ -274,6 +374,8 @@ export function PageAppearanceControls({pageId, isDatabase = false}: {pageId: st
           aria-label={t('appearance.fullWidth')}
         />
       </label>
+
+      <PageAgentEditsField pageId={pageId} />
     </div>
   );
 }

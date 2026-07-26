@@ -60,6 +60,12 @@ Claude Desktop (`claude_desktop_config.json`):
 
 At startup the connector performs a single `GET /api/instance` handshake (guest-readable, leaks no secret). It exits with a clear message if no OpenBook server is reachable, or if the server at `OPENBOOK_URL` reports a different `OPENBOOK_INSTANCE_ID` than configured (a foreign responder / port conflict).
 
+## Direct edits vs. reviewable suggestions
+
+Whether a write tool (`append_to_page`, `update_block`, `set_kit_value`, `set_db_cell`) changes a page **immediately** or lands as a **reviewable suggestion** is decided per write by the library's agent-edits policy — not by the connector. The policy ships as **Suggest** (safe: nothing lands until a human accepts it in the review pane) and is changed in the app under **Settings → Agents & AI admin**, with a per-page override in the page's **Customise** pane. Creating a page or a database row is non-destructive and always applies. See [`docs/agent-edits.md`](../../docs/agent-edits.md) for the full model.
+
+The server is the authoritative gate: a suggest-mode direct write is refused at the REST layer regardless of what the tool attempts, and every direct write an agent token makes is attributed to that token in the page's edit log. The library default governs remote tokens too: a page pinned to **Direct** applies remote MCP writes immediately, and a page that inherits the library default follows that default — so with the library set to Direct, a remote token writes an inheriting page directly. The connector reads the server-resolved effective mode from the per-page agent-edits route, so it never needs the privileged instance setting.
+
 ## Development
 
 ```sh

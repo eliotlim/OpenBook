@@ -5,6 +5,7 @@ import {
   appendTextToSnapshot,
   snapshotText,
   textSnapshot,
+  type AgentEditsMode,
   type DataClient,
   type PageSnapshot,
   type StoredSuggestion,
@@ -171,11 +172,17 @@ function setBlockTextInSnapshot(data: PageSnapshot, blockId: string, text: strin
  * Desktop, Claude Code, …) as a set of tools over the same `@book.dev/sdk`
  * contract the apps use. Read tools degrade gracefully (search is lexical
  * BM25 even with the AI engine off). Write tools that MUTATE existing content
- * persist REVIEWABLE SUGGESTIONS by default — routed through the same review
- * layer (StoredSuggestion) as the in-app agent, so nothing an MCP client writes
- * is applied until a human accepts it. A trusted deployment can restore direct
- * mutation via `allowDirectEdits`. Creating new pages/rows stays immediate
- * (non-destructive).
+ * are governed by the library's AGENT-EDITS POLICY (AGED-3), resolved PER WRITE
+ * from the SERVER-RESOLVED effective mode on the PAT-readable per-page route
+ * (AGED-6 — the page's `agentEdits` override already resolved against the
+ * instance-wide default): only a resolved `'direct'` applies the change
+ * immediately; anything else persists a REVIEWABLE SUGGESTION — routed through
+ * the same review layer (StoredSuggestion) as the in-app agent, so nothing an
+ * MCP client writes lands until a human accepts it. The safe default is
+ * `suggest`; the mode fetch failing (offline / a pre-AGED-6 server) fails safe
+ * to `suggest`. The server is the AUTHORITATIVE backstop — it 403s a direct
+ * write the policy forbids regardless of what the tool layer resolved. Creating
+ * new pages/rows stays immediate (non-destructive).
  */
 
 const clip = (s: string, n = 4000): string => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -207,24 +214,59 @@ const MCP_SUGGESTION_KIND: Record<McpWriteKind, SuggestionKind> = {
  */
 const MCP_AUTHOR_NAME = 'MCP client';
 
+/**
+ * The read accessor the per-write agent-edits resolution needs beyond the base
+ * {@link DataClient}. An MCP server always runs against an `HttpDataClient`, which
+ * has it — so this is a structural widening, not a new implementation burden.
+ *
+ * AGED-6: resolution reads ONLY `getEffectiveAgentEdits` — the SERVER-RESOLVED
+ * effective mode on the PAT-readable per-page route (`GET /api/pages/:id/agent-edits`,
+ * `.effective`). It no longer needs the privileged `GET /api/instance` read (which the
+ * AGENT-6 scope-gate denies to a PAT), so the instance-wide `direct` default now
+ * governs an `inherit` page over remote MCP too. The server write-gate (AGED-2)
+ * remains the authoritative backstop for a forbidden direct write.
+ */
+type PolicyClient = DataClient & {
+  /** A page's server-resolved effective agent-edits mode (`inherit` already resolved
+   *  against the instance default), AGED-6. */
+  getEffectiveAgentEdits(pageId: string): Promise<AgentEditsMode>;
+};
+
 /** Configuration for the MCP server. */
 export interface OpenBookMcpOptions {
   /** Server version reported in the MCP handshake. */
   version?: string;
   /**
-   * Restore DIRECT mutation for trusted deployments. When false (the default),
-   * every content-mutating write tool persists a reviewable SUGGESTION instead
-   * of mutating the page/database — nothing an MCP client writes is applied
-   * until a human accepts it in the review pane. Only set this for a trusted,
-   * first-party automation; an untrusted MCP client must never be able to flip
-   * it (hence it is a deployment/config flag, not a per-tool argument).
+   * @deprecated AGED-3 retired this flag: the direct-vs-suggest decision is now
+   * resolved PER WRITE from the library's agent-edits policy (the page's
+   * `agentEdits` override + the instance mode), NOT a static server flag. This
+   * field is accepted for source compatibility but IGNORED — remove it. The
+   * server remains the authoritative backstop for a forbidden direct write.
    */
   allowDirectEdits?: boolean;
 }
 
-export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcpOptions = {}): McpServer {
-  const {version = '0.1.0', allowDirectEdits = false} = options;
+export function createOpenBookMcpServer(client: PolicyClient, options: OpenBookMcpOptions = {}): McpServer {
+  const {version = '0.1.0'} = options;
   const server = new McpServer({name: 'openbook', version});
+
+  /**
+   * The effective agent-edits mode for a write to `pageId`, read FRESH per write from
+   * the SERVER-RESOLVED effective mode on the PAT-readable per-page route (AGED-6) —
+   * so a per-page override AND the instance-wide default both take effect immediately,
+   * without the privileged instance read. FAIL-SAFE: if the mode can't be read
+   * (offline / a pre-AGED-6 server that omits `effective`) return `'suggest'` — never
+   * direct. Callers treat ONLY an exact `'direct'` as direct (Sasha, AGED-1 review);
+   * the server write-gate backstops a forbidden direct write regardless.
+   */
+  const resolveWritePolicy = async (pageId: string): Promise<AgentEditsMode> => {
+    try {
+      const effective = await client.getEffectiveAgentEdits(pageId);
+      return effective === 'direct' ? 'direct' : 'suggest';
+    } catch {
+      return 'suggest';
+    }
+  };
 
   /**
    * Persist a content mutation as a reviewable SUGGESTION (default) instead of
@@ -384,7 +426,7 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
     {
       title: 'Append to a page',
       description:
-        'Append text to the end of an existing page (one paragraph per line). By default this creates a REVIEWABLE SUGGESTION (nothing is applied until a human accepts it in the review pane); a trusted deployment (allowDirectEdits) applies it immediately.',
+        'Append text to the end of an existing page (one paragraph per line). Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — nothing lands until a human accepts it in the review pane).',
       inputSchema: {
         pageId: z.string().describe('The page id.'),
         content: z.string().describe('Plain-text to append; each line becomes a paragraph.'),
@@ -395,7 +437,7 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
       if (!page) return failure('Page not found.');
       const paragraphs = content.split('\n').map((l) => l.trim()).filter(Boolean);
       if (paragraphs.length === 0) return failure('Nothing to append.');
-      if (!allowDirectEdits) {
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
         const blocks = paragraphs.map((t) => ({type: 'paragraph', text: t}));
         const summary = `Append ${paragraphs.length} paragraph(s) to "${page.name ?? 'Untitled'}"`;
         const s = await recordSuggestion({kind: 'append_blocks', pageId, summary, after: clip(content, 200), target: {}, payload: {pageId, blocks}});
@@ -403,8 +445,12 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
       }
       const data = appendTextToSnapshot(page.data, content, `mcp-${Date.now().toString(36)}`);
       if (data === page.data) return failure('Nothing to append.');
-      await client.savePage({id: page.id, name: page.name, data});
-      return text(`Appended to "${page.name ?? 'Untitled'}".`);
+      try {
+        await client.savePage({id: page.id, name: page.name, data});
+      } catch (err) {
+        return failure(`Could not append (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return text(`Appended directly to "${page.name ?? 'Untitled'}".`);
     },
   );
 
@@ -521,23 +567,26 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
   );
 
   // ── Writes ───────────────────────────────────────────────────────────────────
-  // These tools MUTATE existing page/database content. By DEFAULT each persists
-  // a reviewable SUGGESTION (StoredSuggestion) instead of applying the change —
-  // the same review layer the in-app agent uses (packages/server/src/ai/agent.ts),
-  // with matching kind/target/payload — so nothing an MCP client writes lands in
-  // the library until a human accepts it. A trusted deployment can restore
-  // direct mutation with `allowDirectEdits` (OpenBookMcpOptions / an env flag in
-  // bin.ts). Pure CREATION tools above (create_page, create_artifact_page,
-  // create_database_row) stay immediate — they add new, non-destructive content
-  // and the review model has no target page / suggestion kind for a not-yet-
-  // existing page, matching the agent's "creation applies immediately" rule.
+  // These tools MUTATE existing page/database content. Each resolves the library's
+  // AGENT-EDITS POLICY PER WRITE (AGED-3, `resolveWritePolicy`): only a resolved
+  // `'direct'` applies the change immediately; anything else — the safe default, an
+  // explicit page/instance `suggest`, or a failed/absent policy fetch — persists a
+  // reviewable SUGGESTION (StoredSuggestion) through the same review layer the in-app
+  // agent uses (packages/server/src/ai/agent.ts), with matching kind/target/payload,
+  // so nothing an MCP client writes lands until a human accepts it. The server is the
+  // authoritative backstop: a direct write the policy forbids is 403'd there even if
+  // the local resolution said direct (the tool surfaces that steer, it never fights
+  // it). Pure CREATION tools above (create_page, create_artifact_page,
+  // create_database_row) stay immediate — they add new, non-destructive content and
+  // the review model has no target page / suggestion kind for a not-yet-existing
+  // page, matching the agent's "creation applies immediately" rule.
 
   server.registerTool(
     'append_blocks',
     {
       title: 'Append blocks',
       description:
-        'Append typed blocks (paragraph/heading/todo/quote/callout/code/divider) to the end of a block-editor page. By default this creates a REVIEWABLE SUGGESTION (applied only when a human accepts it); a trusted deployment (allowDirectEdits) applies it immediately.',
+        'Append typed blocks (paragraph/heading/todo/quote/callout/code/divider) to the end of a block-editor page. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — applied only when a human accepts it).',
       inputSchema: {
         pageId: z.string().describe('The page id (a block-editor page).'),
         blocks: z
@@ -552,7 +601,7 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
       if ((page.data as {editor?: string}).editor !== 'blocks') {
         return failure('That page is a legacy editor page — use append_to_page instead.');
       }
-      if (!allowDirectEdits) {
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
         const summary = `Append ${blocks.length} block(s) to "${page.name ?? 'Untitled'}"`;
         const after = clip(blocks.map((b) => (b.text ? `${b.type}: ${b.text}` : b.type)).join('\n'), 200);
         const s = await recordSuggestion({kind: 'append_blocks', pageId, summary, after, target: {}, payload: {pageId, blocks}});
@@ -560,8 +609,12 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
       }
       const data = appendBlocksToSnapshot(page.data, blocks, `mcp-${Date.now().toString(36)}`);
       if (!data) return failure('That page is a legacy editor page — use append_to_page instead.');
-      await client.savePage({id: page.id, name: page.name, data});
-      return text(`Appended ${blocks.length} block(s) to "${page.name ?? 'Untitled'}".`);
+      try {
+        await client.savePage({id: page.id, name: page.name, data});
+      } catch (err) {
+        return failure(`Could not append (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return text(`Appended ${blocks.length} block(s) directly to "${page.name ?? 'Untitled'}".`);
     },
   );
 
@@ -570,7 +623,7 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
     {
       title: 'Update a block',
       description:
-        'Replace the text of one block on a block-editor page (find the block id via inspect_page_structure). By default this creates a REVIEWABLE SUGGESTION (applied only when a human accepts it); a trusted deployment (allowDirectEdits) applies it immediately.',
+        'Replace the text of one block on a block-editor page (find the block id via inspect_page_structure). Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — applied only when a human accepts it).',
       inputSchema: {
         pageId: z.string().describe('The page id.'),
         blockId: z.string().describe('The block id from inspect_page_structure.'),
@@ -580,7 +633,7 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
     async ({pageId, blockId, text: newText}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
-      if (!allowDirectEdits) {
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
         const before = blockTextInSnapshot(page.data, blockId);
         if (before === null) return failure(`No block "${blockId}" on that block-editor page — use inspect_page_structure.`);
         const summary = `Edit block ${blockId} on "${page.name ?? 'Untitled'}"`;
@@ -599,8 +652,12 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
       }
       const data = setBlockTextInSnapshot(page.data, blockId, newText);
       if (!data) return failure(`No block "${blockId}" on that block-editor page — use inspect_page_structure.`);
-      await client.savePage({id: page.id, name: page.name, data});
-      return text(`Updated block ${blockId} on "${page.name ?? 'Untitled'}".`);
+      try {
+        await client.savePage({id: page.id, name: page.name, data});
+      } catch (err) {
+        return failure(`Could not update the block (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return text(`Updated block ${blockId} directly on "${page.name ?? 'Untitled'}".`);
     },
   );
 
@@ -609,7 +666,7 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
     {
       title: 'Set a kit value',
       description:
-        'Set a named reactive input on a page (slider/number/toggle/textfield/radio/dropdown/checklist). Find names via get_kit_values. By default this creates a REVIEWABLE SUGGESTION (applied only when a human accepts it); a trusted deployment (allowDirectEdits) applies it immediately.',
+        'Set a named reactive input on a page (slider/number/toggle/textfield/radio/dropdown/checklist). Find names via get_kit_values. Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy (default: suggest — applied only when a human accepts it).',
       inputSchema: {
         pageId: z.string().describe('The page id.'),
         name: z.string().describe('The published input name (from get_kit_values).'),
@@ -619,7 +676,7 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
     async ({pageId, name, value}) => {
       const page = await client.getPage(pageId);
       if (!page) return failure('Page not found.');
-      if (!allowDirectEdits) {
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
         const scope = kitValues(page.data);
         if (!(name in scope)) return failure(`No input named "${name}" on that page — use get_kit_values.`);
         const summary = `Set "${name}" = ${JSON.stringify(value)}`;
@@ -636,8 +693,12 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
       }
       const data = setKitValueInSnapshot(page.data, name, value);
       if (!data) return failure(`No input named "${name}" on that page — use get_kit_values.`);
-      await client.savePage({id: page.id, name: page.name, data});
-      return text(`Set "${name}" = ${JSON.stringify(value)} on "${page.name ?? 'Untitled'}".`);
+      try {
+        await client.savePage({id: page.id, name: page.name, data});
+      } catch (err) {
+        return failure(`Could not set the value (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
+      }
+      return text(`Set "${name}" = ${JSON.stringify(value)} directly on "${page.name ?? 'Untitled'}".`);
     },
   );
 
@@ -646,7 +707,7 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
     {
       title: 'Set a database cell',
       description:
-        'Set a manual property value on a database row (by property id). By default this creates a REVIEWABLE SUGGESTION (applied only when a human accepts it); a trusted deployment (allowDirectEdits) applies it immediately.',
+        'Set a manual property value on a database row (by property id). Whether this applies directly or is queued as a REVIEWABLE SUGGESTION is decided per write by the library/page agent-edits policy of the host page (default: suggest — applied only when a human accepts it).',
       inputSchema: {
         pageId: z.string().describe('The page hosting the database.'),
         rowId: z.string().describe('The row (page) id.'),
@@ -659,7 +720,9 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
       if (!database) return failure('That page hosts no database.');
       const prop = (database.schema.properties ?? []).find((p) => p.id === propertyId);
       if (!prop) return failure(`No property "${propertyId}" on this database — use get_db_row.`);
-      if (!allowDirectEdits) {
+      // The policy is resolved on the database's HOST page — the page the review pane
+      // opens against and the page whose `agentEdits` override governs its cells.
+      if ((await resolveWritePolicy(pageId)) !== 'direct') {
         const rows = await client.listRows(database.id);
         const row = rows.find((r) => r.id === rowId);
         if (!row) return failure('Row not found in this database.');
@@ -680,9 +743,9 @@ export function createOpenBookMcpServer(client: DataClient, options: OpenBookMcp
       try {
         await client.updateRow(database.id, rowId, {properties: {[propertyId]: value}});
       } catch (err) {
-        return failure(`Could not set the cell: ${err instanceof Error ? err.message : String(err)}`);
+        return failure(`Could not set the cell (the server declined the direct write): ${err instanceof Error ? err.message : String(err)}`);
       }
-      return text(`Set ${prop.name} = ${JSON.stringify(value)} on row ${rowId}.`);
+      return text(`Set ${prop.name} = ${JSON.stringify(value)} directly on row ${rowId}.`);
     },
   );
 

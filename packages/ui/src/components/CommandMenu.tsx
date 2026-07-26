@@ -60,14 +60,37 @@ export function CommandMenu() {
     if (!open) setSearch('');
   }, [open]);
   const searching = search.trim().length > 0;
+  // Every query token must be a substring of a `searchOnly` command's
+  // title/keywords for it to surface. These commands (export-*, settings-*)
+  // carry a large aggregated keyword blob, and cmdk's fuzzy scorer will scatter-
+  // match that blob against arbitrary content queries with a vanishingly small
+  // (but > 0, so "shown") score — e.g. a settings-tab command matching
+  // "migration rollback". A weak match like that then wins the palette's default
+  // selection during the ~180ms gap before the real async note/row results load,
+  // and cmdk keeps that stale selection even once the exact content hit arrives —
+  // so Enter opens Settings instead of the page. Requiring a genuine substring
+  // hit keeps real settings/export search working (agents, mcp, usage, pdf, …)
+  // while never surfacing these commands as noise for a content query.
+  const searchTokens = React.useMemo(
+    () => search.trim().toLowerCase().split(/\s+/).filter(Boolean),
+    [search],
+  );
+  const searchOnlyMatches = React.useCallback(
+    (c: AppCommand): boolean => {
+      if (searchTokens.length === 0) return false;
+      const haystack = `${c.title} ${c.keywords ?? ''}`.toLowerCase();
+      return searchTokens.every((tok) => haystack.includes(tok));
+    },
+    [searchTokens],
+  );
   const visibleCommands = React.useMemo(
     () =>
       commands.filter(
         (c) =>
           (!isAiFeature(c.id) || featureShown(readFeatureVisibility(c.id), searching)) &&
-          (!c.searchOnly || searching),
+          (!c.searchOnly || searchOnlyMatches(c)),
       ),
-    [commands, searching],
+    [commands, searching, searchOnlyMatches],
   );
 
   // ── Unified search: database rows + content snippets ────────────────────────

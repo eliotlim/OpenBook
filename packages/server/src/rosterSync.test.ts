@@ -379,6 +379,7 @@ describe('robustness (OB-199 hardening)', () => {
 describe('resolveDesiredRoster (pure projection)', () => {
   const cfg = (ownerSubject?: string) => ({
     guestAccess: 'read' as const,
+    agentEdits: 'suggest' as const,
     trustedIssuers: [{issuer: ISS}],
     emailAuthority: ISS,
     ownerSubject,

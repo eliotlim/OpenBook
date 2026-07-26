@@ -5,10 +5,13 @@ import {HTTPException} from 'hono/http-exception';
 import {streamSSE} from 'hono/streaming';
 import {
   API,
+  AGENT_EDITS_MODES,
+  AGENT_EDITS_POLICIES,
   CLIENT_HEADER,
   FORWARDED_HEADER,
   PAGE_VISIBILITIES,
   type AclLevel,
+  type AgentEditsPolicy,
   type BackupCadence,
   type BackupConfig,
   type CommentInput,
@@ -27,7 +30,6 @@ import {
   type SuggestionStatus,
   type SuggestionUpdate,
   localPrincipal,
-  verifiedSubject,
 } from '@book.dev/sdk';
 import {PageStore, AssetBudgetError} from './store';
 import {PageHub} from './hub';
@@ -54,6 +56,7 @@ import {
 } from './agentTokens';
 import {mountAgentTokenRoutes} from './agentTokenRoutes';
 import {mountMcpHttp} from './mcpHttp';
+import {agentMayEditDirectly, authoredSubject, resolveAgentEditsForPage} from './agentWriteGate';
 import {mountUi} from './ui';
 import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
@@ -108,18 +111,24 @@ export function isAppOrigin(origin: string): boolean {
 }
 
 /**
- * AGENT-6 defense-in-depth: page SHARING / EXPOSURE controls (per-page ACL grants +
- * visibility scope) are privileged and jws-only — an agent PAT must NEVER re-share a
- * page or change its visibility. A durable ACL grant would SURVIVE the token's
- * revocation (a permanent backdoor defeating revocation-as-mitigation), and flipping
- * a restricted page to `public` is an outright confidentiality break. These routes
- * ordinarily gate on mere page-write (which a write-PAT passes), so they get an
- * explicit `pat` refusal at the handler — belt-and-braces on top of the scope-gate,
- * which also carves these sub-paths out of the PAT allowlist entirely.
+ * AGENT-6 / AGED-1 defense-in-depth: privileged jws-only page POLICY controls that an
+ * agent PAT must NEVER change. Two families gate here:
+ *
+ *  - SHARING / EXPOSURE (per-page ACL grants + visibility scope): a durable ACL grant
+ *    would SURVIVE the token's revocation (a permanent backdoor defeating
+ *    revocation-as-mitigation), and flipping a restricted page to `public` is an
+ *    outright confidentiality break.
+ *  - AGENT-EDITS policy (AGED-1): letting a PAT set a page to `agentEdits='direct'`
+ *    would be SELF-AUTHORIZATION — the token relaxing the very policy that governs
+ *    whether agents may edit that page directly.
+ *
+ * These routes ordinarily gate on mere page-write (which a write-PAT passes), so they
+ * get an explicit `pat` refusal at the handler — belt-and-braces on top of the
+ * scope-gate, which also carves these sub-paths out of the PAT allowlist entirely.
  */
-function denyPatSharing(c: Context<AppEnv>): void {
+function denyPatPolicy(c: Context<AppEnv>): void {
   if (c.get('principal').verifiedVia === 'pat') {
-    throw new HTTPException(403, {message: 'agent tokens cannot change page sharing or visibility'});
+    throw new HTTPException(403, {message: 'agent tokens cannot change page sharing, visibility, or agent-edits policy'});
   }
 }
 
@@ -699,6 +708,27 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     }
   };
 
+  // AGED-2 agent-PAT write gate. Server-side teeth for the agent-edits policy: an
+  // agent PAT (`verifiedVia === 'pat'`) may write a page's CONTENT directly only when
+  // the resolved mode for that page is exactly `'direct'` (the fail-safe lives in
+  // `agentMayEditDirectly` — any non-`direct` value denies). Otherwise it 403s with an
+  // actionable steer the MCP client surfaces verbatim to the agent, pointing at the
+  // suggestion route (which stays PAT-writable in BOTH modes). NEVER gates a jws /
+  // guest / local / bearer principal — human and loopback-owner writes are untouched
+  // (this returns immediately for any non-PAT). Call AFTER the access gate so a PAT
+  // that can't even write the page still gets the access 404/403 first (no extra
+  // existence oracle), and only a would-be direct writer on a suggest-mode page sees
+  // this 403. Creating a NEW page/row is out of scope: there is no prior page policy
+  // and no suggestion target for content that does not yet exist — those stay governed
+  // by the write-PAT scope-gate alone.
+  const requireAgentDirectWrite = async (c: Context<AppEnv>, pageId: string): Promise<void> => {
+    if (c.get('principal').verifiedVia !== 'pat') return;
+    if (await agentMayEditDirectly(store, pageId)) return;
+    throw new HTTPException(403, {
+      message: `Direct edits are disabled for this page; submit a suggestion via POST /api/pages/${pageId}/suggestions`,
+    });
+  };
+
   // Optional local-AI subsystem (status/search/generate). Mounted only when
   // the host passed a service; document APIs never depend on it.
   if (ai) mountAiRoutes(app, ai, store, broadcastList, opts.aiUsage, opts.mcp);
@@ -729,6 +759,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // private page from a missing one.
     if (input.id && (await store.canReadPage(c.get('principal'), input.id))) {
       await requireAccess(c, store, 'write', input.id);
+      // An upsert ONTO an existing page is a direct content edit — gate an agent PAT
+      // on that page's resolved agent-edits mode (the create branch below is exempt:
+      // a not-yet-existing page has no policy and no suggestion target).
+      await requireAgentDirectWrite(c, input.id);
     } else {
       await requireCreate(c, store);
     }
@@ -763,6 +797,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // A managed usage page (host or attribution row) can't be renamed/body-overwritten
     // via upsert either — after the access gate so a non-reader stays 404 (see PATCH).
     await rejectManagedPage(c.req.param('id'));
+    await requireAgentDirectWrite(c, c.req.param('id'));
     const input = await c.req.json<PageInput>();
     input.id = c.req.param('id');
     const page = await store.upsertPage(input, c.get('principal'));
@@ -776,6 +811,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.patch(`${API.pages}/:id`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));
     await rejectManagedPage(c.req.param('id'));
+    await requireAgentDirectWrite(c, c.req.param('id'));
     const body = await c.req.json<{name?: string | null}>();
     const page = await store.renamePage(c.req.param('id'), body.name ?? null);
     if (!page) return c.json({error: 'page not found'}, 404);
@@ -791,6 +827,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   app.patch(`${API.pages}/:id/properties`, async (c) => {
     await requireAccess(c, store, 'write', c.req.param('id'));
     await rejectManagedPage(c.req.param('id'));
+    await requireAgentDirectWrite(c, c.req.param('id'));
     const body = await c.req.json<{properties?: Record<string, unknown>}>();
     const page = await store.setPageProperties(c.req.param('id'), body.properties ?? {});
     if (!page) return c.json({error: 'page not found'}, 404);
@@ -964,6 +1001,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     async (c) => {
       const id = c.req.param('id');
       await requireAccess(c, store, 'write', id);
+      // Block-level CRDT save: this folds an agent's edit into the server's canonical
+      // doc (the persister below attributes changed blocks to the principal), so it is
+      // a DIRECT content edit and must obey the same agent-edits gate as the PUT
+      // snapshot path — otherwise a suggest-mode PAT could stream block edits here to
+      // bypass the review layer.
+      await requireAgentDirectWrite(c, id);
       const body = await c.req
         .json<{update?: string; clientId?: number}>()
         .catch(() => ({}) as {update?: string; clientId?: number});
@@ -990,7 +1033,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       // fails the /updates fan-out, and the T3 client saver remains the safety net.
       if (persister) {
         void persister
-          .ingest(id, updateBytes, verifiedSubject(c.get('principal')))
+          .ingest(id, updateBytes, authoredSubject(c.get('principal')))
           .catch((err) => console.error('OpenBook server-persist ingest failed:', err));
       }
       return c.body(null, 204);
@@ -1152,6 +1195,10 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const id = c.req.param('id');
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
+    // A restore is a direct content mutation (it overwrites pages.data with a prior
+    // snapshot), so a suggest-mode agent PAT must be steered to the review path rather
+    // than rolling the page back straight through — same gate as save/PATCH (AGED-2).
+    await requireAgentDirectWrite(c, id);
     const version = await store.getPageVersion(id, c.req.param('vid'));
     if (!version) return c.json({error: 'version not found'}, 404);
     // Preserve the page's current name — only the document content rolls back.
@@ -1290,6 +1337,9 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const showIdentity = isAuthenticatedPrincipal(c) || config.ownerSubject === undefined;
     const info: InstanceInfo = {
       guestAccess: config.guestAccess,
+      // The instance-wide agent-edits mode (AGED-1) — so a client can render the
+      // policy and resolve a page's `inherit` without a second probe.
+      agentEdits: config.agentEdits,
       // Stable, opaque per-library id (STAB-5) so an out-of-process MCP connector
       // can confirm it reached THIS library and refuse a foreign responder on the
       // same port. Not a secret — authorizes nothing.
@@ -1320,6 +1370,13 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     const principal = c.get('principal');
     const current = await store.getInstanceConfig();
     const patch = await c.req.json<Partial<InstanceConfig>>();
+
+    // AGED-1: enum-validate the agent-edits mode before any owner/claim path so an
+    // unknown value is a 400 (never silently persisted by the shallow merge). Only
+    // `suggest` / `direct` are valid at the instance level (`inherit` is page-only).
+    if (patch.agentEdits !== undefined && !AGENT_EDITS_MODES.includes(patch.agentEdits)) {
+      return c.json({error: 'agentEdits must be "suggest" or "direct"'}, 400);
+    }
 
     // Owner-claim (OB-182 §2.6 B2). Setting `ownerSubject` on a still-unclaimed
     // instance is the ONE-TIME claim: route it through the atomic compare-and-set
@@ -1489,7 +1546,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.post(`${API.pages}/:id/acl`, async (c) => {
     const id = c.req.param('id');
-    denyPatSharing(c);
+    denyPatPolicy(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
     const body = await c.req.json<{invitee?: string; level?: AclLevel}>();
@@ -1506,7 +1563,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.delete(`${API.pages}/:id/acl`, async (c) => {
     const id = c.req.param('id');
-    denyPatSharing(c);
+    denyPatPolicy(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
     const subject = c.req.query('subject');
@@ -1529,7 +1586,7 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
 
   app.put(`${API.pages}/:id/visibility`, async (c) => {
     const id = c.req.param('id');
-    denyPatSharing(c);
+    denyPatPolicy(c);
     await requireAccess(c, store, 'write', id);
     await rejectManagedPage(id);
     const {visibility} = await c.req.json<{visibility?: PageVisibility}>();
@@ -1540,6 +1597,44 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     if (!ok) return c.json({error: 'page not found'}, 404);
     logEdit(c, id, 'page.visibility', visibility);
     return c.json({visibility});
+  });
+
+  // A page's agent-edits policy (AGED-1). Read is gated on reading the page (a viewer
+  // may see whether agents edit this page directly). Unlike visibility's write (gated
+  // on page-write), the PUT is jws-only via `denyPatPolicy`: an agent PAT must NEVER
+  // set the policy that governs whether agents may edit this page directly —
+  // self-authorization. `requireAccess` 404s a page the caller can't even read.
+  //
+  // Alongside the raw stored `agentEdits` policy (which AGED-4/5's UI reads for the
+  // tri-state), the response carries the SERVER-RESOLVED `effective` mode (AGED-6):
+  // `resolveAgentEdits(rawPolicy, instanceMode)`, computed here because only the
+  // server may read its own instance config. This lets a PAT-scoped MCP client learn
+  // the effective mode for an `inherit` page WITHOUT the privileged `GET /api/instance`
+  // read (which the AGENT-6 scope-gate denies to PATs) — one PAT-readable call. The
+  // instance default is not confidential; exposing the resolved mode on a page the
+  // caller can already read leaks nothing. The write-gate (AGED-2) remains the
+  // authoritative backstop; this only lets the client avoid a needless suggestion.
+  app.get(`${API.pages}/:id/agent-edits`, async (c) => {
+    const id = c.req.param('id');
+    await requireAccess(c, store, 'read', id);
+    const agentEdits = (await store.getPageAgentEdits(id)) ?? 'inherit';
+    const effective = await resolveAgentEditsForPage(store, id);
+    return c.json({agentEdits, effective});
+  });
+
+  app.put(`${API.pages}/:id/agent-edits`, async (c) => {
+    const id = c.req.param('id');
+    denyPatPolicy(c);
+    await requireAccess(c, store, 'write', id);
+    await rejectManagedPage(id);
+    const {agentEdits} = await c.req.json<{agentEdits?: AgentEditsPolicy}>();
+    if (!agentEdits || !AGENT_EDITS_POLICIES.includes(agentEdits)) {
+      return c.json({error: 'a valid agent-edits policy is required'}, 400);
+    }
+    const ok = await store.setPageAgentEdits(id, agentEdits);
+    if (!ok) return c.json({error: 'page not found'}, 404);
+    logEdit(c, id, 'page.agentEdits', agentEdits);
+    return c.json({agentEdits});
   });
 
   // A page's change provenance (the edit log), newest first. The top row is its
@@ -1731,6 +1826,9 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // A row is a page; gate write on the row itself (it may carry its own ACL).
     await requireAccess(c, store, 'write', c.req.param('rowId'));
     rejectManaged(id);
+    // Editing an existing row is a direct content edit — gate an agent PAT on the
+    // row page's resolved mode (creating a NEW row, like a new page, is exempt).
+    await requireAgentDirectWrite(c, c.req.param('rowId'));
     const body = await c.req.json<{name?: string | null; properties?: Record<string, unknown>}>();
     const row = await store.updateRow(id, c.req.param('rowId'), body);
     if (!row) return c.json({error: 'row not found'}, 404);

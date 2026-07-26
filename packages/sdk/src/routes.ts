@@ -217,6 +217,16 @@ export const API = {
    * "you manage sharing of pages you can write" rule as the ACL).
    */
   pageVisibility: (id: string): string => `/api/pages/${encodeURIComponent(id)}/visibility`,
+  /**
+   * A page's agent-edits policy (AGED-1): `GET` returns `{agentEdits, effective}` —
+   * the raw stored policy (`inherit` | `suggest` | `direct`, read-gated) plus the
+   * SERVER-RESOLVED `effective` mode (`suggest` | `direct`; AGED-6), so a PAT client
+   * can learn the effective mode of an `inherit` page without the privileged instance
+   * read. `PUT` `{agentEdits}` sets it. Unlike visibility, the `PUT` is jws-only — an
+   * agent PAT must NOT change the policy that governs whether agents edit directly
+   * (self-authorization).
+   */
+  pageAgentEdits: (id: string): string => `/api/pages/${encodeURIComponent(id)}/agent-edits`,
 
   // ── Managed library: instance ↔ library roster sync — OB-199 / LIB-5 ─────────
   /**
