@@ -1,9 +1,11 @@
-import {useSyncExternalStore} from 'react';
-import {Link2, Presentation, Star} from 'lucide-react';
-import {useHud, useNavigation, useTranslation} from '@/providers';
+import {useEffect, useState, useSyncExternalStore} from 'react';
+import {Globe, Link2, Presentation, Star} from 'lucide-react';
+import {useForwarding, useHud, useNavigation, useTranslation} from '@/providers';
+import {useData} from '@/data';
 import {IconButton} from '@/components/ui/icon-button';
 import NavContextMenu from '@/components/NavContextMenu';
 import ShareDialog, {useSharingCapability} from '@/components/ShareDialog';
+import {requestShareDialog} from '@/lib/shareDialog';
 import {useCopyPageLink} from '@/lib/useCopyPageLink';
 import {isFavorite, subscribeFavorites, toggleFavorite} from '@/lib/favorites';
 import {pageSaveStatus, pageSaveStatusVersion, subscribePageSaveStatus} from '@/lib/pageSaveStatus';
@@ -83,6 +85,11 @@ export default function PageActionsCluster({pageId}: {pageId: string | null}) {
           <Presentation className="h-4 w-4" />
         </IconButton>
       )}
+      {/* At-a-glance "this page is live at your address" indicator (GATE-6). Only
+          renders (and only fetches) while the library is actually published; a
+          click opens the Share dialog, where the page can be unpublished or its
+          audience changed. */}
+      {actionable && sharing.supported && <PagePublishIndicator pageId={targetPageId!} />}
       {actionable && sharing.supported && <ShareDialog pageId={targetPageId!} canManage={sharing.canManage} />}
       <IconButton
         size="sm"
@@ -105,5 +112,55 @@ export default function PageActionsCluster({pageId}: {pageId: string | null}) {
       </IconButton>
       <NavContextMenu pageId={targetPageId} />
     </div>
+  );
+}
+
+/**
+ * The titlebar "Published" indicator (GATE-6). Renders a live-status Globe only
+ * when the page is actually reachable at the site address: the library is
+ * published (`publishedHost`), the address serves public pages to signed-out
+ * visitors (`public`/`published` scope), and this page's own visibility is
+ * `public`. Clicking opens the Share dialog to change or revoke it.
+ *
+ * Deliberately keyed on the page's EXPLICIT `public` scope, not the resolved
+ * `inherit` default — that keeps this to a single cheap `getPageVisibility` read
+ * with no extra instance probe, and the Share dialog owns the nuanced effective
+ * story. The fetch is gated on `publishedHost`, so an unpublished library (every
+ * web build, most desktop) does no work here.
+ */
+function PagePublishIndicator({pageId}: {pageId: string}) {
+  const {t} = useTranslation();
+  const client = useData();
+  const {publishedHost, siteVisibility} = useForwarding();
+  const siteServesPublic = siteVisibility === 'public' || siteVisibility === 'published';
+  const [isPublic, setIsPublic] = useState(false);
+
+  useEffect(() => {
+    if (!publishedHost || !siteServesPublic) {
+      setIsPublic(false);
+      return;
+    }
+    let live = true;
+    client
+      .getPageVisibility(pageId)
+      .then((v) => live && setIsPublic(v === 'public'))
+      .catch(() => live && setIsPublic(false));
+    return () => {
+      live = false;
+    };
+  }, [client, pageId, publishedHost, siteServesPublic]);
+
+  if (!publishedHost || !siteServesPublic || !isPublic) return null;
+  const label = t('page.publishedAt', {host: publishedHost});
+  return (
+    <IconButton
+      size="sm"
+      onClick={() => requestShareDialog(pageId)}
+      aria-label={label}
+      title={label}
+      className="text-emerald-600 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+    >
+      <Globe className="h-4 w-4" />
+    </IconButton>
   );
 }

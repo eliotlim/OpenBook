@@ -322,11 +322,19 @@ export const en = {
     enforcementCaveat:
       'People you invite may not be able to open this page through its published book.cloud link yet — that’s rolling out. Direct access is already limited as set here.',
     siteRestrictedNotice:
-      'This page is set to anyone-with-the-link, but public access is off — turn it on so signed-out visitors can open it.',
-    makeSitePublic: 'Enable Public Access',
+      'This page is set to anyone-with-the-link, but your address doesn’t serve pages to signed-out visitors yet — turn on published pages so they can open it.',
+    makeSitePublished: 'Serve published pages',
     // The address scope is library-global — shown here per-page, but it governs
     // every published page, so say so plainly to avoid a per-page misread.
     siteGlobalHint: 'Applies to your whole library, not just this page.',
+    // Publish to the web (GATE-6): the primary "make this page reachable at your
+    // address" affordance and the live indicator once it is.
+    publishState: {
+      live: 'Published',
+      liveHint: 'Anyone with the link can open this page at {host}.',
+      hint: 'Publish this page so anyone with the link can open it at {host}.',
+      action: 'Publish page',
+    },
     scopeLabel: 'Who can access',
     scopeAdvanced: 'More access options',
     scope: {
@@ -448,6 +456,8 @@ export const en = {
     saving: 'Saving…',
     saved: 'Saved',
     saveFailed: 'Couldn’t save',
+    // GATE-6 titlebar indicator: this page is live at the published site address.
+    publishedAt: 'Published — anyone with the link can open this at {host}',
     actions: 'Page actions',
     delete: 'Move to trash',
     titleLabel: 'Page title',
@@ -1436,20 +1446,28 @@ export const en = {
     // Address-level audience scope (SHR-8): the published *.book.cloud address is
     // Private by default; only a Public address opens for people who aren’t signed in.
     visibility: {
-      label: 'Public access',
+      label: 'Who can open this address',
       public: 'Public',
       private: 'Private',
+      // The recommended default for a new site: anonymous visitors reach only the
+      // pages you publish; the rest of the library stays private.
+      publishedOption: 'Only published pages (Recommended)',
       authenticated: 'Anyone signed in',
       members: 'Members',
-      publicHint: 'Anyone with the link can see this library, even when not signed in.',
-      privateHint: 'Only library members and guests can see this library.',
+      publicHint: 'Anyone with the link can open every page in this library, even when not signed in.',
+      publishedHint: 'Anyone with the link can open the pages you publish. Everything else stays private.',
+      privateHint: 'Only library members and guests can open this library — the address stays closed to signed-out visitors.',
       // Honest, read-only rows for the two in-between account scopes this desktop
       // control doesn’t set (but the account/edge honor distinctly) — never mislabel
       // them as “Private”, which would under-state who can already read.
       authenticatedHint: 'Anyone signed in can see this library.',
       membersHint: 'Only library members can see this library.',
+      // The one caveat the productized publish flow can’t paper over: an open
+      // address still can’t serve a signed-out visitor while the guest gate is off.
+      guestOffCaveat:
+        'Guest access is off, so published pages still won’t open for signed-out visitors. Turn on guest viewing in the library’s Sharing settings.',
       manageOnWeb: 'Manage on the web',
-      error: 'Couldn’t update public access. Try again.',
+      error: 'Couldn’t update address access. Try again.',
     },
   },
   diagnostics: {

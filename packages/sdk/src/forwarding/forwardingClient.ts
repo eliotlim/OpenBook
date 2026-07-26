@@ -27,17 +27,24 @@ export interface SiteIdentity {
 /**
  * The published site's audience scope, mirrored from the account's
  * `@book.dev/forwarding` `SiteVisibility` (the single source of truth on the
- * server). The edge honors ONLY `public` as anonymous-readable; the other three
- * all require a signed-in principal (fail-closed). A fresh site defaults to
- * `restricted` on the account — so "anyone with the link" needs an explicit flip
- * to `public`, which is exactly what {@link ForwardingClient.setSiteVisibility}
- * drives through the existing `PATCH /api/sites/:id` route.
+ * server). Two scopes admit anonymous traffic at the edge:
+ *   - `public` — the whole library is anonymous-readable; the edge forwards every
+ *     request and the origin's per-page gate governs from there.
+ *   - `published` — the edge admits anonymous traffic too, but the origin exposes
+ *     ONLY pages whose visibility resolves to `public`; everything else 404s
+ *     (fail-safe). This is the recommended default for a new site: "share the
+ *     pages I publish, keep the rest private" with no whole-library exposure.
+ * The remaining three (`authenticated`/`members`/`restricted`) require a signed-in
+ * principal (fail-closed). A fresh site defaults to `published` on the account, and
+ * {@link ForwardingClient.setSiteVisibility} flips the scope through the existing
+ * `PATCH /api/sites/:id` route.
  */
-export type SiteVisibility = 'public' | 'authenticated' | 'members' | 'restricted';
+export type SiteVisibility = 'public' | 'published' | 'authenticated' | 'members' | 'restricted';
 
 /** Every {@link SiteVisibility}, matching the account's `SITE_VISIBILITIES`. */
 export const SITE_VISIBILITIES: readonly SiteVisibility[] = [
   'public',
+  'published',
   'authenticated',
   'members',
   'restricted',
