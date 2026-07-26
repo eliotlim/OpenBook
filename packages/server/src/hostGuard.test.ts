@@ -57,12 +57,12 @@ const app = () => createApp(store, undefined, new PageHub(), {identity: new Iden
 
 describe('isLoopbackHostname — shared loopback host-set predicate', () => {
   it('accepts loopback literals (bare and bracketed), case-insensitively', () => {
-    for (const h of ['localhost', 'LocalHost', '127.0.0.1', '127.1.2.3', '::1', '[::1]']) {
+    for (const h of ['localhost', 'LocalHost', '127.0.0.1', '127.1.2.3', '127.1', '::1', '[::1]']) {
       expect(isLoopbackHostname(h)).toBe(true);
     }
   });
   it('rejects foreign hostnames and LAN IPs', () => {
-    for (const h of ['evil.com', 'localhost.evil.com', '192.168.1.50', '10.0.0.1', '', 'notlocalhost']) {
+    for (const h of ['evil.com', 'localhost.evil.com', '192.168.1.50', '10.0.0.1', '', 'notlocalhost', '127.0.0.1.evil.com', '127.foo.bar']) {
       expect(isLoopbackHostname(h)).toBe(false);
     }
   });
@@ -92,10 +92,15 @@ describe('(guard) foreign Host on a loopback TCP bind → 403', () => {
     const res = await app().request('/api/pages', {headers: {Host: 'localhost:5555'}}, tcpEnv('127.0.0.1', PORT));
     expect(res.status).toBe(403);
   });
+
+  it('rejects a 127-prefixed foreign Host (anchored loopback match, no trailing label)', async () => {
+    const res = await app().request('/api/pages', {headers: {Host: '127.0.0.1.evil.com:4319'}}, tcpEnv('127.0.0.1'));
+    expect(res.status).toBe(403);
+  });
 });
 
 describe('(guard) loopback literals at the expected port → pass', () => {
-  it.each([['localhost:4319'], ['127.0.0.1:4319'], ['[::1]:4319']])('%s passes', async (host) => {
+  it.each([['localhost:4319'], ['127.0.0.1:4319'], ['127.1:4319'], ['[::1]:4319']])('%s passes', async (host) => {
     const res = await app().request('/api/pages', {headers: {Host: host}}, tcpEnv('127.0.0.1'));
     expect(res.status).toBe(200);
   });

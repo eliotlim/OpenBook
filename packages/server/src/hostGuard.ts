@@ -50,7 +50,7 @@ import type {AppEnv} from './appEnv';
  */
 export function isLoopbackHostname(host: string): boolean {
   const h = host.trim().toLowerCase();
-  return h === 'localhost' || h === '::1' || h === '[::1]' || h.startsWith('127.');
+  return h === 'localhost' || h === '::1' || h === '[::1]' || /^127(?:\.\d{1,3}){1,3}$/.test(h);
 }
 
 /** A parsed `Host` header: the hostname (IPv6 brackets stripped) and its port (or ''). */
