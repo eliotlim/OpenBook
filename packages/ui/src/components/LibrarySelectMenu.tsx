@@ -62,9 +62,14 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
   // instance same-origin, so the local/default library (no server override)
   // has no host to name itself after — label it with the site host instead of
   // the generic "My Library".
-  const {forwardedHost} = usePlatformCapabilities();
+  // On the sidecar-served LAN UI (STAB-9) the local library is the host's,
+  // reached over the network — so its "This device" connection label is wrong
+  // for a guest. Show a context-neutral "Local network" instead.
+  const {forwardedHost, servedSameOrigin} = usePlatformCapabilities();
   const isForwardedLocal = (ws: {serverUrl: string | null}): boolean =>
     Boolean(forwardedHost) && ws.serverUrl === null;
+  const servedLocalLabel = (ws: {serverUrl: string | null}): string | undefined =>
+    servedSameOrigin && ws.serverUrl === null ? t('library.localNetwork') : undefined;
   const nameFor = (ws: {serverUrl: string | null; name: string}): string =>
     isForwardedLocal(ws) ? forwardedHost! : ws.name;
 
@@ -190,7 +195,9 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
             )}
           </span>
           {!isForwardedLocal(ws) && (
-            <span className="truncate text-xs text-muted-foreground">{libraryHostLabel(ws.serverUrl)}</span>
+            <span className="truncate text-xs text-muted-foreground">
+              {servedLocalLabel(ws) ?? libraryHostLabel(ws.serverUrl)}
+            </span>
           )}
           {blocked && (
             // The "why" for the greyed row — always visible, not truncated, so it
@@ -246,6 +253,7 @@ export default function LibrarySelectMenu({variant = 'sidebar'}: {variant?: 'sid
                 icon={library.icon}
                 name={nameFor(library)}
                 url={isForwardedLocal(library) ? forwardedHost! : library.serverUrl ?? ''}
+                subtitle={servedLocalLabel(library)}
               />
               <ChevronUpDownIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
             </Button>

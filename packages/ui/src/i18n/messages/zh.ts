@@ -423,6 +423,7 @@ export const zh: PartialMessages = {
     urlRequired: '请输入此资料库的服务器 URL。',
     removeLibrary: '移除 {name}',
     thisDevice: '本设备',
+    localNetwork: '局域网',
   },
   ai: {
     title: 'AI',

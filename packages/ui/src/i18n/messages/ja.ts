@@ -425,6 +425,7 @@ export const ja: PartialMessages = {
     urlRequired: 'このライブラリのサーバー URL を入力してください。',
     removeLibrary: '{name} を削除',
     thisDevice: 'このデバイス',
+    localNetwork: 'ローカルネットワーク',
   },
   ai: {
     title: 'AI',

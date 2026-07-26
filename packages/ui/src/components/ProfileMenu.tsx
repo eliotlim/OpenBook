@@ -15,7 +15,7 @@ import {
 import {Button} from '@/components/ui/button';
 import AboutDialog from '@/components/AboutDialog';
 import {ProfileAvatar} from '@/components/ProfileAvatar';
-import {useHud, useSelfIdentity, useTheme, useTranslation, type ColorMode} from '@/providers';
+import {useHud, usePlatformCapabilities, useSelfIdentity, useTheme, useTranslation, type ColorMode} from '@/providers';
 
 /**
  * The sidebar footer is the user: avatar + name opening a small profile
@@ -27,8 +27,16 @@ export default function ProfileMenu() {
   const {setHud} = useHud();
   const {mode, setMode} = useTheme();
   const {name, profile} = useSelfIdentity();
+  const {servedSameOrigin} = usePlatformCapabilities();
   const [aboutOpen, setAboutOpen] = useState(false);
   const ModeIcon = mode === 'light' ? Sun : mode === 'dark' ? Moon : SunMoon;
+
+  // The sidecar-served LAN UI (STAB-9) renders for a network guest, not the
+  // owner: the footer's "Anonymous" identity is meaningless to them and its
+  // "Edit profile" writes the host's shared preferences. Account sign-in can't
+  // complete over a plain-LAN origin either, so drop the whole account footer.
+  // SideNav also omits the surrounding bordered strip in this mode.
+  if (servedSameOrigin) return null;
 
   return (
     <>

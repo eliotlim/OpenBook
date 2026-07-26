@@ -233,6 +233,20 @@ export interface PlatformCapabilities {
    * the configured host).
    */
   forwardedHost?: string;
+  /**
+   * Declared by the sidecar-served LAN web UI (STAB-7): the desktop's local
+   * server is serving the full web app at its own origin, so every viewer is a
+   * network guest reading the host's shared library over plain-LAN HTTP — not
+   * the owner on their own device. Account sign-in is unsupported here (a
+   * plain-HTTP IP origin is an insecure context that breaks the identity-JWS
+   * flow), so the UI hides the sign-in/sign-up chrome (the publish upsell and
+   * the account footer) and swaps the host-centric "This device" library label
+   * for a context-neutral one (STAB-9). Unset on the desktop app, the canonical
+   * web app, forwarded `<prefix>.book.cloud` sites, and remote-server
+   * connections — those are the owner's own context or reach a real, signed
+   * instance where sign-in works.
+   */
+  servedSameOrigin?: boolean;
 }
 
 const PlatformCapabilitiesContext = createContext<PlatformCapabilities>({});

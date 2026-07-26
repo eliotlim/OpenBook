@@ -5,6 +5,11 @@ export interface LibraryInfoProps {
   name: string,
   url: string,
   icon?: string,
+  /** Explicit connection subtitle. When set it is shown verbatim instead of the
+   *  label derived from `url` — the sidecar-served LAN UI (STAB-9) passes
+   *  "Local network" so the shared library isn't mislabelled "This device" for a
+   *  network guest. */
+  subtitle?: string,
 }
 
 // A short, friendly label for the library's connection. An empty url means
@@ -26,7 +31,7 @@ function describeLocation(raw: string): string {
 }
 
 export default function LibraryInfo(props: LibraryInfoProps) {
-  const location = describeLocation(props.url);
+  const location = props.subtitle ?? describeLocation(props.url);
   // A library named after its own server URL (the auto-name for a plain
   // remote connection) would render the same string twice — drop the subtitle.
   const subtitle = location === props.name.trim() ? null : location;

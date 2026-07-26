@@ -426,6 +426,7 @@ export const de: PartialMessages = {
     urlRequired: 'Gib die Server-URL für diese Bibliothek ein.',
     removeLibrary: '{name} entfernen',
     thisDevice: 'Dieses Gerät',
+    localNetwork: 'Lokales Netzwerk',
   },
   ai: {
     title: 'KI',

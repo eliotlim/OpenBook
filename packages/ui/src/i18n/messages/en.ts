@@ -683,6 +683,9 @@ export const en = {
     urlRequired: 'Enter the server URL for this library.',
     removeLibrary: 'Remove {name}',
     thisDevice: 'This device',
+    // STAB-9: the LAN-served UI labels the shared library's connection with this
+    // instead of "This device" — the guest is on the network, not the host.
+    localNetwork: 'Local network',
     manage: 'Manage libraries…',
     // The switcher's connect-to-a-server action (the add-a-library flow is the
     // connect flow — it adds the server and switches this device onto it).
