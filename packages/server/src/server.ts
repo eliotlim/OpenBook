@@ -11,6 +11,7 @@ import {AiUsageLog} from './ai/usage';
 import {IdentityService} from './instanceConfig';
 import {BackupScheduler} from './backups';
 import {RosterSyncer, httpRosterFetcher, type RosterAssertionProvider} from './rosterSync';
+import {isLoopbackHostname} from './hostGuard';
 import {readFileSync, writeFileSync, rmSync, unlinkSync} from 'node:fs';
 import {createServer} from 'node:http';
 import path from 'node:path';
@@ -185,10 +186,13 @@ type NodeServer = ReturnType<typeof serve>;
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 4319;
 
-/** Loopback hosts safe to bind unclaimed — only the machine owner can reach them. */
+/**
+ * Loopback hosts safe to bind unclaimed — only the machine owner can reach them. Delegates
+ * to {@link isLoopbackHostname} (hostGuard.ts) so the §2.6 bind backstop and the STAB-10
+ * rebinding guard share ONE loopback host-set definition.
+ */
 export function isLoopbackHost(host: string): boolean {
-  const h = host.trim().toLowerCase();
-  return h === 'localhost' || h === '::1' || h === '[::1]' || h.startsWith('127.');
+  return isLoopbackHostname(host);
 }
 
 /**
