@@ -58,6 +58,36 @@ export async function requireCreate(c: Ctx, store: PageStore): Promise<void> {
 }
 
 /**
+ * Is this request from an AUTHENTICATED identity — a fresh-verified JWS user, the
+ * in-process loopback owner (`local`), or the trusted local transport (machine
+ * owner)? A guest or a lapsed (`unverified`) caller is NOT. Used to fence
+ * identity-INFRASTRUCTURE metadata (the AI engine status, the instance owner /
+ * trusted-issuer / audience block) off the anonymous surface a claimed,
+ * internet-exposable (`published`-scope) instance presents — without touching the
+ * content-access model, which stays the sole enforcement of who reads what.
+ */
+export function isAuthenticatedPrincipal(c: Ctx): boolean {
+  if (c.get('localOwner')) return true; // trusted local transport = machine owner
+  const via = c.get('principal').verifiedVia;
+  return via === 'jws' || via === 'local';
+}
+
+/**
+ * Gate a READ route to an {@link isAuthenticatedPrincipal}, 401ing an anonymous
+ * guest / lapsed caller — BUT keep the legacy single-user (UNCLAIMED, loopback-only
+ * by the §2.6 exposure invariant) path open, exactly like the paid-inference gate:
+ * with no owner claimed there is no remote guest to fence, and the loopback owner
+ * must keep reading its own instance. For identity-infrastructure metadata a claimed
+ * instance must not hand to anonymous callers (GATE-7).
+ */
+export async function requireAuthenticatedRead(c: Ctx, store: PageStore): Promise<void> {
+  if (isAuthenticatedPrincipal(c)) return;
+  const {ownerSubject} = await store.getInstanceConfig();
+  if (ownerSubject === undefined) return; // legacy unclaimed → no remote guest to fence
+  throw new HTTPException(401, {message: 'sign in to view this on this instance'});
+}
+
+/**
  * Gate instance ADMINISTRATION (whole-library export/import). Stricter than
  * {@link requireCreate} on a claimed instance — an acl-write member can create
  * pages but must not bulk-exfiltrate (or wholesale-overwrite) pages they can't

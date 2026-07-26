@@ -37,7 +37,7 @@ import {AwarenessRelay, awarenessUser, stampAwarenessIdentity} from './collabAwa
 import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
 import {guestGate, isLocalOwnerRequest, recoverAudienceLockedPrincipal, resolvePrincipal, type IdentityProvider} from './principal';
-import {requireAccess, requireCreate, requireDbAccess, requireInstanceAdmin, streamGates} from './access';
+import {isAuthenticatedPrincipal, requireAccess, requireCreate, requireDbAccess, requireInstanceAdmin, streamGates} from './access';
 import {
   AGENT_FAILED_RATE_LIMIT,
   AGENT_RATE_WINDOW_MS,
@@ -1280,15 +1280,23 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // (mirrors authorize()), so a client can offer (or auto-run) an ownership
     // repair when `you` doesn't match `ownerSubject`.
     const localOwner = Boolean(c.get('localOwner'));
+    // GATE-7: fence the identity-INFRASTRUCTURE block (owner subject, trusted issuers,
+    // audience) off the anonymous surface a claimed, internet-exposable
+    // (`published`-scope) instance presents. A guest still gets everything the client
+    // needs to render (guestAccess, defaultVisibility, you, instanceId, youRole), but
+    // not the recon-only identity metadata. An authenticated identity, the loopback /
+    // local owner, and the legacy UNCLAIMED single-user path keep the full payload —
+    // the owner claim/repair + forwarding-audience flows all run authenticated.
+    const showIdentity = isAuthenticatedPrincipal(c) || config.ownerSubject === undefined;
     const info: InstanceInfo = {
       guestAccess: config.guestAccess,
       // Stable, opaque per-library id (STAB-5) so an out-of-process MCP connector
       // can confirm it reached THIS library and refuse a foreign responder on the
       // same port. Not a secret — authorizes nothing.
       instanceId: config.instanceId ?? null,
-      ownerSubject: config.ownerSubject ?? null,
-      trustedIssuers: config.trustedIssuers.map((i) => i.issuer),
-      audience: config.audience ?? null,
+      ownerSubject: showIdentity ? (config.ownerSubject ?? null) : null,
+      trustedIssuers: showIdentity ? config.trustedIssuers.map((i) => i.issuer) : [],
+      audience: showIdentity ? (config.audience ?? null) : null,
       requireAudience: config.requireAudience ?? false,
       // What `visibility='inherit'` resolves to at the root once claimed — so a
       // client can show the TRUE effective default behind "Library default"

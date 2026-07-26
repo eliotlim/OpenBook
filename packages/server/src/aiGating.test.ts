@@ -339,7 +339,7 @@ describe('AI mutation routes are instance-writer-gated (P0-5)', () => {
     expect((await post(app, '/api/ai/models/download', body, await idFor('owner'))).status).toBe(200);
   });
 
-  it('skills: PUT + DELETE are writer-only; GET stays open to a viewer', async () => {
+  it('skills: PUT + DELETE + GET are writer-only (GATE-7 gates the list too)', async () => {
     const app = appWith({ai: aiService()});
     const skill = {skill: {name: 'test-skill', description: 'd', instructions: 'do the thing'}};
     expect((await put(app, '/api/ai/skills', skill, await idFor('viewer'))).status).toBe(403);
@@ -347,7 +347,11 @@ describe('AI mutation routes are instance-writer-gated (P0-5)', () => {
     expect((await put(app, '/api/ai/skills', skill, await idFor('owner'))).status).toBe(200);
     expect((await del(app, '/api/ai/skills/test-skill', await idFor('viewer'))).status).toBe(403);
     expect((await del(app, '/api/ai/skills/test-skill')).status).toBe(403); // guest
-    expect((await get(app, '/api/ai/skills', await idFor('viewer'))).status).toBe(200);
+    // The list carries the authored recipe bodies → writer-gated (GATE-7): a viewer /
+    // guest can no longer enumerate them on a claimed instance, but the owner can.
+    expect((await get(app, '/api/ai/skills', await idFor('viewer'))).status).toBe(403);
+    expect((await get(app, '/api/ai/skills')).status).toBe(403); // guest
+    expect((await get(app, '/api/ai/skills', await idFor('owner'))).status).toBe(200);
     // The owner's delete actually removes the skill — a bare 200 would also pass
     // on a `{removed:false}` miss, the exact failure mode of the old dead route.
     const removed = await del(app, '/api/ai/skills/test-skill', await idFor('owner'));
@@ -402,16 +406,24 @@ describe('GET /api/ai/status never returns a provider API key to ANY principal (
     expect(body.config.apiKeySet).toBe(true); // legacy flat key present → flagged
   };
 
-  it('guest, viewer, jws non-member, AND writer/owner all get status with NO apiKey', async () => {
+  it('every AUTHENTICATED principal (viewer, jws non-member, owner) gets status with NO apiKey', async () => {
     await claim();
     await store.addMember({subject: `${ISS}#viewer`, role: 'viewer', status: 'active'});
     const app = appWith({ai: await keyedAi()});
-    // Every principal class on a claimed instance: guest, viewer, jws non-member, owner (writer).
-    for (const jws of [undefined, await idFor('viewer'), await idFor('stranger'), await idFor('owner')]) {
+    // Every verified principal class on a claimed instance still reads status, redacted.
+    for (const jws of [await idFor('viewer'), await idFor('stranger'), await idFor('owner')]) {
       const res = await get(app, '/api/ai/status', jws);
       expect(res.status).toBe(200);
       assertRedacted(await res.text());
     }
+  });
+
+  it('an anonymous guest on a CLAIMED instance is denied status entirely (401, GATE-7)', async () => {
+    await claim();
+    const app = appWith({ai: await keyedAi()});
+    // The engine-config metadata is not for the anonymous surface a published instance
+    // exposes; a guest is refused before any (already-redacted) body is built.
+    expect((await get(app, '/api/ai/status')).status).toBe(401);
   });
 
   it('the loopback/local single-user (unclaimed) app is redacted too — the key stays server-side', async () => {
@@ -548,7 +560,7 @@ describe('plugin mutation routes are instance-writer-gated (P0-5)', () => {
     expect((await post(app, '/api/plugins', pkg(), await idFor('admin'))).status).toBe(201);
   });
 
-  it('PATCH + DELETE /api/plugins/:id are writer-only; GET stays open (clients sync on boot)', async () => {
+  it('PATCH + DELETE + GET /api/plugins are writer-only (GATE-7 gates the source-bearing list)', async () => {
     const app = appWith();
     expect((await post(app, '/api/plugins', pkg(), await idFor('owner'))).status).toBe(201);
     const id = 'test.gate-check';
@@ -556,9 +568,11 @@ describe('plugin mutation routes are instance-writer-gated (P0-5)', () => {
     expect((await patch(app, `/api/plugins/${id}`, {enabled: false})).status).toBe(403); // guest
     expect((await del(app, `/api/plugins/${id}`, await idFor('viewer'))).status).toBe(403);
     expect((await del(app, `/api/plugins/${id}`)).status).toBe(403); // guest
-    // Every client (viewers + guests included) lists plugins to run the enabled set.
-    expect((await get(app, '/api/plugins', await idFor('viewer'))).status).toBe(200);
-    expect((await get(app, '/api/plugins')).status).toBe(200); // guest
+    // The list embeds each package's inline TS `files` → writer-gated (GATE-7): a
+    // viewer / guest on a claimed instance can't pull the plugin source; the writer can.
+    expect((await get(app, '/api/plugins', await idFor('viewer'))).status).toBe(403);
+    expect((await get(app, '/api/plugins')).status).toBe(403); // guest
+    expect((await get(app, '/api/plugins', await idFor('owner'))).status).toBe(200);
     // The writer path still works end-to-end.
     expect((await patch(app, `/api/plugins/${id}`, {enabled: false}, await idFor('admin'))).status).toBe(200);
     expect((await del(app, `/api/plugins/${id}`, await idFor('owner'))).status).toBe(204);
@@ -575,6 +589,11 @@ describe('legacy single-user (unclaimed) plugin + AI config management is unaffe
       files: {'index.ts': 'export {};'},
     };
     expect((await post(app, '/api/plugins', pkg)).status).toBe(201);
+    // GATE-7 reads stay open on the unclaimed single-user path (guest keeps write):
+    // PluginBoot lists to run the enabled set, and the AI surface reads status/skills.
+    expect((await get(app, '/api/plugins')).status).toBe(200);
+    expect((await get(app, '/api/ai/skills')).status).toBe(200);
+    expect((await get(app, '/api/ai/status')).status).toBe(200);
     expect((await patch(app, '/api/plugins/test.gate-check', {enabled: false})).status).toBe(200);
     expect((await del(app, '/api/plugins/test.gate-check')).status).toBe(204);
     expect((await put(app, '/api/ai/config', {provider: 'mock'})).status).toBe(200);

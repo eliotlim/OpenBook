@@ -7,6 +7,7 @@ import {
   signIdentity,
   type IdentityClaims,
   type IdentityKeypair,
+  type InstanceInfo,
   type Jwks,
 } from '@book.dev/sdk';
 import {PgliteDb} from './db';
@@ -126,6 +127,31 @@ describe('identity verification', () => {
     expect(asUser.trustedIssuers).toContain(ISS);
     const asGuest = await (await app.request('/api/instance')).json();
     expect(asGuest.you).toMatchObject({kind: 'guest', verifiedVia: 'guest'});
+  });
+
+  it('GATE-7: a guest on a CLAIMED instance gets the identity-infra block nulled; the owner keeps it', async () => {
+    // Claim to `${ISS}#owner` and advertise an audience, so the identity-infra block
+    // (ownerSubject / trustedIssuers / audience) is fully populated for an owner read.
+    await store.updateInstanceConfig({ownerSubject: `${ISS}#owner`, audience: 'https://lib.example'});
+    const app = appWithIdentity();
+
+    const asGuest = (await (await app.request('/api/instance')).json()) as InstanceInfo;
+    // The recon-only identity metadata is withheld from the anonymous surface…
+    expect(asGuest.ownerSubject).toBeNull();
+    expect(asGuest.trustedIssuers).toEqual([]);
+    expect(asGuest.audience).toBeNull();
+    // …but everything the client needs to render still comes through.
+    expect(asGuest.you).toMatchObject({kind: 'guest', verifiedVia: 'guest'});
+    expect(asGuest.guestAccess).toBe('write');
+    expect('instanceId' in asGuest).toBe(true);
+
+    // The authenticated owner keeps the full payload (claim/repair + forwarding flows).
+    const asOwner = (await (
+      await app.request('/api/instance', {headers: {[IDENTITY_HEADER]: await idFor('owner')}})
+    ).json()) as InstanceInfo;
+    expect(asOwner.ownerSubject).toBe(`${ISS}#owner`);
+    expect(asOwner.trustedIssuers).toContain(ISS);
+    expect(asOwner.audience).toBe('https://lib.example');
   });
 });
 
