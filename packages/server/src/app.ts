@@ -58,6 +58,7 @@ import {mountAgentTokenRoutes} from './agentTokenRoutes';
 import {mountMcpHttp} from './mcpHttp';
 import {agentMayEditDirectly, authoredSubject, resolveAgentEditsForPage} from './agentWriteGate';
 import {mountUi} from './ui';
+import {hostAllowlistGuard} from './hostGuard';
 import {InviteResolutionError, resolveInvitee, type HandleResolver} from './invites';
 import type {BackupController} from './backups';
 import type {RosterController} from './rosterSync';
@@ -105,9 +106,13 @@ function safeEqual(a: string, b: string): boolean {
 const APP_ORIGIN_LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
 export function isAppOrigin(origin: string): boolean {
   if (!origin) return false;
-  if (origin === 'tauri://localhost') return true;
-  if (origin === 'http://tauri.localhost' || origin === 'https://tauri.localhost') return true;
-  return APP_ORIGIN_LOOPBACK.test(origin);
+  // Scheme and host are case-insensitive (RFC 3986 §3.1/§6.2.2.1), so a browser MAY send
+  // `TAURI://localhost` / `HTTP://LocalHost:3000` (STAB-8 LOW nit). An origin carries no
+  // path/query/userinfo, so lowercasing the whole string is a safe canonicalization.
+  const o = origin.toLowerCase();
+  if (o === 'tauri://localhost') return true;
+  if (o === 'http://tauri.localhost' || o === 'https://tauri.localhost') return true;
+  return APP_ORIGIN_LOOPBACK.test(o);
 }
 
 /**
@@ -391,6 +396,12 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
   // Expose the persister so the host (server.ts) can flush every dirty canonical doc
   // on shutdown BEFORE the store closes — the no-lost-edit-on-shutdown guarantee.
   (app as AppWithCollab).collabPersist = persister;
+
+  // DNS-rebinding guard (STAB-10). MUST run first, ahead of CORS and the served UI, so a
+  // rebound foreign `Host` on a loopback/LAN TCP bind is refused before any handler sees it
+  // (closes the STAB-8 same-origin-via-rebinding bypass). Inert off the TCP transport (UDS /
+  // in-webview / `app.request`), so it never touches the desktop IPC path — see hostGuard.ts.
+  app.use('*', hostAllowlistGuard());
 
   // App-origin CORS allowlist (STAB-8, replaces the old wildcard `cors()`). Reflect
   // ACAO only for the app's own origins (see {@link isAppOrigin}); a foreign origin
