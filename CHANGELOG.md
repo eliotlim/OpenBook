@@ -1,3 +1,23 @@
+## 3.5.0 (2026-07-27)
+
+### 🚀 Features
+
+- **blockeditor:** [[wikilink]] autocompletion with create-as-subpage (OB-35) ([#221](https://github.com/eliotlim/OpenBook/pull/221))
+- **server,sdk,mcp,ui:** agent direct edits — library setting + per-page override, policy-enforced across MCP, remote PATs and built-in AI (OB-564) ([#222](https://github.com/eliotlim/OpenBook/pull/222))
+- **ui:** persistent Linked-references side-pane — backlinks + unlinked mentions (OB-32) ([#218](https://github.com/eliotlim/OpenBook/pull/218))
+- **ui,sdk:** publish UI — 'Only published pages' site scope + per-page Publish action & indicator (OB-522/OB-523) ([#224](https://github.com/eliotlim/OpenBook/pull/224))
+- **ui,server,sdk:** whole-library page link graph — on-the-fly edges, read-gated, React Flow pane (OB-33) ([#219](https://github.com/eliotlim/OpenBook/pull/219))
+
+### 🩹 Fixes
+
+- **server:** gate four metadata routes off the anonymous surface (GATE-7, OB-517) ([#223](https://github.com/eliotlim/OpenBook/pull/223))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Claude Opus 4.8
+- Eliot Lim @eliotlim
+
 ## 3.4.3 (2026-07-25)
 
 ### 🩹 Fixes
