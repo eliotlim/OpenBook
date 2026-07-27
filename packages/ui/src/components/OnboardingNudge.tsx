@@ -1,7 +1,7 @@
 import {useEffect, useState} from 'react';
 import {XMarkIcon} from '@heroicons/react/24/outline';
 import {Button} from '@/components/ui/button';
-import {useAccount, useHud, useTheme, useTranslation} from '@/providers';
+import {useAccount, useHud, usePlatformCapabilities, useTheme, useTranslation} from '@/providers';
 
 /** Persisted so a dismissal sticks across reloads (and never nags again). */
 const DISMISS_KEY = 'openbook.onboarding.publishNudge';
@@ -19,6 +19,7 @@ const DISMISS_KEY = 'openbook.onboarding.publishNudge';
 export default function OnboardingNudge() {
   const {t} = useTranslation();
   const {connected, accounts} = useAccount();
+  const {servedSameOrigin} = usePlatformCapabilities();
   const {setHud} = useHud();
   const {appearance} = useTheme();
   // Hidden until we've read storage on the client, so the server-rendered HTML
@@ -35,7 +36,10 @@ export default function OnboardingNudge() {
   }, []);
 
   // Only nudge a truly unauthenticated user: no live account, none stored.
-  if (dismissed || connected || accounts.length > 0) return null;
+  // Never on the sidecar-served LAN UI (STAB-9): its CTA opens a sign-in that
+  // can't complete over a plain-LAN origin (insecure context → identity JWS
+  // won't bind), so the whole upsell is a dead end for a network guest.
+  if (dismissed || connected || accounts.length > 0 || servedSameOrigin) return null;
 
   const dismiss = (): void => {
     setDismissed(true);

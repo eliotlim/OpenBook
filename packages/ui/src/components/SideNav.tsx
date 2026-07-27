@@ -1,6 +1,6 @@
 import {Drawer} from '@/components';
 import HomeButton from '@/components/HomeButton';
-import {useHud, useNavigation} from '@/providers';
+import {useHud, useNavigation, usePlatformCapabilities} from '@/providers';
 import ProfileMenu from '@/components/ProfileMenu';
 import TrashDialog from '@/components/TrashDialog';
 import LibrarySelectMenu from '@/components/LibrarySelectMenu';
@@ -15,6 +15,10 @@ export default function SideNav() {
   const {hud} = useHud();
   // On desktop the library switcher lives in the titlebar instead.
   const {inWindowTabs} = useNavigation();
+  // The sidecar-served LAN UI renders for a network guest: drop the account
+  // footer (ProfileMenu self-hides too) and its bordered strip — sign-in is
+  // unsupported over a plain-LAN origin (STAB-9).
+  const {servedSameOrigin} = usePlatformCapabilities();
   return (
     <Drawer open={hud.sideNav.open} docked={hud.sideNav.docked}>
       <div className="flex h-full flex-col">
@@ -41,9 +45,11 @@ export default function SideNav() {
           <LibraryNavigationTree />
         </div>
         <OnboardingNudge />
-        <div className="flex items-center border-t border-border/60 px-2 py-1.5">
-          <ProfileMenu />
-        </div>
+        {!servedSameOrigin && (
+          <div className="flex items-center border-t border-border/60 px-2 py-1.5">
+            <ProfileMenu />
+          </div>
+        )}
       </div>
     </Drawer>
   );

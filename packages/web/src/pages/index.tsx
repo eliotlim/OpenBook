@@ -236,8 +236,13 @@ export default function Home({forwardedPrefix = null, forwardedHost = null}: Par
   const platform = useMemo<PlatformCapabilities | undefined>(() => {
     const base = browserLocal ? {...shellPreview, browserLocalLibrary: true} : shellPreview;
     const withHost = forwardedHost ? {...(base ?? {}), forwardedHost} : base;
-    if (!updatesPreview) return withHost;
-    return {...(withHost ?? {}), updates: updatesPreview};
+    // STAB-9: the sidecar-served LAN build (`NEXT_PUBLIC_OPENBOOK_SAMEORIGIN=1`)
+    // renders for a network guest, not the owner — tell the UI so it hides the
+    // sign-in chrome (unsupported over plain-LAN) and relabels the library. A
+    // build-time constant, so it never changes across renders.
+    const withServed = SAME_ORIGIN_UI ? {...(withHost ?? {}), servedSameOrigin: true} : withHost;
+    if (!updatesPreview) return withServed;
+    return {...(withServed ?? {}), updates: updatesPreview};
   }, [browserLocal, shellPreview, forwardedHost, updatesPreview]);
 
   return (
