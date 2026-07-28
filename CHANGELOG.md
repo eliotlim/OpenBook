@@ -1,3 +1,16 @@
+## 3.5.1 (2026-07-28)
+
+### 🩹 Fixes
+
+- **server:** Host-header allowlist on loopback TCP binds — close the DNS-rebinding hole (STAB-10, OB-571) ([#225](https://github.com/eliotlim/OpenBook/pull/225))
+- **ui,web:** hide sign-in chrome + relabel library on the LAN-served UI (STAB-9) ([#226](https://github.com/eliotlim/OpenBook/pull/226))
+
+### ❤️ Thank You
+
+- Claude Fable 5
+- Claude Opus 4.8
+- Eliot Lim @eliotlim
+
 ## 3.5.0 (2026-07-27)
 
 ### 🚀 Features
