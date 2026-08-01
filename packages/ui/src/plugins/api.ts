@@ -1,5 +1,5 @@
 import React from 'react';
-import type {DataClient, PageMeta, StoredPage} from '@book.dev/sdk';
+import type {DataClient, DatabaseRow, PageMeta, StoredDatabase, StoredPage} from '@book.dev/sdk';
 import {textSnapshot} from '@book.dev/sdk';
 import {registerCustomBlock, type CustomBlockDef} from '../blockeditor/registry';
 import {registerPluginCommand, type PluginCommand} from './commandRegistry';
@@ -40,6 +40,43 @@ export interface PluginApi {
     get(id: string): Promise<StoredPage | null>;
     create(name: string, markdownish?: string): Promise<StoredPage>;
   };
+  /**
+   * Typed, read-only access to library databases. Same ambient user
+   * credentials — and thus the same read gates — as `pages.*` and `fetch`
+   * already carry: this adds types over what a plugin could always reach by
+   * hand-rolling `api.fetch` calls, never new privilege. Deliberately no row
+   * or schema writes in this surface (deferred until a capability/permission
+   * model exists).
+   */
+  databases: {
+    /** A database by id (schema is a typed `DatabaseSchema`), or `null`. */
+    get(databaseId: string): Promise<StoredDatabase | null>;
+    /** The database hosted by a page, or `null` if the page hosts none. */
+    getByPage(pageId: string): Promise<StoredDatabase | null>;
+    /** A database's rows, projected (properties + exported cell values). */
+    listRows(databaseId: string): Promise<DatabaseRow[]>;
+    /**
+     * Live row-list updates. Returns an unsubscribe fn; the host ALSO tears
+     * the subscription down automatically when the plugin is disabled,
+     * removed, or reloaded — no leaked event-stream handlers.
+     */
+    subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void;
+  };
+  /**
+   * The content-addressed binary asset store (same ambient credentials/read
+   * gates as everything above). Asset ids ARE the SHA-256 hash of the bytes:
+   * a byte-identical `put` dedups to the same id, and `get` answers `null`
+   * for missing and unreadable alike.
+   */
+  assets: {
+    /** Bytes + mime by content-hash id, or `null` (missing or unreadable). */
+    get(id: string): Promise<{bytes: Uint8Array; mime: string} | null>;
+    /**
+     * Upload bytes ref'd to `pageId` (a page the user can write, whose read
+     * gate the asset inherits). Resolves the content-hash `{id}`.
+     */
+    put(bytes: Uint8Array, mime: string, pageId: string): Promise<{id: string}>;
+  };
   /** Plugin-scoped persistent key-value storage (per browser profile). */
   storage: {get<T = unknown>(key: string): T | undefined; set(key: string, value: unknown): void};
   /** Network access for integrations (plain fetch — same trust as live code). */
@@ -56,18 +93,22 @@ export type PluginModule = {
   activate?: (api: PluginApi) => PluginActivationResult | void;
 };
 
-/** Build a plugin's API instance; `disposables` collects every teardown. */
+/**
+ * Build a plugin's API instance; `track` receives every teardown. The host's
+ * tracker also handles registrations made after dispose (it tears them down
+ * immediately instead of leaking them).
+ */
 export function buildPluginApi(
   manifest: {id: string; name: string; version: string},
   client: DataClient,
-  disposables: Array<() => void>,
+  track: (d: () => void) => void,
 ): PluginApi {
   const storagePrefix = `openbook.plugin.${manifest.id}.`;
   return {
     manifest: {id: manifest.id, name: manifest.name, version: manifest.version},
     blocks: {
       register(def: PluginBlockDef): void {
-        disposables.push(
+        track(
           registerCustomBlock({
             type: `${manifest.id}/${def.type}`,
             render: def.render,
@@ -85,7 +126,7 @@ export function buildPluginApi(
           run: def.run,
           pluginId: manifest.id,
         };
-        disposables.push(registerPluginCommand(command));
+        track(registerPluginCommand(command));
       },
     },
     pages: {
@@ -95,6 +136,29 @@ export function buildPluginApi(
         // Emit a block-native `blockdoc` from birth (never a legacy no-blockdoc
         // page); the block editor loads it without the migrate-on-open path.
         client.savePage({name, data: textSnapshot(text ?? '', 'pl')}),
+    },
+    databases: {
+      get: (databaseId) => client.getDatabase(databaseId),
+      getByPage: (pageId) => client.getPageDatabase(pageId),
+      listRows: (databaseId) => client.listRows(databaseId),
+      subscribeRows(databaseId, onRows): () => void {
+        const stop = client.subscribeRows(databaseId, onRows);
+        // Idempotent wrapper: the plugin may unsubscribe manually AND the
+        // host disposes on deactivate/reload — the second call must be a
+        // no-op, never a double-teardown.
+        let done = false;
+        const unsubscribe = (): void => {
+          if (done) return;
+          done = true;
+          stop();
+        };
+        track(unsubscribe);
+        return unsubscribe;
+      },
+    },
+    assets: {
+      get: (id) => client.getAsset(id),
+      put: (bytes, mime, pageId) => client.putAsset(bytes, mime, pageId),
     },
     storage: {
       get<T>(key: string): T | undefined {
