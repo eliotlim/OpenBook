@@ -92,6 +92,24 @@ export default function activate(a: typeof api) {
 There are deliberately **no row/schema writes** in this surface yet — write
 APIs wait for a capability/permission model.
 
+## The ledger: `api.ledger.*`
+
+Plugins get the full typed client for the server-enforced double-entry
+ledger — `info`/`init`, account CRUD, draft create/update/delete, atomic
+`post`, `reverse`, cleared-state, all delegating over the same ambient
+credentials as everything above. Invariant violations reject with the typed
+`LedgerError` (import it from `@book.dev/plugin-sdk` to `instanceof`-match).
+Amounts are **signed integer minor units** end to end: parse user text with
+`parseAmount` and render with `formatAmount` — the money core is exported
+from `@book.dev/plugin-sdk` too, so plugin and host share one grammar and
+never touch floats. For live updates, subscribe to the seeded databases
+(`(await api.ledger.info()).databases.accounts` etc.) with
+`api.databases.subscribeRows` — automatically torn down with the plugin.
+
+`examples/plugins/ledger` is the reference: the journal entry block (the
+books' only human write surface) plus an idempotent "Ledger: set up books"
+command.
+
 ## API versioning
 
 The plugin API carries a single integer version (`PLUGIN_API_VERSION`,

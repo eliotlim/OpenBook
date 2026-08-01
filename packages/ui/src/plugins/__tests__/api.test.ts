@@ -1,6 +1,7 @@
 import {describe, expect, it, vi} from 'vitest';
-import type {DataClient, DatabaseRow, StoredDatabase} from '@book.dev/sdk';
-import {buildPluginApi} from '../api';
+import type {DataClient, DatabaseRow, LedgerInfo, LedgerTransaction, StoredDatabase} from '@book.dev/sdk';
+import {LedgerError, parseAmount} from '@book.dev/sdk';
+import {buildPluginApi, hostModulesFor} from '../api';
 
 /**
  * The typed data surfaces added in LGR-4: `api.databases.*` and `api.assets.*`
@@ -79,6 +80,91 @@ describe('plugin api databases', () => {
     expect(stop).not.toHaveBeenCalled();
     disposables.forEach((d) => d());
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('plugin api ledger (LGR-5 stitch)', () => {
+  const info: LedgerInfo = {exists: true, hostPageId: 'host', databases: {accounts: 'da', transactions: 'dt', postings: 'dp', reconciliations: 'dr'}};
+
+  it('delegates every op to the client, args and results intact', async () => {
+    const tx = {id: 't1', state: 'draft'} as unknown as LedgerTransaction;
+    const client = {
+      ledgerInfo: vi.fn(async () => info),
+      ledgerInit: vi.fn(async () => info),
+      ledgerListAccounts: vi.fn(async () => []),
+      ledgerCreateAccount: vi.fn(async (input: unknown) => input),
+      ledgerGetAccount: vi.fn(async () => null),
+      ledgerUpdateAccount: vi.fn(async () => ({})),
+      ledgerListTransactions: vi.fn(async () => [tx]),
+      ledgerGetTransaction: vi.fn(async () => tx),
+      ledgerCreateDraft: vi.fn(async () => tx),
+      ledgerUpdateDraft: vi.fn(async () => tx),
+      ledgerDeleteDraft: vi.fn(async () => true),
+      ledgerPostTransaction: vi.fn(async () => ({...tx, state: 'posted'})),
+      ledgerReverseTransaction: vi.fn(async () => tx),
+      ledgerSetPostingCleared: vi.fn(async () => ({id: 'p1'})),
+    } as unknown as DataClient;
+    const api = buildPluginApi(manifest, client, () => {});
+
+    await expect(api.ledger.info()).resolves.toEqual(info);
+    await expect(api.ledger.init()).resolves.toEqual(info);
+    await expect(api.ledger.listAccounts()).resolves.toEqual([]);
+    await api.ledger.createAccount({name: 'Assets:Cash', type: 'asset'});
+    expect(client.ledgerCreateAccount).toHaveBeenCalledWith({name: 'Assets:Cash', type: 'asset'});
+    await expect(api.ledger.getAccount('a1')).resolves.toBeNull();
+    await api.ledger.updateAccount('a1', {status: 'closed'});
+    expect(client.ledgerUpdateAccount).toHaveBeenCalledWith('a1', {status: 'closed'});
+    await api.ledger.listTransactions({state: 'draft', limit: 5});
+    expect(client.ledgerListTransactions).toHaveBeenCalledWith({state: 'draft', limit: 5});
+    await expect(api.ledger.getTransaction('t1')).resolves.toEqual(tx);
+    // Amounts on the wire are signed INTEGER minor units, straight through.
+    await api.ledger.createDraft({date: '2026-08-02', postings: [{accountId: 'a1', amountMinor: 250000}]});
+    expect(client.ledgerCreateDraft).toHaveBeenCalledWith({date: '2026-08-02', postings: [{accountId: 'a1', amountMinor: 250000}]});
+    await api.ledger.updateDraft('t1', {postings: [{accountId: 'a1', amountMinor: -250000}]});
+    expect(client.ledgerUpdateDraft).toHaveBeenCalledWith('t1', {postings: [{accountId: 'a1', amountMinor: -250000}]});
+    await expect(api.ledger.deleteDraft('t1')).resolves.toBe(true);
+    await expect(api.ledger.post('t1')).resolves.toMatchObject({state: 'posted'});
+    await api.ledger.reverse('t1', {date: '2026-08-02'});
+    expect(client.ledgerReverseTransaction).toHaveBeenCalledWith('t1', {date: '2026-08-02'});
+    await api.ledger.setPostingCleared('p1', 'cleared');
+    expect(client.ledgerSetPostingCleared).toHaveBeenCalledWith('p1', 'cleared');
+  });
+
+  it('lets the typed LedgerError pass through untouched', async () => {
+    const client = {
+      ledgerPostTransaction: vi.fn(async () => {
+        throw new LedgerError('unbalanced', 'postings must sum to zero, got 500 minor units');
+      }),
+    } as unknown as DataClient;
+    const api = buildPluginApi(manifest, client, () => {});
+    const err = await api.ledger.post('t1').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(LedgerError);
+    expect((err as LedgerError).code).toBe('unbalanced');
+  });
+
+  it('registers nothing itself: live account updates ride databases.subscribeRows, which stays disposable-tracked', () => {
+    const stop = vi.fn();
+    const client = {subscribeRows: vi.fn(() => stop)} as unknown as DataClient;
+    const disposables: Array<() => void> = [];
+    const api = buildPluginApi(manifest, client, (d) => disposables.push(d));
+
+    // The pattern the journal block uses: subscribe to the seeded accounts db.
+    api.databases.subscribeRows(info.databases!.accounts, () => {});
+    expect(disposables).toHaveLength(1);
+    disposables.forEach((d) => d());
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes the money core + LedgerError to plugin code via @book.dev/plugin-sdk', () => {
+    const api = buildPluginApi(manifest, {} as DataClient, () => {});
+    const sdk = hostModulesFor(api)['@book.dev/plugin-sdk'] as Record<string, unknown>;
+    expect(sdk.api).toBe(api);
+    // The HOST instances — a plugin parses amounts with the same money core
+    // and instanceof-matches the same error class the client throws.
+    expect(sdk.parseAmount).toBe(parseAmount);
+    expect(sdk.LedgerError).toBe(LedgerError);
+    expect(typeof sdk.formatAmount).toBe('function');
+    expect(typeof sdk.sumAmounts).toBe('function');
   });
 });
 

@@ -1,6 +1,35 @@
 import React from 'react';
-import type {DataClient, DatabaseRow, PageMeta, StoredDatabase, StoredPage} from '@book.dev/sdk';
-import {textSnapshot} from '@book.dev/sdk';
+import type {
+  DataClient,
+  DatabaseRow,
+  LedgerAccount,
+  LedgerAccountInput,
+  LedgerAccountPatch,
+  LedgerClearedState,
+  LedgerDraftInput,
+  LedgerDraftPatch,
+  LedgerInfo,
+  LedgerPosting,
+  LedgerReverseOptions,
+  LedgerTransaction,
+  LedgerTransactionState,
+  PageMeta,
+  StoredDatabase,
+  StoredPage,
+} from '@book.dev/sdk';
+import {
+  LedgerError,
+  MoneyCurrencyError,
+  MoneyError,
+  MoneyParseError,
+  MoneyRangeError,
+  formatAmount,
+  isValidMinor,
+  negateAmount,
+  parseAmount,
+  sumAmounts,
+  textSnapshot,
+} from '@book.dev/sdk';
 import {registerCustomBlock, type CustomBlockDef} from '../blockeditor/registry';
 import {registerPluginCommand, type PluginCommand} from './commandRegistry';
 
@@ -61,6 +90,40 @@ export interface PluginApi {
      * removed, or reloaded — no leaked event-stream handlers.
      */
     subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void;
+  };
+  /**
+   * The double-entry ledger (LGR-3), typed end-to-end. Thin delegation over
+   * the ambient-credentialed DataClient's ledger ops — same trust model as
+   * `databases.*`: types over what `api.fetch('/api/ledger/…')` could always
+   * reach, never new privilege. Invariant violations reject with a typed
+   * {@link LedgerError} (also exported from `@book.dev/plugin-sdk` so plugins
+   * can `instanceof`-match). Amounts are SIGNED INTEGER MINOR UNITS
+   * everywhere (LGR-2): parse user input with `parseAmount`, render with
+   * `formatAmount` — both exported from `@book.dev/plugin-sdk`.
+   *
+   * No subscriptions live on this surface; for live account/transaction
+   * updates subscribe to the seeded databases (`info().databases.*`) via
+   * `databases.subscribeRows`, which is already disposable-tracked.
+   */
+  ledger: {
+    /** Whether the ledger is initialized, and the seeded database/host ids. */
+    info(): Promise<LedgerInfo>;
+    /** Seed the four managed ledger databases + host page (idempotent). */
+    init(): Promise<LedgerInfo>;
+    listAccounts(): Promise<LedgerAccount[]>;
+    createAccount(input: LedgerAccountInput): Promise<LedgerAccount>;
+    getAccount(id: string): Promise<LedgerAccount | null>;
+    updateAccount(id: string, patch: LedgerAccountPatch): Promise<LedgerAccount>;
+    listTransactions(opts?: {state?: LedgerTransactionState; limit?: number}): Promise<LedgerTransaction[]>;
+    getTransaction(id: string): Promise<LedgerTransaction | null>;
+    /** Create a DRAFT journal entry (amounts validated already at draft time). */
+    createDraft(input: LedgerDraftInput): Promise<LedgerTransaction>;
+    updateDraft(id: string, patch: LedgerDraftPatch): Promise<LedgerTransaction>;
+    deleteDraft(id: string): Promise<boolean>;
+    /** Post a draft atomically (balance + accounts enforced server-side). */
+    post(id: string): Promise<LedgerTransaction>;
+    reverse(id: string, opts?: LedgerReverseOptions): Promise<LedgerTransaction>;
+    setPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting>;
   };
   /**
    * The content-addressed binary asset store (same ambient credentials/read
@@ -156,6 +219,22 @@ export function buildPluginApi(
         return unsubscribe;
       },
     },
+    ledger: {
+      info: () => client.ledgerInfo(),
+      init: () => client.ledgerInit(),
+      listAccounts: () => client.ledgerListAccounts(),
+      createAccount: (input) => client.ledgerCreateAccount(input),
+      getAccount: (id) => client.ledgerGetAccount(id),
+      updateAccount: (id, patch) => client.ledgerUpdateAccount(id, patch),
+      listTransactions: (opts) => client.ledgerListTransactions(opts),
+      getTransaction: (id) => client.ledgerGetTransaction(id),
+      createDraft: (input) => client.ledgerCreateDraft(input),
+      updateDraft: (id, patch) => client.ledgerUpdateDraft(id, patch),
+      deleteDraft: (id) => client.ledgerDeleteDraft(id),
+      post: (id) => client.ledgerPostTransaction(id),
+      reverse: (id, opts) => client.ledgerReverseTransaction(id, opts),
+      setPostingCleared: (postingId, cleared) => client.ledgerSetPostingCleared(postingId, cleared),
+    },
     assets: {
       get: (id) => client.getAsset(id),
       put: (bytes, mime, pageId) => client.putAsset(bytes, mime, pageId),
@@ -181,8 +260,27 @@ export function buildPluginApi(
   };
 }
 
-/** Host modules importable from plugin code. */
+/**
+ * Host modules importable from plugin code. Besides the per-plugin `api`,
+ * `@book.dev/plugin-sdk` exposes the money core (LGR-2) and the typed
+ * {@link LedgerError}: pure helpers/classes a ledger-touching plugin MUST
+ * share with the host — user amount input is only ever parsed by
+ * `parseAmount`, and a plugin can only `instanceof`-match the host's error
+ * class, not a bundled copy.
+ */
 export const hostModulesFor = (api: PluginApi): Record<string, unknown> => ({
   react: React,
-  '@book.dev/plugin-sdk': {api},
+  '@book.dev/plugin-sdk': {
+    api,
+    parseAmount,
+    formatAmount,
+    sumAmounts,
+    negateAmount,
+    isValidMinor,
+    MoneyError,
+    MoneyParseError,
+    MoneyRangeError,
+    MoneyCurrencyError,
+    LedgerError,
+  },
 });

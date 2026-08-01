@@ -1,0 +1,703 @@
+import React from 'react';
+import {api, formatAmount, LedgerError} from '@book.dev/plugin-sdk';
+import {
+  computeEntryStatus,
+  describeImbalance,
+  describeProblem,
+  describeTotals,
+  emptyRow,
+  normalizeCell,
+  rowsToPostings,
+  todayIso,
+  type JournalRow,
+} from './model';
+import {setUpBooks} from './setup';
+
+/**
+ * The journal entry block — the ONLY human write surface for the books.
+ *
+ * - N debit/credit rows (account picker · debit · credit · memo), a date, live
+ *   totals per keystroke, Post gated by the pure {@link computeEntryStatus}
+ *   with the reason always spelled out ({@link describeProblem}).
+ * - The draft persists through the LGR-3 draft ops (create/update draft) so a
+ *   half-entered entry survives reload; the raw cell text + memos also mirror
+ *   into block props (CRDT) because the posting contract carries no memo and
+ *   no raw text.
+ * - All amount text goes through `parseAmount`/`formatAmount` (host money
+ *   core); the wire only ever carries signed INTEGER minor units.
+ * - Keyboard-first: Tab walks the cells, Enter adds a row, Alt+Backspace
+ *   removes the current one.
+ *
+ * SAFETY (the rule the whole file is arranged around): the block NEVER posts a
+ * draft it has not just proved to match what is on screen. A failed sync
+ * throws (it never degrades to "post whatever the server last stored"), and
+ * post() re-verifies the server's postings against the rows before committing
+ * — a posted transaction is immutable, audited and entry-numbered, so a stale
+ * commit is unrecoverable by design.
+ */
+
+interface PropsMap {
+  get(k: string): unknown;
+  set(k: string, v: unknown): void;
+  delete(k: string): void;
+}
+
+interface BlockLike {
+  get(k: string): unknown;
+}
+
+interface EditorLike {
+  doc: {transact(fn: () => void, origin: string): void};
+  readOnly: boolean;
+}
+
+interface AccountOption {
+  id: string;
+  name: string;
+}
+
+/** The shape of a draft this block cares about (types are stripped at load). */
+interface DraftLike {
+  id: string;
+  date: string;
+  description: string;
+  state: string;
+  entryNo: number | null;
+  postings: Array<{accountId: string; amountMinor: number}>;
+}
+
+const PROP_ROWS = 'ledgerRows';
+const PROP_DESC = 'ledgerDescription';
+const PROP_DATE = 'ledgerDate';
+const PROP_DRAFT = 'ledgerDraftId';
+const SYNC_DELAY_MS = 350;
+
+// Longhand border properties (not the `border` shorthand): the invalid-cell
+// state overrides `borderColor` alone, and React warns when a shorthand and a
+// longhand for the same box are mixed across rerenders.
+const cellStyle: React.CSSProperties = {
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'hsl(var(--border))',
+  borderRadius: 6,
+  padding: '0.3rem 0.5rem',
+  background: 'hsl(var(--background))',
+  color: 'hsl(var(--foreground))',
+  fontSize: '0.85rem',
+  // Amounts read as columns of digits, not proportional text.
+  fontVariantNumeric: 'tabular-nums',
+  minWidth: 0,
+  width: '100%',
+};
+
+const buttonStyle: React.CSSProperties = {
+  border: '1px solid hsl(var(--border))',
+  borderRadius: 6,
+  padding: '0.3rem 0.75rem',
+  background: 'hsl(var(--card))',
+  color: 'hsl(var(--foreground))',
+  fontSize: '0.85rem',
+  cursor: 'pointer',
+};
+
+const headerStyle: React.CSSProperties = {
+  fontSize: '0.7rem',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+  color: 'hsl(var(--muted-foreground))',
+};
+
+// Notice surfaces. The alarm colour carries on the BORDER and a soft fill;
+// the sentence itself uses --foreground, the only token guaranteed to clear
+// 4.5:1 on the card in both themes (--destructive is a fill/border token and
+// measures ~4.4:1 as body text).
+const noticeStyle = (tone: 'alarm' | 'quiet'): React.CSSProperties => ({
+  padding: '0.4rem 0.6rem',
+  borderRadius: 6,
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: tone === 'alarm' ? 'hsl(var(--destructive))' : 'hsl(var(--border))',
+  background: tone === 'alarm' ? 'hsl(var(--destructive) / 0.1)' : 'transparent',
+  color: 'hsl(var(--foreground))',
+  fontSize: '0.85rem',
+  fontWeight: tone === 'alarm' ? 600 : 400,
+});
+
+function readProps(block: BlockLike): PropsMap | undefined {
+  return block.get('props') as PropsMap | undefined;
+}
+
+function readString(props: PropsMap | undefined, key: string): string {
+  const value = props?.get(key);
+  return typeof value === 'string' ? value : '';
+}
+
+function loadRows(props: PropsMap | undefined): JournalRow[] | null {
+  const raw = props?.get(PROP_ROWS);
+  if (typeof raw !== 'string' || raw === '') return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    return parsed.map((r) => {
+      const row = r as Partial<JournalRow>;
+      return {
+        accountId: typeof row.accountId === 'string' ? row.accountId : '',
+        debit: typeof row.debit === 'string' ? row.debit : '',
+        credit: typeof row.credit === 'string' ? row.credit : '',
+        memo: typeof row.memo === 'string' ? row.memo : '',
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Order-insensitive equality of two posting lists (accountId + minor units). */
+function samePostings(a: Array<{accountId: string; amountMinor: number}>, b: Array<{accountId: string; amountMinor: number}>): boolean {
+  if (a.length !== b.length) return false;
+  const key = (p: {accountId: string; amountMinor: number}): string => `${p.accountId}:${p.amountMinor}`;
+  const left = a.map(key).sort();
+  const right = b.map(key).sort();
+  return left.every((k, i) => k === right[i]);
+}
+
+export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: EditorLike}) => {
+  const props = readProps(block);
+  const [ledgerState, setLedgerState] = React.useState<'loading' | 'uninitialized' | 'ready'>('loading');
+  const [accounts, setAccounts] = React.useState<AccountOption[]>([]);
+  const [rows, setRows] = React.useState<JournalRow[]>(() => loadRows(props) ?? [emptyRow(), emptyRow()]);
+  const [description, setDescription] = React.useState<string>(() => readString(props, PROP_DESC));
+  const [date, setDate] = React.useState<string>(() => readString(props, PROP_DATE) || todayIso());
+  const [error, setError] = React.useState<string | null>(null);
+  const [errorCode, setErrorCode] = React.useState<string | null>(null);
+  const [postedNo, setPostedNo] = React.useState<number | null>(null);
+  const [busy, setBusy] = React.useState(false);
+
+  const draftIdRef = React.useRef<string | null>(readString(props, PROP_DRAFT) || null);
+  const syncTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const latestRef = React.useRef({rows, description, date});
+  latestRef.current = {rows, description, date};
+  const containerRef = React.useRef<HTMLDivElement | null>(null);
+  const mountedRef = React.useRef(true);
+
+  const status = computeEntryStatus(rows, date);
+  const problem = describeProblem(status);
+  const imbalance = describeImbalance(status);
+  const locked = editor.readOnly || busy;
+
+  const refreshAccounts = React.useCallback(async (): Promise<void> => {
+    const list = await api.ledger.listAccounts();
+    if (!mountedRef.current) return;
+    setAccounts(
+      list
+        .filter((a) => a.status === 'open')
+        .map((a) => ({id: a.id, name: a.name}))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    );
+  }, []);
+
+  const focusRow = React.useCallback((index: number): void => {
+    requestAnimationFrame(() => {
+      const pickers = containerRef.current?.querySelectorAll<HTMLSelectElement>('[data-ledger-account]');
+      if (!pickers || pickers.length === 0) return;
+      pickers[Math.max(0, Math.min(index, pickers.length - 1))]?.focus();
+    });
+  }, []);
+
+  // Boot: ledger presence, accounts (live via the seeded accounts database),
+  // and the stored draft id. The draft is re-checked on EVERY boot, not only
+  // when the rows are empty: a draft posted from another tab (or restored by
+  // an undo of the post) must never come back as an editable draft, or the
+  // same entry could be posted twice.
+  React.useEffect(() => {
+    mountedRef.current = true;
+    let unsubscribe: (() => void) | undefined;
+    void (async () => {
+      try {
+        const info = await api.ledger.info();
+        if (!mountedRef.current) return;
+        if (!info.exists || !info.databases) {
+          setLedgerState('uninitialized');
+          return;
+        }
+        setLedgerState('ready');
+        await refreshAccounts();
+        unsubscribe = api.databases.subscribeRows(info.databases.accounts, () => {
+          void refreshAccounts();
+        });
+
+        if (!draftIdRef.current) return;
+        const draft = (await api.ledger.getTransaction(draftIdRef.current)) as DraftLike | null;
+        if (!mountedRef.current) return;
+        if (!draft || draft.state !== 'draft') {
+          // Missing, posted, or void: detach. Whatever is on screen becomes a
+          // NEW draft on the next edit.
+          draftIdRef.current = null;
+          const p = readProps(block);
+          if (p && !editor.readOnly) editor.doc.transact(() => p.delete(PROP_DRAFT), 'local');
+          return;
+        }
+        if (loadRows(readProps(block)) === null) {
+          setDescription(draft.description);
+          setDate(draft.date);
+          if (draft.postings.length > 0) {
+            setRows(
+              draft.postings.map((p) => ({
+                accountId: p.accountId,
+                debit: p.amountMinor > 0 ? formatAmount(p.amountMinor) : '',
+                credit: p.amountMinor < 0 ? formatAmount(-p.amountMinor) : '',
+                memo: '',
+              })),
+            );
+          }
+        }
+      } catch {
+        if (mountedRef.current) setLedgerState('uninitialized');
+      }
+    })();
+    return () => {
+      mountedRef.current = false;
+      unsubscribe?.();
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    };
+    // Intentional empty deps: boot exactly once per block instance
+    // (block/draft restore included).
+  }, []);
+
+  const writeProps = React.useCallback(
+    (next: {rows: JournalRow[]; description: string; date: string} | null): void => {
+      const p = readProps(block);
+      if (!p || editor.readOnly) return;
+      editor.doc.transact(() => {
+        if (next === null) {
+          p.delete(PROP_ROWS);
+          p.delete(PROP_DESC);
+          p.delete(PROP_DATE);
+          p.delete(PROP_DRAFT);
+        } else {
+          p.set(PROP_ROWS, JSON.stringify(next.rows));
+          p.set(PROP_DESC, next.description);
+          p.set(PROP_DATE, next.date);
+          if (draftIdRef.current) p.set(PROP_DRAFT, draftIdRef.current);
+          else p.delete(PROP_DRAFT);
+        }
+      }, 'local');
+    },
+    [block, editor],
+  );
+
+  /**
+   * Push the current rows/description/date into the server-side draft.
+   *
+   * THROWS on any failure (typed LedgerError or transport/5xx alike) after
+   * surfacing it. It must never answer with the previous draft id: the caller
+   * would take that for a successful sync and could post amounts the user has
+   * already replaced on screen. Returns `null` when there is nothing worth
+   * storing (an emptied entry, whose abandoned draft is deleted rather than
+   * left orphaned on the server).
+   */
+  const syncDraft = React.useCallback(async (): Promise<DraftLike | null> => {
+    if (ledgerState !== 'ready') return null;
+    const {rows: r, description: d, date: dt} = latestRef.current;
+    const postings = rowsToPostings(r);
+    try {
+      if (postings.length === 0 && d.trim() === '') {
+        if (draftIdRef.current) {
+          await api.ledger.deleteDraft(draftIdRef.current);
+          draftIdRef.current = null;
+        }
+        writeProps({rows: r, description: d, date: dt});
+        return null;
+      }
+      let draft: DraftLike;
+      if (!draftIdRef.current) {
+        draft = (await api.ledger.createDraft({date: dt, description: d, postings})) as DraftLike;
+        draftIdRef.current = draft.id;
+      } else {
+        try {
+          draft = (await api.ledger.updateDraft(draftIdRef.current, {date: dt, description: d, postings})) as DraftLike;
+        } catch (err) {
+          // The stored draft is gone: start a new one. `immutable` is NOT
+          // recovered here — see the caller; auto-recreating a posted entry
+          // would double-enter the books.
+          if (err instanceof LedgerError && err.code === 'not-found') {
+            draft = (await api.ledger.createDraft({date: dt, description: d, postings})) as DraftLike;
+            draftIdRef.current = draft.id;
+          } else {
+            throw err;
+          }
+        }
+      }
+      writeProps({rows: r, description: d, date: dt});
+      return draft;
+    } catch (err) {
+      if (err instanceof LedgerError) {
+        setError(err.message);
+        setErrorCode(err.code);
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+        setErrorCode(null);
+      }
+      throw err;
+    }
+  }, [ledgerState, writeProps]);
+
+  const scheduleSync = React.useCallback((): void => {
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      syncTimerRef.current = null;
+      // Background sync: the banner is already set by syncDraft. A draft that
+      // turned immutable underneath us (posted in another tab) is detached so
+      // the block keeps working instead of wedging on every keystroke.
+      void syncDraft().catch((err) => {
+        if (err instanceof LedgerError && err.code === 'immutable') draftIdRef.current = null;
+      });
+    }, SYNC_DELAY_MS);
+  }, [syncDraft]);
+
+  const edit = (next: {rows?: JournalRow[]; description?: string; date?: string}): void => {
+    const nextRows = next.rows ?? rows;
+    const nextDescription = next.description ?? description;
+    const nextDate = next.date ?? date;
+    setRows(nextRows);
+    setDescription(nextDescription);
+    setDate(nextDate);
+    setPostedNo(null);
+    setError(null);
+    setErrorCode(null);
+    latestRef.current = {rows: nextRows, description: nextDescription, date: nextDate};
+    writeProps({rows: nextRows, description: nextDescription, date: nextDate});
+    scheduleSync();
+  };
+
+  const setCell = (index: number, patch: Partial<JournalRow>): void => {
+    edit({rows: rows.map((row, i) => (i === index ? {...row, ...patch} : row))});
+  };
+
+  /** Blur normalisation: a readable amount settles into its canonical display. */
+  const normalizeAt = (index: number, column: 'debit' | 'credit'): void => {
+    const raw = rows[index]?.[column] ?? '';
+    const tidy = normalizeCell(raw);
+    if (tidy !== raw) setCell(index, {[column]: tidy} as Partial<JournalRow>);
+  };
+
+  const addRow = (): void => {
+    edit({rows: [...rows, emptyRow()]});
+    focusRow(rows.length);
+  };
+
+  const removeRow = (index: number): void => {
+    if (rows.length <= 2) return;
+    edit({rows: rows.filter((_, i) => i !== index)});
+    // Keyboard focus must land somewhere deliberate, not on <body>.
+    focusRow(Math.min(index, rows.length - 2));
+  };
+
+  const post = async (): Promise<void> => {
+    if (!status.canPost || busy || editor.readOnly) return;
+    setBusy(true);
+    setError(null);
+    setErrorCode(null);
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = null;
+    }
+    try {
+      const draft = await syncDraft();
+      if (!draft) throw new Error('Nothing to post yet.');
+      // Last line of defence: only commit what is demonstrably on screen — the
+      // whole entry, date and description included, not just the postings. The
+      // server cannot catch a stale-but-balanced draft — posting is immutable.
+      const onScreen = latestRef.current;
+      if (!samePostings(draft.postings, rowsToPostings(onScreen.rows)) || draft.date !== onScreen.date || draft.description !== onScreen.description) {
+        throw new Error('The saved entry no longer matches what is on screen. Edit a cell and try again.');
+      }
+      const posted = (await api.ledger.post(draft.id)) as DraftLike;
+      draftIdRef.current = null;
+      setRows([emptyRow(), emptyRow()]);
+      setDescription('');
+      setDate(todayIso());
+      setError(null);
+      setErrorCode(null);
+      setPostedNo(posted.entryNo);
+      writeProps(null);
+      focusRow(0);
+    } catch (err) {
+      if (err instanceof LedgerError) {
+        // `immutable` means this entry was already posted elsewhere. Do NOT
+        // recreate-and-retry: that would enter the same transaction twice.
+        if (err.code === 'immutable') {
+          draftIdRef.current = null;
+          setError('This entry was already posted somewhere else. Nothing was posted again.');
+        } else {
+          setError(err.message);
+        }
+        setErrorCode(err.code);
+      } else {
+        setError(err instanceof Error ? err.message : String(err));
+        setErrorCode(null);
+      }
+      setPostedNo(null);
+    } finally {
+      // A keystroke that slipped in during the round-trips must not leave a
+      // timer pointed at rows this post has already cleared.
+      if (syncTimerRef.current) {
+        clearTimeout(syncTimerRef.current);
+        syncTimerRef.current = null;
+      }
+      setBusy(false);
+    }
+  };
+
+  const runSetup = (): void => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    setErrorCode(null);
+    void setUpBooks(api.ledger)
+      .then(async () => {
+        if (!mountedRef.current) return;
+        setLedgerState('ready');
+        await refreshAccounts();
+      })
+      .catch((err: unknown) => {
+        if (!mountedRef.current) return;
+        setError(err instanceof Error ? err.message : String(err));
+        setErrorCode(err instanceof LedgerError ? err.code : null);
+      })
+      .finally(() => {
+        if (mountedRef.current) setBusy(false);
+      });
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    // Escape and app shortcuts (⌘/Ctrl…) belong to the host — only the keys
+    // this block actually handles are stopped from reaching the editor.
+    if (e.key === 'Escape' || e.metaKey || e.ctrlKey) return;
+    const target = e.target as HTMLElement;
+    const cell = target.closest('[data-ledger-row]') as HTMLElement | null;
+    if (!cell) return; // the description/date inputs are not row cells
+    e.stopPropagation();
+    if (locked) return;
+    const index = Number(cell.getAttribute('data-ledger-row') ?? '0');
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      addRow();
+    } else if (e.key === 'Backspace' && e.altKey) {
+      // The documented keyboard path for removing a row (the × button is
+      // deliberately out of the typing tab order).
+      e.preventDefault();
+      removeRow(index);
+    }
+  };
+
+  if (ledgerState === 'loading') {
+    return (
+      <div data-ledger-journal data-ledger-loading contentEditable={false} style={{padding: '0.75rem', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: '0.85rem', color: 'hsl(var(--muted-foreground))'}}>
+        Loading ledger…
+      </div>
+    );
+  }
+
+  if (ledgerState === 'uninitialized') {
+    return (
+      <div data-ledger-journal data-ledger-setup contentEditable={false} style={{display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: '0.85rem'}}>
+        <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem'}}>
+          <span>📒 The books are not set up yet.</span>
+          <button type="button" style={buttonStyle} disabled={editor.readOnly || busy} data-ledger-setup-button onClick={runSetup}>
+            {busy ? 'Setting up…' : 'Set up books'}
+          </button>
+        </div>
+        {error && (
+          <div data-ledger-error={errorCode ?? 'error'} role="status" aria-live="polite" style={noticeStyle('alarm')}>
+            {error}
+            {errorCode && <span style={{marginLeft: '0.4rem', fontWeight: 400, color: 'hsl(var(--muted-foreground))'}} title={`Ledger error code: ${errorCode}`}>({errorCode})</span>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const untouched = status.valuedRowCount === 0 && description.trim() === '';
+
+  return (
+    <div
+      data-ledger-journal
+      ref={containerRef}
+      contentEditable={false}
+      onKeyDown={onKeyDown}
+      style={{display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem', border: '1px solid hsl(var(--border))', borderRadius: 8, background: 'hsl(var(--card))'}}
+    >
+      <div style={{display: 'flex', alignItems: 'flex-end', gap: '0.5rem'}}>
+        <span style={{fontSize: '0.95rem', lineHeight: '1.7rem'}}>📒</span>
+        <input
+          data-ledger-description
+          aria-label="Entry description"
+          style={{...cellStyle, fontWeight: 600}}
+          placeholder="Journal entry description"
+          value={description}
+          disabled={locked}
+          onChange={(e) => edit({description: e.target.value})}
+        />
+        {/* Visible caption in the grid's header voice: every column below has
+            one, and a native date input can carry no placeholder. */}
+        <div style={{display: 'flex', flexDirection: 'column', gap: '0.35rem', flexShrink: 0}}>
+          <span style={headerStyle}>Date</span>
+          <input
+            data-ledger-date
+            aria-label="Entry date"
+            type="date"
+            // Wide enough for the full localized date + the picker affordance;
+            // the native control clips its own text otherwise.
+            style={{...cellStyle, width: 'auto', minWidth: '9.5rem'}}
+            value={date}
+            disabled={locked}
+            onChange={(e) => edit({date: e.target.value})}
+          />
+        </div>
+      </div>
+
+      <div style={{display: 'grid', gridTemplateColumns: 'minmax(10rem, 2fr) 1fr 1fr minmax(8rem, 1.5fr) auto', gap: '0.35rem', alignItems: 'center'}}>
+        <span style={headerStyle}>Account</span>
+        <span style={{...headerStyle, textAlign: 'right', paddingRight: '0.5rem'}}>Debit</span>
+        <span style={{...headerStyle, textAlign: 'right', paddingRight: '0.5rem'}}>Credit</span>
+        <span style={{...headerStyle, paddingLeft: '0.5rem'}}>Memo</span>
+        <span />
+        {rows.map((row, i) => {
+          const rowStatus = status.rows[i];
+          const bothColumns = rowStatus?.reason === 'both-columns';
+          const badDebit = bothColumns || (rowStatus?.invalid && row.debit.trim() !== '');
+          const badCredit = bothColumns || (rowStatus?.invalid && row.credit.trim() !== '');
+          return (
+            <React.Fragment key={i}>
+              <select
+                data-ledger-account
+                data-ledger-row={i}
+                aria-label={`Row ${i + 1} account`}
+                style={cellStyle}
+                value={row.accountId}
+                disabled={locked}
+                onChange={(e) => setCell(i, {accountId: e.target.value})}
+              >
+                <option value="">Select account…</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                data-ledger-debit
+                data-ledger-row={i}
+                aria-label={`Row ${i + 1} debit`}
+                aria-invalid={badDebit ? true : undefined}
+                inputMode="decimal"
+                placeholder="0.00"
+                style={{...cellStyle, textAlign: 'right', ...(badDebit ? {borderColor: 'hsl(var(--destructive))'} : {})}}
+                value={row.debit}
+                disabled={locked}
+                onChange={(e) => setCell(i, {debit: e.target.value})}
+                onBlur={() => normalizeAt(i, 'debit')}
+              />
+              <input
+                data-ledger-credit
+                data-ledger-row={i}
+                aria-label={`Row ${i + 1} credit`}
+                aria-invalid={badCredit ? true : undefined}
+                inputMode="decimal"
+                placeholder="0.00"
+                style={{...cellStyle, textAlign: 'right', ...(badCredit ? {borderColor: 'hsl(var(--destructive))'} : {})}}
+                value={row.credit}
+                disabled={locked}
+                onChange={(e) => setCell(i, {credit: e.target.value})}
+                onBlur={() => normalizeAt(i, 'credit')}
+              />
+              <input
+                data-ledger-memo
+                data-ledger-row={i}
+                aria-label={`Row ${i + 1} memo`}
+                placeholder="Memo"
+                style={cellStyle}
+                value={row.memo}
+                disabled={locked}
+                onChange={(e) => setCell(i, {memo: e.target.value})}
+              />
+              <button
+                type="button"
+                data-ledger-remove-row
+                // Out of the typing tab order on purpose: Tab walks cells, and
+                // a destructive control between rows is too easy to trigger by
+                // reflex. Keyboard path: Alt+Backspace inside the row.
+                tabIndex={-1}
+                aria-label={`Remove row ${i + 1} (or press Alt+Backspace in the row)`}
+                title="Remove row — or Alt+Backspace in the row"
+                style={{...buttonStyle, padding: '0.3rem 0.5rem', visibility: rows.length > 2 ? 'visible' : 'hidden'}}
+                disabled={locked || rows.length <= 2}
+                onClick={() => removeRow(i)}
+              >
+                ×
+              </button>
+            </React.Fragment>
+          );
+        })}
+      </div>
+
+      <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap'}}>
+        <button type="button" data-ledger-add-row style={buttonStyle} disabled={locked} onClick={addRow}>
+          + Add row
+        </button>
+        <span
+          data-ledger-sum
+          data-ledger-balanced={status.balanced ? 'true' : 'false'}
+          style={{fontSize: '0.8rem', color: 'hsl(var(--foreground))', marginLeft: 'auto', fontVariantNumeric: 'tabular-nums'}}
+        >
+          {describeTotals(status)}
+        </span>
+        <button
+          type="button"
+          data-ledger-post
+          style={{...buttonStyle, background: status.canPost ? 'hsl(var(--primary))' : 'hsl(var(--muted))', color: status.canPost ? 'hsl(var(--primary-foreground))' : 'hsl(var(--muted-foreground))', cursor: status.canPost ? 'pointer' : 'not-allowed'}}
+          disabled={!status.canPost || busy || editor.readOnly}
+          onClick={() => void post()}
+        >
+          {busy ? 'Posting…' : 'Post'}
+        </button>
+      </div>
+
+      {/* One status slot: on an untouched block, the first-run hint; otherwise
+          why Post is off — loud only once the entry is genuinely out of
+          balance, quiet while it is still being filled in. */}
+      {untouched && (
+        <div data-ledger-hint style={{fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))'}}>
+          Enter what moved and where: debits on the left, credits on the right. Post unlocks when they balance. Enter adds a row, Alt+Backspace removes one.
+        </div>
+      )}
+      {!untouched && problem && (
+        <div
+          data-ledger-problem={status.problem ?? ''}
+          {...(imbalance ? {'data-ledger-imbalance': true} : {})}
+          role="status"
+          aria-live="polite"
+          style={noticeStyle(imbalance ? 'alarm' : 'quiet')}
+        >
+          {problem}
+        </div>
+      )}
+      {error && (
+        <div data-ledger-error={errorCode ?? 'error'} role="status" aria-live="polite" style={noticeStyle('alarm')}>
+          {error}
+          {errorCode && (
+            <span style={{marginLeft: '0.4rem', fontWeight: 400, color: 'hsl(var(--muted-foreground))'}} title={`Ledger error code: ${errorCode}`}>
+              ({errorCode})
+            </span>
+          )}
+        </div>
+      )}
+      {postedNo !== null && (
+        <div data-ledger-posted={postedNo} role="status" aria-live="polite" style={noticeStyle('quiet')}>
+          Posted as entry #{postedNo}. Fresh draft ready.
+        </div>
+      )}
+    </div>
+  );
+};
