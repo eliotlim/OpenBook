@@ -271,6 +271,43 @@ export const API = {
    * Declared here so the AGENT-6 scope-gate can allowlist it; harmless until the
    * handler is mounted. */
   mcp: '/api/mcp',
+
+  // ── Ledger: server-enforced double-entry accounting (LGR-3) ──────────────────
+  /**
+   * The ledger itself: `GET` reports {@link LedgerInfo} (whether the four managed
+   * ledger databases are seeded, and where); `POST` seeds them (idempotent —
+   * a re-POST adopts the existing databases). All ledger reads/writes are gated on
+   * the restricted host page's access; the seeded databases REJECT every generic
+   * page/row mutation (server-managed) — only these ledger routes write them.
+   */
+  ledger: '/api/ledger',
+  /** Accounts: `GET` (list) / `POST` (create — hierarchical colon-delimited name). */
+  ledgerAccounts: '/api/ledger/accounts',
+  /** One account: `GET` / `PATCH` (rename; close — rejected at nonzero balance). */
+  ledgerAccount: (id: string): string => `/api/ledger/accounts/${encodeURIComponent(id)}`,
+  /** Transactions: `GET` (list, `?state=&limit=`) / `POST` (create a DRAFT with postings). */
+  ledgerTransactions: '/api/ledger/transactions',
+  /** One transaction (with postings): `GET` / `PATCH` (draft only) / `DELETE` (draft only). */
+  ledgerTransaction: (id: string): string => `/api/ledger/transactions/${encodeURIComponent(id)}`,
+  /**
+   * Post a draft atomically: `POST`. Validates Σ amount = 0, ≥2 postings, open
+   * resolvable accounts, integer amounts, uniform currency; assigns the
+   * server-monotonic entry number and stamps posted_at/posted_by — all in ONE
+   * store transaction with the audit event.
+   */
+  ledgerTransactionPost: (id: string): string => `/api/ledger/transactions/${encodeURIComponent(id)}/post`,
+  /**
+   * Reverse a posted transaction: `POST`. Atomically creates AND posts the
+   * reversing entry (negated postings, `reverses` linked) and marks the original
+   * `void` — the only sanctioned way to void a posted entry.
+   */
+  ledgerTransactionReverse: (id: string): string => `/api/ledger/transactions/${encodeURIComponent(id)}/reverse`,
+  /** A posting's cleared state: `PUT` `{cleared}` (pending ↔ cleared only;
+   *  anything touching `reconciled` is locked until reconciliation flows, LGR-11). */
+  ledgerPostingCleared: (id: string): string => `/api/ledger/postings/${encodeURIComponent(id)}/cleared`,
+  /** The append-only ledger audit log: `GET` (paginated, `?limit=&before=<seq>`,
+   *  newest first). Read-only — no mutation route exists. */
+  ledgerAudit: '/api/ledger/audit',
 } as const;
 
 /** Result of a {@link API.compact} run: the database's on-disk size before/after,

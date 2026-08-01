@@ -24,6 +24,18 @@ import type {
   ImportResult,
   InstanceConfig,
   InstanceInfo,
+  LedgerAccount,
+  LedgerAccountInput,
+  LedgerAccountPatch,
+  LedgerAuditEvent,
+  LedgerClearedState,
+  LedgerDraftInput,
+  LedgerDraftPatch,
+  LedgerInfo,
+  LedgerPosting,
+  LedgerReverseOptions,
+  LedgerTransaction,
+  LedgerTransactionState,
   McpClientConfig,
   McpConfigResponse,
   McpTestResult,
@@ -414,6 +426,101 @@ export class LocalDataClient implements DataClient {
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void {
     void this.store.listRows(databaseId).then(onRows).catch(() => undefined);
     return this.hub.subscribeRows(databaseId, (event) => onRows(event.rows));
+  }
+
+  // ── Ledger: server-enforced double-entry accounting (LGR-3) ──────────────────
+  // Same LedgerStore the HTTP routes use — the invariants are enforced in the
+  // STORE layer, so this in-process transport can't sidestep them. The publish
+  // wiring mirrors the HTTP routes so open ledger views stay live. Typed
+  // LedgerErrors propagate as-is (the HTTP client re-materializes the same class
+  // from the wire, so both transports throw identically).
+
+  ledgerInfo(): Promise<LedgerInfo> {
+    return this.store.ledger.info();
+  }
+
+  async ledgerInit(): Promise<LedgerInfo> {
+    const before = await this.store.ledgerIds();
+    const info = await this.store.ledger.ensureSetup(localPrincipal());
+    if (!before) await this.broadcastList();
+    return info;
+  }
+
+  ledgerListAccounts(): Promise<LedgerAccount[]> {
+    return this.store.ledger.listAccounts();
+  }
+
+  async ledgerCreateAccount(input: LedgerAccountInput): Promise<LedgerAccount> {
+    const account = await this.store.ledger.createAccount(input, localPrincipal());
+    await this.broadcastLedgerRows('accounts');
+    return account;
+  }
+
+  ledgerGetAccount(id: string): Promise<LedgerAccount | null> {
+    return this.store.ledger.getAccount(id);
+  }
+
+  async ledgerUpdateAccount(id: string, patch: LedgerAccountPatch): Promise<LedgerAccount> {
+    const account = await this.store.ledger.updateAccount(id, patch, localPrincipal());
+    await this.broadcastLedgerRows('accounts');
+    return account;
+  }
+
+  ledgerListTransactions(opts?: {state?: LedgerTransactionState; limit?: number}): Promise<LedgerTransaction[]> {
+    return this.store.ledger.listTransactions(opts);
+  }
+
+  ledgerGetTransaction(id: string): Promise<LedgerTransaction | null> {
+    return this.store.ledger.getTransaction(id);
+  }
+
+  async ledgerCreateDraft(input: LedgerDraftInput): Promise<LedgerTransaction> {
+    const transaction = await this.store.ledger.createDraft(input, localPrincipal());
+    await this.broadcastLedgerRows('transactions', 'postings');
+    return transaction;
+  }
+
+  async ledgerUpdateDraft(id: string, patch: LedgerDraftPatch): Promise<LedgerTransaction> {
+    const transaction = await this.store.ledger.updateDraft(id, patch, localPrincipal());
+    await this.broadcastLedgerRows('transactions', 'postings');
+    return transaction;
+  }
+
+  async ledgerDeleteDraft(id: string): Promise<boolean> {
+    const deleted = await this.store.ledger.deleteDraft(id, localPrincipal());
+    await this.broadcastLedgerRows('transactions', 'postings');
+    return deleted;
+  }
+
+  async ledgerPostTransaction(id: string): Promise<LedgerTransaction> {
+    const transaction = await this.store.ledger.post(id, localPrincipal());
+    await this.broadcastLedgerRows('transactions');
+    return transaction;
+  }
+
+  async ledgerReverseTransaction(id: string, opts?: LedgerReverseOptions): Promise<LedgerTransaction> {
+    const transaction = await this.store.ledger.reverse(id, opts ?? {}, localPrincipal());
+    await this.broadcastLedgerRows('transactions', 'postings');
+    return transaction;
+  }
+
+  async ledgerSetPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting> {
+    // The `via: 'reconciliation'` hook stays server-internal (LGR-11) — this
+    // public surface only moves a posting between pending and cleared.
+    const posting = await this.store.ledger.setPostingCleared(postingId, cleared, {}, localPrincipal());
+    await this.broadcastLedgerRows('postings');
+    return posting;
+  }
+
+  ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]> {
+    return this.store.ledger.listAudit(opts);
+  }
+
+  /** Refresh the named ledger databases' live row views (mirrors app.ts). */
+  private async broadcastLedgerRows(...keys: Array<'accounts' | 'transactions' | 'postings'>): Promise<void> {
+    const ids = await this.store.ledgerIds();
+    if (!ids) return;
+    for (const key of keys) await this.broadcastRows(ids[key]);
   }
 
   // ── Suggestions + comments (the review layer) ────────────────────────────────

@@ -38,6 +38,21 @@ import type {
   SuggestionStatus,
   SuggestionUpdate,
 } from './suggestions';
+import {LEDGER_ERROR_CODES, LedgerError, type LedgerErrorCode} from './ledger';
+import type {
+  LedgerAccount,
+  LedgerAccountInput,
+  LedgerAccountPatch,
+  LedgerAuditEvent,
+  LedgerClearedState,
+  LedgerDraftInput,
+  LedgerDraftPatch,
+  LedgerInfo,
+  LedgerPosting,
+  LedgerReverseOptions,
+  LedgerTransaction,
+  LedgerTransactionState,
+} from './ledger';
 
 /** Handlers for a single page's live update stream. */
 export interface PageSubscription {
@@ -314,6 +329,40 @@ export interface DataClient {
   reorderRows(databaseId: string, orderedIds: string[]): Promise<void>;
   /** Subscribe to a database's live row-list updates. Returns an unsubscribe fn. */
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void;
+
+  // ── Ledger: server-enforced double-entry accounting (LGR-3) ──────────────────
+  // Invariant violations reject with a typed {@link LedgerError} over BOTH
+  // transports (the HTTP client re-materializes the server's `{error, code}`).
+  /** Whether the ledger is initialized, and the seeded database/host ids. */
+  ledgerInfo(): Promise<LedgerInfo>;
+  /** Seed the four managed ledger databases + restricted host page (idempotent). */
+  ledgerInit(): Promise<LedgerInfo>;
+  /** List accounts (hierarchy is encoded in the colon-delimited names). */
+  ledgerListAccounts(): Promise<LedgerAccount[]>;
+  /** Create an account. `currency` defaults to `USD`. */
+  ledgerCreateAccount(input: LedgerAccountInput): Promise<LedgerAccount>;
+  /** Fetch one account, or `null` when it does not exist. */
+  ledgerGetAccount(id: string): Promise<LedgerAccount | null>;
+  /** Rename / close / reopen an account. Closing rejects at nonzero posted balance. */
+  ledgerUpdateAccount(id: string, patch: LedgerAccountPatch): Promise<LedgerAccount>;
+  /** List transactions with their postings (`state` filters; `limit` caps). */
+  ledgerListTransactions(opts?: {state?: LedgerTransactionState; limit?: number}): Promise<LedgerTransaction[]>;
+  /** Fetch one transaction (with postings), or `null` when it does not exist. */
+  ledgerGetTransaction(id: string): Promise<LedgerTransaction | null>;
+  /** Create a DRAFT transaction (with postings). Drafts are freely mutable. */
+  ledgerCreateDraft(input: LedgerDraftInput): Promise<LedgerTransaction>;
+  /** Update a DRAFT (posted/void transactions are immutable — typed rejection). */
+  ledgerUpdateDraft(id: string, patch: LedgerDraftPatch): Promise<LedgerTransaction>;
+  /** Delete a DRAFT and its postings (permanent, audited). Posted/void reject. */
+  ledgerDeleteDraft(id: string): Promise<boolean>;
+  /** Post a draft atomically (validates all invariants; assigns the entry number). */
+  ledgerPostTransaction(id: string): Promise<LedgerTransaction>;
+  /** Atomically create + post the reversing entry and void the original. */
+  ledgerReverseTransaction(id: string, opts?: LedgerReverseOptions): Promise<LedgerTransaction>;
+  /** Flip a posting between `pending`/`cleared` (`reconciled` is locked, LGR-11). */
+  ledgerSetPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting>;
+  /** Read the append-only audit log, newest first (`before` = seq cursor). */
+  ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]>;
 
   // ── Suggestions + comments (the review layer) ────────────────────────────────
   /** List a page's suggestions, newest first. `status` filters (e.g. only open). */
@@ -1294,6 +1343,115 @@ export class HttpDataClient implements DataClient {
 
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void {
     return this.liveStream().onRows(databaseId, onRows);
+  }
+
+  // ── Ledger: server-enforced double-entry accounting (LGR-3) ──────────────────
+
+  /**
+   * Like {@link request}, but re-materializes the server's `{error, code}` body
+   * into a typed {@link LedgerError} — so a caller catches the SAME error class
+   * over HTTP as it does against the in-process {@link PageStore} (local mode).
+   */
+  private async ledgerRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const res = await this.authFetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: body === undefined ? undefined : {'Content-Type': 'application/json'},
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      let data: {error?: string; code?: string} | null = null;
+      try {
+        data = (await res.json()) as {error?: string; code?: string};
+      } catch {
+        data = null;
+      }
+      if (data?.code && (LEDGER_ERROR_CODES as readonly string[]).includes(data.code)) {
+        throw new LedgerError(data.code as LedgerErrorCode, data.error ?? `ledger request failed (${res.status})`);
+      }
+      throw new Error(`OpenBook request failed (${res.status} ${res.statusText})${data?.error ? `: ${data.error}` : ''}`);
+    }
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
+  }
+
+  ledgerInfo(): Promise<LedgerInfo> {
+    return this.ledgerRequest<LedgerInfo>('GET', API.ledger);
+  }
+
+  ledgerInit(): Promise<LedgerInfo> {
+    return this.ledgerRequest<LedgerInfo>('POST', API.ledger);
+  }
+
+  ledgerListAccounts(): Promise<LedgerAccount[]> {
+    return this.ledgerRequest<LedgerAccount[]>('GET', API.ledgerAccounts);
+  }
+
+  ledgerCreateAccount(input: LedgerAccountInput): Promise<LedgerAccount> {
+    return this.ledgerRequest<LedgerAccount>('POST', API.ledgerAccounts, input);
+  }
+
+  async ledgerGetAccount(id: string): Promise<LedgerAccount | null> {
+    try {
+      return await this.ledgerRequest<LedgerAccount>('GET', API.ledgerAccount(id));
+    } catch (err) {
+      if (err instanceof LedgerError && err.code === 'not-found') return null;
+      throw err;
+    }
+  }
+
+  ledgerUpdateAccount(id: string, patch: LedgerAccountPatch): Promise<LedgerAccount> {
+    return this.ledgerRequest<LedgerAccount>('PATCH', API.ledgerAccount(id), patch);
+  }
+
+  ledgerListTransactions(opts?: {state?: LedgerTransactionState; limit?: number}): Promise<LedgerTransaction[]> {
+    const params = new URLSearchParams();
+    if (opts?.state) params.set('state', opts.state);
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    const query = params.toString();
+    return this.ledgerRequest<LedgerTransaction[]>('GET', `${API.ledgerTransactions}${query ? `?${query}` : ''}`);
+  }
+
+  async ledgerGetTransaction(id: string): Promise<LedgerTransaction | null> {
+    try {
+      return await this.ledgerRequest<LedgerTransaction>('GET', API.ledgerTransaction(id));
+    } catch (err) {
+      if (err instanceof LedgerError && err.code === 'not-found') return null;
+      throw err;
+    }
+  }
+
+  ledgerCreateDraft(input: LedgerDraftInput): Promise<LedgerTransaction> {
+    return this.ledgerRequest<LedgerTransaction>('POST', API.ledgerTransactions, input);
+  }
+
+  ledgerUpdateDraft(id: string, patch: LedgerDraftPatch): Promise<LedgerTransaction> {
+    return this.ledgerRequest<LedgerTransaction>('PATCH', API.ledgerTransaction(id), patch);
+  }
+
+  async ledgerDeleteDraft(id: string): Promise<boolean> {
+    await this.ledgerRequest<void>('DELETE', API.ledgerTransaction(id));
+    return true;
+  }
+
+  ledgerPostTransaction(id: string): Promise<LedgerTransaction> {
+    return this.ledgerRequest<LedgerTransaction>('POST', API.ledgerTransactionPost(id));
+  }
+
+  ledgerReverseTransaction(id: string, opts?: LedgerReverseOptions): Promise<LedgerTransaction> {
+    return this.ledgerRequest<LedgerTransaction>('POST', API.ledgerTransactionReverse(id), opts ?? {});
+  }
+
+  ledgerSetPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting> {
+    return this.ledgerRequest<LedgerPosting>('PUT', API.ledgerPostingCleared(postingId), {cleared});
+  }
+
+  ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.before != null) params.set('before', String(opts.before));
+    const query = params.toString();
+    return this.ledgerRequest<LedgerAuditEvent[]>('GET', `${API.ledgerAudit}${query ? `?${query}` : ''}`);
   }
 
   // ── Suggestions + comments (the review layer) ────────────────────────────────

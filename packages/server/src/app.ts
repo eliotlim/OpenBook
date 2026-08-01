@@ -29,6 +29,16 @@ import {
   type SuggestionInput,
   type SuggestionStatus,
   type SuggestionUpdate,
+  LedgerError,
+  MoneyError,
+  ledgerErrorStatus,
+  type LedgerAccountInput,
+  type LedgerAccountPatch,
+  type LedgerClearedState,
+  type LedgerDraftInput,
+  type LedgerDraftPatch,
+  type LedgerReverseOptions,
+  type LedgerTransactionState,
   localPrincipal,
 } from '@book.dev/sdk';
 import {PageStore, AssetBudgetError} from './store';
@@ -1848,6 +1858,210 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.json(row);
   });
 
+  // ── Ledger: server-enforced double-entry accounting (LGR-3) ─────────────────
+  // Thin route skins over `store.ledger` (the LedgerStore — the ONLY writer of
+  // ledger rows; the store layer itself rejects every other write path, so
+  // browser-local mode is enforced identically). Access rides the restricted
+  // host page's decision: readers list/read, writers mutate. Invariant
+  // violations surface as typed `{error, code}` bodies via the LedgerError
+  // branch in `onError` below. Note the generic page/row routes need NO extra
+  // ledger gating here — the store guards throw, and onError maps them to 403.
+
+  /**
+   * Resolve the seeded ids + enforce access, or 404 when unseeded.
+   *
+   * The gate is evaluated on ALL FIVE ledger host pages, not just the root
+   * (LGR-3 review nit 4). The generic row-read surface gates each database on
+   * its OWN host page, so gating the ledger API on the root alone would make an
+   * ACL grant on a single child host (say `Ledger postings`) mean two different
+   * things depending on which door the caller used. Requiring the decision on
+   * every host keeps one model: access to the ledger API is access to the whole
+   * ledger, and a partial grant reads only through the generic row routes it
+   * was scoped to.
+   */
+  const requireLedger = async (c: Context<AppEnv>, need: 'read' | 'write') => {
+    const ids = await store.ledgerIds();
+    if (!ids) throw new LedgerError('not-initialized', 'the ledger has not been initialized on this library');
+    await requireAccess(c, store, need, ids.hostPageId);
+    for (const hostPageId of Object.values(ids.hostPages)) {
+      await requireAccess(c, store, need, hostPageId);
+    }
+    return ids;
+  };
+
+  /** The unseeded/unreadable ledger body — deliberately IDENTICAL for both, see
+   *  the existence-oracle note on `GET /api/ledger`. */
+  const NO_LEDGER = {exists: false, hostPageId: null, databases: null};
+
+  app.get(API.ledger, async (c) => {
+    const ids = await store.ledgerIds();
+    if (!ids) return c.json(NO_LEDGER);
+    // Existence-hiding (LGR-3 F7): a caller who cannot read the restricted host
+    // gets the SAME `{exists:false}` body an unseeded library returns — not a
+    // 404. Answering 200-vs-404 told an unauthorized caller whether this library
+    // keeps books at all (and, on a shared instance, that there is something
+    // worth attacking). `requireAccess` throws 404 for unreadable, which we
+    // convert; any other error propagates.
+    try {
+      await requireAccess(c, store, 'read', ids.hostPageId);
+    } catch (err) {
+      if (err instanceof HTTPException && (err.status === 404 || err.status === 403)) return c.json(NO_LEDGER);
+      throw err;
+    }
+    return c.json(await store.ledger.info());
+  });
+
+  // Seed (idempotent). Creating the restricted host page + databases is an
+  // instance-writer action, like creating at the root.
+  //
+  // The status is always 200 — a 201-vs-200 split leaked whether books already
+  // existed. On the ALREADY-SEEDED branch the response additionally mirrors the
+  // GET handler's existence-hiding, so a caller who cannot READ the ledger gets
+  // the no-ledger body rather than the host page id and all four database ids.
+  //
+  // That read gate is DEFENCE IN DEPTH, not a live hole: every role that clears
+  // `requireCreate` today (owner / admin / loopback owner, or a guest on an
+  // unclaimed write-open instance) also passes the read gate on a restricted
+  // page, so no current principal receives the hidden body. It is here so a
+  // future create-but-not-read role can't be handed a complete map of a
+  // restricted ledger — and the ids grant nothing by themselves in any case, as
+  // the store guards and host ACLs gate every actual read and write.
+  app.post(API.ledger, async (c) => {
+    await requireCreate(c, store);
+    const before = await store.ledgerIds();
+    const info = await store.ledger.ensureSetup(c.get('principal'));
+    if (!before) {
+      await broadcastList();
+      logEdit(c, info.hostPageId, 'ledger.init');
+      return c.json(info);
+    }
+    try {
+      await requireAccess(c, store, 'read', (before as {hostPageId: string}).hostPageId);
+    } catch (err) {
+      if (err instanceof HTTPException && (err.status === 404 || err.status === 403)) return c.json(NO_LEDGER);
+      throw err;
+    }
+    return c.json(info);
+  });
+
+  app.get(API.ledgerAccounts, async (c) => {
+    await requireLedger(c, 'read');
+    return c.json(await store.ledger.listAccounts());
+  });
+
+  app.post(API.ledgerAccounts, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const input = await c.req.json<LedgerAccountInput>();
+    const account = await store.ledger.createAccount(input, c.get('principal'));
+    await broadcastRows(ids.accounts);
+    logEdit(c, account.id, 'ledger.account.create', account.name);
+    return c.json(account, 201);
+  });
+
+  app.get(`${API.ledgerAccounts}/:id`, async (c) => {
+    await requireLedger(c, 'read');
+    const account = await store.ledger.getAccount(c.req.param('id'));
+    if (!account) return c.json({error: 'account not found', code: 'not-found'}, 404);
+    return c.json(account);
+  });
+
+  app.patch(`${API.ledgerAccounts}/:id`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const patch = await c.req.json<LedgerAccountPatch>();
+    const account = await store.ledger.updateAccount(c.req.param('id'), patch, c.get('principal'));
+    await broadcastRows(ids.accounts);
+    logEdit(c, account.id, 'ledger.account.update', account.name);
+    return c.json(account);
+  });
+
+  app.get(API.ledgerTransactions, async (c) => {
+    await requireLedger(c, 'read');
+    const state = c.req.query('state') as LedgerTransactionState | undefined;
+    const limit = Number(c.req.query('limit') ?? NaN);
+    return c.json(await store.ledger.listTransactions({state, limit: Number.isFinite(limit) ? limit : undefined}));
+  });
+
+  app.post(API.ledgerTransactions, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const input = await c.req.json<LedgerDraftInput>();
+    const transaction = await store.ledger.createDraft(input, c.get('principal'));
+    await broadcastRows(ids.transactions);
+    await broadcastRows(ids.postings);
+    logEdit(c, transaction.id, 'ledger.transaction.create', transaction.description);
+    return c.json(transaction, 201);
+  });
+
+  app.get(`${API.ledgerTransactions}/:id`, async (c) => {
+    await requireLedger(c, 'read');
+    const transaction = await store.ledger.getTransaction(c.req.param('id'));
+    if (!transaction) return c.json({error: 'transaction not found', code: 'not-found'}, 404);
+    return c.json(transaction);
+  });
+
+  app.patch(`${API.ledgerTransactions}/:id`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const patch = await c.req.json<LedgerDraftPatch>();
+    const transaction = await store.ledger.updateDraft(c.req.param('id'), patch, c.get('principal'));
+    await broadcastRows(ids.transactions);
+    await broadcastRows(ids.postings);
+    logEdit(c, transaction.id, 'ledger.transaction.update', transaction.description);
+    return c.json(transaction);
+  });
+
+  app.delete(`${API.ledgerTransactions}/:id`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    await store.ledger.deleteDraft(c.req.param('id'), c.get('principal'));
+    await broadcastRows(ids.transactions);
+    await broadcastRows(ids.postings);
+    logEdit(c, c.req.param('id'), 'ledger.transaction.delete');
+    return c.body(null, 204);
+  });
+
+  app.post(`${API.ledgerTransactions}/:id/post`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const transaction = await store.ledger.post(c.req.param('id'), c.get('principal'));
+    await broadcastRows(ids.transactions);
+    // The posting rows' projected state changes with the entry too (an open
+    // postings view would otherwise keep showing the draft's rows).
+    await broadcastRows(ids.postings);
+    logEdit(c, transaction.id, 'ledger.transaction.post', `#${transaction.entryNo ?? ''}`);
+    return c.json(transaction);
+  });
+
+  app.post(`${API.ledgerTransactions}/:id/reverse`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const opts = await c.req.json<LedgerReverseOptions>().catch(() => ({}) as LedgerReverseOptions);
+    const transaction = await store.ledger.reverse(c.req.param('id'), opts, c.get('principal'));
+    await broadcastRows(ids.transactions);
+    await broadcastRows(ids.postings);
+    logEdit(c, transaction.id, 'ledger.transaction.reverse', transaction.reverses ?? '');
+    return c.json(transaction);
+  });
+
+  app.put('/api/ledger/postings/:id/cleared', async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const {cleared} = await c.req.json<{cleared?: LedgerClearedState}>();
+    if (!cleared) return c.json({error: 'a cleared state is required', code: 'invalid-input'}, 400);
+    // The `via: 'reconciliation'` hook is server-internal (LGR-11); the HTTP
+    // surface can only move a posting between pending and cleared.
+    const posting = await store.ledger.setPostingCleared(c.req.param('id'), cleared, {}, c.get('principal'));
+    await broadcastRows(ids.postings);
+    logEdit(c, posting.id, 'ledger.posting.cleared', cleared);
+    return c.json(posting);
+  });
+
+  app.get(API.ledgerAudit, async (c) => {
+    await requireLedger(c, 'read');
+    const limit = Number(c.req.query('limit') ?? NaN);
+    const before = Number(c.req.query('before') ?? NaN);
+    return c.json(
+      await store.ledger.listAudit({
+        limit: Number.isFinite(limit) ? limit : undefined,
+        before: Number.isFinite(before) ? before : undefined,
+      }),
+    );
+  });
+
   // ── Suggestions + comments (the review layer) ─────────────────────────────
   // Persisted proposed changes (AI write tools + human "Suggest edit") and a
   // general comment layer. These never auto-apply; accepting a suggestion is a
@@ -2035,6 +2249,21 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // preserving the gate's 403/404 (never collapse them to a 500 below).
     if (err instanceof HTTPException) {
       return c.json({error: err.message}, err.status);
+    }
+    // Ledger rejections (LGR-3): the store-level guards + LedgerStore invariants
+    // throw typed LedgerErrors from ANY route that touches a ledger row — the
+    // generic page/row mutation routes included, which is exactly how a direct
+    // `PATCH /api/databases/:id/rows/:rowId` on a ledger row answers 403 managed.
+    // The `code` rides the body so clients re-materialize the typed error.
+    if (err instanceof LedgerError) {
+      return c.json({error: err.message, code: err.code}, ledgerErrorStatus(err.code));
+    }
+    // Money-core failures (LGR-2) are caller-input problems, not server faults:
+    // a parse/range/currency violation that reaches here is a 400, never a 500.
+    // The ledger wraps its own money errors into typed LedgerErrors above; this
+    // is the belt-and-braces net for any other money-touching route.
+    if (err instanceof MoneyError) {
+      return c.json({error: err.message, code: err.code}, 400);
     }
     // Invite-resolution failures (bad email, unresolvable handle) carry their own
     // 400/422 status — surface them in the API `{error}` shape (OB-191).
