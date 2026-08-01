@@ -1,0 +1,532 @@
+/**
+ * Independent ledger invariant verifier (LGR-7) — the backstop behind the
+ * backstop.
+ *
+ * `LedgerStore` ENFORCES the invariants at write time; this module RE-CHECKS
+ * them against RAW storage with its own SQL reads — deliberately NOT through
+ * `LedgerStore`'s query/validator paths, so a bug (or an out-of-band mutation:
+ * SQL surgery, a bad migration, disk corruption) that slips past enforcement
+ * still gets caught. The only things shared with the enforcement path are the
+ * CONTRACT artifacts: the stable `LEDGER_PROP` ids, the canonical-JSON hasher,
+ * and the pure `replayLedgerAudit` reducer.
+ *
+ * Checks (each failure is one typed finding; an empty list = clean):
+ *  a. balance          — every posted/void transaction has ≥2 postings summing
+ *                        to exactly 0 minor units (`unbalanced`,
+ *                        `too-few-postings`, `invalid-amount`);
+ *  b. audit hash chain — each audit event's recorded `afterHash` is RE-DERIVED
+ *                        from that event's own payload (`audit-hash-forged` —
+ *                        what makes the chain load-bearing rather than
+ *                        decorative: consistent surgery across rows AND
+ *                        payloads is still caught), each event's beforeHash
+ *                        chains from the previous afterHash for the same entity
+ *                        (`audit-chain-broken`), and each posted/void row's
+ *                        CURRENT content hash equals the hash of the state the
+ *                        audit stream predicts (`posted-hash-mismatch` — the
+ *                        out-of-band-mutation detector);
+ *  c. referential      — every posting resolves to a live transaction and a
+ *                        live account (`orphan-posting`, `unknown-account`);
+ *  d. audit replay     — `replayLedgerAudit` over the full stream equals the
+ *                        raw current state, entity for entity
+ *                        (`replay-divergence`);
+ *  e. entry numbers    — posted/void entry numbers are exactly the dense set
+ *                        1..N with no gaps or duplicates (`entry-no-gap`,
+ *                        `entry-no-duplicate`, `entry-no-missing`).
+ *
+ * Browser-safe: no Node imports (store.ts exposes it to both runtimes).
+ */
+
+import {
+  LEDGER_PROP,
+  canonicalLedgerJson,
+  replayLedgerAudit,
+  type LedgerAccount,
+  type LedgerAuditEvent,
+  type LedgerPosting,
+  type LedgerTransaction,
+} from '@book.dev/sdk';
+import type {Db} from './dbCore';
+
+// ── Findings ──────────────────────────────────────────────────────────────────
+
+export type LedgerVerifyCode =
+  | 'unbalanced'
+  | 'too-few-postings'
+  | 'invalid-amount'
+  | 'audit-chain-broken'
+  | 'audit-hash-forged'
+  | 'posted-hash-mismatch'
+  | 'orphan-posting'
+  | 'unknown-account'
+  | 'replay-divergence'
+  | 'entry-no-gap'
+  | 'entry-no-duplicate'
+  | 'entry-no-missing';
+
+export interface LedgerVerifyFinding {
+  code: LedgerVerifyCode;
+  /** Human-readable, entity-id-bearing description of the violation. */
+  message: string;
+  /** The primary entity (transaction / posting / account / audit seq) at fault. */
+  entityId?: string;
+}
+
+export interface LedgerVerifyReport {
+  /** False when the ledger has never been seeded — trivially clean. */
+  initialized: boolean;
+  checkedTransactions: number;
+  checkedPostings: number;
+  checkedAccounts: number;
+  checkedAuditEvents: number;
+  /** Empty = every invariant holds against raw storage. */
+  findings: LedgerVerifyFinding[];
+}
+
+// ── Raw-row plumbing (independent of LedgerStore's readers) ───────────────────
+
+interface RawRow {
+  id: string;
+  name: string | null;
+  properties: Record<string, unknown> | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+}
+
+interface RawAuditRow {
+  seq: number | string;
+  id: string;
+  actor_subject: string;
+  actor_name: string;
+  action: string;
+  entity_ids: unknown;
+  payload: unknown;
+  before_hash: string | null;
+  after_hash: string | null;
+  prev_hash: string | null;
+  created_at: Date | string;
+}
+
+interface RawLedgerIds {
+  hostPageId?: string;
+  accounts?: string;
+  transactions?: string;
+  postings?: string;
+  reconciliations?: string;
+}
+
+const toIso = (value: Date | string): string =>
+  value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+
+const parseJson = <T>(value: T | string | null | undefined, fallback: T): T => {
+  if (value == null) return fallback;
+  return typeof value === 'string' ? (JSON.parse(value) as T) : value;
+};
+
+const str = (raw: unknown): string => (typeof raw === 'string' ? raw : '');
+const strOrNull = (raw: unknown): string | null => (typeof raw === 'string' && raw.length > 0 ? raw : null);
+
+/** SHA-256 hex (isomorphic — same digest the audit writer records). */
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+const ROW_COLS = 'id, name, properties, created_at, updated_at';
+
+/**
+ * True only for Postgres's "relation does not exist" (SQLSTATE `42P01`) naming
+ * `relation` — i.e. a never-migrated library. Deliberately narrow: every other
+ * query failure must propagate rather than masquerade as "no ledger".
+ */
+function isMissingRelation(err: unknown, relation: string): boolean {
+  const code = (err as {code?: unknown} | null)?.code;
+  const message = err instanceof Error ? err.message : String(err);
+  // `relation` is interpolated into a pattern — escape it so a name containing
+  // regex metacharacters can never widen (or break) the match.
+  const escaped = relation.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const named = new RegExp(`relation .*${escaped}.* does not exist`, 'i').test(message);
+  return (code === '42P01' && named) || (code === undefined && named);
+}
+
+function accountFromRaw(row: RawRow): LedgerAccount {
+  const props = parseJson<Record<string, unknown>>(row.properties, {});
+  return {
+    id: row.id,
+    name: row.name ?? '',
+    type: (str(props[LEDGER_PROP.account.type]) || 'asset') as LedgerAccount['type'],
+    status: (str(props[LEDGER_PROP.account.status]) || 'open') as LedgerAccount['status'],
+    currency: str(props[LEDGER_PROP.account.currency]) || 'USD',
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+function postingFromRaw(row: RawRow): LedgerPosting {
+  const props = parseJson<Record<string, unknown>>(row.properties, {});
+  const amount = props[LEDGER_PROP.posting.amount];
+  return {
+    id: row.id,
+    transactionId: str(props[LEDGER_PROP.posting.transaction]),
+    accountId: str(props[LEDGER_PROP.posting.account]),
+    amountMinor: typeof amount === 'number' ? amount : Number(amount ?? 0),
+    cleared: (str(props[LEDGER_PROP.posting.cleared]) || 'pending') as LedgerPosting['cleared'],
+    reconciliationId: strOrNull(props[LEDGER_PROP.posting.reconciliation]),
+  };
+}
+
+function transactionFromRaw(row: RawRow, postings: LedgerPosting[]): LedgerTransaction {
+  const props = parseJson<Record<string, unknown>>(row.properties, {});
+  const entryNo = props[LEDGER_PROP.transaction.entryNo];
+  const evidence = props[LEDGER_PROP.transaction.evidence];
+  return {
+    id: row.id,
+    date: str(props[LEDGER_PROP.transaction.date]),
+    description: str(props[LEDGER_PROP.transaction.description]),
+    state: (str(props[LEDGER_PROP.transaction.state]) || 'draft') as LedgerTransaction['state'],
+    postedAt: strOrNull(props[LEDGER_PROP.transaction.postedAt]),
+    postedBy: strOrNull(props[LEDGER_PROP.transaction.postedBy]),
+    reverses: strOrNull(props[LEDGER_PROP.transaction.reverses]),
+    entryNo: typeof entryNo === 'number' && Number.isFinite(entryNo) ? entryNo : null,
+    evidence: Array.isArray(evidence) ? (evidence as LedgerTransaction['evidence']) : [],
+    postings,
+    createdAt: toIso(row.created_at),
+    updatedAt: toIso(row.updated_at),
+  };
+}
+
+/** The audited CONTENT of an account — must mirror the writer's hashable shape. */
+function accountContent(a: LedgerAccount): Record<string, unknown> {
+  return {id: a.id, name: a.name, type: a.type, status: a.status, currency: a.currency};
+}
+
+/** The audited CONTENT of a transaction + postings (timestamps excluded). */
+function transactionContent(t: LedgerTransaction): Record<string, unknown> {
+  return {
+    id: t.id,
+    date: t.date,
+    description: t.description,
+    state: t.state,
+    postedAt: t.postedAt,
+    postedBy: t.postedBy,
+    reverses: t.reverses,
+    entryNo: t.entryNo,
+    evidence: t.evidence,
+    postings: t.postings.map((p) => ({
+      id: p.id,
+      accountId: p.accountId,
+      amountMinor: p.amountMinor,
+      cleared: p.cleared,
+      reconciliationId: p.reconciliationId,
+    })),
+  };
+}
+
+function auditFromRaw(row: RawAuditRow): LedgerAuditEvent {
+  return {
+    seq: Number(row.seq),
+    id: row.id,
+    actorSubject: row.actor_subject,
+    actorName: row.actor_name,
+    action: row.action as LedgerAuditEvent['action'],
+    entityIds: parseJson<string[]>(row.entity_ids as string[] | string | null, []),
+    payload: parseJson<Record<string, unknown>>(row.payload as Record<string, unknown> | string | null, {}),
+    beforeHash: row.before_hash,
+    afterHash: row.after_hash,
+    prevHash: row.prev_hash,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+// ── The verifier ──────────────────────────────────────────────────────────────
+
+/**
+ * Re-check every ledger invariant against raw storage. Read-only — performs
+ * no writes of any kind. Returns a typed report; `findings: []` means clean.
+ */
+export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
+  const findings: LedgerVerifyFinding[] = [];
+  const flag = (code: LedgerVerifyCode, message: string, entityId?: string): void => {
+    findings.push(entityId === undefined ? {code, message} : {code, message, entityId});
+  };
+
+  // Raw settings read — not store.ledgerIds() (independence). A never-migrated
+  // library has no `settings` table at all (the CLI can be pointed at a fresh or
+  // foreign data dir): that is "no ledger here", not a crash — the verifier is
+  // read-only and must never migrate a library just to inspect it.
+  let idsRows: Array<{value: RawLedgerIds | string}> = [];
+  try {
+    idsRows = await db.query<{value: RawLedgerIds | string}>(
+      'SELECT value FROM settings WHERE key = \'ledgerDb\'',
+    );
+  } catch (err) {
+    // ONLY "there is no settings table" means "no ledger here". Any other
+    // failure (permissions, a broken connection, disk errors) must PROPAGATE:
+    // reporting a clean book because the read failed is the one answer a
+    // verifier must never give.
+    if (!isMissingRelation(err, 'settings')) throw err;
+    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, findings};
+  }
+  const ids = idsRows.length > 0 ? parseJson<RawLedgerIds>(idsRows[0].value, {}) : null;
+  if (!ids || !ids.accounts || !ids.transactions || !ids.postings) {
+    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, findings};
+  }
+
+  // Raw entity reads.
+  const accountRows = await db.query<RawRow>(
+    `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL`,
+    [ids.accounts],
+  );
+  const txRows = await db.query<RawRow>(
+    `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL`,
+    [ids.transactions],
+  );
+  const postingRows = await db.query<RawRow>(
+    // `id` completes the TOTAL order: position (MAX+1) can tie under READ
+    // COMMITTED on real Postgres and created_at can tie within one transaction,
+    // so without it the derived content hash would be plan-dependent.
+    `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL
+     ORDER BY position ASC, created_at ASC, id ASC`,
+    [ids.postings],
+  );
+  const auditRows = await db.query<RawAuditRow>('SELECT * FROM ledger_audit ORDER BY seq ASC');
+  const events = auditRows.map(auditFromRaw);
+
+  const accounts = new Map<string, LedgerAccount>(accountRows.map((r) => [r.id, accountFromRaw(r)]));
+  const postings = postingRows.map(postingFromRaw);
+  const postingsByTx = new Map<string, LedgerPosting[]>();
+  for (const posting of postings) {
+    const list = postingsByTx.get(posting.transactionId) ?? [];
+    list.push(posting);
+    postingsByTx.set(posting.transactionId, list);
+  }
+  const transactions = new Map<string, LedgerTransaction>(
+    txRows.map((r) => [r.id, transactionFromRaw(r, postingsByTx.get(r.id) ?? [])]),
+  );
+
+  // (a) Balance: every posted/void transaction sums to zero over ≥2 postings.
+  for (const tx of transactions.values()) {
+    if (tx.state !== 'posted' && tx.state !== 'void') continue;
+    if (tx.postings.length < 2) {
+      flag('too-few-postings', `${tx.state} transaction ${tx.id} has ${tx.postings.length} posting(s); a journal entry needs at least 2`, tx.id);
+    }
+    let sum = 0;
+    let valid = true;
+    for (const p of tx.postings) {
+      if (typeof p.amountMinor !== 'number' || !Number.isSafeInteger(p.amountMinor)) {
+        flag('invalid-amount', `posting ${p.id} of transaction ${tx.id} stores a non-safe-integer amount: ${String(p.amountMinor)}`, p.id);
+        valid = false;
+        continue;
+      }
+      sum += p.amountMinor;
+    }
+    if (valid && sum !== 0) {
+      flag('unbalanced', `${tx.state} transaction ${tx.id} sums to ${sum} minor units (must be 0)`, tx.id);
+    }
+  }
+
+  // (c) Referential integrity: every posting resolves both ways.
+  for (const posting of postings) {
+    if (!transactions.has(posting.transactionId)) {
+      flag('orphan-posting', `posting ${posting.id} references a nonexistent transaction ${posting.transactionId || '(empty)'}`, posting.id);
+    }
+    if (!accounts.has(posting.accountId)) {
+      flag('unknown-account', `posting ${posting.id} references a nonexistent account ${posting.accountId || '(empty)'}`, posting.id);
+    }
+  }
+
+  // (b) Audit hash chain — internal continuity. Track the last recorded content
+  // hash per entity; a `posting.cleared` event changes a transaction's content
+  // without recording a transaction-level hash, so it invalidates that chain
+  // tip (the replay comparison below still covers the content).
+  const lastTxHash = new Map<string, string | null>();
+  const lastAccountHash = new Map<string, string | null>();
+  const chain = (
+    map: Map<string, string | null>,
+    entityId: string,
+    ev: LedgerAuditEvent,
+  ): void => {
+    const expected = map.get(entityId);
+    if (expected !== undefined && expected !== null && ev.beforeHash !== expected) {
+      flag(
+        'audit-chain-broken',
+        `audit seq ${ev.seq} (${ev.action}) beforeHash ${ev.beforeHash ?? 'null'} does not chain from the previous afterHash ${expected} for entity ${entityId}`,
+        entityId,
+      );
+    }
+  };
+  /**
+   * RE-DERIVE the event's recorded `afterHash` from its OWN payload. Linkage
+   * alone is decorative: an attacker who doctors a row and the matching payload
+   * — leaving the hash columns untouched — passes every chain check. Recomputing
+   * the digest from the payload is what makes the recorded hash load-bearing.
+   */
+  const derived = async (entityId: string, content: Record<string, unknown>, ev: LedgerAuditEvent): Promise<void> => {
+    // A NULL afterHash is treated as a mismatch, never as "nothing to check":
+    // every action routed in here is one whose writer ALWAYS records an
+    // afterHash, so a null here is itself the forgery — otherwise `UPDATE
+    // ledger_audit SET after_hash = NULL` would defeat this check by DELETING
+    // the digest instead of forging it. (`ledger.init` and `transaction.delete`
+    // record a null afterHash BY DESIGN and are deliberately never routed here.)
+    const actual = await sha256Hex(canonicalLedgerJson(content));
+    if (actual !== ev.afterHash) {
+      flag(
+        'audit-hash-forged',
+        `audit seq ${ev.seq} (${ev.action}) records afterHash ${ev.afterHash ?? 'NULL'} but its own payload hashes to ${actual} — the audit row was rewritten`,
+        entityId,
+      );
+    }
+  };
+
+  for (const ev of events) {
+    const p = ev.payload as {
+      account?: LedgerAccount;
+      transaction?: LedgerTransaction;
+      transactionId?: string;
+      originalId?: string;
+      postingId?: string;
+      cleared?: string;
+      path?: string | null;
+    };
+    switch (ev.action) {
+    case 'account.create':
+      if (p.account) {
+        await derived(p.account.id, accountContent(p.account), ev);
+        lastAccountHash.set(p.account.id, ev.afterHash);
+      }
+      break;
+    case 'account.update':
+      if (p.account) {
+        await derived(p.account.id, accountContent(p.account), ev);
+        chain(lastAccountHash, p.account.id, ev);
+        lastAccountHash.set(p.account.id, ev.afterHash);
+      }
+      break;
+    case 'transaction.create':
+      if (p.transaction) {
+        await derived(p.transaction.id, transactionContent(p.transaction), ev);
+        lastTxHash.set(p.transaction.id, ev.afterHash);
+      }
+      break;
+    case 'transaction.update':
+    case 'transaction.post':
+      if (p.transaction) {
+        await derived(p.transaction.id, transactionContent(p.transaction), ev);
+        chain(lastTxHash, p.transaction.id, ev);
+        lastTxHash.set(p.transaction.id, ev.afterHash);
+      }
+      break;
+    case 'transaction.delete':
+      if (p.transactionId) {
+        chain(lastTxHash, p.transactionId, ev);
+        lastTxHash.delete(p.transactionId);
+      }
+      break;
+    case 'transaction.reverse':
+      // beforeHash is the ORIGINAL's pre-void content; afterHash the reversal's.
+      if (p.originalId) {
+        chain(lastTxHash, p.originalId, ev);
+        // The original's post-void content records no hash — invalidate its tip.
+        lastTxHash.set(p.originalId, null);
+      }
+      if (p.transaction) {
+        await derived(p.transaction.id, transactionContent(p.transaction), ev);
+        lastTxHash.set(p.transaction.id, ev.afterHash);
+      }
+      break;
+    case 'posting.cleared':
+      // This event's hashes cover only {id, cleared} — re-derive that shape too.
+      if (p.postingId && p.cleared) {
+        await derived(p.postingId, {id: p.postingId, cleared: p.cleared}, ev);
+      }
+      // The parent transaction's content changed without a tx-level hash —
+      // invalidate its chain tip (the replay comparison still covers content).
+      if (p.transactionId) lastTxHash.set(p.transactionId, null);
+      break;
+    case 'ledger.autoExportPath':
+      // Policy, not ledger content — it touches no entity, so there is no chain
+      // to extend, but the recorded hash is still re-derived from its payload.
+      await derived('', {ledgerAutoExportPath: p.path ?? null}, ev);
+      break;
+    }
+  }
+
+  // (d) Replay: the audit stream folded into expected state must equal raw
+  // state, entity for entity — with (b)'s content-hash comparison for
+  // posted/void rows (the out-of-band-mutation detector).
+  const replayed = replayLedgerAudit(events);
+  for (const [id, expected] of Object.entries(replayed.transactions)) {
+    const raw = transactions.get(id);
+    if (!raw) {
+      flag('replay-divergence', `audit replay expects transaction ${id} (${expected.state}) but raw storage has no such row`, id);
+      continue;
+    }
+    const rawHash = await sha256Hex(canonicalLedgerJson(transactionContent(raw)));
+    const expectedHash = await sha256Hex(canonicalLedgerJson(transactionContent(expected)));
+    if (rawHash !== expectedHash) {
+      if (raw.state === 'posted' || raw.state === 'void') {
+        flag(
+          'posted-hash-mismatch',
+          `${raw.state} transaction ${id} content hash ${rawHash} differs from the audit-derived hash ${expectedHash} — mutated outside the ledger`,
+          id,
+        );
+      } else {
+        flag('replay-divergence', `draft transaction ${id} diverges from the audit-derived content`, id);
+      }
+    }
+  }
+  for (const id of transactions.keys()) {
+    if (!replayed.transactions[id]) {
+      flag('replay-divergence', `raw transaction ${id} has no audit trail (never created through the ledger)`, id);
+    }
+  }
+  for (const [id, expected] of Object.entries(replayed.accounts)) {
+    const raw = accounts.get(id);
+    if (!raw) {
+      flag('replay-divergence', `audit replay expects account ${id} (${expected.name}) but raw storage has no such row`, id);
+      continue;
+    }
+    const rawHash = await sha256Hex(canonicalLedgerJson(accountContent(raw)));
+    const expectedHash = await sha256Hex(canonicalLedgerJson(accountContent(expected)));
+    if (rawHash !== expectedHash) {
+      flag('replay-divergence', `account ${id} (${raw.name}) diverges from the audit-derived content`, id);
+    }
+  }
+  for (const id of accounts.keys()) {
+    if (!replayed.accounts[id]) {
+      flag('replay-divergence', `raw account ${id} has no audit trail (never created through the ledger)`, id);
+    }
+  }
+
+  // (e) Entry numbers: posted/void entries carry exactly the dense set 1..N.
+  const entryNos: number[] = [];
+  for (const tx of transactions.values()) {
+    if (tx.state !== 'posted' && tx.state !== 'void') continue;
+    if (tx.entryNo == null) {
+      flag('entry-no-missing', `${tx.state} transaction ${tx.id} has no entry number`, tx.id);
+      continue;
+    }
+    entryNos.push(tx.entryNo);
+  }
+  entryNos.sort((a, b) => a - b);
+  const seen = new Set<number>();
+  for (const n of entryNos) {
+    if (seen.has(n)) flag('entry-no-duplicate', `entry number ${n} is assigned to more than one transaction`);
+    seen.add(n);
+  }
+  const unique = [...seen].sort((a, b) => a - b);
+  for (let i = 0; i < unique.length; i += 1) {
+    if (unique[i] !== i + 1) {
+      flag('entry-no-gap', `entry numbers are not dense: expected ${i + 1} next, found ${unique[i]}`);
+      break; // one gap finding is enough — everything after is shifted
+    }
+  }
+
+  return {
+    initialized: true,
+    checkedTransactions: transactions.size,
+    checkedPostings: postings.length,
+    checkedAccounts: accounts.size,
+    checkedAuditEvents: events.length,
+    findings,
+  };
+}

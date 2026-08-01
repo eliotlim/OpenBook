@@ -363,6 +363,9 @@ export interface DataClient {
   ledgerSetPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting>;
   /** Read the append-only audit log, newest first (`before` = seq cursor). */
   ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]>;
+  /** The whole ledger as the canonical postings CSV (LGR-7) — byte-stable:
+   *  same data ⇒ identical bytes over BOTH transports. */
+  ledgerExportCsv(): Promise<string>;
 
   // ── Suggestions + comments (the review layer) ────────────────────────────────
   /** List a page's suggestions, newest first. `status` filters (e.g. only open). */
@@ -1359,20 +1362,23 @@ export class HttpDataClient implements DataClient {
       body: body === undefined ? undefined : JSON.stringify(body),
       cache: 'no-store',
     });
-    if (!res.ok) {
-      let data: {error?: string; code?: string} | null = null;
-      try {
-        data = (await res.json()) as {error?: string; code?: string};
-      } catch {
-        data = null;
-      }
-      if (data?.code && (LEDGER_ERROR_CODES as readonly string[]).includes(data.code)) {
-        throw new LedgerError(data.code as LedgerErrorCode, data.error ?? `ledger request failed (${res.status})`);
-      }
-      throw new Error(`OpenBook request failed (${res.status} ${res.statusText})${data?.error ? `: ${data.error}` : ''}`);
-    }
+    if (!res.ok) return this.throwLedgerError(res);
     if (res.status === 204) return undefined as T;
     return (await res.json()) as T;
+  }
+
+  /** Re-materialize a non-2xx ledger response into a typed {@link LedgerError}. */
+  private async throwLedgerError(res: Response): Promise<never> {
+    let data: {error?: string; code?: string} | null = null;
+    try {
+      data = (await res.json()) as {error?: string; code?: string};
+    } catch {
+      data = null;
+    }
+    if (data?.code && (LEDGER_ERROR_CODES as readonly string[]).includes(data.code)) {
+      throw new LedgerError(data.code as LedgerErrorCode, data.error ?? `ledger request failed (${res.status})`);
+    }
+    throw new Error(`OpenBook request failed (${res.status} ${res.statusText})${data?.error ? `: ${data.error}` : ''}`);
   }
 
   ledgerInfo(): Promise<LedgerInfo> {
@@ -1452,6 +1458,13 @@ export class HttpDataClient implements DataClient {
     if (opts?.before != null) params.set('before', String(opts.before));
     const query = params.toString();
     return this.ledgerRequest<LedgerAuditEvent[]>('GET', `${API.ledgerAudit}${query ? `?${query}` : ''}`);
+  }
+
+  /** Canonical postings CSV (LGR-7) — the one ledger read that is text, not JSON. */
+  async ledgerExportCsv(): Promise<string> {
+    const res = await this.authFetch(`${this.baseUrl}${API.ledgerExportCsv}`, {cache: 'no-store'});
+    if (!res.ok) return this.throwLedgerError(res);
+    return res.text();
   }
 
   // ── Suggestions + comments (the review layer) ────────────────────────────────

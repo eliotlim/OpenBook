@@ -516,6 +516,11 @@ export class LocalDataClient implements DataClient {
     return this.store.ledger.listAudit(opts);
   }
 
+  /** Canonical postings CSV (LGR-7) — same bytes as the HTTP route (parity-pinned). */
+  ledgerExportCsv(): Promise<string> {
+    return this.store.ledger.exportPostingsCsv();
+  }
+
   /** Refresh the named ledger databases' live row views (mirrors app.ts). */
   private async broadcastLedgerRows(...keys: Array<'accounts' | 'transactions' | 'postings'>): Promise<void> {
     const ids = await this.store.ledgerIds();

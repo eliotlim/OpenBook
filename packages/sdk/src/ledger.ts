@@ -252,7 +252,11 @@ export type LedgerAuditAction =
   | 'transaction.delete'
   | 'transaction.post'
   | 'transaction.reverse'
-  | 'posting.cleared';
+  | 'posting.cleared'
+  /** The ledger auto-export target was set or cleared (LGR-7). Policy, not
+   *  ledger content — it touches no entity, so a replay ignores it, but it is
+   *  recorded here so the book itself carries evidence of where copies go. */
+  | 'ledger.autoExportPath';
 
 /**
  * Every known audit action — the validation set for a stored `action` value.
@@ -273,6 +277,7 @@ export const LEDGER_AUDIT_ACTIONS = [
   'transaction.post',
   'transaction.reverse',
   'posting.cleared',
+  'ledger.autoExportPath',
 ] as const satisfies readonly LedgerAuditAction[];
 
 /**
@@ -354,6 +359,12 @@ export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerRep
     case 'ledger.acl':
       // A sharing grant/revoke on a ledger page: recorded for the trail, but it
       // carries no ledger CONTENT, so replayed state is unchanged.
+      break;
+    case 'ledger.autoExportPath':
+      // An instance-policy change (where the canonical export is written):
+      // recorded for the trail, but it touches no ledger entity, so replayed
+      // state is unchanged. Explicit rather than falling through to `default`,
+      // which must keep throwing on actions this build genuinely cannot model.
       break;
     case 'account.create':
     case 'account.update':

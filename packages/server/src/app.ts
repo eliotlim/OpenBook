@@ -49,7 +49,7 @@ import {AwarenessRelay, awarenessUser, stampAwarenessIdentity} from './collabAwa
 import {mountAiRoutes} from './ai/routes';
 import {mountPluginRoutes} from './pluginRoutes';
 import {guestGate, isLocalOwnerRequest, recoverAudienceLockedPrincipal, resolvePrincipal, type IdentityProvider} from './principal';
-import {isAuthenticatedPrincipal, requireAccess, requireCreate, requireDbAccess, requireInstanceAdmin, streamGates} from './access';
+import {isAuthenticatedPrincipal, isRealInstanceOwner, requireAccess, requireCreate, requireDbAccess, requireInstanceAdmin, streamGates} from './access';
 import {
   AGENT_FAILED_RATE_LIMIT,
   AGENT_RATE_WINDOW_MS,
@@ -1373,6 +1373,11 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       // client can show the TRUE effective default behind "Library default"
       // (SHR-6), not just the unclaimed-only guest gate. Never `inherit`.
       defaultVisibility: config.defaultVisibility ?? null,
+      // LGR-7 (S4): where the ledger auto-export writes, so the owner can SEE
+      // that copies of the book are leaving (an unreadable setting is an
+      // invisible exfiltration channel). Behind the same identity fence as the
+      // rest of the identity-infrastructure block.
+      ledgerAutoExportPath: showIdentity ? (config.ledgerAutoExportPath ?? null) : null,
       you: principal,
       // The hatch grants owner authority regardless of `you`, so it must read as
       // `owner` here too — otherwise a drifted `ownerSubject` sinks the local owner
@@ -1397,6 +1402,24 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     // `suggest` / `direct` are valid at the instance level (`inherit` is page-only).
     if (patch.agentEdits !== undefined && !AGENT_EDITS_MODES.includes(patch.agentEdits)) {
       return c.json({error: 'agentEdits must be "suggest" or "direct"'}, 400);
+    }
+
+    // LGR-7 (S1): the ledger auto-export target is a server-side filesystem
+    // WRITE target, so it needs a REAL owner — regardless of claim state. The
+    // general policy gate further down only engages once `ownerSubject` is set,
+    // which on an UNCLAIMED instance (the documented headless `--access-token`
+    // LAN posture) let any caller — including an anonymous one — point the
+    // export at a victim file. This check runs before the claim/repair branches
+    // so no path can ride in on a claim request either.
+    if (patch.ledgerAutoExportPath !== undefined) {
+      if (patch.ledgerAutoExportPath !== null) {
+        if (typeof patch.ledgerAutoExportPath !== 'string' || patch.ledgerAutoExportPath.trim() === '') {
+          return c.json({error: 'ledgerAutoExportPath must be a non-empty file path or null'}, 400);
+        }
+      }
+      if (!isRealInstanceOwner(c, current)) {
+        return c.json({error: 'only the instance owner can set the ledger auto-export path'}, 403);
+      }
     }
 
     // Owner-claim (OB-182 §2.6 B2). Setting `ownerSubject` on a still-unclaimed
@@ -1459,7 +1482,26 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
       return c.json({error: 'only the instance owner can change multi-user policy'}, 403);
     }
     const next = await store.updateInstanceConfig(patch);
-    logEdit(c, null, 'instance.policy', `guestAccess=${next.guestAccess}`);
+    // LGR-7 (S4): a change to where the book gets written must be VISIBLE.
+    // The edit-log detail previously recorded only `guestAccess`, so an
+    // exfiltration destination could be set and later cleared without leaving
+    // a trace the legitimate owner could find. The path itself stays out of the
+    // detail string (it is on `GET /api/instance` for anyone who may see it);
+    // the ledger's own append-only audit gets the full before/after.
+    const exportPathChanged =
+      patch.ledgerAutoExportPath !== undefined &&
+      (current.ledgerAutoExportPath ?? null) !== (next.ledgerAutoExportPath ?? null);
+    const detail = exportPathChanged
+      ? `guestAccess=${next.guestAccess}, ledgerAutoExportPath=${next.ledgerAutoExportPath ? 'set' : 'cleared'}`
+      : `guestAccess=${next.guestAccess}`;
+    logEdit(c, null, 'instance.policy', detail);
+    if (exportPathChanged) {
+      // Best-effort: policy is already persisted, so a failure here must not
+      // fail the request — but it is loud in the server log.
+      await store.ledger
+        .auditAutoExportPath(current.ledgerAutoExportPath ?? null, next.ledgerAutoExportPath ?? null, principal)
+        .catch((err) => console.error('OpenBook: could not audit the ledger auto-export path change:', err));
+    }
     return c.json(next);
   });
 
@@ -2048,6 +2090,26 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await broadcastRows(ids.postings);
     logEdit(c, posting.id, 'ledger.posting.cleared', cleared);
     return c.json(posting);
+  });
+
+  // Canonical postings CSV (LGR-7). Read-gated like every other ledger read;
+  // built in-memory (a book is small — see LedgerStore.exportPostingsCsv).
+  app.get(API.ledgerExportCsv, async (c) => {
+    await requireLedger(c, 'read');
+    const csv = await store.ledger.exportPostingsCsv();
+    return c.body(csv, 200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="ledger-postings.csv"',
+    });
+  });
+
+  // Independent invariant verifier (LGR-7). Gated `requireInstanceAdmin`
+  // (owner/admin/loopback): the report names entity ids across the whole book.
+  // A 404 for an unseeded ledger would leak nothing, but the report shape keeps
+  // it simple: `initialized:false` + empty findings = trivially clean.
+  app.get(API.ledgerVerify, async (c) => {
+    await requireInstanceAdmin(c, store);
+    return c.json(await store.verifyLedger());
   });
 
   app.get(API.ledgerAudit, async (c) => {

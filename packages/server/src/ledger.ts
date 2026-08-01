@@ -48,6 +48,7 @@ import {
   LedgerError,
   MoneyError,
   assertUniformCurrency,
+  buildLedgerPostingsCsv,
   canonicalLedgerJson,
   emptyPageSnapshot,
   isValidCurrencyCode,
@@ -216,10 +217,37 @@ export class LedgerStore {
   /** In-flight seed, shared so concurrent first inits create ONE set of databases. */
   private seeding: Promise<LedgerInfo> | null = null;
 
+  /** LGR-7: post-commit mutation listeners (the auto-export trigger seam). */
+  private readonly mutationListeners = new Set<() => void>();
+
   constructor(
     private readonly store: PageStore,
     private readonly db: Db,
   ) {}
+
+  /**
+   * Subscribe to ledger mutations (LGR-7). The listener fires AFTER each
+   * successful (committed) mutation — seed, account create/update, draft
+   * create/update/delete, post, reverse, cleared change — over BOTH surfaces
+   * (HTTP routes and `LocalDataClient` hit the same methods). Fire-and-forget:
+   * a throwing listener is contained and never fails the mutation. Returns an
+   * unsubscribe.
+   */
+  onMutation(listener: () => void): () => void {
+    this.mutationListeners.add(listener);
+    return () => this.mutationListeners.delete(listener);
+  }
+
+  /** Notify listeners after a COMMITTED mutation (never inside the tx). */
+  private notifyMutation(): void {
+    for (const listener of this.mutationListeners) {
+      try {
+        listener();
+      } catch {
+        // A listener failure must never surface into the mutation path.
+      }
+    }
+  }
 
   // ── Setup / identity ─────────────────────────────────────────────────────────
 
@@ -330,6 +358,7 @@ export class LedgerStore {
     // The settings row was written on the transaction, bypassing `setSetting`'s
     // cache invalidation — drop the store's cached ids so every guard arms now.
     this.store.invalidateLedgerIds();
+    this.notifyMutation();
     return this.info();
   }
 
@@ -389,12 +418,14 @@ export class LedgerStore {
       [LEDGER_PROP.account.status]: 'open',
       [LEDGER_PROP.account.currency]: currency,
     };
-    return this.db.begin(async (tx) => {
+    const created = await this.db.begin(async (tx) => {
       const rows = await this.insertRowTx(tx, ids.accounts, input.name, properties, id);
       const account = accountFromRow(rows);
       await this.appendAuditTx(tx, actor, 'account.create', [id], {account}, null, await sha256Hex(canonicalLedgerJson(accountContent(account))));
       return account;
     });
+    this.notifyMutation();
+    return created;
   }
 
   /**
@@ -419,7 +450,7 @@ export class LedgerStore {
     if (patch.status !== undefined && !['open', 'closed'].includes(patch.status)) {
       throw new LedgerError('invalid-input', `invalid account status: ${JSON.stringify(patch.status)}`);
     }
-    return this.db.begin(async (tx) => {
+    const account = await this.db.begin(async (tx) => {
       const rows = await tx.query<Row>(
         `SELECT ${ROW_COLS} FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL FOR UPDATE`,
         [id, ids.accounts],
@@ -439,18 +470,20 @@ export class LedgerStore {
          RETURNING ${ROW_COLS}`,
         [id, ids.accounts, patch.name ?? before.name, JSON.stringify(props)],
       );
-      const account = accountFromRow(updated[0]);
+      const after = accountFromRow(updated[0]);
       await this.appendAuditTx(
         tx,
         actor,
         'account.update',
         [id],
-        {account},
+        {account: after},
         await sha256Hex(canonicalLedgerJson(accountContent(before))),
-        await sha256Hex(canonicalLedgerJson(accountContent(account))),
+        await sha256Hex(canonicalLedgerJson(accountContent(after))),
       );
-      return account;
+      return after;
     });
+    this.notifyMutation();
+    return account;
   }
 
   /** The account's POSTED balance in minor units (drafts excluded), summed exactly. */
@@ -495,14 +528,26 @@ export class LedgerStore {
 
   // ── Transactions ─────────────────────────────────────────────────────────────
 
-  async listTransactions(opts: {state?: LedgerTransactionState; limit?: number} = {}): Promise<LedgerTransaction[]> {
-    const ids = await this.requireIds();
+  /**
+   * Every live transaction with its postings attached, in the caller's chosen
+   * transaction order. ONE place builds the tx↔postings join (the list read and
+   * the canonical export both use it).
+   *
+   * Posting order is `(position, created_at, id)` — the trailing `id` is what
+   * makes it a TOTAL order: `position` is assigned `MAX(position)+1`, which can
+   * tie under READ COMMITTED on real Postgres, and `created_at` can tie inside
+   * one transaction, so without it row order would be plan-dependent and the
+   * export's "same data ⇒ identical bytes" guarantee could break on Postgres
+   * while holding on PGlite.
+   */
+  private async loadTransactionsWithPostings(ids: LedgerIds, txOrderBy: string): Promise<LedgerTransaction[]> {
     const txRows = await this.db.query<Row>(
-      `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC, id DESC`,
+      `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL ${txOrderBy}`,
       [ids.transactions],
     );
     const postingRows = await this.db.query<Row>(
-      `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL ORDER BY position ASC, created_at ASC`,
+      `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL
+       ORDER BY position ASC, created_at ASC, id ASC`,
       [ids.postings],
     );
     const postingsByTx = new Map<string, LedgerPosting[]>();
@@ -512,7 +557,12 @@ export class LedgerStore {
       list.push(posting);
       postingsByTx.set(posting.transactionId, list);
     }
-    let out = txRows.map((row) => transactionFromRow(row, postingsByTx.get(row.id) ?? []));
+    return txRows.map((row) => transactionFromRow(row, postingsByTx.get(row.id) ?? []));
+  }
+
+  async listTransactions(opts: {state?: LedgerTransactionState; limit?: number} = {}): Promise<LedgerTransaction[]> {
+    const ids = await this.requireIds();
+    let out = await this.loadTransactionsWithPostings(ids, 'ORDER BY created_at DESC, id DESC');
     if (opts.state) out = out.filter((t) => t.state === opts.state);
     const limit = Math.max(1, Math.min(1000, Math.floor(opts.limit ?? 500)));
     return out.slice(0, limit);
@@ -549,7 +599,7 @@ export class LedgerStore {
       );
     }
     const txId = randomUUID();
-    return this.db.begin(async (tx) => {
+    const created = await this.db.begin(async (tx) => {
       const row = await this.insertRowTx(tx, ids.transactions, input.description ?? null, {
         [LEDGER_PROP.transaction.date]: input.date,
         [LEDGER_PROP.transaction.description]: input.description ?? '',
@@ -568,6 +618,8 @@ export class LedgerStore {
       );
       return transaction;
     });
+    this.notifyMutation();
+    return created;
   }
 
   /**
@@ -587,7 +639,7 @@ export class LedgerStore {
         `a journal entry may have at most ${MAX_POSTINGS_PER_TRANSACTION} postings, got ${replacement.length}`,
       );
     }
-    return this.db.begin(async (tx) => {
+    const updated = await this.db.begin(async (tx) => {
       const {row, props, before} = await this.lockDraftTx(tx, ids, id);
       if (patch.date !== undefined) props[LEDGER_PROP.transaction.date] = patch.date;
       if (patch.description !== undefined) props[LEDGER_PROP.transaction.description] = patch.description;
@@ -618,6 +670,8 @@ export class LedgerStore {
       );
       return transaction;
     });
+    this.notifyMutation();
+    return updated;
   }
 
   /**
@@ -627,7 +681,7 @@ export class LedgerStore {
    */
   async deleteDraft(id: string, actor?: Principal): Promise<boolean> {
     const ids = await this.requireIds();
-    return this.db.begin(async (tx) => {
+    const deleted = await this.db.begin(async (tx) => {
       const {before} = await this.lockDraftTx(tx, ids, id);
       await tx.query(
         `DELETE FROM pages WHERE database_id = $1 AND properties->>'${LEDGER_PROP.posting.transaction}' = $2`,
@@ -645,6 +699,8 @@ export class LedgerStore {
       );
       return true;
     });
+    this.notifyMutation();
+    return deleted;
   }
 
   /**
@@ -655,7 +711,7 @@ export class LedgerStore {
    */
   async post(id: string, actor?: Principal): Promise<LedgerTransaction> {
     const ids = await this.requireIds();
-    return this.db.begin(async (tx) => {
+    const posted = await this.db.begin(async (tx) => {
       const {props, before} = await this.lockDraftTx(tx, ids, id, 'post');
       const postings = await this.postingsForTx(tx, ids, id);
       await this.validatePostable(tx, ids, postings);
@@ -681,6 +737,8 @@ export class LedgerStore {
       );
       return transaction;
     });
+    this.notifyMutation();
+    return posted;
   }
 
   /**
@@ -702,7 +760,7 @@ export class LedgerStore {
       throw new LedgerError('invalid-input', `date must be an ISO YYYY-MM-DD date, got ${JSON.stringify(opts.date)}`);
     }
     assertDescription(opts.description);
-    return this.db.begin(async (tx) => {
+    const reversal = await this.db.begin(async (tx) => {
       const rows = await tx.query<Row>(
         `SELECT ${ROW_COLS} FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL FOR UPDATE`,
         [id, ids.transactions],
@@ -767,6 +825,8 @@ export class LedgerStore {
       );
       return transaction;
     });
+    this.notifyMutation();
+    return reversal;
   }
 
   // ── Postings (cleared-state workflow + the LGR-11 reconciliation hook) ───────
@@ -797,7 +857,7 @@ export class LedgerStore {
     if (!['pending', 'cleared', 'reconciled'].includes(cleared)) {
       throw new LedgerError('invalid-input', `invalid cleared state: ${JSON.stringify(cleared)}`);
     }
-    return this.db.begin(async (tx) => {
+    const changed = await this.db.begin(async (tx) => {
       const rows = await tx.query<Row>(
         `SELECT ${ROW_COLS} FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL FOR UPDATE`,
         [id, ids.postings],
@@ -828,6 +888,49 @@ export class LedgerStore {
       );
       return posting;
     });
+    this.notifyMutation();
+    return changed;
+  }
+
+  // ── Canonical export (LGR-7) ─────────────────────────────────────────────────
+
+  /**
+   * Record a change of the ledger auto-export target in the append-only audit
+   * log (LGR-7 S4). Where copies of the book are written is exactly the kind of
+   * change that must not be invisible: without this, an attacker who reached
+   * the setting leaves no trace inside the ledger's own record. No-op when the
+   * ledger has never been seeded (there is no book to audit yet).
+   */
+  async auditAutoExportPath(before: string | null, after: string | null, actor?: Principal): Promise<void> {
+    if (!(await this.ids())) return;
+    await this.db.begin(async (tx) => {
+      await this.appendAuditTx(
+        tx,
+        actor,
+        'ledger.autoExportPath',
+        [],
+        {path: after, previous: before},
+        before === null ? null : await sha256Hex(canonicalLedgerJson({ledgerAutoExportPath: before})),
+        await sha256Hex(canonicalLedgerJson({ledgerAutoExportPath: after})),
+      );
+    });
+  }
+
+  /**
+   * The whole ledger as the canonical postings CSV (see sdk
+   * `buildLedgerPostingsCsv` for the byte-stability contract). Unlike
+   * {@link listTransactions} this read is UNBOUNDED — an export must always
+   * carry the entire book, never a page of it. Built in-memory: a book is
+   * small (thousands of rows, not millions); revisit streaming only if that
+   * ever changes.
+   */
+  async exportPostingsCsv(): Promise<string> {
+    const ids = await this.requireIds();
+    const accounts = await this.listAccounts();
+    // The CSV builder imposes its own canonical transaction order, so the SQL
+    // order here only needs to be TOTAL (id) — never plan-dependent.
+    const transactions = await this.loadTransactionsWithPostings(ids, 'ORDER BY id ASC');
+    return buildLedgerPostingsCsv(accounts, transactions);
   }
 
   // ── Audit log (append-only; read is the only public surface) ─────────────────
@@ -957,7 +1060,7 @@ export class LedgerStore {
   private async postingsForTx(q: Db, ids: LedgerIds, txId: string): Promise<LedgerPosting[]> {
     const rows = await q.query<Row>(
       `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL AND properties->>'${LEDGER_PROP.posting.transaction}' = $2
-       ORDER BY position ASC, created_at ASC`,
+       ORDER BY position ASC, created_at ASC, id ASC`,
       [ids.postings, txId],
     );
     return rows.map(postingFromRow);

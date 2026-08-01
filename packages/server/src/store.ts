@@ -50,6 +50,7 @@ import type {IndexablePage} from './ai/search';
 import type {AgentTokenRow} from './agentTokens';
 import {runMigrations} from './migrations';
 import {LEDGER_DB_SETTING_KEY, LedgerStore, type LedgerIds} from './ledger';
+import {verifyLedger, type LedgerVerifyReport} from './ledgerVerify';
 
 /**
  * The `settings` key holding `{databaseId, hostPageId}` for the server-managed AI
@@ -444,6 +445,16 @@ export class PageStore {
     const resolved = ids && ids.hostPageId && ids.hostPages ? ids : null;
     this.ledgerIdsCache = resolved ?? undefined; // never cache "not seeded"
     return resolved;
+  }
+
+  /**
+   * LGR-7: run the INDEPENDENT invariant verifier against raw storage. Its own
+   * SQL reads — deliberately not the LedgerStore query/validator paths — so an
+   * out-of-band mutation that slipped past enforcement is still caught.
+   * Read-only; `findings: []` = clean.
+   */
+  verifyLedger(): Promise<LedgerVerifyReport> {
+    return verifyLedger(this.db);
   }
 
   /** True for one of the four server-managed ledger databases. */

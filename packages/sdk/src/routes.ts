@@ -308,6 +308,23 @@ export const API = {
   /** The append-only ledger audit log: `GET` (paginated, `?limit=&before=<seq>`,
    *  newest first). Read-only — no mutation route exists. */
   ledgerAudit: '/api/ledger/audit',
+  /**
+   * Canonical postings CSV export (LGR-7): `GET` returns the whole ledger as
+   * `text/csv` — one row per posting, byte-stable (same data ⇒ identical bytes;
+   * see sdk `buildLedgerPostingsCsv` for the column contract). Read-gated like
+   * every other ledger read (the restricted host page's decision). Built
+   * in-memory — a book is small; revisit streaming only if that ever changes.
+   */
+  ledgerExportCsv: '/api/ledger/export.csv',
+  /**
+   * Independent invariant verifier (LGR-7): `GET` re-checks the ledger against
+   * RAW storage (its own SQL, not the LedgerStore validators) — balance, audit
+   * hash chain, referential integrity, audit replay, entry-number density —
+   * and returns a typed findings report (empty findings = clean). Gated
+   * `requireInstanceAdmin` (owner/admin/loopback): the report names entity ids
+   * across the whole book, an administration-level view.
+   */
+  ledgerVerify: '/api/ledger/verify',
 } as const;
 
 /** Result of a {@link API.compact} run: the database's on-disk size before/after,

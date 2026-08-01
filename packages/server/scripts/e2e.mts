@@ -664,8 +664,35 @@ async function main(): Promise<void> {
   check('health stays open without a token', (await fetch(`${guarded.url}/health`).then((r) => r.text())) === 'ok');
   await guarded.close();
 
+  // ---- 6. Ledger: canonical export + independent invariant verifier (LGR-7) ----
+  console.log('\n=== 6. LEDGER EXPORT + VERIFY ===');
+  const bookkeeper = await startServer({dataDir: `${ROOT}/ledger`, host: '127.0.0.1', port: 4405});
+  const books = new HttpDataClient(bookkeeper.url);
+  await books.ledgerInit();
+  const cash = await books.ledgerCreateAccount({name: 'Assets:Cash', type: 'asset'});
+  const revenue = await books.ledgerCreateAccount({name: 'Revenue:Sales', type: 'revenue'});
+  const entry = await books.ledgerCreateDraft({
+    date: '2026-08-01',
+    description: 'E2E sale, "quoted"',
+    postings: [
+      {accountId: cash.id, amountMinor: 123_456},
+      {accountId: revenue.id, amountMinor: -123_456},
+    ],
+  });
+  const postedEntry = await books.ledgerPostTransaction(entry.id);
+  check('ledger: entry posted with entry number 1', postedEntry.entryNo === 1);
+  const csvA = await books.ledgerExportCsv();
+  const csvB = await books.ledgerExportCsv();
+  check('ledger: canonical CSV export is byte-stable', Buffer.from(csvA, 'utf8').equals(Buffer.from(csvB, 'utf8')));
+  check('ledger: CSV carries the posting rows', csvA.split('\n').length >= 3 && csvA.includes('123456'));
+  const verifyRes = await fetch(`${bookkeeper.url}${API.ledgerVerify}`, {headers: clientHeaders()});
+  check('ledger: verify route answers 200', verifyRes.status === 200);
+  const ledgerVerdict = (await verifyRes.json()) as {initialized: boolean; findings: unknown[]};
+  check('ledger: independent verifier reports a CLEAN book', ledgerVerdict.initialized === true && ledgerVerdict.findings.length === 0);
+  await bookkeeper.close();
+
   rmSync(ROOT, {recursive: true, force: true});
-  console.log(`\n✅ ALL ${passed} CHECKS PASSED — embedded, persistence, headless, trash-cleanup, and access-token flows verified.`);
+  console.log(`\n✅ ALL ${passed} CHECKS PASSED — embedded, persistence, headless, trash-cleanup, access-token, and ledger flows verified.`);
 }
 
 main().catch((err) => {

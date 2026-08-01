@@ -479,3 +479,4 @@ export {
   type LedgerAuditEvent,
   type LedgerReplayState,
 } from './ledger';
+export {buildLedgerPostingsCsv, LEDGER_CSV_COLUMNS} from './ledgerCsv';
