@@ -14,12 +14,42 @@ export {Mutex, PgliteQueryableDb, PgliteDb, type Db} from './dbCore';
 
 type Sql = ReturnType<typeof postgres>;
 
+/**
+ * JSON/JSONB parameter serializer for the porsager driver (LGR-15).
+ *
+ * THE BUG THIS FIXES: every jsonb write in this codebase binds
+ * `JSON.stringify(value)` — a STRING — as the parameter (`$n::jsonb`), which
+ * PGlite parses into the intended object. The wire driver, however, learns the
+ * parameter's type from the server's ParameterDescription and then runs its
+ * default json serializer — `JSON.stringify` — over the ALREADY-STRINGIFIED
+ * value, storing a jsonb STRING scalar (`"{\"a\":1}"`), not an object. Reads
+ * through `parseJson` still worked (it re-parses strings — which is why this
+ * survived undetected until the LGR-15 durability CI ran the ledger on real
+ * Postgres), but every SQL-level extraction (`properties->>'…'`, the ledger's
+ * posting reader, the icon projection) silently returned NULL.
+ *
+ * Fix: a string bound to a json/jsonb parameter IS ALREADY JSON text — pass it
+ * through verbatim; anything else serializes once. This matches PGlite's
+ * behavior exactly, which is the property the whole store relies on
+ * ("byte-identical SQL on both backends").
+ */
+const jsonParamPassthrough = (value: unknown): string =>
+  typeof value === 'string' ? value : JSON.stringify(value);
+
 /** Real Postgres via the `postgres` (porsager) driver. */
 export class PostgresDb implements Db {
   private readonly sql: Sql;
 
   constructor(databaseUrl: string, opts?: {sql?: Sql; max?: number}) {
-    this.sql = opts?.sql ?? postgres(databaseUrl, {max: opts?.max ?? 10, onnotice: () => undefined});
+    this.sql =
+      opts?.sql ??
+      postgres(databaseUrl, {
+        max: opts?.max ?? 10,
+        onnotice: () => undefined,
+        types: {
+          json: {to: 114, from: [114, 3802], serialize: jsonParamPassthrough, parse: (raw: string) => JSON.parse(raw) as unknown},
+        },
+      });
   }
 
   async query<T = Record<string, unknown>>(text: string, params: unknown[] = []): Promise<T[]> {
