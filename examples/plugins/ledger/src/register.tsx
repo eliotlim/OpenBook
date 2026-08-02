@@ -240,6 +240,22 @@ const stickyRightCellStyle: React.CSSProperties = {
   boxShadow: 'inset 1px 0 0 hsl(var(--border))',
 };
 
+/**
+ * Below this REGION width the Balance pin yields and the column scrolls again
+ * (R3-1 follow-up, LGR-23 F6): two pinned edges stop being an answer once the
+ * region is narrower than what the pins consume — the right-pinned Balance,
+ * later in the DOM, then paints straight over the Correct button (fully hidden
+ * at a 420px viewport). Correct keeps its pin at every width: it is the one
+ * control the corrections feature exists to ship. The threshold is the two
+ * pinned columns' combined claim (~220px) plus at least that much again of
+ * scrollable middle, so a pin never eats more than half the region.
+ *
+ * A measured guard rather than a container query because the block's styling
+ * is inline host-token styles throughout — there is no stylesheet for a
+ * container rule to live in.
+ */
+const MIN_BALANCE_PIN_WIDTH = 480;
+
 /** `"cleared,reconciled"` ⇄ the typed state list (unknown words are dropped). */
 function parseClearedProp(raw: string): ReportClearedState[] {
   const wanted = raw
@@ -272,6 +288,22 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
   const blockReasonId = React.useMemo(() => `ledger-correct-why-${blockKey(block)}`, [block]);
   const closeWhyId = React.useMemo(() => `ledger-close-why-${blockKey(block)}`, [block]);
   const [confirming, setConfirming] = React.useState<RegisterRow | null>(null);
+  // The table region's measured width, for the Balance-pin guard (see
+  // {@link MIN_BALANCE_PIN_WIDTH}). A callback-ref + state pair rather than a
+  // plain ref because the region only mounts once rows render, and an effect
+  // keyed on the element is what re-arms the observer across that boundary.
+  const [tableRegionEl, setTableRegionEl] = React.useState<HTMLDivElement | null>(null);
+  const [regionWidth, setRegionWidth] = React.useState<number | null>(null);
+  React.useEffect(() => {
+    // No observer (a bare test harness): stay pinned — the default is the
+    // desktop layout the pin was built for.
+    if (tableRegionEl === null || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => setRegionWidth(tableRegionEl.clientWidth));
+    observer.observe(tableRegionEl);
+    setRegionWidth(tableRegionEl.clientWidth);
+    return () => observer.disconnect();
+  }, [tableRegionEl]);
+  const balancePinStyle = regionWidth === null || regionWidth >= MIN_BALANCE_PIN_WIDTH ? stickyRightCellStyle : undefined;
   const [correction, setCorrection] = React.useState<Correction | null>(() => parseCorrection(api.storage.get(storageKey)));
   const [done, setDone] = React.useState<CorrectionDone | null>(null);
   const [actionError, setActionError] = React.useState<CorrectionFailure | null>(null);
@@ -796,7 +828,8 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
                   {describeCorrectionBlocker(blockBlocker, null)}
                 </div>
               )}
-              <TableRegion label="Account register table">
+              {/* `regionRef` is the WIDTH PROBE for the Balance-pin guard. */}
+              <TableRegion label="Account register table" regionRef={setTableRegionEl}>
                 <table style={tableStyle}>
                   <caption style={{...mutedStyle, textAlign: 'left', paddingBottom: '0.25rem'}}>
                     {/* What the columns actually SHOW. "Debit-positive" is the
@@ -833,7 +866,7 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
                       <th scope="col" style={numericHeadStyle}>
                     Amount
                       </th>
-                      <th scope="col" style={{...numericHeadStyle, ...stickyRightCellStyle}}>
+                      <th scope="col" style={{...numericHeadStyle, ...balancePinStyle}}>
                     Balance
                       </th>
                     </tr>
@@ -844,7 +877,7 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
                       <th scope="row" colSpan={6} style={{...tdStyle, ...mutedStyle, textAlign: 'left', fontWeight: 400}}>
                     Opening balance{register.filter.from !== null ? ` before ${register.filter.from}` : ''}
                       </th>
-                      <td data-ledger-opening-balance style={{...numericStyle, ...mutedStyle, ...stickyRightCellStyle}}>
+                      <td data-ledger-opening-balance style={{...numericStyle, ...mutedStyle, ...balancePinStyle}}>
                         <SideAmount minor={register.openingMinor} />
                       </td>
                     </tr>
@@ -996,7 +1029,7 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
                             )}
                           </td>
                           <td data-ledger-amount style={numericStyle}><SideAmount minor={row.amountMinor} /></td>
-                          <td data-ledger-running style={{...numericStyle, ...stickyRightCellStyle}}><SideAmount minor={row.runningMinor} /></td>
+                          <td data-ledger-running style={{...numericStyle, ...balancePinStyle}}><SideAmount minor={row.runningMinor} /></td>
                         </tr>
                       );
                     })}
@@ -1010,7 +1043,7 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
                       <td style={{...numericStyle, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none', ...mutedStyle}}>
                         {formatAmount(register.totalDebitMinor)} Dr / {formatAmount(register.totalCreditMinor)} Cr
                       </td>
-                      <td data-ledger-closing style={{...numericStyle, fontWeight: 600, ...stickyRightCellStyle, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none'}}>
+                      <td data-ledger-closing style={{...numericStyle, fontWeight: 600, ...balancePinStyle, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none'}}>
                         <SideAmount minor={register.closingMinor} />
                       </td>
                     </tr>

@@ -605,9 +605,13 @@ export const ReportError = ({kind, detail, onRetry}: {kind: 'host' | 'fold'; det
  * focus cannot be scrolled by keyboard in Safari at all — and the column that
  * scrolls out of view is the running balance. Focusable + labelled also gives
  * each table a navigable landmark, which the blocks otherwise lack.
+ *
+ * `regionRef` (optional) exposes the region element to a caller that needs its
+ * MEASURED width — the register's Balance-pin guard is the first: a pinned
+ * column has to know when the region is too narrow to afford it.
  */
-export const TableRegion = ({label, children}: {label: string; children: React.ReactNode}) => (
-  <div tabIndex={0} role="region" aria-label={label} style={tableScrollStyle}>
+export const TableRegion = ({label, children, regionRef}: {label: string; children: React.ReactNode; regionRef?: React.Ref<HTMLDivElement>}) => (
+  <div ref={regionRef} tabIndex={0} role="region" aria-label={label} style={tableScrollStyle}>
     {children}
   </div>
 );

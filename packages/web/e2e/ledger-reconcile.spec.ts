@@ -625,4 +625,26 @@ test('on a read-only page the reconcile write surface is inert, with the reason 
   // the statement is still open on the books.
   const after = (await (await request.get(`${SERVER}/api/ledger/reconciliations/${rec.id}`)).json()) as {reconciliation: {status: string}};
   expect(after.reconciliation.status).toBe('open');
+
+  // ── The START form, locked (F1) ───────────────────────────────────────────
+  // "Pick another statement" is navigation and stays live — it lands on the
+  // start form, whose inputs are PURE WRITE INTENT: on an editable page these
+  // exact controls are live (the starts above used them). The widget editor is
+  // still live here, so a block reverted to `editor.readOnly` renders all
+  // three enabled and every assertion below fails.
+  await page.locator('[data-ledger-reconcile-close]').click();
+  const startButton = page.locator('[data-ledger-reconcile-start]');
+  await expect(startButton).toBeVisible();
+  await expect(startButton).toBeDisabled();
+  await expect(page.locator('[data-ledger-reconcile-account]')).toBeDisabled();
+  await expect(page.locator('[data-ledger-statement-date]')).toBeDisabled();
+  await expect(page.locator('[data-ledger-statement-balance-input]')).toBeDisabled();
+  // The reason is stated (the start form's own copy of it), the dead inputs
+  // point at it, and the imperative missing-input checklist is not shown.
+  const startWhy = page.locator('[data-ledger-reconcile-why="read-only"]');
+  await expect(startWhy).toHaveCount(1);
+  await expect(startWhy).toContainText('This page is read-only');
+  await expect(page.locator('[data-ledger-reconcile-account]')).toHaveAttribute('aria-describedby', (await startWhy.getAttribute('id')) ?? '');
+  await expect(page.locator('[data-ledger-statement-balance-input]')).toHaveAttribute('aria-describedby', (await startWhy.getAttribute('id')) ?? '');
+  await expect(page.locator('[data-ledger-start-hint]')).toHaveCount(0);
 });

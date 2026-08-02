@@ -1089,7 +1089,7 @@ const Checklist = ({
                   disabled={locked || readOnly}
                   aria-describedby={readOnly ? readOnlyWhyId : undefined}
                   onChange={(e) => onToggle(row.postingId, e.target.checked)}
-                  aria-label={describeRowLabel(sheet, row)}
+                  aria-label={describeRowLabel(sheet, row, readOnly)}
                 />
               </td>
               <td style={{...tdStyle, ...mutedStyle, fontVariantNumeric: 'tabular-nums'}}>{row.entryNo === null ? '—' : `#${row.entryNo}`}</td>
@@ -1198,10 +1198,22 @@ const StartForm = ({
             : null;
   return (
     <>
+      {/* Every input here is PURE WRITE INTENT — the form exists only to start
+          a reconciliation — so on a read-only page all three are off (LGR-23
+          F1), not just the button: live pickers and a live balance box over a
+          dead Start invite work whose only exit is refusal. Each dead control
+          points at the stated reason below. */}
       <div style={{display: 'flex', alignItems: 'flex-end', gap: '0.5rem', flexWrap: 'wrap'}}>
         <label style={{display: 'flex', flexDirection: 'column', gap: '0.2rem'}}>
           <span style={mutedStyle}>Account</span>
-          <select data-ledger-reconcile-account style={{...controlStyle, minWidth: '12rem'}} value={accountId} onChange={(e) => onAccount(e.target.value)}>
+          <select
+            data-ledger-reconcile-account
+            style={{...controlStyle, minWidth: '12rem'}}
+            value={accountId}
+            disabled={readOnly}
+            aria-describedby={readOnly ? lockedWhyId : undefined}
+            onChange={(e) => onAccount(e.target.value)}
+          >
             <option value="">Select account…</option>
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
@@ -1212,7 +1224,15 @@ const StartForm = ({
         </label>
         <label style={{display: 'flex', flexDirection: 'column', gap: '0.2rem'}}>
           <span style={mutedStyle}>Statement date</span>
-          <input type="date" data-ledger-statement-date style={controlStyle} value={statementDate} onChange={(e) => onDate(e.target.value)} />
+          <input
+            type="date"
+            data-ledger-statement-date
+            style={controlStyle}
+            value={statementDate}
+            disabled={readOnly}
+            aria-describedby={readOnly ? lockedWhyId : undefined}
+            onChange={(e) => onDate(e.target.value)}
+          />
         </label>
         <label style={{display: 'flex', flexDirection: 'column', gap: '0.2rem'}}>
           {/* THE LABEL IS THE INSTRUCTION. "Closing balance (credit-normal
@@ -1227,13 +1247,17 @@ const StartForm = ({
             type="text"
             inputMode="decimal"
             data-ledger-statement-balance-input
-            aria-describedby={balance.ok && balanceText.trim() !== '' ? balanceHintId : undefined}
+            aria-describedby={readOnly ? lockedWhyId : balance.ok && balanceText.trim() !== '' ? balanceHintId : undefined}
             style={{...controlStyle, minWidth: '9rem', textAlign: 'right'}}
             placeholder="0.00"
             value={balanceText}
+            disabled={readOnly}
             onChange={(e) => onBalance(e.target.value)}
           />
-          {balance.ok && balanceText.trim() !== '' && (
+          {/* The echo narrates what a typed balance WILL mean to Start — an
+              intent that does not exist on a locked page, so it is dropped
+              rather than left announcing a reading nobody can act on. */}
+          {!readOnly && balance.ok && balanceText.trim() !== '' && (
             <span id={balanceHintId} data-ledger-balance-hint style={{...mutedStyle, maxWidth: '18rem'}}>
               <strong data-ledger-balance-echo>{describeBalanceEcho(balance.minor, normalSide)}</strong>
             </span>
