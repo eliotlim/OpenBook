@@ -140,6 +140,18 @@ const buttonFace = (dead: boolean, extra: React.CSSProperties = {}): React.CSSPr
 });
 
 /**
+ * The face AND the gate, from one answer. `style={buttonFace(X)}` beside
+ * `disabled={X}` was the same fact written twice on every button in this file —
+ * one edited copy away from a dead face on a live control, which is the exact
+ * drift {@link buttonFace} exists to end. Spread the result:
+ * `{...deadButton(x)}`.
+ */
+const deadButton = (dead: boolean, extra: React.CSSProperties = {}): {style: React.CSSProperties; disabled: boolean} => ({
+  style: buttonFace(dead, extra),
+  disabled: dead,
+});
+
+/**
  * Where keyboard focus must land after the NEXT render.
  *
  * Every sub-flow transition here either disables or unmounts the element that
@@ -167,8 +179,20 @@ type FocusTarget =
   | 'finish-invoker' // the Finish button
   | 'close'; // "Pick another statement" — present in every status
 
-export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: EditorLike}) => {
+export const ReconcileBlock = ({block, editor, pageReadOnly}: {block: BlockLike; editor: EditorLike; pageReadOnly?: boolean}) => {
   const data = useLedgerReport();
+  // MAY THIS READER WRITE? Not "is this widget frozen?". A custom block on a
+  // read-only page is deliberately handed an editor with `readOnly: false` so it
+  // stays operable for the reader, so `editor.readOnly` is FALSE on exactly the
+  // page where Finish/Amend/Abandon and every tick must be off — the host
+  // passes the document's real lock separately. (Optional, and defaulted, so
+  // the block still renders correctly when driven directly by a test harness.)
+  const pageLocked = pageReadOnly ?? editor.readOnly;
+  // Per instance, and the prefix for every DOM id this block mints: two
+  // reconcile blocks on one page — even resumed onto the SAME statement — must
+  // not hand their `aria-describedby` wiring each other's text.
+  const uid = React.useId();
+  const lockedWhyId = `${uid}-readonly-why`;
   const props = readProps(block);
   const [reconciliationId, setReconciliationId] = React.useState<string>(() => readString(props, PROP_RECONCILIATION));
   const [accountId, setAccountId] = React.useState<string>(() => readString(props, PROP_ACCOUNT));
@@ -239,7 +263,7 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
 
   const update = (key: string, value: string, apply: (v: string) => void): void => {
     apply(value);
-    writeProp(block, editor, key, value);
+    writeProp(block, editor, key, value, pageLocked);
   };
 
   /**
@@ -292,8 +316,8 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
   const culprit = sheet !== null ? describeSingleCulprit(sheet) : null;
   const unmatchedCaveat = sheet !== null ? describeUnmatchedCaveat(sheet) : null;
   const frozenElsewhere = sheet !== null ? describeFrozenElsewhere(sheet) : null;
-  const finishDead = sheet === null || !sheet.canFinish || action.busy || editor.readOnly;
-  const finishHintId = `ledger-finish-hint-${reconciliationId}`;
+  const finishDead = sheet === null || !sheet.canFinish || action.busy || pageLocked;
+  const finishHintId = `${uid}-finish-hint`;
   const outstandingHeading = sheet !== null ? describeOutstandingHeading(sheet) : null;
   /** The amend draft, read through the SAME parser the start form uses. */
   const amendParsed = parseStatementBalance(amendBalance, sheet?.normalSide ?? 'debit');
@@ -470,7 +494,7 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
         <h3 style={titleStyle}>
           <span aria-hidden="true">🧾 </span>Reconcile
         </h3>
-        <SetupPrompt label="Set up books" readOnly={editor.readOnly} onDone={data.reload} />
+        <SetupPrompt label="Set up books" readOnly={pageLocked} onDone={data.reload} />
       </div>
     );
   }
@@ -522,7 +546,7 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
           balance={parsedBalance}
           normalSide={startSide}
           busy={action.busy}
-          readOnly={editor.readOnly}
+          readOnly={pageLocked}
           onAccount={(v) => update(PROP_ACCOUNT, v, setAccountId)}
           onDate={(v) => update(PROP_DATE, v, setStatementDate)}
           onBalance={(v) => update(PROP_BALANCE, v, setBalanceText)}
@@ -567,15 +591,25 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                 </div>
               )}
 
+              {/* The DOCUMENT's lock, stated once, immediately above the
+                  controls it explains (LGR-23) — every dead write control below
+                  points here by `aria-describedby`. Said in its own line, not
+                  per control: it is one fact, identical on all of them. */}
+              {pageLocked && (
+                <div id={lockedWhyId} data-ledger-reconcile-why="read-only" style={mutedStyle}>
+                  This page is read-only, so nothing on this statement can be changed from it.
+                </div>
+              )}
               <div style={{display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center'}}>
                 {sheet.status === 'open' && (
                   <button
                     type="button"
                     data-ledger-finish
                     ref={finishButtonRef}
-                    style={buttonFace(finishDead, {fontWeight: 600})}
-                    disabled={finishDead}
-                    aria-describedby={finishReason !== null ? finishHintId : undefined}
+                    {...deadButton(finishDead, {fontWeight: 600})}
+                    aria-describedby={
+                      [finishReason !== null ? finishHintId : null, pageLocked ? lockedWhyId : null].filter((id) => id !== null).join(' ') || undefined
+                    }
                     onClick={requestFinish}
                   >
                     {action.busy ? 'Working…' : 'Finish'}
@@ -585,8 +619,8 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                   <button
                     type="button"
                     data-ledger-reopen
-                    style={buttonFace(action.busy || editor.readOnly)}
-                    disabled={action.busy || editor.readOnly}
+                    {...deadButton(action.busy || pageLocked)}
+                    aria-describedby={pageLocked ? lockedWhyId : undefined}
                     onClick={() => void run(() => api.ledger.reopenReconciliation(statement.id))}
                   >
                     {action.busy ? 'Working…' : 'Reopen'}
@@ -608,8 +642,8 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                       type="button"
                       data-ledger-amend
                       ref={amendButtonRef}
-                      style={buttonFace(action.busy || editor.readOnly || mode === 'amend')}
-                      disabled={action.busy || editor.readOnly || mode === 'amend'}
+                      {...deadButton(action.busy || pageLocked || mode === 'amend')}
+                      aria-describedby={pageLocked ? lockedWhyId : undefined}
                       onClick={beginAmend}
                     >
                       Amend statement
@@ -618,8 +652,8 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                       type="button"
                       data-ledger-abandon
                       ref={abandonButtonRef}
-                      style={buttonFace(action.busy || editor.readOnly || mode === 'abandon')}
-                      disabled={action.busy || editor.readOnly || mode === 'abandon'}
+                      {...deadButton(action.busy || pageLocked || mode === 'abandon')}
+                      aria-describedby={pageLocked ? lockedWhyId : undefined}
                       onClick={beginAbandon}
                     >
                       Abandon
@@ -639,12 +673,14 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                     {finishReason.live !== null && <SrOnly> {finishReason.live}</SrOnly>}
                   </span>
                 )}
+                {/* Live on a read-only page ON PURPOSE: picking another
+                    statement is navigation, not a write — the prop write under
+                    it is skipped by `writeProp`'s page-lock gate. */}
                 <button
                   type="button"
                   data-ledger-reconcile-close
                   ref={closeButtonRef}
-                  style={buttonFace(action.busy)}
-                  disabled={action.busy}
+                  {...deadButton(action.busy)}
                   onClick={() => update(PROP_RECONCILIATION, '', setReconciliationId)}
                 >
                   Pick another statement
@@ -666,13 +702,12 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                       type="button"
                       data-ledger-finish-confirm-yes
                       ref={finishYesRef}
-                      style={buttonFace(action.busy, {fontWeight: 600})}
-                      disabled={action.busy}
+                      {...deadButton(action.busy, {fontWeight: 600})}
                       onClick={commitFinish}
                     >
                       {action.busy ? 'Working…' : 'Finish anyway'}
                     </button>
-                    <button type="button" data-ledger-finish-confirm-no style={buttonFace(action.busy)} disabled={action.busy} onClick={cancelFinishConfirm}>
+                    <button type="button" data-ledger-finish-confirm-no {...deadButton(action.busy)} onClick={cancelFinishConfirm}>
                       Go back and check
                     </button>
                   </div>
@@ -681,7 +716,7 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
 
               {mode === 'amend' && (
                 <AmendForm
-                  idBase={`ledger-amend-${reconciliationId}`}
+                  idBase={`${uid}-amend`}
                   normalSide={sheet.normalSide}
                   date={amendDate}
                   balanceText={amendBalance}
@@ -710,13 +745,12 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                       type="button"
                       data-ledger-abandon-confirm-yes
                       ref={abandonYesRef}
-                      style={buttonFace(action.busy, {fontWeight: 600})}
-                      disabled={action.busy}
+                      {...deadButton(action.busy, {fontWeight: 600})}
                       onClick={abandon}
                     >
                       {action.busy ? 'Working…' : 'Abandon this statement'}
                     </button>
-                    <button type="button" data-ledger-abandon-confirm-no style={buttonFace(action.busy)} disabled={action.busy} onClick={cancelAbandon}>
+                    <button type="button" data-ledger-abandon-confirm-no {...deadButton(action.busy)} onClick={cancelAbandon}>
                       Keep working on it
                     </button>
                   </div>
@@ -736,7 +770,7 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
               {sheet.rows.length === 0 ? (
                 <EmptyState>No posted entries touch {sheet.accountName} yet — there is nothing to match against this statement.</EmptyState>
               ) : (
-                <Checklist sheet={sheet} optimistic={optimistic} readOnly={editor.readOnly} onToggle={toggle} truncated={data.truncated} />
+                <Checklist sheet={sheet} optimistic={optimistic} readOnly={pageLocked} readOnlyWhyId={lockedWhyId} onToggle={toggle} truncated={data.truncated} />
               )}
 
               <div data-ledger-reconcile-summary style={mutedStyle}>
@@ -752,7 +786,7 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                   caveat above are already saying it against a number that
                   moves. */}
               {outstandingHeading !== null && (
-                <OutstandingItems sheet={sheet} heading={outstandingHeading} headingId={`ledger-outstanding-${reconciliationId}`} />
+                <OutstandingItems sheet={sheet} heading={outstandingHeading} headingId={`${uid}-outstanding`} />
               )}
             </>
           )}
@@ -930,13 +964,12 @@ const AmendForm = ({
           type="button"
           data-ledger-amend-save
           ref={saveRef}
-          style={buttonFace(problem !== null || busy, {fontWeight: 600})}
-          disabled={problem !== null || busy}
+          {...deadButton(problem !== null || busy, {fontWeight: 600})}
           onClick={onSave}
         >
           {busy ? 'Saving…' : 'Save statement'}
         </button>
-        <button type="button" data-ledger-amend-cancel style={buttonFace(busy)} disabled={busy} onClick={onCancel}>
+        <button type="button" data-ledger-amend-cancel {...deadButton(busy)} onClick={onCancel}>
           Cancel
         </button>
       </div>
@@ -977,17 +1010,21 @@ const OutstandingItems = ({sheet, heading, headingId}: {sheet: ReconcileSheet; h
   </section>
 );
 
-/** The candidate postings, with the tick that moves the difference. */
+/** The candidate postings, with the tick that moves the difference.
+ *  `readOnly` is the PAGE's lock (the caller's `pageLocked`); when set, every
+ *  box is off and points at the block's stated reason (`readOnlyWhyId`). */
 const Checklist = ({
   sheet,
   optimistic,
   readOnly,
+  readOnlyWhyId,
   onToggle,
   truncated,
 }: {
   sheet: ReconcileSheet;
   optimistic: Record<string, OptimisticTick>;
   readOnly: boolean;
+  readOnlyWhyId?: string;
   onToggle: (postingId: string, matched: boolean) => void;
   truncated: boolean;
 }) => (
@@ -1050,6 +1087,7 @@ const Checklist = ({
                   data-ledger-match={row.postingId}
                   checked={checked}
                   disabled={locked || readOnly}
+                  aria-describedby={readOnly ? readOnlyWhyId : undefined}
                   onChange={(e) => onToggle(row.postingId, e.target.checked)}
                   aria-label={describeRowLabel(sheet, row)}
                 />
@@ -1142,7 +1180,12 @@ const StartForm = ({
   accountNameFor: (id: string) => string;
   onResume: (id: string) => void;
 }) => {
-  const balanceHintId = 'ledger-balance-hint';
+  // Per instance (LGR-23): the id was the static string 'ledger-balance-hint',
+  // so the SECOND reconcile block on a page pointed its balance input's
+  // `aria-describedby` at the FIRST block's echo text.
+  const uid = React.useId();
+  const balanceHintId = `${uid}-balance-hint`;
+  const lockedWhyId = `${uid}-readonly-why`;
   const problem =
     accounts.length === 0
       ? 'No accounts yet — run “Ledger: set up books” to seed a chart of accounts.'
@@ -1196,15 +1239,33 @@ const StartForm = ({
             </span>
           )}
         </label>
-        <button type="button" data-ledger-reconcile-start style={buttonStyle} disabled={problem !== null || busy || readOnly} onClick={onStart}>
+        {/* Through {@link deadButton} like every other disableable button in
+            this file — plain `buttonStyle` was the one face left that rendered
+            the dead state pixel-identical to the live one. */}
+        <button
+          type="button"
+          data-ledger-reconcile-start
+          {...deadButton(problem !== null || busy || readOnly)}
+          aria-describedby={readOnly ? lockedWhyId : undefined}
+          onClick={onStart}
+        >
           {busy ? 'Starting…' : 'Start reconciling'}
         </button>
       </div>
 
-      {problem !== null && (
-        <div data-ledger-start-hint role="status" aria-live="polite" style={noticeStyle('quiet')}>
-          {problem}
+      {/* On a read-only page the DOCUMENT's lock is the reason Start is off,
+          and it outranks the checklist of missing inputs — which is a list of
+          instructions ("Pick the account…") a viewer cannot follow. */}
+      {readOnly ? (
+        <div id={lockedWhyId} data-ledger-reconcile-why="read-only" style={mutedStyle}>
+          This page is read-only, so a reconciliation cannot be started from it.
         </div>
+      ) : (
+        problem !== null && (
+          <div data-ledger-start-hint role="status" aria-live="polite" style={noticeStyle('quiet')}>
+            {problem}
+          </div>
+        )
       )}
 
       {existing.length > 0 && (

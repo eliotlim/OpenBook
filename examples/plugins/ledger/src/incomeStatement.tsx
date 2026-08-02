@@ -86,8 +86,15 @@ function sectionLines(section: StatementSection, rolled: boolean, collapsed: Rea
   };
 }
 
-export const IncomeStatementBlock = ({block, editor}: {block: BlockLike; editor: EditorLike}) => {
+export const IncomeStatementBlock = ({block, editor, pageReadOnly}: {block: BlockLike; editor: EditorLike; pageReadOnly?: boolean}) => {
   const data = useLedgerReport();
+  // MAY THIS READER WRITE? Not "is this widget frozen?". The editor handed to a
+  // custom block on a read-only page deliberately reports `readOnly: false` so
+  // the report stays browsable, so `editor.readOnly` is FALSE on exactly the
+  // page where the setup control must be off and the period must not persist —
+  // the host passes the document's real lock separately. (Optional, and
+  // defaulted, for a test harness with no host to ask.)
+  const pageLocked = pageReadOnly ?? editor.readOnly;
   const props = readProps(block);
   const [fromProp, setFromProp] = React.useState<string>(() => readString(props, PROP_FROM));
   const [toProp, setToProp] = React.useState<string>(() => readString(props, PROP_TO));
@@ -119,13 +126,13 @@ export const IncomeStatementBlock = ({block, editor}: {block: BlockLike; editor:
   const pinPeriod = (nextFrom: string, nextTo: string): void => {
     setFromProp(nextFrom);
     setToProp(nextTo);
-    writeProp(block, editor, PROP_FROM, nextFrom);
-    writeProp(block, editor, PROP_TO, nextTo);
+    writeProp(block, editor, PROP_FROM, nextFrom, pageLocked);
+    writeProp(block, editor, PROP_TO, nextTo, pageLocked);
   };
 
   const updateCollapsed = (next: Set<string>): void => {
     setCollapsed(next);
-    writeProp(block, editor, PROP_COLLAPSED, serializeCollapsed(next));
+    writeProp(block, editor, PROP_COLLAPSED, serializeCollapsed(next), pageLocked);
   };
 
   const toggle = (path: string): void => {
@@ -159,7 +166,7 @@ export const IncomeStatementBlock = ({block, editor}: {block: BlockLike; editor:
         <h3 style={titleStyle}>
           <span aria-hidden="true">📒 </span>Income statement
         </h3>
-        <SetupPrompt label="Set up books" readOnly={editor.readOnly} onDone={data.reload} />
+        <SetupPrompt label="Set up books" readOnly={pageLocked} onDone={data.reload} />
       </div>
     );
   }
@@ -298,7 +305,7 @@ export const IncomeStatementBlock = ({block, editor}: {block: BlockLike; editor:
                 rolled={rolled}
                 onRolled={(next) => {
                   setRolled(next);
-                  writeProp(block, editor, PROP_ROLLED, next);
+                  writeProp(block, editor, PROP_ROLLED, next, pageLocked);
                 }}
                 onCollapseAll={() => updateCollapsed(new Set(parentPaths))}
                 onExpandAll={() => updateCollapsed(new Set())}

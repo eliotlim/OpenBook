@@ -289,6 +289,11 @@ test('the canonical reconciliation: 3 months with 2 missing entries and 1 duplic
   await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'finished');
   await expect(page.locator('[data-ledger-reopen]')).toBeVisible();
   await expect(finish).toHaveCount(0);
+  // SUCCESS FOCUS: the pressed button ("Finish anyway") unmounted with the
+  // status change, so focus targets the one control every status renders. This
+  // is the only place the unmount premise is real — a unit render never races
+  // the reloaded status — so it is pinned here, in the browser.
+  await expect(page.locator('[data-ledger-reconcile-close]')).toBeFocused();
   // Every matched row is frozen — the ticks cannot be undone by a stray click.
   await expect(rows.locator('input[type="checkbox"]:checked')).toHaveCount(BOOKED.length + MISSING.length - 1);
   for (const box of await rows.locator('input[type="checkbox"]').all()) {
@@ -460,6 +465,9 @@ test('a mistyped closing balance is correctable, and a bad statement abandonable
   await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'finished');
   await expect(page.locator('[data-ledger-finish-confirm]')).toHaveCount(0);
   await expect(page.locator('[data-ledger-outstanding]')).toHaveCount(0);
+  // SUCCESS FOCUS: the Finish button the user pressed has unmounted with the
+  // finished status — focus lands on the surviving control, never <body>.
+  await expect(page.locator('[data-ledger-reconcile-close]')).toBeFocused();
 
   // ── ABANDON ───────────────────────────────────────────────────────────────
   // A second statement started on the wrong account balance and given up on.
@@ -487,6 +495,9 @@ test('a mistyped closing balance is correctable, and a bad statement abandonable
   await page.locator('[data-ledger-abandon]').click();
   await page.locator('[data-ledger-abandon-confirm-yes]').click();
   await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'abandoned');
+  // SUCCESS FOCUS: the confirm's own button unmounted with the whole action
+  // set when the abandoned status landed — the surviving control takes focus.
+  await expect(page.locator('[data-ledger-reconcile-close]')).toBeFocused();
   // Neither Finish nor Reopen — an abandoned statement froze nothing, so there
   // is nothing to release; the screen names the way forward instead.
   await expect(page.locator('[data-ledger-finish]')).toHaveCount(0);
@@ -529,4 +540,89 @@ test('a mistyped closing balance is correctable, and a bad statement abandonable
   const audit = (await (await request.get(`${SERVER}/api/ledger/audit?limit=200`)).json()) as Array<{action: string}>;
   expect(audit.map((e) => e.action)).toContain('reconciliation.amend');
   expect(audit.map((e) => e.action)).toContain('reconciliation.abandon');
+});
+
+/**
+ * LGR-23 — the reconcile block on a READ-ONLY page, through the same
+ * guest-read intercept the register's read-only spec uses.
+ *
+ * The custom-block kit deliberately hands an interactive widget a live editor
+ * (`readOnly: false`) on a locked page, so a block gating its write controls on
+ * `editor.readOnly` renders Finish/Amend/Abandon fully pressable on exactly the
+ * page where none of them may do anything — and it TYPECHECKS, because the
+ * extra `pageReadOnly` prop is legally ignorable. The sheet here is BALANCED
+ * before the lock, so every disabled-assertion below fails if the host stops
+ * passing `pageReadOnly` or the block slides back to `editor.readOnly`.
+ */
+test('on a read-only page the reconcile write surface is inert, with the reason stated — same books, same zero difference', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
+  const uniq = `${Date.now()}`;
+  const bankName = `RO${uniq}:Assets:Bank`;
+  const bank = await ensureAccount(request, bankName, 'asset');
+  const income = await ensureAccount(request, `RO${uniq}:Income:Revenue`, 'revenue');
+  await postEntry(request, {
+    date: '2026-07-01',
+    description: 'Only entry',
+    postings: [{accountId: bank, amountMinor: 100_000}, {accountId: income, amountMinor: -100_000}],
+  });
+
+  await ensureLedgerPlugin(page);
+  const pageId = await pageWithBlock(page, request, `Reconcile read only ${uniq}`, '/reconcile', 'Reconcile', '[data-ledger-reconcile]');
+  await page.locator('[data-ledger-reconcile-account]').selectOption({label: bankName});
+  await page.locator('[data-ledger-statement-date]').fill('2026-07-31');
+  await page.locator('[data-ledger-statement-balance-input]').fill('1,000.00');
+  await page.locator('[data-ledger-reconcile-start]').click();
+  await expect(page.locator('[data-ledger-arithmetic]')).toBeVisible();
+
+  // Tick the one row: the sheet balances, so on this WRITABLE page every write
+  // control is live. That is the baseline the lock is measured against.
+  await page.locator('[data-ledger-reconcile-row] input[type="checkbox"]').check();
+  await expect(page.locator('[data-ledger-difference-amount]')).toHaveText('0.00');
+  await expect(page.locator('[data-ledger-finish]')).toBeEnabled();
+  await expect(page.locator('[data-ledger-amend]')).toBeEnabled();
+  await expect(page.locator('[data-ledger-abandon]')).toBeEnabled();
+
+  // The statement id reaches the block's props by a DEBOUNCED write; reloading
+  // before it lands would test the start form, not the resumed sheet.
+  const [rec] = (await (await request.get(`${SERVER}/api/ledger/reconciliations?accountId=${bank}`)).json()) as Array<{id: string}>;
+  await expect
+    .poll(async () => JSON.stringify(await (await request.get(`${SERVER}/api/pages/${pageId}`)).json()).includes(rec.id), {timeout: 15_000})
+    .toBe(true);
+
+  // Present the instance as guest-read-only to this context only, and reload.
+  await page.route('**/api/instance', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const real = await route.fetch();
+    const info = (await real.json()) as Record<string, unknown>;
+    await route.fulfill({json: {...info, guestAccess: 'read'}});
+  });
+  await page.goto(`/?page=${pageId}`);
+  // Asserted INDEPENDENTLY of any ledger assertion: a broken intercept must
+  // fail here, not stay silently green below.
+  await expect(page.locator('.obe-root')).toHaveClass(/obe-readonly/);
+
+  // The READ side is untouched — the sheet resumes, still balanced.
+  await expect(page.locator('[data-ledger-arithmetic]')).toBeVisible();
+  await expect(page.locator('[data-ledger-difference-amount]')).toHaveText('0.00');
+
+  // THE POINT: same books, same zero difference — only the page lock differs,
+  // and the surface that certifies the books is honestly inert.
+  await expect(page.locator('[data-ledger-finish]')).toBeDisabled();
+  await expect(page.locator('[data-ledger-finish]')).toHaveCSS('cursor', 'not-allowed');
+  await expect(page.locator('[data-ledger-amend]')).toBeDisabled();
+  await expect(page.locator('[data-ledger-abandon]')).toBeDisabled();
+  await expect(page.locator('[data-ledger-reconcile-row] input[type="checkbox"]')).toBeDisabled();
+
+  // The reason is stated once, without an imperative, and the dead controls
+  // point at it by `aria-describedby`.
+  const why = page.locator('[data-ledger-reconcile-why="read-only"]');
+  await expect(why).toHaveCount(1);
+  await expect(why).toContainText('This page is read-only');
+  await expect(page.locator('[data-ledger-amend]')).toHaveAttribute('aria-describedby', (await why.getAttribute('id')) ?? '');
+  const finishDescribedBy = (await page.locator('[data-ledger-finish]').getAttribute('aria-describedby')) ?? '';
+  expect(finishDescribedBy).toContain((await why.getAttribute('id')) ?? 'MISSING-ID');
+
+  // No server round-trip discovered any of this, and none changed anything:
+  // the statement is still open on the books.
+  const after = (await (await request.get(`${SERVER}/api/ledger/reconciliations/${rec.id}`)).json()) as {reconciliation: {status: string}};
+  expect(after.reconciliation.status).toBe('open');
 });

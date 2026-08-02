@@ -229,8 +229,15 @@ const ROW_STATUS_LABEL: Record<ImportRowStatus, string> = {
   error: 'Unreadable',
 };
 
-export const BankImportBlock = ({block, editor}: {block: BlockLike; editor: EditorLike}) => {
+export const BankImportBlock = ({block, editor, pageReadOnly}: {block: BlockLike; editor: EditorLike; pageReadOnly?: boolean}) => {
   void block;
+  // MAY THIS READER WRITE? Not "is this widget frozen?". A custom block on a
+  // read-only page is deliberately handed an editor with `readOnly: false` so it
+  // stays operable for the reader, so `editor.readOnly` is FALSE on exactly the
+  // page where the import surface must be inert — the host passes the document's
+  // real lock separately. (Optional, and defaulted, so the block still renders
+  // correctly when driven directly by a test harness.)
+  const pageLocked = pageReadOnly ?? editor.readOnly;
   const [accounts, setAccounts] = React.useState<AccountOption[]>([]);
   const [ledgerReady, setLedgerReady] = React.useState<boolean | null>(null);
   const [fileName, setFileName] = React.useState<string>('');
@@ -259,7 +266,10 @@ export const BankImportBlock = ({block, editor}: {block: BlockLike; editor: Edit
   const [busy, setBusy] = React.useState(false);
   const mountedRef = React.useRef(true);
 
-  const locked = editor.readOnly || busy;
+  const locked = pageLocked || busy;
+  // Per instance: two import blocks on one page must not hand their disabled
+  // controls the same `aria-describedby` target.
+  const lockedWhyId = React.useId();
 
   React.useEffect(() => {
     mountedRef.current = true;
@@ -700,6 +710,7 @@ export const BankImportBlock = ({block, editor}: {block: BlockLike; editor: Edit
         data-import-confirm={handle}
         style={buttonStyleFor(locked || pending.confirmed || pending.categoryAccountId === '')}
         disabled={locked || pending.confirmed || pending.categoryAccountId === ''}
+        aria-describedby={pageLocked ? lockedWhyId : undefined}
         onClick={() => void confirm(pending.draftId)}
       >
         {pending.confirmed ? 'Saved ✓' : 'Save'}
@@ -727,11 +738,22 @@ export const BankImportBlock = ({block, editor}: {block: BlockLike; editor: Edit
           accept=".csv,text/csv"
           aria-label="Bank statement CSV"
           disabled={locked}
+          aria-describedby={pageLocked ? lockedWhyId : undefined}
           style={{fontSize: '0.8rem'}}
           onChange={(e) => void onFile(e.target.files?.[0] ?? null)}
         />
         {fileName !== '' && <span style={{fontSize: '0.8rem', color: SECONDARY_TEXT}}>{fileName}</span>}
       </div>
+
+      {/* The DOCUMENT's lock, stated once (LGR-23) — every disabled control in
+          the block points here by `aria-describedby`. Without it the upload
+          control and the Save buttons simply sat grey with no stated cause on
+          exactly the page where nothing can explain itself by being pressed. */}
+      {pageLocked && (
+        <div id={lockedWhyId} data-import-why="read-only" style={{fontSize: '0.8rem', color: SECONDARY_TEXT}}>
+          This page is read-only, so nothing can be imported from it.
+        </div>
+      )}
 
       {error && (
         <div data-import-error role="status" aria-live="polite" style={noticeStyle('alarm')}>
@@ -861,6 +883,7 @@ export const BankImportBlock = ({block, editor}: {block: BlockLike; editor: Edit
                   : {...buttonStyleFor(true), marginLeft: 'auto'}
               }
               disabled={!canRun}
+              aria-describedby={pageLocked ? lockedWhyId : undefined}
               onClick={() => void run()}
             >
               {/* Drafts are created one row at a time, up to 50 000 of them,
@@ -1001,7 +1024,10 @@ export const BankImportBlock = ({block, editor}: {block: BlockLike; editor: Edit
 
       {profile === null && (
         <>
-          {error === null && (
+          {/* The first-run hint is an INSTRUCTION ("Upload the CSV…"), so on a
+              read-only page it is dropped — the lock notice above already
+              states the reason, without telling the reader to press anything. */}
+          {error === null && !pageLocked && (
             <div data-import-hint style={{fontSize: '0.8rem', color: SECONDARY_TEXT}}>
               Upload the CSV your bank exports. Nothing is written until you have seen what was detected and pressed the button,
               and re-importing the same file creates nothing — for as far back as the duplicate check can see, which is this

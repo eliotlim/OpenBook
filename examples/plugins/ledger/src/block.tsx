@@ -14,6 +14,10 @@ import {
   type PostingInput,
 } from './model';
 import {setUpBooks} from './setup';
+// The shared OFF-state face (LGR-6): dashed, secondary-text border, out of the
+// two-indistinguishable-greys trap. Imported rather than re-drawn so the
+// journal block's read-only presentation cannot drift from the register's.
+import {disabledButtonStyle} from './reportShell';
 
 /**
  * The journal entry block — the ONLY human write surface for the books.
@@ -96,8 +100,14 @@ const cellStyle: React.CSSProperties = {
   width: '100%',
 };
 
+// LONGHAND border properties (not the `border` shorthand): the same element
+// swaps between this and the dashed {@link disabledButtonStyle} when the page
+// lock changes, and React warns (and can leave a stale edge) when a shorthand
+// and a longhand for the same box alternate across rerenders.
 const buttonStyle: React.CSSProperties = {
-  border: '1px solid hsl(var(--border))',
+  borderWidth: 1,
+  borderStyle: 'solid',
+  borderColor: 'hsl(var(--border))',
   borderRadius: 6,
   padding: '0.3rem 0.75rem',
   background: 'hsl(var(--card))',
@@ -203,7 +213,14 @@ function samePostings(a: PostingInput[], b: PostingInput[]): boolean {
   return left.every((k, i) => k === right[i]);
 }
 
-export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: EditorLike}) => {
+export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLike; editor: EditorLike; pageReadOnly?: boolean}) => {
+  // MAY THIS READER WRITE? Not "is this widget frozen?". A custom block on a
+  // read-only page is deliberately handed an editor with `readOnly: false` so it
+  // stays operable for the reader, so `editor.readOnly` is FALSE on exactly the
+  // page where the entry form must be inert — the host passes the document's
+  // real lock separately. (Optional, and defaulted, so the block still renders
+  // correctly when driven directly by a test harness.)
+  const pageLocked = pageReadOnly ?? editor.readOnly;
   const props = readProps(block);
   const [ledgerState, setLedgerState] = React.useState<'loading' | 'uninitialized' | 'ready'>('loading');
   const [accounts, setAccounts] = React.useState<AccountOption[]>([]);
@@ -225,7 +242,10 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
   const status = computeEntryStatus(rows, date);
   const problem = describeProblem(status);
   const imbalance = describeImbalance(status);
-  const locked = editor.readOnly || busy;
+  const locked = pageLocked || busy;
+  // Per instance: two journal blocks on one page must not hand their disabled
+  // controls the same `aria-describedby` target.
+  const lockedWhyId = React.useId();
 
   const refreshAccounts = React.useCallback(async (): Promise<void> => {
     const list = await api.ledger.listAccounts();
@@ -276,7 +296,7 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
           // NEW draft on the next edit.
           draftIdRef.current = null;
           const p = readProps(block);
-          if (p && !editor.readOnly) editor.doc.transact(() => p.delete(PROP_DRAFT), 'local');
+          if (p && !pageLocked) editor.doc.transact(() => p.delete(PROP_DRAFT), 'local');
           return;
         }
         const storedRows = loadRows(readProps(block));
@@ -322,7 +342,10 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
   const writeProps = React.useCallback(
     (next: {rows: JournalRow[]; description: string; date: string} | null): void => {
       const p = readProps(block);
-      if (!p || editor.readOnly) return;
+      // The DOCUMENT's lock, not the widget's (see `pageLocked` above): the
+      // widget-live editor on a read-only page must not write cell text into
+      // the locked document.
+      if (!p || pageLocked) return;
       editor.doc.transact(() => {
         if (next === null) {
           p.delete(PROP_ROWS);
@@ -338,7 +361,7 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
         }
       }, 'local');
     },
-    [block, editor],
+    [block, editor, pageLocked],
   );
 
   /**
@@ -449,7 +472,7 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
   };
 
   const post = async (): Promise<void> => {
-    if (!status.canPost || busy || editor.readOnly) return;
+    if (!status.canPost || busy || pageLocked) return;
     setBusy(true);
     setError(null);
     setErrorCode(null);
@@ -557,11 +580,23 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
   if (ledgerState === 'uninitialized') {
     return (
       <div data-ledger-journal data-ledger-setup contentEditable={false} style={{display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '0.75rem', border: '1px solid hsl(var(--border))', borderRadius: 8, fontSize: '0.85rem'}}>
-        <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem'}}>
+        <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap'}}>
           <span>📒 The books are not set up yet.</span>
-          <button type="button" style={buttonStyle} disabled={editor.readOnly || busy} data-ledger-setup-button onClick={runSetup}>
+          <button
+            type="button"
+            style={pageLocked ? disabledButtonStyle : buttonStyle}
+            disabled={pageLocked || busy}
+            aria-describedby={pageLocked ? lockedWhyId : undefined}
+            data-ledger-setup-button
+            onClick={runSetup}
+          >
             {busy ? 'Setting up…' : 'Set up books'}
           </button>
+          {pageLocked && (
+            <span id={lockedWhyId} data-ledger-setup-why="read-only" style={{fontSize: '0.75rem', color: 'hsl(var(--foreground) / 0.72)'}}>
+              This page is read-only, so the books cannot be set up from it.
+            </span>
+          )}
         </div>
         {error && (
           <div data-ledger-error={errorCode ?? 'error'} role="status" aria-live="polite" style={noticeStyle('alarm')}>
@@ -686,7 +721,8 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
                 tabIndex={-1}
                 aria-label={`Remove row ${i + 1} (or press Alt+Backspace in the row)`}
                 title="Remove row — or Alt+Backspace in the row"
-                style={{...buttonStyle, padding: '0.3rem 0.5rem', visibility: rows.length > 2 ? 'visible' : 'hidden'}}
+                style={{...(pageLocked ? disabledButtonStyle : buttonStyle), padding: '0.3rem 0.5rem', visibility: rows.length > 2 ? 'visible' : 'hidden'}}
+                aria-describedby={pageLocked ? lockedWhyId : undefined}
                 disabled={locked || rows.length <= 2}
                 onClick={() => removeRow(i)}
               >
@@ -698,7 +734,14 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
       </div>
 
       <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap'}}>
-        <button type="button" data-ledger-add-row style={buttonStyle} disabled={locked} onClick={addRow}>
+        <button
+          type="button"
+          data-ledger-add-row
+          style={pageLocked ? disabledButtonStyle : buttonStyle}
+          disabled={locked}
+          aria-describedby={pageLocked ? lockedWhyId : undefined}
+          onClick={addRow}
+        >
           + Add row
         </button>
         <span
@@ -711,8 +754,17 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
         <button
           type="button"
           data-ledger-post
-          style={{...buttonStyle, background: status.canPost ? 'hsl(var(--primary))' : 'hsl(var(--muted))', color: status.canPost ? 'hsl(var(--primary-foreground))' : 'hsl(var(--muted-foreground))', cursor: status.canPost ? 'pointer' : 'not-allowed'}}
-          disabled={!status.canPost || busy || editor.readOnly}
+          // The page lock outranks the Σ-gate's own colouring: on a read-only
+          // page Post wears the same dashed off face as every other dead
+          // control, whatever the totals say — the reader cannot post a
+          // balanced entry any more than an unbalanced one.
+          style={
+            pageLocked
+              ? disabledButtonStyle
+              : {...buttonStyle, background: status.canPost ? 'hsl(var(--primary))' : 'hsl(var(--muted))', color: status.canPost ? 'hsl(var(--primary-foreground))' : 'hsl(var(--muted-foreground))', cursor: status.canPost ? 'pointer' : 'not-allowed'}
+          }
+          disabled={!status.canPost || busy || pageLocked}
+          aria-describedby={pageLocked ? lockedWhyId : undefined}
           onClick={() => void post()}
         >
           {busy ? 'Posting…' : 'Post'}
@@ -721,8 +773,18 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
 
       {/* One status slot: on an untouched block, the first-run hint; otherwise
           why Post is off — loud only once the entry is genuinely out of
-          balance, quiet while it is still being filled in. */}
-      {untouched && (
+          balance, quiet while it is still being filled in.
+
+          On a read-only page the slot carries the LOCK instead, stated once and
+          pointed at by every disabled control's `aria-describedby` — and the
+          first-run hint is dropped entirely: instructing a reader to enter
+          debits into cells they cannot type in is worse than saying nothing. */}
+      {pageLocked && (
+        <div id={lockedWhyId} data-ledger-journal-why="read-only" style={{fontSize: '0.8rem', color: 'hsl(var(--foreground) / 0.72)'}}>
+          This page is read-only, so no entry can be posted from it.
+        </div>
+      )}
+      {untouched && !pageLocked && (
         <div data-ledger-hint style={{fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))'}}>
           Enter what moved and where: debits on the left, credits on the right. Post unlocks when they balance. Enter adds a row, Alt+Backspace removes one.
         </div>

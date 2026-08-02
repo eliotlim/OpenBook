@@ -225,6 +225,21 @@ const stickyCellStyle: React.CSSProperties = {
   boxShadow: 'inset -1px 0 0 hsl(var(--border))',
 };
 
+/**
+ * …and Balance PINS to the right edge, symmetrically (R3-1). Pinning Correct
+ * bought its visibility by pushing the money out: at the block's default width
+ * the running balance — the one number the register exists to show — was the
+ * column that clipped. Same mechanism as column one: opaque `--card` so rows do
+ * not show through as they pass underneath, inset rule on the pinned edge.
+ */
+const stickyRightCellStyle: React.CSSProperties = {
+  position: 'sticky',
+  right: 0,
+  zIndex: 1,
+  background: 'hsl(var(--card))',
+  boxShadow: 'inset 1px 0 0 hsl(var(--border))',
+};
+
 /** `"cleared,reconciled"` ⇄ the typed state list (unknown words are dropped). */
 function parseClearedProp(raw: string): ReportClearedState[] {
   const wanted = raw
@@ -311,7 +326,7 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
 
   const update = (key: string, value: string, apply: (v: string) => void): void => {
     apply(value);
-    writeProp(block, editor, key, value);
+    writeProp(block, editor, key, value, pageLocked);
   };
 
   const toggleCleared = (state: ReportClearedState, on: boolean): void => {
@@ -324,14 +339,14 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
     // disabled instead, so what you see always matches what is ticked.
     if (next.length === 0) return;
     setCleared([...next]);
-    writeProp(block, editor, PROP_CLEARED, next.join(','));
+    writeProp(block, editor, PROP_CLEARED, next.join(','), pageLocked);
   };
 
   const clearFilters = (): void => {
     update(PROP_FROM, '', setFrom);
     update(PROP_TO, '', setTo);
     setCleared([...ALL_CLEARED_STATES]);
-    writeProp(block, editor, PROP_CLEARED, ALL_CLEARED_STATES.join(','));
+    writeProp(block, editor, PROP_CLEARED, ALL_CLEARED_STATES.join(','), pageLocked);
   };
 
   // A restored panel is checked against the books exactly once, as soon as they
@@ -731,8 +746,11 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
             </div>
           </div>
           {/* The REAL journal entry block (LGR-5) — the ledger's only human write
-              surface — bound to the copy. See {@link correctionHost}. */}
-          {hosted !== null && <JournalEntryBlock block={hosted.block} editor={hosted.editor} />}
+              surface — bound to the copy. See {@link correctionHost}. The page
+              lock is handed through explicitly: the hosted editor's `readOnly`
+              happens to carry the same value, but the journal block's own gate
+              is `pageReadOnly` (LGR-23) and must not depend on its fallback. */}
+          {hosted !== null && <JournalEntryBlock block={hosted.block} editor={hosted.editor} pageReadOnly={pageLocked} />}
         </div>
       )}
 
@@ -815,7 +833,7 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
                       <th scope="col" style={numericHeadStyle}>
                     Amount
                       </th>
-                      <th scope="col" style={numericHeadStyle}>
+                      <th scope="col" style={{...numericHeadStyle, ...stickyRightCellStyle}}>
                     Balance
                       </th>
                     </tr>
@@ -826,7 +844,7 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
                       <th scope="row" colSpan={6} style={{...tdStyle, ...mutedStyle, textAlign: 'left', fontWeight: 400}}>
                     Opening balance{register.filter.from !== null ? ` before ${register.filter.from}` : ''}
                       </th>
-                      <td data-ledger-opening-balance style={{...numericStyle, ...mutedStyle}}>
+                      <td data-ledger-opening-balance style={{...numericStyle, ...mutedStyle, ...stickyRightCellStyle}}>
                         <SideAmount minor={register.openingMinor} />
                       </td>
                     </tr>
@@ -978,7 +996,7 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
                             )}
                           </td>
                           <td data-ledger-amount style={numericStyle}><SideAmount minor={row.amountMinor} /></td>
-                          <td data-ledger-running style={numericStyle}><SideAmount minor={row.runningMinor} /></td>
+                          <td data-ledger-running style={{...numericStyle, ...stickyRightCellStyle}}><SideAmount minor={row.runningMinor} /></td>
                         </tr>
                       );
                     })}
@@ -992,7 +1010,7 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
                       <td style={{...numericStyle, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none', ...mutedStyle}}>
                         {formatAmount(register.totalDebitMinor)} Dr / {formatAmount(register.totalCreditMinor)} Cr
                       </td>
-                      <td data-ledger-closing style={{...numericStyle, fontWeight: 600, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none'}}>
+                      <td data-ledger-closing style={{...numericStyle, fontWeight: 600, ...stickyRightCellStyle, borderTop: '2px solid hsl(var(--border))', borderBottom: 'none'}}>
                         <SideAmount minor={register.closingMinor} />
                       </td>
                     </tr>
