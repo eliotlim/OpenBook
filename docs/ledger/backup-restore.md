@@ -58,10 +58,57 @@ carries what those rows cannot express:
 pages/databases; a v2 bundle read by an older server restores pages/databases
 and ignores the extra key. A v1 restore of a ledger library yields dead ledger
 rows with no history — which the verifier reports loudly (see below). Re-export
-from a current server to get a v2 bundle.
+from a current server to get a v2 bundle. Two deliberate refusals to know
+about:
 
-**Known limitation:** non-evidence assets (e.g. images embedded in ordinary
-pages) are not yet carried by the bundle — unchanged from v1.
+- a restored library's audit stream ends with a **`ledger.restore`** event
+  (see *Trust model* below). Builds that predate that action **refuse to read
+  streams containing it** — the audit log's fail-closed unknown-action posture
+  — so a bundle exported *from a restored library* must itself be restored on
+  a current build. This is intentional: an old build silently mis-replaying a
+  newer history is the worse outcome.
+- a bundle whose audit history predates the linear hash chain (migration
+  `0021`, i.e. carries mid-stream `prevHash: null`) is refused at the door as
+  unverifiable — the door will not install a stream the tamper check rejects.
+
+**Known limitations:** non-evidence assets (e.g. images embedded in ordinary
+pages) are not yet carried by the bundle — unchanged from v1. Page **ACL
+grants are not carried** either: the restore re-asserts the ledger host pages
+`restricted` (owner/admin only), so re-grant ledger access to members
+explicitly after a restore. The bundle is one JSON document and the import
+materializes it in memory (bounded by the route's 512 MiB body cap) — a
+streaming bundle format is future work.
+
+## Trust model — what restoring a bundle means
+
+**Restoring a bundle is trusting its author.** The restore door proves the
+section is *internally consistent* (hash chain verified end-to-end, asset
+bytes matching their content hashes, a genesis event present) and the LGR-7
+verifier then proves the installed rows match the installed history — but a
+**consistent forger is undetectable by construction**: the chain is
+self-contained (unanchored — no external notarization; LGR-18's residual), so
+a fabricated history whose hashes are computed correctly verifies exactly like
+a genuine one. The same honesty applies to routine verification: a green
+`verifyAuditChain` means *no one edited this log without recomputing every
+following link* — the tail event's own payload is covered only once a later
+event chains onto it, and "this history is authentic" is not a claim any
+self-contained chain can make.
+
+Therefore: **restore only bundles you produced yourself or whose custody you
+can account for out-of-band** (where it was stored, who could write to it,
+checksums if you keep them). To make restores attributable, the door appends a
+`ledger.restore` audit event ON TOP of the restored tail — chained from it,
+naming the restoring actor and the bundle's content hash — so an installed
+history is always bracketed by an event answering "who put these books here,
+and from which bytes". Doctoring that event's payload after the fact is caught
+by the verifier (`audit-hash-forged`), exactly like every other audited
+payload.
+
+One prerequisite worth stating (pre-existing platform posture, not changed
+here): on an **unclaimed** instance the import/export gate falls back to the
+general write gate, and the default `guestAccess: 'write'` would let a guest
+restore a bundle — ledger included — before an owner exists. Claim the
+instance (or run loopback-only, the default) before exposing it.
 
 ## Restore runbook
 
@@ -88,18 +135,27 @@ mode, and reports why.)
    the ledger's own pages — restore with everything selected).
 5. **Verify — mandatory.** Run `GET /api/ledger/verify` (or the in-app
    *Export & verify* action / the CLI verify). The report must show
-   `findings: []` with nonzero `checked*` counts. This runs the full LGR-7
-   invariant re-check *including* the audit-chain re-derivation and the
-   evidence re-hash — a restore that silently lost or altered anything cannot
-   pass it.
+   `findings: []` with nonzero `checked*` counts and `auditChain.ok: true`.
+   Since LGR-15 this report *includes* the linear hash-chain verification
+   (`audit-prev-hash-broken` is a tamper finding, so the CLI exit code covers
+   it) alongside the per-entity re-derivations and the evidence re-hash — a
+   restore that silently lost or altered anything cannot pass it. What a green
+   result does and does not claim is scoped honestly under *Trust model*
+   above.
 6. Resume service. The restored ledger is live: posting continues the restored
    audit chain and entry numbering (the restore advances the audit sequence
    past the restored tail).
 
 A restore is **transactional**: if any part of the ledger section is invalid
-(non-ascending audit seqs, unknown audit action, asset bytes that don't hash to
-their id), the entire import — pages included — rolls back with a descriptive
-error. There is no half-restored state to clean up.
+(non-ascending audit seqs, unknown audit action, a broken hash chain, asset
+bytes that don't hash to their id, an over-cap or over-budget asset), the
+entire import — pages included — rolls back with a descriptive error. There is
+no half-restored state to clean up. Restored evidence assets pass the same
+door controls as uploads: mime sanitized against the image allowlist (nothing
+executable is ever stored), the 10 MiB per-asset cap, and the instance's
+storage budget; asset references attach only to pages the bundle itself
+carried. The ledger host pages come back `restricted`, exactly as seeding
+created them.
 
 Restores are also **deduplicated** (ER-6): re-applying the byte-identical
 bundle is a no-op that echoes the recorded result — a retried restore cannot
@@ -137,14 +193,31 @@ service container**. (Real Postgres matters: the wire driver has its own
 parameter serialization; the PGlite-only era hid a real jsonb double-encoding
 bug that this job now regression-pins.)
 
+**Legacy note for external-Postgres deployments** (the double-encoding bug's
+residue, stated so nobody rediscovers it): rows written through the wire
+driver *before* the fix hold jsonb string scalars. There is deliberately **no
+repair migration** — a stored string that parses as JSON is indistinguishable
+from a value that legitimately *is* a JSON string, so a mechanical rewrite
+could corrupt genuine data. Application reads keep working (every read path
+re-parses strings); SQL-level extractions (`properties->>'…'`) on legacy rows
+return NULL — visible as e.g. missing icons in list projections for pre-fix
+pages. New writes are correct. An export + restore into a fresh library
+rewrites every row through the fixed driver.
+
 1. **Restore round-trip** — `src/ledgerRestore.test.ts` with
    `OPENBOOK_RESTORE_FIXTURE=parity` (the 500-transaction LGR-13 parity book,
-   seeded through the real API with evidence, reversals, and a closed + a
-   reopened period): back up → destroy → restore → assert everything in the
-   section above, then post again to prove the book is alive. The suite also
-   pins the doors: no ledger-section apply over an existing ledger, in copy
-   mode, or without the ledger's own pages; forged asset bytes reject the
-   whole import.
+   seeded through the real API with evidence, reversals, reconciliations —
+   open and abandoned — and a closed + a reopened period): back up → destroy →
+   restore → assert everything in the section above, then post again to prove
+   the book is alive. The suite also pins every door, probe-style: no
+   ledger-section apply over an existing ledger, in copy mode, or without the
+   ledger's own pages IN the bundle (an existing database cannot be
+   conscripted into "being the ledger"); a forged hash-chain link or forged
+   asset bytes reject the whole import; a member is denied the restored host
+   page, row pages, and evidence bytes over HTTP; restore races (against a
+   second restore, and against ledger setup) end in typed outcomes; and the
+   `ledger.restore` provenance event plus the chain finding are
+   mutation-verified (doctor the row, watch the verifier fire).
 2. **Benchmarks** — `pnpm run bench:ledger` (`src/ledgerDurability.bench.ts`),
    thresholds **asserted**, numbers appended to the job summary:
 
