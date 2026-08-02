@@ -4,7 +4,7 @@ import type {PGliteOptions} from '@electric-sql/pglite';
 import {startServer} from './server';
 import {installSidecarParentDeath} from './parentDeath';
 import {createPgliteDb, PostgresDb, type Db} from './db';
-import {verifyLedger} from './ledgerVerify';
+import {isLedgerVerifyAdvisory, verifyLedger} from './ledgerVerify';
 
 /**
  * Shared CLI runner for both entrypoints (`bin.ts` for Node, `bin.bun.ts` for
@@ -24,7 +24,18 @@ import {verifyLedger} from './ledgerVerify';
  *                                            path-delimiter-separated list; the
  *                                            flag may also be repeated.
  *   --verify-ledger                          run the independent ledger verifier
- *                                            and exit (0 clean / 1 findings / 2 error)
+ *                                            and exit (0 clean-or-advisory-only /
+ *                                            1 tamper findings / 2 error). Advisory
+ *                                            findings (current-policy, e.g.
+ *                                            evidence-required-missing) are still
+ *                                            printed but do not fail the run —
+ *                                            they are EXPECTED on a healthy book
+ *                                            that enables a policy over history,
+ *                                            and a permanently red backup script
+ *                                            is how a tamper alarm gets ignored.
+ *   --fail-on-advisory                       with --verify-ledger: exit 1 on ANY
+ *                                            finding, advisory included (strict
+ *                                            callers).
  *   OPENBOOK_TRASH_RETENTION_MS         how long trash is kept before purge
  *   OPENBOOK_TRASH_CLEANUP_INTERVAL_MS  how often the cleanup job runs (0 = off)
  */
@@ -101,6 +112,14 @@ export async function runCli(overrides: CliOverrides = {}): Promise<void> {
   // use the owner-gated `GET /api/ledger/verify` route against a live one).
   if (process.argv.includes('--verify-ledger')) {
     let db: Db | null = null;
+    // The intended exit code, assigned to `process.exitCode` ONLY in the
+    // `finally`, AFTER the store closes. Setting it earlier silently reported
+    // success for every failure on an embedded book: PGlite's close tears down
+    // its Emscripten runtime, and that teardown writes `process.exitCode = 0`
+    // over whatever was there — so `--verify-ledger` on a PGlite data dir
+    // exited 0 regardless of findings (exit 2 on a typo'd dir survived only
+    // because that path returns before a database ever opens).
+    let verifyExit: 0 | 1 | 2 = 2;
     try {
       if (!databaseUrl) {
         // A typo'd --data-dir must NOT silently create an empty cluster and
@@ -109,7 +128,6 @@ export async function runCli(overrides: CliOverrides = {}): Promise<void> {
         const dir = resolve(dataDir as string);
         if (!existsSync(join(dir, 'PG_VERSION'))) {
           console.error(`OpenBook ledger verify: ${dir} is not an OpenBook data directory (no PG_VERSION).`);
-          process.exitCode = 2;
           return;
         }
         db = await createPgliteDb(dir, overrides.pgliteAssets);
@@ -122,17 +140,30 @@ export async function runCli(overrides: CliOverrides = {}): Promise<void> {
       // verify run on a synced folder would permanently block another machine)
       // and can truncate this JSON on a pipe.
       console.log(JSON.stringify(report, null, 2));
+      // SEVERITY-AWARE exit (LGR-14 Q3), keyed off the code union — never
+      // message text: tamper findings fail the run; advisory (current-policy)
+      // findings are printed but exit 0, because they are EXPECTED on a
+      // healthy book that enables evidence-required over bare history — a
+      // backup script that goes permanently red the day a toggle flips is how
+      // operators learn to ignore the one alarm that matters.
+      const tamper = report.findings.filter((f) => !isLedgerVerifyAdvisory(f.code));
+      const advisories = report.findings.length - tamper.length;
+      const failOnAdvisory = process.argv.includes('--fail-on-advisory');
       if (!report.initialized) console.error('OpenBook ledger verify: no ledger on this library (trivially clean).');
       else if (report.findings.length === 0) console.error('OpenBook ledger verify: CLEAN — every invariant holds.');
-      else console.error(`OpenBook ledger verify: ${report.findings.length} finding(s).`);
-      process.exitCode = report.findings.length === 0 ? 0 : 1;
+      else if (tamper.length === 0) {
+        console.error(
+          `OpenBook ledger verify: ${advisories} policy advisory finding(s), no tamper findings${failOnAdvisory ? ' (failing: --fail-on-advisory)' : ''}.`,
+        );
+      } else console.error(`OpenBook ledger verify: ${tamper.length} tamper finding(s), ${advisories} advisory.`);
+      verifyExit = tamper.length > 0 || (failOnAdvisory && report.findings.length > 0) ? 1 : 0;
       return;
     } catch (err) {
       console.error('OpenBook ledger verify failed:', err);
-      process.exitCode = 2;
       return;
     } finally {
       await db?.close().catch(() => {});
+      process.exitCode = verifyExit; // after close — see verifyExit's comment
     }
   }
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import {api, formatAmount, LedgerError} from '@book.dev/plugin-sdk';
+import {api, formatAmount, getPageIdForDoc, LedgerError} from '@book.dev/plugin-sdk';
 import {
   computeEntryStatus,
   describeImbalance,
@@ -64,6 +64,15 @@ interface EditorLike {
 interface AccountOption {
   id: string;
   name: string;
+  /** LGR-14: this account refuses a post from an entry with no evidence. */
+  evidenceRequired: boolean;
+}
+
+/** One attached receipt as the books store it (LGR-14). */
+interface EvidenceItem {
+  filename: string;
+  sha256: string;
+  size: number;
 }
 
 /** The shape of a draft this block cares about (types are stripped at load). */
@@ -74,6 +83,8 @@ interface DraftLike {
   state: string;
   entryNo: number | null;
   postings: Array<{accountId: string; amountMinor: number; memo: string | null}>;
+  /** Optional defensively: an older server omits it, which reads as "none". */
+  evidence?: EvidenceItem[];
 }
 
 const PROP_ROWS = 'ledgerRows';
@@ -213,7 +224,7 @@ function samePostings(a: PostingInput[], b: PostingInput[]): boolean {
   return left.every((k, i) => k === right[i]);
 }
 
-export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLike; editor: EditorLike; pageReadOnly?: boolean}) => {
+export const JournalEntryBlock = ({block, editor, pageReadOnly, uploadPageId}: {block: BlockLike; editor: EditorLike; pageReadOnly?: boolean; uploadPageId?: string | null}) => {
   // MAY THIS READER WRITE? Not "is this widget frozen?". A custom block on a
   // read-only page is deliberately handed an editor with `readOnly: false` so it
   // stays operable for the reader, so `editor.readOnly` is FALSE on exactly the
@@ -231,11 +242,18 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLi
   const [errorCode, setErrorCode] = React.useState<string | null>(null);
   const [postedNo, setPostedNo] = React.useState<number | null>(null);
   const [busy, setBusy] = React.useState(false);
+  // LGR-14: the receipts attached to the CURRENT draft. Server state, mirrored
+  // — every change round-trips through `updateDraft` and re-reads the answer,
+  // so this list never claims an attachment the books did not accept.
+  const [evidence, setEvidence] = React.useState<EvidenceItem[]>([]);
+  const [evidenceBusy, setEvidenceBusy] = React.useState(false);
 
   const draftIdRef = React.useRef<string | null>(readString(props, PROP_DRAFT) || null);
   const syncTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestRef = React.useRef({rows, description, date});
   latestRef.current = {rows, description, date};
+  const latestEvidenceRef = React.useRef(evidence);
+  latestEvidenceRef.current = evidence;
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const mountedRef = React.useRef(true);
 
@@ -246,6 +264,16 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLi
   // Per instance: two journal blocks on one page must not hand their disabled
   // controls the same `aria-describedby` target.
   const lockedWhyId = React.useId();
+  const evidenceWhyId = React.useId();
+
+  // LGR-14: does any account this entry touches require evidence? A PRE-FLIGHT
+  // courtesy — the store rejects `evidence-required` regardless, this only
+  // turns the refusal into a disabled button with the reason beside it.
+  const evidenceRequiredNames = [...new Set(rows.map((r) => r.accountId).filter((id) => id !== ''))]
+    .map((id) => accounts.find((a) => a.id === id))
+    .filter((a): a is AccountOption => a !== undefined && a.evidenceRequired)
+    .map((a) => a.name);
+  const evidenceBlocked = evidenceRequiredNames.length > 0 && evidence.length === 0;
 
   const refreshAccounts = React.useCallback(async (): Promise<void> => {
     const list = await api.ledger.listAccounts();
@@ -253,7 +281,7 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLi
     setAccounts(
       list
         .filter((a) => a.status === 'open')
-        .map((a) => ({id: a.id, name: a.name}))
+        .map((a) => ({id: a.id, name: a.name, evidenceRequired: (a as {evidenceRequired?: boolean}).evidenceRequired === true}))
         .sort((a, b) => a.name.localeCompare(b.name)),
     );
   }, []);
@@ -299,6 +327,9 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLi
           if (p && !pageLocked) editor.doc.transact(() => p.delete(PROP_DRAFT), 'local');
           return;
         }
+        // LGR-14: the draft's attachments come back with it — the books are the
+        // only source of truth for evidence (nothing is cached in block props).
+        setEvidence(Array.isArray(draft.evidence) ? draft.evidence : []);
         const storedRows = loadRows(readProps(block));
         if (storedRows === null) {
           // No local text at all (a fresh device, or props were dropped): the
@@ -383,13 +414,19 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLi
         if (draftIdRef.current) {
           await api.ledger.deleteDraft(draftIdRef.current);
           draftIdRef.current = null;
+          // The draft owned its attachments; emptying the entry discards them.
+          setEvidence([]);
         }
         writeProps({rows: r, description: d, date: dt});
         return null;
       }
+      // LGR-14: a (re)created draft carries the on-screen attachments along, so
+      // a recovered draft does not silently shed receipts the list still shows.
+      const carried = latestEvidenceRef.current.map(({sha256, filename}) => ({sha256, filename}));
+      const createInput = {date: dt, description: d, postings, ...(carried.length > 0 ? {evidence: carried} : {})};
       let draft: DraftLike;
       if (!draftIdRef.current) {
-        draft = (await api.ledger.createDraft({date: dt, description: d, postings})) as DraftLike;
+        draft = (await api.ledger.createDraft(createInput)) as DraftLike;
         draftIdRef.current = draft.id;
       } else {
         try {
@@ -399,13 +436,14 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLi
           // recovered here — see the caller; auto-recreating a posted entry
           // would double-enter the books.
           if (err instanceof LedgerError && err.code === 'not-found') {
-            draft = (await api.ledger.createDraft({date: dt, description: d, postings})) as DraftLike;
+            draft = (await api.ledger.createDraft(createInput)) as DraftLike;
             draftIdRef.current = draft.id;
           } else {
             throw err;
           }
         }
       }
+      if (mountedRef.current) setEvidence(Array.isArray(draft.evidence) ? draft.evidence : []);
       writeProps({rows: r, description: d, date: dt});
       return draft;
     } catch (err) {
@@ -471,8 +509,76 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLi
     focusRow(Math.min(index, rows.length - 2));
   };
 
+  /** Surface any error through the block's one error slot, typed when it is. */
+  const showError = (err: unknown): void => {
+    if (err instanceof LedgerError) {
+      setError(err.message);
+      setErrorCode(err.code);
+    } else {
+      setError(err instanceof Error ? err.message : String(err));
+      setErrorCode(null);
+    }
+  };
+
+  /**
+   * Attach ONE receipt (LGR-14): upload the bytes into the content-addressed
+   * asset store (the id IS the SHA-256 of the bytes), then record
+   * `{sha256, filename}` on the draft — the server resolves the byte count and
+   * refs the asset to the entry's own row, so the manifest can never claim a
+   * file the store does not hold. Re-attaching identical bytes replaces the
+   * existing item (same hash — the manifest is a set of distinct files).
+   *
+   * CONFIDENTIALITY (accepted platform semantics, stated): the upload refs the
+   * receipt to THIS page too, and an asset stays readable to every audience of
+   * every page that references it. A receipt attached from a widely-shared
+   * page therefore remains readable to that page's readers — attach sensitive
+   * receipts from pages whose audience matches the ledger's.
+   */
+  const attachEvidence = async (file: File): Promise<void> => {
+    if (locked || evidenceBusy) return;
+    setEvidenceBusy(true);
+    setError(null);
+    setErrorCode(null);
+    try {
+      const draft = await syncDraft();
+      if (!draft) throw new Error('Enter the journal entry first — evidence attaches to the entry.');
+      // The page hosting this block is what the upload is ref'd to (the host
+      // knows the doc → page binding; a hosting panel passes it explicitly).
+      const pageId = uploadPageId ?? getPageIdForDoc((editor as {doc: unknown}).doc);
+      if (!pageId) throw new Error('This entry form is not on a saved page, so a file cannot be uploaded from it.');
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (bytes.byteLength === 0) throw new Error('That file is empty — nothing to attach.');
+      const {id} = await api.assets.put(bytes, file.type || 'application/octet-stream', pageId);
+      const filename = file.name || 'receipt';
+      const next = [...latestEvidenceRef.current.filter((e) => e.sha256 !== id).map(({sha256, filename: f}) => ({sha256, filename: f})), {sha256: id, filename}];
+      const updated = (await api.ledger.updateDraft(draft.id, {evidence: next})) as DraftLike;
+      if (mountedRef.current) setEvidence(Array.isArray(updated.evidence) ? updated.evidence : []);
+    } catch (err) {
+      if (mountedRef.current) showError(err);
+    } finally {
+      if (mountedRef.current) setEvidenceBusy(false);
+    }
+  };
+
+  /** Detach one receipt from the draft — wholesale replacement minus one. */
+  const detachEvidence = async (sha256: string): Promise<void> => {
+    if (locked || evidenceBusy || !draftIdRef.current) return;
+    setEvidenceBusy(true);
+    setError(null);
+    setErrorCode(null);
+    try {
+      const next = latestEvidenceRef.current.filter((e) => e.sha256 !== sha256).map(({sha256: s, filename}) => ({sha256: s, filename}));
+      const updated = (await api.ledger.updateDraft(draftIdRef.current, {evidence: next})) as DraftLike;
+      if (mountedRef.current) setEvidence(Array.isArray(updated.evidence) ? updated.evidence : []);
+    } catch (err) {
+      if (mountedRef.current) showError(err);
+    } finally {
+      if (mountedRef.current) setEvidenceBusy(false);
+    }
+  };
+
   const post = async (): Promise<void> => {
-    if (!status.canPost || busy || pageLocked) return;
+    if (!status.canPost || busy || pageLocked || evidenceBlocked) return;
     setBusy(true);
     setError(null);
     setErrorCode(null);
@@ -495,6 +601,7 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLi
       setRows([emptyRow(), emptyRow()]);
       setDescription('');
       setDate(todayIso());
+      setEvidence([]); // the manifest went onto the books with the entry
       setError(null);
       setErrorCode(null);
       setPostedNo(posted.entryNo);
@@ -733,6 +840,76 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLi
         })}
       </div>
 
+      {/* LGR-14 — the entry's receipts. One line: what is attached (each
+          removable), then the attach control. The "(optional)" tail is dropped
+          the moment a selected account makes evidence mandatory — the
+          affordance must not contradict the gate under it. */}
+      <div data-ledger-evidence style={{display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap'}}>
+        <span style={headerStyle}>Evidence</span>
+        {evidence.map((item) => (
+          <span
+            key={item.sha256}
+            data-ledger-evidence-item={item.sha256}
+            title={`${item.filename} — ${item.size} bytes, SHA-256 ${item.sha256}`}
+            style={{display: 'inline-flex', alignItems: 'center', gap: '0.3rem', border: '1px solid hsl(var(--border))', borderRadius: 6, padding: '0.15rem 0.45rem', fontSize: '0.8rem'}}
+          >
+            <span aria-hidden="true">📎</span>
+            {item.filename}
+            <button
+              type="button"
+              data-ledger-evidence-detach={item.sha256}
+              aria-label={`Detach ${item.filename}`}
+              title={`Detach ${item.filename}`}
+              style={{...(pageLocked ? disabledButtonStyle : buttonStyle), padding: '0 0.35rem', fontSize: '0.8rem'}}
+              disabled={locked || evidenceBusy}
+              aria-describedby={pageLocked ? lockedWhyId : undefined}
+              onClick={() => void detachEvidence(item.sha256)}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {evidence.length === 0 && (
+          <span data-ledger-evidence-none style={{fontSize: '0.8rem', color: 'hsl(var(--muted-foreground))'}}>
+            None attached{evidenceRequiredNames.length === 0 ? ' (optional)' : ''}.
+          </span>
+        )}
+        <label style={{display: 'inline-flex'}}>
+          <input
+            type="file"
+            data-ledger-evidence-file
+            style={{display: 'none'}}
+            disabled={locked || evidenceBusy}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Reset so choosing the same file twice re-fires onChange.
+              e.target.value = '';
+              if (file) void attachEvidence(file);
+            }}
+          />
+          <span
+            role="button"
+            tabIndex={locked || evidenceBusy ? -1 : 0}
+            data-ledger-evidence-attach
+            aria-disabled={locked || evidenceBusy ? true : undefined}
+            aria-describedby={pageLocked ? lockedWhyId : undefined}
+            style={{...(pageLocked ? disabledButtonStyle : buttonStyle), ...(locked || evidenceBusy ? {cursor: 'not-allowed'} : {})}}
+            onKeyDown={(e) => {
+              if ((e.key === 'Enter' || e.key === ' ') && !(locked || evidenceBusy)) {
+                e.preventDefault();
+                (e.currentTarget.parentElement?.querySelector('input[type="file"]') as HTMLInputElement | null)?.click();
+              }
+            }}
+            onClick={(e) => {
+              if (locked || evidenceBusy) e.preventDefault();
+              else (e.currentTarget.parentElement?.querySelector('input[type="file"]') as HTMLInputElement | null)?.click();
+            }}
+          >
+            {evidenceBusy ? 'Attaching…' : 'Attach receipt'}
+          </span>
+        </label>
+      </div>
+
       <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap'}}>
         <button
           type="button"
@@ -754,22 +931,36 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly}: {block: BlockLi
         <button
           type="button"
           data-ledger-post
+          {...(evidenceBlocked && !pageLocked ? {'data-ledger-post-off': 'evidence-required'} : {})}
           // The page lock outranks the Σ-gate's own colouring: on a read-only
           // page Post wears the same dashed off face as every other dead
           // control, whatever the totals say — the reader cannot post a
-          // balanced entry any more than an unbalanced one.
+          // balanced entry any more than an unbalanced one. The LGR-14
+          // evidence gate wears the same face: a balanced entry into an
+          // evidence-required account is just as unpostable until a receipt is
+          // attached, and the reason sits beside the button (aria-describedby).
           style={
-            pageLocked
+            pageLocked || (evidenceBlocked && status.canPost)
               ? disabledButtonStyle
               : {...buttonStyle, background: status.canPost ? 'hsl(var(--primary))' : 'hsl(var(--muted))', color: status.canPost ? 'hsl(var(--primary-foreground))' : 'hsl(var(--muted-foreground))', cursor: status.canPost ? 'pointer' : 'not-allowed'}
           }
-          disabled={!status.canPost || busy || pageLocked}
-          aria-describedby={pageLocked ? lockedWhyId : undefined}
+          disabled={!status.canPost || busy || pageLocked || evidenceBlocked}
+          aria-describedby={pageLocked ? lockedWhyId : evidenceBlocked ? evidenceWhyId : undefined}
           onClick={() => void post()}
         >
           {busy ? 'Posting…' : 'Post'}
         </button>
       </div>
+
+      {/* The LGR-14 gate's reason — quiet, not alarming: nothing is wrong with
+          the entry, it is simply not complete without its receipt. Suppressed
+          under the page lock (the lock sentence covers every control) and
+          while the entry has its own problems to report first. */}
+      {evidenceBlocked && !pageLocked && status.canPost && (
+        <div id={evidenceWhyId} data-ledger-evidence-required-why role="status" aria-live="polite" style={noticeStyle('quiet')}>
+          {evidenceRequiredNames.join(', ')} requires evidence — attach a receipt above before posting.
+        </div>
+      )}
 
       {/* One status slot: on an untouched block, the first-run hint; otherwise
           why Post is off — loud only once the entry is genuinely out of

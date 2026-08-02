@@ -90,6 +90,7 @@ class BookBuilder {
       type,
       status: 'open',
       currency,
+      evidenceRequired: false,
       createdAt: stamp(this.seq),
       updatedAt: stamp(this.seq),
     };

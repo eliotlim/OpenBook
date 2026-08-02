@@ -39,6 +39,7 @@ const account = (id: string): LedgerAccount => ({
   type: 'asset',
   status: 'open',
   currency: 'USD',
+  evidenceRequired: false,
   createdAt: new Date(0).toISOString(),
   updatedAt: new Date(0).toISOString(),
 });

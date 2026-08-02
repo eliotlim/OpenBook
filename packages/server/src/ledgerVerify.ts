@@ -31,7 +31,20 @@
  *                        (`replay-divergence`);
  *  e. entry numbers    — posted/void entry numbers are exactly the dense set
  *                        1..N with no gaps or duplicates (`entry-no-gap`,
- *                        `entry-no-duplicate`, `entry-no-missing`).
+ *                        `entry-no-duplicate`, `entry-no-missing`);
+ *  f. evidence         — every posted/void entry's evidence manifest (LGR-14)
+ *                        resolves against the content-addressed asset store:
+ *                        each item well-formed (`evidence-manifest-invalid`),
+ *                        its asset present (`evidence-asset-missing`), the
+ *                        stored BYTES re-hashed to the recorded SHA-256
+ *                        (`evidence-asset-replaced` — the receipt-swap
+ *                        detector; the asset id IS the hash, so a replacement
+ *                        can only exist as a row whose bytes no longer match
+ *                        their id), and the byte count equal to the manifest's
+ *                        (`evidence-size-mismatch`); plus the CURRENT-POLICY
+ *                        advisory (`evidence-required-missing`) — a bare
+ *                        posted/void entry touching an account that currently
+ *                        requires evidence.
  *
  * Browser-safe: no Node imports (store.ts exposes it to both runtimes).
  */
@@ -61,6 +74,7 @@ import type {Db} from './dbCore';
 // `@book.dev/server` consumers keep resolving it from this module.
 
 export type {LedgerVerifyCode, LedgerVerifyFinding, LedgerVerifyReport};
+export {LEDGER_VERIFY_ADVISORY_CODES, isLedgerVerifyAdvisory} from '@book.dev/sdk';
 
 // ── Raw-row plumbing (independent of LedgerStore's readers) ───────────────────
 
@@ -136,6 +150,10 @@ function accountFromRaw(row: RawRow): LedgerAccount {
     type: (str(props[LEDGER_PROP.account.type]) || 'asset') as LedgerAccount['type'],
     status: (str(props[LEDGER_PROP.account.status]) || 'open') as LedgerAccount['status'],
     currency: str(props[LEDGER_PROP.account.currency]) || 'USD',
+    // LGR-14. Raw rows written before LGR-14 (and every toggled-off account —
+    // the writer stores "off" as the ABSENT key) project to `false` here
+    // exactly as on the store's read path.
+    evidenceRequired: props[LEDGER_PROP.account.evidenceRequired] === true,
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };
@@ -195,9 +213,23 @@ function transactionFromRaw(row: RawRow, postings: LedgerPosting[]): LedgerTrans
   };
 }
 
-/** The audited CONTENT of an account — must mirror the writer's hashable shape. */
-function accountContent(a: LedgerAccount): Record<string, unknown> {
-  return {id: a.id, name: a.name, type: a.type, status: a.status, currency: a.currency};
+/**
+ * The audited CONTENT of an account — must mirror the writer's hashable shape
+ * (`ledger.ts`'s `accountContent`), key for key.
+ *
+ * `evidenceRequired` OMITTED while false (LGR-14) — the same additive-field
+ * discipline as the transaction projection's memo/kind: a frozen pre-LGR-14
+ * `account.create`/`.update` payload has no such key, so emitting
+ * `evidenceRequired: false` here would flag every pre-LGR-14 account on a
+ * healthy book as diverged.
+ *
+ * Exported ONLY so the structural-parity test can compare the two projections
+ * key for key; nothing in the product calls it from outside this module.
+ */
+export function accountContent(a: LedgerAccount): Record<string, unknown> {
+  const content: Record<string, unknown> = {id: a.id, name: a.name, type: a.type, status: a.status, currency: a.currency};
+  if (a.evidenceRequired) content.evidenceRequired = true;
+  return content;
 }
 
 /**
@@ -356,11 +388,11 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
     // reporting a clean book because the read failed is the one answer a
     // verifier must never give.
     if (!isMissingRelation(err, 'settings')) throw err;
-    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, checkedPeriods: 0, findings};
+    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, checkedPeriods: 0, checkedEvidence: 0, findings};
   }
   const ids = idsRows.length > 0 ? parseJson<RawLedgerIds>(idsRows[0].value, {}) : null;
   if (!ids || !ids.accounts || !ids.transactions || !ids.postings) {
-    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, checkedPeriods: 0, findings};
+    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, checkedPeriods: 0, checkedEvidence: 0, findings};
   }
 
   // Raw entity reads.
@@ -763,6 +795,9 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
     }
   }
 
+  // (f) Evidence manifests (LGR-14).
+  const checkedEvidence = await checkEvidenceManifests(db, transactions, accounts, flag);
+
   return {
     initialized: true,
     checkedTransactions: transactions.size,
@@ -770,8 +805,189 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
     checkedAccounts: accounts.size,
     checkedAuditEvents: events.length,
     checkedPeriods: periods.size,
+    checkedEvidence,
     findings,
   };
+}
+
+/** A content-hash asset id: 64 lowercase hex chars (the SHA-256 of the bytes). */
+const ASSET_ID_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * Normalize a BYTEA column value to bytes: PGlite and postgres.js hand back a
+ * `Uint8Array`; some drivers hand back the `\x…` hex string. Independent of the
+ * store's own normalizer on purpose (this module decodes raw storage itself).
+ */
+function toBytes(raw: Uint8Array | string): Uint8Array {
+  if (typeof raw !== 'string') return raw;
+  const hex = raw.startsWith('\\x') ? raw.slice(2) : raw;
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i += 1) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+/** SHA-256 hex of raw BYTES (the asset-store id function), isomorphic. */
+async function sha256HexOfBytes(bytes: Uint8Array): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes as BufferSource);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Check (f) — evidence manifests vs the content-addressed asset store (LGR-14).
+ *
+ * Scope: POSTED and VOID entries only. Their manifests are FROZEN (inside the
+ * audited content, so the row-vs-payload checks above already pin the manifest
+ * itself); what nothing above looks at is whether the STORE still honours the
+ * manifest — the bytes behind each hash. A draft's manifest is deliberately out
+ * of scope: it is mutable, `post` re-resolves it against the store inside the
+ * posting transaction, and a missing draft attachment is a user-fixable state,
+ * not tamper evidence.
+ *
+ * Detection taxonomy (each its own code — an operator responds differently):
+ *  - REPLACED (`evidence-asset-replaced`): the row exists but its bytes no
+ *    longer hash to their id. The receipt-swap. No API can produce this state
+ *    (ids are derived from bytes at upload; nothing updates `bytes`), and the
+ *    swap leaves every ledger row and hash untouched — this re-hash is the ONLY
+ *    detector, which is why the tamper test pins it (do not delete this check).
+ *  - REMOVED (`evidence-asset-missing`): the row is gone. Also surgery-only:
+ *    the GC keeps any asset whose id appears in any page's properties (the
+ *    posted manifest does exactly that) or holds a live `asset_refs` edge (the
+ *    tx-row ref), and no route or store method deletes asset rows. "Never
+ *    existed" is not a reachable explanation — `post` verified presence inside
+ *    the posting transaction.
+ *  - SIZE DRIFT (`evidence-size-mismatch`): bytes hash correctly but their
+ *    count differs from the manifest's `size` — doctored store metadata or a
+ *    consistently-rewritten manifest.
+ *  - MALFORMED (`evidence-manifest-invalid`): an item the checks above cannot
+ *    even be run on; flagged, never skipped (a skip would make malforming the
+ *    manifest the cheapest way to retire its checks).
+ *
+ * Also runs the CURRENT-POLICY advisory (`evidence-required-missing`, F2): a
+ * bare posted/void entry (no manifest, not a reversal, not a closing entry)
+ * with a leg on an account that CURRENTLY has `evidenceRequired`. This reads
+ * the account rows AS THEY ARE — deliberately, because the flag itself is the
+ * thing the traceless bypass toggles (SQL it off, post bare, SQL it back on:
+ * every other check is clean by construction, since the restored row matches
+ * its audit trail again). See the finding-code docstring for the advisory
+ * framing and the carve-out reasoning.
+ *
+ * Returns the number of manifest items checked — the green-on-nothing guard's
+ * observable: a fixture that expects `checkedEvidence > 0` cannot pass while
+ * the whole section silently stops running (the LGR-22 lesson).
+ */
+async function checkEvidenceManifests(
+  db: Db,
+  transactions: ReadonlyMap<string, LedgerTransaction>,
+  accounts: ReadonlyMap<string, LedgerAccount>,
+  flag: (code: LedgerVerifyCode, message: string, entityId?: string) => void,
+): Promise<number> {
+  interface ManifestItem {
+    txId: string;
+    txState: string;
+    filename: string;
+    sha256: string;
+    size: number;
+  }
+  const items: ManifestItem[] = [];
+  let checked = 0;
+  for (const tx of transactions.values()) {
+    if (tx.state !== 'posted' && tx.state !== 'void') continue;
+    // The current-policy advisory (F2). Void entries stay in scope: a reversed
+    // bare entry is still the entry that could not answer for itself, and
+    // hiding it behind its own reversal would make reversing the cheapest way
+    // to clear the report.
+    if (tx.evidence.length === 0 && tx.reverses === null && tx.kind !== 'closing') {
+      const required = [...new Set(tx.postings.map((p) => p.accountId))]
+        .map((id) => accounts.get(id))
+        .filter((a): a is LedgerAccount => a !== undefined && a.evidenceRequired);
+      if (required.length > 0) {
+        const names = required.map((a) => a.name).join(', ');
+        flag(
+          'evidence-required-missing',
+          `policy advisory — ${tx.state} transaction ${tx.id} (entry #${tx.entryNo ?? '?'}) has no evidence, but ${required.length === 1 ? `account ${names} currently requires` : `accounts ${names} currently require`} it. Not tamper evidence: entries posted before the requirement was turned on land here by design.`,
+          tx.id,
+        );
+      }
+    }
+    for (const raw of tx.evidence) {
+      checked += 1;
+      const filename = (raw as {filename?: unknown} | null)?.filename;
+      const sha256 = (raw as {sha256?: unknown} | null)?.sha256;
+      const size = (raw as {size?: unknown} | null)?.size;
+      if (
+        typeof filename !== 'string' ||
+        typeof sha256 !== 'string' ||
+        !ASSET_ID_RE.test(sha256) ||
+        typeof size !== 'number' ||
+        !Number.isSafeInteger(size) ||
+        size < 0
+      ) {
+        flag(
+          'evidence-manifest-invalid',
+          `${tx.state} transaction ${tx.id} carries a malformed evidence item ${JSON.stringify(raw)} — the writer only stores {filename, sha256, size}, so this was written out-of-band`,
+          tx.id,
+        );
+        continue;
+      }
+      items.push({txId: tx.id, txState: tx.state, filename, sha256, size});
+    }
+  }
+  if (items.length === 0) return checked;
+
+  // One read for the distinct hashes; bytes are re-hashed per DISTINCT asset
+  // (dedup — the store itself is content-addressed, so N manifests of one
+  // receipt are one digest).
+  const distinct = [...new Set(items.map((i) => i.sha256))];
+  let assetRows: Array<{id: string; size: number | string; bytes: Uint8Array | string}> = [];
+  try {
+    assetRows = await db.query<{id: string; size: number | string; bytes: Uint8Array | string}>(
+      'SELECT id, size, bytes FROM assets WHERE id = ANY($1)',
+      [distinct],
+    );
+  } catch (err) {
+    // A library whose migrations never created the asset store cannot hold any
+    // of the bytes these manifests promise — that is N missing assets, reported
+    // below, not a crash and not a silent pass. Any other failure propagates
+    // (isMissingRelation is deliberately narrow).
+    if (!isMissingRelation(err, 'assets')) throw err;
+  }
+  const byId = new Map(assetRows.map((r) => [r.id, r]));
+  const actualHash = new Map<string, string>();
+  const actualSize = new Map<string, number>();
+  for (const row of assetRows) {
+    const bytes = toBytes(row.bytes);
+    actualHash.set(row.id, await sha256HexOfBytes(bytes));
+    actualSize.set(row.id, bytes.byteLength);
+  }
+
+  for (const item of items) {
+    const row = byId.get(item.sha256);
+    if (!row) {
+      flag(
+        'evidence-asset-missing',
+        `${item.txState} transaction ${item.txId} records evidence "${item.filename}" (${item.sha256}, ${item.size} bytes) but the asset store no longer holds it — the receipt was removed after posting`,
+        item.txId,
+      );
+      continue;
+    }
+    const rehash = actualHash.get(item.sha256);
+    if (rehash !== item.sha256) {
+      flag(
+        'evidence-asset-replaced',
+        `${item.txState} transaction ${item.txId} evidence "${item.filename}": the stored bytes hash to ${rehash ?? 'nothing'}, not the recorded ${item.sha256} — the receipt was replaced after posting`,
+        item.txId,
+      );
+      continue;
+    }
+    if (actualSize.get(item.sha256) !== item.size) {
+      flag(
+        'evidence-size-mismatch',
+        `${item.txState} transaction ${item.txId} evidence "${item.filename}" (${item.sha256}): manifest records ${item.size} bytes but the store holds ${actualSize.get(item.sha256) ?? 0}`,
+        item.txId,
+      );
+    }
+  }
+  return checked;
 }
 
 /** Defensive raw projection of one stored periods-array element. */

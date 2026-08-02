@@ -158,6 +158,7 @@ describe('account-name mangling', () => {
       type: 'expense',
       status: 'open',
       currency: 'USD',
+      evidenceRequired: false,
       createdAt,
       updatedAt: createdAt,
     });
@@ -181,6 +182,7 @@ describe('account-name mangling', () => {
       type: 'expense',
       status: 'open',
       currency: 'USD',
+      evidenceRequired: false,
       createdAt,
       updatedAt: createdAt,
     });
