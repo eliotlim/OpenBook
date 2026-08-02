@@ -378,6 +378,15 @@ export const API = {
    */
   ledgerExportCsv: '/api/ledger/export.csv',
   /**
+   * Beancount journal export (LGR-13): `GET` returns the whole ledger as a
+   * `text/plain` Beancount journal — byte-stable (same data ⇒ identical bytes;
+   * see sdk `buildLedgerBeancount` for the directive contract), built from the
+   * SAME read model as the CSV export. Read-gated like every other ledger
+   * read. The point of the format: `bean-check`/Fava re-verify the whole book
+   * with an independent implementation.
+   */
+  ledgerExportBeancount: '/api/ledger/export.beancount',
+  /**
    * Independent invariant verifier (LGR-7): `GET` re-checks the ledger against
    * RAW storage (its own SQL, not the LedgerStore validators) — balance, audit
    * hash chain, referential integrity, audit replay, entry-number density —

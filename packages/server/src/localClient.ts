@@ -45,6 +45,7 @@ import type {
   LedgerReverseOptions,
   LedgerTransaction,
   LedgerTransactionState,
+  LedgerVerifyReport,
   McpClientConfig,
   McpConfigResponse,
   McpTestResult,
@@ -603,6 +604,17 @@ export class LocalDataClient implements DataClient {
   /** Canonical postings CSV (LGR-7) — same bytes as the HTTP route (parity-pinned). */
   ledgerExportCsv(): Promise<string> {
     return this.store.ledger.exportPostingsCsv();
+  }
+
+  /** Beancount journal (LGR-13) — same bytes as the HTTP route (parity-pinned). */
+  ledgerExportBeancount(): Promise<string> {
+    return this.store.ledger.exportBeancount();
+  }
+
+  /** The independent verifier (LGR-7). The in-webview store is single-user —
+   *  the local owner is the instance admin, so no gate applies here. */
+  ledgerVerify(): Promise<LedgerVerifyReport> {
+    return this.store.verifyLedger();
   }
 
   /** Refresh the named ledger databases' live row views (mirrors app.ts). */

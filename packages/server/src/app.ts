@@ -2239,6 +2239,17 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     });
   });
 
+  // Beancount journal (LGR-13). Same gate and same read model as the CSV —
+  // one read model, two serializers (see LedgerStore.exportBeancount).
+  app.get(API.ledgerExportBeancount, async (c) => {
+    await requireLedger(c, 'read');
+    const journal = await store.ledger.exportBeancount();
+    return c.body(journal, 200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="ledger.beancount"',
+    });
+  });
+
   // Independent invariant verifier (LGR-7). Gated `requireInstanceAdmin`
   // (owner/admin/loopback): the report names entity ids across the whole book.
   // A 404 for an unseeded ledger would leak nothing, but the report shape keeps

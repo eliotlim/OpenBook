@@ -47,51 +47,20 @@ import {
   type LedgerReconciliation,
   type LedgerReconciliationPostingChange,
   type LedgerTransaction,
+  type LedgerVerifyCode,
+  type LedgerVerifyFinding,
+  type LedgerVerifyReport,
 } from '@book.dev/sdk';
 import type {Db} from './dbCore';
 
 // ── Findings ──────────────────────────────────────────────────────────────────
+// The report SHAPE (`LedgerVerifyCode` / `LedgerVerifyFinding` /
+// `LedgerVerifyReport`) moved to the sdk ledger contract in LGR-13 — it is a
+// wire type now (`GET /api/ledger/verify`, `DataClient.ledgerVerify()`, the
+// plugin's Export & verify action). Re-exported here so existing
+// `@book.dev/server` consumers keep resolving it from this module.
 
-export type LedgerVerifyCode =
-  | 'unbalanced'
-  | 'too-few-postings'
-  | 'invalid-amount'
-  | 'audit-chain-broken'
-  | 'audit-hash-forged'
-  | 'posted-hash-mismatch'
-  | 'orphan-posting'
-  | 'unknown-account'
-  | 'replay-divergence'
-  | 'entry-no-gap'
-  | 'entry-no-duplicate'
-  | 'entry-no-missing'
-  /** A `period.close`/`period.reopen` payload posting is not `pending`/unowned
-   *  (LGR-12) — the writer always emits closing and reversal legs born
-   *  `cleared: 'pending'`, `reconciliationId: null`, so a frozen payload saying
-   *  otherwise was rewritten. This is what covers the workflow fields the
-   *  period hash chain deliberately excludes (see `closingEntryContent`). */
-  | 'closing-posting-forged';
-
-export interface LedgerVerifyFinding {
-  code: LedgerVerifyCode;
-  /** Human-readable, entity-id-bearing description of the violation. */
-  message: string;
-  /** The primary entity (transaction / posting / account / audit seq) at fault. */
-  entityId?: string;
-}
-
-export interface LedgerVerifyReport {
-  /** False when the ledger has never been seeded — trivially clean. */
-  initialized: boolean;
-  checkedTransactions: number;
-  checkedPostings: number;
-  checkedAccounts: number;
-  checkedAuditEvents: number;
-  /** Period records checked against the audit stream (LGR-12). */
-  checkedPeriods: number;
-  /** Empty = every invariant holds against raw storage. */
-  findings: LedgerVerifyFinding[];
-}
+export type {LedgerVerifyCode, LedgerVerifyFinding, LedgerVerifyReport};
 
 // ── Raw-row plumbing (independent of LedgerStore's readers) ───────────────────
 
