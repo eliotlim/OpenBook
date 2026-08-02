@@ -402,6 +402,9 @@ export {
   DEFAULT_BACKUP_CONFIG,
   remapBundle,
   type LibraryBackup,
+  type LedgerBackupSection,
+  type LedgerBackupAsset,
+  type LedgerRestoreOutcome,
   type ImportMode,
   type ImportRequest,
   type ImportResult,
@@ -515,7 +518,9 @@ export {
 } from './ledgerBeancount';
 export {
   BEANCOUNT_PARITY_TX_COUNT,
+  LEDGER_BENCH_POSTING_COUNT,
   buildBeancountMiniBook,
   buildBeancountParityBook,
+  buildLedgerBenchBook,
   type LedgerBeancountFixtureBook,
 } from './ledgerBeancountFixture';

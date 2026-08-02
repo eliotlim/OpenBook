@@ -16,6 +16,9 @@ import type {
   DatabaseUpdate,
   ImportRequest,
   ImportResult,
+  LedgerBackupAsset,
+  LedgerBackupSection,
+  LedgerRestoreOutcome,
   EffectiveRole,
   InstanceConfig,
   Member,
@@ -43,13 +46,13 @@ import type {
   VerifiedVia,
 } from '@book.dev/sdk';
 import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
-import {LedgerError} from '@book.dev/sdk';
+import {LedgerError, LEDGER_AUDIT_ACTIONS, LEDGER_PROP} from '@book.dev/sdk';
 import {authoredSubject} from './agentWriteGate';
 import type {Db} from './dbCore';
 import type {IndexablePage} from './ai/search';
 import type {AgentTokenRow} from './agentTokens';
 import {runMigrations} from './migrations';
-import {LEDGER_DB_SETTING_KEY, LedgerStore, type LedgerIds} from './ledger';
+import {LEDGER_DB_SETTING_KEY, LEDGER_ENTRY_SEQ_SETTING_KEY, LEDGER_PERIODS_SETTING_KEY, LedgerStore, type LedgerIds} from './ledger';
 import {verifyLedger, type LedgerVerifyReport} from './ledgerVerify';
 
 /**
@@ -96,6 +99,8 @@ interface PageRow {
   hosted_database_id?: string | null;
   // Projected from `properties->>'sys_icon'` by the meta queries (PageMeta only).
   icon?: string | null;
+  // Sibling sort key; selected by full page fetches so exports carry it (LGR-15).
+  position?: number | string | null;
   created_at: Date | string;
   updated_at: Date | string;
   // Set when the page is in the trash (soft-deleted); null for live pages.
@@ -228,6 +233,9 @@ const pageFromRow = (row: PageRow): StoredPage => ({
   parentId: row.parent_id ?? null,
   properties: parseJson<Record<string, unknown>>(row.properties, {}),
   deletedAt: toIsoOrNull(row.deleted_at),
+  // Absent on queries that don't select it; carried by exports so a restore
+  // preserves sibling/posting order (LGR-15 — order feeds the ledger hashes).
+  ...(row.position != null ? {position: Number(row.position)} : {}),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
@@ -307,7 +315,7 @@ const stripConflictSuffix = (name: string): string => {
 
 // Column list for a full page fetch, including the hosted-database join.
 const PAGE_COLUMNS =
-  'p.id, p.name, p.data, p.database_id, p.parent_id, p.properties, p.deleted_at, p.created_at, p.updated_at, ' +
+  'p.id, p.name, p.data, p.database_id, p.parent_id, p.properties, p.deleted_at, p.position, p.created_at, p.updated_at, ' +
   'd.id AS hosted_database_id';
 const PAGE_FROM = 'pages p LEFT JOIN databases d ON d.page_id = p.id';
 
@@ -326,9 +334,26 @@ async function bundleKey(req: ImportRequest): Promise<string> {
     mode: req.mode ?? 'copy',
     pages: [...req.pages].sort(byId),
     databases: [...req.databases].sort(byId),
+    // LGR-15: the ledger section is part of the bundle's identity — the same
+    // pages WITH a ledger to restore must never dedupe against a prior apply
+    // WITHOUT one. `null` (not absent) so a v1 key can't collide by accident.
+    ledger: req.ledger ?? null,
   });
   const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Normalize a BYTEA column value to bytes: PGlite and postgres.js hand back a
+ * `Uint8Array`; some drivers hand back the `\x…` hex string (LGR-15 backup
+ * export reads asset bytes on both backends).
+ */
+function byteaToBytes(raw: Uint8Array | string): Uint8Array {
+  if (typeof raw !== 'string') return raw;
+  const hex = raw.startsWith('\\x') ? raw.slice(2) : raw;
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i += 1) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
 }
 
 /**
@@ -648,15 +673,83 @@ export class PageStore {
   // ── Whole-space backup ───────────────────────────────────────────────────────
 
   /** Export every live page (full data, nesting, database membership) + every
-   *  database — the entire library as one bundle. */
-  async exportAll(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
+   *  database — the entire library as one bundle. When a ledger is seeded the
+   *  bundle also carries its durability surface (LGR-15): the audit stream,
+   *  the ledger settings rows, and the evidence assets its manifests name. */
+  async exportAll(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}> {
     const pageRows = await this.db.query<PageRow>(
       `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.deleted_at IS NULL ORDER BY p.created_at ASC`,
     );
     const dbRows = await this.db.query<DatabaseRowRecord>(
       'SELECT id, page_id, name, schema, created_at, updated_at FROM databases',
     );
-    return {pages: pageRows.map(pageFromRow), databases: dbRows.map(databaseFromRow)};
+    const ledger = await this.exportLedgerSection();
+    return {
+      pages: pageRows.map(pageFromRow),
+      databases: dbRows.map(databaseFromRow),
+      ...(ledger ? {ledger} : {}),
+    };
+  }
+
+  /**
+   * The ledger durability surface of a backup (LGR-15), or `undefined` when no
+   * ledger is seeded. The entity rows travel as ordinary pages; this collects
+   * what they cannot express: the settings rows (ids, periods, entry sequence),
+   * the FULL audit stream (verbatim — the tamper-evidence chain must survive
+   * the round trip), and the evidence assets any transaction manifest names
+   * (drafts included: a restored draft must still be able to post).
+   *
+   * Asset bytes are read ONE ASSET PER QUERY on purpose — peak memory stays one
+   * asset (the upload cap), never the whole receipt corpus. Same bounded-memory
+   * discipline as the verifier's evidence check.
+   */
+  private async exportLedgerSection(): Promise<LedgerBackupSection | undefined> {
+    const ids = await this.ledgerIds();
+    if (!ids) return undefined;
+    const settings: Record<string, unknown> = {};
+    for (const key of [LEDGER_DB_SETTING_KEY, LEDGER_PERIODS_SETTING_KEY, LEDGER_ENTRY_SEQ_SETTING_KEY]) {
+      const value = await this.getSetting<unknown>(key);
+      if (value != null) settings[key] = value;
+    }
+    const audit = await this.ledger.exportAuditStream();
+
+    const txRows = await this.db.query<{properties: Record<string, unknown> | string | null}>(
+      'SELECT properties FROM pages WHERE database_id = $1 AND deleted_at IS NULL',
+      [ids.transactions],
+    );
+    const wanted = new Set<string>();
+    for (const row of txRows) {
+      const props = parseJson<Record<string, unknown>>(row.properties, {});
+      const manifest = props[LEDGER_PROP.transaction.evidence];
+      if (!Array.isArray(manifest)) continue;
+      for (const item of manifest) {
+        const sha = (item as {sha256?: unknown} | null)?.sha256;
+        if (typeof sha === 'string' && /^[0-9a-f]{64}$/.test(sha)) wanted.add(sha);
+      }
+    }
+    const assets: LedgerBackupAsset[] = [];
+    for (const id of [...wanted].sort()) {
+      const rows = await this.db.query<{id: string; mime: string; bytes: Uint8Array | string}>(
+        'SELECT id, mime, bytes FROM assets WHERE id = $1',
+        [id],
+      );
+      // A manifest naming bytes the store no longer holds is the verifier's
+      // finding to report — the backup carries what exists, never invents.
+      if (rows.length === 0) continue;
+      const bytes = byteaToBytes(rows[0].bytes);
+      const refs = await this.db.query<{page_id: string}>(
+        'SELECT page_id FROM asset_refs WHERE asset_id = $1 ORDER BY page_id ASC',
+        [id],
+      );
+      assets.push({
+        id,
+        mime: rows[0].mime,
+        size: bytes.byteLength,
+        bytesBase64: Buffer.from(bytes).toString('base64'),
+        refs: refs.map((r) => r.page_id),
+      });
+    }
+    return {settings, audit, assets};
   }
 
   /**
@@ -717,10 +810,26 @@ export class PageStore {
       const stripped = await this.stripManagedUsage(tx, req.pages, req.databases, managedUsage);
       // …and any entry that targets the server-managed LEDGER (LGR-3).
       const {pages, databases} = await this.stripManagedLedger(tx, stripped.pages, stripped.databases, ledgerIds);
-      const result =
+      let result =
         req.mode === 'overwrite'
           ? await this.importOverwriteTx(tx, pages, databases)
           : await this.importCopyTx(tx, pages, databases);
+      // LGR-15: the bundle's ledger durability section (audit stream, settings,
+      // evidence assets). Deliberately narrow: overwrite mode only (copy re-ids
+      // every page, severing the audit stream's entity references), and ONLY
+      // into a library with no seeded ledger — an existing ledger keeps its
+      // LGR-3 protections (the strip above already ran) and the section is
+      // skipped, reported, never merged. Runs in the SAME transaction: a
+      // restored book must never commit with half its history.
+      if (req.ledger) {
+        const outcome: LedgerRestoreOutcome =
+          req.mode !== 'overwrite'
+            ? 'skipped-copy-mode'
+            : ledgerIds
+              ? 'skipped-existing-ledger'
+              : await this.restoreLedgerSectionTx(tx, req.ledger);
+        result = {...result, ledger: outcome};
+      }
       // OB-170: a page may carry verified per-block authorship from the instance it
       // was authored on. Credit that as a `synced` edit-log entry — in the SAME
       // transaction so a crash can't leave the claimed key committed without its
@@ -858,6 +967,124 @@ export class PageStore {
     return {pages: kept, databases: keptDatabases};
   }
 
+  /**
+   * Apply a bundle's {@link LedgerBackupSection} inside the import transaction
+   * (LGR-15). Preconditions already held by the caller: overwrite mode, and the
+   * target had NO seeded ledger when the import began.
+   *
+   * The section is UNTRUSTED input (instance-admin gated, but a crafted file is
+   * still a crafted file), so:
+   *  - the claimed ids must resolve to pages/databases the SELECTION actually
+   *    imported — a section without its own entity rows is skipped, never
+   *    half-applied (`skipped-incomplete`);
+   *  - only the three ledger settings keys are ever written — this method is
+   *    not a generic settings writer;
+   *  - every audit row's action must be one this build can interpret, and the
+   *    stream must carry unique ascending seqs — anything else REJECTS the
+   *    whole import (one transaction: no half-restored history can commit);
+   *  - every asset's bytes are re-hashed and must equal the claimed id — the
+   *    content-addressed store's invariant holds at the door, so a bundle can
+   *    never plant bytes under a hash they do not answer to.
+   *
+   * What it deliberately does NOT do: judge the restored history's truth. The
+   * audit hashes are restored verbatim; whether they hold against the restored
+   * rows is the LGR-7 verifier's job (`GET /api/ledger/verify` — the restore
+   * runbook's mandatory last step, and what the restore CI asserts).
+   */
+  private async restoreLedgerSectionTx(tx: Db, section: LedgerBackupSection): Promise<LedgerRestoreOutcome> {
+    const rawIds = section.settings?.[LEDGER_DB_SETTING_KEY] as Partial<LedgerIds> | undefined;
+    const hostPages = rawIds?.hostPages;
+    const pageIds = [rawIds?.hostPageId, hostPages?.accounts, hostPages?.transactions, hostPages?.postings, hostPages?.reconciliations];
+    const dbIds = [rawIds?.accounts, rawIds?.transactions, rawIds?.postings, rawIds?.reconciliations];
+    const allStrings = [...pageIds, ...dbIds].every((id): id is string => typeof id === 'string' && id.length > 0);
+    if (!rawIds || !allStrings) return 'skipped-incomplete';
+    for (const id of pageIds) {
+      const rows = await tx.query<{id: string}>('SELECT id FROM pages WHERE id = $1 AND deleted_at IS NULL', [id]);
+      if (rows.length === 0) return 'skipped-incomplete';
+    }
+    for (const id of dbIds) {
+      const rows = await tx.query<{id: string}>('SELECT id FROM databases WHERE id = $1', [id]);
+      if (rows.length === 0) return 'skipped-incomplete';
+    }
+
+    for (const key of [LEDGER_DB_SETTING_KEY, LEDGER_PERIODS_SETTING_KEY, LEDGER_ENTRY_SEQ_SETTING_KEY]) {
+      const value = section.settings[key];
+      if (value == null) continue;
+      await tx.query(
+        `INSERT INTO settings (key, value) VALUES ($1, $2::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [key, JSON.stringify(value)],
+      );
+    }
+
+    const events = [...section.audit].sort((a, b) => Number(a.seq) - Number(b.seq));
+    let prevSeq = 0;
+    for (const ev of events) {
+      const seq = Number(ev.seq);
+      if (!Number.isSafeInteger(seq) || seq <= prevSeq) {
+        throw new Error(`invalid ledger backup: audit seq ${String(ev.seq)} is not strictly ascending`);
+      }
+      prevSeq = seq;
+      if (!(LEDGER_AUDIT_ACTIONS as readonly string[]).includes(ev.action)) {
+        throw new Error(`invalid ledger backup: unknown audit action ${JSON.stringify(ev.action)}`);
+      }
+      if (typeof ev.id !== 'string' || ev.id.length === 0) {
+        throw new Error(`invalid ledger backup: audit seq ${seq} has no event id`);
+      }
+      await tx.query(
+        `INSERT INTO ledger_audit (seq, id, actor_subject, actor_name, action, entity_ids, payload, before_hash, after_hash, prev_hash, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11)`,
+        [
+          seq,
+          ev.id,
+          typeof ev.actorSubject === 'string' ? ev.actorSubject : '',
+          typeof ev.actorName === 'string' ? ev.actorName : '',
+          ev.action,
+          JSON.stringify(Array.isArray(ev.entityIds) ? ev.entityIds : []),
+          JSON.stringify(ev.payload ?? {}),
+          typeof ev.beforeHash === 'string' ? ev.beforeHash : null,
+          typeof ev.afterHash === 'string' ? ev.afterHash : null,
+          typeof ev.prevHash === 'string' ? ev.prevHash : null,
+          ev.createdAt,
+        ],
+      );
+    }
+    // Advance the BIGSERIAL past the restored tail so the next append never
+    // collides with a restored seq.
+    await tx.query(
+      'SELECT setval(pg_get_serial_sequence(\'ledger_audit\', \'seq\'), (SELECT COALESCE(MAX(seq), 1) FROM ledger_audit))',
+    );
+
+    for (const asset of section.assets ?? []) {
+      if (typeof asset.id !== 'string' || !/^[0-9a-f]{64}$/.test(asset.id) || typeof asset.bytesBase64 !== 'string') {
+        throw new Error('invalid ledger backup: malformed evidence asset entry');
+      }
+      const bytes = Uint8Array.from(Buffer.from(asset.bytesBase64, 'base64'));
+      const actual = await assetHash(bytes);
+      if (actual !== asset.id) {
+        throw new Error(`invalid ledger backup: asset ${asset.id} bytes hash to ${actual} — refusing to store bytes under a hash they do not answer to`);
+      }
+      const mime = typeof asset.mime === 'string' && asset.mime.length > 0 && asset.mime.length <= 255 ? asset.mime : 'application/octet-stream';
+      await tx.query(
+        `INSERT INTO assets (id, bytes, mime, size) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (id) DO NOTHING`,
+        [asset.id, Buffer.from(bytes), mime, bytes.byteLength],
+      );
+      for (const pageId of asset.refs ?? []) {
+        if (typeof pageId !== 'string') continue;
+        // Ref only pages that exist post-import (a partial selection must not
+        // create dangling FK rows); ON CONFLICT keeps re-restores idempotent.
+        await tx.query(
+          `INSERT INTO asset_refs (asset_id, page_id)
+           SELECT $1, id FROM pages WHERE id = $2
+           ON CONFLICT (asset_id, page_id) DO NOTHING`,
+          [asset.id, pageId],
+        );
+      }
+    }
+    return 'restored';
+  }
+
   private async importCopyTx(tx: Db, pages: StoredPage[], databases: StoredDatabase[]): Promise<ImportResult> {
     const {pages: rp, databases: rd, idMap} = remapBundle(pages, databases, randomUUID);
     let renamed = 0;
@@ -874,12 +1101,15 @@ export class PageStore {
       names.set(p.id, free);
     }
     // Insert pages first (parent_id/database_id deferred so the FKs resolve).
+    // Copy mode appends the import BELOW existing pages (1_000_000 + i keeps the
+    // bundle's relative order); a bundle-carried `position` (LGR-15) is offset,
+    // not taken verbatim, so imported copies never interleave existing siblings.
     let i = 0;
     for (const p of rp) {
       await tx.query(
         `INSERT INTO pages (id, name, data, properties, position, created_at, updated_at)
          VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, now())`,
-        [p.id, names.get(p.id) ?? null, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), 1_000_000 + i, p.createdAt],
+        [p.id, names.get(p.id) ?? null, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), 1_000_000 + (typeof p.position === 'number' && Number.isFinite(p.position) ? p.position : i), p.createdAt],
       );
       i += 1;
     }
@@ -910,13 +1140,19 @@ export class PageStore {
       // Keep the page's own name; suffix only if a *different* live page holds it.
       const name = p.name ? await freeName(tx, p.name, taken, 'imported', p.id) : null;
       if (name) taken.add(name);
+      // Overwrite restores IN PLACE, so a bundle-carried `position` (LGR-15) is
+      // taken verbatim — for ledger posting rows it is load-bearing (posting
+      // order feeds the audited content hash); COALESCE keeps a v1 bundle's
+      // pages at the column default / their existing spot.
+      const position = typeof p.position === 'number' && Number.isFinite(p.position) ? p.position : null;
       await tx.query(
-        `INSERT INTO pages (id, name, data, properties, created_at, updated_at)
-         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, now())
+        `INSERT INTO pages (id, name, data, properties, position, created_at, updated_at)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, COALESCE($6, 0), $5, now())
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name, data = EXCLUDED.data, properties = EXCLUDED.properties,
+           position = COALESCE($6, pages.position),
            deleted_at = NULL, updated_at = now()`,
-        [p.id, name, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), p.createdAt],
+        [p.id, name, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), p.createdAt, position],
       );
     }
     for (const d of databases) {

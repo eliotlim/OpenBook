@@ -2266,6 +2266,17 @@ export class LedgerStore {
     return rows.map(auditFromRow);
   }
 
+  /**
+   * The FULL audit stream, ascending `seq`, verbatim — the whole-space backup's
+   * source (LGR-15). Unpaginated on purpose: a backup that silently carried a
+   * prefix of the tamper-evidence chain would restore as a book whose history
+   * ends mid-sentence, which the verifier would then (rightly) reject.
+   */
+  async exportAuditStream(): Promise<LedgerAuditEvent[]> {
+    const rows = await this.db.query<AuditRow>('SELECT * FROM ledger_audit ORDER BY seq ASC');
+    return rows.map(auditFromRow);
+  }
+
   // ── Internals ────────────────────────────────────────────────────────────────
 
   /** Lock a transaction row and require it to be a DRAFT. */

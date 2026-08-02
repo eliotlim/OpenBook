@@ -526,7 +526,11 @@ function RestoreDialog({
     }
     setBusy('import');
     try {
-      const result = await run({pages: sel.pages, databases: sel.databases, mode});
+      // LGR-15: a bundle carrying the ledger's durability section forwards it on
+      // an OVERWRITE restore — the server applies it only into a library with no
+      // seeded ledger (and only when the selection carried the ledger's own
+      // pages), so this is safe to send unconditionally in that mode.
+      const result = await run({pages: sel.pages, databases: sel.databases, mode, ...(mode === 'overwrite' && bundle.ledger ? {ledger: bundle.ledger} : {})});
       const bits = [
         result.created ? t('backup.added', {count: result.created}) : '',
         result.overwritten ? t('backup.overwrittenCount', {count: result.overwritten}) : '',
