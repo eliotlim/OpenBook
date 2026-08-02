@@ -18,6 +18,7 @@ import type {
   StoredPage,
 } from '@book.dev/sdk';
 import {
+  CsvLimitError,
   LEDGER_MAX_TRANSACTION_LIMIT,
   LedgerError,
   MoneyCurrencyError,
@@ -28,6 +29,7 @@ import {
   isValidMinor,
   negateAmount,
   parseAmount,
+  parseCsv,
   sumAmounts,
   textSnapshot,
 } from '@book.dev/sdk';
@@ -264,10 +266,12 @@ export function buildPluginApi(
 /**
  * Host modules importable from plugin code. Besides the per-plugin `api`,
  * `@book.dev/plugin-sdk` exposes the money core (LGR-2) and the typed
- * {@link LedgerError} + the ledger's read bounds: pure helpers/classes/constants
- * a ledger-touching plugin MUST share with the host — user amount input is only ever parsed by
- * `parseAmount`, and a plugin can only `instanceof`-match the host's error
- * class, not a bundled copy.
+ * {@link LedgerError}, the ledger's read bounds, and the shared RFC-4180
+ * {@link parseCsv}: pure helpers/classes/constants a ledger-touching plugin
+ * MUST share with the host — user amount input is only ever parsed by
+ * `parseAmount`, a plugin can only `instanceof`-match the host's error class
+ * (not a bundled copy), and a plugin that ships its own CSV reader ships its
+ * own quoting bugs.
  */
 export const hostModulesFor = (api: PluginApi): Record<string, unknown> => ({
   react: React,
@@ -287,5 +291,7 @@ export const hostModulesFor = (api: PluginApi): Record<string, unknown> => ({
     // (a report) must be able to tell a full page from a complete book, and a
     // hard-coded copy would rot silently the day the cap changed.
     LEDGER_MAX_TRANSACTION_LIMIT,
+    parseCsv,
+    CsvLimitError,
   },
 });

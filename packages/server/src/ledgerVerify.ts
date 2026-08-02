@@ -171,6 +171,10 @@ function postingFromRaw(row: RawRow): LedgerPosting {
     amountMinor: typeof amount === 'number' ? amount : Number(amount ?? 0),
     cleared: (str(props[LEDGER_PROP.posting.cleared]) || 'pending') as LedgerPosting['cleared'],
     reconciliationId: strOrNull(props[LEDGER_PROP.posting.reconciliation]),
+    // LGR-16. The verifier reads RAW rows on purpose, so a pre-LGR-16 posting
+    // (no memo key at all) projects to `null` here exactly as it does on the
+    // store's read path — the two projections must not disagree.
+    memo: strOrNull(props[LEDGER_PROP.posting.memo]),
   };
 }
 
@@ -199,8 +203,27 @@ function accountContent(a: LedgerAccount): Record<string, unknown> {
   return {id: a.id, name: a.name, type: a.type, status: a.status, currency: a.currency};
 }
 
-/** The audited CONTENT of a transaction + postings (timestamps excluded). */
-function transactionContent(t: LedgerTransaction): Record<string, unknown> {
+/**
+ * The audited CONTENT of a transaction + postings (timestamps excluded).
+ *
+ * This projection MUST mirror `ledger.ts`'s `transactionContent` field for
+ * field: it is the independent recomputation of the very hash the writer
+ * stored, so a field present on one side and absent on the other makes every
+ * entry in a healthy book report as tampered-with.
+ *
+ * And note the THIRD consumer, which is what makes the `memo != null` omission
+ * load-bearing rather than cosmetic: `replayLedgerAudit` returns FROZEN audit
+ * payloads verbatim, and a payload written before LGR-16 has no `memo` key at
+ * all. Emitting `memo: null` here (canonical JSON keeps nulls) would make every
+ * pre-LGR-16 posted entry flag `posted-hash-mismatch` and every pre-LGR-16
+ * draft flag `replay-divergence` — the out-of-band-mutation detector crying
+ * wolf on a clean book. Every future additive field on this projection owes the
+ * same discipline, on BOTH sides.
+ *
+ * Exported ONLY so the structural-parity test can compare the two projections
+ * key for key; nothing in the product calls it from outside this module.
+ */
+export function transactionContent(t: LedgerTransaction): Record<string, unknown> {
   return {
     id: t.id,
     date: t.date,
@@ -211,13 +234,17 @@ function transactionContent(t: LedgerTransaction): Record<string, unknown> {
     reverses: t.reverses,
     entryNo: t.entryNo,
     evidence: t.evidence,
-    postings: t.postings.map((p) => ({
-      id: p.id,
-      accountId: p.accountId,
-      amountMinor: p.amountMinor,
-      cleared: p.cleared,
-      reconciliationId: p.reconciliationId,
-    })),
+    postings: t.postings.map((p) => {
+      const o: Record<string, unknown> = {
+        id: p.id,
+        accountId: p.accountId,
+        amountMinor: p.amountMinor,
+        cleared: p.cleared,
+        reconciliationId: p.reconciliationId,
+      };
+      if (p.memo != null) o.memo = p.memo;
+      return o;
+    }),
   };
 }
 

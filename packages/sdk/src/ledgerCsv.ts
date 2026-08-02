@@ -43,14 +43,21 @@ import type {LedgerAccount, LedgerTransaction} from './ledger';
  * | posted_at         | ISO timestamp stamped at post time, empty for drafts               |
  * | posted_by         | principal subject that posted, empty for drafts                    |
  * | evidence_sha256s  | semicolon-joined SHA-256 hashes of attached evidence               |
+ * | memo              | the POSTING's own free-text note (LGR-16); empty when none        |
  *
- * **Free-text columns and the leading apostrophe.** `description`,
+ * **Adding a column.** `memo` was APPENDED (LGR-16), never inserted: this list
+ * is a documented contract, and a consumer that reads columns POSITIONALLY —
+ * the spreadsheet formula somebody wrote against `I2`, the awk one-liner in a
+ * runbook — keeps working across the change iff existing columns do not move.
+ * Every future column belongs at the end for the same reason.
+ *
+ * **Free-text columns and the leading apostrophe.** `description`, `memo`,
  * `account_name` and `posted_by` carry text a ledger writer authored, so a
  * value that would open as a spreadsheet FORMULA (leading `=` `+` `-` `@`, tab
  * or CR) is emitted with a single leading apostrophe — the universal
  * "treat this as text" marker. A value that ALREADY begins with `'` is prefixed
  * too, which is what makes the escape INJECTIVE: a RE-IMPORTER strips ONE
- * leading `'` from exactly these three columns and recovers the original value
+ * leading `'` from exactly these four columns and recovers the original value
  * exactly, whether it was a formula lead-in or a genuine apostrophe. No other
  * column is ever prefixed (notably `amount_minor`, whose negatives legitimately
  * start with `-`), so machine columns round-trip byte-exactly.
@@ -73,6 +80,7 @@ export const LEDGER_CSV_COLUMNS = [
   'posted_at',
   'posted_by',
   'evidence_sha256s',
+  'memo',
 ] as const;
 
 /**
@@ -81,7 +89,7 @@ export const LEDGER_CSV_COLUMNS = [
  * columns (ids, enums, dates, and above all `amount_minor`) are emitted
  * verbatim so the file stays exactly parseable as data.
  */
-const TEXT_COLUMNS: ReadonlySet<string> = new Set(['description', 'account_name', 'posted_by']);
+const TEXT_COLUMNS: ReadonlySet<string> = new Set(['description', 'memo', 'account_name', 'posted_by']);
 
 /**
  * Leading characters a spreadsheet treats as the start of a FORMULA rather than
@@ -188,6 +196,10 @@ export function buildLedgerPostingsCsv(
         tx.postedAt ?? '',
         tx.postedBy ?? '',
         evidence,
+        // Defensive `?? ''`, not just for `null`: a raw-mutated row can hold a
+        // non-string here, and the insurance export must emit SOMETHING rather
+        // than `undefined` or a throw.
+        typeof posting.memo === 'string' ? posting.memo : '',
       ];
       lines.push(
         fields.map((value, i) => (TEXT_COLUMNS.has(LEDGER_CSV_COLUMNS[i]) ? csvText(value) : csvField(value))).join(','),

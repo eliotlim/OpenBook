@@ -1125,3 +1125,141 @@ describe('LGR-3 — re-review fixes', () => {
     expect(positions).toHaveLength(5);
   });
 });
+
+/**
+ * LGR-16 — the per-posting memo.
+ *
+ * Before this, per-line memos lived only in the journal block's CRDT props:
+ * they never reached storage, so they never reached the export, the audit
+ * trail, reports, or an importer. The memo is now ordinary posting CONTENT and
+ * is held to the same bar as `description`.
+ */
+describe('LGR-16 — per-posting memo', () => {
+  it('round-trips through create, update, post and read', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const draft = await store.ledger.createDraft(
+      {
+        date: '2026-08-01',
+        description: 'Payroll',
+        postings: [
+          {accountId: cash, amountMinor: -2500, memo: 'net to bank'},
+          {accountId: income, amountMinor: 2500, memo: 'gross wages'},
+        ],
+      },
+      ACTOR,
+    );
+    expect(draft.postings.map((p) => p.memo)).toEqual(['net to bank', 'gross wages']);
+
+    // A wholesale posting replacement carries the new memos.
+    const updated = await store.ledger.updateDraft(
+      draft.id,
+      {postings: [{accountId: cash, amountMinor: -2500, memo: 'corrected'}, {accountId: income, amountMinor: 2500}]},
+      ACTOR,
+    );
+    expect(updated.postings.map((p) => p.memo)).toEqual(['corrected', null]);
+
+    // Posting is a state change, not a content rewrite: memos survive it, and
+    // survive a re-read from storage.
+    const posted = await store.ledger.post(draft.id, ACTOR);
+    expect(posted.postings.map((p) => p.memo)).toEqual(['corrected', null]);
+    const reread = await store.ledger.getTransaction(draft.id);
+    expect(reread?.postings.map((p) => p.memo)).toEqual(['corrected', null]);
+    expect(await store.ledger.getPosting(posted.postings[0].id)).toMatchObject({memo: 'corrected'});
+  });
+
+  it('validates type + length exactly like description, and collapses blank to null', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const withMemo = (memo: unknown) =>
+      store.ledger.createDraft(
+        {date: '2026-08-01', postings: [{accountId: cash, amountMinor: 1, memo: memo as string}, {accountId: income, amountMinor: -1}]},
+        ACTOR,
+      );
+    expect(await code(withMemo({a: 1}))).toBe('invalid-input');
+    expect(await code(withMemo(42))).toBe('invalid-input');
+    expect(await code(withMemo('x'.repeat(1001)))).toBe('invalid-input');
+    // The boundary value is accepted — same cap as description.
+    expect((await withMemo('x'.repeat(1000))).postings[0].memo).toHaveLength(1000);
+    // Absent / null / '' are ONE state, so a cleared box and an untouched one
+    // cannot produce two different audit payloads for the same entry.
+    for (const blank of [undefined, null, '']) {
+      expect((await withMemo(blank)).postings[0].memo).toBeNull();
+    }
+  });
+
+  it('is inside the audit payload and the content hash — a memo edit is never invisible', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const draft = await store.ledger.createDraft(
+      {date: '2026-08-01', postings: [{accountId: cash, amountMinor: 1, memo: 'first'}, {accountId: income, amountMinor: -1}]},
+      ACTOR,
+    );
+    const created = (await store.ledger.listAudit({limit: 1}))[0];
+    const payloadMemos = (created.payload as {transaction: {postings: Array<{memo: string | null}>}}).transaction.postings.map((p) => p.memo);
+    expect(payloadMemos).toEqual(['first', null]);
+
+    // Changing ONLY the memo still moves the before/after content hash: the
+    // memo is ledger content, not presentation.
+    await store.ledger.updateDraft(
+      draft.id,
+      {postings: [{accountId: cash, amountMinor: 1, memo: 'second'}, {accountId: income, amountMinor: -1}]},
+      ACTOR,
+    );
+    const update = (await store.ledger.listAudit({limit: 1}))[0];
+    expect(update.action).toBe('transaction.update');
+    expect(update.beforeHash).not.toBe(update.afterHash);
+    expect(update.beforeHash).toBe(created.afterHash);
+
+    // …and the audit stream still replays to exactly the stored state.
+    const events = [...(await store.ledger.listAudit({limit: 500}))].reverse();
+    const replayed = replayLedgerAudit(events).transactions[draft.id];
+    expect(replayed.postings.map((p) => p.memo)).toEqual(['second', null]);
+    expect(await store.ledger.verifyAuditChain()).toMatchObject({ok: true});
+  });
+
+  it('a reversal carries the original leg memos onto the reversing legs', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const draft = await store.ledger.createDraft(
+      {date: '2026-08-01', postings: [{accountId: cash, amountMinor: 700, memo: 'invoice 42'}, {accountId: income, amountMinor: -700}]},
+      ACTOR,
+    );
+    const posted = await store.ledger.post(draft.id, ACTOR);
+    const reversal = await store.ledger.reverse(posted.id, {}, ACTOR);
+    expect(reversal.postings.map((p) => ({amountMinor: p.amountMinor, memo: p.memo}))).toEqual([
+      {amountMinor: -700, memo: 'invoice 42'},
+      {amountMinor: 700, memo: null},
+    ]);
+  });
+
+  it('a posting written before LGR-16 (no memo key at all) reads back as null', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const draft = await store.ledger.createDraft(
+      {date: '2026-08-01', postings: [{accountId: cash, amountMinor: 5, memo: 'will be removed'}, {accountId: income, amountMinor: -5}]},
+      ACTOR,
+    );
+    // Simulate a row from before the field existed: delete the key outright
+    // (not set it to null) via raw SQL, bypassing the store guards.
+    const postingId = draft.postings[0].id;
+    const rows = await db.query<{properties: Record<string, unknown> | string}>('SELECT properties FROM pages WHERE id = $1', [postingId]);
+    const props = typeof rows[0].properties === 'string' ? (JSON.parse(rows[0].properties) as Record<string, unknown>) : rows[0].properties;
+    delete props.lp_memo;
+    await db.query('UPDATE pages SET properties = $2::jsonb WHERE id = $1', [postingId, JSON.stringify(props)]);
+
+    expect((await store.ledger.getPosting(postingId))?.memo).toBeNull();
+    // …and the entry still posts and exports (no migration required).
+    const posted = await store.ledger.post(draft.id, ACTOR);
+    expect(posted.postings[0].memo).toBeNull();
+    expect(await store.ledger.exportPostingsCsv()).toContain('memo');
+  });
+
+  it('exports the memo in the canonical CSV', async () => {
+    const {cash, income} = await seedWithAccounts();
+    const draft = await store.ledger.createDraft(
+      {date: '2026-08-01', description: 'Coffee', postings: [{accountId: cash, amountMinor: -450, memo: 'BLUE BOTTLE #12'}, {accountId: income, amountMinor: 450}]},
+      ACTOR,
+    );
+    await store.ledger.post(draft.id, ACTOR);
+    const csv = await store.ledger.exportPostingsCsv();
+    const [header, ...lines] = csv.trim().split('\n');
+    expect(header.split(',')).toContain('memo');
+    expect(lines.some((l) => l.endsWith(',BLUE BOTTLE #12'))).toBe(true);
+  });
+});

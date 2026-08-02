@@ -93,6 +93,28 @@ export interface ParseAmountOptions {
   allowParens?: boolean;
   /** Accept a leading currency symbol (`$ € £ ¥ ₹`), e.g. `$1,234.56`. Default `true`. */
   allowCurrencySymbol?: boolean;
+  /**
+   * What DECIMAL-POINT-FREE input means (`"1234"`, `"+1,000"`, `"0"`):
+   *
+   * - `'major'` (default, and the historical behaviour): whole MAJOR units —
+   *   `"1234"` → `123400`.
+   * - `'reject'`: throw {@link MoneyParseError}. For MACHINE input whose scale
+   *   is not established by the data itself.
+   *
+   * WHY THIS EXISTS. For a human typing into a form, "1234" unambiguously means
+   * 1234 dollars, and `'major'` is right. For a BANK or PROCESSOR export it is
+   * not: Stripe-style feeds denominate in MINOR units ("amount in cents"), where
+   * the same bare integer means 1/100th as much. Defaulting silently in that
+   * context is the single worst failure this module exists to prevent — a
+   * 100× import error that balances perfectly and looks plausible. So an
+   * importer must DECIDE (from profile detection, or by asking) and pass an
+   * explicit value; `'reject'` is how it makes an unestablished scale fail
+   * LOUDLY at the parse instead of quietly at the wrong magnitude.
+   *
+   * `'reject'` keys off the DECIMAL POINT, not the value: `".5"` and `"12.30"`
+   * pass, `"0"` and `"1,000"` do not.
+   */
+  bareDigits?: 'major' | 'reject';
 }
 
 const CURRENCY_SYMBOLS = new Set(['$', '€', '£', '¥', '₹']);
@@ -111,6 +133,9 @@ const AMOUNT_DIGITS_RE = /^(\d{1,3}(?:,\d{3})+|\d*)(?:\.(\d{1,2}))?$/;
  * Rules:
  * - Input is in MAJOR units; input without a decimal point is whole major
  *   units: `"1234"` → `123400`, `"1,234.56"` → `123456`, `".5"` → `50`.
+ *   Machine input whose scale is not established by the data can opt out of
+ *   that assumption with `bareDigits: 'reject'` (see
+ *   {@link ParseAmountOptions.bareDigits}) — the default is unchanged.
  * - Negatives: leading sign (`"-12.30"`) or accounting parentheses
  *   (`"(12.30)"`) → `-1230`. Combining both is rejected as ambiguous.
  * - A single leading currency symbol (`$ € £ ¥ ₹`) is tolerated, before or
@@ -122,7 +147,8 @@ const AMOUNT_DIGITS_RE = /^(\d{1,3}(?:,\d{3})+|\d*)(?:\.(\d{1,2}))?$/;
  * Rejections (typed errors, never `NaN`):
  * - {@link MoneyParseError}: empty/sign-only input, non-numeric text, more
  *   than 2 decimals, ambiguous or misplaced separators (`"1,23.45"`),
- *   trailing dot (`"12."`), unbalanced parentheses, conflicting signs.
+ *   trailing dot (`"12."`), unbalanced parentheses, conflicting signs, and —
+ *   under `bareDigits: 'reject'` — any input with no decimal point.
  * - {@link MoneyRangeError}: magnitude beyond ±(2^53 − 1) minor units.
  *
  * @param input Human-typed amount text.
@@ -172,6 +198,15 @@ export function parseAmount(input: string, opts?: ParseAmountOptions): number {
   const fracDigits = m[2] ?? '';
   if (intDigits === '' && fracDigits === '') {
     throw new MoneyParseError(`no digits in amount: ${JSON.stringify(input)}`);
+  }
+  // A caller that has NOT established the scale of bare digits refuses them
+  // outright rather than inheriting the major-units default. The test is
+  // structural — group 2 is absent exactly when the input carried no `.` — so
+  // it does not depend on the value, the sign, or any separator.
+  if (opts?.bareDigits === 'reject' && m[2] === undefined) {
+    throw new MoneyParseError(
+      `amount has no decimal point and its scale is not established — major or minor units is ambiguous: ${JSON.stringify(input)}`,
+    );
   }
 
   // Exact digit math via BigInt so the safe-integer bound check cannot drift.

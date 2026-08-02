@@ -23,12 +23,13 @@
 
 import {randomUUID} from 'node:crypto';
 import {beforeEach, describe, expect, it} from 'vitest';
-import {API, emptyPageSnapshot, type LedgerTransaction, type Principal} from '@book.dev/sdk';
+import {API, canonicalLedgerJson, emptyPageSnapshot, type LedgerPosting, type LedgerTransaction, type Principal} from '@book.dev/sdk';
 import {PgliteDb, type Db} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {createApp} from './app';
-import {verifyLedger, type LedgerVerifyCode, type LedgerVerifyReport} from './ledgerVerify';
+import {transactionContent as writerContent} from './ledger';
+import {verifyLedger, transactionContent as verifierContent, type LedgerVerifyCode, type LedgerVerifyReport} from './ledgerVerify';
 
 const ACTOR: Principal = {kind: 'user', subject: 'https://iss#tester', issuer: 'https://iss', name: 'Tester', verifiedVia: 'jws'};
 
@@ -88,7 +89,11 @@ describe('LGR-7 — ledger invariant verifier vs raw corruption', () => {
         date: '2026-08-02',
         description: 'Sale 2',
         postings: [
-          {accountId: cashId, amountMinor: 2_500},
+          // A leg WITH a memo and a leg without (LGR-16): the verifier
+          // recomputes the writer's content hash independently, so a memo
+          // missing from one of the two projections would make this clean book
+          // report as tampered-with.
+          {accountId: cashId, amountMinor: 2_500, memo: 'invoice 118'},
           {accountId: incomeId, amountMinor: -2_500},
         ],
       },
@@ -336,5 +341,127 @@ describe('LGR-7 — ledger invariant verifier vs raw corruption', () => {
       delete props.lp_entry_no;
     });
     expect(await codes()).toContain('entry-no-missing');
+  });
+
+  /**
+   * The additive-field trap (LGR-16 review, security gate).
+   *
+   * There are THREE projections of a transaction's hashable content, not two:
+   * the writer's (`ledger.ts`), the verifier's independent re-read
+   * (`ledgerVerify.ts`) — and the FROZEN audit payload an OLDER BUILD wrote,
+   * which `replayLedgerAudit` returns verbatim and which nothing can migrate
+   * because it is inside the hash chain. A pre-LGR-16 payload has no `memo` key
+   * at all; a pre-LGR-16 posting row has no `lp_memo` property. If either
+   * projection EMITS `memo: null` (canonical JSON keeps nulls) the two hashes
+   * differ and a perfectly clean pre-LGR-16 book reports every posted entry as
+   * `posted-hash-mismatch` ("mutated outside the ledger") and every draft as
+   * `replay-divergence`.
+   *
+   * The existing fixtures cannot catch this: they write the book with the NEW
+   * code, so no frozen payload is ever memo-less. This one manufactures one.
+   */
+  it('a book written BEFORE the memo field existed still verifies clean (no memo ≡ no memo key)', async () => {
+    // A pre-LGR-16 draft alongside the posted fixture, so both the
+    // posted-hash-mismatch and the replay-divergence paths are exercised.
+    const draft = await store.ledger.createDraft(
+      {
+        date: '2026-08-05',
+        description: 'Sale 4',
+        postings: [
+          {accountId: cashId, amountMinor: 300},
+          {accountId: incomeId, amountMinor: -300},
+        ],
+      },
+      ACTOR,
+    );
+    expect(draft.postings.every((p) => p.memo === null)).toBe(true);
+
+    // ── Rewind storage to the pre-LGR-16 shape ────────────────────────────────
+    // The posting rows lose the property entirely…
+    const postingRows = await db.query<{id: string}>('SELECT id FROM pages WHERE database_id = $1', [
+      (await store.ledgerIds())?.postings,
+    ]);
+    for (const row of postingRows) {
+      await corruptProps(row.id, (props) => {
+        delete props.lp_memo;
+      });
+    }
+    // …and every frozen audit payload loses the key from each posting, WITHOUT
+    // touching a single hash column — exactly what an old build left behind.
+    const auditRows = await db.query<{seq: number; payload: unknown}>(
+      'SELECT seq, payload FROM ledger_audit ORDER BY seq ASC',
+    );
+    for (const row of auditRows) {
+      const payload = (typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload) as {
+        transaction?: {postings?: Array<Record<string, unknown>>};
+      };
+      if (!payload.transaction?.postings) continue;
+      for (const posting of payload.transaction.postings) delete posting.memo;
+      await db.query('UPDATE ledger_audit SET payload = $2::jsonb WHERE seq = $1', [row.seq, JSON.stringify(payload)]);
+    }
+
+    // The out-of-band-mutation detector must stay silent on a clean old book.
+    const report = await verifyLedger(db);
+    expect(report.findings).toEqual([]);
+  });
+
+  /**
+   * STRUCTURAL PIN for the two in-repo projections. Field-for-field agreement is
+   * currently proved only INDIRECTLY (a fixture whose every field happens to be
+   * non-`undefined`), which a future field defaulting to `undefined` would slip
+   * straight through: `JSON.stringify` drops it on both sides and the digests
+   * still match, right up until real data fills it in. So compare the KEY SETS,
+   * not only the bytes.
+   */
+  it('the writer and verifier content projections agree key for key (drift guard)', () => {
+    // `Required<>`, which is a no-op TODAY (every `LedgerPosting` field is
+    // required) and exists for tomorrow. A required addition already fails to
+    // compile against this fixture; an OPTIONAL one (`tags?: string[]`) would
+    // compile, both projections would omit it, key sets and digests would agree
+    // — and production would diverge on the first row carrying a value. This
+    // forces the fixture to populate it, which fires the literal assertions.
+    const legs: Required<LedgerPosting>[] = [
+      {id: 'p-1', transactionId: 'tx-1', accountId: 'a-1', amountMinor: 500, cleared: 'cleared', reconciliationId: 'r-1', memo: 'a memo'},
+      {id: 'p-2', transactionId: 'tx-1', accountId: 'a-2', amountMinor: -500, cleared: 'pending', reconciliationId: null, memo: null},
+    ];
+    const full: LedgerTransaction = {
+      id: 'tx-1',
+      date: '2026-08-01',
+      description: 'Everything populated',
+      state: 'posted',
+      postedAt: '2026-08-01T00:00:00.000Z',
+      postedBy: 'https://iss#tester',
+      reverses: 'tx-0',
+      entryNo: 7,
+      evidence: [{filename: 'invoice.pdf', sha256: 'a'.repeat(64), size: 12}],
+      postings: legs,
+      createdAt: '2026-08-01T00:00:00.000Z',
+      updatedAt: '2026-08-01T00:00:00.000Z',
+    };
+    const writer = writerContent(full);
+    const verifier = verifierContent(full);
+
+    expect(Object.keys(writer).sort()).toEqual(Object.keys(verifier).sort());
+    const postingKeys = (c: Record<string, unknown>): string[][] =>
+      (c.postings as Array<Record<string, unknown>>).map((p) => Object.keys(p).sort());
+    expect(postingKeys(writer)).toEqual(postingKeys(verifier));
+
+    // An EXPLICIT list, not just cross-side agreement. Comparing the two sides
+    // catches a field added unconditionally to one of them — but NOT one added
+    // through the `if (x != null)` idiom both docblocks tell future authors to
+    // copy, because a fixture value of `null` makes both sides omit it and the
+    // comparison goes green while production diverges the first time a row
+    // carries a value. Pinning the literal set forces this line to be updated,
+    // and the update is where the third-projection question gets asked. (The
+    // type system supplies the other half: the legs are
+    // `Required<LedgerPosting>`, so a new posting field — optional or not —
+    // does not compile until the fixture gives it a value, at which point this
+    // assertion fires.)
+    expect(postingKeys(writer)[0]).toEqual(['accountId', 'amountMinor', 'cleared', 'id', 'memo', 'reconciliationId']);
+    // The memo-less leg omits the key on BOTH sides — that omission IS the
+    // pre-LGR-16 compatibility guarantee, so pin it here too.
+    expect(postingKeys(writer)[1]).toEqual(['accountId', 'amountMinor', 'cleared', 'id', 'reconciliationId']);
+    // …and the bytes the digest is taken over are identical.
+    expect(canonicalLedgerJson(writer)).toBe(canonicalLedgerJson(verifier));
   });
 });

@@ -214,6 +214,44 @@ describe('parseAmount accepted forms', () => {
   });
 });
 
+// LGR-10 precondition: an importer of MACHINE money (bank/processor exports)
+// cannot inherit the "bare digits are major units" default — a Stripe-style
+// minor-unit feed would import 100× too large and still balance. One test per
+// mode, so the default stays pinned as backward compatible.
+describe('parseAmount bareDigits', () => {
+  it('\'major\' (the default) reads decimal-point-free input as whole major units', () => {
+    // Default and explicit are the SAME function: no behaviour change for any
+    // existing caller.
+    for (const opts of [undefined, {bareDigits: 'major' as const}]) {
+      expect(parseAmount('1234', opts)).toBe(123400);
+      expect(parseAmount('0', opts)).toBe(0);
+      expect(parseAmount('+1,000', opts)).toBe(100_000);
+      expect(parseAmount('(42)', opts)).toBe(-4200);
+      expect(parseAmount('$1,234.56', opts)).toBe(123456);
+    }
+  });
+
+  it('\'reject\' throws MoneyParseError on decimal-point-free input, and only on that', () => {
+    const reject = {bareDigits: 'reject'} as const;
+    // No decimal point ⇒ scale unestablished ⇒ typed rejection, never a guess.
+    // Covers the leading `+`, leading zeros and `"0,000"` the grammar accepts.
+    for (const bare of ['1234', '0', '00', '007', '+1234', '-1234', '(1234)', '$1,234', '1,000,000', '0,000']) {
+      expect(() => parseAmount(bare, reject)).toThrow(MoneyParseError);
+      expect(() => parseAmount(bare, reject)).toThrow(/no decimal point/);
+    }
+    // A decimal point establishes the scale — these are unaffected.
+    expect(parseAmount('12.34', reject)).toBe(1234);
+    expect(parseAmount('1,234.56', reject)).toBe(123456);
+    expect(parseAmount('.5', reject)).toBe(50);
+    expect(parseAmount('0.00', reject)).toBe(0);
+    expect(parseAmount('-$1,234.56', reject)).toBe(-123456);
+    expect(parseAmount('(12.30)', reject)).toBe(-1230);
+    // Malformed input still fails as malformed, not as "no decimal point".
+    expect(() => parseAmount('12.', reject)).toThrow(/unparseable/);
+    expect(() => parseAmount('ten', reject)).toThrow(MoneyParseError);
+  });
+});
+
 describe('formatAmount', () => {
   it('formats with fixed 2 decimals and comma thousands grouping', () => {
     expect(formatAmount(0)).toBe('0.00');

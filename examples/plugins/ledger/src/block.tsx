@@ -6,10 +6,12 @@ import {
   describeProblem,
   describeTotals,
   emptyRow,
+  mergeMemosFromDraft,
   normalizeCell,
   rowsToPostings,
   todayIso,
   type JournalRow,
+  type PostingInput,
 } from './model';
 import {setUpBooks} from './setup';
 
@@ -20,9 +22,13 @@ import {setUpBooks} from './setup';
  *   totals per keystroke, Post gated by the pure {@link computeEntryStatus}
  *   with the reason always spelled out ({@link describeProblem}).
  * - The draft persists through the LGR-3 draft ops (create/update draft) so a
- *   half-entered entry survives reload; the raw cell text + memos also mirror
- *   into block props (CRDT) because the posting contract carries no memo and
- *   no raw text.
+ *   half-entered entry survives reload. The RAW CELL TEXT mirrors into block
+ *   props (CRDT) — "2,500.00" has no home in a ledger that stores integers —
+ *   alongside a CACHE of each memo. Since LGR-16 the memo is real posting data
+ *   and the books own it, but they can only answer for rows that are already
+ *   postings and only once the debounced sync has landed; see {@link StoredRow}
+ *   for why dropping the local copy destroyed memos rather than de-duplicating
+ *   them.
  * - All amount text goes through `parseAmount`/`formatAmount` (host money
  *   core); the wire only ever carries signed INTEGER minor units.
  * - Keyboard-first: Tab walks the cells, Enter adds a row, Alt+Backspace
@@ -63,7 +69,7 @@ interface DraftLike {
   description: string;
   state: string;
   entryNo: number | null;
-  postings: Array<{accountId: string; amountMinor: number}>;
+  postings: Array<{accountId: string; amountMinor: number; memo: string | null}>;
 }
 
 const PROP_ROWS = 'ledgerRows';
@@ -132,6 +138,29 @@ function readString(props: PropsMap | undefined, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
+/**
+ * The rows kept in block props: the raw cell text AND a LOCAL CACHE of the memo.
+ *
+ * The ledger is the source of truth for a memo (LGR-16) and still wins whenever
+ * it can speak — {@link mergeMemosFromDraft} overwrites this copy on boot from
+ * the stored postings. But props cannot simply DROP it, because two ordinary
+ * situations leave the ledger unable to answer:
+ *
+ *  - a memo typed on a row that is not yet a complete posting (no account, or
+ *    no amount) is not in any draft, so stripping it here meant it reached
+ *    NEITHER store and vanished on reload — a straight regression from the
+ *    props-carried behaviour;
+ *  - `writeProps` is synchronous while the draft sync is debounced, so the two
+ *    routinely disagree on posting COUNT, and mergeMemosFromDraft then
+ *    (correctly) merges nothing. With no local copy the memos rendered blank —
+ *    and the next keystroke wrote that blank back as `memo: null`, DESTROYING
+ *    the stored memo server-side.
+ *
+ * So: cache, not second source of truth. The books overwrite it whenever they
+ * can; it only answers when they cannot.
+ */
+type StoredRow = JournalRow;
+
 function loadRows(props: PropsMap | undefined): JournalRow[] | null {
   const raw = props?.get(PROP_ROWS);
   if (typeof raw !== 'string' || raw === '') return null;
@@ -144,6 +173,8 @@ function loadRows(props: PropsMap | undefined): JournalRow[] | null {
         accountId: typeof row.accountId === 'string' ? row.accountId : '',
         debit: typeof row.debit === 'string' ? row.debit : '',
         credit: typeof row.credit === 'string' ? row.credit : '',
+        // The local cache (see {@link StoredRow}). The draft's stored memo wins
+        // on boot whenever the merge can line the rows up.
         memo: typeof row.memo === 'string' ? row.memo : '',
       };
     });
@@ -152,10 +183,21 @@ function loadRows(props: PropsMap | undefined): JournalRow[] | null {
   }
 }
 
-/** Order-insensitive equality of two posting lists (accountId + minor units). */
-function samePostings(a: Array<{accountId: string; amountMinor: number}>, b: Array<{accountId: string; amountMinor: number}>): boolean {
+/** Persist the rows as they stand, memo cache included (see {@link StoredRow}). */
+const toStoredRows = (rows: JournalRow[]): StoredRow[] =>
+  rows.map(({accountId, debit, credit, memo}) => ({accountId, debit, credit, memo}));
+
+/**
+ * Order-insensitive equality of two posting lists — accountId, minor units AND
+ * memo. The memo is in the key because this is the stale-commit guard: a memo
+ * edit that failed to reach the server must block the post exactly like an
+ * amount edit would, rather than committing a leg whose note says something
+ * the user already replaced. Posting is immutable, so there is no fixing it
+ * afterwards.
+ */
+function samePostings(a: PostingInput[], b: PostingInput[]): boolean {
   if (a.length !== b.length) return false;
-  const key = (p: {accountId: string; amountMinor: number}): string => `${p.accountId}:${p.amountMinor}`;
+  const key = (p: PostingInput): string => `${p.accountId}:${p.amountMinor}:${p.memo ?? ''}`;
   const left = a.map(key).sort();
   const right = b.map(key).sort();
   return left.every((k, i) => k === right[i]);
@@ -237,7 +279,10 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
           if (p && !editor.readOnly) editor.doc.transact(() => p.delete(PROP_DRAFT), 'local');
           return;
         }
-        if (loadRows(readProps(block)) === null) {
+        const storedRows = loadRows(readProps(block));
+        if (storedRows === null) {
+          // No local text at all (a fresh device, or props were dropped): the
+          // draft IS the entry — amounts render back through the money core.
           setDescription(draft.description);
           setDate(draft.date);
           if (draft.postings.length > 0) {
@@ -246,10 +291,20 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
                 accountId: p.accountId,
                 debit: p.amountMinor > 0 ? formatAmount(p.amountMinor) : '',
                 credit: p.amountMinor < 0 ? formatAmount(-p.amountMinor) : '',
-                memo: '',
+                memo: p.memo ?? '',
               })),
             );
           }
+        } else {
+          // Local raw text wins for the AMOUNT cells (it is the only copy of
+          // what was typed). The memos come from the POSTINGS whenever the rows
+          // line up — the books are the source of truth for anything they store
+          // (LGR-16) — and `mergeMemosFromDraft` returns the rows UNCHANGED when
+          // they do not, which is exactly when the local cache must answer
+          // instead. Handing it rows with no memo made that fallback render
+          // blank, and the next keystroke then wrote the blank back to the
+          // server as `memo: null`.
+          setRows(mergeMemosFromDraft(storedRows, draft.postings));
         }
       } catch {
         if (mountedRef.current) setLedgerState('uninitialized');
@@ -275,7 +330,7 @@ export const JournalEntryBlock = ({block, editor}: {block: BlockLike; editor: Ed
           p.delete(PROP_DATE);
           p.delete(PROP_DRAFT);
         } else {
-          p.set(PROP_ROWS, JSON.stringify(next.rows));
+          p.set(PROP_ROWS, JSON.stringify(toStoredRows(next.rows)));
           p.set(PROP_DESC, next.description);
           p.set(PROP_DATE, next.date);
           if (draftIdRef.current) p.set(PROP_DRAFT, draftIdRef.current);

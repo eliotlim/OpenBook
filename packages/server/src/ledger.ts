@@ -163,8 +163,10 @@ const ROW_COLS = 'id, name, properties, created_at, updated_at';
  */
 const MAX_POSTINGS_PER_TRANSACTION = 1000;
 
-/** Maximum length of a transaction description (LGR-3 F5). Long values are
- *  copied into EVERY audit payload, so this bounds the log's growth too. */
+/** Maximum length of a transaction description (LGR-3 F5) AND of a posting memo
+ *  (LGR-16 — same free text, same audit-payload copy, so deliberately the same
+ *  bound). Long values are copied into EVERY audit payload, so this bounds the
+ *  log's growth too. */
 const MAX_DESCRIPTION_LENGTH = 1000;
 
 /**
@@ -194,20 +196,34 @@ function sumMinorOrThrow(amounts: number[], context: string): number {
   }
 }
 
-/** Validate an optional free-text description (LGR-3 F5): a string within
- *  {@link MAX_DESCRIPTION_LENGTH}. A non-string 500'd; a multi-megabyte value
- *  blew the btree index limit and bloated every audit payload. */
-function assertDescription(description: unknown): void {
-  if (description === undefined) return;
-  if (typeof description !== 'string') {
-    throw new LedgerError('invalid-input', `description must be a string, got ${typeof description}`);
+/**
+ * Validate one optional free-text ledger field (LGR-3 F5): a string within
+ * {@link MAX_DESCRIPTION_LENGTH}. A non-string 500'd; a multi-megabyte value
+ * blew the btree index limit and bloated every audit payload.
+ *
+ * `nullable` is for fields whose ABSENT value is an explicit `null` on the
+ * entity (a posting memo) rather than an omitted key (a description).
+ */
+function assertFreeText(value: unknown, field: string, opts: {nullable?: boolean} = {}): void {
+  if (value === undefined) return;
+  if (value === null) {
+    if (opts.nullable) return;
+    throw new LedgerError('invalid-input', `${field} must be a string, got null`);
   }
-  if (description.length > MAX_DESCRIPTION_LENGTH) {
+  if (typeof value !== 'string') {
+    throw new LedgerError('invalid-input', `${field} must be a string, got ${typeof value}`);
+  }
+  if (value.length > MAX_DESCRIPTION_LENGTH) {
     throw new LedgerError(
       'invalid-input',
-      `description must be at most ${MAX_DESCRIPTION_LENGTH} characters, got ${description.length}`,
+      `${field} must be at most ${MAX_DESCRIPTION_LENGTH} characters, got ${value.length}`,
     );
   }
+}
+
+/** Validate an optional transaction description. See {@link assertFreeText}. */
+function assertDescription(description: unknown): void {
+  assertFreeText(description, 'description');
 }
 
 /**
@@ -781,10 +797,15 @@ export class LedgerStore {
       const original = transactionFromRow(rows[0], originalPostings);
       const beforeHash = await sha256Hex(canonicalLedgerJson(transactionContent(original)));
 
+      // The reversing leg carries the ORIGINAL leg's memo (LGR-16): a reversal
+      // is the correction of a specific leg, and "gross wages" is what makes it
+      // legible next to the entry it undoes. Nothing is invented — an original
+      // with no memo reverses to no memo.
       const negated = originalPostings.map((p) => ({
         accountId: p.accountId,
         amountMinor: p.amountMinor === 0 ? 0 : -p.amountMinor,
         cleared: 'pending' as const,
+        memo: p.memo,
       }));
       // The reversing entry is posted, so it satisfies EVERY posting invariant —
       // including open accounts (see the docstring: a reversal must not be a back
@@ -796,6 +817,7 @@ export class LedgerStore {
         amountMinor: p.amountMinor,
         cleared: 'pending' as const,
         reconciliationId: null,
+        memo: p.memo,
       })));
 
       const reversingId = randomUUID();
@@ -1076,7 +1098,7 @@ export class LedgerStore {
     tx: Db,
     ids: LedgerIds,
     txId: string,
-    postings: Array<{accountId: string; amountMinor: number; cleared?: 'pending' | 'cleared'}>,
+    postings: readonly ValidatedPosting[],
   ): Promise<LedgerPosting[]> {
     const out: LedgerPosting[] = [];
     for (const p of postings) {
@@ -1087,6 +1109,10 @@ export class LedgerStore {
         [LEDGER_PROP.posting.amount]: p.amountMinor,
         [LEDGER_PROP.posting.cleared]: p.cleared ?? 'pending',
         [LEDGER_PROP.posting.reconciliation]: null,
+        // The row `name` stays null: a memo is content, and naming the row by it
+        // would put free text on the generic page-title path the ledger's write
+        // guards do not model.
+        [LEDGER_PROP.posting.memo]: p.memo,
       }, id);
       out.push(postingFromRow(row));
     }
@@ -1234,6 +1260,9 @@ function postingFromRow(row: Row): LedgerPosting {
     amountMinor: typeof amount === 'number' ? amount : Number(amount ?? 0),
     cleared: (str(props[LEDGER_PROP.posting.cleared]) || 'pending') as LedgerPosting['cleared'],
     reconciliationId: strOrNull(props[LEDGER_PROP.posting.reconciliation]),
+    // Absent on every posting written before LGR-16 — those read back as
+    // `null`, which is exactly "no memo". No migration, no backfill.
+    memo: strOrNull(props[LEDGER_PROP.posting.memo]),
   };
 }
 
@@ -1309,8 +1338,25 @@ function accountContent(a: LedgerAccount): Record<string, unknown> {
   return {id: a.id, name: a.name, type: a.type, status: a.status, currency: a.currency};
 }
 
-/** The hashable CONTENT of a transaction + postings (timestamps excluded). */
-function transactionContent(t: LedgerTransaction): Record<string, unknown> {
+/**
+ * The hashable CONTENT of a transaction + postings (timestamps excluded).
+ *
+ * ADDITIVE-FIELD DISCIPLINE (LGR-16, and owed to every field added after it):
+ * a posting field that is ABSENT must hash exactly like a posting field that is
+ * NULL, because this projection is applied to THREE things — the live row, the
+ * verifier's independent re-read (`ledgerVerify.ts`), and the FROZEN audit
+ * payload an older build wrote before the field existed. That third one cannot
+ * be migrated: it is inside the hash chain. So the memo key is OMITTED when it
+ * has no value rather than emitted as `null` (`canonicalLedgerJson` keeps
+ * nulls), which makes a pre-LGR-16 payload and a post-LGR-16 row hash
+ * identically. Emitting `memo: null` instead makes every entry written by an
+ * older build report as mutated-outside-the-ledger. Mirror this in
+ * `ledgerVerify.ts`'s `transactionContent`, symmetrically, for any new field.
+ *
+ * Exported ONLY so the structural-parity test can compare the two projections
+ * key for key; nothing in the product calls it from outside this module.
+ */
+export function transactionContent(t: LedgerTransaction): Record<string, unknown> {
   return {
     id: t.id,
     date: t.date,
@@ -1321,17 +1367,24 @@ function transactionContent(t: LedgerTransaction): Record<string, unknown> {
     reverses: t.reverses,
     entryNo: t.entryNo,
     evidence: t.evidence,
-    postings: t.postings.map((p) => ({
-      id: p.id,
-      accountId: p.accountId,
-      amountMinor: p.amountMinor,
-      cleared: p.cleared,
-      reconciliationId: p.reconciliationId,
-    })),
+    postings: t.postings.map((p) => {
+      // LGR-16: the memo is ledger CONTENT, so it is inside the before/after
+      // hash — editing a memo on a draft is a real change to the entry and must
+      // not be invisible to the audit trail.
+      const o: Record<string, unknown> = {
+        id: p.id,
+        accountId: p.accountId,
+        amountMinor: p.amountMinor,
+        cleared: p.cleared,
+        reconciliationId: p.reconciliationId,
+      };
+      if (p.memo != null) o.memo = p.memo;
+      return o;
+    }),
   };
 }
 
-function validatePostingInput(p: LedgerPostingInput): {accountId: string; amountMinor: number; cleared?: 'pending' | 'cleared'} {
+function validatePostingInput(p: LedgerPostingInput): ValidatedPosting {
   if (!p || typeof p.accountId !== 'string' || p.accountId.trim() === '') {
     throw new LedgerError('invalid-input', 'every posting needs an accountId');
   }
@@ -1344,7 +1397,26 @@ function validatePostingInput(p: LedgerPostingInput): {accountId: string; amount
   if (p.cleared !== undefined && p.cleared !== 'pending' && p.cleared !== 'cleared') {
     throw new LedgerError('invalid-input', `invalid initial cleared state: ${JSON.stringify(p.cleared)} (reconciled is not settable here)`);
   }
-  return {accountId: p.accountId, amountMinor: p.amountMinor, cleared: p.cleared};
+  assertFreeText(p.memo, 'memo', {nullable: true});
+  return {accountId: p.accountId, amountMinor: p.amountMinor, cleared: p.cleared, memo: normalizeMemo(p.memo)};
+}
+
+/** A posting input after validation — memo already collapsed to `string | null`. */
+interface ValidatedPosting {
+  accountId: string;
+  amountMinor: number;
+  cleared?: 'pending' | 'cleared';
+  memo: string | null;
+}
+
+/**
+ * Collapse an optional memo to its stored form. Omitted, `undefined`, `null`
+ * and the EMPTY string are all one state — "no memo" — so a cleared memo box
+ * and an untouched one round-trip identically instead of producing two
+ * different audit payloads for the same entry.
+ */
+function normalizeMemo(memo: string | null | undefined): string | null {
+  return typeof memo === 'string' && memo !== '' ? memo : null;
 }
 
 // ── Seeded database schemas ───────────────────────────────────────────────────
@@ -1409,6 +1481,7 @@ function buildPostingsSchema(): DatabaseSchema {
       {id: LEDGER_PROP.posting.amount, name: 'Amount (minor)', type: 'number'},
       {id: LEDGER_PROP.posting.cleared, name: 'Cleared', type: 'select', options: selectOptions(['pending', 'cleared', 'reconciled'])},
       {id: LEDGER_PROP.posting.reconciliation, name: 'Reconciliation', type: 'text'},
+      {id: LEDGER_PROP.posting.memo, name: 'Memo', type: 'text'},
     ],
     'v_postings',
     'Postings',

@@ -138,6 +138,7 @@ export const LEDGER_PROP = {
     amount: 'lp_amount_minor',
     cleared: 'lp_cleared',
     reconciliation: 'lp_reconciliation',
+    memo: 'lp_memo',
   },
   reconciliation: {
     account: 'lp_account',
@@ -177,6 +178,16 @@ export interface LedgerPosting {
   amountMinor: number;
   cleared: LedgerClearedState;
   reconciliationId: string | null;
+  /**
+   * Free-text note on THIS LEG (LGR-16) — "gross wages", the bank's raw
+   * statement line, the invoice number. Distinct from the transaction's
+   * `description`, which describes the entry as a whole; a compound entry's
+   * legs each carry their own. Length-capped exactly like `description`.
+   *
+   * `null` means no memo, and is what every posting written before LGR-16
+   * reads back as — the field is additive, so no migration is required.
+   */
+  memo: string | null;
 }
 
 /** A journal entry with its postings. Compound (n-ary) entries are first-class. */
@@ -236,6 +247,12 @@ export interface LedgerPostingInput {
   amountMinor: number;
   /** Initial cleared state; `reconciled` is not settable here. Default `pending`. */
   cleared?: 'pending' | 'cleared';
+  /**
+   * Free-text note on this leg (LGR-16). Omitted, `undefined`, `null` and `''`
+   * all store as `null`; longer than the `description` cap is rejected with
+   * `invalid-input`.
+   */
+  memo?: string | null;
 }
 
 export interface LedgerDraftInput {

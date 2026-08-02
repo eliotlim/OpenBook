@@ -180,6 +180,16 @@ test('install the real plugin, set up books (idempotent), post a 3-row compound 
   // The date the user chose is the date on the books — not the day the draft
   // happened to be created.
   expect(mine[0].date).toBe('2026-03-31');
+
+  // LGR-16 round trip: the memos typed in the block are on the POSTINGS of the
+  // posted (immutable) entry, and they reach the canonical CSV export — the
+  // whole point of moving them out of block props.
+  const memos = (mine[0] as unknown as {postings: Array<{memo: string | null}>}).postings.map((p) => p.memo ?? '').sort();
+  expect(memos).toEqual(['', 'gross wages', 'withheld to card']);
+  const csv = await (await fetch(`${SERVER}/api/ledger/export.csv`)).text();
+  expect(csv.split('\n')[0].split(',')).toContain('memo');
+  expect(csv).toContain(',gross wages');
+  expect(csv).toContain(',withheld to card');
 });
 
 test('keyboard-first: Tab walks account → debit → credit → memo → next row; Enter adds a row', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
@@ -238,14 +248,25 @@ test('a half-entered draft survives reload (ledger draft ops + block props)', {t
   await row(page, 1).debit.fill('42.00');
   await row(page, 1).memo.fill('half done');
 
-  // The debounced sync lands the draft server-side (the LGR-3 draft ops)…
+  // The debounced sync lands the draft server-side (the LGR-3 draft ops) —
+  // and since LGR-16 the MEMO is real posting data that lands with it, not a
+  // block prop that never reaches the books.
   await expect
     .poll(async () => {
-      const drafts = (await (await fetch(`${SERVER}/api/ledger/transactions?state=draft`)).json()) as Array<{postings: Array<{accountId: string; amountMinor: number}>}>;
-      return drafts.some((d) => d.postings.some((p) => p.accountId === cash.id && p.amountMinor === 4200));
+      const drafts = (await (await fetch(`${SERVER}/api/ledger/transactions?state=draft`)).json()) as Array<{postings: Array<{accountId: string; amountMinor: number; memo: string | null}>}>;
+      return drafts.some((d) => d.postings.some((p) => p.accountId === cash.id && p.amountMinor === 4200 && p.memo === 'half done'));
     })
     .toBe(true);
-  // …and the block props (raw text + memo) land in the saved page snapshot.
+  // …and the block props carry the raw cell text plus a local CACHE of the
+  // memo. The books remain the source of truth — mergeMemosFromDraft overwrites
+  // this copy on boot — but props cannot DROP it: the prop write is synchronous
+  // while the draft sync is debounced, so the two routinely disagree on posting
+  // count, the merge then (correctly) merges nothing, and with no local copy the
+  // memo rendered blank and the next keystroke wrote that blank back as
+  // `memo: null`, destroying the stored memo server-side.
+  await expect
+    .poll(async () => JSON.stringify(await (await fetch(`${SERVER}/api/pages/${pageId}`)).json()).includes('42.00'), {timeout: 15000})
+    .toBe(true);
   await expect
     .poll(async () => JSON.stringify(await (await fetch(`${SERVER}/api/pages/${pageId}`)).json()).includes('half done'), {timeout: 15000})
     .toBe(true);

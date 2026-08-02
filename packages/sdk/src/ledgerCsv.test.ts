@@ -51,8 +51,8 @@ const posted = tx({
     {filename: 'b.pdf', sha256: 'bb22', size: 20},
   ],
   postings: [
-    {id: 'p-1', transactionId: 'tx-a', accountId: 'acc-cash', amountMinor: -123456, cleared: 'cleared', reconciliationId: null},
-    {id: 'p-2', transactionId: 'tx-a', accountId: 'acc-inc', amountMinor: 123456, cleared: 'pending', reconciliationId: 'rec-9'},
+    {id: 'p-1', transactionId: 'tx-a', accountId: 'acc-cash', amountMinor: -123456, cleared: 'cleared', reconciliationId: null, memo: 'card ending 4242'},
+    {id: 'p-2', transactionId: 'tx-a', accountId: 'acc-inc', amountMinor: 123456, cleared: 'pending', reconciliationId: 'rec-9', memo: null},
   ],
 });
 
@@ -60,8 +60,8 @@ const first = tx({
   id: 'tx-b',
   entryNo: 1,
   postings: [
-    {id: 'p-3', transactionId: 'tx-b', accountId: 'acc-cash', amountMinor: 500, cleared: 'pending', reconciliationId: null},
-    {id: 'p-4', transactionId: 'tx-b', accountId: 'acc-inc', amountMinor: -500, cleared: 'pending', reconciliationId: null},
+    {id: 'p-3', transactionId: 'tx-b', accountId: 'acc-cash', amountMinor: 500, cleared: 'pending', reconciliationId: null, memo: null},
+    {id: 'p-4', transactionId: 'tx-b', accountId: 'acc-inc', amountMinor: -500, cleared: 'pending', reconciliationId: null, memo: null},
   ],
 });
 
@@ -72,7 +72,7 @@ const draft = tx({
   postedAt: null,
   postedBy: null,
   createdAt: '2026-03-05T00:00:00.000Z',
-  postings: [{id: 'p-5', transactionId: 'tx-d', accountId: 'acc-cash', amountMinor: 1, cleared: 'pending', reconciliationId: null}],
+  postings: [{id: 'p-5', transactionId: 'tx-d', accountId: 'acc-cash', amountMinor: 1, cleared: 'pending', reconciliationId: null, memo: null}],
 });
 
 describe('LGR-7 — canonical postings CSV', () => {
@@ -99,6 +99,41 @@ describe('LGR-7 — canonical postings CSV', () => {
     expect(row).toContain('-$1,234.56'); // formatted (quoted — contains a comma)
     expect(row).toContain('aa11;bb22');
     expect(row).toContain(',USD,');
+  });
+
+  // LGR-16: the posting's own memo is exported. Deliberate contract change —
+  // the column was APPENDED so every existing column index is unmoved.
+  it('carries the per-posting memo in a trailing column, empty when the leg has none', () => {
+    expect(LEDGER_CSV_COLUMNS[LEDGER_CSV_COLUMNS.length - 1]).toBe('memo');
+    expect(LEDGER_CSV_COLUMNS.indexOf('description')).toBe(3); // existing columns did NOT move
+    expect(LEDGER_CSV_COLUMNS.indexOf('amount_minor')).toBe(8);
+
+    const lines = buildLedgerPostingsCsv([cash, income], [posted]).split('\n');
+    // Leg 1 has a memo, leg 2 does not — one row each way, on the LAST column.
+    expect(lines[1].endsWith(',card ending 4242')).toBe(true);
+    expect(lines[2].endsWith(',')).toBe(true);
+    const cells = lines[1].split(',');
+    expect(cells[cells.length - 1]).toBe('card ending 4242');
+  });
+
+  it('memo is FREE TEXT — a formula-shaped memo is neutralized like description', () => {
+    // The importer writes the bank's raw statement line into the memo, so it is
+    // the most likely place hostile text enters the books at all.
+    const evil = account({id: 'acc-evil', name: 'Expenses:Misc', type: 'expense'});
+    const attack = tx({
+      id: 'tx-m',
+      entryNo: 9,
+      postings: [{id: 'p-m', transactionId: 'tx-m', accountId: 'acc-evil', amountMinor: -900, cleared: 'pending', reconciliationId: null, memo: '=SUM(B1:B9)'}],
+    });
+    const row = buildLedgerPostingsCsv([evil], [attack]).split('\n')[1];
+    expect(row.endsWith(',\'=SUM(B1:B9)')).toBe(true);
+    // Injective, exactly like the other free-text columns.
+    const genuine = buildLedgerPostingsCsv([evil], [tx({
+      id: 'tx-m2',
+      postings: [{id: 'p-m2', transactionId: 'tx-m2', accountId: 'acc-evil', amountMinor: -900, cleared: 'pending', reconciliationId: null, memo: '\'=SUM(B1:B9)'}],
+    })]).split('\n')[1];
+    expect(genuine.endsWith(',\'\'=SUM(B1:B9)')).toBe(true);
+    expect(genuine).not.toBe(row);
   });
 
   it('quotes RFC-4180 style: inner quotes doubled, comma-bearing fields wrapped', () => {
@@ -139,7 +174,7 @@ describe('LGR-7 — canonical postings CSV', () => {
       description: '=HYPERLINK("http://evil","click")',
       postedBy: '@SUM(A1:A9)',
       postings: [
-        {id: 'p-x', transactionId: 'tx-x', accountId: 'acc-evil', amountMinor: -900, cleared: 'pending', reconciliationId: null},
+        {id: 'p-x', transactionId: 'tx-x', accountId: 'acc-evil', amountMinor: -900, cleared: 'pending', reconciliationId: null, memo: '=SUM(B1:B9)'},
       ],
     });
     const row = buildLedgerPostingsCsv([evil], [attack]).split('\n')[1];
@@ -160,8 +195,8 @@ describe('LGR-7 — canonical postings CSV', () => {
       entryNo: 3,
       postings: [
         // Raw storage corruption the ledger writer could never produce.
-        {id: 'p-c1', transactionId: 'tx-c', accountId: 'acc-cash', amountMinor: 1.5, cleared: 'pending', reconciliationId: null},
-        {id: 'p-c2', transactionId: 'tx-c', accountId: 'acc-cash', amountMinor: Number.NaN, cleared: 'pending', reconciliationId: null},
+        {id: 'p-c1', transactionId: 'tx-c', accountId: 'acc-cash', amountMinor: 1.5, cleared: 'pending', reconciliationId: null, memo: null},
+        {id: 'p-c2', transactionId: 'tx-c', accountId: 'acc-cash', amountMinor: Number.NaN, cleared: 'pending', reconciliationId: null, memo: null},
       ],
     });
     const lines = buildLedgerPostingsCsv([cash], [corrupt]).split('\n');
@@ -178,7 +213,7 @@ describe('LGR-7 — canonical postings CSV', () => {
       const t = tx({
         id: 'tx-q',
         description,
-        postings: [{id: 'p-q', transactionId: 'tx-q', accountId: 'acc-cash', amountMinor: 1, cleared: 'pending', reconciliationId: null}],
+        postings: [{id: 'p-q', transactionId: 'tx-q', accountId: 'acc-cash', amountMinor: 1, cleared: 'pending', reconciliationId: null, memo: null}],
       });
       return buildLedgerPostingsCsv([cash], [t]).split('\n')[1];
     };
@@ -204,16 +239,16 @@ describe('LGR-7 — canonical postings CSV', () => {
       id: 'tx-n',
       entryNo: 4,
       evidence: [null, {filename: 'a.pdf', sha256: 'aa11', size: 1}, {} as never] as unknown as LedgerTransaction['evidence'],
-      postings: [{id: 'p-n', transactionId: 'tx-n', accountId: 'acc-cash', amountMinor: 7, cleared: 'pending', reconciliationId: null}],
+      postings: [{id: 'p-n', transactionId: 'tx-n', accountId: 'acc-cash', amountMinor: 7, cleared: 'pending', reconciliationId: null, memo: null}],
     });
     const row = buildLedgerPostingsCsv([cash], [corrupt]).split('\n')[1];
-    expect(row.endsWith(';aa11;')).toBe(true); // null → '', shapeless → ''
+    expect(row.endsWith(';aa11;,')).toBe(true); // null → '', shapeless → ''; then the empty memo column
   });
 
   it('a dangling account reference degrades to empty account columns instead of throwing', () => {
     const orphan = tx({
       id: 'tx-o',
-      postings: [{id: 'p-9', transactionId: 'tx-o', accountId: 'acc-missing', amountMinor: 42, cleared: 'pending', reconciliationId: null}],
+      postings: [{id: 'p-9', transactionId: 'tx-o', accountId: 'acc-missing', amountMinor: 42, cleared: 'pending', reconciliationId: null, memo: null}],
     });
     const row = buildLedgerPostingsCsv([], [orphan]).split('\n')[1];
     expect(row).toContain(',p-9,,,42,0.42,,');

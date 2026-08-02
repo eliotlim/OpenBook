@@ -374,7 +374,8 @@ export {
   blocksHaveImagePlaceholder,
 } from './import';
 export {markdownToBlocks, markdownToImportedDoc, type MarkdownImportOptions} from './markdownImport';
-export {notionExportToImportedDoc, parseCsv} from './notionImport';
+export {notionExportToImportedDoc} from './notionImport';
+export {parseCsv, CsvLimitError, type ParseCsvOptions} from './csv';
 export {
   rehydrateImageUrls,
   rehydrateStoredImages,

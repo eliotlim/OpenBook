@@ -2,22 +2,25 @@ import {api} from '@book.dev/plugin-sdk';
 import {JournalEntryBlock} from './block';
 import {AccountRegisterBlock} from './register';
 import {TrialBalanceBlock} from './trialBalance';
+import {BankImportBlock} from './importBlock';
 import {setUpBooks} from './setup';
 
 /**
- * The first-party ledger extension: registers the JOURNAL ENTRY block — the
- * sole human write surface for the double-entry books (LGR-5) — the two
- * read-only REPORT blocks (LGR-8: trial balance, account register), and the
- * idempotent "Ledger: set up books" palette command.
+ * The first-party ledger extension: registers the JOURNAL ENTRY block (LGR-5 —
+ * the sole human write surface for the double-entry books), the two read-only
+ * REPORT blocks (LGR-8: trial balance, account register), the BANK IMPORT
+ * block (LGR-10 — the surface that keeps the books being used past month two),
+ * and the idempotent "Ledger: set up books" palette command.
  *
- * The pure Σ/validity logic, the report folds and the setup routine are all
- * re-exported so the host test-suite can drive them through the real plugin
- * loader.
+ * The pure Σ/validity logic, the report folds, the import model and the setup
+ * routine are all re-exported so the host test-suite can drive them through
+ * the real plugin loader.
  */
 export {
   computeEntryStatus,
   describeImbalance,
   describeProblem,
+  mergeMemosFromDraft,
   normalizeCell,
   isEntryDate,
   parseCell,
@@ -52,6 +55,33 @@ export {
 // teardown behaviour under overlapping loads is correctness, not presentation,
 // so it is driven directly rather than inferred from a rendered block.
 export {useLedgerReport, REPORT_TX_LIMIT} from './reportShell';
+export {
+  bareDigitsFor,
+  buildConfirmPatch,
+  buildConfirmPatchFor,
+  buildDraftInput,
+  describeImport,
+  describePreviewLimit,
+  detectProfile,
+  emptyKnownImports,
+  importableRows,
+  importRowHash,
+  IMPORT_LIMITS,
+  knownFromTransactions,
+  learnRule,
+  nearDuplicateKey,
+  normalizeDescription,
+  parseRowAmount,
+  parseRowDate,
+  prepareImport,
+  previewRows,
+  readImportCsv,
+  reconcileSavedProfile,
+  sanitizeText,
+  sourceIdForHeader,
+  strandedDrafts,
+  validateStoredProfile,
+} from './importModel';
 export {setUpBooks} from './setup';
 
 export default function activate(a: typeof api) {
@@ -63,8 +93,8 @@ export default function activate(a: typeof api) {
       hint: 'Record a balanced double-entry transaction',
       keywords: 'ledger journal entry debit credit books accounting transaction',
       // Non-empty seed props: an empty object would leave the block without a
-      // props CRDT map, and the draft/memo persistence would have nowhere to
-      // write (makeBlock only creates the map for non-empty props).
+      // props CRDT map, and the raw-cell-text / draft-id persistence would have
+      // nowhere to write (makeBlock only creates the map for non-empty props).
       make: () => ({type: 'openbook.ledger/journal-entry', props: {ledgerRows: ''}}),
     },
   });
@@ -93,6 +123,20 @@ export default function activate(a: typeof api) {
       hint: 'One account’s postings with a running balance',
       keywords: 'ledger account register report postings running balance statement reconcile',
       make: () => ({type: 'openbook.ledger/account-register', props: {ledgerRegAccount: ''}}),
+    },
+  });
+
+  a.blocks.register({
+    type: 'bank-import',
+    render: BankImportBlock,
+    slash: {
+      label: 'Bank import',
+      hint: 'Turn a bank CSV into draft entries, without doubling anything up',
+      keywords: 'ledger bank import csv statement transactions reconcile drafts',
+      // The import block keeps no CRDT state of its own — the mapping lives in
+      // plugin storage (per source) and the drafts live in the ledger — but the
+      // props map must still be non-empty for the host to create one.
+      make: () => ({type: 'openbook.ledger/bank-import', props: {ledgerImport: '1'}}),
     },
   });
 

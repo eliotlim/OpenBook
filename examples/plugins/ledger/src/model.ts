@@ -17,7 +17,13 @@ export interface JournalRow {
   debit: string;
   /** Raw credit input text (major units, `parseAmount` grammar). */
   credit: string;
-  /** Free-text memo. Kept in block props — the LGR-3 posting has no memo property. */
+  /**
+   * Free-text note on this LEG. Since LGR-16 this is real posting data
+   * (`LedgerPosting.memo`) — it is written to the draft, survives posting,
+   * reaches the canonical CSV and the audit trail. It is NOT mirrored into
+   * block props: a value the ledger stores must have exactly one home, or the
+   * two copies drift and the block shows a memo the books do not have.
+   */
   memo: string;
 }
 
@@ -186,15 +192,67 @@ export function normalizeCell(raw: string): string {
   return typeof parsed === 'number' ? formatAmount(parsed) : raw;
 }
 
+/** A posting as it goes on the wire (LGR-16: the memo travels with the leg). */
+export interface PostingInput {
+  accountId: string;
+  amountMinor: number;
+  memo: string | null;
+}
+
 /**
  * The complete rows as ledger posting inputs — signed INTEGER minor units on
  * the wire, straight from {@link computeEntryStatus} (never re-parsed).
+ *
+ * A blank memo is sent as `null`, matching how the server stores it, so a
+ * round-trip is the IDENTITY and the block's stale-commit guard cannot be
+ * tripped by `''` vs `null`.
  */
-export function rowsToPostings(rows: JournalRow[]): Array<{accountId: string; amountMinor: number}> {
+export function rowsToPostings(rows: JournalRow[]): PostingInput[] {
   const status = computeEntryStatus(rows);
   return rows
-    .map((row, i) => ({accountId: row.accountId, amountMinor: status.rows[i].amountMinor}))
-    .filter((p): p is {accountId: string; amountMinor: number} => p.amountMinor !== null && p.accountId !== '');
+    .map((row, i) => ({
+      accountId: row.accountId,
+      amountMinor: status.rows[i].amountMinor,
+      memo: row.memo.trim() === '' ? null : row.memo,
+    }))
+    .filter((p): p is PostingInput => p.amountMinor !== null && p.accountId !== '');
+}
+
+/**
+ * Re-attach stored memos to the on-screen rows after a reload.
+ *
+ * The raw amount TEXT a user typed has no home on the server (the ledger stores
+ * integers, not "2,500.00"), so it legitimately lives in block props. The memo
+ * does have a home, so it is read back from the draft instead of being
+ * duplicated: the i-th row that {@link rowsToPostings} would emit corresponds to
+ * the i-th stored posting, because both preserve row order and the server
+ * inserts postings in the order it receives them.
+ *
+ * Conservative by design — if the counts disagree (the draft was edited
+ * elsewhere, a row lost its amount, or the debounced sync simply has not caught
+ * up with the synchronous prop write), NOTHING is merged. Showing a memo against
+ * the wrong leg is worse than showing none. A row that is not yet a posting has
+ * no stored counterpart, so it keeps whatever it holds locally.
+ *
+ * That "keeps what it holds locally" is why block props still carry a memo
+ * CACHE: this function bailing is routine, not exceptional, and with no local
+ * copy the bail rendered every memo blank — which the next keystroke then wrote
+ * back to the server as `memo: null`. The books still win whenever they can
+ * speak; the cache only answers when they cannot.
+ */
+export function mergeMemosFromDraft(rows: JournalRow[], postings: ReadonlyArray<{memo?: string | null}>): JournalRow[] {
+  const complete: number[] = [];
+  const status = computeEntryStatus(rows);
+  rows.forEach((row, i) => {
+    if (status.rows[i].amountMinor !== null && row.accountId !== '') complete.push(i);
+  });
+  if (complete.length !== postings.length) return rows;
+  const next = rows.map((row) => ({...row}));
+  complete.forEach((rowIndex, postingIndex) => {
+    const memo = postings[postingIndex]?.memo;
+    next[rowIndex].memo = typeof memo === 'string' ? memo : '';
+  });
+  return next;
 }
 
 /** Today as the ledger's ISO `YYYY-MM-DD` (local calendar day). */
