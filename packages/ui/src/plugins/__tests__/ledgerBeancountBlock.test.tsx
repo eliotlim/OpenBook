@@ -31,6 +31,7 @@ const CLEAN_REPORT: LedgerVerifyReport = {
   checkedAuditEvents: 9,
   checkedPeriods: 1,
   checkedEvidence: 0,
+  checkedReconciliations: 0,
   findings: [],
 };
 

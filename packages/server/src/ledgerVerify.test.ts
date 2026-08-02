@@ -27,6 +27,7 @@ import {
   API,
   canonicalLedgerJson,
   emptyPageSnapshot,
+  ledgerAuditEventHash,
   type LedgerPeriod,
   type LedgerPosting,
   type LedgerReconciliation,
@@ -605,6 +606,16 @@ describe('LGR-7 — ledger invariant verifier vs raw corruption', () => {
       if (!payload.transaction?.postings) continue;
       for (const posting of payload.transaction.postings) delete posting.memo;
       await db.query('UPDATE ledger_audit SET payload = $2::jsonb WHERE seq = $1', [row.seq, JSON.stringify(payload)]);
+    }
+    // …and the linear prev_hash chain is REWRITTEN the way the OLD build wrote
+    // it: each link hashes its predecessor's (memo-less) content. Without this
+    // the simulation is an anachronism — links computed over payloads that
+    // never existed — and the LGR-15 whole-log chain check (rightly) fires.
+    // A real pre-LGR-16 book's links match its payloads by construction.
+    let prevLink: string | null = null;
+    for (const ev of await store.ledger.exportAuditStream()) {
+      await db.query('UPDATE ledger_audit SET prev_hash = $2 WHERE seq = $1', [ev.seq, prevLink]);
+      prevLink = await ledgerAuditEventHash({...ev, prevHash: prevLink});
     }
 
     // The out-of-band-mutation detector must stay silent on a clean old book.
