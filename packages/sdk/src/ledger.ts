@@ -32,6 +32,9 @@ export type LedgerErrorCode =
   | 'reconciliation-unbalanced' // finishing while the difference is not exactly 0
   | 'posting-not-reconcilable' // a draft posting, or one on another account
   | 'reconciliation-too-large' // more postings on the account than one match may cover
+  | 'period-closed' // a posting/reversal dated inside a CLOSED period (LGR-12)
+  | 'period-overlap' // closing a range that overlaps an already-closed period
+  | 'period-close-conflict' // the books changed while the close was in flight — retry
   | 'invalid-input'; // malformed input (bad date, bad name, bad enum value)
 
 /**
@@ -52,12 +55,18 @@ export function ledgerErrorStatus(code: LedgerErrorCode): 400 | 403 | 404 | 409 
   case 'immutable':
   case 'reconciled-locked':
     return 403;
+  // The three LGR-12 period rejections are state-of-the-book conflicts too:
+  // the identical call becomes legal once the period is reopened (or, for a
+  // close conflict, simply retried against the settled book).
   case 'invalid-state':
   case 'nonzero-balance':
   case 'reconciliation-exists':
   case 'reconciliation-unbalanced':
   case 'posting-not-reconcilable':
   case 'reconciliation-too-large':
+  case 'period-closed':
+  case 'period-overlap':
+  case 'period-close-conflict':
     return 409;
   default:
     return 400;
@@ -99,6 +108,9 @@ export const LEDGER_ERROR_CODES: readonly LedgerErrorCode[] = [
   'reconciliation-unbalanced',
   'posting-not-reconcilable',
   'reconciliation-too-large',
+  'period-closed',
+  'period-overlap',
+  'period-close-conflict',
   'invalid-input',
 ];
 
@@ -128,6 +140,29 @@ export type LedgerClearedState = (typeof LEDGER_CLEARED_STATES)[number];
  */
 export const LEDGER_RECONCILIATION_STATUSES = ['open', 'finished', 'abandoned'] as const;
 export type LedgerReconciliationStatus = (typeof LEDGER_RECONCILIATION_STATUSES)[number];
+
+/**
+ * A period's lifecycle (LGR-12). `reopened` is TERMINAL for the RECORD, not for
+ * the range: reopening keeps the row (with the reversal that voided its closing
+ * entry) so the settings UI and the audit trail can show that a close happened
+ * and was undone; closing the range again writes a NEW period record. Only
+ * `closed` periods lock dates.
+ */
+export const LEDGER_PERIOD_STATUSES = ['closed', 'reopened'] as const;
+export type LedgerPeriodStatus = (typeof LEDGER_PERIOD_STATUSES)[number];
+
+/**
+ * The account types a period close sweeps into retained earnings (LGR-12): the
+ * income-statement ("flow") accounts. ONE list, exported, because the server's
+ * closing-entry generator and any report fold that classifies flow accounts
+ * must agree — this epic's recurring defect is two copies of one fact.
+ */
+export const LEDGER_INCOME_STATEMENT_ACCOUNT_TYPES = ['revenue', 'expense'] as const;
+
+/** Whether `type` names an income-statement (flow) account. */
+export function isIncomeStatementAccountType(type: unknown): type is 'revenue' | 'expense' {
+  return (LEDGER_INCOME_STATEMENT_ACCOUNT_TYPES as readonly unknown[]).includes(type);
+}
 
 // ── Read bounds ────────────────────────────────────────────────────────────────
 
@@ -161,6 +196,8 @@ export const LEDGER_PROP = {
     reverses: 'lp_reverses',
     evidence: 'lp_evidence',
     entryNo: 'lp_entry_no',
+    /** LGR-12: `'closing'` on a period-close entry; absent on ordinary entries. */
+    kind: 'lp_kind',
   },
   posting: {
     transaction: 'lp_transaction',
@@ -234,6 +271,15 @@ export interface LedgerTransaction {
   reverses: string | null;
   /** Server-assigned monotonic entry number (per library), set at posting. */
   entryNo: number | null;
+  /**
+   * Entry kind (LGR-12). `'closing'` marks the server-generated period-close
+   * entry — the one that sweeps income-statement balances into retained
+   * earnings. `null` on every ordinary entry AND on every entry written before
+   * LGR-12 (the field is additive; no migration). Reports use it (plus the
+   * `reverses` link, for the reversal a reopen posts) to keep closing entries
+   * out of income-statement arithmetic.
+   */
+  kind: 'closing' | null;
   /** Evidence recorded at post time (empty in v1; LGR-14 fills it). */
   evidence: LedgerEvidence[];
   postings: LedgerPosting[];
@@ -315,6 +361,99 @@ export interface LedgerReconciliationSummary {
   differenceMinor: number;
   /** The postings this reconciliation matched (only meaningful once finished). */
   matchedPostingIds: string[];
+}
+
+/**
+ * One accounting period close (LGR-12): an inclusive date range the store has
+ * LOCKED — no posting and no reversal may be DATED inside a `closed` period —
+ * plus the closing entry that swept the income-statement balances into
+ * retained earnings when the range was closed.
+ *
+ * Storage: the periods live in ONE `settings` row (`ledgerPeriods`), not in a
+ * fifth managed database. See `LedgerStore.closePeriod` for why (short form: a
+ * book seeded before LGR-12 can never grow a fifth database — the seed's adopt
+ * check returns early — and the row IS the lock the close flow serializes on,
+ * at the `settings` slot the proven lock order already holds).
+ */
+export interface LedgerPeriod {
+  id: string;
+  /** Inclusive ISO date (`YYYY-MM-DD`) the period starts on. */
+  start: string;
+  /** Inclusive ISO date (`YYYY-MM-DD`) the period ends on. */
+  end: string;
+  status: LedgerPeriodStatus;
+  /**
+   * The closing entry posted when this period was closed, or `null` when the
+   * range held no income-statement balance to close (the range still locks).
+   * Kept after a reopen (the entry is `void` then — history, not a live claim).
+   */
+  closingEntryId: string | null;
+  /** The reversal that voided the closing entry at reopen; `null` until then. */
+  reopenEntryId: string | null;
+  closedAt: string;
+  closedBy: string;
+  reopenedAt: string | null;
+  reopenedBy: string | null;
+}
+
+/** `POST /api/ledger/periods` — close a period. */
+export interface LedgerPeriodCloseInput {
+  /** Inclusive ISO date (`YYYY-MM-DD`). */
+  start: string;
+  /** Inclusive ISO date (`YYYY-MM-DD`); must not precede `start`. */
+  end: string;
+  /**
+   * The equity account the closing entry credits. Defaults to the account
+   * named `Equity:RetainedEarnings`; rejected `account-not-found` when neither
+   * is resolvable (create the account first — the starter chart carries it).
+   */
+  retainedEarningsAccountId?: string;
+}
+
+/** What a period close returns: the lock, the entry, and the WARNING list. */
+export interface LedgerPeriodCloseResult {
+  period: LedgerPeriod;
+  /** `null` when the range had no income-statement balance to close. */
+  closingEntry: LedgerTransaction | null;
+  /**
+   * Reconciliations still OPEN with a statement dated on or before the close
+   * (warn-not-block by design): the close proceeds, and this names what is
+   * unfinished so the UI can say so instead of gating.
+   */
+  openReconciliations: LedgerReconciliation[];
+}
+
+/** What a period reopen returns: the unlocked period and the voiding reversal. */
+export interface LedgerPeriodReopenResult {
+  period: LedgerPeriod;
+  /** `null` when the period was closed without a closing entry. */
+  reversal: LedgerTransaction | null;
+}
+
+/**
+ * THE period predicate (LGR-12), shared by the store's post/reverse guards and
+ * every UI surface that wants to say WHY a date is refused: the `closed` period
+ * containing `date`, or `null`. Pure; string comparison is safe because both
+ * sides are ISO `YYYY-MM-DD`.
+ */
+export function closedPeriodContaining(periods: readonly LedgerPeriod[], date: string): LedgerPeriod | null {
+  for (const period of periods) {
+    if (period.status !== 'closed') continue;
+    if (period.start <= date && date <= period.end) return period;
+  }
+  return null;
+}
+
+/**
+ * Every CLOSED period overlapping the inclusive range `[from, to]` (`''` means
+ * open at that end) — the display-only "this report crosses a closed period"
+ * marker the report blocks render. Sorted by start date so the marker reads in
+ * calendar order.
+ */
+export function closedPeriodsOverlapping(periods: readonly LedgerPeriod[], from: string, to: string): LedgerPeriod[] {
+  return periods
+    .filter((p) => p.status === 'closed' && (to === '' || p.start <= to) && (from === '' || from <= p.end))
+    .sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.id < b.id ? -1 : 1));
 }
 
 /** The seeded ledger database ids + host page. */
@@ -419,6 +558,22 @@ export type LedgerAuditAction =
    * abandoning the match does not un-observe.
    */
   | 'reconciliation.abandon'
+  /**
+   * A period was CLOSED (LGR-12): the date range locked, and — when the range
+   * held income-statement balances — the closing entry posted. ONE event covers
+   * the period record and the entry it posted (the `transaction.reverse` /
+   * `reconciliation.finish` precedent: they commit together or not at all).
+   * The payload's `openReconciliationIds` names what the warn-not-block check
+   * surfaced; advisory context, not entity content.
+   */
+  | 'period.close'
+  /**
+   * A closed period was explicitly REOPENED (LGR-12): the range unlocked and
+   * the closing entry voided via a reversal posted in the SAME event —
+   * `transaction`/`originalId` carry the reversal pair exactly as
+   * `transaction.reverse` does.
+   */
+  | 'period.reopen'
   /** The ledger auto-export target was set or cleared (LGR-7). Policy, not
    *  ledger content — it touches no entity, so a replay ignores it, but it is
    *  recorded here so the book itself carries evidence of where copies go. */
@@ -448,6 +603,8 @@ export const LEDGER_AUDIT_ACTIONS = [
   'reconciliation.reopen',
   'reconciliation.amend',
   'reconciliation.abandon',
+  'period.close',
+  'period.reopen',
   'ledger.autoExportPath',
 ] as const satisfies readonly LedgerAuditAction[];
 
@@ -500,6 +657,8 @@ export interface LedgerReplayState {
   transactions: Record<string, LedgerTransaction>;
   /** Statement reconciliations (LGR-11), keyed by id. */
   reconciliations: Record<string, LedgerReconciliation>;
+  /** Closed/reopened periods (LGR-12), keyed by id. */
+  periods: Record<string, LedgerPeriod>;
 }
 
 /**
@@ -523,7 +682,7 @@ export interface LedgerReconciliationPostingChange {
  * record of every ledger mutation.
  */
 export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerReplayState {
-  const state: LedgerReplayState = {initialized: false, accounts: {}, transactions: {}, reconciliations: {}};
+  const state: LedgerReplayState = {initialized: false, accounts: {}, transactions: {}, reconciliations: {}, periods: {}};
   /** Apply one recorded posting change to the replayed transaction holding it. */
   const applyPostingChange = (change: LedgerReconciliationPostingChange): void => {
     const tx = state.transactions[change.transactionId];
@@ -551,6 +710,7 @@ export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerRep
       cleared?: LedgerClearedState;
       reconciliation?: LedgerReconciliation;
       postings?: LedgerReconciliationPostingChange[];
+      period?: LedgerPeriod;
     };
     switch (ev.action) {
     case 'ledger.init':
@@ -613,6 +773,24 @@ export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerRep
       // verifier's content-hash comparison reports a clean ledger as tampered.
       if (p.reconciliation) state.reconciliations[p.reconciliation.id] = p.reconciliation;
       for (const change of p.postings ?? []) applyPostingChange(change);
+      break;
+    case 'period.close':
+      // ONE event, TWO effects (LGR-12): the period record, and the closing
+      // entry it posted (absent when the range held nothing to close).
+      if (p.period) state.periods[p.period.id] = p.period;
+      if (p.transaction) state.transactions[p.transaction.id] = p.transaction;
+      break;
+    case 'period.reopen':
+      // The reversal pair rides in the same shape `transaction.reverse` uses:
+      // the reversal lands, and the original closing entry flips to void.
+      if (p.period) state.periods[p.period.id] = p.period;
+      if (p.transaction) state.transactions[p.transaction.id] = p.transaction;
+      if (p.originalId && state.transactions[p.originalId]) {
+        state.transactions[p.originalId] = {
+          ...state.transactions[p.originalId],
+          state: p.originalState ?? 'void',
+        };
+      }
       break;
     default:
       throw new LedgerError(

@@ -48,6 +48,10 @@ import type {
   LedgerDraftInput,
   LedgerDraftPatch,
   LedgerInfo,
+  LedgerPeriod,
+  LedgerPeriodCloseInput,
+  LedgerPeriodCloseResult,
+  LedgerPeriodReopenResult,
   LedgerPosting,
   LedgerReconciliation,
   LedgerReconciliationInput,
@@ -392,6 +396,16 @@ export interface DataClient {
   ledgerFinishReconciliation(id: string): Promise<LedgerReconciliationSummary>;
   /** REOPEN a finished reconciliation (explicit, audited); unfreezes its postings. */
   ledgerReopenReconciliation(id: string): Promise<LedgerReconciliationSummary>;
+
+  /** Every period record — closed AND reopened history (LGR-12). */
+  ledgerListPeriods(): Promise<LedgerPeriod[]>;
+  /** CLOSE a period: closing entry + date-range lock; warns (never blocks) on
+   *  open reconciliations. Store-enforced — `period-closed` rejections for any
+   *  posting/reversal dated inside the range hold over both transports. */
+  ledgerClosePeriod(input: LedgerPeriodCloseInput): Promise<LedgerPeriodCloseResult>;
+  /** REOPEN a closed period (explicit, audited): voids the closing entry via a
+   *  reversal and restores postability for the range. */
+  ledgerReopenPeriod(id: string): Promise<LedgerPeriodReopenResult>;
 
   /** Read the append-only audit log, newest first (`before` = seq cursor). */
   ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]>;
@@ -1525,6 +1539,18 @@ export class HttpDataClient implements DataClient {
 
   ledgerReopenReconciliation(id: string): Promise<LedgerReconciliationSummary> {
     return this.ledgerRequest<LedgerReconciliationSummary>('POST', API.ledgerReconciliationReopen(id));
+  }
+
+  ledgerListPeriods(): Promise<LedgerPeriod[]> {
+    return this.ledgerRequest<LedgerPeriod[]>('GET', API.ledgerPeriods);
+  }
+
+  ledgerClosePeriod(input: LedgerPeriodCloseInput): Promise<LedgerPeriodCloseResult> {
+    return this.ledgerRequest<LedgerPeriodCloseResult>('POST', API.ledgerPeriods, input);
+  }
+
+  ledgerReopenPeriod(id: string): Promise<LedgerPeriodReopenResult> {
+    return this.ledgerRequest<LedgerPeriodReopenResult>('POST', API.ledgerPeriodReopen(id));
   }
 
   ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]> {

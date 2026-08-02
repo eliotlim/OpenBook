@@ -54,7 +54,9 @@ import {
   assertUniformCurrency,
   buildLedgerPostingsCsv,
   canonicalLedgerJson,
+  closedPeriodContaining,
   emptyPageSnapshot,
+  isIncomeStatementAccountType,
   isValidCurrencyCode,
   isValidLedgerAccountName,
   isValidLedgerDate,
@@ -76,6 +78,10 @@ import {
   type LedgerDraftInput,
   type LedgerDraftPatch,
   type LedgerInfo,
+  type LedgerPeriod,
+  type LedgerPeriodCloseInput,
+  type LedgerPeriodCloseResult,
+  type LedgerPeriodReopenResult,
   type LedgerPosting,
   type LedgerPostingInput,
   type LedgerReconciliation,
@@ -102,6 +108,31 @@ export const LEDGER_DB_SETTING_KEY = 'ledgerDb';
 
 /** The `settings` key backing the per-library monotonic entry-number sequence. */
 export const LEDGER_ENTRY_SEQ_SETTING_KEY = 'ledgerEntrySeq';
+
+/**
+ * The `settings` key holding the accounting periods (LGR-12) as a JSON array of
+ * `LedgerPeriod` records — NOT a fifth managed database, deliberately:
+ *
+ *  - A book seeded before LGR-12 could never grow a fifth database: the seed's
+ *    adopt check (`ensureSetup`) returns early the moment the transactions
+ *    database resolves, and creating one lazily cannot run inside a `Db.begin`
+ *    (`upsertPage`/`createDatabase` each open their own transaction — the
+ *    embedded PGlite mutex is non-reentrant; see `doSeed`). A settings row is
+ *    simply ABSENT until the first close, on old and new books identically.
+ *  - The row IS the lock the close flow needs: `post`/`reverse` take it
+ *    `FOR SHARE`, `closePeriod`/`reopenPeriod` `FOR UPDATE`, at the `settings`
+ *    slot the proven lock order already holds (see `loadAccountPostingsOn`).
+ *  - The LGR-22 seed-only lesson (options frozen at seed time — the comment on
+ *    `buildReconciliationsSchema`) is a whole-database problem here: a managed
+ *    schema cannot be evolved on existing books, let alone created.
+ *
+ * A book holds a handful of period records, so a single JSONB array is the
+ * right size; the settings UI reads them through `GET /api/ledger/periods`.
+ */
+export const LEDGER_PERIODS_SETTING_KEY = 'ledgerPeriods';
+
+/** The account name `closePeriod` resolves when no explicit id is given. */
+export const LEDGER_RETAINED_EARNINGS_ACCOUNT = 'Equity:RetainedEarnings';
 
 const LEDGER_HOST_TITLE = 'Ledger';
 
@@ -784,6 +815,11 @@ export class LedgerStore {
       const {props, before} = await this.lockDraftTx(tx, ids, id, 'post');
       const postings = await this.postingsForTx(tx, ids, id);
       await this.validatePostable(tx, ids, postings);
+      // LGR-12: the entry's DATE must not fall inside a closed period. After
+      // the account locks and before the entry-number sequence — the periods
+      // row sits at the `settings` slot of the lock order, ahead of
+      // `ledgerEntrySeq` (see `readPeriodsOn`).
+      await this.assertDateInOpenPeriodTx(tx, str(props[LEDGER_PROP.transaction.date]), 'post');
       const entryNo = await this.nextEntryNumberTx(tx);
       props[LEDGER_PROP.transaction.state] = 'posted';
       props[LEDGER_PROP.transaction.postedAt] = new Date().toISOString();
@@ -842,6 +878,16 @@ export class LedgerStore {
       }
       const originalPostings = await this.postingsForTx(tx, ids, id);
       const original = transactionFromRow(rows[0], originalPostings);
+      // LGR-12: a CLOSING entry is not reversible through this door. Voiding it
+      // is exactly what `reopenPeriod` does — inside the same transaction that
+      // unlocks the range and updates the period record. A direct reversal
+      // would leave a period claiming "closed, by entry X" over a void X.
+      if (original.kind === 'closing') {
+        throw new LedgerError(
+          'invalid-state',
+          `transaction ${id} is a period-closing entry — it is voided by reopening its period, not by a direct reversal`,
+        );
+      }
       const beforeHash = await sha256Hex(canonicalLedgerJson(transactionContent(original)));
 
       // The reversing leg carries the ORIGINAL leg's memo (LGR-16): a reversal
@@ -866,6 +912,12 @@ export class LedgerStore {
         reconciliationId: null,
         memo: p.memo,
       })));
+
+      // LGR-12 (the LGR-6 hook, now real): the REVERSAL is itself a dated entry
+      // on the books, so its date must not fall inside a closed period either —
+      // the default date is the ORIGINAL's, which is exactly where a closed
+      // period is most likely to catch it. Same guard, same slot as `post`.
+      await this.assertDateInOpenPeriodTx(tx, opts.date ?? original.date, 'reverse');
 
       const reversingId = randomUUID();
       const entryNo = await this.nextEntryNumberTx(tx);
@@ -1415,6 +1467,481 @@ export class LedgerStore {
     return summary;
   }
 
+  // ── Period close (LGR-12) ────────────────────────────────────────────────────
+  //
+  // Closing a period does three things in ONE transaction: posts the closing
+  // entry (income-statement balances → retained earnings) through the ordinary
+  // posting machinery, records the period, and LOCKS the range — from that
+  // commit on, `post` and `reverse` reject `period-closed` for any entry DATED
+  // inside it. Reopening is the explicit, audited inverse: it voids the closing
+  // entry via the ordinary reversal machinery and unlocks the range, keeping
+  // the period record as history.
+  //
+  // THE GATE LIVES HERE, not in the UI (the reconciliation-finish precedent): a
+  // client that bypasses every block still posts through this store, and the
+  // date check runs inside the posting transaction holding the periods row.
+
+  /** Every period record — closed and reopened history, oldest range first. */
+  async listPeriods(): Promise<LedgerPeriod[]> {
+    await this.requireIds();
+    return this.readPeriodsOn(this.db, 'none');
+  }
+
+  /**
+   * CLOSE a period: generate the closing entry, record the period, lock the
+   * range. Open reconciliations dated inside the close are a WARNING carried in
+   * the result — never a gate (a bookkeeper may close a quarter while a
+   * statement is still being matched; the notice names what is unfinished).
+   *
+   * THE CLOSING ENTRY IS A REAL LEDGER TRANSACTION: inserted through the same
+   * row writers `reverse` uses, validated by `validatePostable`, carrying its
+   * own monotonic entry number — so it survives `verifyLedger`, appears in
+   * registers and exports, and is reversible by the ordinary reversal machinery
+   * (which is exactly how `reopenPeriod` voids it). Its amounts sweep each
+   * income-statement account's CUMULATIVE posted balance as of `end` — not just
+   * the range's activity — because prior closes already zeroed prior activity,
+   * and "the flow accounts read zero the day after a close" must hold on a book
+   * whose first close does not start at its first entry.
+   *
+   * CONCURRENCY (the order-compliant shape — see `loadAccountPostingsOn` for
+   * the lock graph): the balances are computed on an UNLOCKED read first, the
+   * closing legs validated (ACCOUNT `FOR SHARE`), and only then is the periods
+   * settings row taken `FOR UPDATE` — at which point the balances are
+   * RECOMPUTED. A posting that committed in between makes the two computations
+   * differ and the close rejects `period-close-conflict` (retry against the
+   * settled book); a posting still in flight blocks on its own `FOR SHARE` of
+   * the periods row, re-reads after this commit, and rejects `period-closed`.
+   * Computing under the lock FIRST would need the periods row before the
+   * account rows — the settings-before-ACCOUNT inversion the lock order exists
+   * to forbid. PGlite serializes transactions, so the conflict path is
+   * unreachable in the test suite: it is code-review-verified, exactly like
+   * the reconciliation lock choreography.
+   */
+  async closePeriod(input: LedgerPeriodCloseInput, actor?: Principal): Promise<LedgerPeriodCloseResult> {
+    const ids = await this.requireIds();
+    if (!isValidLedgerDate(input?.start) || !isValidLedgerDate(input?.end)) {
+      throw new LedgerError('invalid-input', 'a period close needs ISO YYYY-MM-DD start and end dates');
+    }
+    if (input.end < input.start) {
+      throw new LedgerError('invalid-input', `a period cannot end (${input.end}) before it starts (${input.start})`);
+    }
+    if (input.retainedEarningsAccountId !== undefined && (typeof input.retainedEarningsAccountId !== 'string' || input.retainedEarningsAccountId.trim() === '')) {
+      throw new LedgerError('invalid-input', 'retainedEarningsAccountId must be a non-empty account id when given');
+    }
+    const result = await this.db.begin(async (tx) => {
+      // Resolve the equity account the entry closes INTO (unlocked read — the
+      // account row is locked `FOR SHARE` by `validatePostable` below).
+      const retained = await this.resolveRetainedEarningsOn(tx, ids, input.retainedEarningsAccountId);
+      // Preliminary balances, unlocked (see the docstring for why twice).
+      const first = await this.incomeBalancesAsOf(tx, ids, input.end);
+      const closingPostings = this.buildClosingPostings(first, retained.id);
+      if (closingPostings.length > 0) {
+        await this.validatePostable(tx, ids, closingPostings);
+      }
+      // The periods row, FOR UPDATE — the lock every post/reverse shares.
+      const periods = await this.readPeriodsOn(tx, 'update');
+      const overlap = periods.find(
+        (p) => p.status === 'closed' && p.start <= input.end && input.start <= p.end,
+      );
+      if (overlap) {
+        throw new LedgerError(
+          'period-overlap',
+          `the range ${input.start}..${input.end} overlaps the closed period ${overlap.start}..${overlap.end} (${overlap.id}) — reopen that period first`,
+        );
+      }
+      // Authoritative recompute under the lock; any drift is a concurrent post.
+      const second = await this.incomeBalancesAsOf(tx, ids, input.end);
+      if (!balancesEqual(first, second)) {
+        throw new LedgerError(
+          'period-close-conflict',
+          'the books changed while this close was being prepared — retry the close against the settled book',
+        );
+      }
+      // Warn-not-block: reconciliations still OPEN with a statement dated on or
+      // before the close. Surfaced, named, and carried into the audit payload —
+      // never a gate.
+      const openReconciliations: LedgerReconciliation[] = [];
+      const recRows = await tx.query<Row>(
+        `SELECT ${ROW_COLS} FROM pages
+          WHERE database_id = $1 AND deleted_at IS NULL
+            AND properties->>'${LEDGER_PROP.reconciliation.status}' = 'open'`,
+        [ids.reconciliations],
+      );
+      for (const row of recRows) {
+        const rec = reconciliationFromRow(row);
+        if (rec.statementDate <= input.end) openReconciliations.push(rec);
+      }
+      openReconciliations.sort((a, b) => (a.statementDate < b.statementDate ? -1 : a.statementDate > b.statementDate ? 1 : a.id < b.id ? -1 : 1));
+
+      // The closing entry — through the same machinery `reverse` posts with.
+      let closingEntry: LedgerTransaction | null = null;
+      if (closingPostings.length > 0) {
+        const closingId = randomUUID();
+        const entryNo = await this.nextEntryNumberTx(tx);
+        const description = `Closing entry — ${input.start} to ${input.end}`;
+        const row = await this.insertRowTx(tx, ids.transactions, description, {
+          [LEDGER_PROP.transaction.date]: input.end,
+          [LEDGER_PROP.transaction.description]: description,
+          [LEDGER_PROP.transaction.state]: 'posted',
+          [LEDGER_PROP.transaction.postedAt]: new Date().toISOString(),
+          [LEDGER_PROP.transaction.postedBy]: actor?.subject ?? '',
+          [LEDGER_PROP.transaction.entryNo]: entryNo,
+          [LEDGER_PROP.transaction.kind]: 'closing',
+          [LEDGER_PROP.transaction.evidence]: [],
+        }, closingId);
+        const inserted = await this.insertPostingsTx(
+          tx,
+          ids,
+          closingId,
+          closingPostings.map((p) => ({accountId: p.accountId, amountMinor: p.amountMinor, memo: null})),
+        );
+        closingEntry = transactionFromRow(row, inserted);
+      }
+
+      const now = new Date().toISOString();
+      const period: LedgerPeriod = {
+        id: randomUUID(),
+        start: input.start,
+        end: input.end,
+        status: 'closed',
+        closingEntryId: closingEntry?.id ?? null,
+        reopenEntryId: null,
+        closedAt: now,
+        closedBy: actor?.subject ?? '',
+        reopenedAt: null,
+        reopenedBy: null,
+      };
+      await this.writePeriodsTx(tx, [...periods, period]);
+      // ONE event for the whole close (the `transaction.reverse` precedent):
+      // the period record and the entry it posted commit together, so the
+      // audit log records them together — and the afterHash covers BOTH, so
+      // consistent surgery on either half is caught by the verifier's
+      // re-derivation even though nothing later extends this chain.
+      await this.appendAuditTx(
+        tx,
+        actor,
+        'period.close',
+        closingEntry ? [period.id, closingEntry.id] : [period.id],
+        {
+          period,
+          transaction: closingEntry,
+          openReconciliationIds: openReconciliations.map((r) => r.id),
+        },
+        null,
+        await sha256Hex(canonicalLedgerJson(periodCloseContent(period, closingEntry))),
+      );
+      return {period, closingEntry, openReconciliations};
+    });
+    this.notifyMutation();
+    return result;
+  }
+
+  /**
+   * REOPEN a closed period: explicit, audited, and the ONLY way to void a
+   * closing entry. The reversal goes through the same machinery `reverse` uses
+   * (negated legs, `reverses` link, own entry number, original flipped to
+   * `void`), dated on the closing entry's own date — legal again because the
+   * period's status flips to `reopened` in the SAME transaction, and checked
+   * against every OTHER closed period through the one shared predicate.
+   *
+   * The period record is KEPT (status `reopened`, reversal id recorded), not
+   * deleted: the settings UI and the audit trail must be able to show that a
+   * close happened and was undone. Closing the range again writes a new record.
+   */
+  async reopenPeriod(id: string, actor?: Principal): Promise<LedgerPeriodReopenResult> {
+    const ids = await this.requireIds();
+    const result = await this.db.begin(async (tx) => {
+      // Find the period on an unlocked read first: the closing entry's row lock
+      // (TRANSACTION) must be taken before the periods row (settings) to keep
+      // the lock order, and the entry id is stored on the period.
+      const preview = (await this.readPeriodsOn(tx, 'none')).find((p) => p.id === id);
+      if (!preview) throw new LedgerError('not-found', 'period not found');
+      if (preview.status !== 'closed') {
+        throw new LedgerError('invalid-state', `period ${id} is already reopened — close the range again to re-lock it`);
+      }
+
+      // The reversal pair, prepared through the ordinary machinery.
+      let original: LedgerTransaction | null = null;
+      let originalRow: Row | null = null;
+      if (preview.closingEntryId) {
+        const rows = await tx.query<Row>(
+          `SELECT ${ROW_COLS} FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL FOR UPDATE`,
+          [preview.closingEntryId, ids.transactions],
+        );
+        if (rows.length === 0) {
+          throw new LedgerError('invalid-state', `period ${id} names closing entry ${preview.closingEntryId}, which no longer exists — the book was edited outside the ledger`);
+        }
+        originalRow = rows[0];
+        original = transactionFromRow(rows[0], await this.postingsForTx(tx, ids, preview.closingEntryId));
+        if (original.state !== 'posted') {
+          throw new LedgerError('invalid-state', `closing entry ${original.id} is ${original.state}, not posted — the book was edited outside the ledger`);
+        }
+        await this.validatePostable(tx, ids, original.postings.map((p, i) => ({
+          id: `reopen-${i}`,
+          transactionId: '',
+          accountId: p.accountId,
+          amountMinor: p.amountMinor === 0 ? 0 : -p.amountMinor,
+          cleared: 'pending' as const,
+          reconciliationId: null,
+          memo: p.memo,
+        })));
+      }
+
+      // NOW the periods row, FOR UPDATE — and the record re-checked under it.
+      const periods = await this.readPeriodsOn(tx, 'update');
+      const index = periods.findIndex((p) => p.id === id);
+      if (index < 0 || periods[index].status !== 'closed') {
+        throw new LedgerError('invalid-state', `period ${id} changed while reopening — re-read and retry`);
+      }
+      const before = periods[index];
+
+      let reversal: LedgerTransaction | null = null;
+      const reopened: LedgerPeriod = {
+        ...before,
+        status: 'reopened',
+        reopenedAt: new Date().toISOString(),
+        reopenedBy: actor?.subject ?? '',
+      };
+      const updated = [...periods];
+      updated[index] = reopened;
+
+      if (original && originalRow) {
+        // The reversal is DATED (on the closing entry's date) — held to the
+        // period locks like any other entry, judged against the list as it
+        // stands AFTER this reopen. Other closed periods cannot contain this
+        // date (overlap is rejected at close), so this is defensive.
+        const blocked = closedPeriodContaining(updated, original.date);
+        if (blocked) {
+          throw new LedgerError(
+            'period-closed',
+            `the reversal would be dated ${original.date}, inside the closed period ${blocked.start}..${blocked.end} — reopen that period first`,
+          );
+        }
+        const reversingId = randomUUID();
+        reopened.reopenEntryId = reversingId;
+        const entryNo = await this.nextEntryNumberTx(tx);
+        const description = `Reversal of closing entry — ${before.start} to ${before.end}`;
+        const reversingRow = await this.insertRowTx(tx, ids.transactions, description, {
+          [LEDGER_PROP.transaction.date]: original.date,
+          [LEDGER_PROP.transaction.description]: description,
+          [LEDGER_PROP.transaction.state]: 'posted',
+          [LEDGER_PROP.transaction.postedAt]: new Date().toISOString(),
+          [LEDGER_PROP.transaction.postedBy]: actor?.subject ?? '',
+          [LEDGER_PROP.transaction.reverses]: original.id,
+          [LEDGER_PROP.transaction.entryNo]: entryNo,
+          [LEDGER_PROP.transaction.evidence]: [],
+        }, reversingId);
+        const reversingPostings = await this.insertPostingsTx(tx, ids, reversingId, original.postings.map((p) => ({
+          accountId: p.accountId,
+          amountMinor: p.amountMinor === 0 ? 0 : -p.amountMinor,
+          cleared: 'pending' as const,
+          memo: p.memo,
+        })));
+        const originalProps = parseJson<Record<string, unknown>>(originalRow.properties, {});
+        originalProps[LEDGER_PROP.transaction.state] = 'void';
+        await tx.query(
+          'UPDATE pages SET properties = $3::jsonb, updated_at = now() WHERE id = $1 AND database_id = $2',
+          [original.id, ids.transactions, JSON.stringify(originalProps)],
+        );
+        reversal = transactionFromRow(reversingRow, reversingPostings);
+      }
+
+      await this.writePeriodsTx(tx, updated);
+      // beforeHash re-derives to the close event's afterHash by construction
+      // (same combined shape, and a posted entry's content is immutable), so
+      // the period's hash chain links close → reopen; the afterHash covers the
+      // reopened record AND the reversal, so consistent surgery on either is
+      // caught even though nothing later extends this chain.
+      await this.appendAuditTx(
+        tx,
+        actor,
+        'period.reopen',
+        [reopened.id, ...(reversal ? [reversal.id] : []), ...(original ? [original.id] : [])],
+        {
+          period: reopened,
+          transaction: reversal,
+          originalId: original?.id ?? null,
+          originalState: original ? 'void' : null,
+        },
+        await sha256Hex(canonicalLedgerJson(periodCloseContent(before, original))),
+        await sha256Hex(canonicalLedgerJson(periodReopenContent(reopened, reversal))),
+      );
+      return {period: reopened, reversal};
+    });
+    this.notifyMutation();
+    return result;
+  }
+
+  // ── Period internals (LGR-12) ────────────────────────────────────────────────
+
+  /**
+   * THE date-lock predicate's store half — one guard shared by every writer
+   * that puts a dated entry on the books (`post`, `reverse`, and the closing /
+   * reopening entries themselves via their own paths). The pure containment
+   * test is the SDK's `closedPeriodContaining`, which the UI shares.
+   *
+   * Takes the periods row `FOR SHARE`, which is what makes the lock REAL on
+   * real Postgres: a `closePeriod` holds it `FOR UPDATE` from before its
+   * authoritative balance read through commit, so a post either commits before
+   * that read (and is counted by the closing entry) or blocks here, re-reads
+   * the committed list, and rejects. Sits at the `settings` slot of the lock
+   * order, BEFORE `ledgerEntrySeq` — every writer that touches both takes them
+   * in that order (see `loadAccountPostingsOn` for the full graph).
+   */
+  private async assertDateInOpenPeriodTx(tx: Db, date: string, action: 'post' | 'reverse'): Promise<void> {
+    const periods = await this.readPeriodsOn(tx, 'share');
+    const hit = closedPeriodContaining(periods, date);
+    if (hit) {
+      throw new LedgerError(
+        'period-closed',
+        `cannot ${action} an entry dated ${date}: the period ${hit.start}..${hit.end} is closed — reopen it first, or date the entry outside it`,
+      );
+    }
+  }
+
+  /**
+   * Read the periods list on the caller's queryable. `lock` semantics:
+   *  - `'none'`: plain read (list surfaces, previews); an absent row is `[]`.
+   *  - `'share'` / `'update'`: the row is CREATED empty first when absent
+   *    (`ON CONFLICT DO NOTHING` — one exclusive insert, once per book) and
+   *    then locked. Existence-before-lock is load-bearing: `FOR SHARE` on an
+   *    absent row locks nothing, and an unlocked first close could then race
+   *    a concurrent post into the very range being closed.
+   */
+  private async readPeriodsOn(q: Db, lock: 'none' | 'share' | 'update'): Promise<LedgerPeriod[]> {
+    if (lock !== 'none') {
+      await q.query(
+        'INSERT INTO settings (key, value) VALUES ($1, \'[]\'::jsonb) ON CONFLICT (key) DO NOTHING',
+        [LEDGER_PERIODS_SETTING_KEY],
+      );
+    }
+    const rows = await q.query<{value: unknown}>(
+      `SELECT value FROM settings WHERE key = $1${lock === 'share' ? ' FOR SHARE' : lock === 'update' ? ' FOR UPDATE' : ''}`,
+      [LEDGER_PERIODS_SETTING_KEY],
+    );
+    if (rows.length === 0) return [];
+    const raw = parseJson<unknown>(rows[0].value, []);
+    if (!Array.isArray(raw)) return [];
+    return raw.map(periodFromStored).sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.closedAt < b.closedAt ? -1 : 1));
+  }
+
+  /** The ONE writer of the periods list. Caller holds the row `FOR UPDATE`. */
+  private async writePeriodsTx(tx: Db, periods: LedgerPeriod[]): Promise<void> {
+    await tx.query(
+      `INSERT INTO settings (key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [LEDGER_PERIODS_SETTING_KEY, JSON.stringify(periods)],
+    );
+  }
+
+  /** Resolve the account the closing entry credits. Unlocked read (see caller). */
+  private async resolveRetainedEarningsOn(q: Db, ids: LedgerIds, explicitId: string | undefined): Promise<LedgerAccount> {
+    const rows = explicitId !== undefined
+      ? await q.query<Row>(
+        `SELECT ${ROW_COLS} FROM pages WHERE id = $1 AND database_id = $2 AND deleted_at IS NULL`,
+        [explicitId, ids.accounts],
+      )
+      : await q.query<Row>(
+        `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL AND name = $2
+         ORDER BY created_at ASC, id ASC`,
+        [ids.accounts, LEDGER_RETAINED_EARNINGS_ACCOUNT],
+      );
+    if (rows.length === 0) {
+      throw new LedgerError(
+        'account-not-found',
+        explicitId !== undefined
+          ? `retained-earnings account ${explicitId} does not exist`
+          : `no account named ${LEDGER_RETAINED_EARNINGS_ACCOUNT} exists — create it (type: equity) or name the account to close into`,
+      );
+    }
+    const account = accountFromRow(rows[0]);
+    if (account.type !== 'equity') {
+      throw new LedgerError('invalid-input', `the closing entry must close into an EQUITY account; ${account.name} is ${account.type}`);
+    }
+    // `open` is enforced by validatePostable too; rejecting here names the
+    // account before any legs are computed.
+    if (account.status !== 'open') {
+      throw new LedgerError('account-closed', `retained-earnings account ${account.name} is closed — reopen it first`);
+    }
+    return account;
+  }
+
+  /**
+   * Every income-statement account's CUMULATIVE posted balance as of `end`
+   * (postings on posted/void entries dated ≤ `end`), keyed by account id;
+   * zero balances excluded. Classification comes from the SDK's ONE list
+   * (`isIncomeStatementAccountType`) — the same fact the report folds read.
+   */
+  private async incomeBalancesAsOf(q: Db, ids: LedgerIds, end: string): Promise<Map<string, number>> {
+    const accountRows = await q.query<Row>(
+      `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL`,
+      [ids.accounts],
+    );
+    const incomeIds = new Set<string>();
+    for (const row of accountRows) {
+      if (isIncomeStatementAccountType(accountFromRow(row).type)) incomeIds.add(row.id);
+    }
+    const txRows = await q.query<{id: string; properties: Record<string, unknown> | string | null}>(
+      'SELECT id, properties FROM pages WHERE database_id = $1 AND deleted_at IS NULL',
+      [ids.transactions],
+    );
+    const counted = new Set<string>();
+    for (const t of txRows) {
+      const props = parseJson<Record<string, unknown>>(t.properties, {});
+      const state = str(props[LEDGER_PROP.transaction.state]);
+      const date = str(props[LEDGER_PROP.transaction.date]);
+      // Posted AND void both count — a void original is offset exactly by its
+      // posted reversal (the `accountPostedBalanceOn` convention).
+      if ((state === 'posted' || state === 'void') && date !== '' && date <= end) counted.add(t.id);
+    }
+    const postingRows = await q.query<Row>(
+      `SELECT ${ROW_COLS} FROM pages WHERE database_id = $1 AND deleted_at IS NULL`,
+      [ids.postings],
+    );
+    const amounts = new Map<string, number[]>();
+    for (const row of postingRows) {
+      const posting = postingFromRow(row);
+      if (!counted.has(posting.transactionId) || !incomeIds.has(posting.accountId)) continue;
+      if (!isValidMinor(posting.amountMinor)) {
+        throw new LedgerError('invalid-amount', `stored amount is not a safe integer: ${String(posting.amountMinor)}`);
+      }
+      const list = amounts.get(posting.accountId) ?? [];
+      list.push(posting.amountMinor);
+      amounts.set(posting.accountId, list);
+    }
+    const balances = new Map<string, number>();
+    for (const [accountId, list] of amounts) {
+      const balance = sumMinorOrThrow(list, 'closing balance');
+      if (balance !== 0) balances.set(accountId, balance);
+    }
+    return balances;
+  }
+
+  /**
+   * The closing entry's legs: one per nonzero income-statement balance (negated
+   * — the leg that ZEROES the account) plus the retained-earnings leg carrying
+   * the sum. Balanced by construction; empty when there is nothing to close.
+   * Sorted by account id so the entry (and its audit hash) is deterministic.
+   */
+  private buildClosingPostings(balances: Map<string, number>, retainedEarningsId: string): LedgerPosting[] {
+    if (balances.size === 0) return [];
+    const legs = [...balances.entries()]
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([accountId, balance]) => ({accountId, amountMinor: negateAmount(balance)}));
+    // Σ legs + RE = 0 exactly: RE carries the negation of the legs' own sum.
+    const retained = negateAmount(sumMinorOrThrow(legs.map((l) => l.amountMinor), 'closing entry total'));
+    legs.push({accountId: retainedEarningsId, amountMinor: retained});
+    return legs.map((leg, i) => ({
+      id: `closing-${i}`,
+      transactionId: '',
+      accountId: leg.accountId,
+      amountMinor: leg.amountMinor,
+      cleared: 'pending' as const,
+      reconciliationId: null,
+      memo: null,
+    }));
+  }
+
   // ── Canonical export (LGR-7) ─────────────────────────────────────────────────
 
   /**
@@ -1724,10 +2251,21 @@ export class LedgerStore {
    * against `post` once already. Every writer acquires in this order and no
    * other:
    *
-   *     RECONCILIATION → POSTING → TRANSACTION → ACCOUNT → advisory (leaf)
+   *     RECONCILIATION → POSTING → TRANSACTION → ACCOUNT
+   *       → settings[ledgerPeriods → ledgerEntrySeq] → audit advisory (leaf)
+   *
+   * The `settings` level is ordered INTERNALLY too (LGR-12): the periods row
+   * (`readPeriodsOn` — `FOR SHARE` in post/reverse, `FOR UPDATE` in
+   * closePeriod/reopenPeriod) always precedes the entry-number row
+   * (`nextEntryNumberTx`); every writer that touches both takes them in that
+   * order. `closePeriod` enters the spine at ACCOUNT (`validatePostable` on the
+   * closing legs — its earlier balance reads are UNLOCKED, revalidated under
+   * the periods row; see its docstring), and `reopenPeriod` runs the full
+   * spine: TRANSACTION (the closing entry) → ACCOUNT → settings → advisory.
    *
    * `post` sits on the same spine (`lockDraftTx` takes TRANSACTION, then
-   * `validatePostable` takes ACCOUNT `FOR SHARE`), which is why `start` and
+   * `validatePostable` takes ACCOUNT `FOR SHARE`, then the period guard takes
+   * the periods settings row `FOR SHARE`), which is why `start` and
    * `reopen` must NOT take the account row before walking postings: T1 `post`
    * holding a transaction row and waiting on account A, against T2 holding A and
    * waiting `FOR SHARE` on that same transaction row — which is in its set
@@ -2149,6 +2687,9 @@ function transactionFromRow(row: Row, postings: LedgerPosting[]): LedgerTransact
     postedBy: strOrNull(props[LEDGER_PROP.transaction.postedBy]),
     reverses: strOrNull(props[LEDGER_PROP.transaction.reverses]),
     entryNo: typeof entryNo === 'number' && Number.isFinite(entryNo) ? entryNo : null,
+    // LGR-12: absent on every entry written before periods existed and on every
+    // ordinary entry since — those read back as `null`. No migration.
+    kind: props[LEDGER_PROP.transaction.kind] === 'closing' ? 'closing' : null,
     evidence: Array.isArray(evidence) ? (evidence as LedgerTransaction['evidence']) : [],
     postings,
     createdAt: toIso(row.created_at),
@@ -2244,7 +2785,7 @@ export function reconciliationContent(r: LedgerReconciliation): Record<string, u
  * key for key; nothing in the product calls it from outside this module.
  */
 export function transactionContent(t: LedgerTransaction): Record<string, unknown> {
-  return {
+  const content: Record<string, unknown> = {
     id: t.id,
     date: t.date,
     description: t.description,
@@ -2269,6 +2810,107 @@ export function transactionContent(t: LedgerTransaction): Record<string, unknown
       return o;
     }),
   };
+  // LGR-12, same additive-field discipline as the posting memo above: the key
+  // is OMITTED when there is no kind, so a payload frozen before LGR-12 and a
+  // post-LGR-12 row hash identically. Mirror in `ledgerVerify.ts`.
+  if (t.kind != null) content.kind = t.kind;
+  return content;
+}
+
+/** Project one stored periods-array element defensively into a LedgerPeriod. */
+function periodFromStored(raw: unknown): LedgerPeriod {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    id: str(r.id),
+    start: str(r.start),
+    end: str(r.end),
+    status: r.status === 'reopened' ? 'reopened' : 'closed',
+    closingEntryId: strOrNull(r.closingEntryId),
+    reopenEntryId: strOrNull(r.reopenEntryId),
+    closedAt: str(r.closedAt),
+    closedBy: str(r.closedBy),
+    reopenedAt: strOrNull(r.reopenedAt),
+    reopenedBy: strOrNull(r.reopenedBy),
+  };
+}
+
+/**
+ * Do two income-balance computations agree exactly? Key set AND every amount —
+ * the `period-close-conflict` comparison. Order-free (Maps compared by lookup).
+ */
+function balancesEqual(a: Map<string, number>, b: Map<string, number>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, value] of a) {
+    if (b.get(key) !== value) return false;
+  }
+  return true;
+}
+
+/**
+ * A transaction's FINANCIAL content, for the period hash chain: everything
+ * `transactionContent` carries except each posting's `cleared` /
+ * `reconciliationId`. Those are WORKFLOW metadata that stays mutable on a
+ * posted entry (`setPostingCleared`, reconciliation freeze/thaw) — hashing them
+ * into the period chain would make a legitimate tick on a closing-entry leg
+ * break the close→reopen link and read as tampering. The replay comparison
+ * still covers cleared state (`posting.cleared` events), so nothing is lost.
+ */
+export function closingEntryContent(t: LedgerTransaction): Record<string, unknown> {
+  const content = transactionContent(t);
+  content.postings = t.postings.map((p) => {
+    const o: Record<string, unknown> = {id: p.id, accountId: p.accountId, amountMinor: p.amountMinor};
+    if (p.memo != null) o.memo = p.memo;
+    return o;
+  });
+  return content;
+}
+
+/**
+ * The combined content a `period.close` event's afterHash covers — the period
+ * record AND the closing entry's financial content (or an explicit `null`), so
+ * consistent surgery on either half breaks the recorded digest. This is also,
+ * by construction, the preimage of a later `period.reopen` event's beforeHash:
+ * a posted entry's financial content never changes, so re-deriving this at
+ * reopen time reproduces the close-time bytes exactly and the period's hash
+ * chain links.
+ *
+ * Mirror in `ledgerVerify.ts`, symmetrically (the LGR-22 discipline).
+ */
+export function periodCloseContent(period: LedgerPeriod, closingEntry: LedgerTransaction | null): Record<string, unknown> {
+  return {period: periodContent(period), closingEntry: closingEntry ? closingEntryContent(closingEntry) : null};
+}
+
+/**
+ * The combined content a `period.reopen` event's afterHash covers: the reopened
+ * record and the voiding reversal's financial content. Nothing later extends
+ * this chain — the verifier's re-derivation from the payload is the ONLY
+ * detector for surgery on a reopened period, which is why the tamper test
+ * exists (the LGR-22 lesson).
+ */
+export function periodReopenContent(period: LedgerPeriod, reversal: LedgerTransaction | null): Record<string, unknown> {
+  return {period: periodContent(period), reversal: reversal ? closingEntryContent(reversal) : null};
+}
+
+/**
+ * The hashable CONTENT of a period (LGR-12; audit timestamps and actor fields
+ * excluded — who/when lives on the event itself). `reopenEntryId` is OMITTED
+ * while null (additive-field discipline: the close-time hash has no key for it,
+ * and the reopen-time hash gains one) so both sides of the period's hash chain
+ * derive from exactly what each event's payload froze.
+ *
+ * Mirror this in `ledgerVerify.ts`, symmetrically, for any new field — it is
+ * the shape the verifier independently re-derives from the frozen payload.
+ */
+export function periodContent(p: LedgerPeriod): Record<string, unknown> {
+  const content: Record<string, unknown> = {
+    id: p.id,
+    start: p.start,
+    end: p.end,
+    status: p.status,
+    closingEntryId: p.closingEntryId,
+  };
+  if (p.reopenEntryId != null) content.reopenEntryId = p.reopenEntryId;
+  return content;
 }
 
 function validatePostingInput(p: LedgerPostingInput): ValidatedPosting {
@@ -2354,6 +2996,14 @@ function buildTransactionsSchema(): DatabaseSchema {
       {id: LEDGER_PROP.transaction.reverses, name: 'Reverses', type: 'text'},
       {id: LEDGER_PROP.transaction.entryNo, name: 'Entry #', type: 'number'},
       {id: LEDGER_PROP.transaction.evidence, name: 'Evidence', type: 'text'},
+      // LGR-12. `text`, not `select`, and written only at SEED: a book seeded
+      // before LGR-12 simply lacks this column in its managed view — the value
+      // is still stored (properties are raw jsonb) and every ledger read goes
+      // through `transactionFromRow`, so correctness is unaffected. The
+      // stale-seed cost is an invisible column on a restricted page nobody
+      // works in (see the `buildReconciliationsSchema` status comment for the
+      // select-options version of this lesson).
+      {id: LEDGER_PROP.transaction.kind, name: 'Kind', type: 'text'},
     ],
     'v_transactions',
     'Transactions',

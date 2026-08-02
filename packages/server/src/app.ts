@@ -38,6 +38,7 @@ import {
   type LedgerClearedState,
   type LedgerDraftInput,
   type LedgerDraftPatch,
+  type LedgerPeriodCloseInput,
   type LedgerReconciliationInput,
   type LedgerReconciliationPatch,
   type LedgerReconciliationStatus,
@@ -2189,6 +2190,42 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await broadcastRows(ids.reconciliations);
     logEdit(c, reconciliation.id, 'ledger.reconciliation.abandon', reconciliation.statementDate);
     return c.json(reconciliation);
+  });
+
+  // ── Period close (LGR-12) ─────────────────────────────────────────────────
+  // The date-range lock, the closing entry and the reopen reversal are all
+  // enforced in `LedgerStore` — these routes add authentication and live-view
+  // broadcasts, never a second copy of the rule (bypassing the UI changes
+  // nothing; `period-closed` comes from the store either way).
+
+  app.get(API.ledgerPeriods, async (c) => {
+    await requireLedger(c, 'read');
+    return c.json(await store.ledger.listPeriods());
+  });
+
+  app.post(API.ledgerPeriods, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const input = await c.req.json<LedgerPeriodCloseInput>();
+    const result = await store.ledger.closePeriod(input, c.get('principal'));
+    if (result.closingEntry) {
+      // The closing entry is a real posted transaction — open registers and
+      // reports must see it exactly as they see any other post.
+      await broadcastRows(ids.transactions);
+      await broadcastRows(ids.postings);
+    }
+    logEdit(c, result.period.id, 'ledger.period.close', `${result.period.start}..${result.period.end}`);
+    return c.json(result, 201);
+  });
+
+  app.post(`${API.ledgerPeriods}/:id/reopen`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const result = await store.ledger.reopenPeriod(c.req.param('id'), c.get('principal'));
+    if (result.reversal) {
+      await broadcastRows(ids.transactions);
+      await broadcastRows(ids.postings);
+    }
+    logEdit(c, result.period.id, 'ledger.period.reopen', `${result.period.start}..${result.period.end}`);
+    return c.json(result);
   });
 
   // Canonical postings CSV (LGR-7). Read-gated like every other ledger read;

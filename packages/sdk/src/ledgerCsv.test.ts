@@ -35,6 +35,7 @@ const tx = (over: Partial<LedgerTransaction>): LedgerTransaction => ({
   postedBy: 'https://iss#tester',
   reverses: null,
   entryNo: 1,
+  kind: null,
   evidence: [],
   postings: [],
   createdAt: '2026-03-01T09:00:00.000Z',

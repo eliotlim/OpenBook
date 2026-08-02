@@ -32,6 +32,10 @@ import type {
   LedgerDraftInput,
   LedgerDraftPatch,
   LedgerInfo,
+  LedgerPeriod,
+  LedgerPeriodCloseInput,
+  LedgerPeriodCloseResult,
+  LedgerPeriodReopenResult,
   LedgerPosting,
   LedgerReconciliation,
   LedgerReconciliationInput,
@@ -567,6 +571,29 @@ export class LocalDataClient implements DataClient {
     const summary = await this.store.ledger.reopenReconciliation(id, localPrincipal());
     await this.broadcastLedgerRows('reconciliations', 'postings');
     return summary;
+  }
+
+  // ── Period close (LGR-12) ────────────────────────────────────────────────────
+  // Same `LedgerStore` methods the HTTP routes call: the date-range lock, the
+  // closing entry and the reopen reversal are identical in browser-local mode.
+
+  ledgerListPeriods(): Promise<LedgerPeriod[]> {
+    return this.store.ledger.listPeriods();
+  }
+
+  async ledgerClosePeriod(input: LedgerPeriodCloseInput): Promise<LedgerPeriodCloseResult> {
+    const result = await this.store.ledger.closePeriod(input, localPrincipal());
+    // The closing entry is a real posted transaction; a close with nothing to
+    // close writes no rows, and broadcasting then would announce a change that
+    // never happened (the reconciliation-abandon precedent).
+    if (result.closingEntry) await this.broadcastLedgerRows('transactions', 'postings');
+    return result;
+  }
+
+  async ledgerReopenPeriod(id: string): Promise<LedgerPeriodReopenResult> {
+    const result = await this.store.ledger.reopenPeriod(id, localPrincipal());
+    if (result.reversal) await this.broadcastLedgerRows('transactions', 'postings');
+    return result;
   }
 
   ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]> {
