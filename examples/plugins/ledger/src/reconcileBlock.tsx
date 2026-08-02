@@ -5,19 +5,25 @@ import {
   RECONCILIATION_STATUS_LABEL,
   buildReconcileSheet,
   describeBalanceEcho,
-  describeBalanceSide,
+  describeBalanceLabel,
   describeDifference,
   describeFinishBlock,
   describeFrozenElsewhere,
   describeGap,
+  describeOutstandingHeading,
+  describeOutstandingIntro,
   describeReconcileSummary,
   describeRowLabel,
   describeSingleCulprit,
   describeUnmatchedCaveat,
   formatOnNormalSide,
+  isOutstanding,
   isRowLocked,
   parseStatementBalance,
+  statementBalanceInput,
+  type ReconcileRow,
   type ReconcileSheet,
+  type ReconcileStatus,
 } from './reconcile';
 import {
   AccountName,
@@ -103,6 +109,18 @@ const dropKey = (map: Record<string, OptimisticTick>, key: string): Record<strin
   return next;
 };
 
+/**
+ * What the block is asking for, beyond the checklist itself.
+ *
+ * `amend` and `abandon` are LGR-22's two exits from a reconciliation that can
+ * never balance — a mistyped closing balance is otherwise terminal for the
+ * account, because Finish needs a zero difference that a wrong target makes
+ * unreachable and Start refuses a second open statement. `confirm-finish` is
+ * the notice shown when finishing would leave postings unaccounted for; it is a
+ * step, never a gate.
+ */
+type Mode = 'none' | 'amend' | 'abandon' | 'confirm-finish';
+
 export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: EditorLike}) => {
   const data = useLedgerReport();
   const props = readProps(block);
@@ -121,6 +139,17 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
    * to the truth) the moment it does or the moment the write fails.
    */
   const [optimistic, setOptimistic] = React.useState<Record<string, OptimisticTick>>({});
+  /**
+   * The open sub-flow, and the amend form's draft.
+   *
+   * The draft is NOT written to the block props. `PROP_DATE`/`PROP_BALANCE` are
+   * the START form's memory of what to open next; an amend edits a statement
+   * that already exists on the server, and letting the two share a cell meant
+   * cancelling an amend silently rewrote what the next Start would propose.
+   */
+  const [mode, setMode] = React.useState<Mode>('none');
+  const [amendDate, setAmendDate] = React.useState('');
+  const [amendBalance, setAmendBalance] = React.useState('');
 
   const update = (key: string, value: string, apply: (v: string) => void): void => {
     apply(value);
@@ -179,6 +208,65 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
   const frozenElsewhere = sheet !== null ? describeFrozenElsewhere(sheet) : null;
   const finishDead = sheet === null || !sheet.canFinish || action.busy || editor.readOnly;
   const finishHintId = `ledger-finish-hint-${reconciliationId}`;
+  const outstandingHeading = sheet !== null ? describeOutstandingHeading(sheet) : null;
+  /** The amend draft, read through the SAME parser the start form uses. */
+  const amendParsed = parseStatementBalance(amendBalance, sheet?.normalSide ?? 'debit');
+
+  /** Open the amend form on the statement as it currently stands. */
+  const beginAmend = (): void => {
+    if (sheet === null) return;
+    setAction(IDLE);
+    setAmendDate(sheet.statementDate);
+    setAmendBalance(statementBalanceInput(sheet.statementBalanceMinor, sheet.normalSide));
+    setMode('amend');
+  };
+
+  const saveAmend = (): void => {
+    if (statement === null || !amendParsed.ok || amendDate === '') return;
+    void run(async () => {
+      await api.ledger.amendReconciliation(statement.id, {
+        statementDate: amendDate,
+        statementBalanceMinor: amendParsed.minor,
+      });
+      data.reload();
+    }).then((ok) => {
+      // A REFUSED amend keeps the form open with what was typed still in it:
+      // closing it would throw the correction away and leave only the error
+      // message, and the whole point of this control is to not have to retype.
+      if (ok) setMode('none');
+    });
+  };
+
+  const abandon = (): void => {
+    if (statement === null) return;
+    void run(async () => {
+      await api.ledger.abandonReconciliation(statement.id);
+      data.reload();
+    }).then((ok) => {
+      if (ok) setMode('none');
+    });
+  };
+
+  /**
+   * Finish — via the unmatched notice when there is one to show.
+   *
+   * The notice is a STEP, not a gate: `confirm-finish` renders the same sentence
+   * the standing caveat does and offers "Finish anyway" right there. Unticked
+   * postings are frequently just money that has not reached the bank, so
+   * blocking would be wrong; being silent about a possible duplicate at the
+   * moment the books are being certified would be worse.
+   */
+  const finish = (): void => {
+    if (statement === null) return;
+    if (mode !== 'confirm-finish' && unmatchedCaveat !== null) {
+      setAction(IDLE);
+      setMode('confirm-finish');
+      return;
+    }
+    void run(() => api.ledger.finishReconciliation(statement.id)).then((ok) => {
+      if (ok) setMode('none');
+    });
+  };
 
   const start = (): void => {
     if (!parsedBalance.ok) return;
@@ -214,6 +302,13 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
    * local answer over a total that counts the real one. Comparing against what
    * the fold said WHEN THE GUESS WAS MADE retires it either way.
    */
+  // A sub-flow belongs to ONE statement. Switching statements (Pick another,
+  // Resume, or the stranded-id reset) must not leave an amend form holding the
+  // previous statement's date and balance over a different account's checklist.
+  React.useEffect(() => {
+    setMode('none');
+  }, [reconciliationId]);
+
   React.useEffect(() => {
     if (sheet === null) return;
     const moved = sheet.rows.filter((r) => r.postingId in optimistic && optimistic[r.postingId].seen !== r.matched).map((r) => r.postingId);
@@ -334,7 +429,7 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
               )}
 
               <div style={{display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center'}}>
-                {sheet.status === 'open' ? (
+                {sheet.status === 'open' && (
                   <button
                     type="button"
                     data-ledger-finish
@@ -352,11 +447,12 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                     }}
                     disabled={finishDead}
                     aria-describedby={finishReason !== null ? finishHintId : undefined}
-                    onClick={() => void run(() => api.ledger.finishReconciliation(statement.id))}
+                    onClick={finish}
                   >
                     {action.busy ? 'Working…' : 'Finish'}
                   </button>
-                ) : (
+                )}
+                {sheet.status === 'finished' && (
                   <button
                     type="button"
                     data-ledger-reopen
@@ -366,6 +462,38 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                   >
                     {action.busy ? 'Working…' : 'Reopen'}
                   </button>
+                )}
+                {/* AMEND + ABANDON (LGR-22) — offered only while open, which is
+                    the only state the server accepts them in. Amend is first
+                    and is not styled as a destructive escape: correcting a
+                    mistyped closing balance is the ordinary case, and before
+                    this control the only ways out of it were posting a fake
+                    entry to force the difference to zero or editing the
+                    database by hand. */}
+                {sheet.status === 'open' && (
+                  <>
+                    <button
+                      type="button"
+                      data-ledger-amend
+                      style={buttonStyle}
+                      disabled={action.busy || editor.readOnly || mode === 'amend'}
+                      onClick={beginAmend}
+                    >
+                      Amend statement
+                    </button>
+                    <button
+                      type="button"
+                      data-ledger-abandon
+                      style={buttonStyle}
+                      disabled={action.busy || editor.readOnly || mode === 'abandon'}
+                      onClick={() => {
+                        setAction(IDLE);
+                        setMode('abandon');
+                      }}
+                    >
+                      Abandon
+                    </button>
+                  </>
                 )}
                 {/* Immediately after the control it is about, and wired to it:
                     a disabled button is out of the tab order, so a reason
@@ -391,6 +519,61 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                 </button>
               </div>
 
+              {/* Finishing with postings the statement never accounted for. The
+                  sentence is `describeUnmatchedCaveat` — the SAME string as the
+                  standing notice above, because a confirm that reworded the
+                  fact would be a second copy free to drift, and this is the one
+                  people actually read. Guarded on `canFinish` too, so a tick
+                  that lands while this is open cannot leave a confirm offering
+                  an action the server would now refuse. */}
+              {mode === 'confirm-finish' && unmatchedCaveat !== null && sheet.canFinish && (
+                <div data-ledger-finish-confirm role="status" aria-live="polite" style={noticeStyle('info')}>
+                  {unmatchedCaveat}
+                  <div style={{display: 'flex', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap'}}>
+                    <button type="button" data-ledger-finish-confirm-yes style={{...buttonStyle, fontWeight: 600}} disabled={action.busy} onClick={finish}>
+                      {action.busy ? 'Working…' : 'Finish anyway'}
+                    </button>
+                    <button type="button" data-ledger-finish-confirm-no style={buttonStyle} disabled={action.busy} onClick={() => setMode('none')}>
+                      Go back and check
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {mode === 'amend' && (
+                <AmendForm
+                  normalSide={sheet.normalSide}
+                  date={amendDate}
+                  balanceText={amendBalance}
+                  balance={amendParsed}
+                  busy={action.busy}
+                  onDate={setAmendDate}
+                  onBalance={setAmendBalance}
+                  onSave={saveAmend}
+                  onCancel={() => setMode('none')}
+                />
+              )}
+
+              {mode === 'abandon' && (
+                <div data-ledger-abandon-confirm role="status" aria-live="polite" style={noticeStyle('info')}>
+                  {/* What abandoning DOES, in the two facts a person needs
+                      before they press it: nothing is posted, and no tick is
+                      undone. Both are guarantees of the store, not of this
+                      screen — stated here because the person deciding cannot
+                      read the store. */}
+                  Abandon the {sheet.statementDate} statement? It stays on record as abandoned, nothing is posted to the books, and every posting keeps the
+                  cleared state it has now. This account is then free for a new reconciliation — but this one cannot be resumed.
+                  <div style={{display: 'flex', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap'}}>
+                    <button type="button" data-ledger-abandon-confirm-yes style={{...buttonStyle, fontWeight: 600}} disabled={action.busy} onClick={abandon}>
+                      {action.busy ? 'Working…' : 'Abandon this statement'}
+                    </button>
+                    <button type="button" data-ledger-abandon-confirm-no style={buttonStyle} disabled={action.busy} onClick={() => setMode('none')}>
+                      Keep working on it
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div data-ledger-drafts-excluded={sheet.draftCount} style={mutedStyle}>
                 {describeDraftExclusion(sheet.draftCount)}
               </div>
@@ -410,6 +593,16 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
               <div data-ledger-reconcile-summary style={mutedStyle}>
                 {describeReconcileSummary(sheet)}
               </div>
+
+              {/* AFTER FINISHING, the leftovers stop being a live figure and
+                  become a standing to-do — so they get a named section with the
+                  rows in it, not a 0.75rem grey count under a table. The
+                  heading carries the count AND the total, because "1
+                  outstanding" and "1 · 950.00 Cr" are different pieces of news.
+                  Before finishing this is null: the difference readout and the
+                  caveat above are already saying it against a number that
+                  moves. */}
+              {outstandingHeading !== null && <OutstandingItems sheet={sheet} heading={outstandingHeading} />}
             </>
           )}
         </>
@@ -496,6 +689,112 @@ const Arithmetic = ({sheet}: {sheet: ReconcileSheet}) => {
     </dl>
   );
 };
+
+/**
+ * Correcting the statement an OPEN reconciliation is matched against (LGR-22).
+ *
+ * The same three controls the start form uses for date and balance, and the
+ * SAME parser — `parseStatementBalance` — so a balance that could not have been
+ * started with cannot be amended into either, and the normal-side conversion
+ * still happens in exactly one place. What it deliberately does NOT offer is the
+ * account: changing that would leave every tick already made pointing at another
+ * account's postings, which is not a correction but a different reconciliation.
+ */
+const AmendForm = ({
+  normalSide,
+  date,
+  balanceText,
+  balance,
+  busy,
+  onDate,
+  onBalance,
+  onSave,
+  onCancel,
+}: {
+  normalSide: NormalSide;
+  date: string;
+  balanceText: string;
+  balance: ReturnType<typeof parseStatementBalance>;
+  busy: boolean;
+  onDate: (v: string) => void;
+  onBalance: (v: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) => {
+  const hintId = 'ledger-amend-balance-hint';
+  const problem = date === '' ? 'Enter the date the statement closes on.' : !balance.ok ? balance.problem : null;
+  return (
+    <div data-ledger-amend-form style={{...noticeStyle('quiet'), display: 'flex', flexDirection: 'column', gap: '0.5rem'}}>
+      {/* Says what this changes and — the part that matters — what it does not.
+          Someone reaching for this has already ticked rows, and the fear that
+          stops them using it is losing that work. */}
+      <div style={mutedStyle}>Correct what the statement says. Your ticks are kept and nothing is posted to the books; only the difference is recalculated.</div>
+      <div style={{display: 'flex', alignItems: 'flex-end', gap: '0.5rem', flexWrap: 'wrap'}}>
+        <label style={{display: 'flex', flexDirection: 'column', gap: '0.2rem'}}>
+          <span style={mutedStyle}>Statement date</span>
+          <input type="date" data-ledger-amend-date style={controlStyle} value={date} onChange={(e) => onDate(e.target.value)} />
+        </label>
+        <label style={{display: 'flex', flexDirection: 'column', gap: '0.2rem'}}>
+          <span style={mutedStyle}>{describeBalanceLabel(normalSide)}</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            data-ledger-amend-balance
+            aria-describedby={balance.ok && balanceText.trim() !== '' ? hintId : undefined}
+            style={{...controlStyle, minWidth: '9rem', textAlign: 'right'}}
+            placeholder="0.00"
+            value={balanceText}
+            onChange={(e) => onBalance(e.target.value)}
+          />
+          {balance.ok && balanceText.trim() !== '' && (
+            <span id={hintId} data-ledger-amend-echo style={{...mutedStyle, maxWidth: '18rem'}}>
+              {describeBalanceEcho(balance.minor, normalSide)}
+            </span>
+          )}
+        </label>
+        <button type="button" data-ledger-amend-save style={{...buttonStyle, fontWeight: 600}} disabled={problem !== null || busy} onClick={onSave}>
+          {busy ? 'Saving…' : 'Save statement'}
+        </button>
+        <button type="button" data-ledger-amend-cancel style={buttonStyle} disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+      {problem !== null && (
+        <div data-ledger-amend-hint role="status" aria-live="polite" style={mutedStyle}>
+          {problem}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * What a finished statement left behind: the postings on the books that it never
+ * accounted for.
+ *
+ * Rows come from {@link isOutstanding}, the same predicate `buildReconcileSheet`
+ * counted with — so the heading's "1 · 950.00 Cr" and the list under it can
+ * never describe different sets, which is exactly what a locally re-typed
+ * `!row.matched` filter would eventually allow.
+ */
+const OutstandingItems = ({sheet, heading}: {sheet: ReconcileSheet; heading: string}) => (
+  <section data-ledger-outstanding={sheet.unmatchedCount} aria-labelledby="ledger-outstanding-heading" style={{...noticeStyle('info'), display: 'flex', flexDirection: 'column', gap: '0.35rem'}}>
+    <h4 id="ledger-outstanding-heading" data-ledger-outstanding-heading style={{...titleStyle, fontSize: '0.85rem', margin: 0}}>
+      {heading}
+    </h4>
+    <div style={mutedStyle}>{describeOutstandingIntro(sheet)}</div>
+    <ul data-ledger-outstanding-list style={{margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.2rem'}}>
+      {sheet.rows.filter(isOutstanding).map((row: ReconcileRow) => (
+        <li key={row.postingId} data-ledger-outstanding-row={row.postingId}>
+          <span style={{fontVariantNumeric: 'tabular-nums'}}>{row.date}</span>
+          {row.entryNo !== null && <span style={{...mutedStyle, marginLeft: '0.35rem'}}>#{row.entryNo}</span>}{' '}
+          {row.description.trim() === '' ? <span style={mutedStyle}>(no description)</span> : row.description} —{' '}
+          <SideAmount minor={row.amountMinor} />
+        </li>
+      ))}
+    </ul>
+  </section>
+);
 
 /** The candidate postings, with the tick that moves the difference. */
 const Checklist = ({
@@ -658,7 +957,7 @@ const StartForm = ({
   onDate: (v: string) => void;
   onBalance: (v: string) => void;
   onStart: () => void;
-  existing: ReadonlyArray<{id: string; accountId: string; statementDate: string; status: 'open' | 'finished'}>;
+  existing: ReadonlyArray<{id: string; accountId: string; statementDate: string; status: ReconcileStatus}>;
   accountNameFor: (id: string) => string;
   onResume: (id: string) => void;
 }) => {
@@ -692,33 +991,29 @@ const StartForm = ({
           <input type="date" data-ledger-statement-date style={controlStyle} value={statementDate} onChange={(e) => onDate(e.target.value)} />
         </label>
         <label style={{display: 'flex', flexDirection: 'column', gap: '0.2rem'}}>
-          {/* The side is NAMED, not implied. On a credit card "1,250.00" means
-              1,250.00 owed and on a current account it means 1,250.00 held —
-              the same digits on opposite sides of the ledger, and getting it
-              wrong makes every difference exactly twice the balance. */}
-          <span style={mutedStyle}>Closing balance ({normalSide}-normal account)</span>
+          {/* THE LABEL IS THE INSTRUCTION. "Closing balance (credit-normal
+              account)" stated a true fact about the account and left the reader
+              to derive what to type from it — backwards, at the one moment on
+              this screen where the wrong answer costs a difference of exactly
+              twice the balance. It now says what to type; the hint below is the
+              LIVE echo of what the typed number was taken to mean, which is a
+              different thing and not a second copy of this one. */}
+          <span style={mutedStyle}>{describeBalanceLabel(normalSide)}</span>
           <input
             type="text"
             inputMode="decimal"
             data-ledger-statement-balance-input
-            aria-describedby={balanceHintId}
+            aria-describedby={balance.ok && balanceText.trim() !== '' ? balanceHintId : undefined}
             style={{...controlStyle, minWidth: '9rem', textAlign: 'right'}}
             placeholder="0.00"
             value={balanceText}
             onChange={(e) => onBalance(e.target.value)}
           />
-          {/* The label names a PROPERTY of the account; this says what to type.
-              The sentence that prevents the error belongs on screen, not in a
-              comment above the input. */}
-          <span id={balanceHintId} data-ledger-balance-hint style={{...mutedStyle, maxWidth: '18rem'}}>
-            {describeBalanceSide(normalSide)}
-            {balance.ok && balanceText.trim() !== '' && (
-              <>
-                {' '}
-                <strong data-ledger-balance-echo>{describeBalanceEcho(balance.minor, normalSide)}</strong>
-              </>
-            )}
-          </span>
+          {balance.ok && balanceText.trim() !== '' && (
+            <span id={balanceHintId} data-ledger-balance-hint style={{...mutedStyle, maxWidth: '18rem'}}>
+              <strong data-ledger-balance-echo>{describeBalanceEcho(balance.minor, normalSide)}</strong>
+            </span>
+          )}
         </label>
         <button type="button" data-ledger-reconcile-start style={buttonStyle} disabled={problem !== null || busy || readOnly} onClick={onStart}>
           {busy ? 'Starting…' : 'Start reconciling'}
