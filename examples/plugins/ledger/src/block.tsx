@@ -527,6 +527,12 @@ export const JournalEntryBlock = ({block, editor, pageReadOnly, uploadPageId}: {
    * refs the asset to the entry's own row, so the manifest can never claim a
    * file the store does not hold. Re-attaching identical bytes replaces the
    * existing item (same hash — the manifest is a set of distinct files).
+   *
+   * CONFIDENTIALITY (accepted platform semantics, stated): the upload refs the
+   * receipt to THIS page too, and an asset stays readable to every audience of
+   * every page that references it. A receipt attached from a widely-shared
+   * page therefore remains readable to that page's readers — attach sensitive
+   * receipts from pages whose audience matches the ledger's.
    */
   const attachEvidence = async (file: File): Promise<void> => {
     if (locked || evidenceBusy) return;

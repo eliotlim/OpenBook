@@ -168,14 +168,90 @@ describe('LGR-14 — the evidence-required account gate', () => {
     expect(posted.state).toBe('posted');
   });
 
-  it('reversals are exempt: correcting an evidence-required entry needs no fresh receipt', async () => {
+  it('a reversal CARRIES its original\'s manifest (F1) and needs no fresh receipt on a required account', async () => {
     await store.ledger.updateAccount(cashId, {evidenceRequired: true}, ACTOR);
     const sha = await upload('a');
     const draft = await balancedDraft([{sha256: sha, filename: 'receipt.pdf'}]);
     const posted = await store.ledger.post(draft.id, ACTOR);
     const reversal = await store.ledger.reverse(posted.id, {}, ACTOR);
     expect(reversal.state).toBe('posted');
+    // Carried verbatim — sizes included — not re-attested.
+    expect(reversal.evidence).toEqual(posted.evidence);
+    // The carried manifest refs the asset to the REVERSAL row too, so the
+    // receipt's read gate and GC protection follow it.
+    expect((await store.pagesReferencingAsset(sha)).sort()).toEqual([posted.id, reversal.id].sort());
+    // Frozen-payload parity on a reversal-with-manifest event: the clean
+    // verify below re-derives the transaction.reverse afterHash from its own
+    // payload AND replays it against the raw rows — an asymmetry between the
+    // writer's and verifier's projection of a carried manifest fails here.
+    const report = await verifyLedger(db);
+    expect(report.findings).toEqual([]);
+  });
+
+  it('reversals of BARE entries stay exempt: no receipt is conjured, and the gate does not block the undo', async () => {
+    const draft = await balancedDraft();
+    const posted = await store.ledger.post(draft.id, ACTOR);
+    // The requirement arrives AFTER the fact — the reversal must still work,
+    // or a policy change would freeze every pre-policy mistake in place.
+    await store.ledger.updateAccount(cashId, {evidenceRequired: true}, ACTOR);
+    const reversal = await store.ledger.reverse(posted.id, {}, ACTOR);
+    expect(reversal.state).toBe('posted');
     expect(reversal.evidence).toEqual([]);
+  });
+
+  it('double reversal cannot launder evidence off a live entry (the F1 hole, closed)', async () => {
+    // Before F1: reverse E, reverse the reversal — the live book ends with
+    // exactly E's legs and an EMPTY manifest, badge clean, CSV clean,
+    // verifier clean, no SQL touched. With carry-forward the manifest follows
+    // the chain: R2 (the live re-enactment of E) answers with E's receipts.
+    await store.ledger.updateAccount(cashId, {evidenceRequired: true}, ACTOR);
+    const sha = await upload('a');
+    const posted = await store.ledger.post((await balancedDraft([{sha256: sha, filename: 'receipt.pdf'}])).id, ACTOR);
+    const r1 = await store.ledger.reverse(posted.id, {}, ACTOR);
+    const r2 = await store.ledger.reverse(r1.id, {}, ACTOR);
+    expect(r2.state).toBe('posted');
+    expect(r2.evidence).toEqual(posted.evidence);
+    // And the whole chain — evidenced original, two carrying reversals, a
+    // required account — verifies clean, with no policy advisory: every entry
+    // in the chain can answer for itself.
+    const report = await verifyLedger(db);
+    expect(report.findings).toEqual([]);
+    expect(report.checkedEvidence).toBe(3);
+  });
+
+  it('names multiple required accounts with plural agreement', async () => {
+    await store.ledger.updateAccount(cashId, {evidenceRequired: true}, ACTOR);
+    await store.ledger.updateAccount(incomeId, {evidenceRequired: true}, ACTOR);
+    const refusal = await store.ledger.post((await balancedDraft()).id, ACTOR).then(
+      () => null,
+      (err: unknown) => err,
+    );
+    expect((refusal as LedgerError).code).toBe('evidence-required');
+    expect((refusal as LedgerError).message).toMatch(/accounts .* require evidence/);
+    expect((refusal as LedgerError).message).toContain('Assets:Cash');
+    expect((refusal as LedgerError).message).toContain('Revenue:Sales');
+  });
+
+  it('rejects control and BIDI-formatting characters in a filename with a typed error (F3)', async () => {
+    const sha = await upload('a');
+    // A NUL previously escaped to Postgres as a raw 22P05 → untyped 500.
+    await expect(balancedDraft([{sha256: sha, filename: 'bad\u0000name.pdf'}])).rejects.toMatchObject({code: 'invalid-input'});
+    // An RLO would reorder the verifier report's line about this very file.
+    await expect(balancedDraft([{sha256: sha, filename: 'receipt\u202Efdp.exe'}])).rejects.toMatchObject({code: 'invalid-input'});
+    await expect(balancedDraft([{sha256: sha, filename: 'zero\u200Bwidth.pdf'}])).rejects.toMatchObject({code: 'invalid-input'});
+    expect(await store.ledger.listTransactions()).toEqual([]);
+  });
+
+  it('a pre-planted wrong size column cannot be frozen into the manifest (F4)', async () => {
+    const sha = await upload('a');
+    // Doctor the CACHED size cell before attach — the one moment a manifest
+    // could have been born lying, flagging an untampered book forever.
+    await db.query('UPDATE assets SET size = 999999 WHERE id = $1', [sha]);
+    const posted = await store.ledger.post((await balancedDraft([{sha256: sha, filename: 'receipt.pdf'}])).id, ACTOR);
+    // The manifest measured the BYTES, not the cell.
+    expect(posted.evidence[0].size).toBe(receipt('a').byteLength);
+    const report = await verifyLedger(db);
+    expect(report.findings).toEqual([]);
   });
 
   it('period close is exempt: a closing entry sweeping an evidence-required flow account still posts', async () => {
@@ -305,6 +381,78 @@ describe('LGR-14 — verifier: manifest drift against the asset store', () => {
 
     const report = await verifyLedger(db);
     expect(findingCodes(report)).toContain('evidence-manifest-invalid');
+  });
+
+  it('the traceless flag flip is caught: SQL-off, post bare, SQL-on → policy advisory, nothing else (F2)', async () => {
+    // Sasha's exact choreography — the feature's one bypass that left NO
+    // trace: the flag is turned on through the API (audited), SQL'd OFF the
+    // raw row, a bare entry posts through the ordinary API (the gate reads
+    // the row and waves it through), and the flag is SQL'd back ON. The row
+    // again matches its audit trail, so every tamper check is clean by
+    // construction — the CURRENT-POLICY advisory is the only detector.
+    // MUTATION-CHECKED: with the advisory check deleted, this test (and the
+    // history test below) fail and nothing else does.
+    await store.ledger.updateAccount(cashId, {evidenceRequired: true}, ACTOR);
+    const flip = async (on: boolean): Promise<void> => {
+      const rows = await db.query<{properties: Record<string, unknown> | string}>('SELECT properties FROM pages WHERE id = $1', [cashId]);
+      const props = typeof rows[0].properties === 'string' ? JSON.parse(rows[0].properties) as Record<string, unknown> : rows[0].properties;
+      if (on) props.lp_evidence_required = true;
+      else delete props.lp_evidence_required;
+      await db.query('UPDATE pages SET properties = $2::jsonb WHERE id = $1', [cashId, JSON.stringify(props)]);
+    };
+    await flip(false);
+    const posted = await store.ledger.post((await balancedDraft()).id, ACTOR); // the gate reads the doctored row
+    await flip(true);
+
+    const report = await verifyLedger(db);
+    expect(findingCodes(report)).toEqual(['evidence-required-missing']);
+    const finding = report.findings[0];
+    expect(finding.entityId).toBe(posted.id);
+    expect(finding.message).toContain('policy advisory');
+    expect(finding.message).toContain('Assets:Cash');
+    // `checkedEvidence` counts manifest ITEMS — zero here, which is exactly
+    // why the advisory cannot hide behind the green-on-nothing guard.
+    expect(report.checkedEvidence).toBe(0);
+  });
+
+  it('turning the flag on flags bare HISTORY — by design, and said so in the message', async () => {
+    // No SQL at all: an honestly bare entry posted while the account was
+    // ordinary, then the requirement arrives. The advisory answers "which
+    // posted entries cannot satisfy TODAY'S policy" — pre-policy history is
+    // part of that answer, and the message says it is not tamper evidence.
+    const posted = await store.ledger.post((await balancedDraft()).id, ACTOR);
+    await store.ledger.updateAccount(cashId, {evidenceRequired: true}, ACTOR);
+    const report = await verifyLedger(db);
+    expect(findingCodes(report)).toEqual(['evidence-required-missing']);
+    expect(report.findings[0].entityId).toBe(posted.id);
+    expect(report.findings[0].message).toContain('before the requirement was turned on');
+  });
+
+  it('the advisory carves out closing entries and reversal chains — bare-legacy pairs flag only the ORIGINAL', async () => {
+    // A bare legacy entry, reversed after the requirement arrived (the exempt
+    // undo): the advisory names the VOID original — the entry that could not
+    // answer — and not the reversal, whose bareness the carve-out shields
+    // because the policy claim belongs to the entry it undoes.
+    const posted = await store.ledger.post((await balancedDraft()).id, ACTOR);
+    await store.ledger.updateAccount(cashId, {evidenceRequired: true}, ACTOR);
+    const reversal = await store.ledger.reverse(posted.id, {}, ACTOR);
+    // And a REAL closing entry over a required flow account: the requirement
+    // arrives, an evidenced sale gives the income account a balance, and the
+    // close sweeps it — the closing entry is BARE and touches the required
+    // account, so without its carve-out it would flag here.
+    await store.ledger.updateAccount(incomeId, {evidenceRequired: true}, ACTOR);
+    const sha = await upload('a');
+    await store.ledger.post((await balancedDraft([{sha256: sha, filename: 'receipt.pdf'}])).id, ACTOR);
+    await store.ledger.createAccount({name: 'Equity:RetainedEarnings', type: 'equity'}, ACTOR);
+    const closed = await store.ledger.closePeriod({start: '2026-08-01', end: '2026-08-31'}, ACTOR);
+    expect(closed.closingEntry).not.toBeNull(); // the carve-out is actually exercised
+
+    const report = await verifyLedger(db);
+    const advisories = report.findings.filter((f) => f.code === 'evidence-required-missing');
+    expect(advisories.map((f) => f.entityId)).toEqual([posted.id]);
+    expect(advisories.map((f) => f.entityId)).not.toContain(reversal.id);
+    expect(advisories.map((f) => f.entityId)).not.toContain(closed.closingEntry!.id);
+    expect(findingCodes(report).filter((c) => c !== 'evidence-required-missing')).toEqual([]);
   });
 });
 

@@ -253,21 +253,44 @@ const MAX_RECONCILIATION_POSTINGS = 1000;
  * Maximum evidence attachments on ONE journal entry (LGR-14), in the spirit of
  * {@link MAX_POSTINGS_PER_TRANSACTION}: the manifest is copied into every audit
  * payload the entry appears in, so an unbounded list is unbounded append-only
- * log growth (~150 B an item). A hundred receipts on one entry is far beyond
- * any real bookkeeping shape (a batch of receipts is a batch of entries).
+ * log growth. Measured worst case (Sasha's F5 figure): ~620 B an item — a
+ * 255-char multibyte filename dominates — so the caps bound one payload's
+ * manifest at ~62 KB. Deliberately a size CAP and not a filename byte-length
+ * cap: 62 KB is an acceptable worst case for an append-only row, and a
+ * character cap is the bound a user can actually reason about. A hundred
+ * receipts on one entry is far beyond any real bookkeeping shape anyway (a
+ * batch of receipts is a batch of entries).
  */
 const MAX_EVIDENCE_PER_TRANSACTION = 100;
 
 /**
- * Maximum evidence FILENAME length (LGR-14). Deliberately tighter than
- * {@link MAX_DESCRIPTION_LENGTH}: a filename is an identifier, not prose, and
- * every byte of it is copied into the audit payloads. 255 is the common
- * filesystem bound, so any name a real file ever had fits.
+ * Maximum evidence FILENAME length (LGR-14), in CHARACTERS. Deliberately
+ * tighter than {@link MAX_DESCRIPTION_LENGTH}: a filename is an identifier,
+ * not prose, and every byte of it is copied into the audit payloads. 255 is
+ * the common filesystem bound, so any name a real file ever had fits.
  */
 const MAX_EVIDENCE_FILENAME_LENGTH = 255;
 
 /** A content-hash asset id: 64 lowercase hex chars (the SHA-256 of the bytes). */
 const ASSET_ID_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * Characters an evidence filename must NOT contain (LGR-14 F3): C0/C1 controls
+ * (a NUL previously escaped as a raw Postgres 22P05 → untyped 500; the rest
+ * render as nothing) and the BIDI/invisible-formatting set the bank-import
+ * sanitizer strips (`importModel.ts` — RLO/LRO/PDF, the directional isolates,
+ * LRM/RLM, ZWSP/ZWJ/ZWNJ, word joiner, SHY, BOM, interlinear annotation,
+ * line/paragraph separators). A filename is the one field that flows verbatim
+ * into the VERIFIER's integrity report, where `receipt<U+202E> fdp.exe` reading
+ * as something it is not is precisely the deception an integrity report must
+ * not carry. REJECTED with a typed error, not stripped: unlike a pasted bank
+ * cell, a filename arrives from a file picker — a control character in it is a
+ * client bug or an attack, and silently renaming evidence would make the
+ * stored manifest disagree with what the user saw attach.
+ */
+const EVIDENCE_FILENAME_FORBIDDEN_RE =
+  // eslint-disable-next-line no-control-regex
+  /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\ufff9-\ufffb]/;
 
 /**
  * Advisory-lock key serializing audit-chain appends (see
@@ -359,6 +382,15 @@ function validateEvidenceInputs(evidence: LedgerEvidenceInput[] | undefined): Le
       throw new LedgerError(
         'invalid-input',
         `an evidence filename must be at most ${MAX_EVIDENCE_FILENAME_LENGTH} characters, got ${filename.length}`,
+      );
+    }
+    if (EVIDENCE_FILENAME_FORBIDDEN_RE.test(filename)) {
+      // F3: typed here, not a raw 22P05 500 from a NUL reaching Postgres — and
+      // never stored, so a BIDI override can't reorder a line of the verifier's
+      // integrity report (see EVIDENCE_FILENAME_FORBIDDEN_RE).
+      throw new LedgerError(
+        'invalid-input',
+        `evidence filename ${JSON.stringify(filename)} contains control or bidirectional-formatting characters — rename the file and re-attach it`,
       );
     }
     if (seen.has(sha256)) {
@@ -915,10 +947,17 @@ export class LedgerStore {
    * REJECTED (`evidence-required`) — enforced HERE, at the store layer, so
    * `LocalDataClient` (which bypasses HTTP entirely) is gated identically and
    * a block that forgot to disable its own button still cannot post. Only this
-   * door is gated: a REVERSAL is exempt (its evidence is the original entry it
-   * undoes — demanding a fresh receipt to undo a mistake would make required
-   * accounts uncorrectable), and server-generated closing entries are derived
-   * arithmetic with no receipt to attach.
+   * door is gated: a REVERSAL is exempt (its evidence IS the original entry's
+   * — since F1 the manifest is literally carried onto the reversing entry, see
+   * {@link reverse} — and demanding a fresh receipt to undo a mistake would
+   * make required accounts uncorrectable), and server-generated closing
+   * entries are derived arithmetic with no receipt to attach.
+   *
+   * PRESENCE-ONLY, by design (Sasha residual 1): the gate asserts that SOME
+   * file was attached, not that it is a relevant one — that judgement is the
+   * bookkeeper's, and no server check can make it. Read the manifest as "this
+   * entry can answer with what was filed at post time", never as attestation
+   * that the filing is correct.
    */
   async post(id: string, actor?: Principal): Promise<LedgerTransaction> {
     const ids = await this.requireIds();
@@ -950,9 +989,11 @@ export class LedgerStore {
           .filter((a): a is LedgerAccount => a !== undefined && a.evidenceRequired);
         if (required.length > 0) {
           const names = required.map((a) => a.name).join(', ');
+          const subject = required.length === 1 ? `account ${names} requires` : `accounts ${names} require`;
+          const object = required.length === 1 ? 'the account' : 'those accounts';
           throw new LedgerError(
             'evidence-required',
-            `account ${names} requires evidence — attach a receipt (or other supporting file) to this entry before posting, or turn off "evidence required" on the account`,
+            `${subject} evidence — attach a receipt (or other supporting file) to this entry before posting, or turn off "evidence required" on ${object}`,
           );
         }
       }
@@ -991,9 +1032,11 @@ export class LedgerStore {
 
   /**
    * REVERSE a posted transaction: atomically create AND post the reversing
-   * entry (postings negated, `reverses` linked, its own entry number) and flip
-   * the original to `void` — the only sanctioned mutation of a posted entry,
-   * and the only way to void one. Exactly ONE audit event covers the pair.
+   * entry (postings negated, `reverses` linked, its own entry number, the
+   * ORIGINAL'S EVIDENCE MANIFEST carried verbatim — LGR-14 F1, see the inline
+   * comment) and flip the original to `void` — the only sanctioned mutation of
+   * a posted entry, and the only way to void one. Exactly ONE audit event
+   * covers the pair.
    *
    * A reversal touching a CLOSED account is REJECTED (`account-closed`); reopen
    * the account first. The reversing entry is a real posting like any other, and
@@ -1073,8 +1116,32 @@ export class LedgerStore {
         [LEDGER_PROP.transaction.postedBy]: actor?.subject ?? '',
         [LEDGER_PROP.transaction.reverses]: id,
         [LEDGER_PROP.transaction.entryNo]: entryNo,
-        [LEDGER_PROP.transaction.evidence]: [],
+        // LGR-14 F1: the reversal CARRIES the original's manifest, verbatim.
+        // "A reversal's evidence is the original entry it undoes" was already
+        // this module's stated justification for exempting reversals from the
+        // evidence gate — carrying the manifest makes that literal, and it
+        // closes the laundering hatch: reverse E, then reverse the reversal,
+        // and the live entry (E's legs re-enacted) would otherwise end bare —
+        // clean badge, clean CSV, clean verifier — with no SQL touched. With
+        // carry-forward every entry in a reversal CHAIN answers with the same
+        // receipts as the entry that started it (idempotent under double
+        // reversal). Copied, NOT re-resolved: this is the original's frozen
+        // record — sizes included — not a fresh attestation, and re-checking
+        // the store here would let the very tampering the verifier exists to
+        // catch block the correction workflow too.
+        [LEDGER_PROP.transaction.evidence]: original.evidence,
       }, reversingId);
+      // Ref the carried assets to the reversal row too (read-gate + GC follow
+      // the manifest wherever it lives). Only the assets the store still holds:
+      // a missing one is verifier territory, and an FK failure here would turn
+      // a tampered receipt into an unreversible entry.
+      if (original.evidence.length > 0) {
+        const present = await tx.query<{id: string}>(
+          'SELECT id FROM assets WHERE id = ANY($1)',
+          [original.evidence.map((e) => e.sha256)],
+        );
+        await this.syncEvidenceRefsTx(tx, reversingId, original.evidence.filter((e) => present.some((r) => r.id === e.sha256)), []);
+      }
       const reversingPostings = await this.insertPostingsTx(tx, ids, reversingId, negated);
       // Void the original — its financial content (postings, amounts, entry
       // number, posted_at/by) never changes; only the state flips.
@@ -2657,8 +2724,13 @@ export class LedgerStore {
    */
   private async resolveEvidenceTx(tx: Db, items: readonly LedgerEvidenceInput[]): Promise<LedgerEvidence[]> {
     if (items.length === 0) return [];
+    // `octet_length(bytes)`, NOT the cached `size` column (F4): the manifest is
+    // about to be frozen into an immutable posted entry, and a pre-planted
+    // wrong `size` cell would freeze a lie the verifier then flags forever on
+    // an untampered book, with no repair path. Measuring the bytes themselves
+    // removes the only way a manifest could be BORN lying.
     const rows = await tx.query<{id: string; size: number | string}>(
-      'SELECT id, size FROM assets WHERE id = ANY($1)',
+      'SELECT id, octet_length(bytes) AS size FROM assets WHERE id = ANY($1)',
       [items.map((i) => i.sha256)],
     );
     const sizeById = new Map(rows.map((r) => [r.id, Number(r.size)]));

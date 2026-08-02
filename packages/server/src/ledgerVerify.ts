@@ -41,7 +41,10 @@
  *                        detector; the asset id IS the hash, so a replacement
  *                        can only exist as a row whose bytes no longer match
  *                        their id), and the byte count equal to the manifest's
- *                        (`evidence-size-mismatch`).
+ *                        (`evidence-size-mismatch`); plus the CURRENT-POLICY
+ *                        advisory (`evidence-required-missing`) — a bare
+ *                        posted/void entry touching an account that currently
+ *                        requires evidence.
  *
  * Browser-safe: no Node imports (store.ts exposes it to both runtimes).
  */
@@ -105,7 +108,32 @@ export type LedgerVerifyCode =
    *  the hash still matches — the store's metadata was doctored (`size` is a
    *  cached column), or the manifest's size was rewritten in step with the row.
    *  Either way the manifest and the store disagree about the same bytes. */
-  | 'evidence-size-mismatch';
+  | 'evidence-size-mismatch'
+  /**
+   * CURRENT-POLICY ADVISORY, not a tamper finding (LGR-14 F2): a posted/void
+   * entry has an EMPTY manifest while an account one of its legs touches
+   * CURRENTLY has `evidenceRequired`. This is what makes the toggle
+   * verifier-observable — without it, SQL-off the flag, post bare through the
+   * ordinary API, SQL it back on, and the book verified clean with
+   * `checkedEvidence: 0`: the feature's one traceless bypass.
+   *
+   * Read it as "the book does not satisfy TODAY'S policy", never "someone
+   * tampered": turning the flag on flags history — every bare entry posted
+   * before the requirement existed — and that is BY DESIGN (the operator asked
+   * "which posted entries can't answer for themselves under the current
+   * rules?", and pre-toggle history is exactly part of the answer). Its
+   * messages carry the `policy advisory` prefix so a report reader (and any
+   * alerting built on findings) can band it separately from the tamper codes.
+   *
+   * Carve-outs: reversals (`reverses !== null`) and closing entries — the
+   * post-time gate exempts both, so their bareness is never a policy breach.
+   * Since F1 a reversal CARRIES its original's manifest, so this carve-out in
+   * practice only shields reversals of bare legacy originals — and there the
+   * policy claim belongs to the ORIGINAL entry, which this same check flags
+   * (void entries are in scope precisely so a reversed bare entry stays
+   * visible).
+   */
+  | 'evidence-required-missing';
 
 export interface LedgerVerifyFinding {
   code: LedgerVerifyCode;
@@ -850,7 +878,7 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
   }
 
   // (f) Evidence manifests (LGR-14).
-  const checkedEvidence = await checkEvidenceManifests(db, transactions, flag);
+  const checkedEvidence = await checkEvidenceManifests(db, transactions, accounts, flag);
 
   return {
     initialized: true,
@@ -916,6 +944,15 @@ async function sha256HexOfBytes(bytes: Uint8Array): Promise<string> {
  *    even be run on; flagged, never skipped (a skip would make malforming the
  *    manifest the cheapest way to retire its checks).
  *
+ * Also runs the CURRENT-POLICY advisory (`evidence-required-missing`, F2): a
+ * bare posted/void entry (no manifest, not a reversal, not a closing entry)
+ * with a leg on an account that CURRENTLY has `evidenceRequired`. This reads
+ * the account rows AS THEY ARE — deliberately, because the flag itself is the
+ * thing the traceless bypass toggles (SQL it off, post bare, SQL it back on:
+ * every other check is clean by construction, since the restored row matches
+ * its audit trail again). See the finding-code docstring for the advisory
+ * framing and the carve-out reasoning.
+ *
  * Returns the number of manifest items checked — the green-on-nothing guard's
  * observable: a fixture that expects `checkedEvidence > 0` cannot pass while
  * the whole section silently stops running (the LGR-22 lesson).
@@ -923,6 +960,7 @@ async function sha256HexOfBytes(bytes: Uint8Array): Promise<string> {
 async function checkEvidenceManifests(
   db: Db,
   transactions: ReadonlyMap<string, LedgerTransaction>,
+  accounts: ReadonlyMap<string, LedgerAccount>,
   flag: (code: LedgerVerifyCode, message: string, entityId?: string) => void,
 ): Promise<number> {
   interface ManifestItem {
@@ -936,6 +974,23 @@ async function checkEvidenceManifests(
   let checked = 0;
   for (const tx of transactions.values()) {
     if (tx.state !== 'posted' && tx.state !== 'void') continue;
+    // The current-policy advisory (F2). Void entries stay in scope: a reversed
+    // bare entry is still the entry that could not answer for itself, and
+    // hiding it behind its own reversal would make reversing the cheapest way
+    // to clear the report.
+    if (tx.evidence.length === 0 && tx.reverses === null && tx.kind !== 'closing') {
+      const required = [...new Set(tx.postings.map((p) => p.accountId))]
+        .map((id) => accounts.get(id))
+        .filter((a): a is LedgerAccount => a !== undefined && a.evidenceRequired);
+      if (required.length > 0) {
+        const names = required.map((a) => a.name).join(', ');
+        flag(
+          'evidence-required-missing',
+          `policy advisory — ${tx.state} transaction ${tx.id} (entry #${tx.entryNo ?? '?'}) has no evidence, but ${required.length === 1 ? `account ${names} currently requires` : `accounts ${names} currently require`} it. Not tamper evidence: entries posted before the requirement was turned on land here by design.`,
+          tx.id,
+        );
+      }
+    }
     for (const raw of tx.evidence) {
       checked += 1;
       const filename = (raw as {filename?: unknown} | null)?.filename;

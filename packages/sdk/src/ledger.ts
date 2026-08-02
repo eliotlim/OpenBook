@@ -256,8 +256,16 @@ export interface LedgerEvidence {
 /**
  * One evidence attachment as a CLIENT names it (LGR-14): the content-hash id
  * of an already-uploaded asset plus a display filename. No `size` — the server
- * resolves it from the asset store, so a manifest can never claim a byte count
- * the store does not hold.
+ * resolves it from the asset store (measuring the bytes, not trusting a cached
+ * column), so a manifest can never claim a byte count the store does not hold.
+ *
+ * CONFIDENTIALITY (accepted, stated): an asset inherits the read gate of EVERY
+ * page that references it. Attaching refs the asset to the ledger's own
+ * transaction row, but the UPLOAD already ref'd it to the page it was uploaded
+ * from — so a receipt uploaded from a widely-shared page stays readable to
+ * that page's audience for as long as that page references it. That is the
+ * platform's standing asset semantics; this feature puts receipts into them.
+ * Upload sensitive receipts from pages whose audience is the ledger's.
  */
 export interface LedgerEvidenceInput {
   /** The asset-store id: 64 lowercase hex chars — the SHA-256 of the bytes. */
@@ -278,8 +286,15 @@ export interface LedgerAccount {
    * REJECTED (`evidence-required`) unless the entry has evidence attached.
    * `false` is what every account written before LGR-14 reads back as (the
    * stored key is simply absent — additive, no migration). Reversals and
-   * server-generated closing entries are exempt: a reversal's evidence is the
-   * original entry it undoes, and a closing entry is derived arithmetic.
+   * server-generated closing entries are exempt: a reversal CARRIES its
+   * original's manifest (F1), and a closing entry is derived arithmetic.
+   *
+   * PRESENCE-ONLY, by design: the gate asserts that some file was attached at
+   * post time, not that it is the right one — the badge and the manifest read
+   * as "this entry can answer with what was filed", never as attestation that
+   * the filing is correct or even relevant. The verifier's
+   * `evidence-required-missing` advisory reports entries that do not satisfy
+   * the CURRENT policy — turning this flag on flags history, deliberately.
    */
   evidenceRequired: boolean;
   createdAt: string;
@@ -333,8 +348,11 @@ export interface LedgerTransaction {
    * The evidence manifest (LGR-14). On a DRAFT: what is attached so far, live.
    * On a POSTED entry: the manifest snapshotted at post time — frozen with the
    * entry (it is part of the audited content), never mutated afterwards.
-   * Empty on every entry written before LGR-14, on reversals, and on
-   * server-generated closing entries.
+   * A REVERSAL carries its original's manifest verbatim (F1) — "a reversal's
+   * evidence is the original entry it undoes", made literal, so a reversal
+   * chain stays answerable end to end and double-reversing cannot launder the
+   * receipts off a live entry. Empty on entries written before LGR-14, on
+   * reversals of bare entries, and on server-generated closing entries.
    */
   evidence: LedgerEvidence[];
   postings: LedgerPosting[];
