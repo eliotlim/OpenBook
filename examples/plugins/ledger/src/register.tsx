@@ -1,5 +1,5 @@
 import React from 'react';
-import {api, formatAmount, LedgerError} from '@book.dev/plugin-sdk';
+import {api, formatAmount, getPageIdForDoc, LedgerError} from '@book.dev/plugin-sdk';
 import {
   ALL_CLEARED_STATES,
   CLEARED_LABEL,
@@ -305,6 +305,23 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
     return () => observer.disconnect();
   }, [tableRegionEl]);
   const balancePinStyle = regionWidth === null || regionWidth >= MIN_BALANCE_PIN_WIDTH ? stickyRightCellStyle : undefined;
+  // ── Evidence-required toggle (LGR-14) ───────────────────────────────────────
+  // The register is the account-scoped surface, so the account's policy lives
+  // in its header. The toggle WRITES THE BOOKS (unlike the view filters beside
+  // it), so it is dead under the page lock with the reason beside it.
+  const evidenceToggleWhyId = React.useMemo(() => `ledger-evreq-why-${blockKey(block)}`, [block]);
+  const [evidenceToggleBusy, setEvidenceToggleBusy] = React.useState(false);
+  const [evidenceToggleError, setEvidenceToggleError] = React.useState<string | null>(null);
+  // The box is CONTROLLED from live data, which lands a beat after the write —
+  // this pending value is what the box shows in between (and it reverts on a
+  // refused write, so the box never claims a policy the books rejected).
+  const [evidenceTogglePending, setEvidenceTogglePending] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    if (evidenceTogglePending === null) return;
+    const current = (data.accounts.find((a) => a.id === accountId) as {evidenceRequired?: boolean} | undefined)?.evidenceRequired === true;
+    if (current === evidenceTogglePending) setEvidenceTogglePending(null);
+  }, [data.accounts, accountId, evidenceTogglePending]);
+  React.useEffect(() => setEvidenceTogglePending(null), [accountId]);
   const [correction, setCorrection] = React.useState<Correction | null>(() => parseCorrection(api.storage.get(storageKey)));
   const [done, setDone] = React.useState<CorrectionDone | null>(null);
   const [actionError, setActionError] = React.useState<CorrectionFailure | null>(null);
@@ -649,6 +666,52 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
         )}
       </div>
 
+      {/* LGR-14 — the per-account policy, on the account-scoped surface. This
+          writes the BOOKS (unlike the view filters above), so under the page
+          lock it is dead with the reason beside it; the store enforces the
+          gate either way — this toggle only decides whether it applies. */}
+      {accountId !== '' && data.state === 'ready' && data.accounts.some((a) => a.id === accountId) && (
+        <div data-ledger-evidence-required-toggle style={{display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap'}}>
+          <label style={{...mutedStyle, display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: pageLocked || evidenceToggleBusy ? 'default' : 'pointer'}}>
+            <input
+              type="checkbox"
+              data-ledger-evidence-required
+              checked={evidenceTogglePending ?? data.accounts.find((a) => a.id === accountId)?.evidenceRequired === true}
+              disabled={pageLocked || evidenceToggleBusy}
+              aria-describedby={pageLocked ? evidenceToggleWhyId : undefined}
+              onChange={(e) => {
+                const next = e.target.checked;
+                setEvidenceTogglePending(next);
+                setEvidenceToggleBusy(true);
+                setEvidenceToggleError(null);
+                void api.ledger
+                  .updateAccount(accountId, {evidenceRequired: next})
+                  .then(() => data.reload())
+                  .catch((err: unknown) => {
+                    // Refused: revert the box — it must not claim a policy the
+                    // books rejected.
+                    setEvidenceTogglePending(null);
+                    setEvidenceToggleError(err instanceof Error ? err.message : String(err));
+                  })
+                  .finally(() => setEvidenceToggleBusy(false));
+              }}
+            />
+            Evidence required to post into this account
+          </label>
+          {evidenceToggleBusy && <span style={mutedStyle}>Saving…</span>}
+          {pageLocked && (
+            <span id={evidenceToggleWhyId} data-ledger-evidence-required-why="read-only" style={mutedStyle}>
+              This page is read-only, so the account’s evidence policy cannot be changed from it.
+            </span>
+          )}
+          {evidenceToggleError !== null && (
+            <span data-ledger-evidence-required-error role="status" aria-live="polite" style={{...mutedStyle, fontWeight: 600}}>
+              {evidenceToggleError}
+            </span>
+          )}
+        </div>
+      )}
+
       <div data-ledger-drafts-excluded={register !== null ? register.draftCount : 0} style={mutedStyle}>
         {describeDraftExclusion(register !== null ? register.draftCount : 0)}
       </div>
@@ -783,7 +846,10 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
               lock is handed through explicitly: the hosted editor's `readOnly`
               happens to carry the same value, but the journal block's own gate
               is `pageReadOnly` (LGR-23) and must not depend on its fallback. */}
-          {hosted !== null && <JournalEntryBlock block={hosted.block} editor={hosted.editor} pageReadOnly={pageLocked} />}
+          {/* `uploadPageId`: the hosted panel's in-memory editor has no doc →
+              page binding, so evidence uploads (LGR-14) borrow the REGISTER's
+              page — the page the person doing the correction is working on. */}
+          {hosted !== null && <JournalEntryBlock block={hosted.block} editor={hosted.editor} pageReadOnly={pageLocked} uploadPageId={getPageIdForDoc((editor as {doc: unknown}).doc)} />}
         </div>
       )}
 
@@ -961,6 +1027,23 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
                               <span style={{...mutedStyle, marginLeft: '0.35rem'}}>
                             (reversed)
                                 <SrOnly> — this entry was reversed; its reversing entry appears in this register too.</SrOnly>
+                              </span>
+                            )}
+                            {/* LGR-14 — the evidence badge. INFORMATIONAL, in
+                                the register's muted voice: an entry without a
+                                receipt is legal on an ordinary account, so
+                                "no evidence" states a fact, it does not raise
+                                an alarm. With receipts, the count says the
+                                entry can answer for itself. */}
+                            {row.evidenceCount === 0 ? (
+                              <span data-ledger-no-evidence style={{...mutedStyle, marginLeft: '0.35rem', whiteSpace: 'nowrap'}}>
+                            · no evidence
+                                <SrOnly> — no receipt or supporting file was recorded when this entry was posted.</SrOnly>
+                              </span>
+                            ) : (
+                              <span data-ledger-evidence-count={row.evidenceCount} style={{...mutedStyle, marginLeft: '0.35rem', whiteSpace: 'nowrap'}}>
+                                <span aria-hidden="true">📎 {row.evidenceCount}</span>
+                                <SrOnly>{` — ${row.evidenceCount} evidence ${row.evidenceCount === 1 ? 'file was' : 'files were'} recorded when this entry was posted.`}</SrOnly>
                               </span>
                             )}
                             {/* The pair, NAVIGABLE. "(reversed)" alone leaves the

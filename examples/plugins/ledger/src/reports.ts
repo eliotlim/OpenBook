@@ -42,6 +42,13 @@ export interface ReportAccount {
   id: string;
   name: string;
   type: ReportAccountType;
+  /**
+   * The account refuses posts from entries with no evidence (LGR-14). Optional
+   * because it is additive: every fixture and caller written before LGR-14
+   * omits it, and a missing value reads as "not required" — exactly what every
+   * pre-LGR-14 account is.
+   */
+  evidenceRequired?: boolean;
 }
 
 /** The posting fields a report needs (a structural slice of `LedgerPosting`). */
@@ -82,6 +89,14 @@ export interface ReportTransaction {
    * reopen posts) to keep closing entries out of earnings arithmetic.
    */
   kind?: 'closing' | null;
+  /**
+   * The evidence manifest recorded with the entry (LGR-14). Optional for the
+   * same additive reason as `reverses`; a missing value reads as "no evidence",
+   * which is what every entry written before LGR-14 carries. Reports only
+   * COUNT it — the badge is informational (posted-without-evidence is legal on
+   * ordinary accounts), never alarm.
+   */
+  evidence?: ReadonlyArray<{filename?: string; sha256?: string; size?: number}>;
   postings: ReportPosting[];
 }
 
@@ -491,6 +506,13 @@ export interface RegisterRow {
   state: ReportTransactionState;
   /** The other half of the reversal pair, when this row is in one (LGR-6). */
   counterpart: RegisterCounterpart | null;
+  /**
+   * How many evidence files the entry recorded at post (LGR-14). Zero renders
+   * the informational "no evidence" badge — informational because a bare entry
+   * is perfectly legal on an account that does not require evidence; the
+   * REQUIREMENT is enforced at post time, not re-litigated in a report.
+   */
+  evidenceCount: number;
 }
 
 export interface AccountRegister {
@@ -634,6 +656,7 @@ export function buildAccountRegister(
       state: hit.tx.state,
       // Resolved below: a counterpart may be a row that has not been built yet.
       counterpart: null,
+      evidenceCount: Array.isArray(hit.tx.evidence) ? hit.tx.evidence.length : 0,
     });
   }
 

@@ -274,6 +274,7 @@ describe('ledger plugin (real source through the real loader)', () => {
             type: input.type,
             status: 'open',
             currency: 'USD',
+            evidenceRequired: false,
             createdAt: new Date(0).toISOString(),
             updatedAt: new Date(0).toISOString(),
           };

@@ -47,6 +47,7 @@ import {
 } from '@book.dev/sdk';
 import {registerCustomBlock, type CustomBlockDef} from '../blockeditor/registry';
 import {registerPluginCommand, type PluginCommand} from './commandRegistry';
+import {getPageIdForDoc} from '../lib/aiBridge';
 
 /**
  * The API handed to a plugin's `activate(api)` — the whole contract between
@@ -363,5 +364,12 @@ export const hostModulesFor = (api: PluginApi): Record<string, unknown> => ({
     closedPeriodsOverlapping,
     parseCsv,
     CsvLimitError,
+    // LGR-14: which PAGE is this block rendering on? `assets.put` needs a page
+    // the user can write (the asset inherits its read gate and its GC
+    // protection from the ref), and a custom block only holds the editor — the
+    // host owns the doc→page binding. Same helper the core image block uses;
+    // returns `null` for a doc the host has not bound (a test harness, or a
+    // block hosted inside another block's in-memory editor).
+    getPageIdForDoc,
   },
 });
