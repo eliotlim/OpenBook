@@ -483,6 +483,7 @@ export {
   type LedgerReplayState,
   type LedgerReconciliation,
   type LedgerReconciliationInput,
+  type LedgerReconciliationPatch,
   type LedgerReconciliationSummary,
   type LedgerReconciliationPostingChange,
 } from './ledger';

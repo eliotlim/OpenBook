@@ -173,6 +173,41 @@ describe('LGR-3 — generic mutation routes answer 403 managed on ledger rows', 
     expect((await reopen.json()).code).toBe('invalid-state');
   });
 
+  it('surfaces the LGR-22 recovery statuses: 200 amend, 400 empty patch, 200 abandon, 409 terminal', async () => {
+    const accountId = ((await (await req(app, 'GET', API.ledgerAccounts)).json()) as Array<{id: string}>)[0].id;
+    const rec = (await (
+      await req(app, 'POST', API.ledgerReconciliations, {accountId, statementDate: '2026-08-31', statementBalanceMinor: 999})
+    ).json()) as {id: string};
+
+    // PATCH the same path GET reads — the amend is a correction of this
+    // resource, not a new sub-resource.
+    const amend = await req(app, 'PATCH', API.ledgerReconciliation(rec.id), {statementBalanceMinor: 1_000, statementDate: '2026-09-30'});
+    expect(amend.status).toBe(200);
+    const summary = (await amend.json()) as {reconciliation: {statementBalanceMinor: number; statementDate: string}; differenceMinor: number};
+    expect(summary.reconciliation).toMatchObject({statementBalanceMinor: 1_000, statementDate: '2026-09-30'});
+    expect(summary.differenceMinor).toBe(1_000); // recomputed against the new target
+    // A patch that names nothing is a 400, not a 200 that wrote an audit event.
+    expect((await req(app, 'PATCH', API.ledgerReconciliation(rec.id), {})).status).toBe(400);
+    expect((await req(app, 'PATCH', API.ledgerReconciliation('00000000-0000-4000-8000-000000000000'), {statementBalanceMinor: 1})).status).toBe(404);
+    // `?status=abandoned` is a RECOGNISED filter — the route validates against
+    // the exported constant, so a new status is never a silent empty result.
+    expect((await req(app, 'GET', `${API.ledgerReconciliations}?status=abandoned`)).status).toBe(200);
+
+    const abandon = await req(app, 'POST', API.ledgerReconciliationAbandon(rec.id));
+    expect(abandon.status).toBe(200);
+    expect((await abandon.json()).status).toBe('abandoned');
+    // Terminal over HTTP too: amend, abandon and reopen all 409 afterwards.
+    for (const [method, path] of [
+      ['PATCH', API.ledgerReconciliation(rec.id)],
+      ['POST', API.ledgerReconciliationAbandon(rec.id)],
+      ['POST', API.ledgerReconciliationReopen(rec.id)],
+    ] as Array<[string, string]>) {
+      const res = await req(app, method, path, {statementBalanceMinor: 1});
+      expect(res.status).toBe(409);
+      expect((await res.json()).code).toBe('invalid-state');
+    }
+  });
+
   it('audit log reads paginated over HTTP; no mutation route exists for it', async () => {
     const all = await (await req(app, 'GET', `${API.ledgerAudit}?limit=100`)).json();
     expect(all.length).toBeGreaterThanOrEqual(4); // init + 2 accounts + create + post
@@ -398,6 +433,63 @@ describe.each(factories)('LGR-3 — transport parity via %s', (_name, factory) =
       'reconciliation.finish',
       'reconciliation.start',
       'reconciliation.finish',
+      'reconciliation.start',
+    ]);
+  });
+
+  it('LGR-22 — a mistyped statement is correctable and abandonable over BOTH transports', async () => {
+    // WHY PARITY MATTERS HERE MORE THAN ANYWHERE: `LocalDataClient` calls the
+    // store directly and never sees an HTTP route, so a recovery path
+    // implemented in `app.ts` would simply not exist in browser-local mode —
+    // and a mistyped balance would still be terminal for exactly those users.
+    await client.ledgerInit();
+    const bank = await client.ledgerCreateAccount({name: 'Assets:Bank:Checking', type: 'asset'});
+    const income = await client.ledgerCreateAccount({name: 'Revenue:Sales', type: 'revenue'});
+    const draft = await client.ledgerCreateDraft({
+      date: '2026-08-01',
+      description: 'deposit',
+      postings: [{accountId: bank.id, amountMinor: 125_000}, {accountId: income.id, amountMinor: -125_000}],
+    });
+    const leg = (await client.ledgerPostTransaction(draft.id)).postings.find((p) => p.accountId === bank.id)!;
+
+    // 1,205.00 typed where 1,250.00 was meant — a transposition.
+    const rec = await client.ledgerStartReconciliation({accountId: bank.id, statementDate: '2026-08-31', statementBalanceMinor: 120_500});
+    await client.ledgerToggleReconciliationPosting(rec.id, leg.id, 'cleared');
+    // Everything is ticked and it is still out: there is no tick left to make.
+    expect((await client.ledgerGetReconciliation(rec.id))?.differenceMinor).toBe(-4_500);
+    expect(await ledgerCode(client.ledgerFinishReconciliation(rec.id))).toBe('reconciliation-unbalanced');
+
+    const amended = await client.ledgerAmendReconciliation(rec.id, {statementBalanceMinor: 125_000});
+    expect(amended.differenceMinor).toBe(0);
+    expect(amended.reconciliation.statementBalanceMinor).toBe(125_000);
+    // The tick survived the correction — nothing was posted, nothing unticked.
+    expect((await client.ledgerGetTransaction(leg.transactionId))!.postings.find((p) => p.id === leg.id)!.cleared).toBe('cleared');
+    expect(await ledgerCode(client.ledgerAmendReconciliation(rec.id, {}))).toBe('invalid-input');
+    expect((await client.ledgerFinishReconciliation(rec.id)).reconciliation.status).toBe('finished');
+    // A finished statement's target is history over both transports.
+    expect(await ledgerCode(client.ledgerAmendReconciliation(rec.id, {statementBalanceMinor: 1}))).toBe('invalid-state');
+
+    // ABANDON: a second statement started on the wrong footing, given up on.
+    const stray = await client.ledgerStartReconciliation({accountId: bank.id, statementDate: '2026-09-30', statementBalanceMinor: 42});
+    const abandoned = await client.ledgerAbandonReconciliation(stray.id);
+    expect(abandoned.status).toBe('abandoned');
+    // Still listed (a transition, not a delete) and filterable by the new status.
+    expect((await client.ledgerListReconciliations({status: 'abandoned'})).map((r) => r.id)).toEqual([stray.id]);
+    expect(await client.ledgerListReconciliations({status: 'open'})).toEqual([]);
+    // Terminal, and the account is free for a new statement immediately.
+    expect(await ledgerCode(client.ledgerAbandonReconciliation(stray.id))).toBe('invalid-state');
+    expect(await ledgerCode(client.ledgerReopenReconciliation(stray.id))).toBe('invalid-state');
+    const next = await client.ledgerStartReconciliation({accountId: bank.id, statementDate: '2026-09-30', statementBalanceMinor: 125_000});
+    expect(next.status).toBe('open');
+
+    // One audit event per mutation, over either transport.
+    const actions = (await client.ledgerListAudit({limit: 100})).map((e) => e.action);
+    expect(actions.filter((a) => a.startsWith('reconciliation.'))).toEqual([
+      'reconciliation.start',
+      'reconciliation.abandon',
+      'reconciliation.start',
+      'reconciliation.finish',
+      'reconciliation.amend',
       'reconciliation.start',
     ]);
   });

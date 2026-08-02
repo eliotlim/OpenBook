@@ -312,8 +312,16 @@ export const API = {
    * two open matches against one account cannot both be the truth.
    */
   ledgerReconciliations: '/api/ledger/reconciliations',
-  /** One reconciliation with its live arithmetic: `GET` returns the
-   *  {@link LedgerReconciliationSummary} (cleared balance + difference). */
+  /**
+   * One reconciliation: `GET` returns the {@link LedgerReconciliationSummary}
+   * (cleared balance + difference); `PATCH` AMENDS the statement it is matched
+   * against (`{statementDate?, statementBalanceMinor?}` — LGR-22), which is the
+   * recovery path for a mistyped closing balance. Allowed only while `open`
+   * (409 `invalid-state` otherwise), touches no posting's cleared state, and
+   * returns the summary with the difference RECOMPUTED against the new target.
+   * There is no `DELETE`: a reconciliation ends by being finished or abandoned,
+   * both of which leave a record.
+   */
   ledgerReconciliation: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}`,
   /**
    * Match/unmatch ONE posting inside an OPEN reconciliation: `PUT` `{cleared}`
@@ -334,6 +342,15 @@ export const API = {
   /** REOPEN a finished reconciliation: `POST`. Explicit and audited; unfreezes
    *  every posting it had frozen (back to `cleared`, `reconciliationId` null). */
   ledgerReconciliationReopen: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}/reopen`,
+  /**
+   * ABANDON an OPEN reconciliation: `POST` (LGR-22). The way out of a match
+   * that will never balance — a statement opened on the wrong account, a
+   * duplicate started by mistake — WITHOUT posting anything to the books to
+   * force the difference to zero. Terminal (`abandoned` is not reopenable),
+   * audited, and posting-neutral: every tick keeps the cleared state it had.
+   * The account is free for a new reconciliation immediately.
+   */
+  ledgerReconciliationAbandon: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}/abandon`,
   /** The append-only ledger audit log: `GET` (paginated, `?limit=&before=<seq>`,
    *  newest first). Read-only — no mutation route exists. */
   ledgerAudit: '/api/ledger/audit',

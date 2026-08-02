@@ -116,7 +116,17 @@ export type LedgerTransactionState = (typeof LEDGER_TRANSACTION_STATES)[number];
 export const LEDGER_CLEARED_STATES = ['pending', 'cleared', 'reconciled'] as const;
 export type LedgerClearedState = (typeof LEDGER_CLEARED_STATES)[number];
 
-export const LEDGER_RECONCILIATION_STATUSES = ['open', 'finished'] as const;
+/**
+ * A reconciliation's lifecycle (LGR-11 + LGR-22).
+ *
+ * `abandoned` is a TERMINAL status, not a deletion: a statement someone opened
+ * against the wrong closing balance still happened, and the record of it — with
+ * the audit events that amended and ended it — is what lets a later reader tell
+ * "this account was never reconciled" apart from "this attempt was given up on".
+ * It is invisible to the one-open-per-account rule (which asks only for `open`),
+ * so abandoning immediately frees the account for a fresh start.
+ */
+export const LEDGER_RECONCILIATION_STATUSES = ['open', 'finished', 'abandoned'] as const;
 export type LedgerReconciliationStatus = (typeof LEDGER_RECONCILIATION_STATUSES)[number];
 
 // ── Read bounds ────────────────────────────────────────────────────────────────
@@ -239,6 +249,12 @@ export interface LedgerTransaction {
  * balance − cleared balance = 0), and finishing FREEZES the postings it matched
  * (`cleared: 'reconciled'` + `reconciliationId` set — invariant 4). Reopening is
  * an explicit, audited step that unfreezes them again.
+ *
+ * While OPEN it is also correctable and abandonable (LGR-22): the target itself
+ * can be mistyped, and a wrong target is unreachable by definition — the
+ * difference can never be driven to zero, `finish` is therefore unreachable, and
+ * before LGR-22 the account could never be reconciled again. See
+ * {@link LedgerReconciliationPatch}.
  */
 export interface LedgerReconciliation {
   id: string;
@@ -265,6 +281,25 @@ export interface LedgerReconciliationInput {
   statementDate: string;
   /** Signed integer minor units, debit-positive. Never a parsed string. */
   statementBalanceMinor: number;
+}
+
+/**
+ * AMEND an OPEN reconciliation (LGR-22): correct the statement it is being
+ * matched against, without touching a single posting.
+ *
+ * The account is deliberately NOT amendable. Changing it would leave the ticks
+ * already made pointing at another account's postings, which is not a
+ * correction but a different reconciliation — abandon this one and start that
+ * one. Everything here is optional, but a patch that names nothing is rejected
+ * (`invalid-input`): a mutation that changes nothing must not write an audit
+ * event claiming it did.
+ */
+export interface LedgerReconciliationPatch {
+  /** ISO date (`YYYY-MM-DD`). */
+  statementDate?: string;
+  /** Signed integer minor units, debit-positive — the same convention as
+   *  {@link LedgerReconciliationInput.statementBalanceMinor}. */
+  statementBalanceMinor?: number;
 }
 
 /**
@@ -370,6 +405,20 @@ export type LedgerAuditAction =
   | 'reconciliation.finish'
   /** A finished reconciliation was explicitly REOPENED, unfreezing its postings. */
   | 'reconciliation.reopen'
+  /**
+   * An OPEN reconciliation's statement date/balance was CORRECTED (LGR-22).
+   * Touches the reconciliation row and nothing else — no posting changes ride
+   * along, which is exactly why this is not folded into `.start`: the trail has
+   * to show that the target moved, and to what.
+   */
+  | 'reconciliation.amend'
+  /**
+   * An OPEN reconciliation was ABANDONED (LGR-22) — given up on rather than
+   * balanced. Terminal, and posting-neutral: every tick keeps the cleared state
+   * it had, because a tick records that the posting appeared on the bank, which
+   * abandoning the match does not un-observe.
+   */
+  | 'reconciliation.abandon'
   /** The ledger auto-export target was set or cleared (LGR-7). Policy, not
    *  ledger content — it touches no entity, so a replay ignores it, but it is
    *  recorded here so the book itself carries evidence of where copies go. */
@@ -397,6 +446,8 @@ export const LEDGER_AUDIT_ACTIONS = [
   'reconciliation.start',
   'reconciliation.finish',
   'reconciliation.reopen',
+  'reconciliation.amend',
+  'reconciliation.abandon',
   'ledger.autoExportPath',
 ] as const satisfies readonly LedgerAuditAction[];
 
@@ -546,6 +597,12 @@ export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerRep
       }
       break;
     case 'reconciliation.start':
+    case 'reconciliation.amend':
+    case 'reconciliation.abandon':
+      // ROW-ONLY events. Neither an amend nor an abandon touches a posting —
+      // that is the LGR-22 guarantee, stated here as well as enforced in the
+      // store — so unlike finish/reopen below there is no posting change to
+      // apply, and a payload that carried one would be a bug in the writer.
       if (p.reconciliation) state.reconciliations[p.reconciliation.id] = p.reconciliation;
       break;
     case 'reconciliation.finish':

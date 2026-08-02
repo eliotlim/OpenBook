@@ -514,6 +514,13 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       break;
     case 'reconciliation.finish':
     case 'reconciliation.reopen':
+    case 'reconciliation.amend':
+    case 'reconciliation.abandon':
+      // LGR-22's two additions belong HERE and not with `.start`: each carries a
+      // before-state, so each must EXTEND the reconciliation's hash chain rather
+      // than open one. They differ only in that they touch no posting — the
+      // `p.postings` loop below is a no-op for them, which is the property the
+      // store guarantees and the replay reducer asserts.
       if (p.reconciliation) {
         await derived(p.reconciliation.id, reconciliationContent(p.reconciliation), ev);
         chain(lastReconciliationHash, p.reconciliation.id, ev);

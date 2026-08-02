@@ -39,6 +39,7 @@ import {
   type LedgerDraftInput,
   type LedgerDraftPatch,
   type LedgerReconciliationInput,
+  type LedgerReconciliationPatch,
   type LedgerReconciliationStatus,
   type LedgerReverseOptions,
   type LedgerTransactionState,
@@ -2129,6 +2130,21 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.json(summary);
   });
 
+  // AMEND the statement an OPEN reconciliation is matched against (LGR-22).
+  // The recovery path for a mistyped closing balance: without it a wrong target
+  // can never reach a zero difference, so `finish` is unreachable, `reopen` does
+  // not apply to an open record, and `start` refuses a second one — the account
+  // is bricked. The "open only", the validation and the recomputation all live
+  // in `LedgerStore.amendReconciliation`; this adds auth and broadcasts.
+  app.patch(`${API.ledgerReconciliations}/:id`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const patch = await c.req.json<LedgerReconciliationPatch>();
+    const summary = await store.ledger.amendReconciliation(c.req.param('id'), patch, c.get('principal'));
+    await broadcastRows(ids.reconciliations);
+    logEdit(c, summary.reconciliation.id, 'ledger.reconciliation.amend', summary.reconciliation.statementDate);
+    return c.json(summary);
+  });
+
   app.put(`${API.ledgerReconciliations}/:id/postings/:postingId`, async (c) => {
     const ids = await requireLedger(c, 'write');
     const {cleared} = await c.req.json<{cleared?: 'pending' | 'cleared'}>();
@@ -2162,6 +2178,17 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     await broadcastRows(ids.postings);
     logEdit(c, summary.reconciliation.id, 'ledger.reconciliation.reopen', summary.reconciliation.statementDate);
     return c.json(summary);
+  });
+
+  // ABANDON an OPEN reconciliation (LGR-22). No posting broadcast, and that is
+  // not an oversight: abandoning writes no posting row, so a `postings`
+  // broadcast here would advertise a change that did not happen.
+  app.post(`${API.ledgerReconciliations}/:id/abandon`, async (c) => {
+    const ids = await requireLedger(c, 'write');
+    const reconciliation = await store.ledger.abandonReconciliation(c.req.param('id'), c.get('principal'));
+    await broadcastRows(ids.reconciliations);
+    logEdit(c, reconciliation.id, 'ledger.reconciliation.abandon', reconciliation.statementDate);
+    return c.json(reconciliation);
   });
 
   // Canonical postings CSV (LGR-7). Read-gated like every other ledger read;
