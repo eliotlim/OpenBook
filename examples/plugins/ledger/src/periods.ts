@@ -46,7 +46,19 @@ export function describeClosedPeriodMarker(periods: readonly ReportPeriod[], fro
   if (crossed.length === 0) return null;
   const ranges = crossed.map(formatPeriodRange).join(', ');
   const label = crossed.length === 1 ? 'a closed period' : `${crossed.length} closed periods`;
-  return `This range crosses ${label} (${ranges}): the books dated inside are locked — new entries and reversals there are rejected until the period is reopened.`;
+  // The lead matches the SHAPE of the report's bounds: a whole-book report has
+  // no range to "cross", and an as-of report has only an upper bound — a
+  // sentence claiming a range on either would be describing controls the
+  // report does not have.
+  const lead =
+    from === '' && to === ''
+      ? `This book holds ${label}`
+      : from === ''
+        ? `As at ${to}, this book holds ${label}`
+        : to === ''
+          ? `From ${from} onwards, this view crosses ${label}`
+          : `This range crosses ${label}`;
+  return `${lead} (${ranges}): the books dated inside are locked — new entries and reversals there are rejected until the period is reopened.`;
 }
 
 /**

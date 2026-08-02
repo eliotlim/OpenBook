@@ -55,6 +55,21 @@ import {todayIso} from './model';
  * `editor.readOnly` alone is false exactly where the controls must be off).
  * Disabled controls use the shared dead-button face and carry an
  * `aria-describedby` reason, so the OFF state is visible and explained.
+ *
+ * FOCUS across sub-flow transitions (the reconcile block's paid-for lesson,
+ * `FocusTarget` there): every transition here either unmounts or disables the
+ * element that is focused at the moment of the press — the Close trigger
+ * unmounts when its confirm opens, both Cancels unmount themselves, success
+ * unmounts the confirm box, and a refusal disables the focused confirm while
+ * `busy` — and a browser answers all of those by dumping focus on `<body>`,
+ * stranding keyboard and screen-reader users. So each handler records an
+ * INTENT (a selector inside this block's root) and the after-commit effect
+ * performs it once the target exists and is enabled: open → the confirm's
+ * primary; cancel → the re-mounted invoker; refusal → the confirm's primary
+ * after it re-enables; success → the Close trigger, the one control that
+ * survives the reload (a reopened row's own button unmounts with the status
+ * flip, on the reload's timetable, so focus returned there would be dumped
+ * moments later anyway).
  */
 
 const PROP_START = 'ledgerPeriodStart';
@@ -88,6 +103,25 @@ export const PeriodCloseBlock = ({block, editor, pageReadOnly}: {block: BlockLik
   const [done, setDone] = React.useState<string | null>(null);
   const lockedWhyId = `ledger-period-locked-${blockKey(block)}`;
 
+  // Where focus must land after the NEXT commit — a selector scoped to this
+  // block's root (two blocks on one page must not steal each other's focus).
+  // The effect retries until the target exists AND is enabled: the refusal
+  // path re-enables the confirm on the same commit that clears `busy`, and
+  // focusing a still-disabled button is the silent no-op that stranded the
+  // reconcile block's users on `<body>`.
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const pendingFocus = React.useRef<string | null>(null);
+  const focusAfterRender = (selector: string): void => {
+    pendingFocus.current = selector;
+  };
+  React.useEffect(() => {
+    if (pendingFocus.current === null) return;
+    const target = rootRef.current?.querySelector<HTMLElement>(pendingFocus.current) ?? null;
+    if (target === null || (target as HTMLButtonElement).disabled === true) return; // retry next commit
+    pendingFocus.current = null;
+    target.focus();
+  });
+
   const effectiveStart = start !== '' ? start : defaults.start;
   const effectiveEnd = end !== '' ? end : defaults.end;
 
@@ -116,14 +150,20 @@ export const PeriodCloseBlock = ({block, editor, pageReadOnly}: {block: BlockLik
     try {
       const result = await api.ledger.closePeriod({start: effectiveStart, end: effectiveEnd});
       setMode('none');
-      setDone(
-        result.closingEntry
-          ? `Closed ${formatPeriodRange(result.period)} — closing entry #${result.closingEntry.entryNo ?? ''} posted to retained earnings.`
-          : `Closed ${formatPeriodRange(result.period)} — nothing to close; the range is locked.`,
-      );
+      // The RESULT's open-reconciliation list is the authoritative one — it
+      // was computed inside the close's own transaction, so a reconciliation
+      // opened while the confirm sat on screen is named HERE even though the
+      // pre-close notice never saw it.
+      const stillOpen = result.openReconciliations.map((r) => `${accountName(r.accountId)} (statement ${r.statementDate})`);
+      const closedAs = result.closingEntry
+        ? `Closed ${formatPeriodRange(result.period)} — closing entry #${result.closingEntry.entryNo ?? ''} posted to retained earnings.`
+        : `Closed ${formatPeriodRange(result.period)} — nothing to close; the range is locked.`;
+      setDone(stillOpen.length > 0 ? `${closedAs} Still open in the range: ${stillOpen.join(', ')}.` : closedAs);
+      focusAfterRender('[data-ledger-period-close]'); // the confirm box unmounts under the presser
       data.reload();
     } catch (err) {
       fail(err);
+      focusAfterRender('[data-ledger-period-close-confirm]'); // back to the re-enabled primary
     } finally {
       setBusy(false);
     }
@@ -141,9 +181,13 @@ export const PeriodCloseBlock = ({block, editor, pageReadOnly}: {block: BlockLik
           ? `Reopened ${formatPeriodRange(result.period)} — closing entry voided by reversal #${result.reversal.entryNo ?? ''}.`
           : `Reopened ${formatPeriodRange(result.period)}.`,
       );
+      // The row's Reopen button unmounts with the status flip — land on the
+      // one control that survives the reload.
+      focusAfterRender('[data-ledger-period-close]');
       data.reload();
     } catch (err) {
       fail(err);
+      focusAfterRender(`[data-ledger-period-reopen-confirm="${period.id}"]`);
     } finally {
       setBusy(false);
     }
@@ -174,7 +218,7 @@ export const PeriodCloseBlock = ({block, editor, pageReadOnly}: {block: BlockLik
   const sorted = [...data.periods].sort((a, b) => (a.start < b.start ? -1 : a.start > b.start ? 1 : a.id < b.id ? -1 : 1));
 
   return (
-    <div style={frameStyle} data-ledger-periods>
+    <div style={frameStyle} data-ledger-periods ref={rootRef}>
       <div style={titleStyle}>Period close</div>
       <div style={mutedStyle}>
         Closing a period sweeps revenue and expenses into retained earnings and locks the range — the server
@@ -223,6 +267,9 @@ export const PeriodCloseBlock = ({block, editor, pageReadOnly}: {block: BlockLik
                               setMode(`confirm-reopen:${period.id}`);
                               setActionError(null);
                               setDone(null);
+                              // The invoker unmounts on this commit — land on
+                              // the confirm's primary, not <body>.
+                              focusAfterRender(`[data-ledger-period-reopen-confirm="${period.id}"]`);
                             }}
                           >
                             Reopen…
@@ -240,7 +287,18 @@ export const PeriodCloseBlock = ({block, editor, pageReadOnly}: {block: BlockLik
                             >
                               Reopen period
                             </button>
-                            <button type="button" style={buttonFace(busy)} disabled={busy} onClick={() => setMode('none')}>
+                            <button
+                              type="button"
+                              data-ledger-period-reopen-cancel={period.id}
+                              style={buttonFace(busy)}
+                              disabled={busy}
+                              onClick={() => {
+                                setMode('none');
+                                // Cancel unmounts itself — return to the
+                                // re-mounted invoker.
+                                focusAfterRender(`[data-ledger-period-reopen="${period.id}"]`);
+                              }}
+                            >
                               Cancel
                             </button>
                           </span>
@@ -297,6 +355,8 @@ export const PeriodCloseBlock = ({block, editor, pageReadOnly}: {block: BlockLik
               setMode('confirm-close');
               setActionError(null);
               setDone(null);
+              // The trigger unmounts on this commit — land on the confirm.
+              focusAfterRender('[data-ledger-period-close-confirm]');
             }}
           >
             Close period…
@@ -310,7 +370,7 @@ export const PeriodCloseBlock = ({block, editor, pageReadOnly}: {block: BlockLik
         <div style={noticeStyle('info')} data-ledger-period-close-confirm-box>
           <div>{describeCloseConfirm({start: effectiveStart, end: effectiveEnd})}</div>
           {openWarning !== null && (
-            <div style={{marginTop: '0.35rem'}} data-ledger-period-open-recs>{openWarning}</div>
+            <div style={{marginTop: '0.35rem'}} role="status" data-ledger-period-open-recs>{openWarning}</div>
           )}
           <div style={{display: 'flex', gap: '0.5rem', marginTop: '0.5rem'}}>
             <button
@@ -322,7 +382,17 @@ export const PeriodCloseBlock = ({block, editor, pageReadOnly}: {block: BlockLik
             >
               Close the period
             </button>
-            <button type="button" style={buttonFace(busy)} disabled={busy} onClick={() => setMode('none')}>
+            <button
+              type="button"
+              data-ledger-period-close-cancel
+              style={buttonFace(busy)}
+              disabled={busy}
+              onClick={() => {
+                setMode('none');
+                // Cancel unmounts itself — return to the re-mounted trigger.
+                focusAfterRender('[data-ledger-period-close]');
+              }}
+            >
               Cancel
             </button>
           </div>

@@ -802,11 +802,15 @@ export function excludeClosingEntries(transactions: readonly ReportTransaction[]
   return {kept, closingCount: transactions.length - kept.length};
 }
 
-/** The exclusion, in words — `null` when the period holds no closing entry. */
+/** The exclusion, in words — `null` when the period holds no closing entry.
+ *  The count covers closing entries AND reversals of them (they are one
+ *  exclusion set), and the sentence agrees in number with it. */
 export function describeClosingExclusion(closingCount: number): string | null {
   if (closingCount <= 0) return null;
-  const entries = closingCount === 1 ? '1 period-close entry' : `${closingCount} period-close entries`;
-  return `${entries} dated in this period (reversals of them included) are excluded from these figures: a closing entry moves earnings to equity, it does not earn or spend.`;
+  if (closingCount === 1) {
+    return '1 period-close entry dated in this period is excluded from these figures: a closing entry moves earnings to equity, it does not earn or spend.';
+  }
+  return `${closingCount} period-close entries dated in this period (reversals of them included) are excluded from these figures: a closing entry moves earnings to equity, it does not earn or spend.`;
 }
 
 /**

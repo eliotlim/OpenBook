@@ -141,7 +141,11 @@ describe('LGR-12 — income statement across a closed period', () => {
     expect(statement.netIncomeMinor).toBe(6_000); // the real quarter, not 0
     expect(statement.closingCount).toBe(1);
     expect(statement.transactionCount).toBe(2); // the two trading entries
-    expect(fold().describeClosingExclusion(statement.closingCount)).toMatch(/1 period-close entry/);
+    // Number agreement (Devon F2 / Parker): singular says "is excluded" with
+    // no plural "reversals of them"; plural keeps both.
+    expect(fold().describeClosingExclusion(1)).toMatch(/1 period-close entry dated in this period is excluded/);
+    expect(fold().describeClosingExclusion(1)).not.toMatch(/reversals of them/);
+    expect(fold().describeClosingExclusion(2)).toMatch(/2 period-close entries dated in this period \(reversals of them included\) are excluded/);
     expect(fold().describeClosingExclusion(0)).toBeNull();
   });
 
@@ -181,10 +185,19 @@ describe('LGR-12 — income statement across a closed period', () => {
 
 describe('LGR-12 — period model helpers', () => {
   it('marks a range that crosses a closed period, display-only, and stays silent otherwise', () => {
-    expect(fold().describeClosedPeriodMarker([CLOSED_PERIOD], '2026-03-01', '2026-06-30')).toMatch(/2026-01-01 – 2026-03-31/);
-    expect(fold().describeClosedPeriodMarker([CLOSED_PERIOD], '', '')).toMatch(/closed period/);
+    expect(fold().describeClosedPeriodMarker([CLOSED_PERIOD], '2026-03-01', '2026-06-30')).toMatch(/^This range crosses a closed period \(2026-01-01 – 2026-03-31\)/);
     expect(fold().describeClosedPeriodMarker([CLOSED_PERIOD], '2026-04-01', '')).toBeNull();
     expect(fold().describeClosedPeriodMarker([{...CLOSED_PERIOD, status: 'reopened'}], '', '')).toBeNull();
+  });
+
+  it('phrases the marker for the bounds the report actually has (Devon F3)', () => {
+    // Whole-book report (trial balance, unfiltered register): no range exists
+    // to be "crossed" — the sentence must not claim one.
+    expect(fold().describeClosedPeriodMarker([CLOSED_PERIOD], '', '')).toMatch(/^This book holds a closed period \(/);
+    // As-of report (balance sheet): only an upper bound.
+    expect(fold().describeClosedPeriodMarker([CLOSED_PERIOD], '', '2026-06-30')).toMatch(/^As at 2026-06-30, this book holds a closed period \(/);
+    // Lower-bound-only view (register filtered from a date onwards).
+    expect(fold().describeClosedPeriodMarker([CLOSED_PERIOD], '2026-02-01', '')).toMatch(/^From 2026-02-01 onwards, this view crosses a closed period \(/);
   });
 
   it('defaults the close form to the day after the last close, through today', () => {
@@ -212,17 +225,21 @@ describe('LGR-12 — period model helpers', () => {
 
 // ── The block ─────────────────────────────────────────────────────────────────
 
-function fakeClient(opts: {periods?: LedgerPeriod[]; closeFails?: boolean} = {}) {
+function fakeClient(opts: {periods?: LedgerPeriod[]; closeFails?: boolean; reopenFails?: boolean} = {}) {
   const close = vi.fn(async () => ({
     period: CLOSED_PERIOD,
     closingEntry: {entryNo: 9},
-    openReconciliations: [],
+    // Non-empty on purpose: the RESULT's list is the authoritative warn-not-
+    // block answer (computed inside the close's transaction), and the block
+    // must read it back into the done notice (Devon F4).
+    openReconciliations: [{id: 'rec-1', accountId: 'bank', statementDate: '2026-03-31', statementBalanceMinor: 1, status: 'open', createdAt: '', updatedAt: ''}],
   }));
   const reopen = vi.fn(async () => ({
     period: {...CLOSED_PERIOD, status: 'reopened', reopenEntryId: 'rev-1'},
     reversal: {entryNo: 10},
   }));
   if (opts.closeFails) close.mockRejectedValue(new Error('the ledger refused the close'));
+  if (opts.reopenFails) reopen.mockRejectedValue(new Error('the ledger refused the reopen'));
   const client = {
     listPlugins: async () => [storedPlugin()],
     subscribeRows: () => () => {},
@@ -266,6 +283,14 @@ const el = <T extends HTMLElement>(selector: string): T => {
   return found!;
 };
 
+/** Focus THEN click — the sequence a keyboard user actually produces, and the
+ *  one that exposes the focused-element-unmounts/goes-disabled drop (the
+ *  reconcile block's test template). */
+const press = (button: HTMLElement): void => {
+  button.focus();
+  fireEvent.click(button);
+};
+
 describe('LGR-12 — period-close block', () => {
   it('lists periods and closes through confirm — with the open-reconciliation WARNING never gating', async () => {
     const {client, close} = fakeClient();
@@ -280,7 +305,11 @@ describe('LGR-12 — period-close block', () => {
     expect(confirm.disabled).toBe(false);
     fireEvent.click(confirm);
     await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
-    await screen.findByText(/closing entry #9 posted to retained earnings/);
+    // The done notice reads the RESULT's authoritative open-reconciliation
+    // list back (Devon F4): a reconciliation opened while the confirm sat on
+    // screen is named here even though the pre-close notice never saw it.
+    const notice = await screen.findByText(/closing entry #9 posted to retained earnings/);
+    expect(notice.textContent).toMatch(/Still open in the range: Assets:Bank:Checking \(statement 2026-03-31\)/);
   });
 
   it('reopens through its own confirm, naming the void-by-reversal', async () => {
@@ -301,6 +330,68 @@ describe('LGR-12 — period-close block', () => {
     await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
     await screen.findByText(/the ledger refused the close/);
     expect(document.querySelector('[data-ledger-period-close-confirm]')).not.toBeNull();
+  });
+
+  it('focus follows every open/cancel/success transition instead of dropping to <body> (Devon F1)', async () => {
+    const {client, close, reopen} = fakeClient();
+    await mountBlock(client, false);
+
+    // CLOSE — open: the trigger unmounts under the press → the confirm primary.
+    press(el('[data-ledger-period-close]'));
+    await waitFor(() => expect(document.activeElement).toBe(el('[data-ledger-period-close-confirm]')));
+    // CLOSE — cancel: unmounts itself → the re-mounted trigger.
+    press(el('[data-ledger-period-close-cancel]'));
+    await waitFor(() => expect(document.activeElement).toBe(el('[data-ledger-period-close]')));
+    // CLOSE — success: the confirm box unmounts → the surviving trigger.
+    press(el('[data-ledger-period-close]'));
+    await waitFor(() => expect(document.activeElement).toBe(el('[data-ledger-period-close-confirm]')));
+    press(el('[data-ledger-period-close-confirm]'));
+    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.activeElement).toBe(el('[data-ledger-period-close]')));
+
+    // REOPEN — open: the row invoker unmounts under the press → its confirm.
+    press(el('[data-ledger-period-reopen]'));
+    await waitFor(() => expect(document.activeElement).toBe(el('[data-ledger-period-reopen-confirm]')));
+    // REOPEN — cancel: unmounts itself → the re-mounted row invoker.
+    press(el('[data-ledger-period-reopen-cancel]'));
+    await waitFor(() => expect(document.activeElement).toBe(el('[data-ledger-period-reopen]')));
+    // REOPEN — success: the invoker unmounts with the status flip, on the
+    // reload's timetable → the Close trigger, the control that survives.
+    press(el('[data-ledger-period-reopen]'));
+    await waitFor(() => expect(document.activeElement).toBe(el('[data-ledger-period-reopen-confirm]')));
+    press(el('[data-ledger-period-reopen-confirm]'));
+    await waitFor(() => expect(reopen).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(document.activeElement).toBe(el('[data-ledger-period-close]')));
+  });
+
+  it('a REFUSED close re-focuses the confirm primary once it re-enables (Devon F1)', async () => {
+    const {client, close} = fakeClient({closeFails: true});
+    await mountBlock(client, false);
+    press(el('[data-ledger-period-close]'));
+    press(el('[data-ledger-period-close-confirm]'));
+    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    await screen.findByText(/the ledger refused the close/);
+    // AFTER the re-enable — a focus() on a still-disabled button is a silent
+    // no-op, which is exactly the strand this asserts against.
+    const confirm = el<HTMLButtonElement>('[data-ledger-period-close-confirm]');
+    await waitFor(() => {
+      expect(confirm.disabled).toBe(false);
+      expect(document.activeElement).toBe(confirm);
+    });
+  });
+
+  it('a REFUSED reopen re-focuses its confirm primary once it re-enables (Devon F1)', async () => {
+    const {client, reopen} = fakeClient({reopenFails: true});
+    await mountBlock(client, false);
+    press(el('[data-ledger-period-reopen]'));
+    press(el('[data-ledger-period-reopen-confirm]'));
+    await waitFor(() => expect(reopen).toHaveBeenCalledTimes(1));
+    await screen.findByText(/the ledger refused the reopen/);
+    const confirm = el<HTMLButtonElement>('[data-ledger-period-reopen-confirm]');
+    await waitFor(() => {
+      expect(confirm.disabled).toBe(false);
+      expect(document.activeElement).toBe(confirm);
+    });
   });
 
   it('on a read-only page every write control is dead, visibly, with the reason wired via aria-describedby', async () => {
