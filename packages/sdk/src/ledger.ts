@@ -34,6 +34,7 @@ export type LedgerErrorCode =
   | 'reconciliation-too-large' // more postings on the account than one match may cover
   | 'period-closed' // a posting/reversal dated inside a CLOSED period (LGR-12)
   | 'period-overlap' // closing a range that overlaps an already-closed period
+  | 'period-out-of-order' // closing a range that ends before an already-closed period does
   | 'period-close-conflict' // the books changed while the close was in flight — retry
   | 'invalid-input'; // malformed input (bad date, bad name, bad enum value)
 
@@ -66,6 +67,7 @@ export function ledgerErrorStatus(code: LedgerErrorCode): 400 | 403 | 404 | 409 
   case 'reconciliation-too-large':
   case 'period-closed':
   case 'period-overlap':
+  case 'period-out-of-order':
   case 'period-close-conflict':
     return 409;
   default:
@@ -110,6 +112,7 @@ export const LEDGER_ERROR_CODES: readonly LedgerErrorCode[] = [
   'reconciliation-too-large',
   'period-closed',
   'period-overlap',
+  'period-out-of-order',
   'period-close-conflict',
   'invalid-input',
 ];

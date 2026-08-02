@@ -170,6 +170,43 @@ describe('LGR-12 — closing a period', () => {
     expect(q2.period.status).toBe('closed');
   });
 
+  it('rejects an OUT-OF-ORDER close — the double-sweep cannot happen (Quinn R1)', async () => {
+    // The failure this rule exists to prevent, walked to its edge: Q1 holds
+    // 10 000 of revenue, Q2 another 5 000. Closing Q2 FIRST sweeps the
+    // cumulative 15 000 (correct on its own terms) — and closing Q1 afterwards
+    // would re-sweep Q1's 10 000, because Q1's balance-as-of-end cannot see
+    // Q2's LATER-dated closing entry: revenue would end at +10 000 (a debit
+    // balance on a revenue account), retained earnings at −25 000, both
+    // periods' day-after-zero claims false, and `verifyLedger` still green
+    // (the books are store-written). The store rejects instead.
+    await postEntry('2026-01-15', 10_000, salesId, 'Q1 sales');
+    await postEntry('2026-05-10', 5_000, salesId, 'Q2 sales');
+    const q2 = await store.ledger.closePeriod({start: '2026-04-01', end: '2026-06-30'}, ACTOR);
+    const q2Legs = new Map(q2.closingEntry!.postings.map((p) => [p.accountId, p.amountMinor]));
+    expect(q2Legs.get(salesId)).toBe(15_000);
+    expect(await store.ledger.accountPostedBalance(salesId)).toBe(0);
+    expect(await store.ledger.accountPostedBalance(retainedId)).toBe(-15_000);
+
+    // The earlier range is DISJOINT (no overlap) — only the ordering rule
+    // stands between this call and corrupted books.
+    expect(await code(store.ledger.closePeriod({start: '2026-01-01', end: '2026-03-31'}, ACTOR))).toBe('period-out-of-order');
+
+    // Day-after balances are still TRUE, and nothing was double-swept.
+    expect(await store.ledger.accountPostedBalance(salesId)).toBe(0);
+    expect(await store.ledger.accountPostedBalance(retainedId)).toBe(-15_000);
+
+    // The sanctioned path the rejection names: reopen the later period, then
+    // close in chronological order — each sweep takes exactly its own money.
+    await store.ledger.reopenPeriod(q2.period.id, ACTOR);
+    const q1 = await store.ledger.closePeriod({start: '2026-01-01', end: '2026-03-31'}, ACTOR);
+    expect(new Map(q1.closingEntry!.postings.map((p) => [p.accountId, p.amountMinor])).get(salesId)).toBe(10_000);
+    const q2Again = await store.ledger.closePeriod({start: '2026-04-01', end: '2026-06-30'}, ACTOR);
+    expect(new Map(q2Again.closingEntry!.postings.map((p) => [p.accountId, p.amountMinor])).get(salesId)).toBe(5_000);
+    expect(await store.ledger.accountPostedBalance(salesId)).toBe(0);
+    expect(await store.ledger.accountPostedBalance(retainedId)).toBe(-15_000);
+    expect((await verifyLedger(db)).findings).toEqual([]);
+  });
+
   it('rejects when no retained-earnings account can be resolved (typed, with guidance)', async () => {
     // A fresh book without the starter chart's equity account.
     db = await PgliteDb.create('memory://');
@@ -252,6 +289,7 @@ describe('LGR-12 — the date-range lock', () => {
   it('the new error codes map to 409 (state conflicts, not bad requests)', () => {
     expect(ledgerErrorStatus('period-closed')).toBe(409);
     expect(ledgerErrorStatus('period-overlap')).toBe(409);
+    expect(ledgerErrorStatus('period-out-of-order')).toBe(409);
     expect(ledgerErrorStatus('period-close-conflict')).toBe(409);
   });
 });

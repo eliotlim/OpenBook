@@ -446,6 +446,52 @@ describe('LGR-7 — ledger invariant verifier vs raw corruption', () => {
     expect(report.findings.map((f) => f.code)).not.toContain('replay-divergence');
   });
 
+  it('CONSISTENT surgery on a closing leg\'s cleared state → closing-posting-forged (LGR-12, Quinn R2)', async () => {
+    // The one field class the period hash chain deliberately EXCLUDES
+    // (`closingEntryContent` drops cleared/reconciliationId so a legitimate
+    // tick cannot read as tampering) — which made it strictly weaker than an
+    // ordinary entry, whose post afterHash covers both. Surgery doctoring the
+    // raw posting row AND the frozen period.close payload to the same forged
+    // state passes every other check: the period hashes never covered the
+    // field, the replay comparison agrees with itself on both sides, and no
+    // posting.cleared event exists to disagree. The born-pristine assertion
+    // (the writer always emits closing legs pending and unowned) is the only
+    // detector — mutation-checked: with `assertPristineClosingLegs` deleted,
+    // THIS test fails and nothing else does.
+    await store.ledger.createAccount({name: 'Equity:RetainedEarnings', type: 'equity'}, ACTOR);
+    const closed = await store.ledger.closePeriod({start: '2026-08-01', end: '2026-08-31'}, ACTOR);
+    const leg = closed.closingEntry!.postings[0];
+    expect(await codes()).toEqual([]); // clean before the surgery
+
+    await corruptProps(leg.id, (props) => {
+      props.lp_cleared = 'reconciled';
+      props.lp_reconciliation = 'rec-forged';
+    });
+    const auditRows = await db.query<{seq: number; payload: unknown}>(
+      'SELECT seq, payload FROM ledger_audit WHERE action = \'period.close\' ORDER BY seq ASC',
+    );
+    expect(auditRows).toHaveLength(1);
+    const payload = (typeof auditRows[0].payload === 'string' ? JSON.parse(auditRows[0].payload) : auditRows[0].payload) as {
+      transaction: {postings: Array<{id: string; cleared: string; reconciliationId: string | null}>};
+    };
+    const doctored = payload.transaction.postings.find((p) => p.id === leg.id)!;
+    doctored.cleared = 'reconciled';
+    doctored.reconciliationId = 'rec-forged';
+    await db.query('UPDATE ledger_audit SET payload = $2::jsonb WHERE seq = $1', [auditRows[0].seq, JSON.stringify(payload)]);
+
+    const report = await verifyLedger(db);
+    const forged = report.findings.filter((f) => f.code === 'closing-posting-forged');
+    expect(forged).toHaveLength(1);
+    expect(forged[0].entityId).toBe(leg.id);
+    expect(forged[0].message).toContain('reconciled');
+    // Consistent on purpose: nothing else may be what catches this, or the
+    // test stays green with the pristine assertion deleted.
+    const rest = report.findings.map((f) => f.code);
+    expect(rest).not.toContain('replay-divergence');
+    expect(rest).not.toContain('posted-hash-mismatch');
+    expect(rest).not.toContain('audit-hash-forged');
+  });
+
   it('a non-missing-table read failure PROPAGATES (never a false "clean")', async () => {
     // A verifier that reports "clean" because its read failed is worse than one
     // that crashes: narrow the swallow to the missing-relation case only.

@@ -1501,7 +1501,11 @@ export class LedgerStore {
    * income-statement account's CUMULATIVE posted balance as of `end` — not just
    * the range's activity — because prior closes already zeroed prior activity,
    * and "the flow accounts read zero the day after a close" must hold on a book
-   * whose first close does not start at its first entry.
+   * whose first close does not start at its first entry. That claim is only
+   * unconditional because closes are ENFORCED chronological: a close whose
+   * `end` precedes an already-closed period's `end` rejects
+   * `period-out-of-order` (see the check below for the double-sweep it
+   * prevents).
    *
    * CONCURRENCY (the order-compliant shape — see `loadAccountPostingsOn` for
    * the lock graph): the balances are computed on an UNLOCKED read first, the
@@ -1546,7 +1550,27 @@ export class LedgerStore {
       if (overlap) {
         throw new LedgerError(
           'period-overlap',
-          `the range ${input.start}..${input.end} overlaps the closed period ${overlap.start}..${overlap.end} (${overlap.id}) — reopen that period first`,
+          `the range ${input.start} – ${input.end} overlaps the closed period ${overlap.start} – ${overlap.end} (${overlap.id}) — reopen that period first`,
+        );
+      }
+      // CHRONOLOGICAL ORDER IS ENFORCED, not assumed (Quinn R1). The sweep is
+      // cumulative as of `end`, which is only correct when no LATER close
+      // already swept the same balances: close Q2 then Q1 and Q1's recompute
+      // cannot see Q2's later-dated closing entry, so it re-sweeps Q1's
+      // income — revenue ends up with a DEBIT balance, retained earnings
+      // double-counts, and both periods' day-after-zero claims are false while
+      // `verifyLedger` stays green (the books are store-written). Rejecting
+      // out-of-order closes keeps "closing entry = cumulative sweep as of end"
+      // unconditionally true; the alternative (subtracting later closing
+      // entries) breaks retroactively the moment the later period is reopened
+      // and its entry voided.
+      const laterClose = periods
+        .filter((p) => p.status === 'closed' && p.end > input.end)
+        .sort((a, b) => (a.end < b.end ? -1 : 1))[0];
+      if (laterClose) {
+        throw new LedgerError(
+          'period-out-of-order',
+          `periods close in chronological order: ${laterClose.start} – ${laterClose.end} is already closed and ends after ${input.end} — close ranges ending after ${laterClose.end}, or reopen that period first`,
         );
       }
       // Authoritative recompute under the lock; any drift is a concurrent post.
@@ -1714,7 +1738,7 @@ export class LedgerStore {
         if (blocked) {
           throw new LedgerError(
             'period-closed',
-            `the reversal would be dated ${original.date}, inside the closed period ${blocked.start}..${blocked.end} — reopen that period first`,
+            `the reversal would be dated ${original.date}, inside the closed period ${blocked.start} – ${blocked.end} — reopen that period first`,
           );
         }
         const reversingId = randomUUID();
@@ -1792,9 +1816,11 @@ export class LedgerStore {
     const periods = await this.readPeriodsOn(tx, 'share');
     const hit = closedPeriodContaining(periods, date);
     if (hit) {
+      // Range notation is `start – end` everywhere a range is written — the
+      // same notation the UI's formatPeriodRange uses (one fact, one spelling).
       throw new LedgerError(
         'period-closed',
-        `cannot ${action} an entry dated ${date}: the period ${hit.start}..${hit.end} is closed — reopen it first, or date the entry outside it`,
+        `cannot ${action} an entry dated ${date}: the period ${hit.start} – ${hit.end} is closed — reopen it first, or date the entry outside it`,
       );
     }
   }
@@ -1807,6 +1833,15 @@ export class LedgerStore {
    *    then locked. Existence-before-lock is load-bearing: `FOR SHARE` on an
    *    absent row locks nothing, and an unlocked first close could then race
    *    a concurrent post into the very range being closed.
+   *
+   * FAILS OPEN on a corrupt row, deliberately: a value that is not an array
+   * degrades to `[]`, so an out-of-band edit that mangles the row LIFTS the
+   * locks rather than wedging every post. That is the ledger's detect-not-
+   * prevent posture (Quinn-reviewed): the corruption itself is caught by the
+   * verifier's replay comparison (`replay-divergence` — audit says periods
+   * exist, raw storage shows none), the same way every other out-of-band
+   * mutation is caught, and a fail-CLOSED reading would turn one corrupt byte
+   * into a book that can never post again.
    */
   private async readPeriodsOn(q: Db, lock: 'none' | 'share' | 'update'): Promise<LedgerPeriod[]> {
     if (lock !== 'none') {
@@ -2852,8 +2887,17 @@ function balancesEqual(a: Map<string, number>, b: Map<string, number>): boolean 
  * `reconciliationId`. Those are WORKFLOW metadata that stays mutable on a
  * posted entry (`setPostingCleared`, reconciliation freeze/thaw) — hashing them
  * into the period chain would make a legitimate tick on a closing-entry leg
- * break the close→reopen link and read as tampering. The replay comparison
- * still covers cleared state (`posting.cleared` events), so nothing is lost.
+ * break the close→reopen link and read as tampering.
+ *
+ * What covers the excluded fields instead (Quinn R2 — the replay comparison
+ * ALONE does not: consistent surgery doctoring the raw row AND the frozen
+ * payload to the same forged cleared state keeps replay in agreement on both
+ * sides): the writer always emits closing/reversal legs `cleared: 'pending'`,
+ * `reconciliationId: null`, and the VERIFIER asserts that invariant on the
+ * frozen `period.close`/`period.reopen` payload postings
+ * (`closing-posting-forged`), so the payload half of any such surgery is
+ * flagged. A raw-row-only forgery is the ordinary out-of-band mutation the
+ * replay comparison already catches.
  */
 export function closingEntryContent(t: LedgerTransaction): Record<string, unknown> {
   const content = transactionContent(t);

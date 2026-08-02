@@ -64,7 +64,13 @@ export type LedgerVerifyCode =
   | 'replay-divergence'
   | 'entry-no-gap'
   | 'entry-no-duplicate'
-  | 'entry-no-missing';
+  | 'entry-no-missing'
+  /** A `period.close`/`period.reopen` payload posting is not `pending`/unowned
+   *  (LGR-12) — the writer always emits closing and reversal legs born
+   *  `cleared: 'pending'`, `reconciliationId: null`, so a frozen payload saying
+   *  otherwise was rewritten. This is what covers the workflow fields the
+   *  period hash chain deliberately excludes (see `closingEntryContent`). */
+  | 'closing-posting-forged';
 
 export interface LedgerVerifyFinding {
   code: LedgerVerifyCode;
@@ -295,7 +301,10 @@ export function periodContent(p: LedgerPeriod): Record<string, unknown> {
  * A transaction's FINANCIAL content for the period hash chain — the mirror of
  * `ledger.ts`'s `closingEntryContent`: everything but each posting's `cleared`
  * / `reconciliationId`, which stay mutable on a posted entry (a legitimate tick
- * on a closing-entry leg must not read as tampering).
+ * on a closing-entry leg must not read as tampering). The excluded fields are
+ * covered instead by the born-pristine payload assertion in the event loop
+ * below (`closing-posting-forged`) — see the writer-side docstring for why the
+ * replay comparison alone cannot catch consistent surgery on them.
  */
 export function closingEntryContent(t: LedgerTransaction): Record<string, unknown> {
   const content = transactionContent(t);
@@ -492,6 +501,27 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       );
     }
   };
+  /**
+   * The born-pristine invariant on a period event's entry (LGR-12, Quinn R2):
+   * the writer ALWAYS emits closing and reopen-reversal legs
+   * `cleared: 'pending'`, `reconciliationId: null`, so a frozen payload saying
+   * otherwise was rewritten. This is the detector for the workflow fields the
+   * period hash chain deliberately EXCLUDES (`closingEntryContent`): without
+   * it, consistent surgery on a closing leg's cleared state — raw row and
+   * payload doctored together, hashes untouched — verified clean, because the
+   * replay comparison agrees with itself on both sides of the doctoring.
+   */
+  const assertPristineClosingLegs = (ev: LedgerAuditEvent, transaction: LedgerTransaction | null): void => {
+    for (const leg of transaction?.postings ?? []) {
+      if (leg.cleared !== 'pending' || leg.reconciliationId !== null) {
+        flag(
+          'closing-posting-forged',
+          `audit seq ${ev.seq} (${ev.action}) records posting ${leg.id} born ${JSON.stringify(leg.cleared)}${leg.reconciliationId !== null ? ` owned by reconciliation ${leg.reconciliationId}` : ''} — the writer emits these legs pending and unowned, so the payload was rewritten`,
+          leg.id,
+        );
+      }
+    }
+  };
 
   for (const ev of events) {
     const p = ev.payload as {
@@ -603,6 +633,7 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       // is recorded for it (the replay comparison carries its content), and a
       // later reopen chains through the PERIOD hash, not the tx hash.
       if (p.transaction) lastTxHash.set(p.transaction.id, null);
+      assertPristineClosingLegs(ev, p.transaction ?? null);
       break;
     case 'period.reopen':
       // beforeHash must re-derive the close event's afterHash (same combined
@@ -616,6 +647,7 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       }
       if (p.transaction) lastTxHash.set(p.transaction.id, null);
       if (p.originalId) lastTxHash.set(p.originalId, null);
+      assertPristineClosingLegs(ev, p.transaction ?? null);
       break;
     case 'ledger.autoExportPath':
       // Policy, not ledger content — it touches no entity, so there is no chain
