@@ -6,6 +6,7 @@ import {IncomeStatementBlock} from './incomeStatement';
 import {TrialBalanceBlock} from './trialBalance';
 import {BankImportBlock} from './importBlock';
 import {ReconcileBlock} from './reconcileBlock';
+import {PeriodCloseBlock} from './periodCloseBlock';
 import {setUpBooks} from './setup';
 
 /**
@@ -75,6 +76,7 @@ export {
   describeAsOfExclusion,
   describeBalanceSheetAssertion,
   describeBalanceSheetScope,
+  describeClosingExclusion,
   describeCurrentEarnings,
   describeIncomeScope,
   describeIncomeUnclassified,
@@ -83,6 +85,7 @@ export {
   describeReconciliation,
   describeUnclassified,
   directPostingsLabel,
+  excludeClosingEntries,
   flattenHierarchy,
   formatCredit,
   hierarchyLeafTotal,
@@ -124,6 +127,23 @@ export {
   parseStatementBalance,
   statementBalanceInput,
 } from './reconcile';
+// The LGR-12 period model: the display-only closed-period marker the reports
+// render, the close-form defaults, and the warn-not-block sentences. The
+// containment/overlap predicates are the SDK's own (re-exported), so the UI and
+// the store's date lock can never disagree.
+export {
+  closedPeriodContaining,
+  closedPeriodsOverlapping,
+  defaultCloseRange,
+  describeClosedPeriodMarker,
+  describeCloseConfirm,
+  describeOpenReconciliationWarning,
+  describePeriodStatus,
+  describeReopenConfirm,
+  formatPeriodRange,
+  latestCloseThrough,
+  nextDayIso,
+} from './periods';
 export {parseCollapsed, serializeCollapsed} from './statementShell';
 export {defaultAsOf} from './balanceSheet';
 export {defaultPeriod} from './incomeStatement';
@@ -253,6 +273,20 @@ export default function activate(a: typeof api) {
       hint: 'Revenue less expenses over a period, with net income',
       keywords: 'ledger income statement profit loss p&l report accounting revenue expenses earnings',
       make: () => ({type: 'openbook.ledger/income-statement', props: {ledgerIsFrom: ''}}),
+    },
+  });
+
+  // The period-close surface (LGR-12): the ledger's period settings — closed
+  // periods listed, the close flow (closing entry + range lock), the audited
+  // reopen. All enforcement is the store's; the block is intent + words.
+  a.blocks.register({
+    type: 'period-close',
+    render: PeriodCloseBlock,
+    slash: {
+      label: 'Period close',
+      hint: 'Close the books for a date range and lock it',
+      keywords: 'ledger period close closing entry lock retained earnings reopen books quarter year end',
+      make: () => ({type: 'openbook.ledger/period-close', props: {ledgerPeriodStart: ''}}),
     },
   });
 

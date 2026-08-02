@@ -54,6 +54,7 @@ import {
   type PropsMap,
 } from './reportShell';
 import {JournalEntryBlock} from './block';
+import {describeClosedPeriodMarker} from './periods';
 
 /**
  * The ACCOUNT REGISTER block (LGR-8) — one account's postings in date order
@@ -1057,6 +1058,13 @@ export const AccountRegisterBlock = ({block, editor, pageReadOnly}: {block: Bloc
             <div data-ledger-register-summary style={mutedStyle}>
               {describeRegisterSummary(register)} · {describeRegisterFilter(register)}
             </div>
+          )}
+
+          {/* LGR-12, display-only: the range crossing a closed period explains
+              why a correction dated there will be refused. Informs; the store
+              enforces the lock either way. */}
+          {describeClosedPeriodMarker(data.periods, from, to) !== null && (
+            <div data-ledger-closed-periods style={mutedStyle}>{describeClosedPeriodMarker(data.periods, from, to)}</div>
           )}
 
           {/* A filtered closing balance is NOT the account's balance. Say so,

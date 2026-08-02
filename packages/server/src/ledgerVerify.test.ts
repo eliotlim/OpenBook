@@ -27,6 +27,7 @@ import {
   API,
   canonicalLedgerJson,
   emptyPageSnapshot,
+  type LedgerPeriod,
   type LedgerPosting,
   type LedgerReconciliation,
   type LedgerTransaction,
@@ -36,11 +37,20 @@ import {PgliteDb, type Db} from './db';
 import {PageStore} from './store';
 import {PageHub} from './hub';
 import {createApp} from './app';
-import {transactionContent as writerContent, reconciliationContent as writerReconciliation} from './ledger';
+import {
+  transactionContent as writerContent,
+  reconciliationContent as writerReconciliation,
+  periodContent as writerPeriod,
+  periodCloseContent as writerPeriodClose,
+  periodReopenContent as writerPeriodReopen,
+} from './ledger';
 import {
   verifyLedger,
   transactionContent as verifierContent,
   reconciliationContent as verifierReconciliation,
+  periodContent as verifierPeriod,
+  periodCloseContent as verifierPeriodClose,
+  periodReopenContent as verifierPeriodReopen,
   type LedgerVerifyCode,
   type LedgerVerifyReport,
 } from './ledgerVerify';
@@ -345,6 +355,143 @@ describe('LGR-7 — ledger invariant verifier vs raw corruption', () => {
     expect(report.findings.map((f) => f.code)).not.toContain('replay-divergence');
   });
 
+  it('a closed + reopened + re-closed book verifies CLEAN, cleared tick on a closing leg included', async () => {
+    // The false-positive pin for the LGR-12 period hash chain: a close, a
+    // cleared tick on one of the closing entry's own legs (workflow metadata —
+    // deliberately OUTSIDE the period chain's financial projection), a reopen
+    // that must still chain from the close, and a second close of the same
+    // range. Any asymmetry between the writer's and the verifier's combined
+    // projections reports this healthy book as tampered.
+    await store.ledger.createAccount({name: 'Equity:RetainedEarnings', type: 'equity'}, ACTOR);
+    const closed = await store.ledger.closePeriod({start: '2026-08-01', end: '2026-08-31'}, ACTOR);
+    expect(closed.closingEntry).not.toBeNull();
+    await store.ledger.setPostingCleared(closed.closingEntry!.postings[0].id, 'cleared', ACTOR);
+    await store.ledger.reopenPeriod(closed.period.id, ACTOR);
+    await store.ledger.closePeriod({start: '2026-08-01', end: '2026-08-31'}, ACTOR);
+    const report = await verifyLedger(db);
+    expect(report.findings).toEqual([]);
+    expect(report.checkedPeriods).toBe(2);
+  });
+
+  it('CONSISTENT surgery on a period.close event → audit-hash-forged (LGR-12)', async () => {
+    // The LGR-22 lesson applied to periods: a period that is closed and never
+    // reopened has NO later event extending its hash chain, so deleting the
+    // verifier's `period.close` case leaves every other suite green — nothing
+    // downstream re-reads the digest. This surgery keeps the raw settings row
+    // and the event payload consistent (replay agrees on BOTH sides of the
+    // doctoring) and leaves every hash column untouched, making the re-derived
+    // afterHash the only detector standing. Mutation-checked: with the
+    // verifier's `period.close` case deleted, THIS test fails and nothing else
+    // does.
+    await store.ledger.createAccount({name: 'Equity:RetainedEarnings', type: 'equity'}, ACTOR);
+    const closed = await store.ledger.closePeriod({start: '2026-08-01', end: '2026-08-31'}, ACTOR);
+    expect(await codes()).toEqual([]); // clean before the surgery
+
+    // Forge the period's END — the boundary of the range lock itself — in the
+    // settings row AND the close payload, to the same value.
+    const FORGED_END = '2026-12-31';
+    const stored = await db.query<{value: unknown}>('SELECT value FROM settings WHERE key = \'ledgerPeriods\'');
+    const periods = (typeof stored[0].value === 'string' ? JSON.parse(stored[0].value) : stored[0].value) as Array<{id: string; end: string}>;
+    periods.find((p) => p.id === closed.period.id)!.end = FORGED_END;
+    await db.query('UPDATE settings SET value = $1::jsonb WHERE key = \'ledgerPeriods\'', [JSON.stringify(periods)]);
+    const auditRows = await db.query<{seq: number; payload: unknown}>(
+      'SELECT seq, payload FROM ledger_audit WHERE action = \'period.close\' ORDER BY seq ASC',
+    );
+    expect(auditRows).toHaveLength(1);
+    const payload = (typeof auditRows[0].payload === 'string' ? JSON.parse(auditRows[0].payload) : auditRows[0].payload) as {
+      period: {end: string};
+    };
+    payload.period.end = FORGED_END;
+    await db.query('UPDATE ledger_audit SET payload = $2::jsonb WHERE seq = $1', [auditRows[0].seq, JSON.stringify(payload)]);
+
+    const report = await verifyLedger(db);
+    const forged = report.findings.filter((f) => f.code === 'audit-hash-forged');
+    expect(forged).toHaveLength(1);
+    expect(forged[0].entityId).toBe(closed.period.id);
+    // Consistent on purpose: replay must NOT be what catches this (see the
+    // reconciliation.abandon test above for why that would prove nothing).
+    expect(report.findings.map((f) => f.code)).not.toContain('replay-divergence');
+  });
+
+  it('CONSISTENT surgery on a period.reopen event → audit-hash-forged (LGR-12)', async () => {
+    // `period.reopen` is ALSO terminal on its chain (a re-close writes a NEW
+    // period record), so it owes the same detector. The close event keeps the
+    // true dates — replay applies events in order, so the doctored reopen
+    // payload (the LAST writer) is what the replayed state carries, and it
+    // equals the doctored row. Mutation-checked like the close case.
+    await store.ledger.createAccount({name: 'Equity:RetainedEarnings', type: 'equity'}, ACTOR);
+    const closed = await store.ledger.closePeriod({start: '2026-08-01', end: '2026-08-31'}, ACTOR);
+    await store.ledger.reopenPeriod(closed.period.id, ACTOR);
+    expect(await codes()).toEqual([]); // clean before the surgery
+
+    const FORGED_START = '2020-01-01';
+    const stored = await db.query<{value: unknown}>('SELECT value FROM settings WHERE key = \'ledgerPeriods\'');
+    const periods = (typeof stored[0].value === 'string' ? JSON.parse(stored[0].value) : stored[0].value) as Array<{id: string; start: string}>;
+    periods.find((p) => p.id === closed.period.id)!.start = FORGED_START;
+    await db.query('UPDATE settings SET value = $1::jsonb WHERE key = \'ledgerPeriods\'', [JSON.stringify(periods)]);
+    const auditRows = await db.query<{seq: number; payload: unknown}>(
+      'SELECT seq, payload FROM ledger_audit WHERE action = \'period.reopen\' ORDER BY seq ASC',
+    );
+    expect(auditRows).toHaveLength(1);
+    const payload = (typeof auditRows[0].payload === 'string' ? JSON.parse(auditRows[0].payload) : auditRows[0].payload) as {
+      period: {start: string};
+    };
+    payload.period.start = FORGED_START;
+    await db.query('UPDATE ledger_audit SET payload = $2::jsonb WHERE seq = $1', [auditRows[0].seq, JSON.stringify(payload)]);
+
+    const report = await verifyLedger(db);
+    const forged = report.findings.filter((f) => f.code === 'audit-hash-forged');
+    expect(forged).toHaveLength(1);
+    expect(forged[0].entityId).toBe(closed.period.id);
+    expect(report.findings.map((f) => f.code)).not.toContain('replay-divergence');
+  });
+
+  it('CONSISTENT surgery on a closing leg\'s cleared state → closing-posting-forged (LGR-12, Quinn R2)', async () => {
+    // The one field class the period hash chain deliberately EXCLUDES
+    // (`closingEntryContent` drops cleared/reconciliationId so a legitimate
+    // tick cannot read as tampering) — which made it strictly weaker than an
+    // ordinary entry, whose post afterHash covers both. Surgery doctoring the
+    // raw posting row AND the frozen period.close payload to the same forged
+    // state passes every other check: the period hashes never covered the
+    // field, the replay comparison agrees with itself on both sides, and no
+    // posting.cleared event exists to disagree. The born-pristine assertion
+    // (the writer always emits closing legs pending and unowned) is the only
+    // detector — mutation-checked: with `assertPristineClosingLegs` deleted,
+    // THIS test fails and nothing else does.
+    await store.ledger.createAccount({name: 'Equity:RetainedEarnings', type: 'equity'}, ACTOR);
+    const closed = await store.ledger.closePeriod({start: '2026-08-01', end: '2026-08-31'}, ACTOR);
+    const leg = closed.closingEntry!.postings[0];
+    expect(await codes()).toEqual([]); // clean before the surgery
+
+    await corruptProps(leg.id, (props) => {
+      props.lp_cleared = 'reconciled';
+      props.lp_reconciliation = 'rec-forged';
+    });
+    const auditRows = await db.query<{seq: number; payload: unknown}>(
+      'SELECT seq, payload FROM ledger_audit WHERE action = \'period.close\' ORDER BY seq ASC',
+    );
+    expect(auditRows).toHaveLength(1);
+    const payload = (typeof auditRows[0].payload === 'string' ? JSON.parse(auditRows[0].payload) : auditRows[0].payload) as {
+      transaction: {postings: Array<{id: string; cleared: string; reconciliationId: string | null}>};
+    };
+    const doctored = payload.transaction.postings.find((p) => p.id === leg.id)!;
+    doctored.cleared = 'reconciled';
+    doctored.reconciliationId = 'rec-forged';
+    await db.query('UPDATE ledger_audit SET payload = $2::jsonb WHERE seq = $1', [auditRows[0].seq, JSON.stringify(payload)]);
+
+    const report = await verifyLedger(db);
+    const forged = report.findings.filter((f) => f.code === 'closing-posting-forged');
+    expect(forged).toHaveLength(1);
+    expect(forged[0].entityId).toBe(leg.id);
+    expect(forged[0].message).toContain('reconciled');
+    // Consistent on purpose: nothing else may be what catches this, or the
+    // test stays green with the pristine assertion deleted.
+    const rest = report.findings.map((f) => f.code);
+    expect(rest).not.toContain('replay-divergence');
+    expect(rest).not.toContain('posted-hash-mismatch');
+    expect(rest).not.toContain('audit-hash-forged');
+  });
+
   it('a non-missing-table read failure PROPAGATES (never a false "clean")', async () => {
     // A verifier that reports "clean" because its read failed is worse than one
     // that crashes: narrow the swallow to the missing-relation case only.
@@ -493,6 +640,10 @@ describe('LGR-7 — ledger invariant verifier vs raw corruption', () => {
       postedBy: 'https://iss#tester',
       reverses: 'tx-0',
       entryNo: 7,
+      // POPULATED (not null): the `if (kind != null)` idiom omits the key for a
+      // null, so a null fixture would let one side drop the field silently —
+      // the exact drift this test exists to catch (see the memo note below).
+      kind: 'closing',
       evidence: [{filename: 'invoice.pdf', sha256: 'a'.repeat(64), size: 12}],
       postings: legs,
       createdAt: '2026-08-01T00:00:00.000Z',
@@ -544,5 +695,57 @@ describe('LGR-7 — ledger invariant verifier vs raw corruption', () => {
     // `updatedAt` from the moment it was written).
     expect(Object.keys(writer).sort()).toEqual(['accountId', 'id', 'statementBalanceMinor', 'statementDate', 'status']);
     expect(canonicalLedgerJson(writer)).toBe(canonicalLedgerJson(verifier));
+  });
+
+  /** The same drift guard for the LGR-12 period projections (all three). */
+  it('the writer and verifier PERIOD projections agree key for key (drift guard)', () => {
+    // Every optional-idiom field POPULATED, for the reason the transaction
+    // fixture spells out: `if (x != null)` omission hides one-sided drift.
+    const full: Required<LedgerPeriod> = {
+      id: 'per-1',
+      start: '2026-01-01',
+      end: '2026-03-31',
+      status: 'reopened',
+      closingEntryId: 'tx-9',
+      reopenEntryId: 'tx-10',
+      closedAt: '2026-04-01T00:00:00.000Z',
+      closedBy: 'https://iss#tester',
+      reopenedAt: '2026-05-01T00:00:00.000Z',
+      reopenedBy: 'https://iss#tester',
+    };
+    const writer = writerPeriod(full);
+    const verifier = verifierPeriod(full);
+    expect(Object.keys(writer).sort()).toEqual(Object.keys(verifier).sort());
+    // Explicit set: audit timestamps/actors are event data, not period content.
+    expect(Object.keys(writer).sort()).toEqual(['closingEntryId', 'end', 'id', 'reopenEntryId', 'start', 'status']);
+    expect(canonicalLedgerJson(writer)).toBe(canonicalLedgerJson(verifier));
+
+    // The COMBINED shapes both events hash — period + entry FINANCIAL content.
+    const legs: Required<LedgerPosting>[] = [
+      {id: 'p-1', transactionId: 'tx-9', accountId: 'a-1', amountMinor: 500, cleared: 'cleared', reconciliationId: 'r-1', memo: 'a memo'},
+      {id: 'p-2', transactionId: 'tx-9', accountId: 'a-2', amountMinor: -500, cleared: 'pending', reconciliationId: null, memo: null},
+    ];
+    const entry: LedgerTransaction = {
+      id: 'tx-9',
+      date: '2026-03-31',
+      description: 'Closing entry — 2026-01-01 to 2026-03-31',
+      state: 'posted',
+      postedAt: '2026-04-01T00:00:00.000Z',
+      postedBy: 'https://iss#tester',
+      reverses: null,
+      entryNo: 9,
+      kind: 'closing',
+      evidence: [],
+      postings: legs,
+      createdAt: '2026-04-01T00:00:00.000Z',
+      updatedAt: '2026-04-01T00:00:00.000Z',
+    };
+    expect(canonicalLedgerJson(writerPeriodClose(full, entry))).toBe(canonicalLedgerJson(verifierPeriodClose(full, entry)));
+    expect(canonicalLedgerJson(writerPeriodReopen(full, entry))).toBe(canonicalLedgerJson(verifierPeriodReopen(full, entry)));
+    // The financial projection DROPS workflow metadata: a cleared tick on a
+    // closing-entry leg must not break the close → reopen hash link.
+    const closeContent = writerPeriodClose(full, entry) as {closingEntry: {postings: Array<Record<string, unknown>>}};
+    expect(Object.keys(closeContent.closingEntry.postings[0]).sort()).toEqual(['accountId', 'amountMinor', 'id', 'memo']);
+    expect(Object.keys(closeContent.closingEntry.postings[1]).sort()).toEqual(['accountId', 'amountMinor', 'id']);
   });
 });

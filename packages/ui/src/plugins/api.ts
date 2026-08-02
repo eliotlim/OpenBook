@@ -9,6 +9,10 @@ import type {
   LedgerDraftInput,
   LedgerDraftPatch,
   LedgerInfo,
+  LedgerPeriod,
+  LedgerPeriodCloseInput,
+  LedgerPeriodCloseResult,
+  LedgerPeriodReopenResult,
   LedgerPosting,
   LedgerReconciliation,
   LedgerReconciliationInput,
@@ -26,6 +30,8 @@ import {
   CsvLimitError,
   LEDGER_MAX_TRANSACTION_LIMIT,
   LedgerError,
+  closedPeriodContaining,
+  closedPeriodsOverlapping,
   MoneyCurrencyError,
   MoneyError,
   MoneyParseError,
@@ -159,6 +165,18 @@ export interface PluginApi {
     toggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary>;
     finishReconciliation(id: string): Promise<LedgerReconciliationSummary>;
     reopenReconciliation(id: string): Promise<LedgerReconciliationSummary>;
+    /**
+     * Accounting periods (LGR-12). `closePeriod` posts the closing entry
+     * (income-statement accounts → retained earnings) and LOCKS the range —
+     * the store rejects `period-closed` for any posting/reversal dated inside
+     * it, so a block that forgot to disable its own button still cannot write
+     * into a closed period. Open reconciliations WARN in the result and never
+     * block. `reopenPeriod` is the explicit, audited inverse: it voids the
+     * closing entry via a reversal and restores postability.
+     */
+    listPeriods(): Promise<LedgerPeriod[]>;
+    closePeriod(input: LedgerPeriodCloseInput): Promise<LedgerPeriodCloseResult>;
+    reopenPeriod(id: string): Promise<LedgerPeriodReopenResult>;
   };
   /**
    * The content-addressed binary asset store (same ambient credentials/read
@@ -277,6 +295,9 @@ export function buildPluginApi(
       toggleReconciliationPosting: (id, postingId, cleared) => client.ledgerToggleReconciliationPosting(id, postingId, cleared),
       finishReconciliation: (id) => client.ledgerFinishReconciliation(id),
       reopenReconciliation: (id) => client.ledgerReopenReconciliation(id),
+      listPeriods: () => client.ledgerListPeriods(),
+      closePeriod: (input) => client.ledgerClosePeriod(input),
+      reopenPeriod: (id) => client.ledgerReopenPeriod(id),
     },
     assets: {
       get: (id) => client.getAsset(id),
@@ -335,6 +356,11 @@ export const hostModulesFor = (api: PluginApi): Record<string, unknown> => ({
     // (a report) must be able to tell a full page from a complete book, and a
     // hard-coded copy would rot silently the day the cap changed.
     LEDGER_MAX_TRANSACTION_LIMIT,
+    // LGR-12: THE period predicates — the same pure functions the store's
+    // date-lock guard runs. A plugin that re-derived "is this date closed"
+    // would be the two-copies-of-one-fact defect this epic keeps fixing.
+    closedPeriodContaining,
+    closedPeriodsOverlapping,
     parseCsv,
     CsvLimitError,
   },

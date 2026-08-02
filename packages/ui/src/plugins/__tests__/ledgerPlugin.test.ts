@@ -49,6 +49,7 @@ const ALL_LEDGER_BLOCKS = [
   'reconcile',
   'balance-sheet',
   'income-statement',
+  'period-close',
 ] as const;
 
 describe('ledger plugin (real source through the real loader)', () => {
@@ -72,7 +73,10 @@ describe('ledger plugin (real source through the real loader)', () => {
     // LGR-11: the reconcile surface — a write surface, not a report, but it
     // ships and tears down on exactly the same terms as the rest.
     expect(getCustomBlock('openbook.ledger/reconcile')?.slash?.label).toBe('Reconcile');
-    for (const type of ['trial-balance', 'account-register', 'balance-sheet', 'income-statement', 'reconcile']) {
+    // LGR-12: the period-close surface — closed periods listed, close flow,
+    // audited reopen — on the same registration terms.
+    expect(getCustomBlock('openbook.ledger/period-close')?.slash?.label).toBe('Period close');
+    for (const type of ['trial-balance', 'account-register', 'balance-sheet', 'income-statement', 'reconcile', 'period-close']) {
       const made = getCustomBlock(`openbook.ledger/${type}`)?.slash?.make();
       expect(made?.type).toBe(`openbook.ledger/${type}`);
       expect(Object.keys(made?.props ?? {}).length).toBeGreaterThan(0);
@@ -83,7 +87,7 @@ describe('ledger plugin (real source through the real loader)', () => {
     // …and the enumeration is complete in the other direction too: every block
     // named above is live, and there are exactly this many.
     for (const type of ALL_LEDGER_BLOCKS) expect(getCustomBlock(`openbook.ledger/${type}`), type).toBeDefined();
-    expect(ALL_LEDGER_BLOCKS).toHaveLength(7);
+    expect(ALL_LEDGER_BLOCKS).toHaveLength(8);
 
     // Disable → every block and the command tear down with the plugin. This
     // list must stay EXHAUSTIVE: a block registered but never torn down leaks

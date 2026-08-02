@@ -97,6 +97,8 @@ function fakeLedger(opts: {abandonFails?: boolean} = {}) {
     ledgerListReconciliations: async () => [
       {id: REC, accountId: BANK, statementDate: '2026-03-31', statementBalanceMinor: 100_000, status: 'open', createdAt: '', updatedAt: ''},
     ],
+    // LGR-12: the shared report hook reads periods alongside everything else.
+    ledgerListPeriods: async () => [],
     ledgerFinishReconciliation: finish,
     ledgerAmendReconciliation: amend,
     ledgerAbandonReconciliation: abandon,

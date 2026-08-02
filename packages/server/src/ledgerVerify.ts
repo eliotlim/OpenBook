@@ -42,6 +42,7 @@ import {
   replayLedgerAudit,
   type LedgerAccount,
   type LedgerAuditEvent,
+  type LedgerPeriod,
   type LedgerPosting,
   type LedgerReconciliation,
   type LedgerReconciliationPostingChange,
@@ -63,7 +64,13 @@ export type LedgerVerifyCode =
   | 'replay-divergence'
   | 'entry-no-gap'
   | 'entry-no-duplicate'
-  | 'entry-no-missing';
+  | 'entry-no-missing'
+  /** A `period.close`/`period.reopen` payload posting is not `pending`/unowned
+   *  (LGR-12) — the writer always emits closing and reversal legs born
+   *  `cleared: 'pending'`, `reconciliationId: null`, so a frozen payload saying
+   *  otherwise was rewritten. This is what covers the workflow fields the
+   *  period hash chain deliberately excludes (see `closingEntryContent`). */
+  | 'closing-posting-forged';
 
 export interface LedgerVerifyFinding {
   code: LedgerVerifyCode;
@@ -80,6 +87,8 @@ export interface LedgerVerifyReport {
   checkedPostings: number;
   checkedAccounts: number;
   checkedAuditEvents: number;
+  /** Period records checked against the audit stream (LGR-12). */
+  checkedPeriods: number;
   /** Empty = every invariant holds against raw storage. */
   findings: LedgerVerifyFinding[];
 }
@@ -207,6 +216,9 @@ function transactionFromRaw(row: RawRow, postings: LedgerPosting[]): LedgerTrans
     postedBy: strOrNull(props[LEDGER_PROP.transaction.postedBy]),
     reverses: strOrNull(props[LEDGER_PROP.transaction.reverses]),
     entryNo: typeof entryNo === 'number' && Number.isFinite(entryNo) ? entryNo : null,
+    // LGR-12: raw rows written before periods existed have no kind key at all —
+    // they project to `null` here exactly as on the store's read path.
+    kind: props[LEDGER_PROP.transaction.kind] === 'closing' ? 'closing' : null,
     evidence: Array.isArray(evidence) ? (evidence as LedgerTransaction['evidence']) : [],
     postings,
     createdAt: toIso(row.created_at),
@@ -240,7 +252,7 @@ function accountContent(a: LedgerAccount): Record<string, unknown> {
  * key for key; nothing in the product calls it from outside this module.
  */
 export function transactionContent(t: LedgerTransaction): Record<string, unknown> {
-  return {
+  const content: Record<string, unknown> = {
     id: t.id,
     date: t.date,
     description: t.description,
@@ -262,6 +274,56 @@ export function transactionContent(t: LedgerTransaction): Record<string, unknown
       return o;
     }),
   };
+  // LGR-12, the same additive-field discipline as the memo: omitted while null
+  // so pre-LGR-12 frozen payloads hash identically to post-LGR-12 rows.
+  if (t.kind != null) content.kind = t.kind;
+  return content;
+}
+
+/**
+ * The audited CONTENT of a period (LGR-12) — the independent mirror of
+ * `ledger.ts`'s `periodContent`. `reopenEntryId` omitted while null (additive
+ * discipline: the close-time hash has no key for it).
+ */
+export function periodContent(p: LedgerPeriod): Record<string, unknown> {
+  const content: Record<string, unknown> = {
+    id: p.id,
+    start: p.start,
+    end: p.end,
+    status: p.status,
+    closingEntryId: p.closingEntryId,
+  };
+  if (p.reopenEntryId != null) content.reopenEntryId = p.reopenEntryId;
+  return content;
+}
+
+/**
+ * A transaction's FINANCIAL content for the period hash chain — the mirror of
+ * `ledger.ts`'s `closingEntryContent`: everything but each posting's `cleared`
+ * / `reconciliationId`, which stay mutable on a posted entry (a legitimate tick
+ * on a closing-entry leg must not read as tampering). The excluded fields are
+ * covered instead by the born-pristine payload assertion in the event loop
+ * below (`closing-posting-forged`) — see the writer-side docstring for why the
+ * replay comparison alone cannot catch consistent surgery on them.
+ */
+export function closingEntryContent(t: LedgerTransaction): Record<string, unknown> {
+  const content = transactionContent(t);
+  content.postings = t.postings.map((p) => {
+    const o: Record<string, unknown> = {id: p.id, accountId: p.accountId, amountMinor: p.amountMinor};
+    if (p.memo != null) o.memo = p.memo;
+    return o;
+  });
+  return content;
+}
+
+/** The combined shape a `period.close` afterHash covers — mirror of `ledger.ts`. */
+export function periodCloseContent(period: LedgerPeriod, closingEntry: LedgerTransaction | null): Record<string, unknown> {
+  return {period: periodContent(period), closingEntry: closingEntry ? closingEntryContent(closingEntry) : null};
+}
+
+/** The combined shape a `period.reopen` afterHash covers — mirror of `ledger.ts`. */
+export function periodReopenContent(period: LedgerPeriod, reversal: LedgerTransaction | null): Record<string, unknown> {
+  return {period: periodContent(period), reversal: reversal ? closingEntryContent(reversal) : null};
 }
 
 /**
@@ -325,11 +387,11 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
     // reporting a clean book because the read failed is the one answer a
     // verifier must never give.
     if (!isMissingRelation(err, 'settings')) throw err;
-    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, findings};
+    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, checkedPeriods: 0, findings};
   }
   const ids = idsRows.length > 0 ? parseJson<RawLedgerIds>(idsRows[0].value, {}) : null;
   if (!ids || !ids.accounts || !ids.transactions || !ids.postings) {
-    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, findings};
+    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, checkedPeriods: 0, findings};
   }
 
   // Raw entity reads.
@@ -402,6 +464,7 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
   const lastTxHash = new Map<string, string | null>();
   const lastAccountHash = new Map<string, string | null>();
   const lastReconciliationHash = new Map<string, string | null>();
+  const lastPeriodHash = new Map<string, string | null>();
   const chain = (
     map: Map<string, string | null>,
     entityId: string,
@@ -438,6 +501,27 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       );
     }
   };
+  /**
+   * The born-pristine invariant on a period event's entry (LGR-12, Quinn R2):
+   * the writer ALWAYS emits closing and reopen-reversal legs
+   * `cleared: 'pending'`, `reconciliationId: null`, so a frozen payload saying
+   * otherwise was rewritten. This is the detector for the workflow fields the
+   * period hash chain deliberately EXCLUDES (`closingEntryContent`): without
+   * it, consistent surgery on a closing leg's cleared state — raw row and
+   * payload doctored together, hashes untouched — verified clean, because the
+   * replay comparison agrees with itself on both sides of the doctoring.
+   */
+  const assertPristineClosingLegs = (ev: LedgerAuditEvent, transaction: LedgerTransaction | null): void => {
+    for (const leg of transaction?.postings ?? []) {
+      if (leg.cleared !== 'pending' || leg.reconciliationId !== null) {
+        flag(
+          'closing-posting-forged',
+          `audit seq ${ev.seq} (${ev.action}) records posting ${leg.id} born ${JSON.stringify(leg.cleared)}${leg.reconciliationId !== null ? ` owned by reconciliation ${leg.reconciliationId}` : ''} — the writer emits these legs pending and unowned, so the payload was rewritten`,
+          leg.id,
+        );
+      }
+    }
+  };
 
   for (const ev of events) {
     const p = ev.payload as {
@@ -450,6 +534,7 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       path?: string | null;
       reconciliation?: LedgerReconciliation;
       postings?: LedgerReconciliationPostingChange[];
+      period?: LedgerPeriod;
     };
     switch (ev.action) {
     case 'account.create':
@@ -531,6 +616,38 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       // invalidate each parent's chain tip and let the replay comparison below
       // carry the content check.
       for (const change of p.postings ?? []) lastTxHash.set(change.transactionId, null);
+      break;
+    case 'period.close':
+      // The afterHash covers the PERIOD RECORD AND THE CLOSING ENTRY'S
+      // FINANCIAL CONTENT combined (LGR-12). Re-deriving it from the payload is
+      // deliberate LGR-22 hygiene: a period that is closed and never reopened
+      // has NO later event extending this chain, so consistent surgery on the
+      // settings row + this payload would pass replay and linkage — this
+      // re-derivation is the only detector left standing (the tamper test in
+      // ledgerVerify.test.ts pins it; do not delete this case).
+      if (p.period) {
+        await derived(p.period.id, periodCloseContent(p.period, p.transaction ?? null), ev);
+        lastPeriodHash.set(p.period.id, ev.afterHash);
+      }
+      // The closing entry is born inside this combined event: no tx-level tip
+      // is recorded for it (the replay comparison carries its content), and a
+      // later reopen chains through the PERIOD hash, not the tx hash.
+      if (p.transaction) lastTxHash.set(p.transaction.id, null);
+      assertPristineClosingLegs(ev, p.transaction ?? null);
+      break;
+    case 'period.reopen':
+      // beforeHash must re-derive the close event's afterHash (same combined
+      // shape over immutable financial content) — the close → reopen link.
+      // Nothing later extends a reopened period's chain, so the afterHash
+      // re-derivation here is that event's own forgery detector too.
+      if (p.period) {
+        await derived(p.period.id, periodReopenContent(p.period, p.transaction ?? null), ev);
+        chain(lastPeriodHash, p.period.id, ev);
+        lastPeriodHash.set(p.period.id, ev.afterHash);
+      }
+      if (p.transaction) lastTxHash.set(p.transaction.id, null);
+      if (p.originalId) lastTxHash.set(p.originalId, null);
+      assertPristineClosingLegs(ev, p.transaction ?? null);
       break;
     case 'ledger.autoExportPath':
       // Policy, not ledger content — it touches no entity, so there is no chain
@@ -616,6 +733,42 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       flag('replay-divergence', `raw reconciliation ${id} has no audit trail (never created through the ledger)`, id);
     }
   }
+  // Periods (LGR-12): raw storage is the `ledgerPeriods` settings row (see
+  // `ledger.ts` for why it is a settings row and not a fifth database). Read
+  // RAW — not through LedgerStore.listPeriods — and compared entity for entity
+  // against the replay, in both directions, exactly like the page-row entities.
+  // The `settings` table provably exists here (the ids read above succeeded);
+  // an absent row is an empty history, which a book with no closes should show.
+  const periodValueRows = await db.query<{value: unknown}>(
+    'SELECT value FROM settings WHERE key = \'ledgerPeriods\'',
+  );
+  const periods = new Map<string, LedgerPeriod>();
+  if (periodValueRows.length > 0) {
+    const raw = parseJson<unknown>(periodValueRows[0].value, []);
+    if (Array.isArray(raw)) {
+      for (const entry of raw) {
+        const period = periodFromRawValue(entry);
+        if (period.id !== '') periods.set(period.id, period);
+      }
+    }
+  }
+  for (const [id, expected] of Object.entries(replayed.periods)) {
+    const raw = periods.get(id);
+    if (!raw) {
+      flag('replay-divergence', `audit replay expects period ${id} (${expected.start}..${expected.end}, ${expected.status}) but raw storage has no such record`, id);
+      continue;
+    }
+    const rawHash = await sha256Hex(canonicalLedgerJson(periodContent(raw)));
+    const expectedHash = await sha256Hex(canonicalLedgerJson(periodContent(expected)));
+    if (rawHash !== expectedHash) {
+      flag('replay-divergence', `period ${id} diverges from the audit-derived content`, id);
+    }
+  }
+  for (const id of periods.keys()) {
+    if (!replayed.periods[id]) {
+      flag('replay-divergence', `raw period ${id} has no audit trail (never closed through the ledger)`, id);
+    }
+  }
 
   // (e) Entry numbers: posted/void entries carry exactly the dense set 1..N.
   const entryNos: number[] = [];
@@ -647,6 +800,24 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
     checkedPostings: postings.length,
     checkedAccounts: accounts.size,
     checkedAuditEvents: events.length,
+    checkedPeriods: periods.size,
     findings,
+  };
+}
+
+/** Defensive raw projection of one stored periods-array element. */
+function periodFromRawValue(raw: unknown): LedgerPeriod {
+  const r = (raw ?? {}) as Record<string, unknown>;
+  return {
+    id: str(r.id),
+    start: str(r.start),
+    end: str(r.end),
+    status: r.status === 'reopened' ? 'reopened' : 'closed',
+    closingEntryId: strOrNull(r.closingEntryId),
+    reopenEntryId: strOrNull(r.reopenEntryId),
+    closedAt: str(r.closedAt),
+    closedBy: str(r.closedBy),
+    reopenedAt: strOrNull(r.reopenedAt),
+    reopenedBy: strOrNull(r.reopenedBy),
   };
 }

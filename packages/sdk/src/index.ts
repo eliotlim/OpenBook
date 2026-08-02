@@ -448,6 +448,11 @@ export {
   LEDGER_TRANSACTION_STATES,
   LEDGER_CLEARED_STATES,
   LEDGER_RECONCILIATION_STATUSES,
+  LEDGER_PERIOD_STATUSES,
+  LEDGER_INCOME_STATEMENT_ACCOUNT_TYPES,
+  isIncomeStatementAccountType,
+  closedPeriodContaining,
+  closedPeriodsOverlapping,
   LEDGER_PROP,
   LEDGER_AUDIT_ACTIONS,
   LEDGER_MAX_TRANSACTION_LIMIT,
@@ -486,5 +491,10 @@ export {
   type LedgerReconciliationPatch,
   type LedgerReconciliationSummary,
   type LedgerReconciliationPostingChange,
+  type LedgerPeriod,
+  type LedgerPeriodStatus,
+  type LedgerPeriodCloseInput,
+  type LedgerPeriodCloseResult,
+  type LedgerPeriodReopenResult,
 } from './ledger';
 export {buildLedgerPostingsCsv, LEDGER_CSV_COLUMNS} from './ledgerCsv';

@@ -74,6 +74,14 @@ export interface ReportTransaction {
    * rather than to a wrong link.
    */
   reverses?: string | null;
+  /**
+   * `'closing'` on a server-generated period-close entry (LGR-12). Optional
+   * for the same additive reason as `reverses`; a missing value reads as an
+   * ordinary entry, which is what every entry written before periods existed
+   * is. The income-statement folds use it (with `reverses`, for the reversal a
+   * reopen posts) to keep closing entries out of earnings arithmetic.
+   */
+  kind?: 'closing' | null;
   postings: ReportPosting[];
 }
 

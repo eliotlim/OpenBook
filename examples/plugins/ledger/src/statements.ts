@@ -693,10 +693,12 @@ export function describeBalanceSheetScope(sheet: BalanceSheet, opts: {truncated:
 /**
  * The note under the computed equity line, stating the SPAN it actually covers.
  *
- * "Current earnings" is a period word and this figure has no period: it sums
- * from the first posted entry with no fiscal reset (there cannot be one until
- * closing entries exist — LGR-12), so on a third-year book it is three years of
- * accumulated earnings. An accountant reading "current" there would mis-state
+ * "Current earnings" is a period word and, on a never-closed book, this figure
+ * has no period: it sums from the first posted entry with no fiscal reset, so
+ * on a third-year book it is three years of accumulated earnings. Once a
+ * period close exists (LGR-12) the closing entry IS the fiscal reset — the
+ * figure starts where the last close ended, and the sentence says which close
+ * that was (`closedThrough`). An accountant reading "current" there would mis-state
  * the equity roll-forward at exactly the Beancount/Fava handoff this epic exists
  * to survive, so the note says the span out loud rather than leaving the row's
  * name to imply one.
@@ -706,8 +708,19 @@ export function describeBalanceSheetScope(sheet: BalanceSheet, opts: {truncated:
  * truncated read drops are precisely the OLDEST ones, so "from the first posted
  * entry" is the single claim about this span that a partial read cannot make.
  */
-export function describeCurrentEarnings(sheet: BalanceSheet, opts: {truncated?: boolean} = {}): string {
+export function describeCurrentEarnings(sheet: BalanceSheet, opts: {truncated?: boolean; closedThrough?: string | null} = {}): string {
   const through = sheet.asOf === '' ? 'through the last posted entry' : `through ${sheet.asOf}`;
+  // LGR-12: once a period close (dated at or before the as-of) exists, "from
+  // the first posted entry" and "nothing has been closed" both become false —
+  // the closing entry zeroed the flow accounts through its date, so THIS
+  // figure genuinely starts where the last close ended, and the earlier
+  // earnings sit in retained earnings above. `closedThrough` is the latest
+  // such close date (`latestCloseThrough` in ./periods); null keeps the
+  // never-closed sentence.
+  if (opts.closedThrough != null && opts.closedThrough !== '') {
+    const from = opts.truncated === true ? 'from the earliest entry in this partial read' : `since the ${opts.closedThrough} period close`;
+    return `Revenue less expenses ${from} ${through} — not an account; earnings through ${opts.closedThrough} were closed to retained earnings.`;
+  }
   const from = opts.truncated === true ? 'from the earliest entry in this partial read' : 'from the first posted entry';
   return `Revenue less expenses ${from} ${through} — not an account; nothing has been closed to retained earnings.`;
 }
@@ -757,6 +770,12 @@ export interface IncomeStatement {
   /** Reported entries the date range excluded. */
   outsideCount: number;
   accountCount: number;
+  /**
+   * Period-close entries (and reversals of them) dated inside the range and
+   * EXCLUDED from every figure above (LGR-12) — disclosed via
+   * {@link describeClosingExclusion}, never silently dropped.
+   */
+  closingCount: number;
 }
 
 export interface IncomeStatementOptions {
@@ -767,22 +786,47 @@ export interface IncomeStatementOptions {
 }
 
 /**
+ * Split CLOSING ENTRIES (LGR-12) — a period-close's `kind: 'closing'` entry and
+ * any reversal pointing at one (the entry a reopen posts) — out of a
+ * transaction list. ONE predicate for every earnings fold: a closing entry
+ * moves accumulated earnings to equity, it does not earn or spend, so counting
+ * it makes every closed period report a net income of exactly zero and every
+ * period-close read as a "contribution or draw". The closing set is identified
+ * from the SAME list being filtered (a reopen's reversal carries the closing
+ * entry's own date, so the pair enters and leaves a range together).
+ */
+export function excludeClosingEntries(transactions: readonly ReportTransaction[]): {kept: ReportTransaction[]; closingCount: number} {
+  const closingIds = new Set(transactions.filter((tx) => tx.kind === 'closing').map((tx) => tx.id));
+  if (closingIds.size === 0) return {kept: [...transactions], closingCount: 0};
+  const kept = transactions.filter((tx) => !(closingIds.has(tx.id) || (tx.reverses != null && closingIds.has(tx.reverses))));
+  return {kept, closingCount: transactions.length - kept.length};
+}
+
+/** The exclusion, in words — `null` when the period holds no closing entry.
+ *  The count covers closing entries AND reversals of them (they are one
+ *  exclusion set), and the sentence agrees in number with it. */
+export function describeClosingExclusion(closingCount: number): string | null {
+  if (closingCount <= 0) return null;
+  if (closingCount === 1) {
+    return '1 period-close entry dated in this period is excluded from these figures: a closing entry moves earnings to equity, it does not earn or spend.';
+  }
+  return `${closingCount} period-close entries dated in this period (reversals of them included) are excluded from these figures: a closing entry moves earnings to equity, it does not earn or spend.`;
+}
+
+/**
  * Fold accounts + transactions into an income statement over a date range.
  *
- * LGR-12 WILL NEED AN ENTRY-KIND EXCLUSION HERE. Once closing entries exist, the
- * entry that closes a period zeroes every revenue and expense account by posting
- * their balances to equity — and it is dated INSIDE the period it closes. This
- * fold has no notion of entry kind, so it will include that entry and report a
- * net income of exactly `0` for every closed period. {@link reconcileNetIncome}
- * degrades the same way, and worse: the closing entry's equity leg is a direct
- * equity posting, so {@link describeReconciliation} will call a period-close a
- * "contribution or draw". Both are on the LGR-12 board task. NO behaviour change
- * here now — this note exists so the fix lands where the assumption lives.
+ * CLOSING ENTRIES ARE EXCLUDED (LGR-12 — {@link excludeClosingEntries}): the
+ * entry that closes a period zeroes every revenue and expense account by
+ * posting their balances to equity, and it is dated INSIDE the period it
+ * closes, so counting it would report a net income of exactly `0` for every
+ * closed period. The exclusion is DISCLOSED (`closingCount` +
+ * {@link describeClosingExclusion}), never silent.
  */
 export function buildIncomeStatement(accounts: readonly ReportAccount[], transactions: readonly ReportTransaction[], opts: IncomeStatementOptions = {}): IncomeStatement {
   const from = typeof opts.from === 'string' ? opts.from : '';
   const to = typeof opts.to === 'string' ? opts.to : '';
-  const scoped = transactionsInRange(transactions, from, to);
+  const {kept: scoped, closingCount} = excludeClosingEntries(transactionsInRange(transactions, from, to));
   const balances = accountBalances(scoped);
 
   const revenue = section('revenue', accounts, balances, ['revenue']);
@@ -811,6 +855,7 @@ export function buildIncomeStatement(accounts: readonly ReportAccount[], transac
     postingCount: reported.reduce((n, tx) => n + tx.postings.filter((p) => profitAndLossIds.has(p.accountId)).length, 0),
     outsideCount: transactions.filter((tx) => isReported(tx) && ((from !== '' && tx.date < from) || (to !== '' && tx.date > to))).length,
     accountCount: revenue.accountCount + expenses.accountCount,
+    closingCount,
   };
 }
 
@@ -907,13 +952,15 @@ export interface NetIncomeReconciliation {
 }
 
 /**
- * LGR-12 WILL NEED AN ENTRY-KIND EXCLUSION HERE TOO — see
- * {@link buildIncomeStatement}. A closing entry moves every revenue and expense
- * balance to equity, so once they exist this fold sees a period-close as a
- * direct equity posting: `cleanPeriod` goes false and
- * {@link describeReconciliation} calls it a "contribution or draw". The identity
- * itself still holds (it is arithmetic, not interpretation) — it is the WORDS
- * that become wrong. On the LGR-12 board task; no behaviour change here now.
+ * CLOSING ENTRIES ARE EXCLUDED FROM BOTH SIDES (LGR-12 —
+ * {@link excludeClosingEntries}): from net income (via
+ * {@link buildIncomeStatement}) and from the direct-equity movements below. A
+ * closing entry moves accumulated earnings from the flow accounts into
+ * retained earnings — both INSIDE total equity as this module computes it
+ * (equity accounts + current earnings) — so it moves total equity by exactly
+ * zero, and excluding it from both sides preserves the identity to the cent
+ * while keeping `cleanPeriod` (and the "contribution or draw" sentence in
+ * {@link describeReconciliation}) truthful across a period close.
  */
 export function reconcileNetIncome(
   accounts: readonly ReportAccount[],
@@ -933,7 +980,7 @@ export function reconcileNetIncome(
   const closingEquityMinor = negateAmount(closing.totalEquityMinor);
   const equityDeltaMinor = sumAmounts([closingEquityMinor, negateAmount(openingEquityMinor)]);
 
-  const scoped = transactionsInRange(transactions, from, to);
+  const {kept: scoped} = excludeClosingEntries(transactionsInRange(transactions, from, to));
   const equityIds = new Set(accounts.filter((account) => account.type === 'equity').map((account) => account.id));
   const balances = accountBalances(scoped);
   const equityAmounts: number[] = [];

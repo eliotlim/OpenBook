@@ -52,6 +52,7 @@ const transaction = (id: string): LedgerTransaction => ({
   postedBy: 'tester',
   reverses: null,
   entryNo: 1,
+  kind: null,
   evidence: [],
   postings: [],
   createdAt: new Date(0).toISOString(),
@@ -76,6 +77,9 @@ function harness() {
     // through the transaction read, which is the one that can outlive its
     // effect generation.
     ledgerListReconciliations: async () => [],
+    // LGR-12: periods ride the same load; like the reconciliations they settle
+    // immediately — the staleness machinery under test lives on the tx read.
+    ledgerListPeriods: async () => [],
     ledgerListTransactions: (opts?: {limit?: number}) => {
       requestedLimits.push(opts?.limit);
       const d = deferred<LedgerTransaction[]>();

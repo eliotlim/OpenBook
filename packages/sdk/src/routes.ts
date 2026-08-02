@@ -351,6 +351,21 @@ export const API = {
    * The account is free for a new reconciliation immediately.
    */
   ledgerReconciliationAbandon: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}/abandon`,
+  /**
+   * Accounting periods (LGR-12). `GET` lists every period record (closed and
+   * reopened — the settings-UI surface); `POST` CLOSES a range: generates the
+   * closing entry (income-statement accounts → retained earnings), locks the
+   * range (the STORE rejects `period-closed` for any posting/reversal dated
+   * inside it — bypassing the UI changes nothing), and returns the open
+   * reconciliations it warned about (warn-not-block).
+   */
+  ledgerPeriods: '/api/ledger/periods',
+  /**
+   * REOPEN a closed period: `POST`. Explicit and audited; voids the closing
+   * entry via a reversal through the ordinary reversal machinery and restores
+   * postability for the range.
+   */
+  ledgerPeriodReopen: (id: string): string => `/api/ledger/periods/${encodeURIComponent(id)}/reopen`,
   /** The append-only ledger audit log: `GET` (paginated, `?limit=&before=<seq>`,
    *  newest first). Read-only — no mutation route exists. */
   ledgerAudit: '/api/ledger/audit',

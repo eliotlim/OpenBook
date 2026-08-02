@@ -1,6 +1,7 @@
 import React from 'react';
 import {formatAmount} from '@book.dev/plugin-sdk';
 import {buildTrialBalance, describeDraftExclusion, describeTrialBalanceAssertion, type TrialBalance} from './reports';
+import {describeClosedPeriodMarker} from './periods';
 import {
   AccountName,
   EmptyState,
@@ -159,6 +160,12 @@ export const TrialBalanceBlock = ({block, editor, pageReadOnly}: {block: BlockLi
       <div data-ledger-drafts-excluded={report !== null ? report.draftCount : 0} style={mutedStyle}>
         {describeDraftExclusion(report !== null ? report.draftCount : 0)}
       </div>
+
+      {/* LGR-12, display-only: the trial balance covers the whole book, so any
+          closed period is inside it. Informs; the store enforces. */}
+      {describeClosedPeriodMarker(data.periods, '', '') !== null && (
+        <div data-ledger-closed-periods style={mutedStyle}>{describeClosedPeriodMarker(data.periods, '', '')}</div>
+      )}
 
       <TruncationNotice shown={data.truncated} detail="Older entries are missing from these balances, so the totals are a subset of the book." />
 
