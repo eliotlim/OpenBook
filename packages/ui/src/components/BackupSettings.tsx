@@ -540,7 +540,20 @@ function RestoreDialog({
         result.renamed ? t('backup.renamedCount', {count: result.renamed}) : '',
       ].filter(Boolean);
       const detail = bits.length ? ` (${bits.join(', ')})` : '';
-      onDone(t('backup.restored', {count: sel.pages.length, detail}));
+      // LGR-15: the ledger section's outcome is reported EXPLICITLY — pages
+      // restoring fine while the books' history was skipped must never read as
+      // success (the runbook's verify step hangs off this line).
+      const ledgerLine =
+        result.ledger === 'restored'
+          ? ` ${t('backup.ledgerRestored')}`
+          : result.ledger === 'skipped-existing-ledger'
+            ? ` ${t('backup.ledgerSkippedExisting')}`
+            : result.ledger === 'skipped-copy-mode'
+              ? ` ${t('backup.ledgerSkippedCopy')}`
+              : result.ledger === 'skipped-incomplete'
+                ? ` ${t('backup.ledgerSkippedIncomplete')}`
+                : '';
+      onDone(`${t('backup.restored', {count: sel.pages.length, detail})}${ledgerLine}`);
     } catch (e) {
       onDone(t('backup.restoreFailed', {error: (e as Error).message}));
     } finally {
