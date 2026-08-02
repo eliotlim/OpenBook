@@ -56,6 +56,21 @@ export async function createDraft(request: APIRequestContext, entry: EntryInput)
   return (await (await request.post(`${SERVER}/api/ledger/transactions`, {data: entry})).json()) as ApiTransaction;
 }
 
+/** Read one transaction back from the books (state, entry number, postings). */
+export const getTransaction = async (request: APIRequestContext, id: string): Promise<ApiTransaction> =>
+  (await (await request.get(`${SERVER}/api/ledger/transactions/${id}`)).json()) as ApiTransaction;
+
+/**
+ * Close an account. The server only allows it at a ZERO balance, which is what
+ * makes it usable as the setup for the reversal-into-a-closed-account refusal
+ * (LGR-6): zero the account with a second entry, close it, then try to reverse
+ * the first one.
+ */
+export async function closeAccount(request: APIRequestContext, id: string): Promise<void> {
+  const res = await request.patch(`${SERVER}/api/ledger/accounts/${id}`, {data: {status: 'closed'}});
+  if (!res.ok()) throw new Error(`could not close account ${id}: ${res.status()} ${await res.text()}`);
+}
+
 export const draftCount = async (request: APIRequestContext): Promise<number> =>
   ((await (await request.get(`${SERVER}/api/ledger/transactions?state=draft`)).json()) as ApiTransaction[]).length;
 

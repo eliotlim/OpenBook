@@ -286,7 +286,7 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
     void (async () => {
       try {
         const original = (await api.ledger.getTransaction(row.transactionId)) as OriginalLike | null;
-        if (original === null) throw new Error('That entry is no longer in the books. Nothing was reversed.');
+        if (original === null) throw new Error('that entry is no longer in the books');
         const reversal = (await api.ledger.reverse(row.transactionId)) as OriginalLike;
         setConfirming(null);
         try {
@@ -316,7 +316,15 @@ export const AccountRegisterBlock = ({block, editor}: {block: BlockLike; editor:
           });
         }
       } catch (err) {
-        setActionError({message: `${messageOf(err)} Nothing was reversed.`, code: err instanceof LedgerError ? err.code : null});
+        const code = err instanceof LedgerError ? err.code : null;
+        // The one refusal the store makes on purpose deserves its own sentence:
+        // "posting references a closed account" is true but says nothing about
+        // why a REVERSAL is subject to it, or what to do next.
+        const why =
+          code === 'account-closed'
+            ? ' A reversal is a real posting like any other, so it cannot go into a closed account — reopen the account, then correct the entry.'
+            : '';
+        setActionError({message: `Nothing was reversed — ${messageOf(err)}.${why}`, code});
       } finally {
         setBusy(false);
       }
