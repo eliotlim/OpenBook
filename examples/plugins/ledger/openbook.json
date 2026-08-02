@@ -1,0 +1,10 @@
+{
+  "id": "openbook.ledger",
+  "name": "Ledger",
+  "version": "1.0.0",
+  "description": "Double-entry books: a journal entry block and a bank-statement CSV importer (the two write surfaces), plus a set-up-books command that seeds a starter chart of accounts.",
+  "author": "OpenBook",
+  "icon": "📒",
+  "main": "src/index.ts",
+  "apiVersion": 2
+}

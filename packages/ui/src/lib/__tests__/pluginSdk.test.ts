@@ -5,6 +5,8 @@ import {
   signPlugin,
   verifyPlugin,
   validateManifest,
+  pluginApiVersionError,
+  PLUGIN_API_VERSION,
   type PluginManifest,
 } from '@book.dev/sdk';
 
@@ -50,5 +52,26 @@ describe('validateManifest', () => {
     expect(validateManifest({...manifest, id: 'NoDots'})).toContain('publisher.plugin-name');
     expect(validateManifest({...manifest, main: undefined})).toContain('main');
     expect(validateManifest(null)).toContain('openbook.json');
+  });
+
+  it('accepts an absent or positive-integer apiVersion, rejects anything else', () => {
+    expect(validateManifest(manifest)).toBeNull();
+    expect(validateManifest({...manifest, apiVersion: 1})).toBeNull();
+    expect(validateManifest({...manifest, apiVersion: PLUGIN_API_VERSION})).toBeNull();
+    expect(validateManifest({...manifest, apiVersion: 0})).toContain('apiVersion');
+    expect(validateManifest({...manifest, apiVersion: 1.5})).toContain('apiVersion');
+    expect(validateManifest({...manifest, apiVersion: '2'})).toContain('apiVersion');
+  });
+});
+
+describe('pluginApiVersionError', () => {
+  it('passes absent/older/equal versions and refuses newer ones by name', () => {
+    expect(pluginApiVersionError(manifest)).toBeNull();
+    expect(pluginApiVersionError({...manifest, apiVersion: 1})).toBeNull();
+    expect(pluginApiVersionError({...manifest, apiVersion: PLUGIN_API_VERSION})).toBeNull();
+    const refusal = pluginApiVersionError({...manifest, apiVersion: PLUGIN_API_VERSION + 1});
+    expect(refusal).toContain('acme.demo');
+    expect(refusal).toContain(`v${PLUGIN_API_VERSION + 1}`);
+    expect(refusal).toContain(`v${PLUGIN_API_VERSION}`);
   });
 });

@@ -12,7 +12,7 @@ function renderBlock(blocks: typeof INPUT2_BLOCKS | typeof PROGRESS_BLOCKS, type
   const def = blocks.find((d) => d.type === type)!;
   const Comp = def.render;
   const editor = {doc, readOnly: false} as unknown as BlockEditorController;
-  return {...render(<Comp block={block} editor={editor} />), doc, block};
+  return {...render(<Comp block={block} editor={editor} pageReadOnly={false} />), doc, block};
 }
 
 afterEach(() => cleanup());

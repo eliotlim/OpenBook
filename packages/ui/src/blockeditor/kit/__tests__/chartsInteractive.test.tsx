@@ -33,7 +33,7 @@ function renderChart(props: Record<string, unknown>, opts: {readOnly?: boolean} 
   const doc = createDoc([{id: 'c', type: 'kitchart', props}]);
   const block: BlockMap = rootBlocks(doc).get(0);
   const editor = {doc, readOnly: opts.readOnly ?? false} as unknown as BlockEditorController;
-  const utils = render(<ChartBlock block={block} editor={editor} />);
+  const utils = render(<ChartBlock block={block} editor={editor} pageReadOnly={opts.readOnly ?? false} />);
   return {...utils, doc, block};
 }
 

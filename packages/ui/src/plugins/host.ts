@@ -1,5 +1,6 @@
 import {
   verifyPlugin,
+  pluginApiVersionError,
   OPENBOOK_REGISTRY,
   type DataClient,
   type StoredPlugin,
@@ -70,9 +71,29 @@ export function removeTrustedRegistry(publicKey: string): void {
 }
 
 function activate(plugin: StoredPlugin, client: DataClient): {error?: string} {
+  // API-version gate first: a plugin built against a newer PluginApi gets a
+  // clear "update the app" error instead of crashing on a missing surface.
+  // Plugins without `apiVersion` (all pre-gate plugins) pass unchanged.
+  const versionError = pluginApiVersionError(plugin.manifest);
+  if (versionError) return {error: versionError};
+  let disposed = false;
   const disposables: Array<() => void> = [];
+  // Registrations made AFTER dispose (a retained setTimeout/event handler
+  // calling back into the api) are torn down immediately instead of leaking
+  // into the already-emptied disposables array.
+  const track = (d: () => void): void => {
+    if (disposed) {
+      try {
+        d();
+      } catch {
+        // late teardown must not throw into plugin code
+      }
+      return;
+    }
+    disposables.push(d);
+  };
   try {
-    const api = buildPluginApi(plugin.manifest, client, disposables);
+    const api = buildPluginApi(plugin.manifest, client, track);
     const mod = executePlugin(plugin, hostModulesFor(api)) as PluginModule;
     const entry = mod.default ?? mod.activate;
     if (typeof entry !== 'function') throw new Error('the entry file must export an activate function (default export)');
@@ -80,6 +101,7 @@ function activate(plugin: StoredPlugin, client: DataClient): {error?: string} {
     if (result && typeof result.deactivate === 'function') disposables.push(result.deactivate);
     active.set(plugin.manifest.id, {
       dispose: () => {
+        disposed = true;
         for (const d of disposables.splice(0).reverse()) {
           try {
             d();
@@ -91,6 +113,7 @@ function activate(plugin: StoredPlugin, client: DataClient): {error?: string} {
     });
     return {};
   } catch (err) {
+    disposed = true;
     for (const d of disposables.splice(0).reverse()) {
       try {
         d();

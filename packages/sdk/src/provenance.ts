@@ -102,6 +102,14 @@ export interface InstanceConfig {
    * (never persisted in policy). See {@link LibraryBinding}.
    */
   libraryBinding?: LibraryBinding;
+  /**
+   * Ledger auto-export (LGR-7 insurance): absolute file path the server writes
+   * the canonical postings CSV to (atomically, debounced) after any ledger
+   * mutation. Unset / null ⇒ OFF (the default — no ambient file writes).
+   * Owner-only to change, like every other instance-policy field: the path is
+   * a server-side filesystem write target.
+   */
+  ledgerAutoExportPath?: string | null;
 }
 
 /**
@@ -218,6 +226,15 @@ export interface InstanceInfo {
    * `inherit`. Optional: absent on a pre-SHR-6 server / a test fixture — the client
    * falls back to the {@link guestAccess} summary. */
   defaultVisibility?: Exclude<PageVisibility, 'inherit'> | null;
+  /**
+   * The ledger auto-export target (LGR-7), or `null` when auto-export is off.
+   * Surfaced so the legitimate owner can SEE that their book is being written to
+   * a file — an unreadable setting is an invisible exfiltration channel. Fenced
+   * behind the same identity gate as the rest of the identity-infrastructure
+   * block (a claimed instance never shows it to an anonymous caller). Optional:
+   * absent on a pre-LGR-7 server / a test fixture.
+   */
+  ledgerAutoExportPath?: string | null;
   /** Who the server resolved you to be on this request. */
   you: Principal;
   /**

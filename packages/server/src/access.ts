@@ -15,7 +15,7 @@
 
 import {HTTPException} from 'hono/http-exception';
 import type {Context} from 'hono';
-import type {Decision, Principal} from '@book.dev/sdk';
+import type {Decision, InstanceConfig, Principal} from '@book.dev/sdk';
 import type {AppEnv} from './appEnv';
 import type {EventGate, ListEvent, LiveEvent, PageEvent, RowsEvent} from './hub';
 import type {PageStore} from './store';
@@ -24,6 +24,28 @@ type Ctx = Context<AppEnv>;
 
 /** What a route needs of a page: read access, or read+write. */
 export type AccessNeed = 'read' | 'write';
+
+/**
+ * True only for a REAL instance owner: the machine owner over the trusted local
+ * transport (the loopback hatch), the in-process `local` principal, or a
+ * `jws`-verified identity matching a CLAIMED `ownerSubject`.
+ *
+ * Unlike the general policy gate, this NEVER falls open on an unclaimed
+ * instance. Use it for policy fields whose misuse is dangerous on its own —
+ * a filesystem write target, a credential, an exfiltration destination — where
+ * "nobody has claimed this instance yet" must mean "nobody may set this",
+ * not "anybody may". An owner-minted agent PAT is excluded by the `jws`
+ * requirement (AGENT-6 HIGH-1: a PAT carries the owner's subject but must not
+ * wield owner authority).
+ */
+export function isRealInstanceOwner(c: Ctx, config: Pick<InstanceConfig, 'ownerSubject'>): boolean {
+  if (c.get('localOwner')) return true; // trusted local transport = machine owner
+  const principal = c.get('principal');
+  if (principal.verifiedVia === 'local') return true; // in-process loopback owner
+  return Boolean(
+    config.ownerSubject && principal.verifiedVia === 'jws' && principal.subject === config.ownerSubject,
+  );
+}
 
 /**
  * The one default-deny gate (contract §1.4). Resolves the request principal's

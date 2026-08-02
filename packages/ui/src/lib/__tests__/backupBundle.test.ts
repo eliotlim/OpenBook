@@ -37,6 +37,14 @@ describe('parseBackup', () => {
     expect(() => parseBackup('{}')).toThrow();
     expect(() => parseBackup(JSON.stringify({version: 1, pages: [], databases: []}))).not.toThrow();
   });
+
+  it('carries the v2 ledger durability section through (LGR-15) — dropping it would export a book whose restore cannot verify', () => {
+    const ledger = {settings: {ledgerDb: {}}, audit: [], assets: []};
+    const parsed = parseBackup(JSON.stringify({version: 2, pages: [], databases: [], ledger}));
+    expect(parsed.ledger).toEqual(ledger);
+    // …and a v1 file simply has none.
+    expect(parseBackup(JSON.stringify({version: 1, pages: [], databases: []})).ledger).toBeUndefined();
+  });
 });
 
 describe('bundleRoots', () => {

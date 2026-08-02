@@ -456,6 +456,129 @@ const MIGRATIONS: Migration[] = [
       'ALTER TABLE pages ADD COLUMN IF NOT EXISTS agent_edits TEXT NOT NULL DEFAULT \'inherit\'',
     ],
   },
+  {
+    // LGR-3 — the append-only ledger AUDIT LOG. One row per ledger mutation
+    // (init / account create-update / draft create-update-delete / post / reverse /
+    // posting-cleared), written in the SAME store transaction as the mutation it
+    // records, so a committed ledger write is never missing its audit event (and a
+    // rolled-back write leaves none). APPEND-ONLY by construction: no code path
+    // updates or deletes rows here, and no generic API route reaches this table
+    // (it is not a page table). `seq` is the strictly-increasing order + the
+    // pagination cursor; `entity_ids` lists every touched entity (a reverse names
+    // both the reversing and the voided transaction); `payload` carries the full
+    // after-content so the stream is REPLAYABLE (a pure reducer reconstructs
+    // current ledger state — see sdk `replayLedgerAudit`); `before_hash`/
+    // `after_hash` are SHA-256 of the canonical entity JSON around the mutation.
+    // Byte-identical SQL on embedded PGlite and real Postgres; purely additive +
+    // idempotent (IF NOT EXISTS) — existing non-ledger libraries are untouched.
+    name: '0020_ledger_audit',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS ledger_audit (
+        seq            BIGSERIAL   PRIMARY KEY,
+        id             UUID        NOT NULL UNIQUE,
+        actor_subject  TEXT        NOT NULL DEFAULT '',
+        actor_name     TEXT        NOT NULL DEFAULT '',
+        action         TEXT        NOT NULL,
+        entity_ids     JSONB       NOT NULL DEFAULT '[]'::jsonb,
+        payload        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+        before_hash    TEXT,
+        after_hash     TEXT,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+      )`,
+      'CREATE INDEX IF NOT EXISTS ledger_audit_action_idx ON ledger_audit (action, seq DESC)',
+    ],
+  },
+  {
+    // LGR-3 — TAMPER-EVIDENCE for the ledger audit log. 0020 made the log
+    // append-only *by construction* (no code path updates or deletes it, no
+    // generic route reaches it), which stops an API-level actor but says nothing
+    // about one with direct database access: a rewritten row left no trace, and a
+    // deleted row was indistinguishable from the BIGSERIAL gap a rolled-back
+    // transaction leaves behind.
+    //
+    // `prev_hash` chains each event to its predecessor — SHA-256 over the
+    // predecessor's canonical content INCLUDING ITS OWN `prev_hash` (sdk
+    // `ledgerAuditEventHash`), written in the SAME transaction as the event it
+    // follows. NULL for the genesis event only.
+    //
+    // WHAT THE CHAIN PROVES (be precise — a green verify is not "the log is
+    // authentic"). The hash is UNKEYED and the log is UNANCHORED, so:
+    //  - DETECTED: a partial edit or a middle deletion that does not recompute
+    //    every following link — `verifyLedgerAuditChain` reports the exact `seq`.
+    //  - NOT DETECTED: truncation of the HEAD or the TAIL (both verify clean),
+    //    and a wholesale rewrite in which the actor recomputes every link —
+    //    `ledgerAuditEventHash` is exported and unkeyed, so anyone with database
+    //    access can do that.
+    // Closing those requires an off-box anchor (periodically publishing the tail
+    // hash somewhere the database owner cannot rewrite). That is filed as LGR-18
+    // and deliberately NOT built here.
+    //
+    // COMPATIBILITY: verification requires a log chained from its GENESIS event.
+    // A library seeded under 0020 (events written before this column existed) has
+    // leading NULL links, and `verifyLedgerAuditChain` fails such a log at the
+    // first chained event rather than resuming from it. That strictness is the
+    // correct security posture and is not a bug to "fix" by skipping leading
+    // nulls: tolerating a restart-on-NULL would let an attacker NULL one row to
+    // re-anchor the chain after deleting everything before it. A pre-0021 library
+    // therefore verifies as broken until its log is re-anchored (an operator
+    // action), while everything seeded from 0021 onward verifies from genesis.
+    name: '0021_ledger_audit_chain',
+    statements: [
+      'ALTER TABLE ledger_audit ADD COLUMN IF NOT EXISTS prev_hash TEXT',
+    ],
+  },
+  {
+    // LGR-3 — DATABASE-LEVEL backstop for the audit chain's linearity.
+    //
+    // The append path serializes on a transaction-scoped advisory lock, which is
+    // what actually keeps the chain well-formed (a `SELECT … FOR UPDATE` of the
+    // tail does NOT: it locks the row it found and cannot block a concurrent
+    // INSERT of a new tail, so under READ COMMITTED two transactions could both
+    // chain onto the same predecessor and permanently break the chain — a false
+    // tampering accusation with no repair path).
+    //
+    // These indexes make that failure IMPOSSIBLE rather than merely unlikely:
+    //  - `prev_hash` UNIQUE (where not null) — at most one event may claim any
+    //    given predecessor, so a residual race becomes a rolled-back transaction
+    //    instead of silent corruption.
+    //  - the genesis index — at most one event may have no predecessor, so a
+    //    second "first" event can't be spliced in to re-anchor a truncated log.
+    //    `((true))` is a constant expression index: every NULL-prev_hash row maps
+    //    to the same key, so the second insert conflicts. Verified to create and
+    //    enforce on both backends (embedded PGlite = PostgreSQL 17.5, and real
+    //    Postgres) — it is ordinary partial-expression-index territory.
+    //
+    // Additive + idempotent. A library seeded under 0020/0021 may hold several
+    // NULL-prev_hash rows (pre-chain events); on such a library the genesis index
+    // creation FAILS, which would wedge migrations — so it is created only when
+    // the existing data permits, via the DO block below. A fresh library (and any
+    // library whose chain starts at genesis) gets both indexes.
+    name: '0022_ledger_audit_chain_linearity',
+    statements: [
+      'CREATE UNIQUE INDEX IF NOT EXISTS ledger_audit_prev_hash_uniq ON ledger_audit (prev_hash) WHERE prev_hash IS NOT NULL',
+      `DO $$
+       BEGIN
+         IF (SELECT count(*) FROM ledger_audit WHERE prev_hash IS NULL) <= 1 THEN
+           CREATE UNIQUE INDEX IF NOT EXISTS ledger_audit_genesis_uniq ON ledger_audit ((true)) WHERE prev_hash IS NULL;
+         END IF;
+       END $$`,
+    ],
+  },
+  {
+    // LGR-15 — performance hardening for row appends. Every database-row insert
+    // (ledger postings above all: two per imported bank row) assigns
+    // `position = MAX(position)+1 WHERE database_id = $n`. The existing
+    // `pages_database_id_idx` narrows the scan to the database's rows but still
+    // fetches EVERY one to find the max — O(rows) per insert, O(rows²) per
+    // import batch, and the LGR-15 import benchmark showed exactly that curve
+    // (each successive 1k-row batch ~50% slower). A composite
+    // `(database_id, position)` turns the MAX into a reverse index scan.
+    // Additive + idempotent; byte-identical SQL on PGlite and real Postgres.
+    name: '0023_pages_database_position_idx',
+    statements: [
+      'CREATE INDEX IF NOT EXISTS pages_database_position_idx ON pages (database_id, position)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

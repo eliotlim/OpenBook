@@ -63,9 +63,11 @@ abuse and fraud.
 
 ## Getting started
 
-> [!IMPORTANT]
-> OpenBook is currently in active development.
-> Please make regular backups of your data while using it.
+> [!NOTE]
+> OpenBook backs itself up on a schedule (daily/weekly/monthly/yearly, on by
+> default), and every backup — the ledger's audit trail and evidence included —
+> is restore-tested in CI on both storage backends. See the
+> [backup architecture & restore runbook](docs/ledger/backup-restore.md).
 
 Download OpenBook from the [Releases page](https://github.com/eliotlim/openbook/releases).
 

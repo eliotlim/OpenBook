@@ -38,6 +38,17 @@ export interface PluginAgentTool {
   instructions?: string;
 }
 
+/**
+ * The current plugin API version this build provides. A single integer,
+ * bumped whenever the `PluginApi` surface grows: v1 was the original surface
+ * (blocks/commands/pages/storage/fetch); v2 added `databases.*` + `assets.*`.
+ * Plugins declare the version they need via {@link PluginManifest.apiVersion};
+ * hosts refuse to activate a plugin that needs a NEWER version than they
+ * provide (see the host's activation gate). Omitting the field means "v1 is
+ * enough" — every existing plugin keeps loading unchanged.
+ */
+export const PLUGIN_API_VERSION = 2;
+
 export interface PluginManifest {
   /** Stable reverse-DNS-ish identifier, e.g. `openbook.hello-world`. */
   id: string;
@@ -49,8 +60,27 @@ export interface PluginManifest {
   icon?: string;
   /** Entry file inside the package, e.g. `src/index.ts`. */
   main: string;
+  /**
+   * Minimum plugin API version this plugin needs (see
+   * {@link PLUGIN_API_VERSION}). Optional — absent means v1, so pre-existing
+   * plugins load unchanged. A plugin declaring a version newer than the host
+   * fails activation with a clear error instead of crashing mid-run.
+   */
+  apiVersion?: number;
   /** Agent tools this plugin contributes (read server-side from the manifest). */
   agentTools?: PluginAgentTool[];
+}
+
+/**
+ * The host-side activation gate for {@link PluginManifest.apiVersion}:
+ * returns a human-readable refusal when the plugin needs a newer plugin API
+ * than this build provides, or `null` when it's fine to activate (field
+ * absent, or ≤ {@link PLUGIN_API_VERSION}).
+ */
+export function pluginApiVersionError(manifest: PluginManifest): string | null {
+  const needed = manifest.apiVersion;
+  if (needed === undefined || needed <= PLUGIN_API_VERSION) return null;
+  return `plugin "${manifest.id}" requires plugin API v${needed}, but this app provides v${PLUGIN_API_VERSION} — update OpenBook to use it`;
 }
 
 /** A plugin as stored/transported: manifest + its TypeScript source files. */
@@ -185,5 +215,8 @@ export function validateManifest(m: unknown): string | null {
   if (!man.name || typeof man.name !== 'string') return 'name is required';
   if (!man.version || typeof man.version !== 'string') return 'version is required';
   if (!man.main || typeof man.main !== 'string') return 'main (the entry file) is required';
+  if (man.apiVersion !== undefined && (typeof man.apiVersion !== 'number' || !Number.isInteger(man.apiVersion) || man.apiVersion < 1)) {
+    return 'apiVersion, when present, must be a positive integer';
+  }
   return null;
 }

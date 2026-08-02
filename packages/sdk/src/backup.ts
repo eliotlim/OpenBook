@@ -11,8 +11,63 @@
  */
 import type {StoredPage} from './types';
 import type {StoredDatabase} from './database';
+import type {LedgerAuditEvent} from './ledger';
 
-export const BACKUP_VERSION = 1;
+/**
+ * Version 2 (LGR-15): the bundle MAY carry a {@link LedgerBackupSection} — the
+ * ledger's durability surface (audit stream, settings rows, evidence assets)
+ * that pages/databases alone cannot express. Additive: a v1 bundle (no
+ * `ledger` key) still imports; a v2 bundle read by an old server imports its
+ * pages/databases and ignores the extra key.
+ */
+export const BACKUP_VERSION = 2;
+
+/**
+ * One content-addressed asset carried by a backup (LGR-15): the evidence bytes
+ * behind a ledger transaction's manifest. `id` IS the SHA-256 of the bytes —
+ * the importer re-derives it and refuses a mismatch, so a bundle can never
+ * plant bytes under a hash they do not answer to.
+ */
+export interface LedgerBackupAsset {
+  /** Asset-store id: 64 lowercase hex chars, the SHA-256 of the bytes. */
+  id: string;
+  mime: string;
+  /** Byte count of the decoded content. */
+  size: number;
+  /** The raw bytes, base64-encoded (JSON cannot carry binary). */
+  bytesBase64: string;
+  /** Page ids holding an `asset_refs` edge to this asset (restored where the page exists). */
+  refs: string[];
+}
+
+/**
+ * The ledger durability surface of a backup (LGR-15). The ledger's ENTITIES
+ * (accounts/transactions/postings/reconciliations and their host pages) travel
+ * as ordinary pages/databases in the bundle; this section carries what those
+ * rows alone cannot restore:
+ *
+ *  - `settings` — the seeded ids (`ledgerDb`), the period records
+ *    (`ledgerPeriods`), and the entry-number sequence (`ledgerEntrySeq`),
+ *    verbatim as stored;
+ *  - `audit` — the FULL append-only audit stream, seq order, hashes included.
+ *    Restored verbatim so the tamper-evidence chain survives the round trip
+ *    (the LGR-7 verifier re-checks it against the restored rows);
+ *  - `assets` — the evidence bytes referenced by transaction manifests, so the
+ *    verifier's receipt re-hash check still has bytes to answer with.
+ *
+ * Restore semantics are deliberately narrow (see the server's `importBundle`):
+ * overwrite mode only, and ONLY into a library with no seeded ledger — a
+ * library that already has one keeps its LGR-3 protections and the section is
+ * skipped, reported via `ImportResult.ledger`.
+ */
+export interface LedgerBackupSection {
+  /** Raw `settings` rows by key: `ledgerDb`, `ledgerPeriods`, `ledgerEntrySeq` (when present). */
+  settings: Record<string, unknown>;
+  /** The full audit stream, ascending `seq`, verbatim (hashes included). */
+  audit: LedgerAuditEvent[];
+  /** Evidence assets referenced by ledger transaction manifests. */
+  assets: LedgerBackupAsset[];
+}
 
 export interface LibraryBackup {
   version: number;
@@ -21,6 +76,8 @@ export interface LibraryBackup {
   databases: StoredDatabase[];
   /** pageId → emoji icon (added client-side; ignored by the server). */
   icons?: Record<string, string>;
+  /** LGR-15: the ledger durability surface; absent when no ledger is seeded. */
+  ledger?: LedgerBackupSection;
 }
 
 export type ImportMode = 'copy' | 'overwrite';
@@ -30,7 +87,25 @@ export interface ImportRequest {
   pages: StoredPage[];
   databases: StoredDatabase[];
   mode: ImportMode;
+  /**
+   * LGR-15: the bundle's ledger section, forwarded on a full overwrite restore.
+   * Applied only when the target has no seeded ledger AND the selection carried
+   * the ledger's own pages/databases; otherwise skipped and reported.
+   */
+  ledger?: LedgerBackupSection;
 }
+
+/**
+ * What became of a bundle's {@link LedgerBackupSection} on import (LGR-15).
+ *  - `restored` — settings + audit stream + evidence assets applied;
+ *  - `skipped-existing-ledger` — the target already has a seeded ledger, whose
+ *    LGR-3 protections stand (restore ledger bundles into a FRESH library);
+ *  - `skipped-copy-mode` — copy mode re-ids every page, which would sever the
+ *    audit stream's entity references; the section only applies in overwrite;
+ *  - `skipped-incomplete` — the page selection did not carry the ledger's own
+ *    host pages/databases, so the section had nothing sound to attach to.
+ */
+export type LedgerRestoreOutcome = 'restored' | 'skipped-existing-ledger' | 'skipped-copy-mode' | 'skipped-incomplete';
 
 export interface ImportResult {
   /** New pages created (copy mode, or overwrite of a not-yet-existing id). */
@@ -41,6 +116,8 @@ export interface ImportResult {
   renamed: number;
   /** old page id → new page id (copy mode; identity in overwrite). */
   idMap: Record<string, string>;
+  /** LGR-15: outcome of the bundle's ledger section; absent when none was sent. */
+  ledger?: LedgerRestoreOutcome;
   /**
    * True when this apply was a **replay** of an already-imported bundle (ER-6):
    * the bundle's content hash matched a prior import, so nothing was written and

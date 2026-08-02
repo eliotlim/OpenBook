@@ -18,6 +18,23 @@ import type {BlockEditorController} from './useBlockEditor';
 export interface CustomBlockProps {
   block: BlockMap;
   editor: BlockEditorController;
+  /**
+   * Whether the DOCUMENT is read-only — a viewer who cannot write, or present
+   * mode — regardless of whether this widget is still live.
+   *
+   * `editor.readOnly` cannot answer that question for a custom block. An
+   * interactive widget on a read-only page is deliberately handed an editor
+   * with `readOnly: false` so it stays operable for the reader (its state just
+   * never persists), which means every block asking `editor.readOnly` sees
+   * `false` on exactly the page where the answer matters. A widget that merely
+   * moves a slider does not care; one that offers to WRITE somewhere else —
+   * the ledger's "Correct this entry" is the first — has to be able to tell the
+   * difference, or it advertises an action the reader cannot take.
+   *
+   * Read it as "may this reader change the document?", not "is this widget
+   * frozen?" — for the latter, `editor.readOnly` is still the right question.
+   */
+  pageReadOnly: boolean;
 }
 
 export interface CustomBlockDef {

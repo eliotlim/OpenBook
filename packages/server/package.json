@@ -29,6 +29,7 @@
     "start": "node dist/bin.js",
     "test": "vitest run",
     "test:e2e": "tsx scripts/e2e.mts",
+    "bench:ledger": "vitest run --config vitest.bench.config.ts",
     "seed": "tsx scripts/seed.mts",
     "build:sidecar": "node scripts/build-sidecar.mjs",
     "lint": "eslint .",

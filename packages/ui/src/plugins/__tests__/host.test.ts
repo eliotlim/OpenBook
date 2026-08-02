@@ -1,11 +1,16 @@
-import {describe, expect, it} from 'vitest';
-import {OPENBOOK_REGISTRY, type DataClient, type StoredPlugin} from '@book.dev/sdk';
+import {describe, expect, it, vi} from 'vitest';
+// The REAL hello-openbook example, byte-for-byte (vite `?raw`): the loader
+// back-compat proof below runs the shipped sources, not a copy.
+import helloManifestJson from '../../../../../examples/plugins/hello-openbook/openbook.json?raw';
+import helloIndexTs from '../../../../../examples/plugins/hello-openbook/src/index.ts?raw';
+import helloBlockTsx from '../../../../../examples/plugins/hello-openbook/src/block.tsx?raw';
+import {OPENBOOK_REGISTRY, PLUGIN_API_VERSION, type DataClient, type PluginManifest, type StoredPlugin} from '@book.dev/sdk';
 import {syncPlugins, pluginStatuses, trustedRegistryKeys, addTrustedRegistry, removeTrustedRegistry} from '../host';
 import {pluginCommands} from '../commandRegistry';
 import {getCustomBlock} from '../../blockeditor/registry';
 
-const plugin = (id: string, entry: string, enabled = true): StoredPlugin => ({
-  manifest: {id, name: id, version: '1.0.0', main: 'src/index.ts'},
+const plugin = (id: string, entry: string, enabled = true, manifest?: Partial<PluginManifest>): StoredPlugin => ({
+  manifest: {id, name: id, version: '1.0.0', main: 'src/index.ts', ...manifest},
   files: {'src/index.ts': entry},
   enabled,
   installedAt: new Date(0).toISOString(),
@@ -60,6 +65,92 @@ describe('plugin host', () => {
     // …and its neighbour is unaffected.
     expect(pluginCommands().some((c) => c.id === 'acme.fine/ok')).toBe(true);
     await syncPlugins(clientWith([]));
+  });
+
+  it('loads the unmodified hello-openbook example (back-compat: no apiVersion field)', async () => {
+    const hello: StoredPlugin = {
+      manifest: JSON.parse(helloManifestJson) as PluginManifest,
+      files: {'src/index.ts': helloIndexTs, 'src/block.tsx': helloBlockTsx},
+      enabled: true,
+      installedAt: new Date(0).toISOString(),
+    };
+    expect(hello.manifest.apiVersion).toBeUndefined();
+
+    await syncPlugins(clientWith([hello]));
+    expect(pluginStatuses().find((s) => s.plugin.manifest.id === 'openbook.hello')?.state).toBe('active');
+    expect(pluginCommands().some((c) => c.id === 'openbook.hello/new-greeting-page')).toBe(true);
+    expect(getCustomBlock('openbook.hello/hello')).toBeDefined();
+    await syncPlugins(clientWith([]));
+  });
+
+  it('gates activation on apiVersion: older/equal fine, newer refused with the plugin id', async () => {
+    const source = 'export default () => {};';
+    const older = plugin('acme.older', source, true, {apiVersion: 1});
+    const equal = plugin('acme.equal', source, true, {apiVersion: PLUGIN_API_VERSION});
+    const newer = plugin('acme.newer', source, true, {apiVersion: PLUGIN_API_VERSION + 1});
+    await syncPlugins(clientWith([older, equal, newer]));
+
+    const state = (id: string): {state?: string; error?: string} => pluginStatuses().find((s) => s.plugin.manifest.id === id) ?? {};
+    expect(state('acme.older').state).toBe('active');
+    expect(state('acme.equal').state).toBe('active');
+    expect(state('acme.newer').state).toBe('error');
+    expect(state('acme.newer').error).toContain('acme.newer');
+    expect(state('acme.newer').error).toContain(`v${PLUGIN_API_VERSION + 1}`);
+    await syncPlugins(clientWith([]));
+  });
+
+  it('tears down a plugin row subscription on deactivate', async () => {
+    const stop = vi.fn();
+    const client = {
+      listPlugins: async (): Promise<StoredPlugin[]> => list,
+      subscribeRows: vi.fn(() => stop),
+    } as unknown as DataClient;
+    let list = [
+      plugin('acme.live', 'import {api} from \'@book.dev/plugin-sdk\'; export default (a) => { a.databases.subscribeRows(\'db1\', () => {}); void api; };'),
+    ];
+
+    await syncPlugins(client);
+    expect(pluginStatuses().find((s) => s.plugin.manifest.id === 'acme.live')?.state).toBe('active');
+    expect(stop).not.toHaveBeenCalled();
+
+    // Disable → the host disposes the subscription; no leaked handlers.
+    list = [{...list[0], enabled: false}];
+    await syncPlugins(client);
+    expect(stop).toHaveBeenCalledTimes(1);
+    list = [];
+    await syncPlugins(client);
+  });
+
+  it('tears down a subscription made AFTER deactivate (retained plugin callback)', async () => {
+    const stop = vi.fn();
+    const client = {
+      listPlugins: async (): Promise<StoredPlugin[]> => list,
+      subscribeRows: vi.fn(() => stop),
+    } as unknown as DataClient;
+    // The plugin stashes a callback (as a retained setTimeout/event handler
+    // would) that only calls subscribeRows when invoked later.
+    let list = [
+      plugin('acme.retained', 'export default (a) => { globalThis.__lgr4Late = () => a.databases.subscribeRows(\'db1\', () => {}); };'),
+    ];
+    await syncPlugins(client);
+    const late = (globalThis as Record<string, unknown>).__lgr4Late as () => () => void;
+    expect(typeof late).toBe('function');
+    expect(client.subscribeRows).not.toHaveBeenCalled();
+
+    // Disable → dispose runs. Then the retained callback fires anyway.
+    list = [{...list[0], enabled: false}];
+    await syncPlugins(client);
+    expect(stop).not.toHaveBeenCalled();
+    late();
+
+    // The client subscription was created — and torn down synchronously; no
+    // live handler survives past the plugin's deactivation.
+    expect(client.subscribeRows).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalledTimes(1);
+
+    delete (globalThis as Record<string, unknown>).__lgr4Late;
+    list = [];
+    await syncPlugins(client);
   });
 
   it('manages the trusted-registry list around the pinned first-party key', () => {

@@ -13,7 +13,7 @@ function renderInput(type: string, props: Record<string, unknown>) {
   const def = INPUT_BLOCKS.find((d) => d.type === type)!;
   const Comp = def.render;
   const editor = {doc, readOnly: false} as unknown as BlockEditorController;
-  return render(<Comp block={block} editor={editor} />);
+  return render(<Comp block={block} editor={editor} pageReadOnly={false} />);
 }
 
 afterEach(() => cleanup());

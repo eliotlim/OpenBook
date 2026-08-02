@@ -27,6 +27,127 @@ jobs:
       - name: Verify
         run: pnpm run verify
 
+  # Beancount reference gate (LGR-13): bean-check on the fixture exports plus
+  # the Fava/OpenBook trial-balance parity comparison, against a PINNED Python
+  # and a PINNED beancount. "Optional-but-gating": this job installs the
+  # toolchain and then REQUIRES it (OPENBOOK_REQUIRE_BEANCOUNT=1 turns the
+  # local graceful skip into a failure), so when it runs, it gates. The same
+  # vitest file runs inside `verify` too, where it skips — with a printed
+  # notice — on machines without Python+beancount.
+  beancount:
+    name: Beancount reference (bean-check + Fava parity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm" # caches the pnpm store
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Setup Python (pinned)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install beancount (pinned)
+        run: python -m pip install beancount==3.1.0
+
+      # Same libs cache as the e2e jobs: the ui test suite resolves
+      # @book.dev/sdk from its built dist.
+      - name: Cache built libs
+        id: libs-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/sdk/dist
+            packages/ui/dist
+            packages/mcp/dist
+            packages/server/dist
+            packages/server/assets
+          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/mcp/src/**', 'packages/mcp/package.json', 'packages/mcp/tsconfig.json', 'packages/mcp/tsup.config.ts', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
+      - name: Build libs
+        if: steps.libs-cache.outputs.cache-hit != 'true'
+        run: pnpm run build:libs
+
+      - name: bean-check fixture exports + Fava parity (to the cent)
+        env:
+          OPENBOOK_REQUIRE_BEANCOUNT: "1"
+        run: pnpm run test:beancount
+
+  # Ledger durability gate (LGR-15): backup → destroy → restore → diff, plus the
+  # performance benchmarks with thresholds ASSERTED — on BOTH storage backends:
+  # embedded PGlite and a PINNED real-Postgres service container. Real Postgres
+  # is not a nicety here: the wire driver has its own parameter serialization
+  # (the PGlite-only era hid a jsonb double-encoding bug this job now pins).
+  # Same optional-but-gating pattern as `beancount`: locally these suites skip
+  # the Postgres half with a loud notice; OPENBOOK_REQUIRE_LEDGER_PG=1 makes an
+  # absent server a FAILURE, so the coverage can never be lost silently.
+  # Benchmark numbers land in the job summary; the thresholds are the board's
+  # own numbers at ×1 (OPENBOOK_BENCH_TIME_MULTIPLIER is a local-machine escape
+  # hatch, deliberately NOT set here — see docs/ledger/backup-restore.md).
+  durability:
+    name: Ledger durability (restore round-trip + benchmarks)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.9-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      OPENBOOK_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      OPENBOOK_REQUIRE_LEDGER_PG: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: ".nvmrc"
+          cache: "pnpm" # caches the pnpm store
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Same libs cache as the other jobs: the server suite resolves
+      # @book.dev/sdk from its built dist.
+      - name: Cache built libs
+        id: libs-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            packages/sdk/dist
+            packages/ui/dist
+            packages/mcp/dist
+            packages/server/dist
+            packages/server/assets
+          key: ${{ runner.os }}-libs-${{ hashFiles('packages/sdk/src/**', 'packages/sdk/package.json', 'packages/sdk/tsconfig.json', 'packages/ui/src/**', 'packages/ui/resources/**', 'packages/ui/package.json', 'packages/ui/tsconfig.json', 'packages/ui/vite.config.js', 'packages/ui/postcss.config.js', 'packages/mcp/src/**', 'packages/mcp/package.json', 'packages/mcp/tsconfig.json', 'packages/mcp/tsup.config.ts', 'packages/server/src/**', 'packages/server/package.json', 'packages/server/tsconfig.json', 'packages/server/tsup.config.ts', 'pnpm-lock.yaml') }}
+      - name: Build libs
+        if: steps.libs-cache.outputs.cache-hit != 'true'
+        run: pnpm run build:libs
+
+      # The 500-transaction parity book (LGR-13), seeded through the real API —
+      # backup → destroy → restore, byte + semantic diff incl. the LGR-7
+      # verifier and the audit chain, on PGlite AND the service container.
+      - name: Restore round-trip (parity fixture, both backends)
+        env:
+          OPENBOOK_RESTORE_FIXTURE: parity
+        run: pnpm --filter @book.dev/server exec vitest run src/ledgerRestore.test.ts
+
+      # Thresholds asserted (trial balance @10k postings < 500 ms; 1k-row
+      # import < 5 s), medians reported into $GITHUB_STEP_SUMMARY.
+      - name: Ledger benchmarks (thresholds asserted, both backends)
+        run: pnpm run bench:ledger
+
   # Fast P1 core gate — a quick early canary on pull requests (OB-225). Runs only
   # the @p1 specs minus anything tagged @flaky (`test:e2e:core`): ~15 tests in a
   # single job (~1.4min), so no shard matrix. It surfaces core breakage fast; the

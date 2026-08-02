@@ -10,9 +10,10 @@ import {McpClientManager} from './ai/mcpClients';
 import {AiUsageLog} from './ai/usage';
 import {IdentityService} from './instanceConfig';
 import {BackupScheduler} from './backups';
+import {LedgerAutoExporter} from './ledgerAutoExport';
 import {RosterSyncer, httpRosterFetcher, type RosterAssertionProvider} from './rosterSync';
 import {isLoopbackHostname} from './hostGuard';
-import {readFileSync, writeFileSync, rmSync, unlinkSync} from 'node:fs';
+import {readFileSync, writeFileSync, rmSync, unlinkSync, mkdirSync} from 'node:fs';
 import {createServer} from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -105,6 +106,14 @@ export interface StartOptions {
    * re-import changes (DB-wins on conflict). Off when unset. See {@link BookMirror}.
    */
   bookDir?: string;
+  /**
+   * Extra directories the ledger auto-export (LGR-7) may write into, on top of
+   * `<dataDir>/exports`. Operator-supplied ONLY (CLI `--ledger-export-root`, env
+   * `OPENBOOK_LEDGER_EXPORT_ROOTS`) — deliberately unreachable from the HTTP
+   * surface, so no request can widen the fence its own target is checked
+   * against. See {@link LedgerAutoExporter}.
+   */
+  ledgerExportRoots?: string[];
   /**
    * The viewer runtime bundle's JS source for the book mirror's
    * `_openbook/viewer.js` (see {@link BookMirror}'s `runtimeBundle`). The
@@ -437,6 +446,41 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
   const backups = new BackupScheduler(store, {defaultDir: defaultBackupDir});
   backups.start();
 
+  // Ledger auto-export (LGR-7 insurance): when the owner sets
+  // `ledgerAutoExportPath` in instance policy, every ledger mutation schedules
+  // a debounced, atomic write of the canonical postings CSV to that path. Off
+  // by default (unset path ⇒ every trigger is a silent no-op — a cheap config
+  // read); the subscription itself costs nothing until the ledger mutates.
+  //
+  // The target is FENCED to these roots (S2): a DEDICATED `<dataDir>/exports`
+  // subtree, plus whatever the operator allows out-of-band. Both sources are
+  // process-level — no request can add a root — so the setting can never become
+  // an arbitrary-file-write primitive. A headless server with no data dir gets
+  // only the explicit roots (none ⇒ every path refused: fail closed).
+  //
+  // Deliberately NOT the data dir itself: that is the live PGlite directory, so
+  // a default root of `dataDir` would let the export clobber the database it is
+  // insuring (`<dataDir>/PG_VERSION` and friends). Created on demand so the
+  // fence — which resolves each root through `realpath` — can see it.
+  const ledgerDefaultExportDir = opts.dataDir ? path.join(opts.dataDir, 'exports') : undefined;
+  if (ledgerDefaultExportDir) {
+    try {
+      mkdirSync(ledgerDefaultExportDir, {recursive: true});
+    } catch {
+      // Non-fatal: an uncreatable export dir simply matches no path (fail closed).
+    }
+  }
+  const ledgerExportRoots = [
+    ...(ledgerDefaultExportDir ? [ledgerDefaultExportDir] : []),
+    ...(opts.ledgerExportRoots ?? []),
+    ...(process.env.OPENBOOK_LEDGER_EXPORT_ROOTS ?? '')
+      .split(path.delimiter)
+      .map((r) => r.trim())
+      .filter((r) => r.length > 0),
+  ];
+  const ledgerAutoExport = new LedgerAutoExporter(store, {allowRoots: ledgerExportRoots});
+  ledgerAutoExport.start();
+
   // Managed-library roster sync (OB-199; LIB-5): when this instance is bound to an
   // account library, periodically (+ on demand) pull that library's roster and
   // reconcile it into the local `members` table, so `members`-scope + admin/viewer
@@ -605,6 +649,11 @@ export async function startServer(opts: StartOptions): Promise<RunningServer> {
       await ai.dispose();
       await mcp.dispose();
       backups.stop();
+      // Detach the ledger auto-export and let an in-flight write finish before
+      // the store closes (a debounced-but-unfired export is dropped — the next
+      // boot's first mutation re-exports). Never throws (errors are contained).
+      ledgerAutoExport.stop();
+      await ledgerAutoExport.flush();
       roster.stop();
       if (cleanupTimer) clearInterval(cleanupTimer);
       if (maintenanceTimer) clearInterval(maintenanceTimer);

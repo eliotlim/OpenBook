@@ -79,14 +79,33 @@ pnpm --filter @book.dev/server build && node packages/server/dist/bin.js
 
 Config (flags or env):
 
-| Flag             | Env                                       | Meaning                                       |
-| ---------------- | ----------------------------------------- | --------------------------------------------- |
-| `--data-dir`     | `OPENBOOK_DATA_DIR`                       | Embedded PGlite location (embedded mode)      |
-| —                | `OPENBOOK_DATABASE_URL` / `DATABASE_URL`  | External Postgres (server mode)               |
-| `--bind`         | `OPENBOOK_BIND`                           | `host:port` to listen on                      |
-| `--host` `--port`| —                                         | Listen host / port (default `127.0.0.1:4319`) |
+| Flag                  | Env                                       | Meaning                                       |
+| --------------------- | ----------------------------------------- | --------------------------------------------- |
+| `--data-dir`          | `OPENBOOK_DATA_DIR`                       | Embedded PGlite location (embedded mode)      |
+| —                     | `OPENBOOK_DATABASE_URL` / `DATABASE_URL`  | External Postgres (server mode)               |
+| `--bind`              | `OPENBOOK_BIND`                           | `host:port` to listen on                      |
+| `--host` `--port`     | —                                         | Listen host / port (default `127.0.0.1:4319`) |
+| `--ledger-export-root`| `OPENBOOK_LEDGER_EXPORT_ROOTS`            | Extra dirs the ledger auto-export may write into |
+| `--verify-ledger`     | —                                         | Run the ledger verifier and exit (0 clean / 1 findings / 2 error) |
 
 On startup it prints `OPENBOOK_READY <url>` — the desktop host parses this line.
+
+### Ledger auto-export roots
+
+The ledger's insurance export (owner-set `ledgerAutoExportPath` in instance
+policy) writes the canonical postings CSV to a path the **owner** chooses, so
+that path is fenced to a fixed set of directories. The fence is
+process-level — nothing reachable over HTTP can widen it.
+
+- Always allowed: **`<data-dir>/exports`** (created on demand). Deliberately not
+  the data dir itself, which is the live PGlite directory.
+- `--ledger-export-root <paths>` / `OPENBOOK_LEDGER_EXPORT_ROOTS=<paths>` add
+  more. Both accept a list separated by the platform path delimiter (`:` on
+  POSIX, `;` on Windows); the flag may also be repeated.
+- Roots and the target's parent directory are compared as **real** paths, so a
+  symlink planted inside a root cannot redirect the export out of the fence. A
+  refused path is reported on stderr, never silently skipped.
+- With no data dir and no configured root, **every** path is refused (fail closed).
 
 ## Desktop sidecar
 

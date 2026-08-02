@@ -91,7 +91,7 @@ export default function BackupSettings() {
     setBusy('export');
     setStatus(null);
     try {
-      const {pages, databases} = await client.exportLibrary();
+      const {pages, databases, ledger} = await client.exportLibrary();
       // Icons travel in `page.properties` now, but keep the legacy `icons` map in
       // the bundle too so older importers still restore them.
       const icons: Record<string, string> = {};
@@ -99,7 +99,10 @@ export default function BackupSettings() {
         const ic = p.properties?.[ICON_PROPERTY_ID];
         if (typeof ic === 'string' && ic) icons[p.id] = ic;
       }
-      const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons};
+      // LGR-15: the ledger durability section (audit stream, settings, evidence
+      // assets) rides in the same file — dropping it here would export a book
+      // whose restore could never verify.
+      const backup: LibraryBackup = {version: BACKUP_VERSION, exportedAt: new Date().toISOString(), pages, databases, icons, ...(ledger ? {ledger} : {})};
       downloadText(`openbook-backup-${new Date().toISOString().slice(0, 10)}.openbook.json`, JSON.stringify(backup), 'application/json');
       setStatus(t('backup.exported', {count: pages.length}));
     } catch (e) {
@@ -526,14 +529,31 @@ function RestoreDialog({
     }
     setBusy('import');
     try {
-      const result = await run({pages: sel.pages, databases: sel.databases, mode});
+      // LGR-15: a bundle carrying the ledger's durability section forwards it on
+      // an OVERWRITE restore — the server applies it only into a library with no
+      // seeded ledger (and only when the selection carried the ledger's own
+      // pages), so this is safe to send unconditionally in that mode.
+      const result = await run({pages: sel.pages, databases: sel.databases, mode, ...(mode === 'overwrite' && bundle.ledger ? {ledger: bundle.ledger} : {})});
       const bits = [
         result.created ? t('backup.added', {count: result.created}) : '',
         result.overwritten ? t('backup.overwrittenCount', {count: result.overwritten}) : '',
         result.renamed ? t('backup.renamedCount', {count: result.renamed}) : '',
       ].filter(Boolean);
       const detail = bits.length ? ` (${bits.join(', ')})` : '';
-      onDone(t('backup.restored', {count: sel.pages.length, detail}));
+      // LGR-15: the ledger section's outcome is reported EXPLICITLY — pages
+      // restoring fine while the books' history was skipped must never read as
+      // success (the runbook's verify step hangs off this line).
+      const ledgerLine =
+        result.ledger === 'restored'
+          ? ` ${t('backup.ledgerRestored')}`
+          : result.ledger === 'skipped-existing-ledger'
+            ? ` ${t('backup.ledgerSkippedExisting')}`
+            : result.ledger === 'skipped-copy-mode'
+              ? ` ${t('backup.ledgerSkippedCopy')}`
+              : result.ledger === 'skipped-incomplete'
+                ? ` ${t('backup.ledgerSkippedIncomplete')}`
+                : '';
+      onDone(`${t('backup.restored', {count: sel.pages.length, detail})}${ledgerLine}`);
     } catch (e) {
       onDone(t('backup.restoreFailed', {error: (e as Error).message}));
     } finally {

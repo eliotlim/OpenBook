@@ -129,6 +129,14 @@ export interface StoredPage {
   properties: Record<string, unknown>;
   /** When the page is in the trash, the ISO timestamp it was deleted; else `null`. */
   deletedAt: string | null;
+  /**
+   * Sibling sort key (sidebar order; row order within a database). Carried by
+   * exports since LGR-15 so a restore preserves ordering — for the LEDGER it is
+   * load-bearing: posting order feeds the audited content hash, so losing it
+   * would make a restored book read as tampered-with. Optional: bundles written
+   * before v2 have no such key and import with the mode's default placement.
+   */
+  position?: number;
   createdAt: string;
   updatedAt: string;
 }

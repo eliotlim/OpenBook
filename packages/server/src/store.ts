@@ -16,6 +16,9 @@ import type {
   DatabaseUpdate,
   ImportRequest,
   ImportResult,
+  LedgerBackupAsset,
+  LedgerBackupSection,
+  LedgerRestoreOutcome,
   EffectiveRole,
   InstanceConfig,
   Member,
@@ -43,11 +46,14 @@ import type {
   VerifiedVia,
 } from '@book.dev/sdk';
 import {authorize, dateStart, DEFAULT_ACCOUNT_URL, DEFAULT_BACKUP_CONFIG, DEFAULT_INSTANCE_CONFIG, emptyPageSnapshot, extractMentionIds, extractPropertyReferenceIds, isEmailAuthoritative, latestSnapshotAuthor, parseDay, projectExports, propertiesReferencePage, remapBundle, resolveAutoExpiry, stampSnapshotAuthors, stampSnapshotAuthorsPerBlock, stampSnapshotMtimes, verifiedSubject, type Decision, type EffectiveVisibility, type PageGraph, type PageGraphEdge, type PluginPackage, type StoredPlugin} from '@book.dev/sdk';
+import {LedgerError, LEDGER_AUDIT_ACTIONS, LEDGER_PROP, ASSET_IMAGE_MIMES, DEFAULT_MAX_ASSET_BYTES, canonicalLedgerJson, ledgerAuditEventHash, verifyLedgerAuditChain} from '@book.dev/sdk';
 import {authoredSubject} from './agentWriteGate';
 import type {Db} from './dbCore';
 import type {IndexablePage} from './ai/search';
 import type {AgentTokenRow} from './agentTokens';
 import {runMigrations} from './migrations';
+import {LEDGER_AUDIT_CHAIN_LOCK, LEDGER_DB_SETTING_KEY, LEDGER_ENTRY_SEQ_SETTING_KEY, LEDGER_PERIODS_SETTING_KEY, LedgerStore, type LedgerIds} from './ledger';
+import {verifyLedger, type LedgerVerifyReport} from './ledgerVerify';
 
 /**
  * The `settings` key holding `{databaseId, hostPageId}` for the server-managed AI
@@ -93,6 +99,8 @@ interface PageRow {
   hosted_database_id?: string | null;
   // Projected from `properties->>'sys_icon'` by the meta queries (PageMeta only).
   icon?: string | null;
+  // Sibling sort key; selected by full page fetches so exports carry it (LGR-15).
+  position?: number | string | null;
   created_at: Date | string;
   updated_at: Date | string;
   // Set when the page is in the trash (soft-deleted); null for live pages.
@@ -225,6 +233,9 @@ const pageFromRow = (row: PageRow): StoredPage => ({
   parentId: row.parent_id ?? null,
   properties: parseJson<Record<string, unknown>>(row.properties, {}),
   deletedAt: toIsoOrNull(row.deleted_at),
+  // Absent on queries that don't select it; carried by exports so a restore
+  // preserves sibling/posting order (LGR-15 — order feeds the ledger hashes).
+  ...(row.position != null ? {position: Number(row.position)} : {}),
   createdAt: toIso(row.created_at),
   updatedAt: toIso(row.updated_at),
 });
@@ -304,7 +315,7 @@ const stripConflictSuffix = (name: string): string => {
 
 // Column list for a full page fetch, including the hosted-database join.
 const PAGE_COLUMNS =
-  'p.id, p.name, p.data, p.database_id, p.parent_id, p.properties, p.deleted_at, p.created_at, p.updated_at, ' +
+  'p.id, p.name, p.data, p.database_id, p.parent_id, p.properties, p.deleted_at, p.position, p.created_at, p.updated_at, ' +
   'd.id AS hosted_database_id';
 const PAGE_FROM = 'pages p LEFT JOIN databases d ON d.page_id = p.id';
 
@@ -323,9 +334,26 @@ async function bundleKey(req: ImportRequest): Promise<string> {
     mode: req.mode ?? 'copy',
     pages: [...req.pages].sort(byId),
     databases: [...req.databases].sort(byId),
+    // LGR-15: the ledger section is part of the bundle's identity — the same
+    // pages WITH a ledger to restore must never dedupe against a prior apply
+    // WITHOUT one. `null` (not absent) so a v1 key can't collide by accident.
+    ledger: req.ledger ?? null,
   });
   const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Normalize a BYTEA column value to bytes: PGlite and postgres.js hand back a
+ * `Uint8Array`; some drivers hand back the `\x…` hex string (LGR-15 backup
+ * export reads asset bytes on both backends).
+ */
+function byteaToBytes(raw: Uint8Array | string): Uint8Array {
+  if (typeof raw !== 'string') return raw;
+  const hex = raw.startsWith('\\x') ? raw.slice(2) : raw;
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i += 1) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
 }
 
 /**
@@ -395,6 +423,149 @@ export class PageStore {
   /** Advance the access epoch — call after any read/write-affecting mutation. */
   private bumpAccess(): void {
     this.accessGen += 1;
+  }
+
+  // ── Ledger (LGR-3): the store-level write guards + the one sanctioned writer ──
+
+  /**
+   * The ledger writer for this store — the ONLY code allowed to mutate ledger
+   * rows. Lazily constructed; safe in both server and in-webview (browser-local)
+   * mode, which is exactly why the guards below live HERE and not in the HTTP
+   * routes: `LocalDataClient` bypasses HTTP entirely.
+   */
+  private ledgerStore: LedgerStore | null = null;
+  get ledger(): LedgerStore {
+    if (!this.ledgerStore) this.ledgerStore = new LedgerStore(this, this.db);
+    return this.ledgerStore;
+  }
+
+  /**
+   * Cached ledger ids from `settings` (`undefined` = unknown / not seeded yet —
+   * the "absent" case is deliberately NOT cached, see {@link ledgerIds}).
+   * Invalidated by {@link setSetting} whenever the recording key is written, so
+   * the guards arm on the very write that seeds the ledger.
+   */
+  private ledgerIdsCache: LedgerIds | undefined = undefined;
+
+  /** Drop the cached ledger ids (the seed writes the settings row on its own
+   *  transaction, bypassing {@link setSetting}'s invalidation). */
+  invalidateLedgerIds(): void {
+    this.ledgerIdsCache = undefined;
+  }
+
+  /**
+   * The recorded ledger ids, or `null` when the ledger has never been seeded.
+   *
+   * Only a POSITIVE result is cached (LGR-3 F8). Caching the negative one was a
+   * multi-process footgun: against external Postgres, a process that booted
+   * before the ledger was seeded would cache `null` forever — same-process
+   * `setSetting` is the only thing that clears it — leaving EVERY store-level
+   * ledger guard disarmed in that process until it restarted, while another
+   * process happily served a seeded ledger. A miss costs one indexed settings
+   * read; once seeded, the ids never change, so the hot path still caches.
+   */
+  async ledgerIds(): Promise<LedgerIds | null> {
+    if (this.ledgerIdsCache != null) return this.ledgerIdsCache;
+    const ids = await this.getSetting<LedgerIds>(LEDGER_DB_SETTING_KEY);
+    const resolved = ids && ids.hostPageId && ids.hostPages ? ids : null;
+    this.ledgerIdsCache = resolved ?? undefined; // never cache "not seeded"
+    return resolved;
+  }
+
+  /**
+   * LGR-7: run the INDEPENDENT invariant verifier against raw storage. Its own
+   * SQL reads — deliberately not the LedgerStore query/validator paths — so an
+   * out-of-band mutation that slipped past enforcement is still caught.
+   * Read-only; `findings: []` = clean.
+   */
+  verifyLedger(): Promise<LedgerVerifyReport> {
+    return verifyLedger(this.db);
+  }
+
+  /** True for one of the four server-managed ledger databases. */
+  async isLedgerDatabase(databaseId: string): Promise<boolean> {
+    const ids = await this.ledgerIds();
+    if (!ids) return false;
+    return (
+      databaseId === ids.accounts ||
+      databaseId === ids.transactions ||
+      databaseId === ids.postings ||
+      databaseId === ids.reconciliations
+    );
+  }
+
+  /**
+   * True for one of the FIVE ledger host pages — the root, or one of the four
+   * per-database hosts. These are the pages whose access decision every ledger
+   * row inherits, so they carry the confidentiality of the whole ledger (see
+   * {@link setPageVisibility}).
+   */
+  async isLedgerHostPage(pageId: string): Promise<boolean> {
+    const ids = await this.ledgerIds();
+    if (!ids) return false;
+    return (
+      pageId === ids.hostPageId ||
+      pageId === ids.hostPages.accounts ||
+      pageId === ids.hostPages.transactions ||
+      pageId === ids.hostPages.postings ||
+      pageId === ids.hostPages.reconciliations
+    );
+  }
+
+  /** True for the ledger root page, a ledger database's host page, or any row of
+   *  a ledger database. Issues its own query — code inside an open transaction
+   *  MUST use {@link isLedgerPageOn} with its `tx` instead. */
+  async isLedgerPage(pageId: string): Promise<boolean> {
+    const ids = await this.ledgerIds();
+    if (!ids) return false;
+    return this.isLedgerPageOn(this.db, ids, pageId);
+  }
+
+  /**
+   * {@link isLedgerPage} on a caller-supplied queryable.
+   *
+   * DEADLOCK SAFETY — this overload exists because getting it wrong wedges the
+   * whole process. On the embedded PGlite backend a top-level `query` and a
+   * `begin` share ONE non-reentrant FIFO mutex (see `dbCore.ts`), so a query
+   * issued against the OUTER `this.db` handle from inside an open transaction
+   * queues behind the very transaction that is awaiting it: the transaction
+   * never settles, and since `Mutex.tail` is then chained to a promise that
+   * never resolves, every subsequent database call in the process hangs too —
+   * recoverable only by restart. `stripManagedLedger` did exactly this, wedging
+   * any import of a bundle that contained a parented page (i.e. essentially
+   * every real backup restore). Inside `begin`, always pass `tx`.
+   */
+  private async isLedgerPageOn(q: Db, ids: LedgerIds, pageId: string): Promise<boolean> {
+    if (
+      pageId === ids.hostPageId ||
+      pageId === ids.hostPages.accounts ||
+      pageId === ids.hostPages.transactions ||
+      pageId === ids.hostPages.postings ||
+      pageId === ids.hostPages.reconciliations
+    ) {
+      return true;
+    }
+    const rows = await q.query<{database_id: string | null}>(
+      'SELECT database_id FROM pages WHERE id = $1',
+      [pageId],
+    );
+    const dbId = rows[0]?.database_id;
+    if (!dbId) return false;
+    return dbId === ids.accounts || dbId === ids.transactions || dbId === ids.postings || dbId === ids.reconciliations;
+  }
+
+  /** Store-level ledger write-gate for the generic DATABASE mutation surface. */
+  private async assertNotLedgerDatabase(databaseId: string): Promise<void> {
+    if (await this.isLedgerDatabase(databaseId)) {
+      throw new LedgerError('managed', 'this database is part of the server-managed ledger and can only be changed through the ledger API');
+    }
+  }
+
+  /** Store-level ledger write-gate for the generic PAGE mutation surface. */
+  private async assertNotLedgerPage(pageId: string): Promise<void> {
+    if (await this.isLedgerPage(pageId)) {
+      throw new LedgerError('managed', 'this page is part of the server-managed ledger and can only be changed through the ledger API');
+    }
   }
 
   /** Apply pending migrations. Idempotent. */
@@ -502,15 +673,87 @@ export class PageStore {
   // ── Whole-space backup ───────────────────────────────────────────────────────
 
   /** Export every live page (full data, nesting, database membership) + every
-   *  database — the entire library as one bundle. */
-  async exportAll(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
+   *  database — the entire library as one bundle. When a ledger is seeded the
+   *  bundle also carries its durability surface (LGR-15): the audit stream,
+   *  the ledger settings rows, and the evidence assets its manifests name. */
+  async exportAll(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}> {
     const pageRows = await this.db.query<PageRow>(
       `SELECT ${PAGE_COLUMNS} FROM ${PAGE_FROM} WHERE p.deleted_at IS NULL ORDER BY p.created_at ASC`,
     );
     const dbRows = await this.db.query<DatabaseRowRecord>(
       'SELECT id, page_id, name, schema, created_at, updated_at FROM databases',
     );
-    return {pages: pageRows.map(pageFromRow), databases: dbRows.map(databaseFromRow)};
+    const ledger = await this.exportLedgerSection();
+    return {
+      pages: pageRows.map(pageFromRow),
+      databases: dbRows.map(databaseFromRow),
+      ...(ledger ? {ledger} : {}),
+    };
+  }
+
+  /**
+   * The ledger durability surface of a backup (LGR-15), or `undefined` when no
+   * ledger is seeded. The entity rows travel as ordinary pages; this collects
+   * what they cannot express: the settings rows (ids, periods, entry sequence),
+   * the FULL audit stream (verbatim — the tamper-evidence chain must survive
+   * the round trip), and the evidence assets any transaction manifest names
+   * (drafts included: a restored draft must still be able to post).
+   *
+   * Asset bytes are read ONE ASSET PER QUERY, which bounds the QUERY-SIDE peak
+   * (no `bytes = ANY(...)` materializing every receipt at once, plus its driver
+   * copy) — but be honest about the ceiling: the returned section still holds
+   * the whole corpus base64-encoded, because the export IS the corpus (the
+   * bundle is one JSON document; streaming it means restructuring the export
+   * wire format, out of scope here and noted in the runbook). The verifier's
+   * evidence check, which returns only findings, is the truly O(1)-memory one.
+   */
+  private async exportLedgerSection(): Promise<LedgerBackupSection | undefined> {
+    const ids = await this.ledgerIds();
+    if (!ids) return undefined;
+    const settings: Record<string, unknown> = {};
+    for (const key of [LEDGER_DB_SETTING_KEY, LEDGER_PERIODS_SETTING_KEY, LEDGER_ENTRY_SEQ_SETTING_KEY]) {
+      const value = await this.getSetting<unknown>(key);
+      if (value != null) settings[key] = value;
+    }
+    const audit = await this.ledger.exportAuditStream();
+
+    const txRows = await this.db.query<{properties: Record<string, unknown> | string | null}>(
+      'SELECT properties FROM pages WHERE database_id = $1 AND deleted_at IS NULL',
+      [ids.transactions],
+    );
+    const wanted = new Set<string>();
+    for (const row of txRows) {
+      const props = parseJson<Record<string, unknown>>(row.properties, {});
+      const manifest = props[LEDGER_PROP.transaction.evidence];
+      if (!Array.isArray(manifest)) continue;
+      for (const item of manifest) {
+        const sha = (item as {sha256?: unknown} | null)?.sha256;
+        if (typeof sha === 'string' && /^[0-9a-f]{64}$/.test(sha)) wanted.add(sha);
+      }
+    }
+    const assets: LedgerBackupAsset[] = [];
+    for (const id of [...wanted].sort()) {
+      const rows = await this.db.query<{id: string; mime: string; bytes: Uint8Array | string}>(
+        'SELECT id, mime, bytes FROM assets WHERE id = $1',
+        [id],
+      );
+      // A manifest naming bytes the store no longer holds is the verifier's
+      // finding to report — the backup carries what exists, never invents.
+      if (rows.length === 0) continue;
+      const bytes = byteaToBytes(rows[0].bytes);
+      const refs = await this.db.query<{page_id: string}>(
+        'SELECT page_id FROM asset_refs WHERE asset_id = $1 ORDER BY page_id ASC',
+        [id],
+      );
+      assets.push({
+        id,
+        mime: rows[0].mime,
+        size: bytes.byteLength,
+        bytesBase64: Buffer.from(bytes).toString('base64'),
+        refs: refs.map((r) => r.page_id),
+      });
+    }
+    return {settings, audit, assets};
   }
 
   /**
@@ -518,8 +761,13 @@ export class PageStore {
    * databases as fresh copies — new ids (via {@link remapBundle}), names suffixed
    * `" (imported)"` on clash, appended below existing pages. `overwrite` upserts
    * by id, replacing pages in place. Returns counts + the old→new id map.
+   *
+   * `opts.actor` is recorded on the `ledger.restore` provenance event when the
+   * bundle carries a ledger section; `opts.assetBudgetBytes` applies the
+   * instance's asset-storage budget to restored evidence bytes (same cap the
+   * upload door enforces).
    */
-  async importBundle(req: ImportRequest): Promise<ImportResult> {
+  async importBundle(req: ImportRequest, opts: {actor?: Principal; assetBudgetBytes?: number} = {}): Promise<ImportResult> {
     // ER-6: re-applying the SAME bundle must be a no-op. `copy` mode re-IDs +
     // INSERTs the whole bundle as fresh pages on every call and the route appends
     // a `space.import` edit each time, so an idempotent re-apply (a future
@@ -549,6 +797,10 @@ export class PageStore {
     // and stable thereafter — absent, so a no-op strip, until then); reading inside
     // would re-enter the PGlite mutex the tx already holds.
     const managedUsage = await this.getSetting<{databaseId: string; hostPageId: string | null}>(USAGE_DB_SETTING_KEY);
+    // LGR-3: the same restore-tamper hole applies to the ledger — an overwrite
+    // bundle must never rewrite posted transactions/postings, the seeded schemas,
+    // or the restricted host page. Read (cached) ids outside the tx like above.
+    const ledgerIds = await this.ledgerIds();
     const key = await bundleKey(req);
     return this.db.begin(async (tx) => {
       const claim = await tx.query<{key: string}>(
@@ -564,11 +816,33 @@ export class PageStore {
       // Drop any bundle entry that targets the server-managed AI usage DB before it
       // reaches the writers — so overwrite mode can't tamper with the audit rows and
       // recordSyncedAttributionTx never credits a skipped (managed) page.
-      const {pages, databases} = await this.stripManagedUsage(tx, req.pages, req.databases, managedUsage);
-      const result =
+      const stripped = await this.stripManagedUsage(tx, req.pages, req.databases, managedUsage);
+      // …and any entry that targets the server-managed LEDGER (LGR-3).
+      const {pages, databases} = await this.stripManagedLedger(tx, stripped.pages, stripped.databases, ledgerIds);
+      let result =
         req.mode === 'overwrite'
           ? await this.importOverwriteTx(tx, pages, databases)
           : await this.importCopyTx(tx, pages, databases);
+      // LGR-15: the bundle's ledger durability section (audit stream, settings,
+      // evidence assets). Deliberately narrow: overwrite mode only (copy re-ids
+      // every page, severing the audit stream's entity references), and ONLY
+      // into a library with no seeded ledger — an existing ledger keeps its
+      // LGR-3 protections (the strip above already ran) and the section is
+      // skipped, reported, never merged. Runs in the SAME transaction: a
+      // restored book must never commit with half its history.
+      if (req.ledger) {
+        const outcome: LedgerRestoreOutcome =
+          req.mode !== 'overwrite'
+            ? 'skipped-copy-mode'
+            : ledgerIds
+              ? 'skipped-existing-ledger'
+              : await this.restoreLedgerSectionTx(tx, req.ledger, pages, databases, {
+                actor: opts.actor,
+                assetBudgetBytes: opts.assetBudgetBytes,
+                bundleSha: key,
+              });
+        result = {...result, ledger: outcome};
+      }
       // OB-170: a page may carry verified per-block authorship from the instance it
       // was authored on. Credit that as a `synced` edit-log entry — in the SAME
       // transaction so a crash can't leave the claimed key committed without its
@@ -646,6 +920,299 @@ export class PageStore {
     return {pages: kept, databases: databases.filter((d) => d.id !== managed.databaseId)};
   }
 
+  /**
+   * LGR-3 twin of {@link stripManagedUsage}: drop every bundle entry that targets
+   * the server-managed ledger. A no-op until the ledger is seeded.
+   *
+   * SECURITY (LGR-3 F1 — the ledger-erasure cascade). `importOverwriteTx` writes
+   * `parent_id`/`database_id` from the bundle verbatim, and BOTH columns are
+   * `ON DELETE CASCADE`. An earlier version skipped only the ledger ROOT page and
+   * pages carrying a ledger `database_id` — but the four per-database HOST pages
+   * have `database_id IS NULL`, so they passed straight through. Re-homing one
+   * (new `parent_id` under an attacker page, or a new `database_id` on an
+   * attacker database) then made a perfectly ordinary delete-and-purge — or a
+   * `DELETE /api/databases/:id` — hard-cascade the host away, taking its database
+   * and EVERY posting row with it: the transaction rows survived reading
+   * `state:'posted'` with `postings: []`, and the audit log recorded nothing. The
+   * books could be silently emptied through a route that never touches the ledger.
+   *
+   * So the skip-set is now ALL FIVE ledger host pages, and a bundle page is also
+   * dropped when it would ATTACH itself to (or re-home onto) any ledger page or
+   * database — an attacker page parented under a ledger page can't be used to
+   * drag ledger rows into a foreign cascade, and no bundle entry can re-point a
+   * ledger row's membership.
+   */
+  private async stripManagedLedger(
+    tx: Db,
+    pages: StoredPage[],
+    databases: StoredDatabase[],
+    ids: LedgerIds | null,
+  ): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
+    if (!ids) return {pages, databases};
+    const dbIds = new Set([ids.accounts, ids.transactions, ids.postings, ids.reconciliations]);
+    // Every ledger page that must never be rewritten: the root + the four
+    // per-database hosts (the ones that carry no `database_id`).
+    const hostIds = new Set<string>([ids.hostPageId, ...Object.values(ids.hostPages)]);
+    const kept: StoredPage[] = [];
+    for (const p of pages) {
+      if (hostIds.has(p.id)) continue;
+      if (p.databaseId && dbIds.has(p.databaseId)) continue;
+      // Attaching a foreign page UNDER a ledger page (or claiming a ledger page
+      // as its parent) is refused too: it would splice attacker-controlled rows
+      // into the ledger subtree. NOTE the `tx` — querying the outer handle from
+      // inside this transaction deadlocks the process (see isLedgerPageOn).
+      if (p.parentId && (await this.isLedgerPageOn(tx, ids, p.parentId))) continue;
+      const cur = await tx.query<{database_id: string | null}>('SELECT database_id FROM pages WHERE id = $1', [p.id]);
+      if (cur[0]?.database_id && dbIds.has(cur[0].database_id)) continue;
+      kept.push(p);
+    }
+    // A ledger database can neither be rewritten nor re-homed onto ANY ledger
+    // page — host or row. (Claiming a ROW as `pageId` has no erasure path today,
+    // since `deleteDatabase` never touches the host page and ledger rows can't
+    // be trashed or purged; refused anyway so the import door and the runtime
+    // guards agree rather than relying on that reasoning staying true.)
+    const keptDatabases: StoredDatabase[] = [];
+    for (const d of databases) {
+      if (dbIds.has(d.id)) continue;
+      if (await this.isLedgerPageOn(tx, ids, d.pageId)) continue;
+      keptDatabases.push(d);
+    }
+    return {pages: kept, databases: keptDatabases};
+  }
+
+  /**
+   * Apply a bundle's {@link LedgerBackupSection} inside the import transaction
+   * (LGR-15). Precondition held by the caller: overwrite mode (plus a fast-path
+   * no-existing-ledger check — RE-VERIFIED in here, see below).
+   *
+   * The section is UNTRUSTED input (instance-admin gated, but a crafted file is
+   * still a crafted file), so the door is checked in this order:
+   *
+   *  1. MEMBERSHIP, not mere existence (S2): every id the section claims must
+   *     be a page/database THIS request's post-strip bundle carried — checked
+   *     against the arrays, never against the target's tables, so a section can
+   *     never conscript a victim's existing database into "being the ledger"
+   *     (arming the write guards against its owner). A section without its own
+   *     rows is `skipped-incomplete`, never half-applied.
+   *  2. STREAM SHAPE: non-empty, strictly-ascending unique seqs, every action
+   *     interpretable by this build, and the FIRST event `ledger.init` — a
+   *     history with no genesis is not a history.
+   *  3. CHAIN VERIFICATION (S4): `verifyLedgerAuditChain` over the whole
+   *     stream, REFUSED when broken — the restore door must not install a
+   *     stream the documented tamper check would reject.
+   *  4. CLAIM, in-transaction (S3): the caller's no-existing-ledger check reads
+   *     pre-transaction state (TOCTOU); here the `ledgerDb` settings row is
+   *     CLAIMED (`ON CONFLICT DO NOTHING RETURNING` — the `import_log` shape),
+   *     then the audit-chain advisory lock is taken (same order as `doSeed`:
+   *     settings first, then lock — one order everywhere, no deadlock cycle)
+   *     and `ledger_audit` must be EMPTY. Losing either check is a typed
+   *     `skipped-existing-ledger`, never a unique-index 500.
+   *  5. VISIBILITY (S1): the five ledger host pages are re-asserted
+   *     `restricted`, mirroring `doSeed` — `visibility` is a column, not part
+   *     of `StoredPage`, so without this a restored ledger landed `inherit`
+   *     and any member could read the books the source library denied them.
+   *  6. ASSETS through the upload door's controls (S5): mime sanitized against
+   *     the SAME allowlist as `safeAssetMime`, the per-asset byte cap enforced,
+   *     the storage budget applied via the same guarded insert as `putAsset`,
+   *     bytes re-hashed against the claimed id, and refs attached ONLY to pages
+   *     this bundle carried.
+   *  7. PROVENANCE (S6): a `ledger.restore` event is appended ON TOP of the
+   *     restored tail — chained from it — naming the actor and the bundle's
+   *     content hash, so an installed history is bracketed by an attributable
+   *     event. Its afterHash derives from its own payload (the verifier
+   *     re-derives it, like `ledger.autoExportPath`).
+   *
+   * What it deliberately does NOT do: judge the restored history's TRUTH. The
+   * hashes are internally consistent or the door refuses; whether they match
+   * the restored rows is the LGR-7 verifier's job (`GET /api/ledger/verify` —
+   * the runbook's mandatory last step, and what the restore CI asserts). A
+   * consistent forger with a fabricated-but-well-formed history is undetectable
+   * by construction — restoring a bundle is trusting its author (runbook).
+   */
+  private async restoreLedgerSectionTx(
+    tx: Db,
+    section: LedgerBackupSection,
+    pages: StoredPage[],
+    databases: StoredDatabase[],
+    opts: {actor?: Principal; assetBudgetBytes?: number; bundleSha: string},
+  ): Promise<LedgerRestoreOutcome> {
+    // 1. Shape + MEMBERSHIP (against this request's post-strip bundle arrays).
+    const rawIds = section.settings?.[LEDGER_DB_SETTING_KEY] as Partial<LedgerIds> | undefined;
+    const hostPages = rawIds?.hostPages;
+    const pageIds = [rawIds?.hostPageId, hostPages?.accounts, hostPages?.transactions, hostPages?.postings, hostPages?.reconciliations];
+    const dbIds = [rawIds?.accounts, rawIds?.transactions, rawIds?.postings, rawIds?.reconciliations];
+    const allStrings = [...pageIds, ...dbIds].every((id): id is string => typeof id === 'string' && id.length > 0);
+    if (!rawIds || !allStrings) return 'skipped-incomplete';
+    const bundlePageIds = new Set(pages.map((p) => p.id));
+    const bundleDbIds = new Set(databases.map((d) => d.id));
+    if (!pageIds.every((id) => bundlePageIds.has(id as string))) return 'skipped-incomplete';
+    if (!dbIds.every((id) => bundleDbIds.has(id as string))) return 'skipped-incomplete';
+
+    // 2. Stream shape. A ledger's history opens with its genesis event.
+    const events = [...section.audit].sort((a, b) => Number(a.seq) - Number(b.seq));
+    if (events.length === 0 || events[0].action !== 'ledger.init') return 'skipped-incomplete';
+    let prevSeq = 0;
+    for (const ev of events) {
+      const seq = Number(ev.seq);
+      if (!Number.isSafeInteger(seq) || seq <= prevSeq) {
+        throw new Error(`invalid ledger backup: audit seq ${String(ev.seq)} is not strictly ascending`);
+      }
+      prevSeq = seq;
+      if (!(LEDGER_AUDIT_ACTIONS as readonly string[]).includes(ev.action)) {
+        throw new Error(`invalid ledger backup: unknown audit action ${JSON.stringify(ev.action)}`);
+      }
+      if (typeof ev.id !== 'string' || ev.id.length === 0) {
+        throw new Error(`invalid ledger backup: audit seq ${seq} has no event id`);
+      }
+    }
+
+    // 3. The tamper-evidence chain must verify BEFORE anything is installed.
+    const chain = await verifyLedgerAuditChain(events);
+    if (!chain.ok) {
+      throw new Error(
+        `invalid ledger backup: audit hash chain broken at seq ${chain.brokenAtSeq ?? '?'} — ${chain.reason ?? 'unverifiable'}; refusing to install a stream the tamper check rejects`,
+      );
+    }
+
+    // 4. CLAIM the ledger in-transaction (settings row first, then the chain
+    // lock — doSeed's order), and require an EMPTY audit table.
+    const claim = await tx.query<{key: string}>(
+      `INSERT INTO settings (key, value) VALUES ($1, $2::jsonb)
+       ON CONFLICT (key) DO NOTHING RETURNING key`,
+      [LEDGER_DB_SETTING_KEY, JSON.stringify(section.settings[LEDGER_DB_SETTING_KEY])],
+    );
+    if (claim.length === 0) return 'skipped-existing-ledger';
+    await tx.query('SELECT pg_advisory_xact_lock($1)', [LEDGER_AUDIT_CHAIN_LOCK]);
+    const existingAudit = await tx.query<{seq: number}>('SELECT seq FROM ledger_audit LIMIT 1');
+    if (existingAudit.length > 0) return 'skipped-existing-ledger';
+
+    for (const key of [LEDGER_PERIODS_SETTING_KEY, LEDGER_ENTRY_SEQ_SETTING_KEY]) {
+      const value = section.settings[key];
+      if (value == null) continue;
+      await tx.query(
+        `INSERT INTO settings (key, value) VALUES ($1, $2::jsonb)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [key, JSON.stringify(value)],
+      );
+    }
+
+    for (const ev of events) {
+      await tx.query(
+        `INSERT INTO ledger_audit (seq, id, actor_subject, actor_name, action, entity_ids, payload, before_hash, after_hash, prev_hash, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8, $9, $10, $11)`,
+        [
+          Number(ev.seq),
+          ev.id,
+          typeof ev.actorSubject === 'string' ? ev.actorSubject : '',
+          typeof ev.actorName === 'string' ? ev.actorName : '',
+          ev.action,
+          JSON.stringify(Array.isArray(ev.entityIds) ? ev.entityIds : []),
+          JSON.stringify(ev.payload ?? {}),
+          typeof ev.beforeHash === 'string' ? ev.beforeHash : null,
+          typeof ev.afterHash === 'string' ? ev.afterHash : null,
+          typeof ev.prevHash === 'string' ? ev.prevHash : null,
+          ev.createdAt,
+        ],
+      );
+    }
+    // Advance the BIGSERIAL past the restored tail so the next append never
+    // collides with a restored seq.
+    await tx.query(
+      'SELECT setval(pg_get_serial_sequence(\'ledger_audit\', \'seq\'), (SELECT COALESCE(MAX(seq), 1) FROM ledger_audit))',
+    );
+
+    // 5. Re-assert the seed-time visibility posture (mirrors doSeed): the five
+    // ledger host pages are `restricted`, always — the bundle does not carry
+    // the `visibility` column, and `inherit` would hand the books to `members`.
+    await tx.query('UPDATE pages SET visibility = \'restricted\' WHERE id = ANY($1)', [pageIds]);
+
+    // 6. Evidence assets, through the upload door's controls.
+    for (const asset of section.assets ?? []) {
+      if (typeof asset.id !== 'string' || !/^[0-9a-f]{64}$/.test(asset.id) || typeof asset.bytesBase64 !== 'string') {
+        throw new Error('invalid ledger backup: malformed evidence asset entry');
+      }
+      const bytes = Uint8Array.from(Buffer.from(asset.bytesBase64, 'base64'));
+      if (bytes.byteLength > DEFAULT_MAX_ASSET_BYTES) {
+        throw new Error(`invalid ledger backup: asset ${asset.id} is ${bytes.byteLength} bytes — over the ${DEFAULT_MAX_ASSET_BYTES}-byte asset cap the upload door enforces`);
+      }
+      const actual = await assetHash(bytes);
+      if (actual !== asset.id) {
+        throw new Error(`invalid ledger backup: asset ${asset.id} bytes hash to ${actual} — refusing to store bytes under a hash they do not answer to`);
+      }
+      // The SAME mime discipline as the upload door's `safeAssetMime` (app.ts),
+      // against the same sdk allowlist: control characters refuse the bundle
+      // (header-injection shape — nothing legitimate produces one); anything
+      // not an allowlisted image stores as octet-stream, which nosniff +
+      // attachment disposition can never execute. Without this, a bundle could
+      // plant `text/html` bytes an image block then serves from the app origin.
+      const rawMime = typeof asset.mime === 'string' ? asset.mime : '';
+      // eslint-disable-next-line no-control-regex -- intentionally rejecting control chars (CR/LF/NUL/etc)
+      if (/[\u0000-\u001f\u007f]/.test(rawMime)) {
+        throw new Error(`invalid ledger backup: asset ${asset.id} carries a control character in its mime`);
+      }
+      const base = rawMime.split(';', 1)[0].trim().toLowerCase();
+      const mime = ASSET_IMAGE_MIMES.has(base) ? base : 'application/octet-stream';
+      // The budget-guarded insert `putAsset` uses, on THIS transaction: the row
+      // lands only if the content already exists (dedup) or the running total
+      // plus this asset stays within budget. See putAsset for the $5/$6 note.
+      const budget = opts.assetBudgetBytes;
+      if (budget != null && budget >= 0) {
+        const inserted = await tx.query<{id: string}>(
+          `INSERT INTO assets (id, bytes, mime, size)
+           SELECT $1, $2, $3, $4
+           WHERE EXISTS (SELECT 1 FROM assets WHERE id = $1)
+              OR COALESCE((SELECT SUM(size) FROM assets), 0) + $5::bigint <= $6::bigint
+           ON CONFLICT (id) DO NOTHING
+           RETURNING id`,
+          [asset.id, Buffer.from(bytes), mime, bytes.byteLength, bytes.byteLength, budget],
+        );
+        if (inserted.length === 0) {
+          const exists = await tx.query<{one: number}>('SELECT 1 AS one FROM assets WHERE id = $1', [asset.id]);
+          if (exists.length === 0) {
+            throw new Error(`invalid ledger backup restore: storing evidence asset ${asset.id} (${bytes.byteLength} bytes) would exceed the ${budget}-byte asset storage budget`);
+          }
+        }
+      } else {
+        await tx.query(
+          `INSERT INTO assets (id, bytes, mime, size) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (id) DO NOTHING`,
+          [asset.id, Buffer.from(bytes), mime, bytes.byteLength],
+        );
+      }
+      for (const pageId of asset.refs ?? []) {
+        // Refs attach ONLY to pages THIS bundle carried (S5) — a section must
+        // not be able to hang its assets off a victim's existing pages — and
+        // only where the row exists post-import (no dangling FK); ON CONFLICT
+        // keeps re-restores idempotent.
+        if (typeof pageId !== 'string' || !bundlePageIds.has(pageId)) continue;
+        await tx.query(
+          `INSERT INTO asset_refs (asset_id, page_id)
+           SELECT $1, id FROM pages WHERE id = $2
+           ON CONFLICT (asset_id, page_id) DO NOTHING`,
+          [asset.id, pageId],
+        );
+      }
+    }
+
+    // 7. Provenance: bracket the installed history with an attributable event,
+    // chained from the restored tail. afterHash derives from the payload (the
+    // verifier re-derives it); prev_hash is the tail event's canonical hash —
+    // the same digest `appendAuditTx` computes from the raw row.
+    const restorePayload = {
+      bundleSha: opts.bundleSha,
+      auditEvents: events.length,
+      assets: (section.assets ?? []).length,
+    };
+    const afterHash = await assetHash(new TextEncoder().encode(canonicalLedgerJson(restorePayload)));
+    const prevHash = await ledgerAuditEventHash(events[events.length - 1]);
+    await tx.query(
+      `INSERT INTO ledger_audit (id, actor_subject, actor_name, action, entity_ids, payload, before_hash, after_hash, prev_hash)
+       VALUES ($1, $2, $3, 'ledger.restore', '[]'::jsonb, $4::jsonb, NULL, $5, $6)`,
+      [randomUUID(), opts.actor?.subject ?? '', opts.actor?.name ?? '', JSON.stringify(restorePayload), afterHash, prevHash],
+    );
+    return 'restored';
+  }
+
   private async importCopyTx(tx: Db, pages: StoredPage[], databases: StoredDatabase[]): Promise<ImportResult> {
     const {pages: rp, databases: rd, idMap} = remapBundle(pages, databases, randomUUID);
     let renamed = 0;
@@ -662,12 +1229,15 @@ export class PageStore {
       names.set(p.id, free);
     }
     // Insert pages first (parent_id/database_id deferred so the FKs resolve).
+    // Copy mode appends the import BELOW existing pages (1_000_000 + i keeps the
+    // bundle's relative order); a bundle-carried `position` (LGR-15) is offset,
+    // not taken verbatim, so imported copies never interleave existing siblings.
     let i = 0;
     for (const p of rp) {
       await tx.query(
         `INSERT INTO pages (id, name, data, properties, position, created_at, updated_at)
          VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, now())`,
-        [p.id, names.get(p.id) ?? null, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), 1_000_000 + i, p.createdAt],
+        [p.id, names.get(p.id) ?? null, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), 1_000_000 + (typeof p.position === 'number' && Number.isFinite(p.position) ? p.position : i), p.createdAt],
       );
       i += 1;
     }
@@ -698,13 +1268,19 @@ export class PageStore {
       // Keep the page's own name; suffix only if a *different* live page holds it.
       const name = p.name ? await freeName(tx, p.name, taken, 'imported', p.id) : null;
       if (name) taken.add(name);
+      // Overwrite restores IN PLACE, so a bundle-carried `position` (LGR-15) is
+      // taken verbatim — for ledger posting rows it is load-bearing (posting
+      // order feeds the audited content hash); COALESCE keeps a v1 bundle's
+      // pages at the column default / their existing spot.
+      const position = typeof p.position === 'number' && Number.isFinite(p.position) ? p.position : null;
       await tx.query(
-        `INSERT INTO pages (id, name, data, properties, created_at, updated_at)
-         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, now())
+        `INSERT INTO pages (id, name, data, properties, position, created_at, updated_at)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, COALESCE($6, 0), $5, now())
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name, data = EXCLUDED.data, properties = EXCLUDED.properties,
+           position = COALESCE($6, pages.position),
            deleted_at = NULL, updated_at = now()`,
-        [p.id, name, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), p.createdAt],
+        [p.id, name, JSON.stringify(p.data), JSON.stringify(p.properties ?? {}), p.createdAt, position],
       );
     }
     for (const d of databases) {
@@ -749,6 +1325,14 @@ export class PageStore {
     base: string,
     nowIso: string = new Date().toISOString(),
   ): Promise<{action: 'created' | 'updated' | 'conflict' | 'unchanged'; page: StoredPage}> {
+    // LGR-3: ledger pages are DB-canonical, ALWAYS. A divergent (or crafted)
+    // mirror file must never rewrite one — report it unchanged so the mirror
+    // loop settles by re-rendering the canonical bytes back to disk. Checked
+    // BEFORE the transaction (the PGlite mutex is held inside it).
+    if (await this.isLedgerPage(record.id)) {
+      const canonical = await this.getPage(record.id);
+      if (canonical) return {action: 'unchanged', page: canonical};
+    }
     return this.db.begin(async (tx) => {
       const existingRows = await tx.query<PageRow>(
         `SELECT id, name, data, database_id, parent_id, properties, created_at, updated_at,
@@ -891,6 +1475,10 @@ export class PageStore {
    * the write-excluded class under a locked instance, so they're not relied on here.)
    */
   async upsertPage(input: PageInput, author?: Principal, opts?: UpsertPageOptions): Promise<StoredPage> {
+    // LGR-3: an upsert ONTO a ledger page (host or row) is a direct ledger write —
+    // rejected at the store layer so local mode is enforced identically. A keyless
+    // create is unaffected (a fresh id can't be a ledger page).
+    if (input.id) await this.assertNotLedgerPage(input.id);
     const captureMode = opts?.captureMode ?? 'coalesced';
     const clientKey = input.idempotencyKey?.trim();
     const subject = author?.subject;
@@ -1060,6 +1648,7 @@ export class PageStore {
     blockdoc: unknown,
     authorsByBlock: ReadonlyMap<string, string>,
   ): Promise<StoredPage | null> {
+    await this.assertNotLedgerPage(id); // LGR-3: no collab-persist path into ledger rows
     return this.db.begin(async (tx) => {
       const prior = await tx.query<{name: string | null; data: PageSnapshot | string | null}>(
         'SELECT name, data FROM pages WHERE id = $1 AND deleted_at IS NULL',
@@ -1087,6 +1676,15 @@ export class PageStore {
     parentId: string | null,
     orderedIds: string[],
   ): Promise<StoredPage | null> {
+    // LGR-3: a ledger page is never the MOVED page, and a ledger page is never
+    // the DESTINATION parent — splicing a foreign page into the ledger subtree
+    // is exactly what `stripManagedLedger` refuses on the import path, so the
+    // two doors must agree. (Neither assert alone is enough: `orderedIds` is a
+    // third write channel, constrained separately below. And none of this is
+    // what keeps a foreign cascade off the ledger — that is the import-bundle
+    // skip-set, which refuses to re-home a ledger host page.)
+    await this.assertNotLedgerPage(id);
+    if (parentId) await this.assertNotLedgerPage(parentId);
     const ok = await this.db.begin(async (tx) => {
       const exists = await tx.query<{id: string}>('SELECT id FROM pages WHERE id = $1 AND deleted_at IS NULL', [id]);
       if (exists.length === 0) return false;
@@ -1112,7 +1710,24 @@ export class PageStore {
         // same `IS DISTINCT FROM` guard `upsertPage` uses — so a renumber that leaves
         // most siblings put doesn't churn a dead MVCC tuple per row (PGlite has no
         // autovacuum, OB-164).
-        await tx.query('UPDATE pages SET position = $2 WHERE id = $1 AND position IS DISTINCT FROM $2', [orderedIds[i], i]);
+        //
+        // SECURITY (LGR-3 F1/F2): `orderedIds` is caller-supplied and was
+        // previously unconstrained — ANY page id in the list got its `position`
+        // rewritten, including DATABASE ROWS that are not siblings of anything
+        // being moved. That was a second, unaudited write channel into ledger
+        // rows: reordering a POSTED transaction's postings changes the order
+        // `postingsForTx` returns, hence the canonical `transactionContent`
+        // serialization the audit hashes are taken over. The renumber is now
+        // constrained to what it always meant — real page-tree siblings under
+        // the move's target parent (`database_id IS NULL` excludes every
+        // database row, ledger rows included). A non-sibling id in the list is
+        // simply ignored, exactly as an unknown id already was.
+        await tx.query(
+          `UPDATE pages SET position = $2
+             WHERE id = $1 AND position IS DISTINCT FROM $2
+               AND parent_id IS NOT DISTINCT FROM $3 AND database_id IS NULL`,
+          [orderedIds[i], i, parentId],
+        );
       }
       return true;
     });
@@ -1129,6 +1744,7 @@ export class PageStore {
 
   /** Update only a page's name, leaving its data untouched. */
   async renamePage(id: string, name: string | null): Promise<StoredPage | null> {
+    await this.assertNotLedgerPage(id); // LGR-3 (an account rename goes through the ledger API)
     const rows = await this.db.query<PageRow>(
       `UPDATE pages SET name = $2, updated_at = now() WHERE id = $1
        RETURNING id, name, data, database_id, parent_id, properties, created_at, updated_at,
@@ -1146,6 +1762,7 @@ export class PageStore {
    * it's missing.
    */
   async setPageProperties(id: string, patch: Record<string, unknown>): Promise<StoredPage | null> {
+    await this.assertNotLedgerPage(id); // LGR-3: ledger values live in properties — no direct writes
     // Read-merge-write in a transaction. We merge in JS and write the whole
     // object with a plain `$2::jsonb` replace (portable across the embedded and
     // wire-protocol PGlite backends, unlike the jsonb `||` merge operator).
@@ -1265,6 +1882,10 @@ export class PageStore {
    * host on restore and are removed by the FK cascade when it's finally purged.
    */
   async deletePage(id: string): Promise<boolean> {
+    // LGR-3: ledger rows (drafts included) and the ledger host never pass through
+    // the generic soft-delete — a trash restore could otherwise resurrect state
+    // behind the ledger's back. Draft deletion goes through `ledger.deleteDraft`.
+    await this.assertNotLedgerPage(id);
     const rows = await this.db.query<{id: string}>(
       `WITH RECURSIVE subtree AS (
          SELECT id FROM pages WHERE id = $1
@@ -1341,6 +1962,10 @@ export class PageStore {
   /** Permanently delete a single trashed page (and, by cascade, its subtree,
    *  hosted database, and rows). Returns `true` if a trashed row was removed. */
   async purgePage(id: string): Promise<boolean> {
+    // LGR-3 defense-in-depth: ledger pages can never be soft-deleted (see
+    // deletePage), so none should ever sit in the trash — but a purge must still
+    // refuse to hard-delete one under any circumstance.
+    await this.assertNotLedgerPage(id);
     const rows = await this.db.query(
       'DELETE FROM pages WHERE id = $1 AND deleted_at IS NOT NULL RETURNING id',
       [id],
@@ -1348,11 +1973,32 @@ export class PageStore {
     return rows.length > 0;
   }
 
+  /**
+   * SQL fragment excluding ledger pages from a bulk trash purge (LGR-3): the
+   * four ledger databases' rows and the ledger host page are never touched, no
+   * matter how they might have entered the trash. Returns `''` (no ledger) or an
+   * `AND …` clause plus its parameters, starting at placeholder `$«from»`.
+   */
+  private async ledgerPurgeExclusion(from: number): Promise<{clause: string; params: unknown[]}> {
+    const ids = await this.ledgerIds();
+    if (!ids) return {clause: '', params: []};
+    const dbIds = [ids.accounts, ids.transactions, ids.postings, ids.reconciliations];
+    const pageIds = [ids.hostPageId, ids.hostPages.accounts, ids.hostPages.transactions, ids.hostPages.postings, ids.hostPages.reconciliations];
+    const dbPh = dbIds.map((_, i) => `$${from + i}`).join(', ');
+    const pagePh = pageIds.map((_, i) => `$${from + dbIds.length + i}`).join(', ');
+    return {
+      clause: ` AND (database_id IS NULL OR database_id NOT IN (${dbPh})) AND id NOT IN (${pagePh})`,
+      params: [...dbIds, ...pageIds],
+    };
+  }
+
   /** Permanently delete everything currently in the trash. Returns the count of
    *  directly-trashed pages removed (cascaded descendants aren't counted). */
   async emptyTrash(): Promise<number> {
+    const excl = await this.ledgerPurgeExclusion(1);
     const rows = await this.db.query<{id: string}>(
-      'DELETE FROM pages WHERE deleted_at IS NOT NULL RETURNING id',
+      `DELETE FROM pages WHERE deleted_at IS NOT NULL${excl.clause} RETURNING id`,
+      excl.params,
     );
     return rows.length;
   }
@@ -1363,12 +2009,13 @@ export class PageStore {
    * next sweep (no retention). Returns the count of directly-purged pages.
    */
   async purgeExpired(retentionMs: number): Promise<number> {
+    const excl = await this.ledgerPurgeExclusion(2);
     const rows = await this.db.query<{id: string}>(
       `DELETE FROM pages
        WHERE deleted_at IS NOT NULL
-         AND deleted_at <= now() - ($1::bigint * interval '1 millisecond')
+         AND deleted_at <= now() - ($1::bigint * interval '1 millisecond')${excl.clause}
        RETURNING id`,
-      [Math.max(0, Math.trunc(retentionMs))],
+      [Math.max(0, Math.trunc(retentionMs)), ...excl.params],
     );
     return rows.length;
   }
@@ -1402,6 +2049,12 @@ export class PageStore {
     );
     let trashed = 0;
     for (const raw of dbRows) {
+      // LGR-3 (defence in depth): never TTL-sweep ledger rows. Transitively safe
+      // today — the seeded schemas set no `autoExpiry`, and `updateDatabase`
+      // refuses to add one — but a retention rule reaching posted history would
+      // be silent, unaudited data loss, so the sweep refuses it structurally
+      // rather than relying on two other guards staying correct.
+      if (await this.isLedgerDatabase(raw.id)) continue;
       const schema = parseJson<DatabaseSchema>(raw.schema, EMPTY_SCHEMA);
       const rule = resolveAutoExpiry(schema);
       if (!rule) continue;
@@ -1493,6 +2146,7 @@ export class PageStore {
 
   /** Update a database's name and/or schema. Only provided fields change. */
   async updateDatabase(id: string, patch: DatabaseUpdate): Promise<StoredDatabase | null> {
+    await this.assertNotLedgerDatabase(id); // LGR-3: the seeded schemas are enforcement-relevant
     const rows = await this.db.query<DatabaseRowRecord>(
       `UPDATE databases
          SET name   = COALESCE($2, name),
@@ -1511,6 +2165,7 @@ export class PageStore {
 
   /** Delete a database and (by cascade) all of its row pages. */
   async deleteDatabase(id: string): Promise<boolean> {
+    await this.assertNotLedgerDatabase(id); // LGR-3: a cascade here would erase posted history
     const rows = await this.db.query('DELETE FROM databases WHERE id = $1 RETURNING id', [id]);
     return rows.length > 0;
   }
@@ -1539,6 +2194,10 @@ export class PageStore {
    * as a sub-item. Returns the page.
    */
   async createRow(databaseId: string, input: RowInput = {}, author?: Principal): Promise<StoredPage> {
+    // LGR-3: ledger rows are minted only by `LedgerStore` (which writes inside
+    // its own transaction, never through here) — every other caller is rejected,
+    // in server AND browser-local mode alike.
+    await this.assertNotLedgerDatabase(databaseId);
     const id = randomUUID();
     // A fresh row has no prior content, so every block is stamped "now" and
     // attributed to its (verified) creator (OB-170).
@@ -1568,6 +2227,7 @@ export class PageStore {
    * to the database are ignored. Returns `true` once applied.
    */
   async reorderRows(databaseId: string, orderedIds: string[]): Promise<boolean> {
+    await this.assertNotLedgerDatabase(databaseId); // LGR-3: managed rows aren't user-orderable
     await this.db.begin(async (tx) => {
       for (let i = 0; i < orderedIds.length; i += 1) {
         // No-op-skip (ER-9): the `position IS DISTINCT FROM $3` guard (the pattern
@@ -1594,6 +2254,9 @@ export class PageStore {
     rowId: string,
     patch: {name?: string | null; properties?: Record<string, unknown>},
   ): Promise<DatabaseRow | null> {
+    // LGR-3: ledger row values (amounts, states, refs) change only through the
+    // ledger API — the generic row-patch path is rejected at the store layer.
+    await this.assertNotLedgerDatabase(databaseId);
     const rows = await this.db.query<PageRow>(
       `UPDATE pages
          SET name = CASE WHEN $3 THEN $4 ELSE name END,
@@ -1970,6 +2633,10 @@ export class PageStore {
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
       [key, JSON.stringify(value)],
     );
+    // Writing the ledger's id record must arm/refresh the store-level ledger
+    // write-guards immediately (LGR-3) — drop the cached ids so the next guard
+    // check re-reads them.
+    if (key === LEDGER_DB_SETTING_KEY) this.ledgerIdsCache = undefined;
   }
 
   // ── Agent Personal-Access-Tokens (AGENT-6) ───────────────────────────────────
@@ -2512,10 +3179,31 @@ export class PageStore {
     return rows.length > 0 ? (rows[0].visibility as PageVisibility) : null;
   }
 
-  /** Set a page's visibility scope. Returns `false` when the page is missing.
-   *  Deliberately does NOT touch `updated_at`: visibility is an access attribute,
-   *  not document content, so it must not look like an edit to the mirror/mtimes. */
-  async setPageVisibility(pageId: string, visibility: PageVisibility): Promise<boolean> {
+  /**
+   * Set a page's visibility scope. Returns `false` when the page is missing.
+   * Deliberately does NOT touch `updated_at`: visibility is an access attribute,
+   * not document content, so it must not look like an edit to the mirror/mtimes.
+   *
+   * SECURITY (LGR-3 F3 — "flipping the books public"). The ledger's five host
+   * pages MUST stay `restricted`: every ledger ROW is `inherit`, so its read
+   * decision resolves through its database's host page — one `public` flip on a
+   * host exposes every account, transaction, and posting to the whole internet,
+   * and it is reachable by anyone with mere page-WRITE (i.e. any bookkeeper),
+   * with no audit trail. Any non-`restricted` value on a ledger host is
+   * therefore refused at the STORE layer (so browser-local mode is covered too).
+   * Per-page ACL grants remain the sanctioned way to share the ledger.
+   *
+   * `internal: true` is the seed's own path ({@link LedgerStore.ensureSetup}),
+   * which sets `restricted` on pages that are only becoming ledger hosts moments
+   * later — it bypasses the guard, and nothing outside the store passes it.
+   */
+  async setPageVisibility(pageId: string, visibility: PageVisibility, opts: {internal?: boolean} = {}): Promise<boolean> {
+    if (!opts.internal && visibility !== 'restricted' && (await this.isLedgerHostPage(pageId))) {
+      throw new LedgerError(
+        'managed',
+        'the ledger and its databases must stay restricted — share them with per-page ACL grants instead of changing their visibility scope',
+      );
+    }
     const rows = await this.db.query(
       'UPDATE pages SET visibility = $2 WHERE id = $1 RETURNING id',
       [pageId, visibility],
@@ -2585,8 +3273,18 @@ export class PageStore {
         [pageId, subject, email, issuer, grant.level, grant.invitedBy ?? null],
       );
       return aclFromRow(rows[0]);
-    }).then((acl) => {
+    }).then(async (acl) => {
       this.bumpAccess(); // a new per-page grant changes read decisions (Collab T1)
+      // LGR-3 F3: sharing the ledger is permitted (ACL grants are the sanctioned
+      // route — unlike a visibility flip, a grant names its grantee) but it is
+      // never silent: who was given what, on which ledger page, is audited.
+      if (await this.isLedgerPage(pageId)) {
+        await this.ledger.recordAclChange('grant', pageId, {
+          subject: acl.subject ?? null,
+          email: acl.email ?? null,
+          level: acl.level,
+        });
+      }
       return acl;
     });
   }
@@ -2605,6 +3303,14 @@ export class PageStore {
           [pageId, normalizeEmail(key.email)],
         );
     if (rows.length > 0) this.bumpAccess(); // a revoked grant removes read access (Collab T1)
+    // LGR-3 F3: a revoked ledger grant is audited exactly like the grant was.
+    if (rows.length > 0 && (await this.isLedgerPage(pageId))) {
+      await this.ledger.recordAclChange('revoke', pageId, {
+        subject: 'subject' in key ? key.subject : null,
+        email: 'email' in key ? normalizeEmail(key.email) : null,
+        level: null,
+      });
+    }
     return rows.length > 0;
   }
 

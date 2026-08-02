@@ -78,7 +78,13 @@ async function openExtensions(page: import('@playwright/test').Page): Promise<vo
 
 test('install an unsigned zip: block, command, badge, disable, remove', {tag: ['@plugins']}, async ({page, request}) => {
   await openExtensions(page);
-  await expect(page.getByText('No extensions installed')).toBeVisible();
+  // THIS plugin is not installed yet — asserted by its absence, not by an empty
+  // list: spec files share a worker (and therefore its data server), and the
+  // ledger specs install their own extension, so "No extensions installed" is
+  // not something this test may assume. Anchored on the panel having rendered,
+  // because `toHaveCount(0)` is trivially true before it paints.
+  await expect(page.locator('[data-extension-file]')).toBeAttached();
+  await expect(page.locator('[data-extension="acme.hello"]')).toHaveCount(0);
 
   await page.locator('[data-extension-file]').setInputFiles({name: 'hello.zip', mimeType: 'application/zip', buffer: zipOf()});
   const card = page.locator('[data-extension="acme.hello"]');
@@ -116,11 +122,12 @@ test('install an unsigned zip: block, command, badge, disable, remove', {tag: ['
   await expect(page.getByRole('option', {name: /Wave from the fixture/})).toHaveCount(0);
   await page.keyboard.press('Escape');
 
-  // Remove → the card is gone.
+  // Remove → the card is gone (again: this plugin's absence, not an empty list —
+  // another spec file on this worker may have its own extension installed).
   await openExtensions(page);
   await page.getByLabel('Remove Hello Test').click();
+  await expect(page.locator('[data-extension-file]')).toBeAttached();
   await expect(page.locator('[data-extension="acme.hello"]')).toHaveCount(0);
-  await expect(page.getByText('No extensions installed')).toBeVisible();
 });
 
 test('a page of named code blocks exports as an installable plugin zip', {tag: ['@plugins']}, async ({page, request}) => {

@@ -24,6 +24,28 @@ import type {
   ImportResult,
   InstanceConfig,
   InstanceInfo,
+  LedgerAccount,
+  LedgerAccountInput,
+  LedgerAccountPatch,
+  LedgerAuditEvent,
+  LedgerClearedState,
+  LedgerDraftInput,
+  LedgerDraftPatch,
+  LedgerInfo,
+  LedgerPeriod,
+  LedgerPeriodCloseInput,
+  LedgerPeriodCloseResult,
+  LedgerPeriodReopenResult,
+  LedgerPosting,
+  LedgerReconciliation,
+  LedgerReconciliationInput,
+  LedgerReconciliationPatch,
+  LedgerReconciliationStatus,
+  LedgerReconciliationSummary,
+  LedgerReverseOptions,
+  LedgerTransaction,
+  LedgerTransactionState,
+  LedgerVerifyReport,
   McpClientConfig,
   McpConfigResponse,
   McpTestResult,
@@ -45,6 +67,7 @@ import type {
   StoredDatabase,
   StoredEdit,
   StoredPage,
+  LedgerBackupSection,
   StoredPlugin,
   StoredSuggestion,
   SuggestionInput,
@@ -223,7 +246,7 @@ export class LocalDataClient implements DataClient {
     return true;
   }
 
-  exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
+  exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}> {
     return this.store.exportAll();
   }
 
@@ -414,6 +437,192 @@ export class LocalDataClient implements DataClient {
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void {
     void this.store.listRows(databaseId).then(onRows).catch(() => undefined);
     return this.hub.subscribeRows(databaseId, (event) => onRows(event.rows));
+  }
+
+  // ── Ledger: server-enforced double-entry accounting (LGR-3) ──────────────────
+  // Same LedgerStore the HTTP routes use — the invariants are enforced in the
+  // STORE layer, so this in-process transport can't sidestep them. The publish
+  // wiring mirrors the HTTP routes so open ledger views stay live. Typed
+  // LedgerErrors propagate as-is (the HTTP client re-materializes the same class
+  // from the wire, so both transports throw identically).
+
+  ledgerInfo(): Promise<LedgerInfo> {
+    return this.store.ledger.info();
+  }
+
+  async ledgerInit(): Promise<LedgerInfo> {
+    const before = await this.store.ledgerIds();
+    const info = await this.store.ledger.ensureSetup(localPrincipal());
+    if (!before) await this.broadcastList();
+    return info;
+  }
+
+  ledgerListAccounts(): Promise<LedgerAccount[]> {
+    return this.store.ledger.listAccounts();
+  }
+
+  async ledgerCreateAccount(input: LedgerAccountInput): Promise<LedgerAccount> {
+    const account = await this.store.ledger.createAccount(input, localPrincipal());
+    await this.broadcastLedgerRows('accounts');
+    return account;
+  }
+
+  ledgerGetAccount(id: string): Promise<LedgerAccount | null> {
+    return this.store.ledger.getAccount(id);
+  }
+
+  async ledgerUpdateAccount(id: string, patch: LedgerAccountPatch): Promise<LedgerAccount> {
+    const account = await this.store.ledger.updateAccount(id, patch, localPrincipal());
+    await this.broadcastLedgerRows('accounts');
+    return account;
+  }
+
+  ledgerListTransactions(opts?: {state?: LedgerTransactionState; limit?: number}): Promise<LedgerTransaction[]> {
+    return this.store.ledger.listTransactions(opts);
+  }
+
+  ledgerGetTransaction(id: string): Promise<LedgerTransaction | null> {
+    return this.store.ledger.getTransaction(id);
+  }
+
+  async ledgerCreateDraft(input: LedgerDraftInput): Promise<LedgerTransaction> {
+    const transaction = await this.store.ledger.createDraft(input, localPrincipal());
+    await this.broadcastLedgerRows('transactions', 'postings');
+    return transaction;
+  }
+
+  async ledgerUpdateDraft(id: string, patch: LedgerDraftPatch): Promise<LedgerTransaction> {
+    const transaction = await this.store.ledger.updateDraft(id, patch, localPrincipal());
+    await this.broadcastLedgerRows('transactions', 'postings');
+    return transaction;
+  }
+
+  async ledgerDeleteDraft(id: string): Promise<boolean> {
+    const deleted = await this.store.ledger.deleteDraft(id, localPrincipal());
+    await this.broadcastLedgerRows('transactions', 'postings');
+    return deleted;
+  }
+
+  async ledgerPostTransaction(id: string): Promise<LedgerTransaction> {
+    const transaction = await this.store.ledger.post(id, localPrincipal());
+    await this.broadcastLedgerRows('transactions');
+    return transaction;
+  }
+
+  async ledgerReverseTransaction(id: string, opts?: LedgerReverseOptions): Promise<LedgerTransaction> {
+    const transaction = await this.store.ledger.reverse(id, opts ?? {}, localPrincipal());
+    await this.broadcastLedgerRows('transactions', 'postings');
+    return transaction;
+  }
+
+  async ledgerSetPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting> {
+    // `reconciled` is unreachable from here in either direction — it is reached
+    // only by finishing a reconciliation and left only by reopening one (LGR-11).
+    const posting = await this.store.ledger.setPostingCleared(postingId, cleared, localPrincipal());
+    await this.broadcastLedgerRows('postings');
+    return posting;
+  }
+
+  // ── Statement reconciliation (LGR-11) ────────────────────────────────────────
+  // Same `LedgerStore` methods the HTTP routes call, so the zero-difference
+  // gate, the freeze and the reopen behave identically in browser-local mode —
+  // there is no second implementation for this transport to drift from.
+
+  ledgerListReconciliations(opts?: {accountId?: string; status?: LedgerReconciliationStatus}): Promise<LedgerReconciliation[]> {
+    return this.store.ledger.listReconciliations(opts);
+  }
+
+  ledgerGetReconciliation(id: string): Promise<LedgerReconciliationSummary | null> {
+    return this.store.ledger.getReconciliation(id);
+  }
+
+  async ledgerStartReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation> {
+    const reconciliation = await this.store.ledger.startReconciliation(input, localPrincipal());
+    await this.broadcastLedgerRows('reconciliations');
+    return reconciliation;
+  }
+
+  async ledgerAmendReconciliation(id: string, patch: LedgerReconciliationPatch): Promise<LedgerReconciliationSummary> {
+    const summary = await this.store.ledger.amendReconciliation(id, patch, localPrincipal());
+    await this.broadcastLedgerRows('reconciliations');
+    return summary;
+  }
+
+  async ledgerAbandonReconciliation(id: string): Promise<LedgerReconciliation> {
+    const reconciliation = await this.store.ledger.abandonReconciliation(id, localPrincipal());
+    // `reconciliations` only: abandoning writes no posting row (LGR-22's
+    // posting-neutrality), so broadcasting `postings` would announce a change
+    // that never happened.
+    await this.broadcastLedgerRows('reconciliations');
+    return reconciliation;
+  }
+
+  async ledgerToggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary> {
+    const summary = await this.store.ledger.setReconciliationPostingCleared(id, postingId, cleared, localPrincipal());
+    await this.broadcastLedgerRows('postings');
+    return summary;
+  }
+
+  async ledgerFinishReconciliation(id: string): Promise<LedgerReconciliationSummary> {
+    const summary = await this.store.ledger.finishReconciliation(id, localPrincipal());
+    await this.broadcastLedgerRows('reconciliations', 'postings');
+    return summary;
+  }
+
+  async ledgerReopenReconciliation(id: string): Promise<LedgerReconciliationSummary> {
+    const summary = await this.store.ledger.reopenReconciliation(id, localPrincipal());
+    await this.broadcastLedgerRows('reconciliations', 'postings');
+    return summary;
+  }
+
+  // ── Period close (LGR-12) ────────────────────────────────────────────────────
+  // Same `LedgerStore` methods the HTTP routes call: the date-range lock, the
+  // closing entry and the reopen reversal are identical in browser-local mode.
+
+  ledgerListPeriods(): Promise<LedgerPeriod[]> {
+    return this.store.ledger.listPeriods();
+  }
+
+  async ledgerClosePeriod(input: LedgerPeriodCloseInput): Promise<LedgerPeriodCloseResult> {
+    const result = await this.store.ledger.closePeriod(input, localPrincipal());
+    // The closing entry is a real posted transaction; a close with nothing to
+    // close writes no rows, and broadcasting then would announce a change that
+    // never happened (the reconciliation-abandon precedent).
+    if (result.closingEntry) await this.broadcastLedgerRows('transactions', 'postings');
+    return result;
+  }
+
+  async ledgerReopenPeriod(id: string): Promise<LedgerPeriodReopenResult> {
+    const result = await this.store.ledger.reopenPeriod(id, localPrincipal());
+    if (result.reversal) await this.broadcastLedgerRows('transactions', 'postings');
+    return result;
+  }
+
+  ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]> {
+    return this.store.ledger.listAudit(opts);
+  }
+
+  /** Canonical postings CSV (LGR-7) — same bytes as the HTTP route (parity-pinned). */
+  ledgerExportCsv(): Promise<string> {
+    return this.store.ledger.exportPostingsCsv();
+  }
+
+  /** Beancount journal (LGR-13) — same bytes as the HTTP route (parity-pinned). */
+  ledgerExportBeancount(): Promise<string> {
+    return this.store.ledger.exportBeancount();
+  }
+
+  /** The independent verifier (LGR-7). The in-webview store is single-user —
+   *  the local owner is the instance admin, so no gate applies here. */
+  ledgerVerify(): Promise<LedgerVerifyReport> {
+    return this.store.verifyLedger();
+  }
+
+  /** Refresh the named ledger databases' live row views (mirrors app.ts). */
+  private async broadcastLedgerRows(...keys: Array<'accounts' | 'transactions' | 'postings' | 'reconciliations'>): Promise<void> {
+    const ids = await this.store.ledgerIds();
+    if (!ids) return;
+    for (const key of keys) await this.broadcastRows(ids[key]);
   }
 
   // ── Suggestions + comments (the review layer) ────────────────────────────────

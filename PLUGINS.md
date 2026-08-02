@@ -42,8 +42,10 @@ export default function activate(a: typeof api) {
   });
   a.commands.register({id: 'do-thing', title: 'Do the thing', run: () => { /* … */ }});
   // a.pages.list/get/create — workspace access for integrations
-  // a.storage.get/set      — plugin-scoped persistence
-  // a.fetch                — network access
+  // a.databases.*           — typed database read/subscribe (see below)
+  // a.assets.get/put        — content-addressed binary assets (see below)
+  // a.storage.get/set       — plugin-scoped persistence
+  // a.fetch                 — network access
 }
 ```
 
@@ -51,6 +53,88 @@ Imports resolve **inside the zip** (relative paths, `.ts/.tsx/.js/.json`),
 plus two host modules: `react` and `@book.dev/plugin-sdk`. Other bare
 imports are refused — bundle what you need into the zip. Types are stripped
 at load time (no typechecking); develop against your own `tsc`.
+
+## Data access: databases & assets
+
+Plugins get a **typed, read-only** view of library databases and the binary
+asset store — the same data a plugin could always reach by hand-rolling
+`api.fetch` calls, now with types. Access runs on the signed-in user's
+ambient credentials, exactly like `pages.*` and `fetch`: no new privilege,
+and every read gate still applies.
+
+```ts
+import {api} from '@book.dev/plugin-sdk';
+
+export default function activate(a: typeof api) {
+  a.commands.register({
+    id: 'sum-first-column',
+    title: 'Sum the current page database',
+    run: async () => {
+      const db = await a.databases.getByPage(somePageId); // or a.databases.get(databaseId)
+      if (!db) return;
+      const rows = await a.databases.listRows(db.id); // DatabaseRow[]: properties + exports
+
+      // Live updates: returns unsubscribe, AND is torn down automatically
+      // when the plugin is disabled/removed/reloaded — no leaked handlers.
+      const stop = a.databases.subscribeRows(db.id, (rows) => console.log(rows.length));
+
+      // Assets are content-addressed: the id IS the SHA-256 of the bytes, so
+      // a byte-identical put dedups to the same id.
+      const {id} = await a.assets.put(new TextEncoder().encode('hi'), 'text/plain', db.pageId);
+      const asset = await a.assets.get(id); // {bytes, mime} | null (missing and unreadable answer alike)
+      void asset;
+      void stop;
+    },
+  });
+}
+```
+
+There are deliberately **no row/schema writes** in this surface yet — write
+APIs wait for a capability/permission model.
+
+## The ledger: `api.ledger.*`
+
+Plugins get the full typed client for the server-enforced double-entry
+ledger — `info`/`init`, account CRUD, draft create/update/delete, atomic
+`post`, `reverse`, cleared-state, all delegating over the same ambient
+credentials as everything above. Invariant violations reject with the typed
+`LedgerError` (import it from `@book.dev/plugin-sdk` to `instanceof`-match).
+Amounts are **signed integer minor units** end to end: parse user text with
+`parseAmount` and render with `formatAmount` — the money core is exported
+from `@book.dev/plugin-sdk` too, so plugin and host share one grammar and
+never touch floats. For live updates, subscribe to the seeded databases
+(`(await api.ledger.info()).databases.accounts` etc.) with
+`api.databases.subscribeRows` — automatically torn down with the plugin.
+
+`examples/plugins/ledger` is the reference: the journal entry block (the
+books' only human write surface), the two read-only report blocks (trial
+balance and account register), and an idempotent "Ledger: set up books"
+command.
+
+Reports are **plugin-rendered**, not formula-driven: `expr`/rollup cannot
+aggregate across database rows (`docs/ledger/platform-audit.md`), so the
+plugin reads transactions through `api.ledger.listTransactions` and folds
+them in JS. Keep that arithmetic in a pure, dependency-free module —
+`src/reports.ts` is the pattern — and let the block render only what the fold
+returns. That is what makes it unit-testable, and it is the only way the
+money rule ("no `Number()`, `parseFloat`, `Math.*` or `+`/`-` on an amount
+outside the fold") stays enforceable.
+
+## API versioning
+
+The plugin API carries a single integer version (`PLUGIN_API_VERSION`,
+currently **2**: v1 was blocks/commands/pages/storage/fetch; v2 added
+`databases.*` + `assets.*`). Declare the version your plugin needs in the
+manifest:
+
+```json
+{ "id": "acme.my-plugin", "…": "…", "apiVersion": 2 }
+```
+
+The field is optional — omitting it means v1 is enough, and every existing
+plugin keeps loading unchanged. A plugin declaring a **newer** version than
+the host provides fails activation with a clear "update OpenBook" error
+(shown in Settings → Extensions) instead of crashing on a missing surface.
 
 ## Installing
 

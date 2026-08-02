@@ -2358,7 +2358,11 @@ const BlockBody: React.FC<RowShared & {block: BlockMap}> = ({block, ...shared}) 
       const Custom = custom.render;
       return (
         <div className="obe-custom" data-custom-type={type}>
-          <Custom block={block} editor={kitEditor} />
+          {/* `kitEditor` may carry `readOnly: false` so an interactive widget
+              stays live for a reader; `pageReadOnly` is the document's real
+              lock, which that override must not hide from a block that offers
+              to write somewhere else. See {@link CustomBlockProps.pageReadOnly}. */}
+          <Custom block={block} editor={kitEditor} pageReadOnly={editor.readOnly} />
         </div>
       );
     }

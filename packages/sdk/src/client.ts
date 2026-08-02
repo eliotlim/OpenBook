@@ -21,7 +21,7 @@ import type {
 import type {AclLevel, AgentEditsMode, AgentEditsPolicy, Member, MemberRole, MemberStatus, PageAcl, PageGraph, PageInput, PageMeta, PageVersionMeta, PageVisibility, StoredPage, StoredPageVersion} from './types';
 import type {InstanceConfig, InstanceInfo, StoredEdit} from './provenance';
 import type {AgentTokenMeta, AgentTokenScope} from './identity';
-import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult} from './backup';
+import type {BackupCadence, BackupConfig, BackupStatus, ImportRequest, ImportResult, LedgerBackupSection} from './backup';
 import type {
   DatabaseInput,
   DatabaseRow,
@@ -38,6 +38,31 @@ import type {
   SuggestionStatus,
   SuggestionUpdate,
 } from './suggestions';
+import {LEDGER_ERROR_CODES, LedgerError, type LedgerErrorCode} from './ledger';
+import type {
+  LedgerAccount,
+  LedgerAccountInput,
+  LedgerAccountPatch,
+  LedgerAuditEvent,
+  LedgerClearedState,
+  LedgerDraftInput,
+  LedgerDraftPatch,
+  LedgerInfo,
+  LedgerPeriod,
+  LedgerPeriodCloseInput,
+  LedgerPeriodCloseResult,
+  LedgerPeriodReopenResult,
+  LedgerPosting,
+  LedgerReconciliation,
+  LedgerReconciliationInput,
+  LedgerReconciliationPatch,
+  LedgerReconciliationStatus,
+  LedgerReconciliationSummary,
+  LedgerReverseOptions,
+  LedgerTransaction,
+  LedgerTransactionState,
+  LedgerVerifyReport,
+} from './ledger';
 
 /** Handlers for a single page's live update stream. */
 export interface PageSubscription {
@@ -195,8 +220,9 @@ export interface DataClient {
    * it. Resolves `true` if a live page was trashed.
    */
   deletePage(id: string): Promise<boolean>;
-  /** Export the whole space: every live page (full data) + every database. */
-  exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}>;
+  /** Export the whole space: every live page (full data) + every database —
+   *  plus the ledger durability section when a ledger is seeded (LGR-15). */
+  exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}>;
   /** Restore a (client-selected) set of pages/databases; see {@link ImportRequest}. */
   importLibrary(req: ImportRequest): Promise<ImportResult>;
   /** List the trash (most-recently-deleted first). */
@@ -314,6 +340,88 @@ export interface DataClient {
   reorderRows(databaseId: string, orderedIds: string[]): Promise<void>;
   /** Subscribe to a database's live row-list updates. Returns an unsubscribe fn. */
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void;
+
+  // ── Ledger: server-enforced double-entry accounting (LGR-3) ──────────────────
+  // Invariant violations reject with a typed {@link LedgerError} over BOTH
+  // transports (the HTTP client re-materializes the server's `{error, code}`).
+  /** Whether the ledger is initialized, and the seeded database/host ids. */
+  ledgerInfo(): Promise<LedgerInfo>;
+  /** Seed the four managed ledger databases + restricted host page (idempotent). */
+  ledgerInit(): Promise<LedgerInfo>;
+  /** List accounts (hierarchy is encoded in the colon-delimited names). */
+  ledgerListAccounts(): Promise<LedgerAccount[]>;
+  /** Create an account. `currency` defaults to `USD`. */
+  ledgerCreateAccount(input: LedgerAccountInput): Promise<LedgerAccount>;
+  /** Fetch one account, or `null` when it does not exist. */
+  ledgerGetAccount(id: string): Promise<LedgerAccount | null>;
+  /** Rename / close / reopen an account. Closing rejects at nonzero posted balance. */
+  ledgerUpdateAccount(id: string, patch: LedgerAccountPatch): Promise<LedgerAccount>;
+  /** List transactions with their postings (`state` filters; `limit` caps). */
+  ledgerListTransactions(opts?: {state?: LedgerTransactionState; limit?: number}): Promise<LedgerTransaction[]>;
+  /** Fetch one transaction (with postings), or `null` when it does not exist. */
+  ledgerGetTransaction(id: string): Promise<LedgerTransaction | null>;
+  /** Create a DRAFT transaction (with postings). Drafts are freely mutable. */
+  ledgerCreateDraft(input: LedgerDraftInput): Promise<LedgerTransaction>;
+  /** Update a DRAFT (posted/void transactions are immutable — typed rejection). */
+  ledgerUpdateDraft(id: string, patch: LedgerDraftPatch): Promise<LedgerTransaction>;
+  /** Delete a DRAFT and its postings (permanent, audited). Posted/void reject. */
+  ledgerDeleteDraft(id: string): Promise<boolean>;
+  /** Post a draft atomically (validates all invariants; assigns the entry number). */
+  ledgerPostTransaction(id: string): Promise<LedgerTransaction>;
+  /** Atomically create + post the reversing entry and void the original. */
+  ledgerReverseTransaction(id: string, opts?: LedgerReverseOptions): Promise<LedgerTransaction>;
+  /** Flip a posting between `pending`/`cleared` (`reconciled` is locked, LGR-11). */
+  ledgerSetPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting>;
+
+  // ── Statement reconciliation (LGR-11) ───────────────────────────────────────
+  // The workflow that catches the entries an import missed, doubled, or got
+  // wrong. Every step is one atomic, audited store mutation; `finish` is the
+  // gate — it is impossible at a nonzero difference over BOTH transports,
+  // because the check lives in the store, not in the caller.
+  /** List reconciliations, newest statement first. Filters are ANDed. */
+  ledgerListReconciliations(opts?: {accountId?: string; status?: LedgerReconciliationStatus}): Promise<LedgerReconciliation[]>;
+  /** One reconciliation with its live cleared balance + difference, or `null`. */
+  ledgerGetReconciliation(id: string): Promise<LedgerReconciliationSummary | null>;
+  /** START a reconciliation. Rejects `reconciliation-exists` if one is open. */
+  ledgerStartReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation>;
+  /** AMEND an OPEN reconciliation's statement date/balance (LGR-22) — the fix
+   *  for a mistyped target, which no amount of ticking can reach zero. Touches
+   *  no posting; returns the summary with the difference recomputed. */
+  ledgerAmendReconciliation(id: string, patch: LedgerReconciliationPatch): Promise<LedgerReconciliationSummary>;
+  /** ABANDON an OPEN reconciliation (LGR-22): end it without balancing it and
+   *  without posting anything. Terminal, audited, posting-neutral — every tick
+   *  keeps its cleared state, and the account is free to start a new one. */
+  ledgerAbandonReconciliation(id: string): Promise<LedgerReconciliation>;
+  /** Match (`cleared`) or unmatch (`pending`) one posting inside an OPEN one. */
+  ledgerToggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary>;
+  /** FINISH — only at a difference of exactly 0; freezes the matched postings. */
+  ledgerFinishReconciliation(id: string): Promise<LedgerReconciliationSummary>;
+  /** REOPEN a finished reconciliation (explicit, audited); unfreezes its postings. */
+  ledgerReopenReconciliation(id: string): Promise<LedgerReconciliationSummary>;
+
+  /** Every period record — closed AND reopened history (LGR-12). */
+  ledgerListPeriods(): Promise<LedgerPeriod[]>;
+  /** CLOSE a period: closing entry + date-range lock; warns (never blocks) on
+   *  open reconciliations. Store-enforced — `period-closed` rejections for any
+   *  posting/reversal dated inside the range hold over both transports. */
+  ledgerClosePeriod(input: LedgerPeriodCloseInput): Promise<LedgerPeriodCloseResult>;
+  /** REOPEN a closed period (explicit, audited): voids the closing entry via a
+   *  reversal and restores postability for the range. */
+  ledgerReopenPeriod(id: string): Promise<LedgerPeriodReopenResult>;
+
+  /** Read the append-only audit log, newest first (`before` = seq cursor). */
+  ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]>;
+  /** The whole ledger as the canonical postings CSV (LGR-7) — byte-stable:
+   *  same data ⇒ identical bytes over BOTH transports. */
+  ledgerExportCsv(): Promise<string>;
+  /** The whole ledger as a Beancount journal (LGR-13) — byte-stable like the
+   *  CSV, built from the same read model; `bean-check`/Fava re-verify it with
+   *  an independent implementation. */
+  ledgerExportBeancount(): Promise<string>;
+  /** The independent invariant verifier's report (LGR-7). Admin-gated over
+   *  HTTP (the report names entity ids across the whole book); the local
+   *  single-user store answers directly. */
+  ledgerVerify(): Promise<LedgerVerifyReport>;
 
   // ── Suggestions + comments (the review layer) ────────────────────────────────
   /** List a page's suggestions, newest first. `status` filters (e.g. only open). */
@@ -1105,8 +1213,8 @@ export class HttpDataClient implements DataClient {
     return true;
   }
 
-  async exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]}> {
-    return this.request<{pages: StoredPage[]; databases: StoredDatabase[]}>('GET', API.exportLibrary);
+  async exportLibrary(): Promise<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}> {
+    return this.request<{pages: StoredPage[]; databases: StoredDatabase[]; ledger?: LedgerBackupSection}>('GET', API.exportLibrary);
   }
 
   async importLibrary(req: ImportRequest): Promise<ImportResult> {
@@ -1294,6 +1402,192 @@ export class HttpDataClient implements DataClient {
 
   subscribeRows(databaseId: string, onRows: (rows: DatabaseRow[]) => void): () => void {
     return this.liveStream().onRows(databaseId, onRows);
+  }
+
+  // ── Ledger: server-enforced double-entry accounting (LGR-3) ──────────────────
+
+  /**
+   * Like {@link request}, but re-materializes the server's `{error, code}` body
+   * into a typed {@link LedgerError} — so a caller catches the SAME error class
+   * over HTTP as it does against the in-process {@link PageStore} (local mode).
+   */
+  private async ledgerRequest<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const res = await this.authFetch(`${this.baseUrl}${path}`, {
+      method,
+      headers: body === undefined ? undefined : {'Content-Type': 'application/json'},
+      body: body === undefined ? undefined : JSON.stringify(body),
+      cache: 'no-store',
+    });
+    if (!res.ok) return this.throwLedgerError(res);
+    if (res.status === 204) return undefined as T;
+    return (await res.json()) as T;
+  }
+
+  /** Re-materialize a non-2xx ledger response into a typed {@link LedgerError}. */
+  private async throwLedgerError(res: Response): Promise<never> {
+    let data: {error?: string; code?: string} | null = null;
+    try {
+      data = (await res.json()) as {error?: string; code?: string};
+    } catch {
+      data = null;
+    }
+    if (data?.code && (LEDGER_ERROR_CODES as readonly string[]).includes(data.code)) {
+      throw new LedgerError(data.code as LedgerErrorCode, data.error ?? `ledger request failed (${res.status})`);
+    }
+    throw new Error(`OpenBook request failed (${res.status} ${res.statusText})${data?.error ? `: ${data.error}` : ''}`);
+  }
+
+  ledgerInfo(): Promise<LedgerInfo> {
+    return this.ledgerRequest<LedgerInfo>('GET', API.ledger);
+  }
+
+  ledgerInit(): Promise<LedgerInfo> {
+    return this.ledgerRequest<LedgerInfo>('POST', API.ledger);
+  }
+
+  ledgerListAccounts(): Promise<LedgerAccount[]> {
+    return this.ledgerRequest<LedgerAccount[]>('GET', API.ledgerAccounts);
+  }
+
+  ledgerCreateAccount(input: LedgerAccountInput): Promise<LedgerAccount> {
+    return this.ledgerRequest<LedgerAccount>('POST', API.ledgerAccounts, input);
+  }
+
+  async ledgerGetAccount(id: string): Promise<LedgerAccount | null> {
+    try {
+      return await this.ledgerRequest<LedgerAccount>('GET', API.ledgerAccount(id));
+    } catch (err) {
+      if (err instanceof LedgerError && err.code === 'not-found') return null;
+      throw err;
+    }
+  }
+
+  ledgerUpdateAccount(id: string, patch: LedgerAccountPatch): Promise<LedgerAccount> {
+    return this.ledgerRequest<LedgerAccount>('PATCH', API.ledgerAccount(id), patch);
+  }
+
+  ledgerListTransactions(opts?: {state?: LedgerTransactionState; limit?: number}): Promise<LedgerTransaction[]> {
+    const params = new URLSearchParams();
+    if (opts?.state) params.set('state', opts.state);
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    const query = params.toString();
+    return this.ledgerRequest<LedgerTransaction[]>('GET', `${API.ledgerTransactions}${query ? `?${query}` : ''}`);
+  }
+
+  async ledgerGetTransaction(id: string): Promise<LedgerTransaction | null> {
+    try {
+      return await this.ledgerRequest<LedgerTransaction>('GET', API.ledgerTransaction(id));
+    } catch (err) {
+      if (err instanceof LedgerError && err.code === 'not-found') return null;
+      throw err;
+    }
+  }
+
+  ledgerCreateDraft(input: LedgerDraftInput): Promise<LedgerTransaction> {
+    return this.ledgerRequest<LedgerTransaction>('POST', API.ledgerTransactions, input);
+  }
+
+  ledgerUpdateDraft(id: string, patch: LedgerDraftPatch): Promise<LedgerTransaction> {
+    return this.ledgerRequest<LedgerTransaction>('PATCH', API.ledgerTransaction(id), patch);
+  }
+
+  async ledgerDeleteDraft(id: string): Promise<boolean> {
+    await this.ledgerRequest<void>('DELETE', API.ledgerTransaction(id));
+    return true;
+  }
+
+  ledgerPostTransaction(id: string): Promise<LedgerTransaction> {
+    return this.ledgerRequest<LedgerTransaction>('POST', API.ledgerTransactionPost(id));
+  }
+
+  ledgerReverseTransaction(id: string, opts?: LedgerReverseOptions): Promise<LedgerTransaction> {
+    return this.ledgerRequest<LedgerTransaction>('POST', API.ledgerTransactionReverse(id), opts ?? {});
+  }
+
+  ledgerSetPostingCleared(postingId: string, cleared: LedgerClearedState): Promise<LedgerPosting> {
+    return this.ledgerRequest<LedgerPosting>('PUT', API.ledgerPostingCleared(postingId), {cleared});
+  }
+
+  // ── Statement reconciliation (LGR-11) ───────────────────────────────────────
+
+  ledgerListReconciliations(opts?: {accountId?: string; status?: LedgerReconciliationStatus}): Promise<LedgerReconciliation[]> {
+    const params = new URLSearchParams();
+    if (opts?.accountId != null) params.set('accountId', opts.accountId);
+    if (opts?.status != null) params.set('status', opts.status);
+    const query = params.toString();
+    return this.ledgerRequest<LedgerReconciliation[]>('GET', `${API.ledgerReconciliations}${query ? `?${query}` : ''}`);
+  }
+
+  async ledgerGetReconciliation(id: string): Promise<LedgerReconciliationSummary | null> {
+    try {
+      return await this.ledgerRequest<LedgerReconciliationSummary>('GET', API.ledgerReconciliation(id));
+    } catch (err) {
+      if (err instanceof LedgerError && err.code === 'not-found') return null;
+      throw err;
+    }
+  }
+
+  ledgerStartReconciliation(input: LedgerReconciliationInput): Promise<LedgerReconciliation> {
+    return this.ledgerRequest<LedgerReconciliation>('POST', API.ledgerReconciliations, input);
+  }
+
+  ledgerAmendReconciliation(id: string, patch: LedgerReconciliationPatch): Promise<LedgerReconciliationSummary> {
+    return this.ledgerRequest<LedgerReconciliationSummary>('PATCH', API.ledgerReconciliation(id), patch);
+  }
+
+  ledgerAbandonReconciliation(id: string): Promise<LedgerReconciliation> {
+    return this.ledgerRequest<LedgerReconciliation>('POST', API.ledgerReconciliationAbandon(id));
+  }
+
+  ledgerToggleReconciliationPosting(id: string, postingId: string, cleared: 'pending' | 'cleared'): Promise<LedgerReconciliationSummary> {
+    return this.ledgerRequest<LedgerReconciliationSummary>('PUT', API.ledgerReconciliationPosting(id, postingId), {cleared});
+  }
+
+  ledgerFinishReconciliation(id: string): Promise<LedgerReconciliationSummary> {
+    return this.ledgerRequest<LedgerReconciliationSummary>('POST', API.ledgerReconciliationFinish(id));
+  }
+
+  ledgerReopenReconciliation(id: string): Promise<LedgerReconciliationSummary> {
+    return this.ledgerRequest<LedgerReconciliationSummary>('POST', API.ledgerReconciliationReopen(id));
+  }
+
+  ledgerListPeriods(): Promise<LedgerPeriod[]> {
+    return this.ledgerRequest<LedgerPeriod[]>('GET', API.ledgerPeriods);
+  }
+
+  ledgerClosePeriod(input: LedgerPeriodCloseInput): Promise<LedgerPeriodCloseResult> {
+    return this.ledgerRequest<LedgerPeriodCloseResult>('POST', API.ledgerPeriods, input);
+  }
+
+  ledgerReopenPeriod(id: string): Promise<LedgerPeriodReopenResult> {
+    return this.ledgerRequest<LedgerPeriodReopenResult>('POST', API.ledgerPeriodReopen(id));
+  }
+
+  ledgerListAudit(opts?: {limit?: number; before?: number}): Promise<LedgerAuditEvent[]> {
+    const params = new URLSearchParams();
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    if (opts?.before != null) params.set('before', String(opts.before));
+    const query = params.toString();
+    return this.ledgerRequest<LedgerAuditEvent[]>('GET', `${API.ledgerAudit}${query ? `?${query}` : ''}`);
+  }
+
+  /** Canonical postings CSV (LGR-7) — a ledger read that is text, not JSON. */
+  async ledgerExportCsv(): Promise<string> {
+    const res = await this.authFetch(`${this.baseUrl}${API.ledgerExportCsv}`, {cache: 'no-store'});
+    if (!res.ok) return this.throwLedgerError(res);
+    return res.text();
+  }
+
+  /** Beancount journal (LGR-13) — text like the CSV, same error mapping. */
+  async ledgerExportBeancount(): Promise<string> {
+    const res = await this.authFetch(`${this.baseUrl}${API.ledgerExportBeancount}`, {cache: 'no-store'});
+    if (!res.ok) return this.throwLedgerError(res);
+    return res.text();
+  }
+
+  /** The independent verifier's report (admin-gated server-side). */
+  async ledgerVerify(): Promise<LedgerVerifyReport> {
+    return this.ledgerRequest<LedgerVerifyReport>('GET', API.ledgerVerify);
   }
 
   // ── Suggestions + comments (the review layer) ────────────────────────────────

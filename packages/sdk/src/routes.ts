@@ -271,6 +271,130 @@ export const API = {
    * Declared here so the AGENT-6 scope-gate can allowlist it; harmless until the
    * handler is mounted. */
   mcp: '/api/mcp',
+
+  // ── Ledger: server-enforced double-entry accounting (LGR-3) ──────────────────
+  /**
+   * The ledger itself: `GET` reports {@link LedgerInfo} (whether the four managed
+   * ledger databases are seeded, and where); `POST` seeds them (idempotent —
+   * a re-POST adopts the existing databases). All ledger reads/writes are gated on
+   * the restricted host page's access; the seeded databases REJECT every generic
+   * page/row mutation (server-managed) — only these ledger routes write them.
+   */
+  ledger: '/api/ledger',
+  /** Accounts: `GET` (list) / `POST` (create — hierarchical colon-delimited name). */
+  ledgerAccounts: '/api/ledger/accounts',
+  /** One account: `GET` / `PATCH` (rename; close — rejected at nonzero balance). */
+  ledgerAccount: (id: string): string => `/api/ledger/accounts/${encodeURIComponent(id)}`,
+  /** Transactions: `GET` (list, `?state=&limit=`) / `POST` (create a DRAFT with postings). */
+  ledgerTransactions: '/api/ledger/transactions',
+  /** One transaction (with postings): `GET` / `PATCH` (draft only) / `DELETE` (draft only). */
+  ledgerTransaction: (id: string): string => `/api/ledger/transactions/${encodeURIComponent(id)}`,
+  /**
+   * Post a draft atomically: `POST`. Validates Σ amount = 0, ≥2 postings, open
+   * resolvable accounts, integer amounts, uniform currency; assigns the
+   * server-monotonic entry number and stamps posted_at/posted_by — all in ONE
+   * store transaction with the audit event.
+   */
+  ledgerTransactionPost: (id: string): string => `/api/ledger/transactions/${encodeURIComponent(id)}/post`,
+  /**
+   * Reverse a posted transaction: `POST`. Atomically creates AND posts the
+   * reversing entry (negated postings, `reverses` linked) and marks the original
+   * `void` — the only sanctioned way to void a posted entry.
+   */
+  ledgerTransactionReverse: (id: string): string => `/api/ledger/transactions/${encodeURIComponent(id)}/reverse`,
+  /** A posting's cleared state: `PUT` `{cleared}` (pending ↔ cleared only;
+   *  anything touching `reconciled` is locked until reconciliation flows, LGR-11). */
+  ledgerPostingCleared: (id: string): string => `/api/ledger/postings/${encodeURIComponent(id)}/cleared`,
+  /**
+   * Statement reconciliations (LGR-11): `GET` lists them (`?accountId=&status=`),
+   * `POST` STARTS one (`{accountId, statementDate, statementBalanceMinor}`).
+   * Starting a second OPEN reconciliation on the same account is rejected —
+   * two open matches against one account cannot both be the truth.
+   */
+  ledgerReconciliations: '/api/ledger/reconciliations',
+  /**
+   * One reconciliation: `GET` returns the {@link LedgerReconciliationSummary}
+   * (cleared balance + difference); `PATCH` AMENDS the statement it is matched
+   * against (`{statementDate?, statementBalanceMinor?}` — LGR-22), which is the
+   * recovery path for a mistyped closing balance. Allowed only while `open`
+   * (409 `invalid-state` otherwise), touches no posting's cleared state, and
+   * returns the summary with the difference RECOMPUTED against the new target.
+   * There is no `DELETE`: a reconciliation ends by being finished or abandoned,
+   * both of which leave a record.
+   */
+  ledgerReconciliation: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}`,
+  /**
+   * Match/unmatch ONE posting inside an OPEN reconciliation: `PUT` `{cleared}`
+   * (`pending` ↔ `cleared`). Unlike {@link API.ledgerPostingCleared} this route
+   * additionally enforces that the posting belongs to the reconciliation's
+   * account, is on a POSTED entry, and is not frozen under another finished
+   * reconciliation.
+   */
+  ledgerReconciliationPosting: (id: string, postingId: string): string =>
+    `/api/ledger/reconciliations/${encodeURIComponent(id)}/postings/${encodeURIComponent(postingId)}`,
+  /**
+   * FINISH a reconciliation: `POST`. Rejects (`reconciliation-unbalanced`)
+   * unless the difference is EXACTLY zero — the whole point of the workflow, and
+   * enforced in the store so bypassing the UI changes nothing. On success every
+   * matched posting freezes at `reconciled` (invariant 4).
+   */
+  ledgerReconciliationFinish: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}/finish`,
+  /** REOPEN a finished reconciliation: `POST`. Explicit and audited; unfreezes
+   *  every posting it had frozen (back to `cleared`, `reconciliationId` null). */
+  ledgerReconciliationReopen: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}/reopen`,
+  /**
+   * ABANDON an OPEN reconciliation: `POST` (LGR-22). The way out of a match
+   * that will never balance — a statement opened on the wrong account, a
+   * duplicate started by mistake — WITHOUT posting anything to the books to
+   * force the difference to zero. Terminal (`abandoned` is not reopenable),
+   * audited, and posting-neutral: every tick keeps the cleared state it had.
+   * The account is free for a new reconciliation immediately.
+   */
+  ledgerReconciliationAbandon: (id: string): string => `/api/ledger/reconciliations/${encodeURIComponent(id)}/abandon`,
+  /**
+   * Accounting periods (LGR-12). `GET` lists every period record (closed and
+   * reopened — the settings-UI surface); `POST` CLOSES a range: generates the
+   * closing entry (income-statement accounts → retained earnings), locks the
+   * range (the STORE rejects `period-closed` for any posting/reversal dated
+   * inside it — bypassing the UI changes nothing), and returns the open
+   * reconciliations it warned about (warn-not-block).
+   */
+  ledgerPeriods: '/api/ledger/periods',
+  /**
+   * REOPEN a closed period: `POST`. Explicit and audited; voids the closing
+   * entry via a reversal through the ordinary reversal machinery and restores
+   * postability for the range.
+   */
+  ledgerPeriodReopen: (id: string): string => `/api/ledger/periods/${encodeURIComponent(id)}/reopen`,
+  /** The append-only ledger audit log: `GET` (paginated, `?limit=&before=<seq>`,
+   *  newest first). Read-only — no mutation route exists. */
+  ledgerAudit: '/api/ledger/audit',
+  /**
+   * Canonical postings CSV export (LGR-7): `GET` returns the whole ledger as
+   * `text/csv` — one row per posting, byte-stable (same data ⇒ identical bytes;
+   * see sdk `buildLedgerPostingsCsv` for the column contract). Read-gated like
+   * every other ledger read (the restricted host page's decision). Built
+   * in-memory — a book is small; revisit streaming only if that ever changes.
+   */
+  ledgerExportCsv: '/api/ledger/export.csv',
+  /**
+   * Beancount journal export (LGR-13): `GET` returns the whole ledger as a
+   * `text/plain` Beancount journal — byte-stable (same data ⇒ identical bytes;
+   * see sdk `buildLedgerBeancount` for the directive contract), built from the
+   * SAME read model as the CSV export. Read-gated like every other ledger
+   * read. The point of the format: `bean-check`/Fava re-verify the whole book
+   * with an independent implementation.
+   */
+  ledgerExportBeancount: '/api/ledger/export.beancount',
+  /**
+   * Independent invariant verifier (LGR-7): `GET` re-checks the ledger against
+   * RAW storage (its own SQL, not the LedgerStore validators) — balance, audit
+   * hash chain, referential integrity, audit replay, entry-number density —
+   * and returns a typed findings report (empty findings = clean). Gated
+   * `requireInstanceAdmin` (owner/admin/loopback): the report names entity ids
+   * across the whole book, an administration-level view.
+   */
+  ledgerVerify: '/api/ledger/verify',
 } as const;
 
 /** Result of a {@link API.compact} run: the database's on-disk size before/after,

@@ -47,6 +47,7 @@
 
 import {unzipSync, strFromU8} from 'fflate';
 import {markdownToImportedDoc} from './markdownImport';
+import {parseCsv} from './csv';
 import {
   IMAGE_PLACEHOLDER_PROP,
   type ImportedBlock,
@@ -119,59 +120,12 @@ function splitIcon(title: string): {icon?: string; title: string} {
 // ── CSV parsing ──────────────────────────────────────────────────────────────
 
 /**
- * RFC-4180-ish CSV → a matrix of rows. Handles quoted fields containing commas
- * and newlines, doubled `""` escapes, and CRLF — everything Notion emits.
+ * The shared RFC-4180 reader, re-exported from its original home so existing
+ * importers (`@book.dev/sdk` → `parseCsv`) keep their import path. It moved to
+ * `./csv` when the LGR-10 bank-statement importer needed it: two CSV parsers in
+ * one product means two sets of quoting bugs.
  */
-export function parseCsv(text: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let field = '';
-  let quoted = false;
-  let i = text.charCodeAt(0) === 0xfeff ? 1 : 0; // skip a BOM
-  const n = text.length;
-  while (i < n) {
-    const ch = text[i];
-    if (quoted) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i += 2;
-          continue;
-        }
-        quoted = false;
-        i += 1;
-        continue;
-      }
-      field += ch;
-      i += 1;
-      continue;
-    }
-    if (ch === '"') {
-      quoted = true;
-      i += 1;
-    } else if (ch === ',') {
-      row.push(field);
-      field = '';
-      i += 1;
-    } else if (ch === '\n') {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = '';
-      i += 1;
-    } else if (ch === '\r') {
-      i += 1;
-    } else {
-      field += ch;
-      i += 1;
-    }
-  }
-  if (field !== '' || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows;
-}
+export {parseCsv} from './csv';
 
 // ── Column type inference ────────────────────────────────────────────────────
 
