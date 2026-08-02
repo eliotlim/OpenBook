@@ -239,6 +239,12 @@ describe('LGR-14 — the evidence-required account gate', () => {
     // An RLO would reorder the verifier report's line about this very file.
     await expect(balancedDraft([{sha256: sha, filename: 'receipt\u202Efdp.exe'}])).rejects.toMatchObject({code: 'invalid-input'});
     await expect(balancedDraft([{sha256: sha, filename: 'zero\u200Bwidth.pdf'}])).rejects.toMatchObject({code: 'invalid-input'});
+    // Q2: the full importModel UNSAFE_TEXT set — ALM (a genuine Bidi_Control)
+    // and the U+E0000-E007F tag block (invisible instruction smuggling; this
+    // ledger is MCP-readable, so a filename is an agent-facing channel).
+    await expect(balancedDraft([{sha256: sha, filename: 'alm\u061Cname.pdf'}])).rejects.toMatchObject({code: 'invalid-input'});
+    await expect(balancedDraft([{sha256: sha, filename: 'tag\u{E0041}block.pdf'}])).rejects.toMatchObject({code: 'invalid-input'});
+    await expect(balancedDraft([{sha256: sha, filename: 'mongolian\u180Esep.pdf'}])).rejects.toMatchObject({code: 'invalid-input'});
     expect(await store.ledger.listTransactions()).toEqual([]);
   });
 

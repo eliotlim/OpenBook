@@ -135,6 +135,23 @@ export type LedgerVerifyCode =
    */
   | 'evidence-required-missing';
 
+/**
+ * The ADVISORY band of the finding-code union (LGR-14 Q3): codes that report
+ * "the book does not satisfy today's POLICY", never "storage was tampered
+ * with". Every other code is the tamper band. Keyed off the code union — not
+ * message text — because exit policies and alerting hang off this distinction:
+ * `--verify-ledger` exits 0 on an advisory-only report (still printed), so a
+ * healthy book that enables evidence-required over bare history does not turn
+ * every backup-verification script permanently red and teach operators to
+ * ignore the one alarm that matters. Any future advisory code MUST land here.
+ */
+export const LEDGER_VERIFY_ADVISORY_CODES = ['evidence-required-missing'] as const satisfies readonly LedgerVerifyCode[];
+
+/** Whether `code` is an advisory (current-policy) finding, not a tamper one. */
+export function isLedgerVerifyAdvisory(code: LedgerVerifyCode): boolean {
+  return (LEDGER_VERIFY_ADVISORY_CODES as readonly string[]).includes(code);
+}
+
 export interface LedgerVerifyFinding {
   code: LedgerVerifyCode;
   /** Human-readable, entity-id-bearing description of the violation. */

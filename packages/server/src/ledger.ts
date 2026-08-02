@@ -275,22 +275,28 @@ const MAX_EVIDENCE_FILENAME_LENGTH = 255;
 const ASSET_ID_RE = /^[0-9a-f]{64}$/;
 
 /**
- * Characters an evidence filename must NOT contain (LGR-14 F3): C0/C1 controls
- * (a NUL previously escaped as a raw Postgres 22P05 → untyped 500; the rest
- * render as nothing) and the BIDI/invisible-formatting set the bank-import
- * sanitizer strips (`importModel.ts` — RLO/LRO/PDF, the directional isolates,
- * LRM/RLM, ZWSP/ZWJ/ZWNJ, word joiner, SHY, BOM, interlinear annotation,
- * line/paragraph separators). A filename is the one field that flows verbatim
- * into the VERIFIER's integrity report, where `receipt<U+202E> fdp.exe` reading
- * as something it is not is precisely the deception an integrity report must
- * not carry. REJECTED with a typed error, not stripped: unlike a pasted bank
- * cell, a filename arrives from a file picker — a control character in it is a
- * client bug or an attack, and silently renaming evidence would make the
- * stored manifest disagree with what the user saw attach.
+ * Characters an evidence filename must NOT contain (LGR-14 F3): a strict
+ * SUPERSET of the bank-import sanitizer's `UNSAFE_TEXT` (`importModel.ts` —
+ * C0/C1 controls incl. the NUL that previously escaped as a raw Postgres
+ * 22P05 → untyped 500; SHY; U+061C ALM and U+180E; ZWSP/ZWJ/ZWNJ + LRM/RLM;
+ * RLO/LRO/PDF; the ENTIRE U+2060–206F block, word joiner through the
+ * directional isolates and the deprecated formatting controls; interlinear
+ * annotation; and the U+E0000–E007F TAG BLOCK — the standard channel for
+ * smuggling instructions past a human into an agent, and this ledger is
+ * MCP-readable — which is why the `u` flag), PLUS two of this field's own:
+ * U+2028/2029 line/paragraph separators (a filename is a single line of the
+ * verifier report) and U+FEFF (BOM-as-ZWNBSP). A filename is the one field
+ * that flows verbatim into the VERIFIER's integrity report, where
+ * `receipt<U+202E> fdp.exe` reading as something it is not is precisely the
+ * deception an integrity report must not carry. REJECTED with a typed error,
+ * not stripped: unlike a pasted bank cell, a filename arrives from a file
+ * picker — a control character in it is a client bug or an attack, and
+ * silently renaming evidence would make the stored manifest disagree with
+ * what the user saw attach.
  */
 const EVIDENCE_FILENAME_FORBIDDEN_RE =
   // eslint-disable-next-line no-control-regex
-  /[\u0000-\u001f\u007f-\u009f\u00ad\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\ufff9-\ufffb]/;
+  /[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb\u{e0000}-\u{e007f}]/u;
 
 /**
  * Advisory-lock key serializing audit-chain appends (see
