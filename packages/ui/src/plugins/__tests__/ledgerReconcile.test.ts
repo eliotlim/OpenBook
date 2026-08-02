@@ -607,6 +607,83 @@ describe('LGR-11 — the reconciliation fold (real source through the real loade
       expect(describeGap(emptyTarget)).not.toMatch(/twice the closing balance/);
     });
 
+    it('survives a balance too large to DOUBLE — generic advice, never a throw', () => {
+      // `parseAmount` accepts balances all the way to ±(2^53 − 1) minor units,
+      // so any legally typed balance past HALF that ceiling made the unguarded
+      // doubling throw MoneyRangeError — and `describeGap` runs OUTSIDE the
+      // block's fold try/catch, so the throw took the whole block down on a
+      // legal input. The guard must fall through to the generic advice, not
+      // crash and not stay silent.
+      const HUGE = Number.MAX_SAFE_INTEGER - 1; // typeable, un-doubleable
+      const extreme = build(statement({statementBalanceMinor: HUGE}), [entry('2026-03-01', 100_000, 'cleared')]);
+      expect(extreme.balanced).toBe(false);
+      let gap: string | null = null;
+      expect(() => {
+        gap = describeGap(extreme);
+      }).not.toThrow();
+      expect(gap).toMatch(/missing from the books/);
+      expect(gap).not.toMatch(/twice the closing balance/);
+    });
+
+    it('the generic advice also suspects the TYPED balance, and names the control that fixes it', () => {
+      // Parker's transposed-digits case: 1,250.00 typed as 1,205.00 produces an
+      // arbitrary 45.00 gap — not the 2× signature — while the books are
+      // exactly right. Advice that pointed only at the books sent the reader
+      // searching entries that were already correct; the typed target is the
+      // third suspect, in BOTH directions, and the sentence points at Amend.
+      const transposed = build(statement({statementBalanceMinor: 120_500}), [entry('2026-03-01', 125_000, 'cleared')]);
+      expect(transposed.differenceMinor).toBe(-4_500);
+      expect(describeGap(transposed)).toMatch(/re-check the closing balance you typed — “Amend statement” corrects it/);
+      const otherWay = build(statement({statementBalanceMinor: 125_000}), [entry('2026-03-01', 120_500, 'cleared')]);
+      expect(describeGap(otherWay)).toMatch(/re-check the closing balance you typed/);
+    });
+
+    it('gap and culprit guidance render ONLY on an open sheet — instructions need their controls', () => {
+      // An abandoned sheet is unbalanced almost by definition and reachable
+      // through View. Every sentence these two produce is an instruction —
+      // tick, untick, amend — and on a non-open sheet none of those controls
+      // exist. Worst case before the guard: the 2× hint said "Correct it with
+      // 'Amend statement'" on a screen with no Amend button.
+      const describeSingleCulprit = mod().describeSingleCulprit as (s: ReconcileSheet) => string | null;
+      const rows = [entry('2026-03-01', 100_000, 'cleared'), entry('2026-03-02', 5_000, 'pending', {description: 'Late payment'})];
+      // Sanity: the SAME sheet, open, produces both sentences…
+      const open = build(statement({statementBalanceMinor: 105_000}), rows);
+      const ticked = open.rows.find((r) => !r.matched)!;
+      expect(open.differenceMinor).toBe(5_000);
+      expect(describeGap(open)).not.toBeNull();
+      expect(describeSingleCulprit(open)).toContain(ticked.description);
+      // …and abandoned, it produces neither — including the 2× signature.
+      const abandoned = build(statement({statementBalanceMinor: 105_000, status: 'abandoned'}), rows);
+      expect(describeGap(abandoned)).toBeNull();
+      expect(describeSingleCulprit(abandoned)).toBeNull();
+      const flippedAbandoned = build(statement({statementBalanceMinor: -100_000, status: 'abandoned'}), [entry('2026-03-01', 100_000, 'cleared')]);
+      expect(describeGap(flippedAbandoned)).toBeNull();
+    });
+
+    it('a locked row names the REAL reason: frozen, finished sheet, or abandoned sheet', () => {
+      const describeRowLabel = mod().describeRowLabel as (s: ReconcileSheet, r: ReconcileRow) => string;
+      const rows = [entry('2026-03-01', 100_000, 'cleared')];
+      // On an ABANDONED sheet the row is locked because the SHEET is dead, not
+      // because anything was reconciled — the fall-through that said "Locked by
+      // a finished reconciliation" here asserted the opposite of the truth on
+      // every checkbox, exactly where abandon-vs-finish confusion matters most.
+      const abandoned = build(statement({statementBalanceMinor: 100_000, status: 'abandoned'}), rows);
+      expect(abandoned.rows[0].frozen).toBe(false);
+      const abandonedLabel = describeRowLabel(abandoned, abandoned.rows[0]);
+      expect(abandonedLabel).toMatch(/This statement was abandoned — nothing here was reconciled/);
+      expect(abandonedLabel).not.toMatch(/finished reconciliation/);
+      // A finished sheet's own frozen row still names the freezing statement…
+      const finished = build(statement({statementBalanceMinor: 100_000, status: 'finished'}), [
+        entry('2026-03-01', 100_000, 'reconciled', {reconciliationId: 'rec-1'}),
+        entry('2026-03-02', -450, 'pending', {description: 'Bank fee'}),
+      ]);
+      expect(describeRowLabel(finished, finished.rows[0])).toMatch(/Locked by the reconciliation of the 2026-03-31 statement\.$/);
+      // …and its NON-frozen (unmatched) row is locked by the sheet's state,
+      // with the reopen path named rather than a frozen-row sentence borrowed.
+      expect(finished.rows[1].frozen).toBe(false);
+      expect(describeRowLabel(finished, finished.rows[1])).toMatch(/This statement is reconciled — reopen it to change what it matched\.$/);
+    });
+
     it('an ABANDONED sheet offers neither Finish nor Reopen, and locks every row', () => {
       interface FinishBlock {rule: string; live: string | null}
       const describeFinishBlock = mod().describeFinishBlock as (s: ReconcileSheet) => FinishBlock | null;

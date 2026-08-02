@@ -412,17 +412,24 @@ export function describeDifference(sheet: ReconcileSheet): string {
  * convention produces this signature, and nothing else produces it as reliably,
  * so when the arithmetic matches, say so before offering the general advice.
  *
- * `null` when there is nothing to explain.
+ * OPEN SHEETS ONLY. Every sentence here is an instruction — tick, untick, amend
+ * — and on a finished or abandoned sheet none of those controls exist, so the
+ * advice would point at buttons the screen does not have (the exact
+ * instruction-pointing-at-a-missing-control antipattern the server's own state
+ * refusals were rewritten to avoid). An abandoned sheet is unbalanced almost by
+ * definition and reachable through View, so this is not a theoretical state.
+ *
+ * `null` when there is nothing to explain, or nothing the reader can do here.
  */
 export function describeGap(sheet: ReconcileSheet): string | null {
-  if (sheet.balanced) return null;
+  if (sheet.status !== 'open' || sheet.balanced) return null;
   const magnitude = formatAmount(magnitudeOf(sheet.differenceMinor));
-  const twiceTheBalance = sumAmounts([magnitudeOf(sheet.statementBalanceMinor), magnitudeOf(sheet.statementBalanceMinor)]);
+  const twice = twiceOrNull(sheet.statementBalanceMinor);
   // A zero balance doubles to zero, and "twice nothing" matches every zero
   // difference — but a zero difference is balanced and never reaches here, so
   // the guard is really against a zero BALANCE, where the coincidence carries
   // no signal.
-  if (twiceTheBalance !== 0 && compareAmounts(magnitudeOf(sheet.differenceMinor), twiceTheBalance) === 0) {
+  if (twice !== null && twice !== 0 && compareAmounts(magnitudeOf(sheet.differenceMinor), twice) === 0) {
     return `The difference is ${magnitude} — exactly twice the closing balance you typed. That is the signature of a balance entered on the wrong side, so check the statement before you check the books: on this account ${describePositiveMeans(sheet.normalSide)}. Correct it with “Amend statement” — you do not have to start again.`;
   }
   // Phrased in terms of the SIDE rather than the sign, so it reads the same way
@@ -433,9 +440,36 @@ export function describeGap(sheet: ReconcileSheet): string | null {
   // advice the screen itself disproves — a smaller version of the bug this
   // whole sentence exists to fix.
   const untickedClause = sheet.unmatchedCount > 0 ? ', one you have not ticked yet' : '';
+  // The TYPED BALANCE is always a suspect, not only at the 2× signature: a
+  // transposed digit (1,250.00 → 1,205.00) produces an arbitrary difference,
+  // and advice that pointed only at the books sent the reader searching entries
+  // that were already right. Last, because the books ARE the more common cause.
+  const typedClause = ' If the books check out, re-check the closing balance you typed — “Amend statement” corrects it.';
   return statementHasMore
-    ? `The statement is ${magnitude} ahead of what you have ticked — look for an entry on the statement that is missing from the books${untickedClause}, or a ticked entry the books recorded twice on the other side.`
-    : `The books are ${magnitude} ahead of the statement — look for an entry that was recorded twice${sheet.unmatchedCount > 0 ? ', one that has not cleared the bank yet' : ''}, or an entry missing from the books on the other side.`;
+    ? `The statement is ${magnitude} ahead of what you have ticked — look for an entry on the statement that is missing from the books${untickedClause}, or a ticked entry the books recorded twice on the other side.${typedClause}`
+    : `The books are ${magnitude} ahead of the statement — look for an entry that was recorded twice${sheet.unmatchedCount > 0 ? ', one that has not cleared the bank yet' : ''}, or an entry missing from the books on the other side.${typedClause}`;
+}
+
+/**
+ * Twice the magnitude of an amount, or `null` when doubling would leave the
+ * money core's safe range.
+ *
+ * `parseAmount` accepts balances all the way to the ±(2^53 − 1) ceiling, so any
+ * legally typed balance past HALF the ceiling made the unguarded `sumAmounts`
+ * doubling throw `MoneyRangeError` — and {@link describeGap} is evaluated
+ * outside the block's fold try/catch, so the throw took the whole block down on
+ * a legal input. When the double does not exist, neither can the 2× signature:
+ * the difference is itself range-bounded, so nothing can equal an out-of-range
+ * double, and skipping the hint is exact rather than approximate.
+ */
+function twiceOrNull(balanceMinor: number): number | null {
+  const magnitude = magnitudeOf(balanceMinor);
+  try {
+    return sumAmounts([magnitude, magnitude]);
+  } catch (err) {
+    if (err instanceof MoneyError) return null;
+    throw err;
+  }
 }
 
 /**
@@ -512,10 +546,13 @@ export function describeOutstandingIntro(sheet: ReconcileSheet): string {
  * direction keeps the strict single-row rule, where two candidates genuinely are
  * two different entries and pointing at one would be a guess.
  *
- * `null` when balanced, or when nothing accounts for the gap exactly.
+ * OPEN SHEETS ONLY, for {@link describeGap}'s reason: "untick this row" is an
+ * instruction, and on a finished or abandoned sheet every checkbox is locked.
+ *
+ * `null` when balanced, not open, or when nothing accounts for the gap exactly.
  */
 export function describeSingleCulprit(sheet: ReconcileSheet): string | null {
-  if (sheet.balanced) return null;
+  if (sheet.status !== 'open' || sheet.balanced) return null;
   const where = (row: ReconcileRow): string => {
     const label = row.description.trim() === '' ? '' : ` “${row.description}”`;
     return `${row.date}${label}, ${formatWithSide(row.amountMinor)}`;
@@ -628,12 +665,30 @@ export function isRowLocked(sheet: ReconcileSheet, row: ReconcileRow): boolean {
 export function describeRowLabel(sheet: ReconcileSheet, row: ReconcileRow): string {
   const entry = row.entryNo === null ? 'unnumbered entry' : `entry #${row.entryNo}`;
   const label = row.description.trim() === '' ? 'no description' : row.description;
-  const locked = isRowLocked(sheet, row)
-    ? row.frozenStatementDate !== null
+  return `On this statement: ${entry}, ${row.date}, ${label}, ${formatWithSide(row.amountMinor)}.${describeRowLock(sheet, row)}`;
+}
+
+/**
+ * WHY this row's checkbox is dead, from the reason it actually is.
+ *
+ * A FROZEN row is locked by the finished reconciliation that froze it, whatever
+ * sheet it is being viewed on. A non-frozen row on a non-open sheet is locked by
+ * the SHEET's state — and the two states must not share a sentence: the
+ * fall-through that said "Locked by a finished reconciliation" on an ABANDONED
+ * sheet asserted the opposite of the truth on every checkbox, in exactly the
+ * place a screen-reader user goes to learn whether this statement certified
+ * anything.
+ */
+function describeRowLock(sheet: ReconcileSheet, row: ReconcileRow): string {
+  if (!isRowLocked(sheet, row)) return '';
+  if (row.frozen) {
+    return row.frozenStatementDate !== null
       ? ` Locked by the reconciliation of the ${row.frozenStatementDate} statement.`
-      : ' Locked by a finished reconciliation.'
-    : '';
-  return `On this statement: ${entry}, ${row.date}, ${label}, ${formatWithSide(row.amountMinor)}.${locked}`;
+      : ' Locked by a finished reconciliation.';
+  }
+  return sheet.status === 'abandoned'
+    ? ' This statement was abandoned — nothing here was reconciled, and this list can no longer be changed.'
+    : ' This statement is reconciled — reopen it to change what it matched.';
 }
 
 /** Display labels for the reconciliation statuses (never the raw enum ids). */

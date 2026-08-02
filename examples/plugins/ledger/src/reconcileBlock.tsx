@@ -121,6 +121,52 @@ const dropKey = (map: Record<string, OptimisticTick>, key: string): Record<strin
  */
 type Mode = 'none' | 'amend' | 'abandon' | 'confirm-finish';
 
+/**
+ * A button face that LOOKS dead when it is dead.
+ *
+ * `buttonStyle` sets colour and background inline, which beats the UA's
+ * `:disabled` rule entirely — measured on the Finish button, the dead and the
+ * live control were pixel-identical down to the label's darkest pixel, so the
+ * gate read as live and a click did nothing. That fix then sat on Finish ALONE
+ * while every button added since (Amend, Abandon, Save, both confirms') shipped
+ * the same defect on plain `buttonStyle` — the exact one-fact-two-places drift
+ * this helper ends. Still legible when dead (5.14:1 light / 5.37:1 dark):
+ * disabled is not a reason to be unreadable.
+ */
+const buttonFace = (dead: boolean, extra: React.CSSProperties = {}): React.CSSProperties => ({
+  ...buttonStyle,
+  ...extra,
+  ...(dead ? {color: SECONDARY_TEXT, background: 'hsl(var(--muted))', cursor: 'not-allowed'} : {}),
+});
+
+/**
+ * Where keyboard focus must land after the NEXT render.
+ *
+ * Every sub-flow transition here either disables or unmounts the element that
+ * is focused at the moment of the press — opening Amend disables the Amend
+ * button, every Cancel unmounts itself — and a browser answers both by dumping
+ * focus on `<body>`, which strands a keyboard or screen-reader user at the top
+ * of the document. The element to focus instead often does not EXIST until the
+ * re-render commits (the form being opened) or is disabled until it (the
+ * invoker being returned to), so the handler records an intent and the
+ * after-render effect performs it.
+ *
+ * The SUCCESS paths of finish and abandon deliberately target the one control
+ * that survives the status change (`close` — "Pick another statement"): the
+ * invoking button unmounts when the reloaded status lands, on a timetable this
+ * component does not control, and focus returned to it would be dumped on
+ * `<body>` moments later anyway.
+ */
+type FocusTarget =
+  | 'amend-open' // the amend form's first field
+  | 'amend-invoker' // the Amend button
+  | 'amend-save' // the form's Save (after a refused save re-enables it)
+  | 'abandon-open' // the abandon confirm's primary button
+  | 'abandon-invoker' // the Abandon button
+  | 'finish-confirm' // the finish confirm's primary button
+  | 'finish-invoker' // the Finish button
+  | 'close'; // "Pick another statement" — present in every status
+
 export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: EditorLike}) => {
   const data = useLedgerReport();
   const props = readProps(block);
@@ -150,6 +196,46 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
   const [mode, setMode] = React.useState<Mode>('none');
   const [amendDate, setAmendDate] = React.useState('');
   const [amendBalance, setAmendBalance] = React.useState('');
+
+  // Focus management (see {@link FocusTarget}): the intent is a ref, not
+  // state — recording it must never itself schedule a render.
+  const pendingFocus = React.useRef<FocusTarget | null>(null);
+  const amendButtonRef = React.useRef<HTMLButtonElement | null>(null);
+  const amendDateRef = React.useRef<HTMLInputElement | null>(null);
+  const amendSaveRef = React.useRef<HTMLButtonElement | null>(null);
+  const abandonButtonRef = React.useRef<HTMLButtonElement | null>(null);
+  const abandonYesRef = React.useRef<HTMLButtonElement | null>(null);
+  const finishButtonRef = React.useRef<HTMLButtonElement | null>(null);
+  const finishYesRef = React.useRef<HTMLButtonElement | null>(null);
+  const closeButtonRef = React.useRef<HTMLButtonElement | null>(null);
+
+  /** Record where focus must land once the pending render has committed. */
+  const focusNext = (target: FocusTarget): void => {
+    pendingFocus.current = target;
+  };
+
+  // After EVERY commit, perform the recorded focus intent. After the commit,
+  // and not in the handler, because the element is only now mounted (an opening
+  // form) or only now re-enabled (a returned-to invoker) — `.focus()` on a
+  // disabled element is a silent no-op, which is how the earlier attempt at
+  // this in the register block stayed green while doing nothing.
+  React.useEffect(() => {
+    if (pendingFocus.current === null) return;
+    const target = pendingFocus.current;
+    pendingFocus.current = null;
+    const el =
+      target === 'amend-open' ? amendDateRef.current
+        : target === 'amend-invoker' ? amendButtonRef.current
+          : target === 'amend-save' ? amendSaveRef.current
+            : target === 'abandon-open' ? abandonYesRef.current
+              : target === 'abandon-invoker' ? abandonButtonRef.current
+                : target === 'finish-confirm' ? finishYesRef.current
+                  : target === 'finish-invoker' ? finishButtonRef.current
+                    : closeButtonRef.current;
+    // A vanished target (the reload landed first and unmounted it) falls back
+    // to the one control every status renders, never to <body>.
+    (el ?? closeButtonRef.current)?.focus();
+  });
 
   const update = (key: string, value: string, apply: (v: string) => void): void => {
     apply(value);
@@ -218,6 +304,7 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
     setAction(IDLE);
     setAmendDate(sheet.statementDate);
     setAmendBalance(statementBalanceInput(sheet.statementBalanceMinor, sheet.normalSide));
+    focusNext('amend-open');
     setMode('amend');
   };
 
@@ -233,8 +320,23 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
       // A REFUSED amend keeps the form open with what was typed still in it:
       // closing it would throw the correction away and leave only the error
       // message, and the whole point of this control is to not have to retype.
+      // Focus goes back to Save either way — pressing it disabled it (busy),
+      // which dropped focus to <body>; on success Save is about to unmount, so
+      // the target is the re-enabled invoker instead.
+      focusNext(ok ? 'amend-invoker' : 'amend-save');
       if (ok) setMode('none');
     });
+  };
+
+  const cancelAmend = (): void => {
+    focusNext('amend-invoker');
+    setMode('none');
+  };
+
+  const beginAbandon = (): void => {
+    setAction(IDLE);
+    focusNext('abandon-open');
+    setMode('abandon');
   };
 
   const abandon = (): void => {
@@ -243,29 +345,66 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
       await api.ledger.abandonReconciliation(statement.id);
       data.reload();
     }).then((ok) => {
+      // Success unmounts the whole action set when the abandoned status lands,
+      // so the target is the one control that survives it (`close`), never the
+      // Abandon button that is about to disappear.
+      focusNext(ok ? 'close' : 'abandon-open');
       if (ok) setMode('none');
     });
   };
 
+  const cancelAbandon = (): void => {
+    focusNext('abandon-invoker');
+    setMode('none');
+  };
+
   /**
-   * Finish — via the unmatched notice when there is one to show.
+   * The Finish PRESS — via the unmatched notice when there is one to show.
    *
    * The notice is a STEP, not a gate: `confirm-finish` renders the same sentence
    * the standing caveat does and offers "Finish anyway" right there. Unticked
    * postings are frequently just money that has not reached the bank, so
    * blocking would be wrong; being silent about a possible duplicate at the
    * moment the books are being certified would be worse.
+   *
+   * A SECOND press while the confirm is open must NOT finish. The version that
+   * fell through to the commit branch turned a habitual double-click — or a
+   * double Enter on the still-focused button — into certification without the
+   * confirm ever being read, which unmakes the confirm's entire reason to
+   * exist. It routes focus to the confirm instead: the press means "finish",
+   * and the confirm's own button is now the only thing that does that.
    */
-  const finish = (): void => {
+  const requestFinish = (): void => {
     if (statement === null) return;
-    if (mode !== 'confirm-finish' && unmatchedCaveat !== null) {
+    if (mode === 'confirm-finish') {
+      // Already mounted, so no render is pending — focus it directly.
+      finishYesRef.current?.focus();
+      return;
+    }
+    if (unmatchedCaveat !== null) {
       setAction(IDLE);
+      focusNext('finish-confirm');
       setMode('confirm-finish');
       return;
     }
+    commitFinish();
+  };
+
+  /** The COMMIT — reached from a clean press, or from the confirm's own button. */
+  const commitFinish = (): void => {
+    if (statement === null) return;
     void run(() => api.ledger.finishReconciliation(statement.id)).then((ok) => {
+      // Success: the Finish button unmounts when the finished status lands —
+      // target the control that survives. Refusal with the confirm open: the
+      // confirm stays (its button re-enables); without it, back to Finish.
+      focusNext(ok ? 'close' : mode === 'confirm-finish' ? 'finish-confirm' : 'finish-invoker');
       if (ok) setMode('none');
     });
+  };
+
+  const cancelFinishConfirm = (): void => {
+    focusNext('finish-invoker');
+    setMode('none');
   };
 
   const start = (): void => {
@@ -433,21 +572,11 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                   <button
                     type="button"
                     data-ledger-finish
-                    // A disabled control must LOOK disabled. `buttonStyle` sets
-                    // colour and background inline, which beats the UA's
-                    // `:disabled` rule entirely — measured, the dead button and
-                    // the live one were pixel-identical down to the label's
-                    // darkest pixel, so the gate read as live and a click did
-                    // nothing. Still legible (5.14:1 light / 5.37:1 dark):
-                    // disabled is not a reason to be unreadable.
-                    style={{
-                      ...buttonStyle,
-                      fontWeight: 600,
-                      ...(finishDead ? {color: SECONDARY_TEXT, background: 'hsl(var(--muted))', cursor: 'not-allowed'} : {}),
-                    }}
+                    ref={finishButtonRef}
+                    style={buttonFace(finishDead, {fontWeight: 600})}
                     disabled={finishDead}
                     aria-describedby={finishReason !== null ? finishHintId : undefined}
-                    onClick={finish}
+                    onClick={requestFinish}
                   >
                     {action.busy ? 'Working…' : 'Finish'}
                   </button>
@@ -456,7 +585,7 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                   <button
                     type="button"
                     data-ledger-reopen
-                    style={buttonStyle}
+                    style={buttonFace(action.busy || editor.readOnly)}
                     disabled={action.busy || editor.readOnly}
                     onClick={() => void run(() => api.ledger.reopenReconciliation(statement.id))}
                   >
@@ -469,13 +598,17 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                     mistyped closing balance is the ordinary case, and before
                     this control the only ways out of it were posting a fake
                     entry to force the difference to zero or editing the
-                    database by hand. */}
+                    database by hand. Each is disabled while ITS panel is open —
+                    pressing it again would re-open what is already on screen —
+                    and the focus intents recorded on open/close are what keep
+                    that disabling from stranding keyboard focus on <body>. */}
                 {sheet.status === 'open' && (
                   <>
                     <button
                       type="button"
                       data-ledger-amend
-                      style={buttonStyle}
+                      ref={amendButtonRef}
+                      style={buttonFace(action.busy || editor.readOnly || mode === 'amend')}
                       disabled={action.busy || editor.readOnly || mode === 'amend'}
                       onClick={beginAmend}
                     >
@@ -484,12 +617,10 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                     <button
                       type="button"
                       data-ledger-abandon
-                      style={buttonStyle}
+                      ref={abandonButtonRef}
+                      style={buttonFace(action.busy || editor.readOnly || mode === 'abandon')}
                       disabled={action.busy || editor.readOnly || mode === 'abandon'}
-                      onClick={() => {
-                        setAction(IDLE);
-                        setMode('abandon');
-                      }}
+                      onClick={beginAbandon}
                     >
                       Abandon
                     </button>
@@ -511,7 +642,8 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                 <button
                   type="button"
                   data-ledger-reconcile-close
-                  style={buttonStyle}
+                  ref={closeButtonRef}
+                  style={buttonFace(action.busy)}
                   disabled={action.busy}
                   onClick={() => update(PROP_RECONCILIATION, '', setReconciliationId)}
                 >
@@ -530,10 +662,17 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                 <div data-ledger-finish-confirm role="status" aria-live="polite" style={noticeStyle('info')}>
                   {unmatchedCaveat}
                   <div style={{display: 'flex', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap'}}>
-                    <button type="button" data-ledger-finish-confirm-yes style={{...buttonStyle, fontWeight: 600}} disabled={action.busy} onClick={finish}>
+                    <button
+                      type="button"
+                      data-ledger-finish-confirm-yes
+                      ref={finishYesRef}
+                      style={buttonFace(action.busy, {fontWeight: 600})}
+                      disabled={action.busy}
+                      onClick={commitFinish}
+                    >
                       {action.busy ? 'Working…' : 'Finish anyway'}
                     </button>
-                    <button type="button" data-ledger-finish-confirm-no style={buttonStyle} disabled={action.busy} onClick={() => setMode('none')}>
+                    <button type="button" data-ledger-finish-confirm-no style={buttonFace(action.busy)} disabled={action.busy} onClick={cancelFinishConfirm}>
                       Go back and check
                     </button>
                   </div>
@@ -542,15 +681,18 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
 
               {mode === 'amend' && (
                 <AmendForm
+                  idBase={`ledger-amend-${reconciliationId}`}
                   normalSide={sheet.normalSide}
                   date={amendDate}
                   balanceText={amendBalance}
                   balance={amendParsed}
                   busy={action.busy}
+                  dateRef={amendDateRef}
+                  saveRef={amendSaveRef}
                   onDate={setAmendDate}
                   onBalance={setAmendBalance}
                   onSave={saveAmend}
-                  onCancel={() => setMode('none')}
+                  onCancel={cancelAmend}
                 />
               )}
 
@@ -564,10 +706,17 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                   Abandon the {sheet.statementDate} statement? It stays on record as abandoned, nothing is posted to the books, and every posting keeps the
                   cleared state it has now. This account is then free for a new reconciliation — but this one cannot be resumed.
                   <div style={{display: 'flex', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap'}}>
-                    <button type="button" data-ledger-abandon-confirm-yes style={{...buttonStyle, fontWeight: 600}} disabled={action.busy} onClick={abandon}>
+                    <button
+                      type="button"
+                      data-ledger-abandon-confirm-yes
+                      ref={abandonYesRef}
+                      style={buttonFace(action.busy, {fontWeight: 600})}
+                      disabled={action.busy}
+                      onClick={abandon}
+                    >
                       {action.busy ? 'Working…' : 'Abandon this statement'}
                     </button>
-                    <button type="button" data-ledger-abandon-confirm-no style={buttonStyle} disabled={action.busy} onClick={() => setMode('none')}>
+                    <button type="button" data-ledger-abandon-confirm-no style={buttonFace(action.busy)} disabled={action.busy} onClick={cancelAbandon}>
                       Keep working on it
                     </button>
                   </div>
@@ -602,7 +751,9 @@ export const ReconcileBlock = ({block, editor}: {block: BlockLike; editor: Edito
                   Before finishing this is null: the difference readout and the
                   caveat above are already saying it against a number that
                   moves. */}
-              {outstandingHeading !== null && <OutstandingItems sheet={sheet} heading={outstandingHeading} />}
+              {outstandingHeading !== null && (
+                <OutstandingItems sheet={sheet} heading={outstandingHeading} headingId={`ledger-outstanding-${reconciliationId}`} />
+              )}
             </>
           )}
         </>
@@ -701,28 +852,43 @@ const Arithmetic = ({sheet}: {sheet: ReconcileSheet}) => {
  * account's postings, which is not a correction but a different reconciliation.
  */
 const AmendForm = ({
+  idBase,
   normalSide,
   date,
   balanceText,
   balance,
   busy,
+  dateRef,
+  saveRef,
   onDate,
   onBalance,
   onSave,
   onCancel,
 }: {
+  /** Unique per block instance + statement — two reconcile blocks on one page
+   *  must not mint the same element ids, or every `aria-describedby` on the
+   *  second block resolves to the FIRST block's text. */
+  idBase: string;
   normalSide: NormalSide;
   date: string;
   balanceText: string;
   balance: ReturnType<typeof parseStatementBalance>;
   busy: boolean;
+  dateRef: React.Ref<HTMLInputElement>;
+  saveRef: React.Ref<HTMLButtonElement>;
   onDate: (v: string) => void;
   onBalance: (v: string) => void;
   onSave: () => void;
   onCancel: () => void;
 }) => {
-  const hintId = 'ledger-amend-balance-hint';
+  const echoId = `${idBase}-echo`;
+  const problemId = `${idBase}-problem`;
   const problem = date === '' ? 'Enter the date the statement closes on.' : !balance.ok ? balance.problem : null;
+  // The problem is about ONE input; the live region announces it, but the
+  // `aria-describedby` wiring is what lets a user who lands ON that input
+  // (or returns to it later) hear why it is the one holding Save closed.
+  const dateProblem = date === '';
+  const balanceProblem = !dateProblem && !balance.ok;
   return (
     <div data-ledger-amend-form style={{...noticeStyle('quiet'), display: 'flex', flexDirection: 'column', gap: '0.5rem'}}>
       {/* Says what this changes and — the part that matters — what it does not.
@@ -732,7 +898,15 @@ const AmendForm = ({
       <div style={{display: 'flex', alignItems: 'flex-end', gap: '0.5rem', flexWrap: 'wrap'}}>
         <label style={{display: 'flex', flexDirection: 'column', gap: '0.2rem'}}>
           <span style={mutedStyle}>Statement date</span>
-          <input type="date" data-ledger-amend-date style={controlStyle} value={date} onChange={(e) => onDate(e.target.value)} />
+          <input
+            type="date"
+            data-ledger-amend-date
+            ref={dateRef}
+            aria-describedby={dateProblem ? problemId : undefined}
+            style={controlStyle}
+            value={date}
+            onChange={(e) => onDate(e.target.value)}
+          />
         </label>
         <label style={{display: 'flex', flexDirection: 'column', gap: '0.2rem'}}>
           <span style={mutedStyle}>{describeBalanceLabel(normalSide)}</span>
@@ -740,27 +914,34 @@ const AmendForm = ({
             type="text"
             inputMode="decimal"
             data-ledger-amend-balance
-            aria-describedby={balance.ok && balanceText.trim() !== '' ? hintId : undefined}
+            aria-describedby={balanceProblem ? problemId : balance.ok && balanceText.trim() !== '' ? echoId : undefined}
             style={{...controlStyle, minWidth: '9rem', textAlign: 'right'}}
             placeholder="0.00"
             value={balanceText}
             onChange={(e) => onBalance(e.target.value)}
           />
           {balance.ok && balanceText.trim() !== '' && (
-            <span id={hintId} data-ledger-amend-echo style={{...mutedStyle, maxWidth: '18rem'}}>
+            <span id={echoId} data-ledger-amend-echo style={{...mutedStyle, maxWidth: '18rem'}}>
               {describeBalanceEcho(balance.minor, normalSide)}
             </span>
           )}
         </label>
-        <button type="button" data-ledger-amend-save style={{...buttonStyle, fontWeight: 600}} disabled={problem !== null || busy} onClick={onSave}>
+        <button
+          type="button"
+          data-ledger-amend-save
+          ref={saveRef}
+          style={buttonFace(problem !== null || busy, {fontWeight: 600})}
+          disabled={problem !== null || busy}
+          onClick={onSave}
+        >
           {busy ? 'Saving…' : 'Save statement'}
         </button>
-        <button type="button" data-ledger-amend-cancel style={buttonStyle} disabled={busy} onClick={onCancel}>
+        <button type="button" data-ledger-amend-cancel style={buttonFace(busy)} disabled={busy} onClick={onCancel}>
           Cancel
         </button>
       </div>
       {problem !== null && (
-        <div data-ledger-amend-hint role="status" aria-live="polite" style={mutedStyle}>
+        <div id={problemId} data-ledger-amend-hint role="status" aria-live="polite" style={mutedStyle}>
           {problem}
         </div>
       )}
@@ -777,9 +958,9 @@ const AmendForm = ({
  * never describe different sets, which is exactly what a locally re-typed
  * `!row.matched` filter would eventually allow.
  */
-const OutstandingItems = ({sheet, heading}: {sheet: ReconcileSheet; heading: string}) => (
-  <section data-ledger-outstanding={sheet.unmatchedCount} aria-labelledby="ledger-outstanding-heading" style={{...noticeStyle('info'), display: 'flex', flexDirection: 'column', gap: '0.35rem'}}>
-    <h4 id="ledger-outstanding-heading" data-ledger-outstanding-heading style={{...titleStyle, fontSize: '0.85rem', margin: 0}}>
+const OutstandingItems = ({sheet, heading, headingId}: {sheet: ReconcileSheet; heading: string; headingId: string}) => (
+  <section data-ledger-outstanding={sheet.unmatchedCount} aria-labelledby={headingId} style={{...noticeStyle('info'), display: 'flex', flexDirection: 'column', gap: '0.35rem'}}>
+    <h4 id={headingId} data-ledger-outstanding-heading style={{...titleStyle, fontSize: '0.85rem', margin: 0}}>
       {heading}
     </h4>
     <div style={mutedStyle}>{describeOutstandingIntro(sheet)}</div>

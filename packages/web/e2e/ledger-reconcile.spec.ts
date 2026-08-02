@@ -268,9 +268,21 @@ test('the canonical reconciliation: 3 months with 2 missing entries and 1 duplic
   await expect(confirm).toContainText('not cleared the bank yet that is expected');
   await expect(confirm).toContainText('recorded twice');
   await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'open');
+  // Focus moves to the confirm's primary — a real browser is the environment
+  // where the alternative (focus dumped on <body>) actually happens, so the
+  // after-press focus target is asserted HERE as well as in the unit tests.
+  await expect(page.locator('[data-ledger-finish-confirm-yes]')).toBeFocused();
+  // THE DOUBLE PRESS. The second click of a habitual double-click lands on the
+  // still-enabled Finish button — it must NOT certify the books with the
+  // confirm unread. This is the press that used to finish for real.
+  await finish.click();
+  await expect(confirm).toBeVisible();
+  await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'open');
   await page.locator('[data-ledger-finish-confirm-no]').click();
   await expect(confirm).toHaveCount(0);
   await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'open');
+  // Declining hands focus back to the Finish button it took it from.
+  await expect(finish).toBeFocused();
 
   await finish.click();
   await page.locator('[data-ledger-finish-confirm-yes]').click();
@@ -428,6 +440,11 @@ test('a mistyped closing balance is correctable, and a bad statement abandonable
   // Prefilled with the value as it stands, in a form its own parser reads back.
   await expect(amendBalance).toHaveValue('-1,000.00');
   await expect(page.locator('[data-ledger-amend-date]')).toHaveValue('2026-05-31');
+  // Opening the form DISABLED the invoker — the element that was focused. In a
+  // real browser that dumps focus on <body> unless the block moves it, so the
+  // after-press target is asserted here, at the transition.
+  await expect(page.locator('[data-ledger-amend]')).toBeDisabled();
+  await expect(page.locator('[data-ledger-amend-date]')).toBeFocused();
   await amendBalance.fill('1,000.00');
   await expect(page.locator('[data-ledger-amend-echo]')).toHaveText('Reading it as 1,000.00 in the account.');
   await page.locator('[data-ledger-amend-save]').click();
@@ -459,9 +476,13 @@ test('a mistyped closing balance is correctable, and a bad statement abandonable
   // the store: nothing is posted, and no tick is undone.
   await expect(abandonConfirm).toContainText('nothing is posted to the books');
   await expect(abandonConfirm).toContainText('keeps the cleared state it has now');
+  await expect(page.locator('[data-ledger-abandon-confirm-yes]')).toBeFocused();
   await page.locator('[data-ledger-abandon-confirm-no]').click();
   await expect(abandonConfirm).toHaveCount(0);
   await expect(page.locator('[data-ledger-reconcile]')).toHaveAttribute('data-ledger-reconcile-status', 'open');
+  // Declining re-enabled the invoker and handed focus back to it — the exit
+  // button the user pressed no longer exists, so anywhere else is <body>.
+  await expect(page.locator('[data-ledger-abandon]')).toBeFocused();
 
   await page.locator('[data-ledger-abandon]').click();
   await page.locator('[data-ledger-abandon-confirm-yes]').click();

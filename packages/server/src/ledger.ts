@@ -2383,10 +2383,18 @@ function buildReconciliationsSchema(): DatabaseSchema {
       {id: LEDGER_PROP.reconciliation.statementBalance, name: 'Statement balance (minor)', type: 'number'},
       // From the exported constant, not a second hand-written list: LGR-22 added
       // `abandoned` and a literal here would have silently kept the old two.
-      // These options are display chrome on the managed database view and are
-      // written only at SEED — a book seeded before LGR-22 keeps the two-option
-      // list, which is cosmetic (the store writes the property as raw jsonb and
-      // never validates it against the schema) and needs no migration.
+      //
+      // These options are written only at SEED, so a book seeded before LGR-22
+      // keeps the two-option list — and on such a book the managed database
+      // view renders an abandoned row's Status cell as BLANK, not as unstyled
+      // text: the view resolves a select by option id, and an id with no
+      // option resolves to nothing. Correctness is unaffected (the store
+      // writes the property as raw jsonb and never validates it against the
+      // schema; every ledger read goes through `reconciliationFromRow`, not
+      // the view), and that view is on a restricted page nobody works in, so
+      // this ships without a schema backfill — but anyone adding a FOURTH
+      // status should know the stale-seed cost is a blank cell, not a cosmetic
+      // one, and weigh an ensure-options write then.
       {id: LEDGER_PROP.reconciliation.status, name: 'Status', type: 'select', options: selectOptions(LEDGER_RECONCILIATION_STATUSES)},
     ],
     'v_reconciliations',
