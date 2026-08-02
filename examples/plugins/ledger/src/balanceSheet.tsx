@@ -34,6 +34,7 @@ import {
   type BlockLike,
   type EditorLike,
 } from './reportShell';
+import {describeClosedPeriodMarker, latestCloseThrough} from './periods';
 import {todayIso} from './model';
 
 /**
@@ -176,11 +177,13 @@ export const BalanceSheetBlock = ({block, editor}: {block: BlockLike; editor: Ed
       minor: sheet.currentEarningsMinor,
       // Computed, not stored — and the starter chart ships a real
       // `Equity:RetainedEarnings` account, so saying which is which matters.
-      // The note also states the SPAN, because "current" is a period word and
-      // this figure has no period until closing entries exist (LGR-12) — and the
-      // span is truncation-aware, because a partial read drops the OLDEST
-      // entries, i.e. exactly the ones "from the first posted entry" names.
-      note: describeCurrentEarnings(sheet, {truncated: data.truncated}),
+      // The note also states the SPAN, because "current" is a period word: on a
+      // never-closed book the figure has no period, and once a period close
+      // exists (LGR-12) it starts where the last close (at or before the as-of)
+      // ended — `closedThrough` names that close. Truncation-aware, because a
+      // partial read drops the OLDEST entries, i.e. exactly the ones "from the
+      // first posted entry" names.
+      note: describeCurrentEarnings(sheet, {truncated: data.truncated, closedThrough: latestCloseThrough(data.periods, sheet.asOf)}),
     });
     lines.push({kind: 'line', key: 'equity', label: 'Total equity', minor: sheet.totalEquityMinor, rule: true});
     if (sheet.unclassified.accountCount > 0) {
@@ -229,6 +232,12 @@ export const BalanceSheetBlock = ({block, editor}: {block: BlockLike; editor: Ed
         <div data-ledger-as-of-ahead style={mutedStyle}>
           {latest === asOf ? `Dated to your latest posted entry (${asOf})` : `Dated ${asOf}`} — ahead of today ({today}); this position includes entries that have not happened yet.
         </div>
+      )}
+
+      {/* LGR-12, display-only: a position dated at or after a closed period
+          rests on locked books — a fact worth a line, never a gate. */}
+      {describeClosedPeriodMarker(data.periods, '', asOf) !== null && (
+        <div data-ledger-closed-periods style={mutedStyle}>{describeClosedPeriodMarker(data.periods, '', asOf)}</div>
       )}
 
       <div data-ledger-drafts-excluded={sheet !== null ? sheet.draftCount : 0} style={mutedStyle}>

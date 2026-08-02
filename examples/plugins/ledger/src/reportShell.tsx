@@ -2,6 +2,7 @@ import React from 'react';
 import {api, LEDGER_MAX_TRANSACTION_LIMIT} from '@book.dev/plugin-sdk';
 import {formatWithSide, type ReportAccount, type ReportTransaction} from './reports';
 import type {ReconcileStatement} from './reconcile';
+import type {ReportPeriod} from './periods';
 import {setUpBooks} from './setup';
 
 /**
@@ -84,6 +85,13 @@ export interface LedgerReportData {
    * — an id in a cell explains nothing.
    */
   reconciliations: ReconcileStatement[];
+  /**
+   * Every period record (LGR-12) — closed and reopened history. Read alongside
+   * the rest so the reports can render the display-only closed-period marker
+   * and the period-close block can list and act on them. Enforcement is the
+   * store's; this list only informs.
+   */
+  periods: ReportPeriod[];
   /** The server returned a full page — older entries are NOT in these figures. */
   truncated: boolean;
   error: string | null;
@@ -120,6 +128,7 @@ export function useLedgerReport(): LedgerReportData {
   const [accounts, setAccounts] = React.useState<ReportAccount[]>([]);
   const [transactions, setTransactions] = React.useState<ReportTransaction[]>([]);
   const [reconciliations, setReconciliations] = React.useState<ReconcileStatement[]>([]);
+  const [periods, setPeriods] = React.useState<ReportPeriod[]>([]);
   const [truncated, setTruncated] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [generation, setGeneration] = React.useState(0);
@@ -132,10 +141,16 @@ export function useLedgerReport(): LedgerReportData {
     const load = async (): Promise<void> => {
       const token = (issued += 1);
       try {
-        const [accountList, txList, reconciliationList] = await Promise.all([
+        const [accountList, txList, reconciliationList, periodList] = await Promise.all([
           api.ledger.listAccounts(),
           api.ledger.listTransactions({limit: REPORT_TX_LIMIT}),
           api.ledger.listReconciliations(),
+          // LGR-12: a close/reopen also posts a real transaction, so the
+          // transactions subscription refreshes this list on the same tick.
+          // (A close of an EMPTY range writes no rows and stays stale until
+          // the next mutation or reload — the period block reloads itself
+          // after its own actions, which is the only place that matters.)
+          api.ledger.listPeriods(),
         ]);
         // Torn down, or a newer load was issued while this one was in flight:
         // this answer is stale and must never reach the screen.
@@ -143,6 +158,7 @@ export function useLedgerReport(): LedgerReportData {
         setAccounts(accountList as unknown as ReportAccount[]);
         setTransactions(txList as unknown as ReportTransaction[]);
         setReconciliations(reconciliationList as unknown as ReconcileStatement[]);
+        setPeriods(periodList as unknown as ReportPeriod[]);
         setTruncated(txList.length >= REPORT_TX_LIMIT);
         setError(null);
         setState('ready');
@@ -216,6 +232,7 @@ export function useLedgerReport(): LedgerReportData {
     accounts,
     transactions,
     reconciliations,
+    periods,
     truncated,
     error,
     reload: React.useCallback(() => setGeneration((n) => n + 1), []),

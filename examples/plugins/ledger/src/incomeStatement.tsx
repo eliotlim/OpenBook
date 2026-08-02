@@ -2,6 +2,7 @@ import React from 'react';
 import {describeDraftExclusion} from './reports';
 import {
   buildIncomeStatement,
+  describeClosingExclusion,
   describeIncomeScope,
   describeIncomeUnclassified,
   describeNetIncome,
@@ -36,6 +37,7 @@ import {
   type BlockLike,
   type EditorLike,
 } from './reportShell';
+import {describeClosedPeriodMarker} from './periods';
 import {todayIso} from './model';
 
 /**
@@ -246,6 +248,17 @@ export const IncomeStatementBlock = ({block, editor}: {block: BlockLike; editor:
           </span>
         )}
       </div>
+
+      {/* LGR-12, display-only: the range crossing a closed period is a fact a
+          reader needs (entries there are locked), and the closing-entry
+          exclusion is a disclosure the figures owe. Neither gates anything —
+          the store enforces the lock. */}
+      {describeClosedPeriodMarker(data.periods, from, to) !== null && (
+        <div data-ledger-closed-periods style={mutedStyle}>{describeClosedPeriodMarker(data.periods, from, to)}</div>
+      )}
+      {statement !== null && describeClosingExclusion(statement.closingCount) !== null && (
+        <div data-ledger-closing-excluded={statement.closingCount} style={mutedStyle}>{describeClosingExclusion(statement.closingCount)}</div>
+      )}
 
       <TruncationNotice shown={data.truncated} detail="Older entries are missing, so revenue, expenses and the net income below are a subset of the period." />
 
