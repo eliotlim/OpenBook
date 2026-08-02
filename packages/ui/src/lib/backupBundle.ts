@@ -20,6 +20,9 @@ export function parseBackup(text: string): LibraryBackup {
     pages: parsed.pages,
     databases: parsed.databases,
     icons: parsed.icons ?? {},
+    // LGR-15: the ledger durability section (v2 bundles). Carried through so an
+    // overwrite restore can forward it; absent in v1 files.
+    ...(parsed.ledger ? {ledger: parsed.ledger} : {}),
   };
 }
 

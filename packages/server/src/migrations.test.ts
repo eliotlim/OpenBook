@@ -94,9 +94,12 @@ describe('migration 0011 — existing database with data', () => {
     const db = await PgliteDb.create('memory://');
     await db.query('CREATE TABLE _migrations (name TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');
     // deleted_at is part of the simulated baseline (0004 would have added it);
-    // later migrations (0015's partial name index) reference the column.
+    // later migrations (0015's partial name index) reference the column. Same
+    // for database_id (0002) and position (0005): 0023's composite row-append
+    // index is built over both.
     await db.query(`CREATE TABLE pages (
       id UUID PRIMARY KEY, name TEXT, data JSONB NOT NULL DEFAULT '{}'::jsonb,
+      database_id UUID, position DOUBLE PRECISION NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
       deleted_at TIMESTAMPTZ)`);
     for (const n of [

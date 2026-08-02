@@ -7,6 +7,7 @@ import {
   API,
   AGENT_EDITS_MODES,
   AGENT_EDITS_POLICIES,
+  ASSET_IMAGE_MIMES,
   CLIENT_HEADER,
   FORWARDED_HEADER,
   PAGE_VISIBILITIES,
@@ -152,23 +153,11 @@ function denyPatPolicy(c: Context<AppEnv>): void {
   }
 }
 
-/**
- * The image mime types the asset store echoes back verbatim as a response
- * `Content-Type` (Assets A1 is image-only for v1 — A0's block only produces image
- * data-URLs). `image/svg+xml` is deliberately EXCLUDED: SVG can carry inline
- * `<script>`, so serving it as `image/svg+xml` in the app origin would be stored
- * XSS. Anything off this list is coerced to `application/octet-stream`, which —
- * with `nosniff` + `Content-Disposition: attachment` on the served response — can
- * never execute. Grow this list (never add `svg+xml`) if v2 serves more types.
- */
-const ASSET_IMAGE_MIMES = new Set([
-  'image/png',
-  'image/jpeg',
-  'image/gif',
-  'image/webp',
-  'image/avif',
-  'image/apng',
-]);
+// The served-asset image-mime allowlist (`ASSET_IMAGE_MIMES`) is single-sourced
+// in the sdk since LGR-15: the backup-restore door (`store.ts`) sanitizes
+// bundle-carried asset mimes against the SAME list, and an allowlist that
+// exists twice will eventually disagree. `image/svg+xml` stays excluded there
+// for the same stored-XSS reason documented on the sdk constant.
 
 /**
  * Canonicalize an uploader-controlled mime into a value SAFE to store and echo as a
@@ -1325,21 +1314,36 @@ export function createApp(store: PageStore, ai?: AiService, hub: PageHub = new P
     return c.json(await store.exportAll());
   });
 
-  app.post(API.importLibrary, async (c) => {
+  // A whole-library bundle (pages + databases + the ledger's base64 evidence)
+  // is legitimately large but not unbounded: cap the body so a hostile or
+  // runaway upload cannot balloon the process (the request IS materialized in
+  // memory — admin-gated, availability-only, but the front door should still
+  // have a jamb). Generous by design: a real library restore must never hit it.
+  const IMPORT_MAX_BODY_BYTES = 512 * 1024 * 1024;
+  app.post(
+    API.importLibrary,
+    bodyLimit({maxSize: IMPORT_MAX_BODY_BYTES, onError: (c) => c.json({error: 'request body too large'}, 413)}),
+    async (c) => {
     // Wholesale overwrite/inject of pages + databases — instance administration
     // only, same gate (and rationale) as the export above.
-    await requireInstanceAdmin(c, store);
-    const req = await c.req.json<ImportRequest>();
-    const result = await store.importBundle(req);
-    // ER-6: a deduped re-apply wrote nothing — skip the list re-broadcast and the
-    // `space.import` provenance row (a sync/restore daemon re-POSTing its bundle
-    // would otherwise grow the edit log unboundedly). Only a real import is logged.
-    if (!result.deduped) {
-      await broadcastList();
-      logEdit(c, null, 'space.import', `${result.created} created, ${result.overwritten} overwritten`);
-    }
-    return c.json(result);
-  });
+      await requireInstanceAdmin(c, store);
+      const req = await c.req.json<ImportRequest>();
+      // LGR-15: the actor is recorded on the `ledger.restore` provenance event a
+      // ledger-carrying restore appends; the asset budget makes restored evidence
+      // answer to the same storage cap as uploads.
+      const result = await store.importBundle(req, {
+        actor: c.get('principal'),
+        assetBudgetBytes: ASSET_STORAGE_BUDGET_BYTES > 0 ? ASSET_STORAGE_BUDGET_BYTES : undefined,
+      });
+      // ER-6: a deduped re-apply wrote nothing — skip the list re-broadcast and the
+      // `space.import` provenance row (a sync/restore daemon re-POSTing its bundle
+      // would otherwise grow the edit log unboundedly). Only a real import is logged.
+      if (!result.deduped) {
+        await broadcastList();
+        logEdit(c, null, 'space.import', `${result.created} created, ${result.overwritten} overwritten`);
+      }
+      return c.json(result);
+    });
 
   // ── Multi-user: instance policy + change provenance (OB-165) ─────────────────
 

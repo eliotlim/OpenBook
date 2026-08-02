@@ -619,6 +619,13 @@ export const en = {
     folderEmpty: 'No OpenBook pages found in that folder.',
     restored: 'Restored {count} pages{detail}.',
     restoreFailed: 'Restore failed: {error}',
+    // LGR-15: the outcome of a bundle's ledger history section. A `skipped-*`
+    // outcome must be LOUD — pages restoring fine while the books' history did
+    // not is the one result an operator must never mistake for success.
+    ledgerRestored: 'Ledger history restored — run Export & verify (or GET /api/ledger/verify) to confirm the books.',
+    ledgerSkippedExisting: 'Ledger history NOT restored: this library already has a ledger. Restore the bundle into a fresh library to bring its books back.',
+    ledgerSkippedCopy: 'Ledger history NOT restored: copying assigns new ids, which would sever the audit trail. Use Overwrite into a fresh library.',
+    ledgerSkippedIncomplete: 'Ledger history NOT restored: the restore selection did not include the ledger’s own pages. Select everything and restore again.',
     added: '{count} added',
     overwrittenCount: '{count} overwritten',
     renamedCount: '{count} renamed',

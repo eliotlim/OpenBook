@@ -564,6 +564,21 @@ const MIGRATIONS: Migration[] = [
        END $$`,
     ],
   },
+  {
+    // LGR-15 — performance hardening for row appends. Every database-row insert
+    // (ledger postings above all: two per imported bank row) assigns
+    // `position = MAX(position)+1 WHERE database_id = $n`. The existing
+    // `pages_database_id_idx` narrows the scan to the database's rows but still
+    // fetches EVERY one to find the max — O(rows) per insert, O(rows²) per
+    // import batch, and the LGR-15 import benchmark showed exactly that curve
+    // (each successive 1k-row batch ~50% slower). A composite
+    // `(database_id, position)` turns the MAX into a reverse index scan.
+    // Additive + idempotent; byte-identical SQL on PGlite and real Postgres.
+    name: '0023_pages_database_position_idx',
+    statements: [
+      'CREATE INDEX IF NOT EXISTS pages_database_position_idx ON pages (database_id, position)',
+    ],
+  },
 ];
 
 /** Apply all pending migrations. Idempotent; safe on every boot. */

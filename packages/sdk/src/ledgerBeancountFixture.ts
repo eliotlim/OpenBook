@@ -434,3 +434,65 @@ export function buildBeancountParityBook(): LedgerBeancountFixtureBook {
   }
   return b.book();
 }
+
+/** Postings carried by {@link buildLedgerBenchBook} with default arguments. */
+export const LEDGER_BENCH_POSTING_COUNT = 10_000;
+
+/**
+ * The LGR-15 benchmark book: `txCount` posted transactions of `legsPerTx`
+ * postings each (defaults: 1000 × 10 = {@link LEDGER_BENCH_POSTING_COUNT}
+ * postings). Seeded/deterministic like the parity book — the GENERATOR is the
+ * committed artifact, never the serialized data.
+ *
+ * Shape rationale: the trial-balance benchmark reads the book through
+ * `listTransactions`, whose hard cap is `LEDGER_MAX_TRANSACTION_LIMIT` (1000)
+ * — so the 10k postings ride on exactly 1000 transactions, which keeps the
+ * benchmarked read the SAME single-page read the report block performs on a
+ * real book. Single currency, no drafts/periods/evidence: the benchmark
+ * measures the arithmetic + read path, not fixture variety (the parity book
+ * covers variety).
+ */
+export function buildLedgerBenchBook(txCount = 1000, legsPerTx = 10): LedgerBeancountFixtureBook {
+  if (legsPerTx < 2) throw new Error('a journal entry needs at least 2 postings');
+  const rnd = mulberry32(0x1ed6e15);
+  const b = new BookBuilder();
+  const bank = b.account('Assets:Bank:Checking', 'asset');
+  const cash = b.account('Assets:Cash', 'asset');
+  const card = b.account('Liabilities:CreditCard', 'liability');
+  const opening = b.account('Equity:OpeningBalances', 'equity');
+  const retained = b.account('Equity:RetainedEarnings', 'equity');
+  const revenue = b.account('Income:Revenue', 'revenue');
+  const sales = b.account('Revenue:Sales', 'revenue');
+  const fees = b.account('Expenses:Bank Fees', 'expense');
+  const hosting = b.account('Expenses:Hosting', 'expense');
+  const office = b.account('Expenses:Office', 'expense');
+  void retained; // present so period closes stay possible on a seeded copy
+  const spread = [cash, card, opening, revenue, sales, fees, hosting, office];
+
+  for (let i = 0; i < txCount; i += 1) {
+    const date = isoDay('2025-01-01', Math.floor(rnd() * 180));
+    // legsPerTx - 1 random legs + one bank leg balancing the entry to zero.
+    const legs: Array<{accountId: string; amountMinor: number}> = [];
+    let sum = 0;
+    for (let leg = 0; leg < legsPerTx - 1; leg += 1) {
+      const amount = 1 + Math.floor(rnd() * 99_999);
+      const signed = rnd() < 0.5 ? amount : -amount;
+      legs.push({accountId: spread[Math.floor(rnd() * spread.length)].id, amountMinor: signed});
+      sum += signed;
+    }
+    if (sum === 0) {
+      // A zero balancing leg would be a degenerate posting — nudge the first leg
+      // by one minor unit so the bank leg is nonzero and the entry stays zero-sum.
+      legs[0] = {...legs[0], amountMinor: legs[0].amountMinor + 1};
+      sum += 1;
+    }
+    legs.push({accountId: bank.id, amountMinor: -sum});
+    b.tx({date, description: `Bench entry #${i + 1}`, postings: legs});
+  }
+
+  const postings = b.transactions.reduce((n, t) => n + t.postings.length, 0);
+  if (postings !== txCount * legsPerTx) {
+    throw new Error(`fixture bug: bench book carries ${postings} postings, expected ${txCount * legsPerTx}`);
+  }
+  return b.book();
+}

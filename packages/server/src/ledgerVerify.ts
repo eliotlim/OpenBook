@@ -53,6 +53,7 @@ import {
   LEDGER_PROP,
   canonicalLedgerJson,
   replayLedgerAudit,
+  verifyLedgerAuditChain,
   type LedgerAccount,
   type LedgerAuditEvent,
   type LedgerPeriod,
@@ -388,11 +389,11 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
     // reporting a clean book because the read failed is the one answer a
     // verifier must never give.
     if (!isMissingRelation(err, 'settings')) throw err;
-    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, checkedPeriods: 0, checkedEvidence: 0, findings};
+    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, checkedPeriods: 0, checkedEvidence: 0, checkedReconciliations: 0, findings};
   }
   const ids = idsRows.length > 0 ? parseJson<RawLedgerIds>(idsRows[0].value, {}) : null;
   if (!ids || !ids.accounts || !ids.transactions || !ids.postings) {
-    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, checkedPeriods: 0, checkedEvidence: 0, findings};
+    return {initialized: false, checkedTransactions: 0, checkedPostings: 0, checkedAccounts: 0, checkedAuditEvents: 0, checkedPeriods: 0, checkedEvidence: 0, checkedReconciliations: 0, findings};
   }
 
   // Raw entity reads.
@@ -414,6 +415,21 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
   );
   const auditRows = await db.query<RawAuditRow>('SELECT * FROM ledger_audit ORDER BY seq ASC');
   const events = auditRows.map(auditFromRaw);
+
+  // The LINEAR tamper-evidence chain (migration 0021), verified here so the
+  // documented check has a production caller (LGR-15, S4): before this, the
+  // route and the CLI ran only the per-entity checks below — `prev_hash` was
+  // mapped and never compared, so a stream with unique-but-wrong links
+  // verified "clean" under the check operators were told to run. A broken
+  // chain is BOTH a finding (the CLI's severity-aware exit needs no special
+  // casing — it is tamper-band) and a structured field on the report.
+  const auditChain = await verifyLedgerAuditChain(events);
+  if (!auditChain.ok) {
+    flag(
+      'audit-prev-hash-broken',
+      `audit hash chain broken at seq ${auditChain.brokenAtSeq ?? '?'}: ${auditChain.reason ?? 'unverifiable'} — an event was edited, reordered, or deleted without recomputing the following links`,
+    );
+  }
 
   const accounts = new Map<string, LedgerAccount>(accountRows.map((r) => [r.id, accountFromRaw(r)]));
   const postings = postingRows.map(postingFromRaw);
@@ -536,6 +552,9 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       reconciliation?: LedgerReconciliation;
       postings?: LedgerReconciliationPostingChange[];
       period?: LedgerPeriod;
+      bundleSha?: unknown;
+      auditEvents?: unknown;
+      assets?: unknown;
     };
     switch (ev.action) {
     case 'account.create':
@@ -654,6 +673,19 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
       // Policy, not ledger content — it touches no entity, so there is no chain
       // to extend, but the recorded hash is still re-derived from its payload.
       await derived('', {ledgerAutoExportPath: p.path ?? null}, ev);
+      break;
+    case 'ledger.restore':
+      // Provenance of an installed history (LGR-15) — touches no entity, but
+      // the recorded hash is re-derived from the exact payload shape the
+      // restore door writes, so doctoring WHO restored or WHICH bundle (while
+      // keeping the hash) is `audit-hash-forged`. Reconstructed field by field
+      // (never `ev.payload` verbatim): a forged extra/retyped field then
+      // changes the derived digest and is caught rather than absorbed.
+      await derived('', {
+        bundleSha: typeof p.bundleSha === 'string' ? p.bundleSha : null,
+        auditEvents: typeof p.auditEvents === 'number' ? p.auditEvents : 0,
+        assets: typeof p.assets === 'number' ? p.assets : 0,
+      }, ev);
       break;
     }
   }
@@ -806,6 +838,8 @@ export async function verifyLedger(db: Db): Promise<LedgerVerifyReport> {
     checkedAuditEvents: events.length,
     checkedPeriods: periods.size,
     checkedEvidence,
+    checkedReconciliations: reconciliations.size,
+    auditChain,
     findings,
   };
 }
@@ -934,35 +968,40 @@ async function checkEvidenceManifests(
   }
   if (items.length === 0) return checked;
 
-  // One read for the distinct hashes; bytes are re-hashed per DISTINCT asset
-  // (dedup — the store itself is content-addressed, so N manifests of one
-  // receipt are one digest).
-  const distinct = [...new Set(items.map((i) => i.sha256))];
-  let assetRows: Array<{id: string; size: number | string; bytes: Uint8Array | string}> = [];
-  try {
-    assetRows = await db.query<{id: string; size: number | string; bytes: Uint8Array | string}>(
-      'SELECT id, size, bytes FROM assets WHERE id = ANY($1)',
-      [distinct],
-    );
-  } catch (err) {
-    // A library whose migrations never created the asset store cannot hold any
-    // of the bytes these manifests promise — that is N missing assets, reported
-    // below, not a crash and not a silent pass. Any other failure propagates
-    // (isMissingRelation is deliberately narrow).
-    if (!isMissingRelation(err, 'assets')) throw err;
-  }
-  const byId = new Map(assetRows.map((r) => [r.id, r]));
+  // Bytes are read ONE ASSET PER QUERY and re-hashed per DISTINCT asset (dedup
+  // — the store itself is content-addressed, so N manifests of one receipt are
+  // one digest). Per-asset on purpose (LGR-15, Quinn's perf note): a single
+  // `bytes … = ANY($1)` read materializes the ENTIRE receipt corpus at once —
+  // peak memory = every posted receipt (each up to the upload cap) — which is
+  // fine on-demand but wrong the moment verify is scheduled or the restore CI
+  // points it at a big fixture. This loop's peak is ONE asset; the findings it
+  // can produce are identical (the tamper tests pin that).
+  const distinct = [...new Set(items.map((i) => i.sha256))].sort();
   const actualHash = new Map<string, string>();
   const actualSize = new Map<string, number>();
-  for (const row of assetRows) {
-    const bytes = toBytes(row.bytes);
-    actualHash.set(row.id, await sha256HexOfBytes(bytes));
-    actualSize.set(row.id, bytes.byteLength);
+  for (const id of distinct) {
+    let rows: Array<{id: string; bytes: Uint8Array | string}> = [];
+    try {
+      rows = await db.query<{id: string; bytes: Uint8Array | string}>(
+        'SELECT id, bytes FROM assets WHERE id = $1',
+        [id],
+      );
+    } catch (err) {
+      // A library whose migrations never created the asset store cannot hold
+      // any of the bytes these manifests promise — that is N missing assets,
+      // reported below (every lookup misses), not a crash and not a silent
+      // pass. Any other failure propagates (isMissingRelation is narrow).
+      if (!isMissingRelation(err, 'assets')) throw err;
+      break;
+    }
+    if (rows.length === 0) continue; // absent row → reported as missing below
+    const bytes = toBytes(rows[0].bytes);
+    actualHash.set(id, await sha256HexOfBytes(bytes));
+    actualSize.set(id, bytes.byteLength);
   }
 
   for (const item of items) {
-    const row = byId.get(item.sha256);
-    if (!row) {
+    if (!actualHash.has(item.sha256)) {
       flag(
         'evidence-asset-missing',
         `${item.txState} transaction ${item.txId} records evidence "${item.filename}" (${item.sha256}, ${item.size} bytes) but the asset store no longer holds it — the receipt was removed after posting`,

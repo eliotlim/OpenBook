@@ -668,7 +668,21 @@ export type LedgerAuditAction =
   /** The ledger auto-export target was set or cleared (LGR-7). Policy, not
    *  ledger content — it touches no entity, so a replay ignores it, but it is
    *  recorded here so the book itself carries evidence of where copies go. */
-  | 'ledger.autoExportPath';
+  | 'ledger.autoExportPath'
+  /**
+   * A backup bundle's ledger history was RESTORED into this library (LGR-15).
+   * Appended ON TOP of the restored tail — chained from it — naming the actor
+   * and the bundle's content hash, so an installed history is always bracketed
+   * by an attributable event rather than ending exactly where the bundle ends.
+   * Touches no entity (a replay ignores it), but its recorded afterHash is
+   * re-derived from its own payload by the verifier, like `autoExportPath`.
+   *
+   * VERSION NOTE (deliberate): builds that predate this action REFUSE to read
+   * streams containing it — the unknown-action rejection in `auditFromRow` is
+   * the fail-closed posture, so a restored library is not silently
+   * mis-replayed by an old build; restore such a bundle on a current build.
+   */
+  | 'ledger.restore';
 
 /**
  * Every known audit action — the validation set for a stored `action` value.
@@ -697,6 +711,7 @@ export const LEDGER_AUDIT_ACTIONS = [
   'period.close',
   'period.reopen',
   'ledger.autoExportPath',
+  'ledger.restore',
 ] as const satisfies readonly LedgerAuditAction[];
 
 /**
@@ -816,6 +831,12 @@ export function replayLedgerAudit(events: Iterable<LedgerAuditEvent>): LedgerRep
       // recorded for the trail, but it touches no ledger entity, so replayed
       // state is unchanged. Explicit rather than falling through to `default`,
       // which must keep throwing on actions this build genuinely cannot model.
+      break;
+    case 'ledger.restore':
+      // A bundle's history was installed (LGR-15): provenance for the trail —
+      // the restored entity events precede this one and already carry all the
+      // content, so replayed state is unchanged. Explicit for the same reason
+      // as `autoExportPath` above.
       break;
     case 'account.create':
     case 'account.update':
@@ -1085,7 +1106,19 @@ export type LedgerVerifyCode =
    * (void entries are in scope precisely so a reversed bare entry stays
    * visible).
    */
-  | 'evidence-required-missing';
+  | 'evidence-required-missing'
+  /**
+   * The LINEAR audit hash chain (`prev_hash`, migration 0021) fails to verify
+   * (LGR-15): some event's `prev_hash` is not the hash of its predecessor, or
+   * the genesis link is wrong. Distinct from `audit-chain-broken` (the
+   * per-entity before/after linkage): this is the whole-log tamper-evidence
+   * chain — an edited, reordered, or middle-deleted event whose perpetrator
+   * did not recompute every following link. Previously `verifyAuditChain`
+   * existed but had NO production caller; folding it into this report is what
+   * makes the documented check actually run at the route, the CLI, and the
+   * restore door.
+   */
+  | 'audit-prev-hash-broken';
 
 /**
  * The ADVISORY band of the finding-code union (LGR-14 Q3): codes that report
@@ -1125,6 +1158,15 @@ export interface LedgerVerifyReport {
   checkedPeriods: number;
   /** Evidence manifest items re-checked against the asset store (LGR-14). */
   checkedEvidence: number;
+  /** Reconciliation records checked against the audit stream (LGR-15). */
+  checkedReconciliations: number;
+  /**
+   * The linear `prev_hash` chain verdict (LGR-15) — `verifyLedgerAuditChain`
+   * over the full stream. Additive and absent on an uninitialized ledger. A
+   * broken chain also lands in `findings` as `audit-prev-hash-broken`, so
+   * severity-aware consumers (the CLI exit code) need no special casing.
+   */
+  auditChain?: LedgerAuditChainResult;
   /** Empty = every invariant holds against raw storage. */
   findings: LedgerVerifyFinding[];
 }
