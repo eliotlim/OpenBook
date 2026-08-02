@@ -98,8 +98,15 @@ function sectionLines(section: StatementSection, rolled: boolean, collapsed: Rea
   };
 }
 
-export const BalanceSheetBlock = ({block, editor}: {block: BlockLike; editor: EditorLike}) => {
+export const BalanceSheetBlock = ({block, editor, pageReadOnly}: {block: BlockLike; editor: EditorLike; pageReadOnly?: boolean}) => {
   const data = useLedgerReport();
+  // MAY THIS READER WRITE? Not "is this widget frozen?". The editor handed to a
+  // custom block on a read-only page deliberately reports `readOnly: false` so
+  // the report stays browsable, so `editor.readOnly` is FALSE on exactly the
+  // page where the setup control must be off and the as-of date must not
+  // persist — the host passes the document's real lock separately. (Optional,
+  // and defaulted, for a test harness with no host to ask.)
+  const pageLocked = pageReadOnly ?? editor.readOnly;
   const props = readProps(block);
   const [asOfProp, setAsOfProp] = React.useState<string>(() => readString(props, PROP_AS_OF));
   const [rolled, setRolled] = React.useState<boolean>(() => readBool(readProps(block), PROP_ROLLED, true));
@@ -114,12 +121,12 @@ export const BalanceSheetBlock = ({block, editor}: {block: BlockLike; editor: Ed
 
   const updateAsOf = (value: string): void => {
     setAsOfProp(value);
-    writeProp(block, editor, PROP_AS_OF, value);
+    writeProp(block, editor, PROP_AS_OF, value, pageLocked);
   };
 
   const updateCollapsed = (next: Set<string>): void => {
     setCollapsed(next);
-    writeProp(block, editor, PROP_COLLAPSED, serializeCollapsed(next));
+    writeProp(block, editor, PROP_COLLAPSED, serializeCollapsed(next), pageLocked);
   };
 
   const toggle = (path: string): void => {
@@ -153,7 +160,7 @@ export const BalanceSheetBlock = ({block, editor}: {block: BlockLike; editor: Ed
         <h3 style={titleStyle}>
           <span aria-hidden="true">📒 </span>Balance sheet
         </h3>
-        <SetupPrompt label="Set up books" readOnly={editor.readOnly} onDone={data.reload} />
+        <SetupPrompt label="Set up books" readOnly={pageLocked} onDone={data.reload} />
       </div>
     );
   }
@@ -280,7 +287,7 @@ export const BalanceSheetBlock = ({block, editor}: {block: BlockLike; editor: Ed
                 rolled={rolled}
                 onRolled={(next) => {
                   setRolled(next);
-                  writeProp(block, editor, PROP_ROLLED, next);
+                  writeProp(block, editor, PROP_ROLLED, next, pageLocked);
                 }}
                 onCollapseAll={() => updateCollapsed(new Set(parentPaths))}
                 onExpandAll={() => updateCollapsed(new Set())}

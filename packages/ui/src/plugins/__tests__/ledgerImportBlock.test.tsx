@@ -109,14 +109,16 @@ const strandedTx = (id: string, accountId: string, amountMinor: number, descript
     updatedAt: '',
   }) as unknown as LedgerTransaction;
 
-/** Render the registered bank-import block with the minimum host it touches. */
-async function mountBlock(client: DataClient): Promise<void> {
+/** Render the registered bank-import block with the minimum host it touches.
+ *  `pageReadOnly` is the DOCUMENT's lock; the widget editor stays live either
+ *  way — exactly the divergence LGR-23 exists to handle. */
+async function mountBlock(client: DataClient, pageReadOnly = false): Promise<void> {
   await syncPlugins(client);
   const def = getCustomBlock('openbook.ledger/bank-import');
   expect(def).toBeDefined();
   const block = {get: () => undefined} as never;
   const editor = {readOnly: false, doc: {transact: (fn: () => void) => fn()}} as never;
-  render(React.createElement(def!.render, {block, editor, pageReadOnly: false}));
+  render(React.createElement(def!.render, {block, editor, pageReadOnly}));
   await screen.findByLabelText('Bank statement CSV');
 }
 
@@ -511,5 +513,30 @@ describe('LGR-16 — a memo survives the paths where the ledger cannot answer', 
       const stored = JSON.parse(String(props.map.get('ledgerRows'))) as Array<{memo?: string}>;
       expect(stored[1].memo).toBe('ask accounts about this');
     }, {timeout: 3000});
+  });
+});
+
+/**
+ * LGR-23 — the DOCUMENT's lock reaches the import surface through
+ * `pageReadOnly`, not through the widget's editor. The harness passes
+ * `editor.readOnly: false` — the exact state a read-only page hands a live
+ * widget — so this fails if the block slides back to `editor.readOnly`.
+ */
+describe('LGR-23 — a read-only page renders the import surface inert, with the reason stated', () => {
+  it('pageReadOnly disables the upload and states why, once, wired by aria-describedby', async () => {
+    const {client} = fakeLedger();
+    await mountBlock(client, true);
+
+    const file = screen.getByLabelText('Bank statement CSV') as HTMLInputElement;
+    expect(file.disabled).toBe(true);
+
+    const why = document.querySelector('[data-import-why="read-only"]') as HTMLElement;
+    expect(why).not.toBeNull();
+    expect(why.textContent).toMatch(/^This page is read-only/);
+    expect(file.getAttribute('aria-describedby')).toBe(why.id);
+
+    // The first-run hint is an instruction ("Upload the CSV…") — dropped on a
+    // page where the reader cannot follow it.
+    expect(document.querySelector('[data-import-hint]')).toBeNull();
   });
 });

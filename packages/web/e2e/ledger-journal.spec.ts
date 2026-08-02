@@ -1,7 +1,7 @@
 import {test, expect} from './fixtures';
 import {SERVER} from './seed';
 import {ensureLedgerPlugin} from './ledgerPlugin';
-import {pageWithBlock, runPaletteCommand} from './ledgerApi';
+import {ensureAccount, pageWithBlock, runPaletteCommand} from './ledgerApi';
 
 /**
  * LGR-5: the journal entry block, end to end — the REAL first-party plugin
@@ -340,4 +340,88 @@ test('a draft that failed to save is never posted (stale-commit guard)', {tag: [
   const mine = after.filter((t) => t.description === desc);
   expect(mine).toHaveLength(1);
   expect(mine[0].postings.map((p) => p.amountMinor).sort((a, b) => a - b)).toEqual([-25000, 25000]);
+});
+
+/**
+ * LGR-23 — the journal block on a READ-ONLY page, through the same guest-read
+ * intercept the register's read-only spec uses (OB-616).
+ *
+ * The custom-block kit deliberately hands an interactive widget a live editor
+ * (`readOnly: false`) on a locked page, so a block gating on `editor.readOnly`
+ * renders the entry form fully postable there — pickers, amounts, a working
+ * Post — and the viewer learns the truth from the server's rejection. The
+ * entry below is BALANCED before the lock, the exact state in which Post is
+ * enabled on a writable page, so the disabled-assertions fail if the host
+ * stops passing `pageReadOnly` or the block slides back to `editor.readOnly`.
+ */
+test('on a read-only page the journal form is inert with the reason stated — not a live form the server refuses', {tag: ['@ledger', '@p1']}, async ({page, request}) => {
+  const uniq = `${Date.now()}`;
+  const bankName = `JR${uniq}:Assets:Bank`;
+  const expenseName = `JR${uniq}:Expenses:Hosting`;
+  await ensureAccount(request, bankName, 'asset');
+  await ensureAccount(request, expenseName, 'expense');
+  const desc = `Read only ${uniq}`;
+
+  await ensureLedgerPlugin(page);
+  const pageId = await pageWithBlock(page, request, `Journal read only ${uniq}`, '/journal', 'Journal entry', '[data-ledger-journal]');
+
+  // A balanced entry, typed while the page is WRITABLE: the baseline the lock
+  // is measured against — this exact state renders Post enabled.
+  await page.locator('[data-ledger-description]').fill(desc);
+  await row(page, 1).account.selectOption({label: expenseName});
+  await row(page, 1).debit.fill('12.00');
+  await row(page, 2).account.selectOption({label: bankName});
+  await row(page, 2).credit.fill('12.00');
+  await expect(page.locator('[data-ledger-post]')).toBeEnabled();
+
+  // Both persistence paths are DEBOUNCED — the server-side draft and the raw
+  // cell text in block props. Reloading before they land tests an empty form.
+  await expect
+    .poll(async () => {
+      const drafts = (await (await fetch(`${SERVER}/api/ledger/transactions?state=draft`)).json()) as Array<{description: string}>;
+      return drafts.some((d) => d.description === desc);
+    })
+    .toBe(true);
+  await expect
+    .poll(async () => JSON.stringify(await (await request.get(`${SERVER}/api/pages/${pageId}`)).json()).includes('12.00'), {timeout: 15_000})
+    .toBe(true);
+
+  // Present the instance as guest-read-only to this context only, and reload.
+  await page.route('**/api/instance', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const real = await route.fetch();
+    const info = (await real.json()) as Record<string, unknown>;
+    await route.fulfill({json: {...info, guestAccess: 'read'}});
+  });
+  await page.goto(`/?page=${pageId}`);
+  // Asserted INDEPENDENTLY of any ledger assertion: a broken intercept must
+  // fail here, not stay silently green below.
+  await expect(page.locator('.obe-root')).toHaveClass(/obe-readonly/);
+
+  // The READ side is untouched — the draft still renders, through the money core.
+  await expect(row(page, 1).debit).toHaveValue('12.00');
+  await expect(page.locator('[data-ledger-description]')).toHaveValue(desc);
+
+  // THE POINT: the same balanced entry, and every control is honestly off —
+  // no server round-trip needed to discover the lock.
+  const post = page.locator('[data-ledger-post]');
+  await expect(post).toBeDisabled();
+  await expect(post).toHaveCSS('border-style', 'dashed');
+  await expect(page.locator('[data-ledger-add-row]')).toBeDisabled();
+  await expect(page.locator('[data-ledger-add-row]')).toHaveCSS('border-style', 'dashed');
+  await expect(page.locator('[data-ledger-description]')).toBeDisabled();
+  await expect(row(page, 1).account).toBeDisabled();
+  await expect(row(page, 1).debit).toBeDisabled();
+
+  // The reason is stated once, without an imperative, and the dead controls
+  // point at it by `aria-describedby`.
+  const why = page.locator('[data-ledger-journal-why="read-only"]');
+  await expect(why).toHaveCount(1);
+  await expect(why).toContainText('This page is read-only');
+  await expect(why).not.toContainText('press');
+  await expect(post).toHaveAttribute('aria-describedby', (await why.getAttribute('id')) ?? '');
+
+  // …and nothing reached the books: the entry is still only a draft.
+  const posted = (await (await fetch(`${SERVER}/api/ledger/transactions?state=posted`)).json()) as Array<{description: string}>;
+  expect(posted.filter((t) => t.description === desc)).toHaveLength(0);
 });

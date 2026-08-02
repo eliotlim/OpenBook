@@ -104,15 +104,17 @@ function fakeLedger(opts: {abandonFails?: boolean} = {}) {
   return {client, finish, amend, abandon};
 }
 
-/** Render the registered reconcile block, resumed onto the open statement. */
-async function mountBlock(client: DataClient): Promise<void> {
+/** Render the registered reconcile block, resumed onto the open statement.
+ *  `pageReadOnly` is the DOCUMENT's lock; the widget editor stays live either
+ *  way — exactly the divergence LGR-23 exists to handle. */
+async function mountBlock(client: DataClient, pageReadOnly = false): Promise<void> {
   await syncPlugins(client);
   const def = getCustomBlock('openbook.ledger/reconcile');
   expect(def).toBeDefined();
   const props = new Map<string, unknown>([['ledgerRecId', REC]]);
   const block = {get: (key: string) => (key === 'props' ? props : undefined)} as never;
   const editor = {readOnly: false, doc: {transact: (fn: () => void) => fn()}} as never;
-  render(React.createElement(def!.render, {block, editor, pageReadOnly: false}));
+  render(React.createElement(def!.render, {block, editor, pageReadOnly}));
   await screen.findByText(/this statement is fully explained/);
 }
 
@@ -264,5 +266,51 @@ describe('LGR-22 — the Finish confirm is not double-press-able', () => {
       expect(document.activeElement).toBe(el('[data-ledger-finish]'));
     });
     expect(finish).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * LGR-23 — the DOCUMENT's lock reaches the write controls through
+ * `pageReadOnly`, not through the widget's editor. The harness passes
+ * `editor.readOnly: false` in BOTH tests below — that is the exact state a
+ * read-only page hands a live widget — so every assertion here fails if the
+ * block slides back to consulting `editor.readOnly`.
+ */
+describe('LGR-23 — a read-only page renders the reconcile write surface inert, with the reason stated', () => {
+  it('pageReadOnly disables Finish/Amend/Abandon and every tick, and wires the stated reason', async () => {
+    const {client, finish, amend, abandon} = fakeLedger();
+    await mountBlock(client, true);
+
+    // The sheet is BALANCED (canFinish is true), so the only thing keeping
+    // Finish closed is the page lock.
+    expect(el<HTMLButtonElement>('[data-ledger-finish]').disabled).toBe(true);
+    expect(el<HTMLButtonElement>('[data-ledger-amend]').disabled).toBe(true);
+    expect(el<HTMLButtonElement>('[data-ledger-abandon]').disabled).toBe(true);
+    for (const box of document.querySelectorAll<HTMLInputElement>('[data-ledger-match]')) {
+      expect(box.disabled).toBe(true);
+    }
+
+    // The reason is rendered once, and the dead controls point at it.
+    const why = el('[data-ledger-reconcile-why="read-only"]');
+    expect(why.textContent).toMatch(/^This page is read-only/);
+    expect(el('[data-ledger-amend]').getAttribute('aria-describedby')).toBe(why.id);
+    expect(el('[data-ledger-finish]').getAttribute('aria-describedby') ?? '').toContain(why.id);
+
+    // Inert means inert: no press reaches the ledger.
+    fireEvent.click(el('[data-ledger-finish]'));
+    fireEvent.click(el('[data-ledger-amend]'));
+    fireEvent.click(el('[data-ledger-abandon]'));
+    expect(finish).not.toHaveBeenCalled();
+    expect(amend).not.toHaveBeenCalled();
+    expect(abandon).not.toHaveBeenCalled();
+  });
+
+  it('the same books on a writable page keep every control live — the lock is the page, not the sheet', async () => {
+    const {client} = fakeLedger();
+    await mountBlock(client, false);
+    expect(el<HTMLButtonElement>('[data-ledger-finish]').disabled).toBe(false);
+    expect(el<HTMLButtonElement>('[data-ledger-amend]').disabled).toBe(false);
+    expect(el<HTMLButtonElement>('[data-ledger-abandon]').disabled).toBe(false);
+    expect(document.querySelector('[data-ledger-reconcile-why="read-only"]')).toBeNull();
   });
 });

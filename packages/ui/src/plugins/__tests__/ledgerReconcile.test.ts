@@ -661,7 +661,7 @@ describe('LGR-11 — the reconciliation fold (real source through the real loade
     });
 
     it('a locked row names the REAL reason: frozen, finished sheet, or abandoned sheet', () => {
-      const describeRowLabel = mod().describeRowLabel as (s: ReconcileSheet, r: ReconcileRow) => string;
+      const describeRowLabel = mod().describeRowLabel as (s: ReconcileSheet, r: ReconcileRow, pageLocked?: boolean) => string;
       const rows = [entry('2026-03-01', 100_000, 'cleared')];
       // On an ABANDONED sheet the row is locked because the SHEET is dead, not
       // because anything was reconciled — the fall-through that said "Locked by
@@ -682,6 +682,12 @@ describe('LGR-11 — the reconciliation fold (real source through the real loade
       // with the reopen path named rather than a frozen-row sentence borrowed.
       expect(finished.rows[1].frozen).toBe(false);
       expect(describeRowLabel(finished, finished.rows[1])).toMatch(/This statement is reconciled — reopen it to change what it matched\.$/);
+      // …but on a READ-ONLY page the reopen clause names a control that is
+      // dead there (LGR-23): the rule is stated without the instruction, so
+      // the label and the block-level read-only sentence cannot disagree.
+      const lockedLabel = describeRowLabel(finished, finished.rows[1], true);
+      expect(lockedLabel).toMatch(/This statement is reconciled\.$/);
+      expect(lockedLabel).not.toMatch(/reopen/);
     });
 
     it('an ABANDONED sheet offers neither Finish nor Reopen, and locks every row', () => {

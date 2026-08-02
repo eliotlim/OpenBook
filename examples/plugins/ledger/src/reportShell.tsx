@@ -50,13 +50,19 @@ export function readBool(props: PropsMap | undefined, key: string, fallback = fa
 }
 
 /**
- * Persist one report control into the block's props map. Read-only editors
- * write nothing (a viewer may re-filter a report on screen; it must not edit
- * the document doing so).
+ * Persist one report control into the block's props map. Read-only PAGES write
+ * nothing (a viewer may re-filter a report on screen; it must not edit the
+ * document doing so).
+ *
+ * The gate is `pageLocked` — the DOCUMENT's lock, which each block derives once
+ * from the host-supplied `pageReadOnly` — because the editor handed to an
+ * interactive widget on a locked page deliberately reports `readOnly: false`
+ * (LGR-6). The `editor.readOnly` arm exists only as the harness fallback for a
+ * caller with no host to ask; every in-tree caller passes `pageLocked`.
  */
-export function writeProp(block: BlockLike, editor: EditorLike, key: string, value: string | boolean): void {
+export function writeProp(block: BlockLike, editor: EditorLike, key: string, value: string | boolean, pageLocked?: boolean): void {
   const props = readProps(block);
-  if (!props || editor.readOnly) return;
+  if (!props || (pageLocked ?? editor.readOnly)) return;
   editor.doc.transact(() => props.set(key, value), 'local');
 }
 
@@ -472,10 +478,19 @@ export const SideAmount = ({minor}: {minor: number}) => (
  * The "books are not set up" state, with the same one-click seeding the journal
  * block offers — an empty report should hand you the next step, not a blank
  * grid.
+ *
+ * `readOnly` is the PAGE's lock (callers pass their derived `pageLocked`, never
+ * `editor.readOnly` — LGR-23): on a read-only page the button is off in the
+ * register's off vocabulary — dashed, out of the tab order, with the reason
+ * rendered beside it and wired by `aria-describedby` — instead of a live-looking
+ * control whose refusal the reader discovers from the server.
  */
 export const SetupPrompt = ({label, readOnly, onDone}: {label: string; readOnly: boolean; onDone: () => void}) => {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // Per instance: two set-up prompts on one page must not hand their disabled
+  // buttons the same `aria-describedby` target.
+  const whyId = React.useId();
   return (
     <div style={{display: 'flex', flexDirection: 'column', gap: '0.5rem'}}>
       <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap'}}>
@@ -483,8 +498,9 @@ export const SetupPrompt = ({label, readOnly, onDone}: {label: string; readOnly:
         <button
           type="button"
           data-ledger-setup-button
-          style={buttonStyle}
+          style={readOnly ? disabledButtonStyle : buttonStyle}
           disabled={readOnly || busy}
+          aria-describedby={readOnly ? whyId : undefined}
           onClick={() => {
             if (busy) return;
             setBusy(true);
@@ -497,6 +513,11 @@ export const SetupPrompt = ({label, readOnly, onDone}: {label: string; readOnly:
         >
           {busy ? 'Setting up…' : label}
         </button>
+        {readOnly && (
+          <span id={whyId} data-ledger-setup-why="read-only" style={mutedStyle}>
+            This page is read-only, so the books cannot be set up from it.
+          </span>
+        )}
       </div>
       {error !== null && (
         <div data-ledger-error role="status" aria-live="polite" style={noticeStyle('alarm')}>
@@ -584,9 +605,13 @@ export const ReportError = ({kind, detail, onRetry}: {kind: 'host' | 'fold'; det
  * focus cannot be scrolled by keyboard in Safari at all — and the column that
  * scrolls out of view is the running balance. Focusable + labelled also gives
  * each table a navigable landmark, which the blocks otherwise lack.
+ *
+ * `regionRef` (optional) exposes the region element to a caller that needs its
+ * MEASURED width — the register's Balance-pin guard is the first: a pinned
+ * column has to know when the region is too narrow to afford it.
  */
-export const TableRegion = ({label, children}: {label: string; children: React.ReactNode}) => (
-  <div tabIndex={0} role="region" aria-label={label} style={tableScrollStyle}>
+export const TableRegion = ({label, children, regionRef}: {label: string; children: React.ReactNode; regionRef?: React.Ref<HTMLDivElement>}) => (
+  <div ref={regionRef} tabIndex={0} role="region" aria-label={label} style={tableScrollStyle}>
     {children}
   </div>
 );

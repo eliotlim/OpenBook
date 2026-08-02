@@ -225,6 +225,19 @@ test('account register: running balance in date order, correct under date-range 
     .map((p) => String(p.amountMinor))
     .sort();
   expect(bankAmounts).toEqual(['-25000', '10000', '100000', '50000'].sort());
+
+  // NARROW WIDTHS (LGR-23 F6): both edges are pinned at desktop width — the
+  // Correct column left, the Balance right — but below the pins' combined
+  // budget the right pin painted OVER the Correct button (fully hidden at a
+  // 420px viewport). The Balance yields there and scrolls again; Correct keeps
+  // its pin and must be genuinely hittable, which the trial click proves — a
+  // covered control fails Playwright's actionability check.
+  await expect(rows.first().locator('[data-ledger-running]')).toHaveCSS('position', 'sticky');
+  await page.setViewportSize({width: 420, height: 900});
+  await expect(rows.first().locator('[data-ledger-running]')).toHaveCSS('position', 'static');
+  const firstCorrect = page.locator('[data-ledger-correct]').first();
+  await expect(firstCorrect).toBeVisible();
+  await firstCorrect.click({trial: true});
 });
 
 

@@ -662,10 +662,10 @@ export function isRowLocked(sheet: ReconcileSheet, row: ReconcileRow): boolean {
  * left in a sibling: a disabled checkbox is out of the tab order, so a reason
  * placed beside it is unreachable by the people who need it.
  */
-export function describeRowLabel(sheet: ReconcileSheet, row: ReconcileRow): string {
+export function describeRowLabel(sheet: ReconcileSheet, row: ReconcileRow, pageLocked = false): string {
   const entry = row.entryNo === null ? 'unnumbered entry' : `entry #${row.entryNo}`;
   const label = row.description.trim() === '' ? 'no description' : row.description;
-  return `On this statement: ${entry}, ${row.date}, ${label}, ${formatWithSide(row.amountMinor)}.${describeRowLock(sheet, row)}`;
+  return `On this statement: ${entry}, ${row.date}, ${label}, ${formatWithSide(row.amountMinor)}.${describeRowLock(sheet, row, pageLocked)}`;
 }
 
 /**
@@ -679,16 +679,21 @@ export function describeRowLabel(sheet: ReconcileSheet, row: ReconcileRow): stri
  * place a screen-reader user goes to learn whether this statement certified
  * anything.
  */
-function describeRowLock(sheet: ReconcileSheet, row: ReconcileRow): string {
+function describeRowLock(sheet: ReconcileSheet, row: ReconcileRow, pageLocked: boolean): string {
   if (!isRowLocked(sheet, row)) return '';
   if (row.frozen) {
     return row.frozenStatementDate !== null
       ? ` Locked by the reconciliation of the ${row.frozenStatementDate} statement.`
       : ' Locked by a finished reconciliation.';
   }
-  return sheet.status === 'abandoned'
-    ? ' This statement was abandoned — nothing here was reconciled, and this list can no longer be changed.'
-    : ' This statement is reconciled — reopen it to change what it matched.';
+  if (sheet.status === 'abandoned') {
+    return ' This statement was abandoned — nothing here was reconciled, and this list can no longer be changed.';
+  }
+  // On a read-only page the "reopen it" clause names a control that is dead
+  // there (LGR-23) — the rule is stated without the instruction, the same way
+  // `describeImmutability` drops its "press Correct" half. The block-level
+  // read-only sentence carries the why; the two must not disagree.
+  return pageLocked ? ' This statement is reconciled.' : ' This statement is reconciled — reopen it to change what it matched.';
 }
 
 /** Display labels for the reconciliation statuses (never the raw enum ids). */

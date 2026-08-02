@@ -93,13 +93,20 @@ const AbnormalMark = ({row}: {row: TrialBalance['rows'][number]}) => (
   </span>
 );
 
-export const TrialBalanceBlock = ({block, editor}: {block: BlockLike; editor: EditorLike}) => {
+export const TrialBalanceBlock = ({block, editor, pageReadOnly}: {block: BlockLike; editor: EditorLike; pageReadOnly?: boolean}) => {
   const data = useLedgerReport();
+  // MAY THIS READER WRITE? Not "is this widget frozen?". The editor handed to a
+  // custom block on a read-only page deliberately reports `readOnly: false` so
+  // the report stays browsable, so `editor.readOnly` is FALSE on exactly the
+  // page where the setup control must be off and the zero-rows toggle must not
+  // persist — the host passes the document's real lock separately. (Optional,
+  // and defaulted, for a test harness with no host to ask.)
+  const pageLocked = pageReadOnly ?? editor.readOnly;
   const [showZero, setShowZero] = React.useState<boolean>(() => readBool(readProps(block), PROP_SHOW_ZERO, false));
 
   const toggleZero = (next: boolean): void => {
     setShowZero(next);
-    writeProp(block, editor, PROP_SHOW_ZERO, next);
+    writeProp(block, editor, PROP_SHOW_ZERO, next, pageLocked);
   };
 
   // The fold can reject stored data that is not a safe integer of minor units
@@ -127,7 +134,7 @@ export const TrialBalanceBlock = ({block, editor}: {block: BlockLike; editor: Ed
         <h3 style={titleStyle}>
           <span aria-hidden="true">📒 </span>Trial balance
         </h3>
-        <SetupPrompt label="Set up books" readOnly={editor.readOnly} onDone={data.reload} />
+        <SetupPrompt label="Set up books" readOnly={pageLocked} onDone={data.reload} />
       </div>
     );
   }
